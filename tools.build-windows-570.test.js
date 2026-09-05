@@ -108,8 +108,16 @@ test('every launcher line is CRLF, because cmd.exe does not forgive LF', () => {
      verified CRLF independently.
      ⇒ The shipped files are written by `{ ... } > "$STAGE/<name>"` blocks, so
      that is the population. */
+  /* 📌 THE POPULATION SHRANK TO ONE, AND THAT IS THE POINT OF #2086. It used to
+     be three: Kosmos.cmd, open-board.cmd and the README. The two .cmd files are
+     gone -- the entry point is a committed PE binary, because a .cmd cannot
+     carry a signature -- so the only text file this build still WRITES is the
+     README. The rule is unchanged and still matters: it is read by a person on
+     Windows, in Notepad, where LF-only text used to render as one long line.
+     ⚠️ The floor stays an assertion rather than being dropped, so a scan that
+     silently reads NOTHING still fails instead of passing vacuously. */
   const blocks = [...WIN.matchAll(/\{\n([\s\S]*?)\n\} > "\$STAGE\/[^"]+"/g)].map((m) => m[1]);
-  assert.ok(blocks.length >= 2, 'the shipped-file blocks moved; this scan reads nothing');
+  assert.ok(blocks.length >= 1, 'the shipped-file blocks moved; this scan reads nothing');
   const printfs = blocks.flatMap((b) => [...b.matchAll(/printf '([^']*)'/g)].map((m) => m[1]))
     .filter((x) => x.includes('\\n'));
   assert.ok(printfs.length >= 15, 'the launcher scan found almost nothing; it is broken');
@@ -179,7 +187,11 @@ test('🛑 the warning reaches her BEFORE the launcher does, which a README cann
      by printing the sorted listing rather than by re-reading my own sentence. */
   assert.match(WIN, /! READ ME FIRST - Windows will warn you\.txt/,
     'the warning is not in a filename, so it cannot reach her before the dialog does');
-  const names = ['! READ ME FIRST - Windows will warn you.txt', 'Kosmos.cmd', 'manifest.json', 'open-board.cmd'];
+  /* 📌 The entry point is Kosmos.exe now (#2086: a .cmd cannot be signed), and
+     the sort property is unchanged -- `!` still sorts before `K`. The list is
+     the package's real root contents so this keeps testing the actual listing
+     rather than a remembered one. */
+  const names = ['! READ ME FIRST - Windows will warn you.txt', 'Kosmos.exe', 'manifest.json', 'open-board.js'];
   assert.equal([...names].sort()[0], names[0],
     'the warning filename no longer sorts first, so the launcher is the first thing she sees');
   /* The dialog's only visible button is the wrong one. */

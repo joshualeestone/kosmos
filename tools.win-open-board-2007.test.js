@@ -31,25 +31,47 @@ const helper = require('./tools/kosmos-open-board.js');
 
 /* ---- half 1: the build wires the helper --------------------------------- */
 
-test('open-board.cmd runs the helper and NOT the pre-fix plain open (#2007)', () => {
-  // Isolate the open-board.cmd heredoc PRECISELY: the nearest `{` before its
-  // closer. A non-greedy `/\{\n([\s\S]*?)\n\} > .../` would capture from the FIRST
-  // `{` in the file (~50 lines earlier), so a stray `start "" http://` added in
-  // the preceding region would false-fail this test. lastIndexOf finds the block's
-  // own open.
-  const closer = '} > "$STAGE/open-board.cmd"';
-  const endIdx = WIN.indexOf(closer);
-  assert.ok(endIdx > -1, 'the open-board.cmd block closer was not found; the scan is broken');
-  const startIdx = WIN.lastIndexOf('{\n', endIdx);
-  assert.ok(startIdx > -1 && startIdx < endIdx, 'could not find the block open before its closer');
-  const block = WIN.slice(startIdx, endIdx);
-  assert.match(block, /open-board\.js" --port %s --app "%%~dp0app"/,
-    'open-board.cmd does not run the helper with --port and --app');
-  assert.match(block, /runtime\\\\node\.exe/, 'open-board.cmd does not use the bundled node.exe');
-  // The whole bug: the pre-fix line opened the PLAIN url with no nonce. If it
-  // comes back, this fix has regressed.
-  assert.doesNotMatch(block, /start "" http:\/\/127\.0\.0\.1/,
-    'open-board.cmd still opens the PLAIN url with start - the #2007 bug is back');
+/* 📌 THE CALLER MOVED, THE GUARD DID NOT (#2086). This used to read the
+   open-board.cmd heredoc out of the build script. That shim is gone: the entry
+   point is a signable PE binary now (a .cmd cannot carry an Authenticode
+   signature), and the launcher starts the helper itself with an argv array,
+   which is also why the nested-quoting the shim existed to avoid is moot. The
+   #2007 property is unchanged and still the thing under test -- only the file
+   that has to satisfy it changed, so this now reads the launcher's source. */
+const LAUNCHER_SRC = fs.readFileSync(path.join(REPO, 'tools', 'windows', 'KosmosLauncher.cs'), 'utf8');
+
+test('the launcher runs the helper and NOT the pre-fix plain open (#2007)', () => {
+  assert.match(LAUNCHER_SRC, /--port " \+ port \+ " --app/,
+    'the launcher does not run the helper with --port and --app');
+  assert.match(LAUNCHER_SRC, /"open-board\.js"/,
+    'the launcher does not name the #2007 helper');
+  assert.match(LAUNCHER_SRC, /runtime\\\\node\.exe/,
+    'the launcher does not use the bundled node.exe');
+  /* The whole bug: the pre-fix path opened the PLAIN url with no nonce. In a
+     .cmd that was `start "" http://...`; the binary's equivalent is handing a
+     url straight to the shell to open. Either way it is "a browser is pointed at
+     the board without a boot nonce", which on the enforcing Windows board is a
+     403 and an agents pane that reads as broken.
+     ⚠️ MATCHES A URL BEING LAUNCHED, NOT A URL BEING PRINTED. The launcher
+     legitimately PRINTS http://127.0.0.1:<port> twice, telling a person where to
+     go if no browser opens, so a bare url match here would fail on correct code. */
+  assert.doesNotMatch(LAUNCHER_SRC, /Process\.Start\(\s*"http:/,
+    'the launcher opens the PLAIN url directly - the #2007 bug is back');
+  assert.doesNotMatch(LAUNCHER_SRC, /UseShellExecute\s*=\s*true/,
+    'the launcher shell-executes something; that is how a bare url gets opened');
+});
+
+test('#2086: the build stages the committed launcher and refuses a stale one', () => {
+  // The entry point is a binary the build COPIES rather than writes, so the two
+  // properties that replace "did the heredoc say the right thing" are: it comes
+  // from the committed file, and its baked-in port cannot silently disagree with
+  // the board's.
+  assert.match(WIN, /cp "\$LAUNCHER" "\$STAGE\/Kosmos\.exe"/,
+    'the build no longer stages the committed launcher');
+  assert.match(WIN, /LAUNCHER_PORT" = "\$PORT_DEFAULT/,
+    'the build no longer compares the launcher port against the board default');
+  assert.doesNotMatch(WIN, /\$STAGE\/Kosmos\.cmd/,
+    'the build writes a .cmd entry point again - it cannot be signed (#2086)');
 });
 
 test('the helper is staged into the zip and checked for presence', () => {

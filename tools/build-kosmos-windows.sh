@@ -24,11 +24,15 @@
 # preview somebody is trying once, and it is NOT acceptable for the thing behind
 # a Download for Windows button on installkosmos.com.
 #
-# ⚠️ THIS HAS NEVER BEEN RUN ON WINDOWS. Every claim here is about what the
-# script stages, not about what happens when somebody double-clicks it. Whoever
-# has the machine first: that is the thing to find out, and the two most likely
-# surprises are the launcher's quoting and whether APPDATA is populated in the
-# environment a double-click inherits.
+# 📌 THIS HAS NOW BEEN RUN ON WINDOWS (2026-09-04), and the note that used to
+# stand here -- "every claim here is about what the script stages, not about what
+# happens when somebody double-clicks it" -- is retired rather than deleted so
+# the answers are recorded next to the guesses. Of its two predicted surprises,
+# the launcher's QUOTING was the real one: it is why the browser-open helper was
+# split into its own file, and it is now moot because the entry point is a binary
+# that passes argv rather than a .cmd that interpolates. APPDATA was populated
+# and was never the problem. The build has been run, unpacked and launched on
+# Windows 11, and the board serves.
 #
 #   bash tools/build-kosmos-windows.sh [outdir]
 set -euo pipefail
@@ -92,8 +96,8 @@ cp "$REPO/bin/codex-report-bridge.js" "$STAGE/app/bin/"
 
 # #2007: the browser-open helper. It mirrors bash cmd_open's nonce flow so the
 # ENFORCING Windows board (it runs unsandboxed) authenticates the browser instead
-# of 403'ing it. It ships at the zip ROOT beside open-board.cmd, NOT under app/,
-# so it is a launcher artifact like the .cmd and the README rather than an app
+# of 403'ing it. It ships at the zip ROOT beside the launcher, NOT under app/,
+# so it is a launcher artifact like the exe and the README rather than an app
 # module -- which also keeps it out of the two-builder app-parity scan
 # (tools.build-windows-570.test.js reads only `cp ... "$STAGE/app` lines).
 cp "$REPO/tools/kosmos-open-board.js" "$STAGE/open-board.js"
@@ -120,7 +124,19 @@ echo "==> baked version $_ver into the page"
 echo "==> downloading node v$NODE_VERSION (win-$ARCH)"
 ZIP="node-v$NODE_VERSION-win-$ARCH.zip"
 BASE="https://nodejs.org/dist/v$NODE_VERSION"
-TMP="$STAGE/dl"; mkdir -p "$TMP"
+# 🛑 OUTSIDE THE STAGING TREE, NOT `$STAGE/dl` (#2086). The scratch dir for the
+# ~35 MB node download used to live inside the very tree that gets packed, with
+# only a later `rm -rf` standing between it and the user's folder. On a Windows
+# builder that was not enough: Windows keeps a directory with an open handle in
+# a PENDING-DELETE state, where `test -e` reports it GONE (opens fail) while
+# directory enumeration still returns it -- so the cleanup check passed and the
+# packer shipped an empty `dl/` in the download anyway. The two disagreed, and
+# the one that was wrong was the one doing the checking.
+# ⇒ Staging is now the only thing under $STAGE, so no cleanup timing, on any
+# platform, can put scratch into the artifact. A guard that depends on deletion
+# winning a race is weaker than not putting the file there.
+TMP="$(mktemp -d)"
+trap 'rm -rf "$STAGE" "$TMP"' EXIT
 curl -fsSL "$BASE/$ZIP" -o "$TMP/$ZIP"
 curl -fsSL "$BASE/SHASUMS256.txt" -o "$TMP/SHASUMS256.txt"
 WANT="$(grep " $ZIP\$" "$TMP/SHASUMS256.txt" | awk '{print $1}')"
@@ -133,6 +149,13 @@ echo "==> checksum ok"
 cp "$TMP/node-v$NODE_VERSION-win-$ARCH/node.exe" "$STAGE/runtime/node.exe"
 cp "$TMP/node-v$NODE_VERSION-win-$ARCH/LICENSE" "$STAGE/runtime/LICENSE"
 rm -rf "$TMP"
+# ⚠️ AND ASSERT THE STAGING TREE CARRIES NO SCRATCH, which is the check that
+# actually matters now that the download lives elsewhere. It is stated as "what
+# is in the artifact" rather than "did a delete succeed", because the delete is
+# what lied on Windows. Every other assertion in this file checks that something
+# expected is PRESENT; nothing checked that something unexpected was ABSENT, and
+# an empty `dl/` shipped to users through that gap.
+[ ! -e "$STAGE/dl" ] || { echo "staging carries a scratch dir it should not: $STAGE/dl" >&2; exit 1; }
 
 # ---- the launcher ----------------------------------------------------------
 # 🛑 CRLF, NOT LF. A .cmd file with Unix line endings is read by cmd.exe with a
@@ -159,46 +182,60 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
 # ⚠️ AND IT OPENS AFTER THE SERVER, not before. My first version opened the
 # browser on the line ABOVE the one that starts the board, so the first thing a
 # person would have seen is a connection error on a working install.
-{
-  printf '@echo off\r\n'
-  printf 'rem Waits for the board, then opens it. Started by Kosmos.cmd.\r\n'
-  printf 'rem #2007: the board ENFORCES auth (it runs unsandboxed on Windows), so\r\n'
-  printf 'rem opening the plain url gets a 403 and the agents pane reads as broken.\r\n'
-  printf 'rem The helper mirrors bash cmd_open: it waits for the board, mints a\r\n'
-  printf 'rem single-use boot nonce, and opens the authenticated url, falling back\r\n'
-  printf 'rem to the plain url on a non-enforcing board or any failure. It opens the\r\n'
-  printf 'rem browser itself so this file stays a single plain node line (no for/f\r\n'
-  printf 'rem capture, no nested quoting that cannot be tested from a Mac).\r\n'
-  printf 'timeout /t 3 /nobreak >nul\r\n'
-  printf '"%%~dp0runtime\\node.exe" "%%~dp0open-board.js" --port %s --app "%%~dp0app"\r\n' "$PORT_DEFAULT"
-} > "$STAGE/open-board.cmd"
+# 📌 open-board.cmd IS GONE (#2086). It existed to spare the .cmd launcher a
+# nested-quoting problem that cannot be tested from a Mac -- `start` inside
+# `cmd /c` with quoted paths. The launcher is a PE binary now and starts the
+# opener with an argv array, so there is no quoting to get wrong and no reason
+# for the wrapper to exist. open-board.js, which holds the actual #2007 nonce
+# flow, is unchanged and still ships at the zip root; only its .cmd shim went.
 
-{
-  printf '@echo off\r\n'
-  printf 'setlocal\r\n'
-  printf 'rem Kosmos, unsigned build. The board runs locally and serves a page.\r\n'
-  printf 'rem Agents are not available on Windows yet: an agent is a tmux pane.\r\n'
-  printf 'set "KOSMOS_HERE=%%~dp0"\r\n'
-  printf 'start "" /min "%%KOSMOS_HERE%%open-board.cmd"\r\n'
-  printf 'echo Starting Kosmos. A browser will open in a moment.\r\n'
-  printf 'echo If it does not, open http://127.0.0.1:%s yourself.\r\n' "$PORT_DEFAULT"
-  printf '"%%KOSMOS_HERE%%runtime\\node.exe" "%%KOSMOS_HERE%%app\\server.js"\r\n'
-  printf 'if errorlevel 1 (\r\n'
-  printf '  echo Kosmos stopped. The line above says why.\r\n'
-  printf '  pause\r\n'
-  printf ')\r\n'
-} > "$STAGE/Kosmos.cmd"
+# ---- the entry point -------------------------------------------------------
+# 🛑 A PREBUILT .exe, NOT THE .cmd THIS USED TO WRITE (#2086, Baron's ruling).
+# The file a person double-clicks is the ONLY file a certificate can be worth
+# anything on, and a .cmd CANNOT CARRY ONE -- measured, not assumed:
+# Get-AuthenticodeSignature on a .cmd returns UnknownError, because a batch file
+# has nowhere to put a signature. So the entry point had to become a PE binary
+# before the certificate Josh is buying could sign anything a user ever sees.
+# The launcher does exactly what the .cmd did and nothing more; its source and
+# the reasoning are in tools/windows/.
+# ⚠️ COMMITTED, NOT COMPILED HERE, and that is the whole of the ruling. Building
+# it during the cut would make a Windows machine a dependency of every release,
+# and the release lane runs on a Mac. A committed binary is acceptable ONLY
+# because its provenance is checkable: tools/windows/verify-launcher.ps1
+# rebuilds it from the committed source and compares, which a reviewer runs on
+# Windows. See tools/windows/README.md for why the compare is masked.
+LAUNCHER="$REPO/tools/windows/Kosmos.exe"
+[ -f "$LAUNCHER" ] || { echo "the committed launcher is missing: tools/windows/Kosmos.exe" >&2; exit 1; }
+
+# 🛑 THE PORT IS BAKED INTO THE LAUNCHER AND READ OUT OF server.js HERE, so this
+# is the THIRD copy of one number and the one nobody can see. The launcher's
+# source names its own default; if server.js ever moves and the launcher is not
+# rebuilt, the package ships a binary that opens a browser on a dead port while
+# the board sits there working -- which is precisely the class of bug the
+# PORT_DEFAULT read above exists to prevent, one file further along.
+# ⇒ Compare them and REFUSE, rather than shipping a mismatch nobody would see
+# until a user did. The source is what is checked because verify-launcher.ps1
+# already ties the binary to that source.
+LAUNCHER_PORT="$(sed -n 's/.*DefaultPort *= *\([0-9][0-9]*\).*/\1/p' "$REPO/tools/windows/KosmosLauncher.cs" | head -1)"
+[ -n "$LAUNCHER_PORT" ] || { echo "could not read DefaultPort out of tools/windows/KosmosLauncher.cs" >&2; exit 1; }
+[ "$LAUNCHER_PORT" = "$PORT_DEFAULT" ] || {
+  echo "the launcher's baked port ($LAUNCHER_PORT) is not the board's default ($PORT_DEFAULT)." >&2
+  echo "Update DefaultPort in tools/windows/KosmosLauncher.cs, rebuild Kosmos.exe" >&2
+  echo "(see tools/windows/README.md), and commit both together." >&2
+  exit 1
+}
+cp "$LAUNCHER" "$STAGE/Kosmos.exe"
 
 # 🛑 THE FILENAME IS THE WARNING, BECAUSE THE README CANNOT REACH HER IN TIME.
 # The SmartScreen dialog appears when she double-clicks the launcher, BEFORE a
 # single line we ship has run. Nothing inside this package can speak at that
 # moment. The one thing she sees first is the FOLDER LISTING, so the warning has
-# to be in a filename, and the file has to sort above `Kosmos.cmd`.
+# to be in a filename, and the file has to sort above `Kosmos.exe`.
 # ⇒ `! READ ME FIRST - Windows will warn you.txt`. Clumsy, and it is the only
 # surface that exists at the moment she acts.
 # ⚠️ THE `!` IS LOAD-BEARING AND I HAD IT WRONG. My first version was
 # `READ ME FIRST...` and I wrote in this very comment that it "sorts above
-# Kosmos.cmd". IT DOES NOT: Explorer sorts alphabetically and `K` comes before
+# Kosmos.exe". IT DOES NOT: Explorer sorts alphabetically and `K` comes before
 # `R`, so the launcher was listed FIRST and the warning second. I checked by
 # printing the sorted listing, which is the only reason I know. A `!` sorts
 # before letters.
@@ -211,7 +248,7 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
 {
   printf 'Kosmos for Windows (unsigned preview)\r\n'
   printf '\r\n'
-  printf 'Double-click Kosmos.cmd.\r\n'
+  printf 'Double-click Kosmos.exe.\r\n'
   printf '\r\n'
   printf 'FIRST: Windows will try to stop you, and that is expected.\r\n'
   printf '\r\n'
@@ -223,7 +260,7 @@ echo "==> the launcher will open http://127.0.0.1:$PORT_DEFAULT"
   printf 'certificate we have not bought, not a problem with the software.\r\n'
   printf '\r\n'
   printf 'You may also see "This file came from another computer and might be\r\n'
-  printf 'blocked". If you do: right-click Kosmos.cmd, choose Properties, tick\r\n'
+  printf 'blocked". If you do: right-click Kosmos.exe, choose Properties, tick\r\n'
   printf 'Unblock at the bottom, then OK. Windows adds that to anything that\r\n'
   printf 'arrives inside a downloaded zip.\r\n'
   printf '\r\n'
@@ -298,7 +335,7 @@ shasum -a 256 "$ZIPOUT" | awk '{print $1}' > "$ZIPOUT.sha256"
 refuse() { echo "$1" >&2; rm -f "$ZIPOUT" "$ZIPOUT.sha256"; exit 1; }
 
 LISTING="$(unzip -l "$ZIPOUT")"
-for want in "Kosmos.cmd" "open-board.cmd" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
+for want in "Kosmos.exe" "open-board.js" "! READ ME FIRST - Windows will warn you.txt" "manifest.json" "runtime/node.exe" "app/server.js" "app/web/index.html"; do
   case "$LISTING" in
     *" $want"*) ;;
     *) refuse "the zip is missing $want" ;;
