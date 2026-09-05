@@ -1125,6 +1125,15 @@ fi
 # fail -- the exact #1915 regression class, detailRing intact but nothing reaching the
 # page); a fixed non-reading arc reds the "arc changes with the reading" arm. That is
 # what makes the green mean anything.
+# render-firstrun-enter-2186 joins the same way (#2186, Enter/Return activates
+# Continue on a wizard step when the step is valid): own mktemp roots, OS-chosen
+# port via srv.start(0), server.js in-process, fleet.install, runs bare. It drives
+# a REAL keydown on the focused About-you name field and proves both arms off that
+# one gated step -- empty fields (Continue disabled) => Enter does not advance;
+# filled fields (Continue enabled) => Enter fires the PUT /api/you and advances --
+# so the contrast is the discriminator. Reds against a page with no frEnterSubmit
+# handler (the valid-step arm never advances), which is what makes the green mean
+# anything.
 # render-worlds-switcher-1704 joins the same way (#1704 slice-3, the multiple-Kosmos
 # switcher): own mktemp roots, OS-chosen port via srv.start(0), server.js in-process,
 # fleet.install, runs bare. It drives GET /api/worlds (the switcher lists worlds, one
