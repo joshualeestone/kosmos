@@ -903,7 +903,11 @@ SITE_SHA="$(site_commit_on_fresh_main "$SITE" "$_site_commit_msg" "$BUILD_ROOT" 
 for _p in $_site_paths; do
   git -C "$SITE" cat-file -e "$SITE_SHA:$_p" 2>/dev/null || { echo "the pushed release commit $SITE_SHA is missing '$_p'"; exit 1; }
 done
-if ! git -C "$SITE" show "$SITE_SHA:versions.html" | grep -q "id=\"v$(printf '%s' "$V" | tr . -)\""; then
+# release_versions_entry_present (tools/lib/site-push.sh) captures + case-matches,
+# with NO pipe: `git show | grep -q` would SIGPIPE-abort under this script's pipefail
+# on the ~269KB versions.html (the entry is at the top, grep -q exits early). The
+# `if !` context also suspends set -e inside the function so its own read-guard works.
+if ! release_versions_entry_present "$SITE" "$SITE_SHA" "$V"; then
   echo "the pushed versions.html has no entry for $V; the re-insert did not land"; exit 1
 fi
 # Best-effort: bring the shared checkout back to clean + current. The release files

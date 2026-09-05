@@ -152,3 +152,23 @@ site_commit_on_fresh_main() {
     attempt=$((attempt + 1))
   done
 }
+
+# Verify the pushed release commit carries a versions.html entry for $version.
+# Returns 0 present, 1 absent, 2 could not read versions.html from the sha.
+#
+# 🛑 NO PIPE. `git show ... | grep -q` is WRONG here under the cut's `set -o pipefail`:
+# versions.html is ~269KB and the new entry is at the TOP, so grep -q matches early
+# and closes the pipe, git show dies of SIGPIPE (141), pipefail makes the pipeline
+# status 141, and the caller's `if !` reads that as "entry absent" -- a FALSE abort
+# on essentially every real cut, AFTER the commit has already been pushed. Capture
+# once (a few hundred KB is fine for a shell variable) and match with `case`, which
+# has no subprocess whose exit status pipefail could poison.
+release_versions_entry_present() {
+  local site="$1" sha="$2" version="$3"
+  local id="v${version//./-}" html
+  html="$(git -C "$site" show "$sha:versions.html")" || return 2
+  case "$html" in
+    *"id=\"$id\""*) return 0 ;;
+    *) return 1 ;;
+  esac
+}
