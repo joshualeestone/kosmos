@@ -1658,6 +1658,96 @@ function create({ name, folder, agents, roster, description, made } = {}) {
   return project;
 }
 
+/* #2279: the "Getting started" welcome home, seeded once EVER per store.
+ *
+ * 🔑 CENTRALISED so the THREE seed sites -- first-agent create, first-agent
+ * connect, and first-run completion -- share ONE definition of the shape and
+ * the gate. The shape used to be written inline in two places (create and
+ * connect); adding a third copy at first-run is exactly the "two copies of one
+ * fact" drift kosmos#253 exists to stop, so all three now call in here.
+ *
+ * ⚠️ THE REASON THIS CARD EXISTED AT ALL (#2279, Josh's 0.6.36 fresh install):
+ * the seed only ever fired on the create/connect path -- i.e. when the first
+ * agent was made THROUGH Kosmos. A person who arrives on a fresh install with
+ * an existing fleet (the agents are already on the board, adopted from tmux, so
+ * nothing is created through Kosmos) never triggered it, and landed on an empty
+ * first impression. Every external tester is that person. First-run completion
+ * now seeds it too, so the welcome project is there regardless of the agent
+ * path -- composing with the two agent-path seeds through the shared flag below
+ * so nobody ever gets two. */
+const WELCOME_NAME = 'Getting started';
+const WELCOME_DESCRIPTION = 'Kosmos made this so your first agent has somewhere to work with you. '
+  + 'Post below and everyone on it answers here.';
+/* The welcoming room note -- the first thing a new person reads in the home.
+   #2279: kept here with the name and description so the create route and the
+   first-run seed share ONE copy; a second literal at either call site is the
+   drift kosmos#253 exists to stop. */
+const WELCOME_ROOM_NOTE = 'This is where you talk to everyone on a project at once. '
+  + 'Whatever you write here, every agent on the project gets. '
+  + 'Delete this project whenever you like, it is only here to show you around.';
+
+function seededFlagPath() { return path.join(store.ROOT, 'seeded-project.json'); }
+
+/* Whether this store has ever seeded the welcome home. `remove()` deletes the
+ * record outright, so an empty store cannot tell "never had one" from "the
+ * person removed it" -- the flag is what separates them (#166). */
+function welcomeSeeded() {
+  try { return fs.existsSync(seededFlagPath()); }
+  catch { return false; }
+}
+
+/* Write the once-ever flag. Best-effort by design: a failed write just means
+ * the next first agent seeds again, which the emptiness check still guards. The
+ * CALLER writes this only once its surrounding action (agent creation /
+ * first-run completion) has actually succeeded, so a failed action rolls the
+ * seed back and the flag is never written (#166/#732). */
+function markWelcomeSeeded(meta) {
+  try {
+    fs.writeFileSync(seededFlagPath(),
+      JSON.stringify({ at: new Date().toISOString(), ...(meta || {}) }) + '\n', 'utf8');
+  } catch { /* the emptiness check still guards the common case */ }
+}
+
+/* Seed the welcome home IF this store has never seeded one AND holds no
+ * projects yet. Returns the freshly-created home, or null when it did not seed
+ * (already seeded, or the store is non-empty). Does NOT write the flag -- see
+ * markWelcomeSeeded for why the caller does that after its action succeeds. */
+function seedWelcomeHome({ roster } = {}) {
+  if (welcomeSeeded()) return null;
+  if (readAll().length !== 0) return null;
+  return create({
+    name: WELCOME_NAME,
+    agents: [],
+    roster: Array.isArray(roster) ? roster : [],
+    description: WELCOME_DESCRIPTION,
+    made: { via: 'kosmos' },
+  });
+}
+
+/* The project a just-created/connected FIRST agent should land in (#2279).
+ * Either freshly seeds the welcome home (a truly fresh store), OR -- when
+ * first-run completion already seeded an empty welcome home and nothing else
+ * exists -- returns that one so the first agent still gets a home. Returns
+ * { home, created } (created=false means it was adopted, so the caller must NOT
+ * re-write the flag or roll it back), or null when there is no home to join. */
+function homeForFirstAgent({ roster } = {}) {
+  const seeded = seedWelcomeHome({ roster });
+  if (seeded) return { home: seeded, created: true };
+  // Seed skipped. First-run may have made the welcome home before any agent.
+  // Adopt it ONLY when it is the whole store and still empty -- so this really
+  // is the first agent, not the fifth into a store that kept it empty.
+  const all = readAll();
+  if (all.length === 1) {
+    const only = all[0];
+    if (only && only.name === WELCOME_NAME
+        && only.made && only.made.via === 'kosmos'
+        && (!only.agents || only.agents.length === 0)) {
+      return { home: only, created: false };
+    }
+  }
+  return null;
+}
+
 function mutate(id, fn) {
   const all = readAll();
   const at = all.findIndex((p) => p.id === id);
@@ -2386,6 +2476,7 @@ module.exports = { memberValve, processMemberChanges, ageMemberChangesForTests, 
   FILE, FOLDER, TOLD, BLOCK_START, BLOCK_END, YOU_START, YOU_END, REPORTS_START, REPORTS_END, CONNECTIONS_START, CONNECTIONS_END, POLICY_START, POLICY_END, DOCTRINE_START, DOCTRINE_END, ALL_MARKERS, neutralise,
   file, readAll, writeAll, idFor, folderState, describe, andList,
   list, get, projectsFor, namesFor, create, edit, rename, setDescription, setArchived, addAgent, removeAgent, remove, mutate,
+  WELCOME_NAME, WELCOME_DESCRIPTION, WELCOME_ROOM_NOTE, welcomeSeeded, markWelcomeSeeded, seedWelcomeHome, homeForFirstAgent,
   findBlock, spliceBlock, removeBlock, blockBody, tellAgent, syncAgent, groupBecause, healColleagues, membershipLine, speakOfMembership,
   projectsRoot, folderNameProblem, folderNameFor, folderPathFor,
   folderPathPreview, makeFolder, revealFolder, setRevealRunner, listFiles, openFile,

@@ -2779,12 +2779,83 @@ test('#732: the first agent is not born stale: its home exists before it does an
   /* And the order in the source, so a refactor cannot move the seed back
      below the creation: the seed runs before createAgent, and the creation
      is handed the list the seed pushed into. */
+  /* #2279: the seed shape moved into projects.homeForFirstAgent (one shared
+     definition for the create route, the connect route, and first-run
+     completion). The ordering property this test pins is unchanged -- the seed
+     runs BEFORE createAgent so its id rides into the creation -- so the source
+     marker is now the helper call site rather than the inlined `name:` literal. */
   const src = fsx.readFileSync(path.join(__dirname, 'server.js'), 'utf8');
   const route = src.indexOf("pathname === '/api/agents' && req.method === 'POST'");
-  const seedAt = src.indexOf("name: 'Getting started'", route);
+  const seedAt = src.indexOf('projects.homeForFirstAgent(', route);
   const callAt = src.indexOf('const result = create.createAgent({', route);
   assert.ok(seedAt > -1 && callAt > -1 && seedAt < callAt, 'the home is seeded after the agent is created, so its block reaches the file after the session started');
   assert.ok(src.slice(callAt, callAt + 1600).includes('projects: projectsToJoin,'), 'the creation is not handed the list the seed pushed into');
+});
+
+test('#2279: first-run completion seeds the welcome home even with no agent created through Kosmos', async () => {
+  reset();
+  const fsx = require('node:fs');
+  const projectsEngine = require('./engine/projects');
+  const root = require('./engine/store').ROOT;
+  try { fsx.rmSync(path.join(root, 'seeded-project.json'), { force: true }); } catch { /* fresh */ }
+  try { fsx.rmSync(path.join(root, 'first-run.json'), { force: true }); } catch { /* fresh */ }
+  // Isolate the messages LOG for THIS test. The welcome id is deterministic
+  // ('gettingstarted'), and reset() clears projects.json but NOT the LOG, so a
+  // sibling seed test's note to the same id would otherwise satisfy a presence
+  // check even if this run's first-run seed wrote nothing -- a vacuous pass. A
+  // clean LOG here makes the exact note count below actually able to fail.
+  try { fsx.writeFileSync(require('./engine/messages').LOG, ''); } catch { /* fresh */ }
+  assert.equal(projectsEngine.readAll().length, 0, 'control: the sandbox starts with no projects');
+  // The case the agent-path seeds could never reach: a fresh install whose
+  // agents are already on the board (adopted), so nothing is created through
+  // Kosmos. Completing first-run is the whole interaction.
+  const done = await post('/api/first-run/complete', {});
+  assert.equal(done.status, 200, done.body);
+  assert.equal(json(done).done, true, 'first-run did not report done');
+  const all = projectsEngine.readAll();
+  assert.equal(all.length, 1, 'first-run completion did not seed the welcome home');
+  const home = all[0];
+  assert.equal(home.name, 'Getting started');
+  assert.equal(home.made && home.made.via, 'kosmos');
+  assert.deepEqual(home.agents, [], 'the welcome home is seeded empty -- no agent exists yet at first-run');
+  // Exactly one welcoming room note, from first-run -- the first thing a new
+  // person reads. Exact (not presence) now that the LOG is clean for this test.
+  const room = json(await req('/api/project/' + home.id + '/room')).rows;
+  const notes = room.filter((m) => m.kind === 'note');
+  assert.equal(notes.length, 1, 'first-run did not add exactly one welcome room note');
+  assert.match(notes[0].text, /only here to show you around/);
+  // Composes with the agent path via the shared once-ever flag: an agent
+  // created afterwards ADOPTS this home rather than growing a second, and lands
+  // in it so the first agent still has somewhere to work.
+  const madeBody = json(await post('/api/agents', { name: 'after-firstrun', role: 'pm' }));
+  assert.equal(madeBody.outcome, 'created', JSON.stringify(madeBody));
+  const after = projectsEngine.readAll();
+  assert.equal(after.filter((p) => p.name === 'Getting started').length, 1, 'a second welcome home grew');
+  assert.ok((after.find((p) => p.id === home.id).agents || []).includes('after-firstrun'),
+    'the first agent did not land in the welcome home first-run had already seeded');
+  // The response must NOT claim `seeded` on an ADOPT: this request joined a home
+  // first-run already made, it did not make one. `seeded:true` is the native
+  // client's "we made you a home" signal and must fire only on a real creation.
+  const homeRow = (madeBody.projects || []).find((p) => p.id === home.id);
+  assert.ok(homeRow && homeRow.added, 'the adopted home is not reported as added');
+  assert.notEqual(homeRow.seeded, true, 'the response claimed seeded on an adopt, not a creation');
+});
+
+test('#2279: first-run completion does not seed a second welcome home over one the agent path already made', async () => {
+  reset();
+  const fsx = require('node:fs');
+  const projectsEngine = require('./engine/projects');
+  const root = require('./engine/store').ROOT;
+  try { fsx.rmSync(path.join(root, 'seeded-project.json'), { force: true }); } catch { /* fresh */ }
+  try { fsx.rmSync(path.join(root, 'first-run.json'), { force: true }); } catch { /* fresh */ }
+  // The other order: an agent is made through Kosmos first (seeding + flagging
+  // the home), THEN first-run completes. The shared flag must stop a second.
+  await post('/api/agents', { name: 'made-first', role: 'pm' });
+  assert.equal(projectsEngine.readAll().length, 1, 'the agent path did not seed the home');
+  const done = await post('/api/first-run/complete', {});
+  assert.equal(done.status, 200, done.body);
+  assert.equal(projectsEngine.readAll().filter((p) => p.name === 'Getting started').length, 1,
+    'first-run completion grew a second welcome home over one the agent path already seeded');
 });
 
 test('#732: a Kosmos-made edit that was told on the screen is `told`, not `stale`; a person\'s edit and an older tell are untouched', () => {
