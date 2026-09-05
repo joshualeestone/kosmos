@@ -29,22 +29,29 @@ printf -- '---\ndate: 2026-09-01\n---\n- The export button label overlaps the ic
 printf -- '---\ndate: 2026-09-02\n---\n- The export button label is overlapping the icon again.\n' > "$REPORTS/2026-09-02.md"
 
 run() { bash "$REPO/install/kosmos" feedback triage "$@"; }
+# Extract the lines of one section (between its "## <header>" and the next "## ").
+# Scoping assertions to a section is what makes them discriminate: the overlap
+# item appearing ANYWHERE in the digest does not prove it was classed as a
+# candidate rather than as noise.
+section() { printf '%s\n' "$1" | awk -v h="$2" 'index($0,h){f=1;next} /^## /{f=0} f'; }
 
-# 1. --dir: the recurring overlap issue is a candidate, sentiment is noise.
+# 1. --dir: the recurring overlap issue is a CANDIDATE, the sentiment is NOISE.
 out="$(run --dir "$REPORTS")" || fail "triage --dir exited non-zero"
 printf '%s\n' "$out" | grep -q "No card was opened and nothing was changed" || fail "digest header missing the no-action statement"
-printf '%s\n' "$out" | grep -qi "Candidates for review" || fail "digest has no candidates section"
-printf '%s\n' "$out" | grep -qi "overlaps the icon\|overlapping the icon" || fail "the overlap issue did not surface as a candidate"
-printf '%s\n' "$out" | grep -A50 "Below the bar" | grep -qi "Love it" || fail "the sentiment line was not classed as noise"
+section "$out" "## Candidates for review" | grep -qi "overlaps the icon\|overlapping the icon" \
+  || fail "the overlap issue was not classed as a candidate (scoped to the Candidates section)"
+section "$out" "## Below the bar" | grep -qi "Love it" \
+  || fail "the sentiment line was not classed as noise (scoped to the Below-the-bar section)"
 
 # 2. --since: only the later day is read.
 out2="$(run --dir "$REPORTS" --since 2026-09-02)" || fail "triage --since exited non-zero"
 printf '%s\n' "$out2" | grep -q "1 report(s)" || fail "--since did not restrict to one report: $(printf '%s' "$out2" | grep -i summary)"
 
-# 3. --cards - (stdin): an item resembling an open card is flagged, not a fresh candidate.
+# 3. --cards - (stdin): the dock item resembling an open card is FLAGGED in the
+# "already carded" section, and is NOT also a fresh candidate.
 out3="$(printf '%s\n' 'The dock icon is easy to lose among other applications' | run --dir "$REPORTS" --cards -)" || fail "triage --cards - exited non-zero"
-printf '%s\n' "$out3" | grep -qi "already carded" || fail "no open-card-duplicate section"
-printf '%s\n' "$out3" | grep -A5 "already carded" | grep -qi "dock icon" || fail "the dock item was not flagged as an open-card duplicate"
+section "$out3" "## Likely already carded" | grep -qi "dock icon" || fail "the dock item was not flagged as an open-card duplicate"
+section "$out3" "## Candidates for review" | grep -qi "dock icon" && fail "the dock item was ALSO listed as a fresh candidate (should be dedup'd against the open card)"
 
 # 4. a subdirectory named x.md must be skipped, not crash.
 mkdir -p "$REPORTS/broken.md"

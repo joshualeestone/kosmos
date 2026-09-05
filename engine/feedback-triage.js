@@ -136,8 +136,11 @@ function parseItems(body) {
       // second line).
       current += ' ' + line.trim();
     } else {
-      // A bare paragraph line with no bullet: start a paragraph item.
+      // A bare paragraph line with no bullet: start a paragraph item. Reset the
+      // fold baseline to 0 so a stale currentIndent from an earlier deeply-
+      // indented bullet cannot make a following bullet fold into this paragraph.
       current = line.trim();
+      currentIndent = 0;
     }
   }
   push();
