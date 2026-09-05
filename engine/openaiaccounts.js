@@ -692,11 +692,26 @@ function prettyOpenaiLabel(id) {
   return /^gpt/i.test(s) ? s.replace(/^gpt/i, 'GPT') : s;
 }
 
+/* #2191: the snapshot-base of an OpenAI id -- the id with a trailing ISO-date
+   snapshot suffix (`-YYYY-MM-DD`) removed, and nothing else.
+
+   ⚠️ ONLY the trailing ISO date is stripped, on purpose. `-mini` / `-nano` /
+   `-preview` and `-latest` are NOT snapshots -- gpt-4o-mini is a DIFFERENT model
+   from gpt-4o, and chatgpt-4o-latest is an alias, not a dated cut -- so they are
+   part of the base and must never collapse together. And the date must be
+   TRAILING: `gpt-4-1106-preview` carries its date mid-id, so it is left intact
+   (a small, old residual, documented on #2191) rather than risk mangling it.
+   The dominant modern bloat is the trailing-ISO form (gpt-4o-2024-08-06,
+   o3-2025-04-16, gpt-4o-mini-2024-07-18, ...), which this collapses. */
+function openaiSnapshotBase(id) {
+  return String(id).replace(/-\d{4}-\d{2}-\d{2}$/, '');
+}
+
 /* Pure: the /v1/models `data` array -> the chat-model menu rows, most-capable
-   first, de-duplicated, exactly one marked default. No I/O, so a test drives it
-   directly with a fixture list. The default is the most capable row that is not
-   a -mini / -nano / -preview variant (else the first) -- chosen among what the
-   account actually has, never invented. */
+   first, ONE row per model (dated snapshots collapsed, #2191), exactly one
+   marked default. No I/O, so a test drives it directly with a fixture list. The
+   default is the most capable row that is not a -mini / -nano / -preview variant
+   (else the first) -- chosen among what the account actually has, never invented. */
 function chatModelsFromList(data) {
   const rows = (Array.isArray(data) ? data : [])
     .map((m) => (m && typeof m.id === 'string' ? m.id : null))
@@ -706,14 +721,30 @@ function chatModelsFromList(data) {
       return fam ? { id, rank: fam.rank, why: fam.why } : null;
     })
     .filter(Boolean);
-  rows.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
-  const seen = new Set();
-  const out = [];
+  /* #2191: collapse dated snapshots to one representative per base, so the
+     picker shows "gpt-4o", not gpt-4o plus every gpt-4o-YYYY-MM-DD OpenAI
+     returns. Prefer the base ALIAS id when the account lists it (the alias
+     always points at the current snapshot, which is what a non-technical user
+     wants); otherwise the newest dated snapshot. The chosen `arg` is ALWAYS a
+     real id the account returned -- an alias is used only when present, never
+     synthesized, preserving the #1026 invariant that a runner launches with a
+     real model id. */
+  const byBase = new Map();
   for (const r of rows) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    out.push({ key: r.id, provider: 'openai', label: prettyOpenaiLabel(r.id), arg: r.id, why: r.why });
+    const base = openaiSnapshotBase(r.id);
+    const prev = byBase.get(base);
+    if (!prev) { byBase.set(base, r); continue; }
+    const prevIsAlias = prev.id === base;
+    const curIsAlias = r.id === base;
+    // The exact alias beats any dated snapshot. Between two of the same kind
+    // (two snapshots, or a duplicate alias), the greater id wins -- ISO dates
+    // sort by recency, so that is the newest snapshot.
+    if (curIsAlias && !prevIsAlias) { byBase.set(base, r); continue; }
+    if (curIsAlias === prevIsAlias && r.id.localeCompare(prev.id) > 0) byBase.set(base, r);
   }
+  const collapsed = [...byBase.values()];
+  collapsed.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
+  const out = collapsed.map((r) => ({ key: r.id, provider: 'openai', label: prettyOpenaiLabel(r.id), arg: r.id, why: r.why }));
   if (out.length) {
     const isLite = (id) => /-(mini|nano|preview)(-|$)/i.test(id);
     const flagship = out.find((m) => !isLite(m.arg)) || out[0];
@@ -828,6 +859,6 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
-  accountModels, chatModelsFromList,
+  accountModels, chatModelsFromList, openaiSnapshotBase,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

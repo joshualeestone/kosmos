@@ -722,6 +722,68 @@ test('#1026 chatModelsFromList tolerates garbage input without throwing', () => 
   assert.deepEqual(openai.chatModelsFromList([{ notid: 1 }, 'x', null, {}]), []);
 });
 
+/* #2191: the list OpenAI returns is huge because it carries every dated snapshot
+   of each model. chatModelsFromList collapses those to one row per model. These
+   arms prove the collapse cuts the noise WITHOUT losing a model, without merging
+   distinct models (mini/nano/latest), and without ever inventing an id. */
+
+test('#2191 openaiSnapshotBase strips ONLY a trailing ISO date, not mini/nano/latest/preview or a mid-id date', () => {
+  assert.equal(openai.openaiSnapshotBase('gpt-4o-2024-08-06'), 'gpt-4o');
+  assert.equal(openai.openaiSnapshotBase('o3-2025-04-16'), 'o3');
+  assert.equal(openai.openaiSnapshotBase('gpt-4o-mini-2024-07-18'), 'gpt-4o-mini', 'the date goes, -mini stays');
+  // not a trailing ISO date -> untouched
+  assert.equal(openai.openaiSnapshotBase('gpt-4o'), 'gpt-4o');
+  assert.equal(openai.openaiSnapshotBase('gpt-4o-mini'), 'gpt-4o-mini');
+  assert.equal(openai.openaiSnapshotBase('chatgpt-4o-latest'), 'chatgpt-4o-latest', '-latest is an alias, not a snapshot');
+  assert.equal(openai.openaiSnapshotBase('gpt-4-1106-preview'), 'gpt-4-1106-preview', 'a mid-id date is left intact');
+  assert.equal(openai.openaiSnapshotBase('codex-mini-latest'), 'codex-mini-latest');
+});
+
+test('#2191 dated snapshots collapse to one row per model, preferring the base alias when present', () => {
+  const data = [
+    { id: 'gpt-4o' },
+    { id: 'gpt-4o-2024-05-13' },
+    { id: 'gpt-4o-2024-08-06' },
+    { id: 'gpt-4o-2024-11-20' },
+    { id: 'gpt-4o-mini' },
+    { id: 'gpt-4o-mini-2024-07-18' },
+    { id: 'o3' },
+    { id: 'o3-2025-04-16' },
+  ];
+  const rows = openai.chatModelsFromList(data);
+  const ids = rows.map((r) => r.arg);
+  // one row per MODEL: gpt-4o, gpt-4o-mini, o3 -- snapshots folded in, mini kept distinct.
+  assert.deepEqual(ids, ['o3', 'gpt-4o', 'gpt-4o-mini'], 'one representative per base, ranked, mini not merged into gpt-4o');
+  // the representative is the ALIAS (not a dated snapshot) because the account listed it.
+  assert.ok(ids.every((id) => !/-\d{4}-\d{2}-\d{2}$/.test(id)), 'no dated snapshot survives as a row when its alias is present');
+  // and every arg is a real id from the account, never invented.
+  for (const r of rows) assert.ok(data.some((d) => d.id === r.arg), `${r.arg} came from the account list`);
+});
+
+test('#2191 when NO base alias is listed, the NEWEST dated snapshot represents the model (a real id, never synthesized)', () => {
+  // The account returns only dated snapshots of gpt-4o -- no bare "gpt-4o".
+  const data = [
+    { id: 'gpt-4o-2024-05-13' },
+    { id: 'gpt-4o-2024-11-20' },
+    { id: 'gpt-4o-2024-08-06' },
+  ];
+  const rows = openai.chatModelsFromList(data);
+  assert.equal(rows.length, 1, 'the three snapshots collapse to one row');
+  assert.equal(rows[0].arg, 'gpt-4o-2024-11-20', 'the newest snapshot represents the model');
+  // CRITICAL (#1026): a synthesized bare "gpt-4o" would fail to start -- the arg
+  // must be one of the ids the account actually returned.
+  assert.ok(data.some((d) => d.id === rows[0].arg), 'the representative is a real returned id, not an invented alias');
+  assert.notEqual(rows[0].arg, 'gpt-4o', 'the bare alias was NOT listed, so it must not be invented');
+});
+
+test('#2191 CONTROL: collapse never drops a whole model -- a snapshots-only family still yields a usable row', () => {
+  // Guards the direction that would be a real regression: over-collapsing to zero.
+  const data = [{ id: 'o4-mini-2025-04-16' }];
+  const rows = openai.chatModelsFromList(data);
+  assert.equal(rows.length, 1, 'a model present only as a dated snapshot is still offered');
+  assert.equal(rows[0].arg, 'o4-mini-2025-04-16', 'as its real snapshot id');
+});
+
 test('#1026 accountModels: a 200 with a real /v1/models body returns the filtered menu with a default', async () => {
   writeAuth('.codex-models200', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-modelskeyMOD1' });
   const dir = nodePath.join(SANDBOX, '.codex-models200');
