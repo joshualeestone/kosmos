@@ -2549,6 +2549,45 @@ test('#2239: a multi-paragraph post stays ONE line per row in the text view, tho
   });
 });
 
+test('#2255: the operator toggles an emoji reaction on a room post, and the room GET carries it', async () => {
+  const THUMB = '\u{1F44D}';
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'a post worth reacting to' });
+    assert.equal(posted.status, 200, posted.body);
+    // The post id, read from the room GET (the only place the row's id surfaces).
+    const rows0 = json(await req(`/api/project/${project.id}/room`)).rows.filter((r) => r.kind === 'post');
+    const postId = rows0[rows0.length - 1].id;
+    assert.ok(postId, 'the post did not land with an id');
+    assert.equal(rows0[rows0.length - 1].reactions, undefined, 'a fresh post carries no reactions field');
+
+    // ADD: the operator reacts. The response carries the fresh pill.
+    const add = await post(`/api/project/${project.id}/room/${encodeURIComponent(postId)}/react`, { emoji: THUMB });
+    assert.equal(add.status, 200, add.body);
+    const addBody = json(add);
+    assert.equal(addBody.op, 'add');
+    assert.deepEqual(addBody.reactions, [{ emoji: THUMB, count: 1, who: ['you'], mine: true }]);
+    // And the room GET now carries it on the post.
+    const rows1 = json(await req(`/api/project/${project.id}/room`)).rows.filter((r) => r.kind === 'post');
+    assert.deepEqual(rows1[rows1.length - 1].reactions, [{ emoji: THUMB, count: 1, who: ['you'], mine: true }],
+      'the room GET did not carry the reaction');
+
+    // TOGGLE: reacting again with the same emoji removes it.
+    const off = await post(`/api/project/${project.id}/room/${encodeURIComponent(postId)}/react`, { emoji: THUMB });
+    assert.equal(off.status, 200, off.body);
+    assert.equal(json(off).op, 'remove');
+    assert.deepEqual(json(off).reactions, [], 'toggling off left a pill');
+    const rows2 = json(await req(`/api/project/${project.id}/room`)).rows.filter((r) => r.kind === 'post');
+    assert.equal(rows2[rows2.length - 1].reactions, undefined, 'a post with no live reactions carries no field again');
+
+    // REFUSALS: a non-emoji, and a post that does not exist.
+    assert.equal((await post(`/api/project/${project.id}/room/${encodeURIComponent(postId)}/react`, { emoji: 'x' })).status, 400,
+      'an ASCII "emoji" is refused');
+    assert.equal((await post(`/api/project/${project.id}/room/nope/react`, { emoji: THUMB })).status, 400,
+      'a reaction to a nonexistent post is refused');
+  });
+});
+
 test('#1895: the room text view renders a broadcast as "the room" in the operator zone, through the SERVER not a copy', async () => {
   /* ⚠️ WHY THIS EXISTS ALONGSIDE room-clock-1895.test.js. That suite proved
      roomClock in isolation and REPLICATED server.js's line composition into a
