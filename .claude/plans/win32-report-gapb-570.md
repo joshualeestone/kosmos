@@ -278,3 +278,104 @@ C:\Users\joshu\Downloads\kosmos-0.6.24-win-x64\runtime\node.exe --test engine/<f
 
 That is worth its own step in the port: the Windows dev loop currently has no
 supported way to run the tests.
+
+---
+
+# Input for decision 2: what the win32 report writer can be built on
+
+Pete's call to make, not mine. This is the measurement it should be made on,
+taken on the Windows box 2026-09-05 rather than reasoned about.
+
+## What a Windows hook can actually invoke
+
+```
+  bash         no          <- what reporthook.entryFor writes today
+  sh           no
+  jq           no          <- the hook script's JSON reader
+  node         no          (not on PATH)
+  pwsh         no
+  curl.exe     YES         C:\windows\System32\curl.exe  (8.10.1, ships with Windows 10+)
+  powershell   YES         C:\windows\System32\WindowsPowerShell\v1.0\powershell.exe
+  cmd          YES         C:\windows\system32\cmd.exe
+  claude       YES         C:\Users\joshu\.local\bin\claude.exe
+```
+
+Three of the four things the current chain needs are missing. `curl` survives,
+which is the one people assume is missing.
+
+## The bundle already ships the interpreter
+
+```
+kosmos-0.6.24-win-x64\
+  app\
+  runtime\node.exe        <- present
+  Kosmos.cmd
+  manifest.json
+```
+
+This matters more than the PATH table, because it maps onto the constraint the
+hook script's own comment says is structural:
+
+> 🔑 THE CLI IS THE ONE THIS SCRIPT SHIPPED WITH, resolved from the script's own
+> location, never searched for. […] Shipping the script beside its CLI makes
+> version skew structurally impossible.
+
+`runtime\node.exe` sits at a fixed offset from `app\`, exactly like the installed
+layout rung the resolver already probes for. So a node writer resolves its
+interpreter the same way the bash one resolves its CLI — by RELATIONSHIP, not by
+search — and the property that comment is protecting is preserved rather than
+argued around.
+
+## Proposed shape: a node script run by the bundled runtime
+
+It removes all three missing dependencies at once, and it collapses a chain:
+
+| | today (macOS) | proposed (win32) |
+|---|---|---|
+| hook command | `bash "<script>.sh"` | `<KOSMOS_HOME>\runtime\node.exe "<script>.js"` |
+| read the event | `jq` (or a fallback parser) | `JSON.parse` |
+| deliver | shell out to `install/kosmos` → `curl` | in-process `http` to the board |
+| processes per firing | bash + subshell + curl (+ jq) | one |
+
+It can also `require('./engine/selfreport')` directly rather than shelling to a
+CLI, which is what makes the two-layer resolution problem disappear instead of
+being ported.
+
+### The constraint that decides it, measured
+
+The hook fires on EVERY `PreToolUse`, so startup cost is the objection, and it is
+the thing worth measuring rather than assuming:
+
+```
+bundled node, bare              min 33ms   median 36ms   max 41ms   (n=10)
+bundled node + require(selfreport)   min 39ms   median 42ms   max 47ms   (n=10)
+```
+
+~40ms per firing, and that is against a Mac path that today spawns bash, a
+subshell, and curl — so this is very likely CHEAPER than what ships, not a cost
+to be traded off. (Measured with a control that genuinely failed — a spawn of a
+non-existent binary — because a spawn measurement on this box that cannot fail is
+not a measurement.)
+
+### What this does NOT settle, and is still Pete's
+
+- **The vocabulary and the selector.** Nothing above touches `notify.js`'s
+  KINDS, the one selector keyed on recipient shape, or the inbox socket. A node
+  writer changes the transport, not the interface.
+- **deliverability != liveness.** The synchronous SessionStart delivery check
+  (the one foreground send, the once-per-session place where failure is said out
+  loud) has to keep that distinction. A node writer makes it easier to state,
+  not automatically correct.
+- **Whether the two writers converge.** A node writer that works on Windows would
+  also work on macOS, so the honest question this raises is whether the bash
+  script should survive at all, or whether this becomes one writer with one
+  vocabulary. That is a bigger call than the win32 port, and I am not making it
+  by shipping a second copy quietly.
+
+### The two defects that must be carried, whatever shape wins
+
+1. The throttle key: `${TMUX_PANE:-nopane}` collapses every paneless agent onto
+   one mark. The minted session id is the ready-made per-agent key.
+2. `reporthook`'s dedup `MARKER` is a filename, so a second writer under a new
+   name stacks a hook instead of deduping. That needs a migration BEFORE any
+   second filename ships, and it is not written down anywhere yet.
