@@ -68,8 +68,8 @@ flag with the rest of the store.
 
 **The served-API form (agent-runnable, but auth-gated - read this or get a false
 FAIL).** A served board is not a sandbox, so it **enforces the board token**: every
-`/api/*` request without a valid `x-kosmos-board-token` header returns **403**,
-*before* route dispatch and *before* the cross-site check. A bare `curl` therefore
+`/api/*` request without a valid `x-kosmos-board-token` header returns **403** at
+a pre-dispatch gate. A bare `curl` therefore
 403s, and `grep -c 'Getting started'` reads **0** off the 403 body - so all three
 commands below would "pass" the before and "fail" the after and manufacture a
 bogus #2279 regression. Two consequences the recipe has to respect:
@@ -81,7 +81,8 @@ bogus #2279 regression. Two consequences the recipe has to respect:
 - **The address is per-account.** Resolve it from the CLI (`kosmos status` prints
   the board URL); do not assume `16180` - the wrong port lands you on a different
   account's board. (The origin/cross-site guard is a *separate* gate; passing it
-  is necessary but not sufficient - the token gate refuses first.)
+  is necessary but not sufficient - both gates must pass, and a request that
+  clears the cross-site check still 403s without the token.)
 
 ```
 # Served, never-seeded store. STORE = that account's Application Support/AgentWorkforce;
