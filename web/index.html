@@ -36563,12 +36563,14 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
  * form stays usable for a fresh key instead of a dead one wearing
  * Connected.
  *
- * ⚠️ THE MESSAGE SAYS WHAT IS TRUE, NOT WHAT JUST HAPPENED, except right
- * after it happened. Told directly (`justAdded`) it reports the action
- * ("Added…"); asked cold on pane entry it reports the state ("An OpenAI
- * account is connected…") -- without this split, stepping back to pane 2
- * and forward to pane 3 again would claim to have "Added" an account this
- * page never touched this session.
+ * ⚠️ THE CONNECTED STATE IS ONE UNIFORM BOX (kosmos#2241). Josh asked for the
+ * OpenAI outcome to look like Claude's: the same gold check-row box reading
+ * "OpenAI GPT Codex is connected. This computer is signed in." So both arms --
+ * told directly right after an Add, and asked cold on pane entry -- render the
+ * identical box (rendered below via the shared frCheckRow into #fr-openai-msg).
+ * `justAdded` no longer splits the MESSAGE; it only decides whether to clear the
+ * key field. There is no "Added…" line to leak across a step-back any more,
+ * because the box states the connection, which is true whenever it shows.
  */
 async function frPaintOpenai(known) {
   const connectBtn = document.getElementById('fr-openai-connect');

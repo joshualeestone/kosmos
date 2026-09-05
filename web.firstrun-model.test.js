@@ -287,12 +287,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   let cont;
   const frActions = (primary) => { cont = primary; };
   const frGo = () => {};
-  /* #2241: frPaintOpenai's connected branch now renders the account line through
-     the shared frCheckRow builder (same as Claude's #fr-sub). Stub it here so this
-     unit test can run frPaintOpenai's LOGIC in isolation; the REAL frCheckRow render
-     (gold box, computed style) is proven by docs/browser-checks/render-firstrun-openai-connectbox-2241.js. */
-  const frCheckRow = (c) => '<div class="fr-check ' + c.state + '"><div class="fr-mark">✓</div>'
-    + '<div><div class="fr-ctitle">' + c.title + '</div><div class="fr-cdetail">' + c.detail + '</div></div></div>';
+  // #2241: connected paint renders through the shared frCheckRow (module-level frCheckRowStub).
 
   // Told directly (the Add handler's own path -- no fetch needed). The
   // message reports the ACTION, since this call is right after it happened.
@@ -303,7 +298,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     () => { throw new Error('should not have fetched -- known was supplied'); },
     { connected: true, keyTail: 'ab12', justAdded: true },
-    FR, frActions, frGo, frCheckRow,
+    FR, frActions, frGo, frCheckRowStub,
   );
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   assert.equal(els['fr-openai-connect'].disabled, true);
@@ -324,7 +319,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   // eslint-disable-next-line no-new-func
   await new Function('document', 'fetch', 'FR', 'frActions', 'frGo', 'frCheckRow', body + '\nreturn frPaintOpenai();')(
     { getElementById: (id) => els[id] || null },
-    fakeFetch, FR, frActions, frGo, frCheckRow,
+    fakeFetch, FR, frActions, frGo, frCheckRowStub,
   );
   assert.equal(cont && cont.label, 'Continue', '#2134: an already-connected OpenAI account (Claude not) offers Continue');
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
