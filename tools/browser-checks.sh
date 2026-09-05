@@ -616,8 +616,37 @@ boot_thread_server() {
 
 wait_up() {
   local port="$1" logf="$2" i
-  for i in $(seq 1 60); do
+  # KOSMOS_BC_WAIT_TRIES only exists so the #1073 test can exercise the timeout
+  # arm without waiting the real 30s (60 * 0.5s). Unset in every real run.
+  for i in $(seq 1 "${KOSMOS_BC_WAIT_TRIES:-60}"); do
     curl -s "http://127.0.0.1:$port/api/status" >/dev/null 2>&1 && return 0
+    # #1073: a port picked up front but bound minutes later can be taken by
+    # another run in the interim. The server then fails to bind and exits, so
+    # polling the full 30s only delays a red whose cause is already sitting in
+    # the log. Read the collision from the server's own log and report it BY
+    # NAME, turning an unattributable flaky red into an attributable one.
+    #
+    # Two shapes reach the log and the pattern must match BOTH. The board server
+    # (server.js, run by boot_board/boot_board_org and every inline `node
+    # ./server.js` boot) catches EADDRINUSE and writes a friendly "port <N> is already in
+    # use. Is a board already running?" (server.js ~9345) - no "EADDRINUSE", no
+    # "address". A server without that graceful path (thread-server.js, or any
+    # bare node default) emits a raw "listen EADDRINUSE: address already in use".
+    # The raw shape is caught by EADDRINUSE; the board shape by the phrase
+    # "is already in use". Preferring "is already in use" over a bare
+    # "already in use" excludes the realistic benign boot diagnostic ("name
+    # already in use", a coordinator 409) - it matters because this grep only
+    # runs when /api/status has NOT answered, so a benign match would abort an
+    # otherwise-healthy boot. (curl-first each iteration already means a server
+    # that DOES come up returns 0 before this grep ever runs.) It is a substring
+    # match, not a word-boundary guard, so a contrived token ending in "is"
+    # ("...analysis already in use") would still match; no such string is emitted
+    # to a server log today, and #1073 tracks tightening if one ever appears.
+    if [ -f "$logf" ] && grep -qiE 'EADDRINUSE|is already in use' "$logf" 2>/dev/null; then
+      log "port :$port was already in use when the server tried to bind it (#1073 pick-to-bind collision, NOT a flaky check). server log tail:"
+      tail -5 "$logf" 2>/dev/null
+      return 1
+    fi
     sleep 0.5
   done
   log "server on :$port never answered; log tail:"; tail -5 "$logf" 2>/dev/null
@@ -674,9 +703,23 @@ run_one() {
 # on one Mac, the release gate and a person's own check, talked to each
 # other's boards and then lost them when the other run ended: a red that read
 # as a flaky check and was a collision. A port the kernel just handed out is
-# free for this run alone; the window between picking and binding is a few
-# milliseconds and two runs started seconds apart never share one. The
-# chosen ports are printed so a log can be read back against a boot.
+# free for this run alone.
+#
+# #1073, honest about the window: #633's "a few milliseconds between picking and
+# binding" holds only for the FIRST port bound. pick_ports takes all 16 up front
+# (below), but the servers bind them across the whole run, so a port bound late
+# (minutes into the run) has a pick-to-bind window of MINUTES, not milliseconds.
+# It is still a NARROW race, not an inevitability: free_port binds :0 and the
+# kernel hands out ephemeral ports monotonically, so two runs minutes apart land
+# in well-separated blocks and only collide if the ephemeral counter wraps or a
+# run reuses a just-freed block. When it does fire, the loser's server fails to
+# bind and exits: the board server (server.js) writes a friendly "port <N> is
+# already in use" line, a bare node server a raw EADDRINUSE. wait_up matches
+# either from the server log and names the collision (#1073) rather than a
+# generic 30s flaky timeout, so it is attributable, not a flaky check. Closing
+# the race fully (re-picking a port when its bind loses) is a larger change
+# tracked on #1073.
+# The chosen ports are printed so a log can be read back against a boot.
 free_port() {
   node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})'
 }
