@@ -759,6 +759,51 @@ test('both arms are load-bearing: neither alone covers the cases', () => {
   assert.equal(isFleetSession(stranger), false);
 });
 
+test('#2192: a running native-codex agent is a live agent session and is typeable', () => {
+  // A Kosmos-created OpenAI agent runs the managed NATIVE codex binary (a
+  // Mach-O executable), so its pane fronts as `codex` (not `node`, which is
+  // only what the homebrew npm launcher fronts as). The board's detection was
+  // Claude-only, so this pane read as NOT a running agent: the creation watch
+  // showed "nothing is running under that name yet" and the pane could render
+  // but not be typed into. Fixture: the fresh-install claim shape (session ==
+  // name, `@kosmos_agent` claim set, `@kosmos_runner` codex), pane running.
+  const [codexAgent] = parsePanes('openaibot\t0.0\tcodex\t0\topenaibot\tcodex\t');
+  assert.equal(isFleetSession(codexAgent), true);
+  assert.equal(isAgentSession(codexAgent), true, 'a running native codex agent was invisible to the board');
+  assert.equal(isAgentPane(codexAgent), true, 'a running codex agent could not be typed into');
+});
+
+test('#2192: a crashed codex agent stays restartable but is NOT a running session', () => {
+  // THE DISCRIMINATOR. The fix keys on the COMMAND, not on `@kosmos_runner`.
+  // `@kosmos_runner` is a session marker that SURVIVES a crash back to a shell,
+  // so a crashed codex agent still carries `runner:'codex'` while its command
+  // has fallen to a shell. It must classify exactly like a crashed Claude
+  // agent: fleet (restartable) but not a running agent session. Had the fix
+  // keyed on the runner marker, this control would go green and a dead agent
+  // would read as running.
+  const [crashed] = parsePanes('openaibot\t0.0\tzsh\t0\topenaibot\tcodex\t');
+  assert.equal(crashed.runner, 'codex', 'the runner marker persists past the crash');
+  assert.equal(isFleetSession(crashed), true, 'a crashed codex agent lost its Restart button');
+  assert.equal(isAgentSession(crashed), false, 'a crashed shell was reported as a running codex agent');
+  assert.equal(isAgentPane(crashed), false, 'a dead codex shell would have been typed into');
+});
+
+test('#2192: a running native-codex pane wins over a crashed shell sibling', () => {
+  // The rank half. `codex`/`codex.exe` is unambiguous exactly like `claude`, so
+  // a running native-codex pane must reach RANK_NAMED_RUNNING and outrank a
+  // crashed shell in its own session, the codex parallel of "the agent pane
+  // wins even when the shell is listed first". Left at RANK_NAMED_LEGACY the
+  // codex pane (2) would LOSE the tie to the shell at RANK_NAMED_CRASHED (1).
+  // The shell is listed first, the order in which a wrong tie picks it.
+  const roster = onePanePerSession(parsePanes([
+    'openaibot\t0.0\tzsh\t0\topenaibot\tcodex\t',   // crashed shell, listed first
+    'openaibot\t0.1\tcodex\t0\topenaibot\tcodex\t', // the running codex agent
+  ].join('\n')));
+  assert.equal(roster.length, 1, 'the split panes collapse to one agent name');
+  assert.equal(roster[0].target, 'openaibot:0.1', 'the crashed shell was chosen over the running codex agent');
+  assert.equal(isAgentPane(roster[0]), true);
+});
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * Two wrong-agent ties introduced by removing the Discord coupling.
  *
