@@ -627,20 +627,21 @@ wait_up() {
     # NAME, turning an unattributable flaky red into an attributable one.
     #
     # Two shapes reach the log and the pattern must match BOTH. The board server
-    # (server.js, what boot_board/boot_board_org and the inline P5/P6/P7/P9/P10
+    # (server.js, what boot_board/boot_board_org and the inline P4/P5/P6/P10
     # boots run) catches EADDRINUSE and writes a friendly "port <N> is already in
     # use. Is a board already running?" (server.js ~9345) - no "EADDRINUSE", no
     # "address". A server without that graceful path (thread-server.js, or any
     # bare node default) emits a raw "listen EADDRINUSE: address already in use".
-    # The raw shape is caught by EADDRINUSE; the board shape by the exact phrase
-    # "is already in use". The phrase is anchored on "is " deliberately: a bare
-    # "already in use" would also match an unrelated future boot diagnostic
-    # ("name already in use", a coordinator 409), and this grep only runs when
-    # /api/status has NOT answered, so a benign match here would abort an
+    # The raw shape is caught by EADDRINUSE; the board shape by the phrase
+    # "is already in use". Preferring "is already in use" over a bare
+    # "already in use" excludes the realistic benign boot diagnostic ("name
+    # already in use", a coordinator 409) - it matters because this grep only
+    # runs when /api/status has NOT answered, so a benign match would abort an
     # otherwise-healthy boot. (curl-first each iteration already means a server
-    # that DOES come up returns 0 before this grep ever runs.) Residual, narrow
-    # and accepted: a future non-port message using the exact words "is already
-    # in use" would still match - #1073 tracks tightening further if one appears.
+    # that DOES come up returns 0 before this grep ever runs.) It is a substring
+    # match, not a word-boundary guard, so a contrived token ending in "is"
+    # ("...analysis already in use") would still match; no such string is emitted
+    # to a server log today, and #1073 tracks tightening if one ever appears.
     if [ -f "$logf" ] && grep -qiE 'EADDRINUSE|is already in use' "$logf" 2>/dev/null; then
       log "port :$port was already in use when the server tried to bind it (#1073 pick-to-bind collision, NOT a flaky check). server log tail:"
       tail -5 "$logf" 2>/dev/null
