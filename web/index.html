@@ -1206,6 +1206,16 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* #2238: a non-active row is a native <button> switch control. Reset the button
+   chrome (border/background/text-align/width) so it matches the div rows; the base
+   .worldsw-row rule already supplies display/font/color. The active row is a div. */
+button.worldsw-row { border: 0; background: none; text-align: left; width: 100%; cursor: pointer; }
+button.worldsw-row:hover { background: var(--k-sunk); }
+button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+/* #2238: the honest post-switch status banner. A world's roots load only on board
+   boot, so switching needs a board restart; this banner says so (no auto-restart). */
+.worldsw-restart { margin-top: 4px; padding: 8px;
+  border-top: 0.5px solid var(--separator); font: var(--text-caption) var(--font-ui); color: var(--k-ink-2); }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
    the element's radius, so until now a rounded focus ring drew around a square
@@ -6171,12 +6181,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
         <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
-      <!-- The rows are a read-only LIST (not a menu) while switching is deferred to
-           slice 2b: they show which Kosmoses exist and mark the active one, but do
-           not act. The one real action, New Kosmos, is a native button. When 2b makes
-           the rows actionable, this becomes a menu with roving focus. -->
+      <!-- #2238: the rows are now ACTIONABLE. Each non-active row is a native <button>
+           that switches the active Kosmos (POST /api/worlds/active); the active row is a
+           non-interactive div marked aria-current. Native buttons are keyboard-operable
+           (Tab + Enter/Space) with no ARIA menu/list child-role or arrow-key contract to
+           implement -- so the container is a labelled role=group, not a menu. A world's
+           data-root is applied at board boot, so switching loads the new world only after
+           a board restart; the honest status banner below says so. New Kosmos still creates. -->
       <div class="worldsw-menu" id="worldsw-menu" hidden>
-        <div class="worldsw-list" id="worldsw-list" role="list" aria-label="Your Kosmoses"></div>
+        <div class="worldsw-list" id="worldsw-list" role="group" aria-label="Your Kosmoses"></div>
+        <!-- Shown after a switch: an HONEST status. A world's roots load only on board
+             boot, so switching needs a board restart; this says how (no auto-restart --
+             the installed board is a detached process, see worldswSwitch). role=status so
+             the switch outcome is announced. Hidden until worldswSwitch reveals it. -->
+        <div class="worldsw-restart" id="worldsw-restart" role="status" hidden>
+          <span class="worldsw-restart-msg" id="worldsw-restart-msg"></span>
+        </div>
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
@@ -15641,34 +15661,106 @@ function worldswRender(data) {
   const activeId = active ? active.id : null;
   const activeName = (active && active.name) || 'Kosmos';
   nameEl.textContent = activeName;
-  // The label does not say "choose"/"switch": row selection is deferred to slice 2b,
-  // so the only wired action here is New Kosmos.
   document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your Kosmoses. Current: ' + activeName);
-  /* Rows are built from textContent, never innerHTML, so a world name is never
-     interpreted as markup. Read-only until slice 2b wires the switch. */
+  /* #2238: rows are built from textContent, never innerHTML, so a world name is
+     never interpreted as markup. A NON-active row is a native <button> (keyboard-
+     operable via Tab + Enter/Space, no ARIA menu contract needed); the active row is a
+     non-interactive <div> marked aria-current. */
   list.textContent = '';
   for (const w of data.worlds) {
-    const row = document.createElement('div');
+    const isActive = w.id === activeId;
+    const wname = w.name || 'Kosmos';
+    const row = document.createElement(isActive ? 'div' : 'button');
     row.className = 'worldsw-row';
-    row.setAttribute('role', 'listitem');
-    if (w.id === activeId) row.setAttribute('aria-current', 'true');
+    if (isActive) {
+      row.setAttribute('aria-current', 'true');
+    } else {
+      row.type = 'button';
+      row.setAttribute('aria-label', 'Switch to ' + wname);
+      row.addEventListener('click', () => worldswSwitch(w.id, wname));
+    }
     const check = document.createElement('span');
     check.className = 'worldsw-check';
     check.setAttribute('aria-hidden', 'true');
     check.textContent = '✓';
     const nm = document.createElement('span');
     nm.className = 'worldsw-rowname';
-    nm.textContent = w.name || 'Kosmos';
+    nm.textContent = wname;
     row.append(check, nm);
     list.appendChild(row);
   }
   sw.hidden = false;
+}
+/* #2238: switch the active Kosmos. The registry flip is POST /api/worlds/active
+   (#2212). This slice makes SELECTION work -- on 0.6.35 the rows were read-only, so a
+   created world could not be selected at all. On success it marks the new active world
+   (list + promoted name) and shows an HONEST banner that its projects and agents load
+   after the board restarts.
+   WHY NOT auto-restart here: a world's data-root is applied only at board boot, and the
+   installed board is a DETACHED process the app does not own (install/setup.sh: the
+   login job is RunAtLoad with NO KeepAlive, and `kosmos start` daemonises via nohup and
+   exits). Restarting it in-app therefore needs a detached `kosmos restart` helper
+   (stop-by-pid, wait for the port to free, start) plus a boot-token reconnect -- which
+   is fleet-sensitive and only verifiable by a live board restart on a real install, not
+   on the shared box. That auto-restart is the #2238 follow-up; shipping a "Restart now"
+   button that silently no-ops (the old launchctl-kickstart path re-ran `kosmos start`,
+   which sees the healthy port and does nothing) would be worse than honest guidance.
+   Failures are classified by the endpoint contract (404 no-such-world, 409 busy, else). */
+let WORLDSW_SWITCHING = false;
+async function worldswSwitch(id, name) {
+  if (WORLDSW_SWITCHING) return;
+  const banner = document.getElementById('worldsw-restart');
+  const bmsg = document.getElementById('worldsw-restart-msg');
+  // role=status announces a mutation only while the region is IN the a11y tree, so
+  // UNHIDE first, then set the text (setting text on a hidden region can go unspoken).
+  const say = (t) => { banner.hidden = false; bmsg.textContent = t; };
+  WORLDSW_SWITCHING = true;
+  try {
+    let res;
+    try {
+      res = await fetch('/api/worlds/active', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      say('Could not reach Kosmos to switch. Try again.');
+      return;
+    }
+    const focusTrigger = () => { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); };
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const because = body && body.because;
+      // 404 refetches, which rebuilds the rows and can drop the clicked button (the
+      // world was deleted), so restore focus to the trigger as the success path does.
+      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); focusTrigger(); }
+      else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
+      else { say(because || 'Could not switch to that Kosmos.'); }
+      return;
+    }
+    // Success: the active world is recorded. Prefer the server-returned world.name over
+    // the row's captured name (they agree in practice, but the server is authoritative if
+    // a concurrent rename happened). Mark it (list + header), be honest that its projects
+    // and agents load only after the board restarts, and move focus to the switcher
+    // trigger (which now shows the new active name) since the refetch drops the button.
+    const okBody = await res.json().catch(() => null);
+    const switchedName = (okBody && okBody.world && okBody.world.name) || name;
+    await worldsFetch().catch(() => {});
+    say('Switched to ' + switchedName + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).');
+    focusTrigger();
+  } finally {
+    WORLDSW_SWITCHING = false;
+  }
 }
 function worldswClose() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu || menu.hidden) return;
   menu.hidden = true;
   document.getElementById('worldsw-btn').setAttribute('aria-expanded', 'false');
+  // #2238: clear the post-switch status so a reopen never shows a stale (and possibly
+  // now-false, if the board was since restarted) "Switched to X" line.
+  const banner = document.getElementById('worldsw-restart');
+  if (banner) { banner.hidden = true; document.getElementById('worldsw-restart-msg').textContent = ''; }
 }
 function worldswOpen() {
   const menu = document.getElementById('worldsw-menu');
@@ -15719,9 +15811,10 @@ async function worldAddSubmit() {
     worldAddClose();
     await worldsFetch().catch(() => {});
     // Every create in Kosmos gives visible feedback and lands the item in a visible
-    // list (see New project / New task). Switching is deferred to slice 2b, so the
-    // active header name does not change on create; open the menu so the person sees
-    // the new Kosmos take its place in the list instead of the modal just vanishing.
+    // list (see New project / New task). Creating a Kosmos does NOT switch to it (the
+    // active header name is unchanged; #2238 wired switching as a separate row action),
+    // so open the menu: the person sees the new Kosmos take its place in the list and
+    // can click it to switch, instead of the modal just vanishing.
     worldswOpen();
   } catch {
     msg.textContent = 'Could not reach Kosmos. Try again.';
