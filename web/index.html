@@ -3825,6 +3825,28 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    re-sending). They demand different actions, so they get different
    words and different weight. Do not prune .unsure because a fixture
    stops exercising it. */
+/* #2255: emoji reactions under a room post. Discord-shaped: small toggle pills
+   with a count, a "+" opener, and a quick palette the opener reveals. Colours
+   ride the theme tokens, so they flip light/dark. `.mine` is the gold accent the
+   rest of "you" uses, so a person sees their own reactions at a glance. */
+.rxns { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
+.rxn { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 100px;
+       border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink);
+       font-size: .8125rem; line-height: 1.5; cursor: pointer; }
+.rxn:hover { border-color: var(--k-ink-2); }
+.rxn .rxn-n { color: var(--k-ink-2); font-weight: 600; font-variant-numeric: tabular-nums; }
+.rxn.mine { border-color: var(--gold-deep, #b8860b); background: rgba(214,166,46,.14); }
+.rxn.mine .rxn-n { color: var(--k-ink); }
+.rxn-add { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px;
+           border-radius: 100px; border: 1px solid var(--k-rule); background: transparent; color: var(--k-ink-2);
+           font-size: 1rem; line-height: 1; cursor: pointer; padding: 0; }
+.rxn-add:hover { color: var(--k-ink); border-color: var(--k-ink-2); }
+.rxn-add:focus-visible, .rxn:focus-visible, .rxn-pick:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.rxn-picker { display: inline-flex; flex-wrap: wrap; gap: 2px; padding: 2px 4px; margin-left: 2px;
+              border: 1px solid var(--k-rule); border-radius: 10px; background: var(--k-surface); }
+.rxn-pick { border: 0; background: transparent; cursor: pointer; font-size: 1.05rem; line-height: 1;
+            padding: 3px 5px; border-radius: 7px; }
+.rxn-pick:hover { background: rgba(20,22,26,.08); }
 .delivery { display: inline-block; margin-top: 8px; font-size: .75rem; font-weight: 600;
             /* #116: a receipt, never an alert. Uncapped, a long verdict grew
                as wide as the box and read as a panel-level alarm. 36ch keeps
@@ -17287,7 +17309,7 @@ const ROOM_SPOKE_SEEDED = new Set();
    skips it. Listed anyway, because the test above requires every emitted kind
    to be classified, and "unreachable today" is a property of the other file. */
 const ROOM_SPEECH_KINDS = new Set(['message', 'post']);
-const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge']);
+const ROOM_NOT_SPEECH = new Set(['refused', 'valve', 'note', 'nudge', 'reaction']);
 // Whether a status tick has ever ANSWERED. [] before the first answer means
 // "not heard yet", not "empty board", and the two must never be conflated
 // (the Recommended pill reads this).
@@ -31186,6 +31208,39 @@ document.getElementById('pj-room').addEventListener('click', async (e) => {
   }
 });
 
+/* #2255: reactions. A SECOND delegated handler on #pj-room (kept apart from the
+   refgo one above, which returns early on a non-chip click), so it survives the
+   room repaints setLive does. The "+" opener toggles the palette; a pill or a
+   palette emoji toggles that reaction via the react route, then repaints just
+   this post's `.rxns` from the response -- no full room re-fetch. A failed
+   toggle leaves the row as it was; the next room poll reconciles. */
+document.getElementById('pj-room').addEventListener('click', async (e) => {
+  const box = e.target && e.target.closest ? e.target.closest('.rxns') : null;
+  if (!box) return;
+  const add = e.target.closest('.rxn-add');
+  if (add) {
+    const picker = box.querySelector('.rxn-picker');
+    const open = !!(picker && !picker.hidden);
+    if (picker) picker.hidden = open;
+    add.setAttribute('aria-expanded', String(!open));
+    return;
+  }
+  const btn = e.target.closest('.rxn, .rxn-pick');
+  if (!btn || !PJ_CURRENT) return;
+  const emoji = btn.getAttribute('data-emoji');
+  const postId = box.getAttribute('data-post');
+  if (!emoji || !postId) return;
+  const forProject = PJ_CURRENT;
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(forProject) + '/room/'
+      + encodeURIComponent(postId) + '/react',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ emoji }) });
+    if (PJ_CURRENT !== forProject || !res.ok) return;
+    const body = await res.json();
+    repaintReactions(box, Array.isArray(body.reactions) ? body.reactions : []);
+  } catch { /* a failed toggle leaves the row; the next poll reconciles */ }
+});
+
 document.getElementById('pj-docs-all').addEventListener('click', () => {
   if (!PJ_CURRENT) return;
   openDocsView();
@@ -31640,6 +31695,45 @@ function pjRoomBody(m, p) {
   out += prose(words.slice(at));
   return out;
 }
+/* #2255: the quick-reaction palette the "+" opener reveals. A small fixed set
+   (Discord's common ones); a person reacting is choosing fast, not browsing
+   every emoji. Escapes, so the source stays plain-ASCII and diffable. */
+const RXN_QUICK = ['\u{1F44D}', '❤\u{FE0F}', '\u{1F525}', '\u{1F389}', '\u{1F602}', '\u{1F440}', '✅', '\u{1F64F}'];
+/* The reactions row under a room post: one TOGGLE pill per live reaction (marked
+   aria-pressed when the viewer is a reactor, with a title naming who), then a
+   "+" opener that reveals the palette. Every emoji is esc()'d and comes from the
+   server's replayed state (engine reactionsFor), never from raw message text.
+   Empty when the post carries no id. */
+/* The INNER html of a `.rxns` row (pills + opener + palette), shared by the
+   first paint (pjReactions) and the one-row repaint after a toggle
+   (repaintReactions), so the two cannot draw a pill differently. */
+function rxnsInner(list) {
+  const pills = (Array.isArray(list) ? list : []).map((r) => {
+    const e = String(r && r.emoji ? r.emoji : '');
+    if (!e) return '';
+    const who = Array.isArray(r.who) ? r.who.join(', ') : '';
+    return '<button class="rxn' + (r.mine ? ' mine' : '') + '" type="button" data-emoji="' + esc(e) + '"'
+      + ' aria-pressed="' + (r.mine ? 'true' : 'false') + '" title="' + esc(who) + '">'
+      + '<span class="rxn-e" aria-hidden="true">' + esc(e) + '</span>'
+      + '<span class="rxn-n">' + esc(String(Number(r.count) || 0)) + '</span></button>';
+  }).join('');
+  const picks = RXN_QUICK.map((e) =>
+    '<button class="rxn-pick" type="button" data-emoji="' + esc(e) + '" aria-label="React with ' + esc(e) + '">'
+    + esc(e) + '</button>').join('');
+  return pills
+    + '<button class="rxn-add" type="button" aria-label="Add a reaction" aria-expanded="false">+</button>'
+    + '<span class="rxn-picker" hidden>' + picks + '</span>';
+}
+function pjReactions(m) {
+  const id = String(m && m.id ? m.id : '');
+  if (!id) return '';
+  return '<div class="rxns" data-post="' + esc(id) + '">' + rxnsInner(m && m.reactions) + '</div>';
+}
+/* Repaint one post's reaction row in place from a fresh list (the react route's
+   response), so a toggle updates its own row without a full room re-fetch. */
+function repaintReactions(box, list) {
+  if (box) box.innerHTML = rxnsInner(list);
+}
 function pjRoomRow(m, p, silent) {
   /* A refusal the room can see (#315): Scarlett tried to answer, was stopped,
      and the only record was inside her own window, so from the outside she
@@ -31722,7 +31816,7 @@ function pjRoomRow(m, p, silent) {
        renders no span rather than an empty one. */
     + (card && card.role ? '<small class="msg-role">' + esc(roleLine({ role: card.role }, ROLE_TITLES)) + '</small>' : '')
     + '<span class="msg-t">' + esc(pjWhen(m.at) || '') + '</span></div>'
-    + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + receipt + '</div></div>';
+    + pjRoomBody(m, p) + pjPreviewCard(m.preview) + pjAttachmentCards(m) + pjReactions(m) + receipt + '</div></div>';
 }
 
 /**
