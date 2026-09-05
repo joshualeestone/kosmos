@@ -68,6 +68,13 @@ function seedClaude(home, label) {
   return dir;
 }
 
+function seedOpenai(home, label) {
+  const dir = nodePath.join(home, '.codex-' + label);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-' + label + 'testtesttesttest' }));
+  return dir;
+}
+
 test('#2264: DELETE claude with remove:true deletes the account directory', () => {
   const { res, home } = call('claude',
     (h) => ({ dir: nodePath.join(h, '.claude-gone'), remove: true }),
@@ -92,4 +99,17 @@ test('#2264: DELETE claude WITHOUT remove only disconnects (renamed aside, not d
   assert.ok(!fs.existsSync(nodePath.join(home, '.claude-keep')), 'the account is off the list');
   assert.ok(fs.readdirSync(home).some((n) => n.startsWith('.removed-')),
     'disconnect keeps the credential under a renamed folder');
+});
+
+test('#2264: DELETE openai with remove:true deletes the account directory (route wiring symmetry)', () => {
+  const { res, home } = call('openai',
+    (h) => ({ dir: nodePath.join(h, '.codex-gone'), remove: true }),
+    (h) => seedOpenai(h, 'gone'));
+  assert.equal(res.code, 200, 'openai remove:true should succeed: ' + res.body);
+  const parsed = JSON.parse(res.body);
+  assert.equal(parsed.removed, true, 'the openai route reports removed:true');
+  assert.match(parsed.because, /deleted from this computer/);
+  assert.ok(!fs.existsSync(nodePath.join(home, '.codex-gone')), 'the openai account directory is deleted');
+  assert.deepEqual(fs.readdirSync(home).filter((n) => n.startsWith('.removed-codex-')), [],
+    'delete must not leave a .removed-codex-* copy');
 });
