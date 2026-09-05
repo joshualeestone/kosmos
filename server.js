@@ -2514,15 +2514,24 @@ const server = http.createServer((req, res) => {
         let world;
         try { world = worlds.setActiveWorld(base, id); }
         catch (e) {
-          // setActiveWorld throws `no such world "<id>"` for an id absent from the
-          // registry; any other throw is an unexpected write failure.
-          if (/no such world/i.test(String((e && e.message) || ''))) {
-            sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return;
-          }
+          // Classify by the engine's typed error CODE, never its message text --
+          // the message is person-facing and free to change; the code is the
+          // contract (see worlds.js). ENOWORLD: the id names no world (not-found).
+          const code = e && e.code;
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          // EWORLDLOCK: another registry write holds the lock -- transient, so
+          // surface it as retryable (409) with the "try again" copy rather than
+          // swallowing it into a generic 500 (matches how the sibling create route
+          // treats the same condition instead of dropping the actionable signal).
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
           sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
         }
-        // restartRequired: the switch is recorded, but the running board still
-        // serves the previous world's roots until it restarts (see block comment).
+        // restartRequired: conservatively always true. A world's roots are applied
+        // ONCE at board startup, and this route does not track which world the
+        // RUNNING board booted with, so it cannot tell a no-op switch (the
+        // already-served world) from a real one. A redundant restart reloads the
+        // same world and is harmless, so it over-signals rather than tracking
+        // boot-world state here; a precise restartRequired is a follow-up.
         sendJson(res, 200, { ok: true, world, restartRequired: true });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));

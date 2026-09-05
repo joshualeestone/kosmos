@@ -315,6 +315,24 @@ test('#1704 2b-ii: POST /api/worlds/active is 404 for an unknown id and 400 for 
   assert.equal(JSON.parse((await req('/api/worlds')).body).activeWorldId, 'default', 'a failed switch left the active world untouched');
 });
 
+test('#1704 2b-ii: POST /api/worlds/active surfaces a held registry lock as a retryable 409', async () => {
+  // Simulate another board holding the registry lock (a fresh-mtime lock dir at
+  // the base the route resolves). setActiveWorld -> withRegistryLock then throws
+  // the typed EWORLDLOCK, which the route maps to 409 with the "try again" copy
+  // rather than swallowing it into a generic 500.
+  const base = require('./engine/worlds').baseRoot(process.env);
+  const lock = nodePath.join(base, '.worlds.json.lock');
+  fs.mkdirSync(base, { recursive: true });
+  fs.mkdirSync(lock);
+  try {
+    const r = await postJson('/api/worlds/active', { id: 'default' });
+    assert.equal(r.status, 409, 'a held lock is transient and retryable, not a 500');
+    assert.match(JSON.parse(r.body).because, /in progress/, 'the actionable "try again" copy is preserved');
+  } finally {
+    fs.rmdirSync(lock);
+  }
+});
+
 test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalidates it', async () => {
   /* 🛑 THE WALK IS HEAVY AND THE BOARD POLLS IT EVERY 5s. Without the route cache,
      every viewer on the agents tab crawls the disk several times a minute, synchronously.

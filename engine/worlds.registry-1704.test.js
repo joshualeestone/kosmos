@@ -104,7 +104,9 @@ test('setActiveWorld switches the pointer and refuses an unknown id', () => {
   const active = worlds.setActiveWorld(base, 'acme');
   assert.equal(active.id, 'acme');
   assert.equal(worlds.readRegistry(base).activeWorldId, 'acme', 'persisted');
+  // Message for a person AND a typed code for a caller that classifies it.
   assert.throws(() => worlds.setActiveWorld(base, 'nope'), /no such world/);
+  assert.throws(() => worlds.setActiveWorld(base, 'nope'), (e) => e.code === 'ENOWORLD');
 });
 
 test('applyActiveWorldEnv sets the named world env after a switch', () => {
@@ -128,6 +130,9 @@ test('a HELD lock makes a write fail fast (retryable), and releasing it lets the
   fs.mkdirSync(path.join(base, LOCK)); // another board holds it (fresh mtime)
   assert.throws(() => worlds.createWorld(base, 'Acme'), /in progress/, 'fail fast, not a hang');
   assert.throws(() => worlds.setActiveWorld(base, 'default'), /in progress/, 'switch is locked too');
+  // Typed code so a route can classify the collision as retryable (409) by code,
+  // not by matching the message text.
+  assert.throws(() => worlds.setActiveWorld(base, 'default'), (e) => e.code === 'EWORLDLOCK');
   fs.rmdirSync(path.join(base, LOCK)); // the other board finished
   assert.equal(worlds.createWorld(base, 'Acme').id, 'acme', 'proceeds once released');
 });
