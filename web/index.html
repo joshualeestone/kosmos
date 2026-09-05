@@ -6178,23 +6178,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          ⚠️ WHICH MEANS THE HIGHLIGHT IS A READING, NOT A RECORD, and the two
          are only the same after a click. A control painted from storage alone
          would show neither half lit on a machine that has never chosen. -->
-    <!-- #2154: the board-view toggle. One press flips the whole board between the
-         tabbed view (Agents / Projects / Settings as separate screens) and the
-         consolidated "one screen" view, over the SAME mechanism the Settings tiles
-         use (applyLayout + PUT /api/style) -- not a second store. Same visual
-         language as the light/dark switcher to its right (Josh, 2026-08-22). Shown
-         only at >= 960px, the floor at which the consolidated view is offered; the
-         CSS carries that gate so no dead affordance appears on a narrow window. -->
-    <div class="laypick" role="radiogroup" aria-label="Board view">
-      <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
-        <span class="vh">Agents and Projects as separate tabs</span>
-      </button>
-      <button type="button" class="layopt" data-layout-switch="consolidated" role="radio" aria-checked="false" title="One screen">
-        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6 2.6V13.4"/></svg>
-        <span class="vh">Agents and Projects on one screen</span>
-      </button>
-    </div>
     <div class="checked stamp" id="checked"></div>
     <div class="themepick" role="radiogroup" aria-label="Appearance">
       <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
@@ -6204,6 +6187,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button type="button" class="themeopt" data-theme-set="dark" role="radio" aria-checked="false" title="Dark">
         <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2z"/></svg>
         <span class="vh">Dark</span>
+      </button>
+    </div>
+    <!-- #2154: the board-view toggle. One press flips the whole board between the
+         tabbed view (Agents / Projects / Settings as separate screens) and the
+         consolidated "one screen" view, over the SAME mechanism the Settings tiles
+         use (applyLayout + PUT /api/style) -- not a second store. Same visual
+         language as the light/dark switcher to its left (#2194, Josh 2026-09-04:
+         moved to the far right of the top-right controls, past the switcher; it
+         sat to the switcher's left before). Shown only at >= 960px, the floor at
+         which the consolidated view is offered; the CSS carries that gate so no
+         dead affordance appears on a narrow window. -->
+    <div class="laypick" role="radiogroup" aria-label="Board view">
+      <button type="button" class="layopt" data-layout-switch="tabs" role="radio" aria-checked="false" title="Separate tabs">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M1.6 6.1H14.4"/></svg>
+        <span class="vh">Agents and Projects as separate tabs</span>
+      </button>
+      <button type="button" class="layopt" data-layout-switch="consolidated" role="radio" aria-checked="false" title="One screen">
+        <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6 2.6V13.4"/></svg>
+        <span class="vh">Agents and Projects on one screen</span>
       </button>
     </div>
     <!-- ⚠️ NO hidden ATTRIBUTE: the global [hidden]{display:none !important}
