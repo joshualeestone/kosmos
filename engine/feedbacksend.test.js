@@ -198,3 +198,59 @@ test('a test run never reaches the real network', () => {
     globalThis.fetch = realFetch;
   }
 });
+
+/* sendDailyOnce: the board-sweep entry point with once-per-day dedup (#2037 PR-C1). */
+
+test('sendDailyOnce sends a day\'s report exactly once, even called repeatedly', () => {
+  feedback.write('a finding', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-09-04');
+  feedbacksend.sendDailyOnce('2026-09-04');
+  feedbacksend.sendDailyOnce('2026-09-04');
+  assert.equal(calls, 1, 'the daily report was sent more than once');
+  assert.equal(feedbacksend.read().sent, '2026-09-04', 'the sent marker was not recorded');
+});
+
+test('sendDailyOnce sends nothing while the opt-in is off', () => {
+  feedback.write('body', { date: '2026-09-04' });
+  // default is OFF; do not setOn
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-09-04');
+  assert.equal(calls, 0, 'an off setting still sent');
+  assert.equal(feedbacksend.read().sent, null, 'an off setting recorded a sent marker');
+});
+
+test('sendDailyOnce sends again on a NEW day (the dedup is per-day, not forever)', () => {
+  feedback.write('day one', { date: '2026-09-04' });
+  feedback.write('day two', { date: '2026-09-05' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-09-04');
+  feedbacksend.sendDailyOnce('2026-09-04'); // same day, deduped
+  feedbacksend.sendDailyOnce('2026-09-05'); // new day, sends
+  assert.equal(calls, 2, 'the per-day dedup either blocked the new day or failed to block the repeat');
+  assert.equal(feedbacksend.read().sent, '2026-09-05', 'the sent marker did not advance to the new day');
+});
+
+test('sendDailyOnce with no report for the day marks nothing and sends nothing', () => {
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-01-01'); // no report on that date
+  assert.equal(calls, 0, 'a day with no report still sent');
+  assert.equal(feedbacksend.read().sent, null, 'a day with no report recorded a sent marker (would block a real report later)');
+});
+
+test('setOn does not wipe the sent marker, and markSent does not flip on', () => {
+  feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  feedbacksend.markSent('2026-09-04');
+  feedbacksend.setOn(false);
+  assert.equal(feedbacksend.read().sent, '2026-09-04', 'toggling the switch wiped the dedup marker');
+  feedbacksend.markSent('2026-09-05');
+  assert.equal(feedbacksend.read().on, false, 'markSent flipped the opt-in');
+});

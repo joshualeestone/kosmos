@@ -66,18 +66,23 @@ function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, ok: true };
-    return { on: false, ok: false };
+    if (err && err.code === 'ENOENT') return { on: false, sent: null, ok: true };
+    return { on: false, sent: null, ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, ok: false };
-  return { on: parsed.on === true, ok: true };
+  try { parsed = JSON.parse(raw); } catch { return { on: false, sent: null, ok: false }; }
+  if (!parsed || typeof parsed !== 'object') return { on: false, sent: null, ok: false };
+  // `sent` is the date key (YYYY-MM-DD) of the last report the board actually
+  // sent, the once-per-day dedup marker. A non-string is treated as never-sent.
+  return { on: parsed.on === true, sent: typeof parsed.sent === 'string' ? parsed.sent : null, ok: true };
 }
 
 function write(patch) {
   const cur = read();
-  const next = { on: cur.on, ...patch };
+  // Preserve BOTH fields across a partial write: setOn must not wipe the `sent`
+  // dedup marker, and markSent must not flip `on`. JSON.stringify drops an
+  // undefined/null `sent` cleanly, so a never-sent file stays {on:...}.
+  const next = { on: cur.on, ...(cur.sent ? { sent: cur.sent } : {}), ...patch };
   delete next.ok;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
@@ -205,10 +210,37 @@ function maybeSend(date) {
   } catch { /* nothing here may reach the caller */ }
 }
 
+/**
+ * The board-sweep entry point: send a day's report AT MOST ONCE, even though the
+ * board calls this on a repeating timer. The short-lived `kosmos feedback` CLI
+ * cannot fire-and-forget a send (it exits), so the long-lived board owns the
+ * trigger (#2037 PR-C1). Dedup lives here, not in maybeSend, so the direct/test
+ * callers of maybeSend keep their unguarded semantics.
+ *
+ * 🛑 MARK-SENT BEFORE THE POST, ON PURPOSE. The send is fire-and-forget, so a
+ * failed POST cannot be observed here anyway; marking sent up front means a
+ * down collector does not make the sweep re-POST every hour for the rest of the
+ * day. It is a best-effort DAILY report - a missed day is lost, next day's
+ * sends. Returns nothing (like maybeSend), so no caller can wait on it.
+ */
+function sendDailyOnce(date) {
+  try {
+    const d = date || feedback.today();
+    if (!read().on) return;              // opt-in gate (default OFF in C1)
+    if (read().sent === d) return;       // already sent today
+    if (feedback.read(d) == null) return; // no report for that day, nothing to mark or send
+    markSent(d);                          // mark first: no all-day retry spam on a down collector
+    maybeSend(d);
+  } catch { /* nothing here may reach the caller */ }
+}
+
+function markSent(date) { return write({ sent: date }); }
+function sentOn(date) { return read().sent === date; }
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 
 module.exports = {
-  FILE, read, setOn, write, scrub, payload, maybeSend, setSender, underTest,
-  DEFAULT_ENDPOINT, CONSENT_VERSION,
+  FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent, sentOn,
+  setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
 };
