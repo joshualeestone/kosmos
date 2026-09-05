@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * The board-view toggle (#2154): one press flips tabs <-> consolidated, it persists through /api/style, it lives in the header on the tabbed view and in the agents rail on the consolidated view, and it is hidden below 960px.
+ * The board-view toggle (#2154): one press flips tabs <-> consolidated, it persists through /api/style, it lives in the header on the tabbed view and in the agents rail on the consolidated view, and it is hidden below 960px. After #2194 it sits to the right of the light/dark switcher in the header.
  *
  * 🔑 A RENDERED CHECK IS THE ONLY KIND THAT CAN SEE THIS. The toggle drives the
  * real applyLayout path over a real /api/style round-trip, and the effective
@@ -63,6 +63,20 @@ const { chromium } = require('playwright');
     say(await visible(HEAD), 'tabbed view: the toggle is in the header');
     say((await pg.$$(HEAD + ' [data-layout-switch]')).length === 2, 'the header toggle has two segments (tabs, consolidated)');
     say(!(await visible(RAIL)), 'tabbed view: the rail copy is not shown');
+    // #2194: the toggle sits to the RIGHT of the light/dark switcher in the
+    // header (Josh moved it past the switcher). A RENDERED position read, not a
+    // DOM-order read: it compares laid-out geometry, so it reds on the pre-#2194
+    // page where the toggle was to the switcher's left.
+    const rightOfTheme = await pg.evaluate(() => {
+      const lay = document.querySelector('.headright .laypick');
+      const th = document.querySelector('.headright .themepick');
+      if (!lay || !th) return null;
+      const l = lay.getBoundingClientRect(), t = th.getBoundingClientRect();
+      return { layLeft: Math.round(l.left), thRight: Math.round(t.right) };
+    });
+    say(rightOfTheme && rightOfTheme.layLeft >= rightOfTheme.thRight,
+      'tabbed view: the board-view toggle sits to the right of the light/dark switcher (#2194)',
+      rightOfTheme ? JSON.stringify(rightOfTheme) : 'one of .laypick/.themepick missing');
     say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'true', 'tabbed view: the tabs segment is checked');
     say((await ariaOf(HEAD + ' [data-layout-switch="consolidated"]')) === 'false', 'tabbed view: the consolidated segment is not checked');
 
@@ -76,6 +90,19 @@ const { chromium } = require('playwright');
     // --- Consolidated view: the header copy is gone, the rail copy takes over. ---
     say(!(await visible(HEAD)), 'consolidated view: the header toggle is gone (headright collapses)');
     say(await visible(RAIL), 'consolidated view: the toggle is in the agents rail');
+    // #2194: the rail copy is ordered like the header (toggle to the RIGHT of the
+    // light/dark pill), so the two controls do not swap sides when a person flips
+    // between the tabbed and consolidated views. Reds on the pre-#2194 rail.
+    const railOrder = await pg.evaluate(() => {
+      const lay = document.querySelector('#rail-me .laypick');
+      const th = document.querySelector('#rail-me .themepick');
+      if (!lay || !th) return null;
+      const l = lay.getBoundingClientRect(), t = th.getBoundingClientRect();
+      return { layLeft: Math.round(l.left), thRight: Math.round(t.right) };
+    });
+    say(railOrder && railOrder.layLeft >= railOrder.thRight,
+      'consolidated view: the rail toggle sits to the right of the light/dark switcher too (#2194, no swap between views)',
+      railOrder ? JSON.stringify(railOrder) : 'one of the rail .laypick/.themepick missing');
     say((await ariaOf(RAIL + ' [data-layout-switch="consolidated"]')) === 'true', 'consolidated view: the rail one-screen segment is checked');
     say((await ariaOf(RAIL + ' [data-layout-switch="tabs"]')) === 'false', 'consolidated view: the rail tabs segment is not checked');
 
