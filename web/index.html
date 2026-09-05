@@ -14356,6 +14356,36 @@ let ACCT_PICKER_EPOCH = 0;
    The qualifier is total for a duplicated row: `list()` skips a directory it has
    already seen, so distinct rows always have distinct `dir`s, and `dir` is the
    last fallback. No duplicated row can come out of here unnamed. */
+/* #2095: the PRIMARY label for an account, wherever it is shown (the Settings
+   AI-models row and both account pickers). Josh entered a name at connect time
+   ("account1") and it was stored (the `.kosmos-name` sidecar, served as
+   `a.name`) but never displayed, so the surfaces only ever showed the key
+   last-4 and the name was a dead input control. This makes the human-chosen name
+   the primary label; the key last-4 stays as a secondary detail on the richer
+   Settings row.
+   ⚠️ ONE named helper on purpose (the #1834 "name it once so the surfaces cannot
+   drift" rule): three sites built this string independently before, which is how
+   two of them once named an account two different ways.
+   Returns RAW text (never HTML-safe) -- every caller keeps its own esc(), exactly
+   as they did with the inline chain this replaces. Trimmed so a whitespace-only
+   name never wins. Claude accounts have no `.kosmos-name` (readName is
+   OpenAI-only), so `a.name` is absent and this falls through to the existing
+   email-first chain for them -- Claude rows are unchanged. */
+function acctPrimaryName(a) {
+  const named = a && typeof a.name === 'string' ? a.name.trim() : '';
+  if (named) return named;
+  const isOpenai = a && a.provider === 'openai';
+  return String((a && (a.email
+    || (isOpenai && a.keyTail ? 'API key ending ' + a.keyTail : '')
+    || a.label || a.dir)) || '');
+}
+/* #2095: whether the account carries a human-chosen name (so the key last-4 is a
+   SECONDARY detail rather than the primary label). Only OpenAI accounts have a
+   name AND a keyTail; empty for everyone else. */
+function acctHasChosenName(a) {
+  return !!(a && a.provider === 'openai' && typeof a.name === 'string' && a.name.trim());
+}
+
 function accountQualifiers(list) {
   const rows = Array.isArray(list) ? list : [];
   /* The same key the row renders its name from, so the count answers the
@@ -14376,9 +14406,26 @@ function accountQualifiers(list) {
      REASSURANCE (Splinter, 2026-08-29). A row that yields NEITHER an email nor a
      keyTail gets `''`, is not counted, and finding 8 becomes live with nothing
      failing. Re-measured 2026-08-29: 4 accounts, all with an email containing @,
-     dirs and labels unique, exactly one default. Both still moot.
-     ⇒ If you widen what a row can be, re-check those two rather than assuming. */
-  const key = (a) => String((a && (a.email
+     dirs and labels unique, exactly one default.
+     🔑 #2095 (2026-09-05): finding 8 is now DIRECTLY ADDRESSED, not merely moot.
+     The key below LEADS with the trimmed `a.name`, the same value acctPrimaryName
+     renders as the visible primary label, so a name-derived collision is now
+     COUNTED and qualified rather than invisible. Finding 9 (the default dir is
+     not added to the used-set) is untouched by that change and stays moot while
+     there is exactly one default.
+     ⇒ If you widen what a row can be further, re-check finding 9 rather than
+     assuming. */
+  /* #2095: the key now leads with the human-chosen NAME, because that is the
+     PRIMARY thing a row/option renders (acctPrimaryName). This is the direct
+     answer to deferred finding 8 below: the count used to be blind to a
+     name-derived label, and it went live the moment a name became the visible
+     text. Two accounts both typed "work" now key alike, are counted ambiguous,
+     and each gets a distinguishing qualifier (their label, else the unique dir)
+     -- so the on-screen name and the accessible name stay distinct. Trimmed so a
+     whitespace-only name never becomes the key. */
+  const key = (a) => String((a && (
+    (typeof a.name === 'string' && a.name.trim())
+    || a.email
     || (a.provider === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '');
   const count = new Map();
   for (const a of rows) {
@@ -14531,9 +14578,16 @@ async function paintAccounts() {
        own `login status` names it by the key's last characters, so the row
        does the same. Never the key. */
     const isOpenai = a.provider === 'openai';
-    const who = esc(a.email || (isOpenai && a.keyTail ? 'API key ending ' + a.keyTail : '') || a.label || a.dir);
+    /* #2095: the human-chosen name is the primary label (was key-last-4-only). */
+    const who = esc(acctPrimaryName(a));
     const org = a.organization && a.organization !== a.email
       ? '<span class="acct-org">' + esc(a.organization) + '</span>' : '';
+    /* #2095: when a name is the primary label, keep the key last-4 as a SECONDARY
+       detail line so the account is still identifiable by its key. Empty for
+       Claude rows and for unnamed OpenAI rows (whose primary label already IS the
+       key last-4, so repeating it would be noise). */
+    const keyDetail = acctHasChosenName(a) && a.keyTail
+      ? '<span class="acct-org">' + esc('API key ending ' + a.keyTail) + '</span>' : '';
     /* Empty for every row whose name is already unique, which is nearly all of
        them. Present only where two rows would otherwise read alike. */
     const qual = acctQual.get(String(a.dir || '')) || '';
@@ -14682,7 +14736,7 @@ async function paintAccounts() {
     }
     return '<div class="acct-box"><div class="acct-box-top"><div class="acct-who"><b>' + who
       // No "your first account" tag (#394): the email is the answer, whole.
-      + '</b>' + qualTag + org + '</div>'
+      + '</b>' + qualTag + keyDetail + org + '</div>'
       + connBadge + '</div>'
       + shared
       /* ✅ LIVE FOR BOTH PROVIDERS (#1372 OpenAI, #1659 Claude). Each route
@@ -25334,7 +25388,7 @@ function fillSwitchAccounts() {
      Not extracted to a shared helper here: that touches the create form, which is
      not this card's subject, and a shared helper with two callers and two behaviours
      is worse than two honest copies. Worth doing when somebody owns both. */
-  const nameOf = (x) => x.email || (x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir;
+  const nameOf = (x) => acctPrimaryName(x);  /* #2095: human-chosen name is the primary label (this list is OpenAI-only) */
   const labelOf = (x) => (x.connection && x.connection.state === 'unknown'
     ? esc(nameOf(x)) + ' (could not check just now)'
     : esc(nameOf(x)));
@@ -26014,7 +26068,7 @@ function fillCreateAccounts() {
      not depend on a check the page cannot make. */
   const acctQual = accountQualifiers(usable);
   const qualOf = (x) => { const q = acctQual.get(String(x.dir || '')); return q ? ' (' + q + ')' : ''; };
-  const nameOf = (x) => (x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir) + qualOf(x);
+  const nameOf = (x) => acctPrimaryName(x) + qualOf(x);  /* #2095: human-chosen name is the primary label; the qualifier (now name-aware) keeps same-named accounts distinct */
   const labelOf = (x) => acctUnknownLive(x) ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));  // #1959: badge vocabulary (unchecked / state unknown), consistent with the offer filter above
   asel.innerHTML = usable.length
     ? usable.map((x) =>
