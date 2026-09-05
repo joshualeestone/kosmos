@@ -32,9 +32,12 @@
  * regression class: `detailRing` intact, nothing reaching the page), while the
  * unknown-reading arm and the "no page errors" arm correctly stay green. A fixed
  * (non-reading-driven) arc reds the "arc changes with the reading" arm. (The
- * laid-out arm is a softer presence check -- the `#d-ring` span keeps a non-zero
- * size from its svg content even with the `.dring` sizing removed, so it reds only
- * if the element is removed or hidden outright, not on a CSS-size regression.)
+ * laid-out arm is a softer presence check: `#d-ring` keeps a non-zero rect in both
+ * regressions discussed here -- 100x100 from the `.dring` CSS box when the wire is
+ * dropped and the span is empty, its svg content's size when the `.dring` sizing
+ * itself is removed -- so it reds on neither. It is a coarse "the container is on
+ * the page" assertion; the wire-drop is caught by the hasSvg / band / arc arms, and
+ * a `.dring` CSS-size regression is caught by nothing here.)
  *
  *   node docs/browser-checks/render-detail-ring-1915.js            # headed
  *   HEADED=0 node docs/browser-checks/render-detail-ring-1915.js   # headless
