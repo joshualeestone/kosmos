@@ -3519,6 +3519,38 @@ test('#1279 INTEGRATION: team.createTeam against the REAL createAgent reads back
   }
 });
 
+test('#1279: under DRY_RUN a created team member has id null on BOTH team and create (they agree)', () => {
+  const team = require('./team');
+  recorder();
+  create.setDryRun(true);
+  try {
+    /* A fresh slug: DRY_RUN creates it (returns created) but writes no profile, so
+       team's read-back and create's birth record both answer null. This is the
+       reachable form of "the two cannot disagree" -- a DRY_RUN create only reports
+       created for a slug with no prior profile (else the name-taken guard refuses
+       it), so there is never a stale id for team to surface. */
+    const r = team.createTeam({ creator: 'PM', purpose: 'x', members: [{ ...BINS, name: 'dry-fresh', role: 'pm' }] });
+    assert.equal(r.outcome, 'created', 'a DRY_RUN create of a fresh slug should report created');
+    assert.equal(r.created[0].id, null, 'team surfaced an id for an agent DRY_RUN did not mint');
+    assert.equal(create.createdLog().slice(-1)[0].id, null, 'create recorded an id under DRY_RUN');
+  } finally {
+    create.setDryRun(false);
+  }
+});
+
+test('#1279: a member whose slug already exists is refused by name-taken, so team never reads a stale id', () => {
+  const team = require('./team');
+  recorder();
+  create.setDryRun(false);
+  /* The guard that makes the DRY_RUN reasoning hold: a slug with a profile cannot
+     be re-created, so team reaches the id read-back ONLY for a genuinely new slug. */
+  create.createAgent({ ...BINS, name: 'already-here', role: 'pm' });
+  const r = team.createTeam({ creator: 'PM', purpose: 'x', members: [{ ...BINS, name: 'already-here', role: 'pm' }] });
+  assert.equal(r.outcome, 'refused');
+  assert.equal(r.created.length, 0, 'a duplicate slug reached the created branch');
+  assert.equal(r.refused.length, 1);
+});
+
 test('an existing agent is backfilled on first write, and a restored profile is a different agent (#170)', () => {
   const name = 'old-timer';
   const file = nodePath.join(store.PROFILES, store.safeKey(name) + '.json');

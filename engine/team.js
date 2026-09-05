@@ -52,7 +52,16 @@ const store = require('./store');
    id lives in the profile and the birth record and is read back, never returned
    -- so createTeam must read it back too rather than expecting it on the return.
    Null on any failure or a DRY_RUN create that wrote no profile, exactly like the
-   birth record's own id field. */
+   birth record's own id field.
+   🔑 WHY THIS AGREES WITH create's birth-record id in EVERY mode, DRY_RUN included,
+   WITHOUT a special case: create only ever answers a CREATED outcome for a slug
+   that had NO prior profile (its name-taken guard refuses a slug that already has
+   one). So on the only path team reaches this read-back -- a CREATED member -- a
+   real create just minted the profile (id present, matching), and a DRY_RUN create
+   wrote nothing AND there was no prior profile to be stale (else it would have been
+   refused, not created), so readProfile finds nothing and returns null, matching
+   create's own DRY_RUN null. The two cannot disagree on the id of an agent create
+   says it made. */
 function defaultReadAgentId(name) {
   try { return store.readProfile(name).id || null; } catch { return null; }
 }
