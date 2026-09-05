@@ -24,7 +24,7 @@ to have the consumers decide from `.badge` (with the legacy `.state` ternary as 
 fallback for badge-less rows - OpenAI rows, or a new-page/old-server skew - exactly as
 `paintAccounts()` does).
 
-## Two shared frontend helpers (avoid the "two derivations of one fact" anti-pattern)
+## Shared frontend helpers (avoid the "two derivations of one fact" anti-pattern)
 - `acctUsableLogin(a)` - a login exists that works OR will verify on next use: `badge === 'working' || badge === 'signed_in_unverified'`; fallback (no badge) `state === 'connected'`. Excludes `rejected` (needs renewing) and `signed_out`/`unchecked`.
 - `acctUnknownLive(a)` - could not tell: `badge === 'unchecked'`; fallback `state === 'unknown'`.
 
@@ -73,9 +73,10 @@ the active whoami PR #2218):**
   would flip it connected->not), so it wants browser verification, not a 2am headless slice.
 - **the `/api/agent/:name/account-status` route (#1885) in server.js.** Overlaps the active whoami
   PR #2218 (same server.js region); not touched to avoid a collision.
-- **`frPaintOpenai` (first-run).** Reads an OpenAI account's state; the server overlays `.badge` onto
-  CLAUDE rows only, so OpenAI rows never carry a badge - the badge overlay does not apply. Left as-is
-  (not a real badge consumer).
+- **`frPaintOpenai` (first-run) and `fillSwitchAccounts` (the switch-account picker).** Both are
+  OpenAI-scoped (they read OpenAI rows); the server overlays `.badge` onto CLAUDE rows only, so OpenAI
+  rows never carry a badge - the badge overlay does not apply. Left on raw `.state` as-is (not real
+  badge consumers).
 
 ## Guard
 A browser-check (`render-observed-consumers-1959.js`, hermetic file://) with four arms: the shared
