@@ -27,8 +27,12 @@
 const { chromium } = require('playwright');
 
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
-const IDS = ['tell-toggle', 'notify-toggle'];
-const MSG = { 'tell-toggle': 'tell-msg', 'notify-toggle': 'notify-msg' };
+// #2037 PR-C1: feedback-toggle (the daily-report send switch, in Settings >
+// Automation) carries the SAME 200/403 privacy treatment as the tell/notify
+// opt-outs, and defaults OFF in C1 (the on-flip is PR-C2). It is painted by the
+// same boot-time refresh block, so it reads by id from any Settings view.
+const IDS = ['tell-toggle', 'notify-toggle', 'feedback-toggle'];
+const MSG = { 'tell-toggle': 'tell-msg', 'notify-toggle': 'notify-msg', 'feedback-toggle': 'feedback-msg' };
 
 const fails = [];
 function check(name, pass, detail) {
@@ -63,12 +67,16 @@ async function run() {
     // ── 200 CONTROL: a readable board renders both switches with a real position ──
     const p1 = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
     await openUpdates(p1);
+    // The default each switch should read, per-toggle: the ping (tell-toggle)
+    // shipped its on-flip (#2020, "we need that back in for sure"), so it reads
+    // ON; notify's on-flip is still held and feedback's is PR-C2, so both read
+    // OFF. An independent, browser-level catch on a wrong default per switch.
+    const DEFAULT_ON = { 'tell-toggle': true, 'notify-toggle': false, 'feedback-toggle': false };
     for (const id of IDS) {
       const s = await readSwitch(p1, id);
       check(id + ' [200 control]: renders when the setting reads', s.hidden === false, JSON.stringify(s));
-      // reads OFF specifically, not merely "some position": an independent, browser-level
-      // catch on a default-flipped-to-ON regression (step 3, the on-flip, is held for Josh).
-      check(id + ' [200 control]: reads OFF by default (step 3 on-flip is held)', s.checked === 'false', String(s.checked));
+      const want = DEFAULT_ON[id] ? 'true' : 'false';
+      check(id + ' [200 control]: reads its ruled default (' + want + ')', s.checked === want, String(s.checked));
     }
     await p1.close();
 
@@ -78,6 +86,7 @@ async function run() {
     const gated = (route) => route.fulfill({ status: 403, contentType: 'application/json', body: JSON.stringify({ error: 'this board belongs to the account that started it' }) });
     await p2.route('**/api/ping-setting', gated);
     await p2.route('**/api/notify-setting', gated);
+    await p2.route('**/api/feedback-setting', gated);
     await openUpdates(p2);
     for (const id of IDS) {
       const s = await readSwitch(p2, id);
