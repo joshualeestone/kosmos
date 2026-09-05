@@ -65,10 +65,37 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
    -- it is a site-COPY tool whose committed-vs-live pointer guard REFUSES a pointer-move once the
    pointer is COMMITTED ("a site-copy deploy must not move the installer pointer"); before the commit
-   it instead git-archives the OLD committed pointer and silently ignores the promote. Either way it
-   does not publish a promote. Until the guarded `--promote` mode
-   lands (**#2195**), deploy the pointer with `release.sh`'s proven step-8 machinery by hand. A
-   promote is POINTER-ONLY: the versioned artifacts are already served from the staging cut.
+   it instead git-archives the OLD committed pointer and silently ignores the promote. Either way
+   `--publish` does not publish a promote. A promote is POINTER-ONLY: the versioned artifacts are
+   already served from the staging cut.
+
+   **Use `deploy-site.sh --promote` (#2195).** It is the guarded promote deploy: commit `latest.json`
+   first, then
+
+   ```sh
+   git -C "$HOME/work/chaoskosmos-site" diff --quiet -- dist/latest.json \
+     || git -C "$HOME/work/chaoskosmos-site" commit -- dist/latest.json -m "promote <V> to prod"
+   git -C "$HOME/work/chaoskosmos-site" push origin HEAD:refs/heads/main   # a deploy serves committed HEAD
+   bash tools/deploy-site.sh --promote
+   ```
+
+   `--promote` derives the artifact from the COMMITTED pointer, fetches + sha-verifies it (proving the
+   promoted bytes are really served), skips the committed-vs-live guard (the pointer moved on
+   purpose), derives the `kosmos-arm64.tar.gz` alias from the promoted bytes rather than fetching the
+   stale live one, keeps every other guard (honest-marker, `.vercelignore`, the post-deploy
+   served-by-content verify), and refuses `--promote` when the committed pointer already equals live
+   (nothing to promote -- did you forget to commit?). It is self-contained and works for a rollback
+   too (a rollback promotes a PRIOR committed pointer). Run it on the machine that ran the staging
+   cut, where `$S/dist` holds the sha-verified artifacts.
+
+   If the release being promoted ALSO bumped the Windows build, the committed HEAD carries a new
+   `kosmos-<newV>-win-x64.zip` name and the honest-marker check refuses against the hardcoded default
+   (`$WINZIP`, #2008). Set `KOSMOS_WIN_ZIP=kosmos-<newV>-win-x64.zip bash tools/deploy-site.sh
+   --promote` in that case. A promote is likelier to hit this than a same-Windows site-copy, so it is
+   called out here; the durable fix is the unversioned win alias (#2008).
+
+   **Fallback: the manual `release.sh` step-8 machinery**, documented below for understanding and for
+   the rare case `deploy-site.sh` is unavailable. It has the same shape `--promote` automates.
 
    Two hazards this runbook must guard, because `site_deploy_export` does not. (1) It returns 0 even
    when `$S/dist` is MISSING the gitignored artifacts (the versioned-tarball glob yields none, a
@@ -108,9 +135,9 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    `dist/`. If `$S/dist` IS incomplete (promoting from a machine that did not run the staging cut),
    the right fix is to run this promote-deploy ON the machine that ran the staging cut, where the
    artifacts are present and were sha-verified at cut time -- repopulating a foreign checkout by hand
-   skips that verification, and `deploy-site.sh` cannot repopulate it here (its committed-vs-live
-   guard refuses this exact state). #2195's tool will fetch + sha-verify each artifact like
-   `deploy-site.sh` does.
+   skips that verification. `deploy-site.sh --promote` (#2195) fetches + sha-verifies each artifact
+   itself, so it is the right tool to run on the staging-cut machine; it does not repopulate a foreign
+   checkout that never held the bytes.
    Then **verify SERVED prod BY CONTENT** from outside, cache-busted (a stale edge reads the old
    version right after a deploy). Check the pointer AND every served gitignored artifact by sha
    (a rendered page with dead download buttons is the #1669 shape deploy-site.sh section 6 guards),
