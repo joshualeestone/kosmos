@@ -6,30 +6,34 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { createTeam, DEFAULT_TEAM_CAP } = require('./team');
+const { createTeam, DEFAULT_TEAM_CAP, MAX_TEAM_CAP } = require('./team');
 
 /* A fake createAgent that records every opts it was handed and answers per a
-   per-name script. It returns the REAL create.createAgent success shape, which
-   carries NO id -- the id is read back from the profile, never returned -- so
-   the team's id handling is exercised against the shape production actually
-   produces, not an id the real function never returns. */
+   per-name script (keyed on the INPUT name). It returns the REAL
+   create.createAgent success shape: NO id (read back from the profile, never
+   returned), a SLUGGED `name` (lowercased here, as createAgentInner returns
+   slugFor(...)), and a separate `shownAs` display name. Modelling the slug/shown
+   split is deliberate -- it is exactly where the team could silently drop the
+   display name or read the id back by the wrong string. */
 function fakeCreator(script) {
   const calls = [];
   const fn = (opts) => {
     calls.push(opts);
-    const name = opts && opts.name;
-    const verdict = (script && Object.prototype.hasOwnProperty.call(script, name)) ? script[name] : { outcome: 'created' };
-    if (verdict.outcome === 'created') return { outcome: 'created', name /* no id, matching real createAgent */ };
+    const input = opts && opts.name;
+    const verdict = (script && Object.prototype.hasOwnProperty.call(script, input)) ? script[input] : { outcome: 'created' };
+    if (verdict.outcome === 'created') {
+      return { outcome: 'created', name: String(input).toLowerCase() /* slug */, shownAs: String(input) };
+    }
     return { outcome: 'refused', because: verdict.because || 'refused' };
   };
   fn.calls = calls;
   return fn;
 }
 
-/* The profile-id reader the real team reads back through, faked: a created agent
-   named X has id 'id-X'. This is the SAME seam create.createAgent uses, so the
-   test models "create returns a name, id comes from the profile". */
-const fakeReadAgentId = (name) => (name ? 'id-' + name : null);
+/* The profile-id reader the real team reads back through, faked: an agent whose
+   SLUG is x has id 'id-x'. Keyed on the slug because that is what createTeam
+   reads back by (create.createAgent returns the slug). */
+const fakeReadAgentId = (slug) => (slug ? 'id-' + slug : null);
 
 const okDeps = (script, env) => ({ createAgent: fakeCreator(script), readAgentId: fakeReadAgentId, env: env || {} });
 
@@ -48,12 +52,15 @@ test('#1279: a full team is created; every member carries createdBy + purpose', 
   assert.equal(r.created.length, 2);
   assert.equal(r.refused.length, 0);
   assert.equal(r.because, null);
-  assert.deepEqual(r.created.map((c) => c.name).sort(), ['BuildBot', 'TestBot']);
-  /* The id is READ BACK by name (create.createAgent returns no id), so a caller
-     that lists a freshly-built team can address each new agent. */
+  /* The created entry carries the SLUG (name, canonical/addressable), the display
+     name (shownAs), and the id READ BACK by the slug (create.createAgent returns
+     no id) -- everything a caller needs to render and address each new agent. */
   assert.deepEqual(r.created.slice().sort((a, b) => a.name.localeCompare(b.name)),
-    [{ name: 'BuildBot', id: 'id-BuildBot' }, { name: 'TestBot', id: 'id-TestBot' }],
-    'the id was not read back by name');
+    [
+      { name: 'buildbot', shownAs: 'BuildBot', id: 'id-buildbot' },
+      { name: 'testbot', shownAs: 'TestBot', id: 'id-testbot' },
+    ],
+    'the created entry dropped the display name or read the id back by the wrong string');
 
   // The whole point: provenance rides onto EVERY member.
   for (const call of deps.createAgent.calls) {
@@ -144,24 +151,50 @@ test('#1279: exactly at the cap is allowed', () => {
   assert.equal(r.created.length, DEFAULT_TEAM_CAP);
 });
 
-test('#1279: the cap is overridable -- opts.cap, then env, then the default', () => {
-  // opts.cap raises it
-  let deps = okDeps();
+test('#1279: the cap is overridable ONLY through the trusted channel -- deps.cap, then env, then the default', () => {
   const members = Array.from({ length: DEFAULT_TEAM_CAP + 1 }, (_, i) => ({ name: 'A' + i, role: 'r' }));
-  assert.equal(createTeam({ creator: 'PM', purpose: 'x', members, cap: DEFAULT_TEAM_CAP + 1 }, deps).outcome, 'created');
-  // env raises it when opts.cap is absent
+  // deps.cap (the operator/seam channel) raises it
+  let deps = { ...okDeps(), cap: DEFAULT_TEAM_CAP + 1 };
+  assert.equal(createTeam({ creator: 'PM', purpose: 'x', members }, deps).outcome, 'created');
+  // env raises it when deps.cap is absent
   deps = okDeps(null, { AGENT_WORKFORCE_TEAM_CAP: String(DEFAULT_TEAM_CAP + 1) });
   assert.equal(createTeam({ creator: 'PM', purpose: 'x', members }, deps).outcome, 'created');
-  // opts.cap lowers it too, and refuses below the request
-  deps = okDeps();
-  const two = createTeam({ creator: 'PM', purpose: 'x', members: [{ name: 'A', role: 'r' }, { name: 'B', role: 'r' }], cap: 1 }, deps);
+  // deps.cap lowers it too, and refuses below the request
+  deps = { ...okDeps(), cap: 1 };
+  const two = createTeam({ creator: 'PM', purpose: 'x', members: [{ name: 'A', role: 'r' }, { name: 'B', role: 'r' }] }, deps);
   assert.equal(two.outcome, 'refused');
   assert.match(two.because, /the cap is 1/);
-  // an invalid cap falls through to the default rather than disabling the bound
-  deps = okDeps(null, { AGENT_WORKFORCE_TEAM_CAP: 'not-a-number' });
-  const over = createTeam({ creator: 'PM', purpose: 'x', members, cap: 0 }, deps);
+  // an invalid deps.cap and a garbage env both fall through to the default
+  deps = { ...okDeps(null, { AGENT_WORKFORCE_TEAM_CAP: 'not-a-number' }), cap: 0 };
+  const over = createTeam({ creator: 'PM', purpose: 'x', members }, deps);
   assert.equal(over.outcome, 'refused', 'cap:0 and a garbage env must not disable the cap');
   assert.match(over.because, new RegExp('the cap is ' + DEFAULT_TEAM_CAP));
+});
+
+test('#1279: opts.cap is IGNORED -- the request cannot raise its own bound (Kosmos owns it)', () => {
+  // The security property behind "Kosmos owns the bound, not the prompt": a cap
+  // set in opts (the same object that carries members, i.e. the model's request)
+  // must have NO effect. A team over the default with a huge opts.cap is refused.
+  const deps = okDeps();
+  const members = Array.from({ length: DEFAULT_TEAM_CAP + 1 }, (_, i) => ({ name: 'A' + i, role: 'r' }));
+  const r = createTeam({ creator: 'PM', purpose: 'x', members, cap: 9999 }, deps);
+  assert.equal(r.outcome, 'refused', 'a cap in the request raised the bound -- the runaway guard is defeated');
+  assert.match(r.because, new RegExp('the cap is ' + DEFAULT_TEAM_CAP));
+  assert.equal(deps.createAgent.calls.length, 0);
+});
+
+test('#1279: MAX_TEAM_CAP ceiling -- even a trusted override cannot ask for a runaway', () => {
+  // deps.cap above the ceiling is bounded to the ceiling, so a request larger
+  // than the ceiling is refused and names the ceiling, not the requested cap.
+  const deps = { ...okDeps(), cap: 100000 };
+  const members = Array.from({ length: MAX_TEAM_CAP + 1 }, (_, i) => ({ name: 'A' + i, role: 'r' }));
+  const r = createTeam({ creator: 'PM', purpose: 'x', members }, deps);
+  assert.equal(r.outcome, 'refused');
+  assert.match(r.because, new RegExp('the cap is ' + MAX_TEAM_CAP), 'the effective cap was not bounded to the ceiling');
+  assert.equal(deps.createAgent.calls.length, 0, 'a 100000-cap override let the loop start');
+  // ...and exactly at the ceiling is allowed with that override.
+  const atCeiling = Array.from({ length: MAX_TEAM_CAP }, (_, i) => ({ name: 'A' + i, role: 'r' }));
+  assert.equal(createTeam({ creator: 'PM', purpose: 'x', members: atCeiling }, { ...okDeps(), cap: 100000 }).outcome, 'created');
 });
 
 test('#1279: id is null when the profile cannot be read back (DRY_RUN / no profile), never invented', () => {

@@ -59,22 +59,41 @@ function defaultReadAgentId(name) {
 
 /* The Kosmos-owned default. A team assembled for one stated purpose is a handful
    of agents; a request for more than this is far likelier a runaway or a mistake
-   than a real org, and Kosmos should say so rather than obey it. Overridable, so
-   a genuine large build is possible deliberately -- opts.cap first, then the
-   AGENT_WORKFORCE_TEAM_CAP env for an operator default, then this. The cap only
+   than a real org, and Kosmos should say so rather than obey it. The cap only
    ever REFUSES a too-large request; it never trims one silently, because a team
    quietly cut to 12 is its own invisible failure. */
 const DEFAULT_TEAM_CAP = 12;
 
-function resolveCap(opts, env) {
-  const fromOpt = opts && opts.cap;
-  if (Number.isInteger(fromOpt) && fromOpt > 0) return fromOpt;
+/* 🛑 THE CEILING NO OVERRIDE MAY EXCEED. "Kosmos owns the bound" has to survive a
+   deliberate override too: an operator (or a bug) setting cap to a billion would
+   turn the loop below into a runaway of its own. So even a trusted override is
+   bounded to this. More than this in ONE request is not a team, it is a fleet,
+   and belongs in deliberate separate calls. */
+const MAX_TEAM_CAP = 50;
+
+/* 🔑 THE CAP OVERRIDE COMES ONLY FROM THE TRUSTED CHANNEL, NEVER FROM `opts`.
+   This is the whole of "Kosmos owns the bound, not the prompt": `opts` carries
+   the REQUEST (the members a PM agent asked for), and if the override lived there
+   a model could raise its own cap and the runaway guard would be defeated by the
+   very request it exists to bound. So the override is read from `deps.cap` (set
+   by the authoring seam from OPERATOR config, not the model) and the operator env
+   AGENT_WORKFORCE_TEAM_CAP -- both trusted, neither reachable from the model's
+   request. "Pass a higher cap deliberately" means the OPERATOR, through deps/env,
+   and even they are bounded by MAX_TEAM_CAP. */
+function resolveCap(deps, env) {
+  let cap = DEFAULT_TEAM_CAP;
+  const fromDep = deps && deps.cap;
   const fromEnv = env && env.AGENT_WORKFORCE_TEAM_CAP;
-  if (fromEnv !== undefined && fromEnv !== null && String(fromEnv).trim() !== '') {
+  if (Number.isInteger(fromDep) && fromDep > 0) {
+    cap = fromDep;
+  } else if (fromEnv !== undefined && fromEnv !== null && String(fromEnv).trim() !== '') {
     const n = Number(fromEnv);
-    if (Number.isInteger(n) && n > 0) return n;
+    if (Number.isInteger(n) && n > 0) cap = n;
   }
-  return DEFAULT_TEAM_CAP;
+  /* Bounded, not silently trimmed of members: the EFFECTIVE cap is at most the
+     ceiling, and a too-large team is then refused against that effective number,
+     which the refusal names honestly. */
+  return Math.min(cap, MAX_TEAM_CAP);
 }
 
 /**
@@ -88,13 +107,15 @@ function resolveCap(opts, env) {
  *   reason -- recording WHY is the drift guard, so a team with no why defeats it.
  * @param {Array<object>} opts.members  one create.createAgent opts object per
  *   agent ({name, role, ...}). Must be a non-empty array no longer than the cap.
- * @param {number} [opts.cap]  override the team-size cap (positive integer).
- * @param {object} [deps]  { createAgent, readAgentId, env } -- injectable seam
- *   for tests; defaults to create.createAgent, the profile-id reader, and
- *   process.env.
- * @returns {{outcome:'created'|'partial'|'refused', created:Array<{name,id}>,
- *   refused:Array<{name,because}>, because:(string|null), creator:string,
- *   purpose:string, cap:number}}
+ *   NOTE: `opts` carries the REQUEST only. It deliberately has no cap field -- a
+ *   cap on the request would let a model raise its own bound.
+ * @param {object} [deps]  { createAgent, readAgentId, cap, env } -- the TRUSTED
+ *   channel, injectable for tests; defaults to create.createAgent, the profile-id
+ *   reader, and process.env. `deps.cap` is the operator/seam cap override (never
+ *   the model's), bounded by MAX_TEAM_CAP.
+ * @returns {{outcome:'created'|'partial'|'refused',
+ *   created:Array<{name,shownAs,id}>, refused:Array<{name,because}>,
+ *   because:(string|null), creator:string, purpose:string, cap:number}}
  */
 function createTeam(opts, deps) {
   const doCreate = (deps && typeof deps.createAgent === 'function') ? deps.createAgent : create.createAgent;
@@ -104,7 +125,7 @@ function createTeam(opts, deps) {
   const creator = (opts && typeof opts.creator === 'string') ? opts.creator.trim() : '';
   const purpose = (opts && typeof opts.purpose === 'string') ? opts.purpose.trim() : '';
   const members = (opts && Array.isArray(opts.members)) ? opts.members : null;
-  const cap = resolveCap(opts, env);
+  const cap = resolveCap(deps, env);
 
   /* Pre-flight refusals: nothing is created, so `created`/`refused` stay empty
      and `because` carries the one reason. Whole-or-not-at-all for the request
@@ -119,7 +140,7 @@ function createTeam(opts, deps) {
   if (members.length === 0) return refuseAll('a team with no members is nothing to build');
   if (members.length > cap) {
     return refuseAll('that is ' + members.length + ' agents in one request and the cap is ' + cap
-      + '. Kosmos holds this bound rather than the prompt, so a "build me a team" cannot run away. Split it, or pass a higher cap deliberately.');
+      + '. Kosmos holds this bound rather than the prompt, so a "build me a team" cannot run away. Split it into separate calls, or have the OPERATOR raise the cap (up to ' + MAX_TEAM_CAP + ').');
   }
 
   const created = [];
@@ -145,7 +166,16 @@ function createTeam(opts, deps) {
          which carries no id. Same source create.createAgent's own birth record
          reads (#170), so the two can never disagree. */
       const createdName = out.name || memberName;
-      created.push({ name: createdName, id: (createdName ? readId(createdName) : null) });
+      /* name is the canonical SLUG (what addresses the agent everywhere); shownAs
+         is the display name the person would read, which create.createAgent
+         returns separately and which is dropped if not carried here. A caller
+         listing a freshly-built team needs both: the slug to address, the shown
+         name to render. */
+      created.push({
+        name: createdName,
+        shownAs: (out.shownAs !== undefined && out.shownAs !== null) ? out.shownAs : createdName,
+        id: (createdName ? readId(createdName) : null),
+      });
     } else {
       refused.push({ name: memberName, because: (out && out.because) ? String(out.because) : 'creation refused for a reason it did not name' });
     }
@@ -167,4 +197,4 @@ function createTeam(opts, deps) {
   return { outcome, created, refused, because, creator, purpose, cap };
 }
 
-module.exports = { createTeam, DEFAULT_TEAM_CAP };
+module.exports = { createTeam, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };
