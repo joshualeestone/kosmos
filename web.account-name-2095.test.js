@@ -71,8 +71,8 @@ test('#2095: a whitespace-only name never wins (falls through)', () => {
 });
 
 test('#2095: a Claude account is unchanged - email stays the primary label', () => {
-  const a = { provider: 'anthropic', email: 'josh@stuff.io', dir: '/x/.claude' };
-  assert.equal(acctPrimaryName(a), 'josh@stuff.io');
+  const a = { provider: 'anthropic', email: 'josh@example.com', dir: '/x/.claude' };
+  assert.equal(acctPrimaryName(a), 'josh@example.com');
 });
 
 test('#2095: with neither name, email nor keyTail, falls to label then dir', () => {

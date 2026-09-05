@@ -61,7 +61,7 @@ function claude(email, dir) {
 const ACCOUNTS = [
   openai('account1', 'NfYA', 'named', true),
   openai(null, 'ZZ99', 'nameless', false),
-  claude('josh@stuff.io', 'main'),
+  claude('josh@example.com', 'main'),
   openai('x<b>y', 'QQQQ', 'xss', false),
 ];
 
@@ -128,7 +128,7 @@ const ACCOUNTS = [
   }
 
   // 3. The Claude account is unchanged: email is the primary label.
-  if (!byPrimary['josh@stuff.io']) {
+  if (!byPrimary['josh@example.com']) {
     problems.push('the Claude account no longer shows its email as the primary label (Claude rows must be untouched)');
   }
 
