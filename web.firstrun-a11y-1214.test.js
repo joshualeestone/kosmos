@@ -34,7 +34,7 @@ const SCRIPT = scriptOf(PAGE);
    About-you is fr-pane-6. */
 const OFFER = PAGE.slice(PAGE.indexOf('id="fr-pane-5"'), PAGE.indexOf('id="fr-pane-6"'));
 
-test('kosmos#1214/#1940: the first-run Accessibility pane offers the button, and Continue is the out', () => {
+test('kosmos#1214/#1940/#2125: the first-run Accessibility pane offers the button, and Continue is now GATED', () => {
   assert.ok(OFFER.indexOf('id="fr-pane-5"') > -1 && OFFER.length > 0, 'the offer pane exists');
   assert.match(OFFER, /id="fr-a11y-open"/, 'it has its own Open Accessibility settings button');
   // #1940 (Josh's copy, Mona Lisa's design): the copy names the exact action.
@@ -42,14 +42,17 @@ test('kosmos#1214/#1940: the first-run Accessibility pane offers the button, and
   // source, so a single-space match across the newline would miss).
   assert.match(OFFER, /'Tmux' in Accessibility to enable this/,
     'the copy names the exact action -- turn on Tmux in Accessibility (Josh ruled the plain words, not the reassuring ones)');
-  // #1940 removed the in-pane "This one is optional ... or later in Settings" line
-  // (Josh's copy). The offer-not-require RULING is unchanged; the out is now the
-  // shared Continue button, not an in-pane sentence. Assert the MECHANISM, not the
-  // deleted wording: step 5's Continue proceeds to frGo(6) unconditionally (no gate).
-  assert.match(SCRIPT, /step === 5[\s\S]{0,1000}frActions\(\{ label: 'Continue', go: \(\) => frGo\(6\) \}\)/,
-    'the Accessibility step Continue proceeds unconditionally (offer-not-require preserved via Continue)');
+  // #2125 slice 3 (Josh, 2026-09-04) SUPERSEDES #1214's offer-not-require: step 5's
+  // Continue is now GATED on a real Accessibility check. It proceeds to frGo(6) ONLY
+  // when fr-next is not disabled; frPollA11y disables it on a POSITIVE not-trusted
+  // reading and re-enables it the instant the user grants -- a browser (uncheckable)
+  // and any read failure fail SAFE, so Continue stays live. Assert the GATED mechanism.
+  assert.match(SCRIPT, /step === 5[\s\S]{0,1400}frActions\(\{ label: 'Continue', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(6\); \} \}\)/,
+    'the Accessibility step Continue is GATED -- proceeds to step 6 only when not disabled by the check (#2125 supersedes offer-not-require)');
+  assert.match(SCRIPT, /step === 5[\s\S]{0,1400}frPollA11y\(/,
+    'step 5 starts the Accessibility gate poll (frPollA11y), which drives the disabled state');
   assert.doesNotMatch(OFFER, /This one is optional/,
-    '#1940: the redundant in-pane optional line is gone -- Continue is the out');
+    '#1940: the redundant in-pane optional line is gone');
 });
 
 test('kosmos#1214: the offer reuses the SAME action as the Settings button, not a new mechanism', () => {
@@ -63,7 +66,7 @@ test('kosmos#1214: the offer reuses the SAME action as the Settings button, not 
     'the Settings button is unchanged and shares the endpoint');
 });
 
-test('kosmos#1214/#1940: the Settings box name is stable; #1940 removed the first-run "later in Settings" pointer', () => {
+test('kosmos#1214/#2125: the Settings box name is stable; #2125 replaced the first-run pointer with what-to-toggle guidance', () => {
   // The Settings side is unchanged: the accessibility toggle still sits under the
   // "Keeping agents running" box. This stays the ground truth for where you turn
   // it on later.
@@ -76,38 +79,38 @@ test('kosmos#1214/#1940: the Settings box name is stable; #1940 removed the firs
   assert.equal(boxLabel, 'Keeping agents running',
     'sanity: the box holding the button is the one this offer names');
 
-  // The #1214 property that matters: the first-run offer POINTS a person at THAT
-  // box by its real name, so a Settings reorganisation fails here rather than
-  // leaving a wrong direction on a live screen. #1940 REWORDED the pointer (Mona
-  // Lisa's decision after I flagged that deleting the whole line silently reverted
-  // this out): the pushy "This one is optional ... now, or later" framing is gone,
-  // but the orientation "You can turn this on anytime in Settings, under Keeping
-  // agents running" stays -- so the location pin still holds.
-  assert.ok(OFFER.includes(boxLabel),
-    'the first-run offer must name the box that actually holds the button ('
-    + boxLabel + '); a Settings reorganisation would break this, which is the point');
+  // #2125 slice 3 SUPERSEDED the #1214 "point at the Settings box" out. The step is
+  // no longer optional-with-a-later-pointer (Continue is gated), so the "anytime in
+  // Settings, under Keeping agents running" sentence is GONE -- replaced by
+  // what-to-toggle guidance that names WHERE the toggle actually is (the Accessibility
+  // list) and the Automation grant macOS may also ask for. The Settings box itself,
+  // asserted above, is unchanged ground truth for turning it on later.
+  assert.match(OFFER, /Find <b>Tmux<\/b> in the Accessibility list/,
+    'the first-run offer names where the toggle actually is (the Accessibility list); #2125 replaced the old Settings-box pointer');
+  assert.match(OFFER, /control your computer/,
+    'the guidance also names the Automation grant macOS may ask for (both grants tmux needs)');
   assert.doesNotMatch(OFFER, /This one is optional/,
-    '#1940: the pushy "optional / now-or-later" framing is gone (the pointer stays, reworded)');
+    '#1940: the pushy "optional / now-or-later" framing is gone');
 });
 
-test('kosmos#1214: the step is wired -- 7 steps, Accessibility at 5, Continue proceeds without granting', () => {
+test('kosmos#1214/#2125: the step is wired -- 7 steps, Accessibility at 5, Continue GATED on the check', () => {
   assert.match(SCRIPT, /const FR_STEPS = 7;/, 'the wizard now has 7 steps');
   assert.match(SCRIPT, /const FR_STEP_YOU = 6;/, 'About-you moved to step 6');
   assert.match(SCRIPT, /5: 'Accessibility', 6: 'About you', 7: 'Your agents'/,
     'the eyebrows place Accessibility at 5, About-you at 6, the fleet at 7');
-  // Step 5's branch sets a title and a Continue that goes to step 6 regardless of
-  // whether the person opened the setting (offer-not-require: no gate on Continue).
   const step5 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 5) {'),
     SCRIPT.indexOf('} else if (step === 6) {'));
   assert.match(step5, /fr-title'\)\.textContent = '[^']*your other apps/i, 'step 5 sets its own title');
-  assert.match(step5, /frActions\(\{ label: 'Continue', go: \(\) => frGo\(6\) \}\)/,
-    'Continue proceeds to About-you (step 6) with no second gate -- the offer is not required');
-  // frActions is called with a SINGLE argument (just the primary Continue): no
-  // alt, no conditional go, so nothing gates proceeding on the grant. (Contrast
-  // the About-you step, whose Continue waits on two required fields.)
-  const actionsCall = step5.match(/frActions\([\s\S]*?\}\);/);
-  assert.ok(actionsCall && !/\bnext\.disabled\b|aria-disabled|if \(next\.disabled\)/.test(actionsCall[0]),
-    'the step-5 actions do not gate Continue on anything');
+  // #2125 slice 3 (Josh, 2026-09-04) SUPERSEDES the 09-01 offer-not-require: step 5's
+  // Continue is GATED on a real Accessibility check. It proceeds to frGo(6) ONLY when
+  // fr-next is not disabled, and frPollA11y drives that disabled state -- it disables
+  // on a POSITIVE not-trusted reading and re-enables on trusted; a browser
+  // (uncheckable) and any read failure fail SAFE (Continue stays live), so the gate
+  // never strands a browser tester or an unreadable machine.
+  assert.match(step5, /frActions\(\{ label: 'Continue', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(6\); \} \}\)/,
+    'Continue is gated: it proceeds to About-you (step 6) only when the check has not disabled it');
+  assert.match(step5, /frPollA11y\(/,
+    'step 5 starts the Accessibility gate poll (frPollA11y), the mechanism that drives the disabled state');
 });
 
 test('kosmos#1214: no em dashes in the offer copy (house rule)', () => {
