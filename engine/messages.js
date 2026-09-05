@@ -570,6 +570,17 @@ function rowShaped(m) {
       && typeof m.text === 'string'
       && Boolean(m.outcomes) && typeof m.outcomes === 'object' && !Array.isArray(m.outcomes);
   }
+  /* #2255: a reaction EVENT, exactly what react() writes. Given its own rule
+     rather than riding the unknown-kind fallthrough below, so a malformed
+     reaction row is dropped at read time like every other first-class kind --
+     writes are already validated in react(), this is the read-side half. The
+     reactor is either the operator (`operator:true`) or an agent's name
+     (`from`), matching reactionsFor's `operator===true ? 'you' : m.from`. */
+  if (m.kind === 'reaction') {
+    return str(m.of) && str(m.emoji) && str(m.project)
+      && (m.op === 'add' || m.op === 'remove')
+      && (m.operator === true || str(m.from));
+  }
   return true;
 }
 
@@ -1712,15 +1723,14 @@ function react({ project, of, emoji, from, operator, members }) {
   if (operator !== true && reactor === 'you') {
     return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
   }
-  const rec = record();
-  const rows = rec.rows;
-  const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
-  if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   /* #2255: the room is its members. An AGENT reacting into a room it is not on
      is the same cross-room write the post model refuses (sendPost's membership
      gate) -- a reaction is lighter than a post, but it is still a write into a
      room that is not the agent's. The operator is in every room they own, so
-     the gate is agent-only, exactly as sendPost's is. */
+     the gate is agent-only, exactly as sendPost's is. Checked BEFORE the post
+     lookup so a non-member's refusal is uniform whether or not the id they
+     named happens to exist -- the post lookup below would otherwise leak
+     "no such post" vs "not on that project" as a (minor) id-enumeration tell. */
   if (operator !== true) {
     if (!Array.isArray(members) || !members.every((m) => typeof m === 'string' && m)) {
       return { ok: false, because: 'we could not read who is on that project, so nothing was reacted' };
@@ -1729,6 +1739,10 @@ function react({ project, of, emoji, from, operator, members }) {
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' };
     }
   }
+  const rec = record();
+  const rows = rec.rows;
+  const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
+  if (!post) return { ok: false, because: 'there is no post by that id in this room' };
   const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
   const has = !!(cur && cur.who.includes(reactor));
   const op = has ? 'remove' : 'add';

@@ -143,6 +143,25 @@ test('#2255: an agent must be ON the project to react (room isolation), the oper
     'the operator reaction did not store the operator flag');
 });
 
+test('#2255: rowShaped drops a malformed reaction row at read time, keeps a well-formed one', () => {
+  fs.mkdirSync(require('node:path').dirname(messages.LOG), { recursive: true });
+  const at = new Date().toISOString();
+  // A well-formed reaction (what react() writes) is kept; malformed rows -- no
+  // emoji, no op, no reactor -- are dropped by the new kind rule rather than
+  // riding the unknown-kind fallthrough into record().rows.
+  const good = { kind: 'reaction', project: 'p', of: 'm1', emoji: THUMB, op: 'add', from: 'zeta', at };
+  const noEmoji = { kind: 'reaction', project: 'p', of: 'm1', op: 'add', from: 'zeta', at };
+  const noOp = { kind: 'reaction', project: 'p', of: 'm1', emoji: THUMB, from: 'zeta', at };
+  const noReactor = { kind: 'reaction', project: 'p', of: 'm1', emoji: THUMB, op: 'add', at };
+  for (const r of [good, noEmoji, noOp, noReactor]) {
+    fs.appendFileSync(messages.LOG, JSON.stringify(r) + '\n', 'utf8');
+  }
+  const rows = messages.record().rows.filter((m) => m.kind === 'reaction');
+  assert.equal(rows.length, 1, 'exactly the well-formed reaction survived rowShaped');
+  assert.equal(rows[0].emoji, THUMB);
+  assert.equal(rows[0].from, 'zeta');
+});
+
 test('#2255: "you" is reserved for the operator - an agent named "you" cannot react under it', () => {
   seedPost('m1', 'p', 'leo');
   // reactionsFor maps the operator flag (not a stored name) to "you"; an agent
