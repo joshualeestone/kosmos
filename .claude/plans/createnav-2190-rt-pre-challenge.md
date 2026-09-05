@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: createnav-2190-rt
-diff_hash: 2e91f5bc492e6fd1dce44d4a6e072de867f99fa50a472f6975d26dcaa8aa0bca
+diff_hash: 8d479f30932ae5a5c9021971fe044a92c7ba6ac9c7745a9464ad67cc2aa12961
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-05T15:15:53Z
@@ -76,3 +76,12 @@ checkout), rebased onto current green main as `createnav-2190-rt`. The 2 reds sh
 resolved by Baron's 6.35 step-3b (render-create-form was a stale-checkout artifact; render-accounts-
 openai was Kitty's separate stale check, fixed in #2235) -- neither is #2190's nav change, confirmed
 by the nav-only diff scope. No render-check blocker.
+
+## Rebased for a merge conflict (2026-09-05, after convergence)
+main advanced (#1926 render-talk-anchor-1926 merged, touching the same hot wiring files), so the
+branch was rebased onto origin/main. The only conflicts were mechanical wiring-count reconciliation:
+the no-boot browser-checks.sh loop now carries BOTH render-createnav-2190 and render-talk-anchor-1926,
+and the reason-grep counts were reconciled to the combined totals (EXPECTED_SITES 43->44,
+EXPECTED_CATCH_SITES 25->26). No code-logic change, so the challenge-loop convergence still holds;
+full suite re-run 4592/4592 green and the hermetic check re-verified (EXIT 0). diff_hash updated to
+the rebased diff.
