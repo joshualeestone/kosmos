@@ -22,8 +22,9 @@ account/model, NOT how the agent itself was identified.
   pane id is enumerable and this route is unauthenticated, so the pane case is exactly the mismatch
   the card is about. Re-derived at the endpoint (not threaded back through `resolveAgentSender`)
   because report/reply share that resolver and do not want this label.
-- **Projects** = `projects.projectsFor(name, roster)` names; fails soft to none so an unreadable
-  projects store never turns "who am I" into an error.
+- **Projects** = `projects.namesFor(name)` (a pure membership+names read added for this; NOT
+  `projectsFor`, which maps `describe` and can `writeAll` to heal `everSeen` -- a whoami read must not
+  write). Fails soft to none so an unreadable projects store never turns "who am I" into an error.
 
 ## The change
 - `server.js`: two small board-side composers `whoamiIdentityClause(name, source)` and
