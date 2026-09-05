@@ -105,14 +105,23 @@ function setOn(on) {
 function scrub(text) {
   if (text == null) return '';
   let out = String(text);
-  // Any macOS home dir: /Users/<name> -> ~  (stop at the next / or whitespace
-  // or quote, so only the home segment is replaced, not the whole path).
-  out = out.replace(/\/Users\/[^/\s"']+/g, '~');
-  // This machine's own home, for the non-/Users case (CI, Linux). No-op on
-  // macOS where the line above already handled it.
+  // Any macOS or Linux account home: /Users/<name> or /home/<name> -> ~. The
+  // segment stops at the next / or whitespace or quote, so ONLY the home
+  // segment is replaced and EVERY account is covered (not just this machine's)
+  // -- a report can quote another agent's path, and that name must not leave
+  // either.
+  out = out.replace(/\/(?:Users|home)\/[^/\s"']+/g, '~');
+  // This machine's own home, for an exotic layout the shapes above miss (a
+  // custom $HOME, /var/root). BOUNDED with a lookahead so a home that PREFIXES
+  // another dir is not half-rewritten -- an unbounded substring replace turns
+  // /home/jo into ~ inside /home/joanna, corrupting the body and leaking a
+  // fragment.
   let home = null;
   try { home = os.homedir(); } catch { home = null; }
-  if (home && !/^\/Users\//.test(home)) out = out.split(home).join('~');
+  if (home && !/^\/(?:Users|home)\//.test(home)) {
+    const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(esc + '(?=[/\\s"\']|$)', 'g'), '~');
+  }
   return out;
 }
 

@@ -59,6 +59,15 @@ test('scrub rewrites this machine\'s home and any /Users/<name> to ~', () => {
   assert.equal(feedbacksend.scrub(null), '');
 });
 
+test('scrub covers OTHER accounts (/home/<name>) with a boundary, no prefix corruption', () => {
+  // Every account, not just this machine's -- a report can quote another
+  // agent's path. And a bounded match: /home/jo must not eat into /home/joanna
+  // (the unbounded-substring bug that would leave a leaked "anna" fragment).
+  assert.equal(feedbacksend.scrub('/home/joanna/notes.md'), '~/notes.md');
+  assert.equal(feedbacksend.scrub('a /home/jo b /home/joanna/x'), 'a ~ b ~/x');
+  assert.equal(feedbacksend.scrub('/Users/alice and /Users/alicia/x'), '~ and ~/x');
+});
+
 test('payload matches the #2246 collect contract exactly, with a scrubbed body', () => {
   feedback.write('the + button did nothing at /Users/someagent/proj', { date: '2026-09-04' });
   const p = feedbacksend.payload('2026-09-04');
