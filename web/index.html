@@ -9898,10 +9898,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            Josh: "I'd like to include a picture of the icon to remind people that
            they can add it to their desktop... It doesn't have to be huge, just
            something that will visually grab their attention."
-           ⚠️ THE SENTENCE SAYS "IT" AND HAD NOTHING TO POINT AT. "Drag it onto
-           the Dock" asks somebody to find a thing in a folder of hundreds by a
-           name they met ten minutes ago. The picture is the referent, so this is
-           the sentence becoming answerable rather than decoration next to it.
+           ⚠️ THE SENTENCE SAYS "IT" AND NEEDS SOMETHING TO POINT AT. "Drag it to
+           the far left" asks somebody to pick one icon out of the row in their Dock
+           by an app they met ten minutes ago. The picture is the referent, so this
+           is the sentence becoming answerable rather than decoration next to it.
+           (kosmos#2258: the line no longer says "onto the Dock". On a fresh install
+           Kosmos is already in the Dock, so that sent people to drag a second copy;
+           it now says it is already there, drag it to the far left. The icon still
+           points at "it".)
            📌 kosmos-180 drawn at 44px, NOT kosmos-48. A 48px source at 48px is
            soft on every Mac made in a decade, and a blurry picture of the icon is
            worse than none: the whole job is "recognise this exact thing later".
@@ -9911,7 +9915,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <img class="dockrow-i" src="/icons/kosmos-180.png" width="44" height="44"
              alt="The Kosmos app icon" decoding="async">
         <p class="dhint" style="margin:0;">
-          Drag it onto the Dock to keep it one click away.
+          Kosmos is already in your Dock. Drag it to the far left so it stays handy.
         </p>
       </div>
     </section>
