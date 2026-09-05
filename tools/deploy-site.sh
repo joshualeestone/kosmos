@@ -48,6 +48,16 @@
 # Usage:
 #   tools/deploy-site.sh              # DRY RUN: fetch + verify + export + guards, then stop
 #   tools/deploy-site.sh --publish    # the same, then vercel deploy --prod, then verify SERVED bytes
+#   tools/deploy-site.sh --promote    # PUBLISH a pointer-MOVE deploy (#2195): serve the COMMITTED
+#                                     # latest.json even though it differs from live (a staging->prod
+#                                     # promote, or a rollback to a prior pointer). Skips the
+#                                     # committed-vs-live guard (the pointer moved on purpose),
+#                                     # derives the artifact from the committed pointer, and derives
+#                                     # the unversioned alias from the promoted bytes instead of
+#                                     # fetching the stale live one. Run promote-channel.sh (#2036,
+#                                     # which runs the experience + agent-spawn gates and refreshes
+#                                     # the alias LOCALLY) and COMMIT latest.json first; this is the
+#                                     # deploy that publishes it.
 #
 # NOTE ON THE SHELL: this is #!/bin/sh but sources two #!/bin/bash libraries (site-deploy.sh,
 # pkg-inputs.sh) that use `local` and ${var:0:2} substrings, so it needs a bash-compatible /bin/sh.
@@ -64,7 +74,17 @@ HOST="${KOSMOS_SITE_URL:-https://installkosmos.com}"
 WINZIP="${KOSMOS_WIN_ZIP:-kosmos-0.6.24-win-x64.zip}"
 
 PUBLISH=0
-[ "${1:-}" = "--publish" ] && PUBLISH=1
+PROMOTE=0
+# --promote (#2195) is a POINTER-MOVE deploy: it publishes a latest.json that intentionally
+# differs from the live one (a staging->prod promote, or a rollback to a prior pointer). It
+# implies --publish (a promote deploys). promote-channel.sh (#2036) does the guarded LOCAL
+# pointer move + alias refresh; this is the deploy that publishes it. Default PROMOTE=0 so the
+# site-copy guard below stays armed for every ordinary deploy. Unknown args fall through to a
+# dry run, exactly as before (no behaviour change for existing callers).
+case "${1:-}" in
+  --publish) PUBLISH=1 ;;
+  --promote) PUBLISH=1; PROMOTE=1 ;;
+esac
 
 # --- preconditions -----------------------------------------------------------
 git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "deploy-site: $SITE is not a git checkout with a HEAD"; exit 1; }
@@ -107,24 +127,56 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # (that would leave dirty tracked files a later `git commit -a` could sweep up); only the gitignored
 # set is fetched, and every fetched byte is sha-verified.
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
-# tolerant of an optional space after the colon in case latest.json is ever pretty-printed; an empty
-# result still refuses at the [ -n "$ART" ] guard (fail-safe).
-ART=$(printf '%s' "$LJ" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p')
-[ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
-# 🛑 COMMITTED-vs-LIVE POINTER GUARD (#2014 review). The served latest.json is the COMMITTED one
-# (git archive of $H). Compare the WHOLE committed pointer against live, not just the artifact name:
-# a rebuilt same-version tarball or a hand-edited pointer can drift in sha256/manifest under an
-# unchanged artifact name and ship a latest.json whose advertised sha256 does not match the served
-# tarball. If committed != live the checkout is stale or ahead of the current release, and a
-# site-copy deploy must never move the installer pointer -- refuse and sync the checkout first. A
-# copy/marketing change never touches dist/latest.json, so committed == live exactly in the intended
-# workflow and this never false-refuses. (Both sides are command-substitution captures, so a
-# trailing-newline difference cannot cause a false refusal.)
-CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""   # a git-show failure must not set-e abort before the friendly refuse below
-[ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
+# The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
+# is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
+# must not set-e abort before the friendly refuses below.
+CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""
+# Pull artifact/sha out of a pointer JSON. Tolerant of an optional space after the colon in case
+# latest.json is ever pretty-printed; an empty result still refuses at the guards below (fail-safe).
+ptr_artifact() { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_sha()      { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+
+if [ "$PROMOTE" = 1 ]; then
+  # 🛑 A PROMOTE MOVES THE POINTER ON PURPOSE (#2195), so the committed-vs-live guard must NOT fire,
+  # and the artifact comes from the COMMITTED pointer -- the version we are promoting TO -- not from
+  # live, which is still the PRIOR prod version until this deploy publishes. The versioned artifact
+  # is already SERVED from the staging cut; that is exactly what makes a promote a pointer-only move,
+  # and it is why the fetch + sha-verify below still holds (the bytes exist on the live host). The
+  # LOCAL pointer move + alias refresh are promote-channel.sh's job (#2036); this is the deploy that
+  # publishes them.
+  [ -n "$CJ" ] || { echo "deploy-site: --promote but the checkout has no committed dist/latest.json at $H -- refusing"; exit 1; }
+  if [ "$CJ" = "$LJ" ]; then
+    echo "deploy-site: --promote but the committed latest.json already equals LIVE -- nothing to promote. Run promote-channel.sh and COMMIT latest.json first (a deploy serves the committed pointer, not the working tree)."; exit 1
+  fi
+  ART=$(ptr_artifact "$CJ")
+  [ -n "$ART" ] || { echo "deploy-site: --promote: the committed latest.json names no artifact -- refusing"; exit 1; }
+  CSHA=$(ptr_sha "$CJ")
+  [ -n "$CSHA" ] || { echo "deploy-site: --promote: the committed latest.json names no sha256 -- refusing"; exit 1; }
+else
+  ART=$(ptr_artifact "$LJ")
+  [ -n "$ART" ] || { echo "deploy-site: latest.json names no artifact -- refusing"; exit 1; }
+  # 🛑 COMMITTED-vs-LIVE POINTER GUARD (#2014 review). The served latest.json is the COMMITTED one
+  # (git archive of $H). Compare the WHOLE committed pointer against live, not just the artifact name:
+  # a rebuilt same-version tarball or a hand-edited pointer can drift in sha256/manifest under an
+  # unchanged artifact name and ship a latest.json whose advertised sha256 does not match the served
+  # tarball. If committed != live the checkout is stale or ahead of the current release, and a
+  # site-copy deploy must never move the installer pointer -- refuse and sync the checkout first. A
+  # copy/marketing change never touches dist/latest.json, so committed == live exactly in the intended
+  # workflow and this never false-refuses. (Both sides are command-substitution captures, so a
+  # trailing-newline difference cannot cause a false refusal.) A promote takes the branch above.
+  [ "$CJ" = "$LJ" ] || { echo "deploy-site: the checkout's COMMITTED latest.json differs from LIVE -- refusing. The checkout is stale or ahead of the current release; a site-copy deploy must not move the installer pointer. Sync $SITE to the current release, then retry."; exit 1; }
+fi
 fetch "$HOST/dist/$ART"          "$SITE/dist/$ART"
 fetch "$HOST/dist/$ART.sha256"   "$SITE/dist/$ART.sha256"
 verify_sha "$SITE/dist/$ART" "$HOST/dist/$ART.sha256"
+# For a promote, pin the committed pointer's advertised sha to the bytes we just fetched + verified:
+# proves the committed latest.json describes REAL, SERVED bytes (guards a hand-edited or stale
+# pointer that names a version whose bytes are not actually served). NOT keyed to latest-staging.json
+# on purpose -- a rollback promotes a PRIOR pointer, not the current staging one, and must still work.
+if [ "$PROMOTE" = 1 ]; then
+  gotsha=$(shasum -a 256 "$SITE/dist/$ART" | awk '{print $1}')
+  [ "$gotsha" = "$CSHA" ] || { echo "deploy-site: --promote: the committed latest.json advertises sha256 '$CSHA' but the served $ART hashes to '$gotsha' -- refusing (the pointer does not describe the served bytes)"; exit 1; }
+fi
 
 # the macOS pkg triple (fixed names)
 for f in Kosmos.pkg Kosmos.pkg.sha256 Kosmos.pkg.inputs; do
@@ -144,11 +196,33 @@ verify_sha "$SITE/dist/Kosmos.pkg" "$HOST/dist/Kosmos.pkg.sha256"
 # tmux-arm64 on every install (install/setup.sh:821) and falls back to the unversioned
 # kosmos-arm64 alias (setup.sh:898). Dropping either is the #1669 shape, one artifact over.
 # (arm64 only: tmux-x64 is not served -- measured 404 -- because the installer target is macOS.)
-for f in tmux-arm64.tar.gz tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz kosmos-arm64.tar.gz.sha256; do
-  fetch "$HOST/dist/$f" "$SITE/dist/$f"
-done
+# tmux is version-INDEPENDENT (the installer fetches it on every install, of any version), so it is
+# fetched live + verified in BOTH modes.
+fetch "$HOST/dist/tmux-arm64.tar.gz"        "$SITE/dist/tmux-arm64.tar.gz"
+fetch "$HOST/dist/tmux-arm64.tar.gz.sha256" "$SITE/dist/tmux-arm64.tar.gz.sha256"
 verify_sha "$SITE/dist/tmux-arm64.tar.gz"   "$HOST/dist/tmux-arm64.tar.gz.sha256"
-verify_sha "$SITE/dist/kosmos-arm64.tar.gz" "$HOST/dist/kosmos-arm64.tar.gz.sha256"
+
+# The unversioned alias kosmos-arm64.tar.gz is the prod download fallback (old installers, and a
+# modern install whose versioned fetch fails) and must track the CURRENT prod version.
+if [ "$PROMOTE" = 1 ]; then
+  # 🛑 On a promote the LIVE alias is still the PRIOR prod version (a staging cut deliberately leaves
+  # it there -- release.sh gates the alias publish on a prod cut, so the promote is where it moves).
+  # Fetching it would overwrite the promoted bytes with STALE ones and ship a stale fallback -- the
+  # #1669 shape, one artifact over. DERIVE the alias from the just-fetched + verified versioned
+  # artifact instead, so the served alias is byte-identical to the version we are promoting. This
+  # mirrors promote-channel.sh's own alias refresh (#2036) and is self-contained: correct even if the
+  # working-tree alias was never refreshed.
+  cp "$SITE/dist/$ART" "$SITE/dist/kosmos-arm64.tar.gz" || { echo "deploy-site: --promote: could not derive the alias kosmos-arm64.tar.gz from $ART -- refusing"; exit 1; }
+  # shellcheck source=/dev/null
+  . "$REPO/tools/lib/sha256-name.sh"
+  sha256_publish_as "$SITE/dist/$ART.sha256" "$SITE/dist/kosmos-arm64.tar.gz.sha256" "kosmos-arm64.tar.gz" \
+    || { echo "deploy-site: --promote: could not write a verified kosmos-arm64.tar.gz.sha256 -- refusing"; exit 1; }
+else
+  # site-copy: the live alias IS the current prod version -- fetch + verify it, as before.
+  fetch "$HOST/dist/kosmos-arm64.tar.gz"        "$SITE/dist/kosmos-arm64.tar.gz"
+  fetch "$HOST/dist/kosmos-arm64.tar.gz.sha256" "$SITE/dist/kosmos-arm64.tar.gz.sha256"
+  verify_sha "$SITE/dist/kosmos-arm64.tar.gz"   "$HOST/dist/kosmos-arm64.tar.gz.sha256"
+fi
 # Historical version tarballs (kosmos-0.6.08-arm64.tar.gz ..) are gitignored rollback URLs and are
 # DELIBERATELY OUT OF SCOPE here: rollback-only, not new-install-critical. A clean checkout drops
 # them (breaking a rollback link, not a new install). There is no manifest of the full set, so they
@@ -195,7 +269,7 @@ DROP=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { echo "deploy-sit
 [ -z "$DROP" ] || { echo "deploy-site: the export .vercelignore would drop $DROP -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 if [ "$PUBLISH" != 1 ]; then
-  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy."
+  echo "DRY RUN complete. The export carried Kosmos.pkg, the current tarball ($ART), tmux-arm64, the unversioned alias, the Windows zip, and an honest marker, and the .vercelignore guard passed. Re-run with --publish to deploy (or --promote to publish a moved pointer)."
   rm -rf "$EXPORT"   # a dry run leaves no temp dir behind; the summary above is the artifact
   exit 0
 fi
