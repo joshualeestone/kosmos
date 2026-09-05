@@ -94,7 +94,7 @@ const near = (a, b) => Math.abs(a - b) <= 0.5;
 
     // Set a reading on the open agent's own LAST entry and re-drive the real
     // openDetail wire, both in one evaluate so no 5s poll can interleave, then
-    // read the rendered ring. `firstDash` is the drawn arc length.
+    // read the rendered ring. `dashFirst` is the drawn arc length.
     async function ringFor(ctx) {
       await page.evaluate((c) => {
         const sn = CURRENT.sessionName;
