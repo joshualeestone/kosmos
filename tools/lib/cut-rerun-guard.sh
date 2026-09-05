@@ -65,6 +65,19 @@ kosmos_failing_test_files() {
 # between them (external contention clears with TIME); dismiss ONLY on a green, abort
 # on a persistent red. Returns 0 (contention, dismiss) or 1 (real red, abort).
 #
+# ISOLATION SCOPE, and how it differs from the file-by-file path: this re-runs the
+# WHOLE suite with node's internal file-parallelism INTACT, so it isolates only
+# EXTERNAL contention (an unrelated agent's page layer), NOT the cut's own cross-file
+# self-contention. That is correct for the fail-0 case -- node's tally is 0, so the
+# red is a post-node stage, not a self-contended node file; the file-by-file path
+# (which DOES remove cross-file concurrency) owns the fail>0 case. Node self-
+# contention on the rerun would red -> abort, the SAFE direction.
+#
+# COST: `max` shares the caller's budget with the file-by-file path, but each attempt
+# here is a full ~2-min `yarn test` (not a single file), so a genuinely-red fail-0
+# burns ~max x 2 min before aborting where the pre-#2006 code aborted at once. Safe-
+# direction and bounded; if the file path is ever given a higher `max`, split them.
+#
 # SEAMS (so the test proves both verdicts without a real 2-minute suite):
 #   KOSMOS_SUITE_RERUN_CMD   the command run in $repo (default `yarn test`)
 #   KOSMOS_SUITE_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
