@@ -200,7 +200,7 @@ fi
 # --- dir and probe-quiet (the NAME arm clean), so ONLY the marker arm can fire --
 # --- proving it works independently of the pgrep detection.
 # A live foreign-cookie marker refuses even when the name arm is clean.
-M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n%s\n' "$(ps -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
+M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n%s\n' "$(ps -ww -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
 out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
   || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
@@ -208,7 +208,7 @@ has "$out" "pid $p1" && pass "#1796 and it names the marked run's pid" || fail "
 kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
 
 # The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.
-M2="$T/m2"; mkdir -p "$M2"; ( sleep 30 ) & p2=$!; printf 'MINE\n%s\n' "$(ps -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
+M2="$T/m2"; mkdir -p "$M2"; ( sleep 30 ) & p2=$!; printf 'MINE\n%s\n' "$(ps -ww -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
 out="$(KOSMOS_RUN_MARKER_DIR="$M2" KOSMOS_RUN_COOKIE_CUT=MINE KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#1796 the caller's OWN marker (matching cookie) is not a reason to refuse" \
   || fail "#1796 own marker refused itself (rc=$rc, $out)"

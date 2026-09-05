@@ -136,9 +136,10 @@ kosmos_mark_run() {
   # outlives the process that wrote it, and the OS reuses pids, so `kill -0 <pid>`
   # alone reports an unrelated live process (a recycled pid landing on a system
   # daemon) as the marking run -- the 6.32 cut aborted on exactly that. Line 1 is
-  # the cookie (unchanged, for the self-exclusion read); line 2 is the command the
+  # the cookie (its VALUE unchanged; the read just moves to line 1) for the
+  # self-exclusion compare; line 2 is the command the
   # reader re-checks the live pid against.
-  printf '%s\n%s\n' "$cookie" "$(ps -o command= -p "$$" 2>/dev/null)" > "$dir/$type.$$" 2>/dev/null || return 0
+  printf '%s\n%s\n' "$cookie" "$(ps -ww -o command= -p "$$" 2>/dev/null)" > "$dir/$type.$$" 2>/dev/null || return 0
   return 0
 }
 
@@ -174,7 +175,7 @@ _kosmos_marker_other_live() {
     # NAME arm each guard OR's with this one, so unlinking an unverifiable marker
     # loses no real detection.
     stored_cmd="$(sed -n '2p' "$f" 2>/dev/null)"
-    live_cmd="$(ps -o command= -p "$pid" 2>/dev/null)"
+    live_cmd="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
     if [ -z "$stored_cmd" ] || [ "$stored_cmd" != "$live_cmd" ]; then
       rm -f "$f" 2>/dev/null
       continue

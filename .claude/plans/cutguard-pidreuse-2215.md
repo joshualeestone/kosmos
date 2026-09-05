@@ -34,6 +34,8 @@ verified live+matching-command marker still trips the marker arm).
 ## Rejected / weakest premise
 - Rejected option 2 (compare start-time via `ps -o lstart=`): the command match is the card's preferred
   robust fix and mirrors the existing name-arm discipline; `lstart` formatting is more fragile.
+- Both `ps` calls use `-ww` (unlimited width) so the command is never truncated to the terminal
+  width, and mark-time vs check-time output is byte-identical regardless of each process's `COLUMNS`.
 - Weakest premise: the residual case of a recycled PID running the byte-identical command
   (`bash tools/release.sh`) would still read as live. It is astronomically unlikely (a recycled PID
   landing on the exact same command line) and is the residual the card names for option 2; not worth
