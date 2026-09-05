@@ -72,3 +72,20 @@ gate it on ENG_ON; the check ships as the browser-check.
 - Open question for the repro to answer: which render path shows the terminal WITHOUT the
   ENG_ON gate (a project-page path missing pjApplyEngMode, or the detail/conversation view's
   own screen surface). Then gate exactly that path on ENG_ON.
+
+## OUTCOME 2026-09-04 ~23:15: bug does NOT reproduce on current main -> shipping a regression guard
+Controlled server-boot browser probe (a working agent + a project, eng-mode toggled):
+- eng-mode OFF: .pj-viewport, #pj-thread, and the detail #d-window are ALL hidden, on both
+  the project page and the agent-detail/conversation view.
+- eng-mode ON (the CONTROL proving the probe can see the terminal): .pj-viewport + #pj-thread
+  become VISIBLE.
+So eng-ON shows the terminal and eng-OFF hides it - the gating is correct on current main. The
+reported v0.6.28 leak is already fixed (the eng-mode gating was hardened by #370/#965/#2047
+since). Same class as the stale-card / stale-worktree bug filings.
+
+Decided (not building a speculative fix against fixed code): ship a REGRESSION GUARD instead.
+docs/browser-checks/render-engmode-gate-2131.js asserts eng-OFF hides the terminal on both
+views, the eng-ON control makes the SAME elements visible (so OFF is not vacuous), and the
+SAFETY arm pins the exemption the fix must never break (an ASKING agent keeps #d-qask visible
+in Off). 9 checks, a population floor, wired into browser-checks.sh + README. #2131 can be
+verify-and-closed on the next fresh 0.6.31 build. No web/index.html change (nothing to fix).
