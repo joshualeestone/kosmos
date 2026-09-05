@@ -160,22 +160,73 @@ function envOverridesFor(base, world) {
  * Does NOT switch to it -- switching is an explicit, separate act. Returns the
  * new world entry.
  */
+/*
+ * A fail-fast, cross-process lock around the registry read-modify-write (#1704
+ * slice 2). createWorld/setActiveWorld each read the registry, modify it, and write
+ * it back; two boards on one machine doing that at once would lost-update (both read
+ * the same file, both rename, last writer wins, the other's entry silently dropped
+ * with its dir orphaned). mkdir is atomic on POSIX, so it is the lock. This does NOT
+ * spin or block the event loop: the critical section is sub-millisecond, so on the
+ * vanishingly rare live collision it throws a retryable "in progress" error rather
+ * than waiting. A stale lock (a crashed holder, mtime older than 10s) is broken. A
+ * within-board race cannot happen: createWorld/setActiveWorld are synchronous, so
+ * Node's single thread already serializes them inside one process.
+ */
+const REGISTRY_LOCK_STALE_MS = 10000;
+function withRegistryLock(base, fn) {
+  fs.mkdirSync(base, { recursive: true });
+  const lockDir = path.join(base, `.${REGISTRY_FILE}.lock`);
+  let held = false;
+  try {
+    try {
+      fs.mkdirSync(lockDir);
+      held = true;
+    } catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      let stale = false;
+      try { stale = Date.now() - fs.statSync(lockDir).mtimeMs > REGISTRY_LOCK_STALE_MS; }
+      catch (_e) { stale = true; } // the holder vanished between EEXIST and stat
+      if (!stale) throw new Error('another Kosmos operation is in progress, try again in a moment');
+      try { fs.rmdirSync(lockDir); } catch (_e) { /* someone else broke it first */ }
+      /* Break-and-acquire. If this mkdir throws EEXIST (another board re-took the
+         broken lock first), the outer catch turns it into the retryable error.
+         RESIDUAL WINDOW (accepted): if two boards BOTH judged the lock stale, one
+         can rmdir the OTHER's freshly-acquired lock and both then run fn -> a
+         lost-update. It needs a crashed prior holder AND a sub-millisecond
+         two-board collision, so it is vanishingly rare at this single-board-per-
+         install app's scale; a token-in-the-lock ("only break a lock whose token
+         is unchanged, verify mine after acquiring") is the robust fix if
+         multi-board contention ever becomes real. */
+      fs.mkdirSync(lockDir);
+      held = true;
+    }
+    return fn();
+  } catch (e) {
+    if (e && e.code === 'EEXIST') throw new Error('another Kosmos operation is in progress, try again in a moment');
+    throw e;
+  } finally {
+    if (held) { try { fs.rmdirSync(lockDir); } catch (_e) { /* best effort */ } }
+  }
+}
+
 function createWorld(base, name) {
   const id = store.safeKey(name); // throws on an empty/invalid name
   if (id === DEFAULT_ID) throw new Error(`world id "${DEFAULT_ID}" is reserved`);
-  const reg = readRegistry(base);
-  if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
-  const dir = path.join(base, WORLDS_SUBDIR, id);
-  // Make the world's subtrees up front so a switch never lands on a missing dir.
-  fs.mkdirSync(path.join(dir, 'AgentWorkforce'), { recursive: true });
-  fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
-  fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
-  // `base` is INFORMATIONAL (what worldBaseDir derives from the id); it is never
-  // read for resolution, so it cannot be a relocation or traversal seam.
-  const world = { id, name: String(name), createdAt: new Date().toISOString(), base: path.join(WORLDS_SUBDIR, id) };
-  reg.worlds.push(world);
-  writeRegistry(base, reg);
-  return world;
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
+    const dir = path.join(base, WORLDS_SUBDIR, id);
+    // Make the world's subtrees up front so a switch never lands on a missing dir.
+    fs.mkdirSync(path.join(dir, 'AgentWorkforce'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
+    fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
+    // `base` is INFORMATIONAL (what worldBaseDir derives from the id); it is never
+    // read for resolution, so it cannot be a relocation or traversal seam.
+    const world = { id, name: String(name), createdAt: new Date().toISOString(), base: path.join(WORLDS_SUBDIR, id) };
+    reg.worlds.push(world);
+    writeRegistry(base, reg);
+    return world;
+  });
 }
 
 /*
@@ -186,11 +237,13 @@ function createWorld(base, name) {
  * open state (conversations, watchers, agent processes) belongs to the old world.
  */
 function setActiveWorld(base, id) {
-  const reg = readRegistry(base);
-  if (!reg.worlds.some((w) => w.id === id)) throw new Error(`no such world "${id}"`);
-  reg.activeWorldId = id;
-  writeRegistry(base, reg);
-  return activeWorld(base);
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    if (!reg.worlds.some((w) => w.id === id)) throw new Error(`no such world "${id}"`);
+    reg.activeWorldId = id;
+    writeRegistry(base, reg);
+    return activeWorld(base);
+  });
 }
 
 /*

@@ -212,6 +212,23 @@ function engineFreshness() {
   return { startedAt: ENGINE_STARTED_AT.toISOString(), staleSince: engineLook.staleSince };
 }
 const store = require('./engine/store');
+const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registry
+/* #1704: the registry base, CAPTURED at start() from the ORIGINAL env before
+   applyActiveWorldEnv can set an AGENT_WORKFORCE_DATA override -- otherwise a
+   request-time baseRoot(process.env) would resolve to the active named world's data
+   root, not the world-independent registry location. null until start() runs (and
+   on a broken env, where the /api/worlds routes fall back to the live baseRoot,
+   which is correct then because no override was set). */
+let worldRegistryBase = null;
+function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
+/* #1704: translate engine.worlds errors into something a person creating a Kosmos
+   can read. store.safeKey (reused for the world id) throws "invalid agent name",
+   which is wrong wording for a world; the others are already clear. */
+function worldCreateReason(e) {
+  const m = String((e && e.message) || '');
+  if (/invalid agent name/i.test(m)) return 'that is not a name we can use for a Kosmos (use letters, numbers, - or _)';
+  return m || 'we could not create that Kosmos';
+}
 /* #2066: which channel this build was FETCHED from (staging vs prod), for the
    board's build marker. It is NOT baked into the artifact -- #2036's invariant is
    that the SAME bytes are promoted to prod with no rebuild, so a baked stamp would
@@ -2425,6 +2442,36 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
         const made = skillsEngine.add(skillsEngine.globalDir(), { name: body.name, body: body.body });
         sendJson(res, made.ok ? 200 : 400, made);
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #1704: the multiple-Kosmos registry. GET lists the worlds + the active one;
+     POST creates one (does NOT switch to it -- switch is slice 2b's /api/worlds/active).
+     worldBase() is the registry base captured at start() before any world override,
+     so these operate on the registry regardless of which world is active. */
+  if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const base = worldBase(); // can throw only on a broken login env (worldRegistryBase null -> baseRoot rethrows)
+      sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+    } catch (_e) {
+      sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
+    }
+    return;
+  }
+  if (pathname === '/api/worlds' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        let base;
+        // A base error is a SERVER condition (broken login env), not a bad request:
+        // 500, and never leak the internal dataRootFor message through worldCreateReason.
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.createWorld(base, body.name); }
+        catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
+        sendJson(res, 200, { ok: true, world });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -8721,6 +8768,19 @@ const server = http.createServer((req, res) => {
  * is how the tests get a port without colliding with a board someone is using.
  */
 function start(port = PORT) {
+  /* #1704: set the active world's data roots BEFORE the boot resolves any root.
+     Roots are per-call (#1443), so before the first read suffices; this is the
+     earliest point in start(), ahead of the ensureToken() at onListening. A NO-OP
+     for the default world -- an install with no worlds.json, which is every install
+     until slice 2b's switch API lets a named world become active -- so existing
+     installs are byte-for-byte unaffected. Fail-open: worlds.readRegistry already
+     fails safe, and this catch covers baseRoot throwing on a broken login env, so a
+     broken registry can never stop the board booting (it boots as the default). */
+  try {
+    worldRegistryBase = worlds.baseRoot(process.env); // capture BEFORE the override
+    const applied = worlds.applyActiveWorldEnv(process.env, worldRegistryBase);
+    if (Object.keys(applied).length) console.log('#1704: booting into a named world; data roots:', applied);
+  } catch (_e) { worldRegistryBase = null; /* legacy env -> boots as the default world, unchanged */ }
   return new Promise((resolve, reject) => {
     // Without this, a bind failure -- EADDRINUSE when a board is already
     // running on 4317, which is the common case -- is an unhandled 'error'

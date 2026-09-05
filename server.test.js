@@ -246,6 +246,35 @@ async function req(path, options) {
   return { status: res.status, type: res.headers.get('content-type') || '', body: await res.text() };
 }
 
+const postJson = (path, obj) => req(path, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
+
+// #1704 slice 2: the /api/worlds registry routes (sandboxed via AGENT_WORKFORCE_DATA above).
+test('#1704: GET /api/worlds lists the default world; POST creates one without switching', async () => {
+  const before = JSON.parse((await req('/api/worlds')).body);
+  assert.equal(before.activeWorldId, 'default', 'the sandbox with no registry is the default world');
+  assert.ok(before.worlds.some((w) => w.id === 'default'), 'default present');
+
+  const made = await postJson('/api/worlds', { name: 'Route Test World' });
+  assert.equal(made.status, 200);
+  const madeBody = JSON.parse(made.body);
+  assert.equal(madeBody.ok, true);
+  assert.equal(madeBody.world.id, 'routetestworld', 'safeKey id');
+
+  const after = JSON.parse((await req('/api/worlds')).body);
+  assert.ok(after.worlds.some((w) => w.id === 'routetestworld'), 'the new world is listed');
+  assert.equal(after.activeWorldId, 'default', 'create did NOT switch the active world');
+});
+
+test('#1704: POST /api/worlds refuses the reserved id and translates a bad name', async () => {
+  const reserved = await postJson('/api/worlds', { name: 'default' });
+  assert.equal(reserved.status, 400);
+  assert.match(JSON.parse(reserved.body).because, /reserved/);
+
+  const bad = await postJson('/api/worlds', { name: '!!!' }); // safeKey -> empty -> engine throws "invalid agent name"
+  assert.equal(bad.status, 400);
+  assert.match(JSON.parse(bad.body).because, /name we can use for a Kosmos/, 'the engine error is translated for a person');
+});
+
 test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalidates it', async () => {
   /* 🛑 THE WALK IS HEAVY AND THE BOARD POLLS IT EVERY 5s. Without the route cache,
      every viewer on the agents tab crawls the disk several times a minute, synchronously.

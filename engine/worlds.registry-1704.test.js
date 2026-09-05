@@ -120,6 +120,35 @@ test('applyActiveWorldEnv sets the named world env after a switch', () => {
   assert.equal(store.dataRootFor('darwin', '/Users/x', env), path.join(base, 'worlds', 'acme', 'AgentWorkforce'));
 });
 
+// ---- registry lock (#1704 slice 2): serialize the read-modify-write ----
+const LOCK = '.worlds.json.lock';
+test('a HELD lock makes a write fail fast (retryable), and releasing it lets the op proceed', () => {
+  const base = sandbox();
+  fs.mkdirSync(base, { recursive: true });
+  fs.mkdirSync(path.join(base, LOCK)); // another board holds it (fresh mtime)
+  assert.throws(() => worlds.createWorld(base, 'Acme'), /in progress/, 'fail fast, not a hang');
+  assert.throws(() => worlds.setActiveWorld(base, 'default'), /in progress/, 'switch is locked too');
+  fs.rmdirSync(path.join(base, LOCK)); // the other board finished
+  assert.equal(worlds.createWorld(base, 'Acme').id, 'acme', 'proceeds once released');
+});
+
+test('a STALE lock (crashed holder, mtime > 10s) is broken and the op proceeds', () => {
+  const base = sandbox();
+  fs.mkdirSync(base, { recursive: true });
+  fs.mkdirSync(path.join(base, LOCK));
+  const old = (Date.now() - 20000) / 1000; // 20s ago
+  fs.utimesSync(path.join(base, LOCK), old, old);
+  assert.equal(worlds.createWorld(base, 'Acme').id, 'acme', 'breaks the stale lock and proceeds');
+});
+
+test('the lock is RELEASED after each write (no leak), so consecutive writes both land', () => {
+  const base = sandbox();
+  worlds.createWorld(base, 'One');
+  worlds.createWorld(base, 'Two'); // would fail fast if the first leaked the lock
+  assert.deepEqual(worlds.listWorlds(base).map((w) => w.id).sort(), ['default', 'one', 'two']);
+  assert.ok(!fs.existsSync(path.join(base, LOCK)), 'lock dir cleaned up');
+});
+
 // ---- fail-safe registry ----
 test('a malformed registry FAILS SAFE to the default world', () => {
   const base = sandbox();
