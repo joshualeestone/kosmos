@@ -2521,8 +2521,12 @@ const server = http.createServer((req, res) => {
           if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
           // EWORLDLOCK: another registry write holds the lock -- transient, so
           // surface it as retryable (409) with the "try again" copy rather than
-          // swallowing it into a generic 500 (matches how the sibling create route
-          // treats the same condition instead of dropping the actionable signal).
+          // swallowing it into a generic 500. NOTE the sibling POST /api/worlds
+          // create route returns 400 for this same lock (its catch funnels every
+          // createWorld error through worldCreateReason, which passes the message
+          // but keeps the 400): 400 for a transient lock is a pre-existing wart
+          // there, not the model to copy. 409 is the correct classification;
+          // aligning the sibling is a follow-up.
           if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
           sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
         }

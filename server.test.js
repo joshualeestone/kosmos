@@ -320,6 +320,10 @@ test('#1704 2b-ii: POST /api/worlds/active surfaces a held registry lock as a re
   // the base the route resolves). setActiveWorld -> withRegistryLock then throws
   // the typed EWORLDLOCK, which the route maps to 409 with the "try again" copy
   // rather than swallowing it into a generic 500.
+  // baseRoot(process.env) equals the route's worldBase() here because the default
+  // world is active throughout this harness (no env override), so both resolve to
+  // SANDBOX/AgentWorkforce. If they ever diverged the switch would succeed and the
+  // status assertion below would fail loudly -- not a silent false pass.
   const base = require('./engine/worlds').baseRoot(process.env);
   const lock = nodePath.join(base, '.worlds.json.lock');
   fs.mkdirSync(base, { recursive: true });
