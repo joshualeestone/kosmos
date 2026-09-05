@@ -3264,10 +3264,16 @@ test('the runs-on box says model and account in one line, and the Signed-in-as s
   const end = script.indexOf(';', script.indexOf(": ''", mid)) + 1;
   assert.ok(from > -1 && mid > from && end > mid,
     'the runs-on composition fell outside the extracted slice');
+  /* #2225: the parenthetical was lifted into the pure helper `acctParenthetical`
+     (chosen name -> email -> slug), which the sliced composition now calls, so
+     the eval scope must carry it or the slice throws ReferenceError. */
+  const helperFrom = script.indexOf('function acctParenthetical(');
+  assert.ok(helperFrom > -1, 'acctParenthetical is gone from the page');
+  const acctParentheticalSrc = script.slice(helperFrom, script.indexOf('\n}', helperFrom) + 2);
   const drive = (a, runs) => {
     const drun = { innerHTML: 'seeded' };
     // eslint-disable-next-line no-new-func
-    new Function('a', 'runs', 'drun', 'esc', script.slice(from, end))(a, runs, drun, esc);
+    new Function('a', 'runs', 'drun', 'esc', acctParentheticalSrc + '\n' + script.slice(from, end))(a, runs, drun, esc);
     return drun.innerHTML;
   };
   const runs = { lead: 'Runs on ', name: 'Claude Opus 5' };
