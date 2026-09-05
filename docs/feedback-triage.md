@@ -28,7 +28,10 @@ decides.
 1. **Ingest.** Reports live in the local feedback store (`engine/feedback.js`,
    under the data root). When the send layer (kosmos#2037 Slice 3) is built,
    received reports from testers land in a directory; point the tool at it with
-   `--dir`. Until then the tool reads this machine's own store.
+   `--dir`. Until then the tool reads this machine's own store. `--dir` reads
+   only `*.md` files in the directory (matching the store's format); a report
+   with any other extension is skipped without a note, so the send layer should
+   land tester reports as `.md`.
 
 2. **Triage (agent-assisted).** Run:
 

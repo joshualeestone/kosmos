@@ -119,7 +119,14 @@ function read(date) {
  *  line stripping, which would silently drop a body the author meant to begin
  *  with blank lines). Exported so a second reader of these files (the #2246
  *  triage `--dir` path) strips the SAME way rather than re-implementing the
- *  regex and drifting from this one if the header format ever changes. */
+ *  regex and drifting from this one if the header format ever changes.
+ *
+ *  KNOWN EDGE: a body that OPENS with a `---` thematic break plus another `---`
+ *  further down (e.g. `---\nHeading\n---\nbody`) is indistinguishable from
+ *  frontmatter by this regex, so that opening block is stripped. Harmless for the
+ *  store path (feedback.js always writes generated frontmatter first). For the
+ *  triage `--dir` path over arbitrary tester notes it could clip a leading rule;
+ *  low-risk and accepted rather than heuristically guessing YAML-vs-Markdown. */
 function stripFrontmatter(raw) {
   const s = String(raw == null ? '' : raw);
   const m = s.match(/^---\n[\s\S]*?\n---\n?/);

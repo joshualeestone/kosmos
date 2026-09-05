@@ -192,14 +192,17 @@ function classify(item) {
   return { score, reasons };
 }
 
-/** Jaccard overlap of two items' content tokens, 0..1. */
-function similarity(a, b) {
-  const ta = tokens(a);
-  const tb = tokens(b);
+/** Jaccard overlap of two pre-tokenized sets, 0..1. */
+function jaccardOfSets(ta, tb) {
   if (!ta.size || !tb.size) return 0;
   let inter = 0;
   for (const w of ta) if (tb.has(w)) inter += 1;
   return inter / (ta.size + tb.size - inter);
+}
+
+/** Jaccard overlap of two items' content tokens, 0..1. */
+function similarity(a, b) {
+  return jaccardOfSets(tokens(a), tokens(b));
 }
 
 /**
@@ -212,6 +215,12 @@ function groupDuplicates(entries, threshold) {
   const th = typeof threshold === 'number' ? threshold : 0.6;
   const clusters = [];
   const clusterOf = new Array(entries.length).fill(-1);
+  // Tokenize each entry ONCE. The fixed-point loop below compares members to
+  // candidates repeatedly, so tokenizing inside the comparison (via similarity)
+  // re-did the same work O(passes x members x n) times -- a real cliff on a large
+  // --dir of near-identical reports. With the sets precomputed the loop is set
+  // intersections only.
+  const tokenSets = entries.map((e) => tokens(e.text));
   for (let i = 0; i < entries.length; i += 1) {
     if (clusterOf[i] !== -1) continue;
     const members = [i];
@@ -230,7 +239,7 @@ function groupDuplicates(entries, threshold) {
       grew = false;
       for (let j = 0; j < entries.length; j += 1) {
         if (clusterOf[j] !== -1) continue;
-        if (members.some((m) => similarity(entries[m].text, entries[j].text) >= th)) {
+        if (members.some((m) => jaccardOfSets(tokenSets[m], tokenSets[j]) >= th)) {
           clusterOf[j] = clusters.length;
           members.push(j);
           grew = true;
