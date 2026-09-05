@@ -5445,7 +5445,7 @@ test('the way back is on the last step, on every ending a person can get', () =>
    * person gets is decided by what the engine found on their machine, so the
    * two they do not get are invisible to whoever tested it.
    */
-  const DOCK = /Drag Kosmos onto the Dock, the strip of icons/;
+  const DOCK = /Kosmos is already in your Dock, the strip of icons/;
   const endings = {
     adopt: { path: 'adopt', fleetCount: 13, fleetNames: [] },
     create: { path: 'create', fleetCount: 0, fleetNames: [] },
@@ -5577,11 +5577,11 @@ test('the return step paints a look in progress, then the engine answer, and cou
   // same ruled line.
   const cases = [
     [{ key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it from there.' },
-      /Drag Kosmos onto the Dock, the strip of icons/],
+      /Kosmos is already in your Dock, the strip of icons/],
     [{ key: 'app-location', state: 'attention', title: 'We could not find the Kosmos icon', detail: 'Not the same as it not being there.' },
-      /Drag Kosmos onto the Dock, the strip of icons/],
+      /Kosmos is already in your Dock, the strip of icons/],
     [{ key: 'app-location', state: 'unknown', title: 'We could not check where the Kosmos icon is', detail: 'Nothing is wrong.' },
-      /Drag Kosmos onto the Dock, the strip of icons/],
+      /Kosmos is already in your Dock, the strip of icons/],
   ];
   const PRELUDE_VARS = `
     let FR_RETURN_GEN = 0;
@@ -5621,7 +5621,7 @@ test('the return step paints a look in progress, then the engine answer, and cou
   await broken.done;
   assert.match(broken.els['fr-return-row'].innerHTML, /could not check where the Kosmos icon is right now/);
   assert.match(broken.els['fr-return-row'].innerHTML, /fr-check unknown/);
-  assert.ok(!/Drag Kosmos onto the Dock, the strip of icons/.test(broken.els['fr-return-msg'].innerHTML),
+  assert.ok(!/Kosmos is already in your Dock, the strip of icons/.test(broken.els['fr-return-msg'].innerHTML),
     'the way-back line came back to the first step on the failure path');
 
   // A payload WITHOUT the appLocation field (an old server, a shape drift)

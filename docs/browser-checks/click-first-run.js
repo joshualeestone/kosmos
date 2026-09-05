@@ -116,8 +116,14 @@ async function waitAboutYouLeft(page, timeout = 5000) {
      either, so the two statements are coherent: on Success, not at the last
      step. render-first-run now asserts it ABSENT there, this asserts it
      PRESENT here, and the pair is what stops it drifting or vanishing. */
-    ok(/Drag Kosmos onto the Dock, the strip of icons/.test(introText),
-      'the Dock drag line is on the Success screen, which Josh asked for on 2026-08-27 after finding it gone');
+    // #2240: the line now tells the person the icon is ALREADY in the Dock
+    // (Kosmos auto-opens, so it is present) and to drag THAT to the far left,
+    // rather than "drag Kosmos onto the Dock" which sent people to find and
+    // drag a second copy. Both halves are asserted so neither drifts off.
+    ok(/Kosmos is already in your Dock, the strip of icons/.test(introText),
+      'the Success screen must say the icon is already in the Dock (it auto-opened), not tell the person to add it');
+    ok(/Drag its icon to the far left/.test(introText),
+      'the Dock drag line (now: drag the existing icon to the far left) is on the Success screen, which Josh asked for on 2026-08-27 after finding it gone');
     ok(!/Checking where the Kosmos icon is/.test(introText), 'the live answer replaced the checking placeholder');
     ok(!/right now/.test(introText), 'and it is the route\'s answer, not the could-not-ask fallback -- this walk is the one place the LIVE route is proven');
     ok(!/Keep in Dock/.test(introText), 'and never the unreachable Keep in Dock');
