@@ -1206,6 +1206,22 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* #2238: a non-active row is a switch control. The active row (aria-current) is
+   inert, so it keeps the default cursor and no hover. */
+.worldsw-row[role="button"] { cursor: pointer; }
+.worldsw-row[role="button"]:hover { background: var(--k-sunk); }
+.worldsw-row[role="button"]:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-row[aria-current="true"] { cursor: default; }
+/* #2238: shown after a successful switch -- a world's roots load only on board
+   boot, so switching needs a restart. */
+.worldsw-restart { display: flex; flex-direction: column; gap: 6px; margin-top: 4px; padding: 8px;
+  border-top: 0.5px solid var(--separator); font: var(--text-footnote) var(--font-ui); color: var(--k-ink-2); }
+.worldsw-restart-go { align-self: flex-start; padding: 5px 12px; border: 0; border-radius: 7px;
+  background: var(--gold); color: var(--k-on-gold, #1a1400); cursor: pointer;
+  font: var(--text-callout) var(--font-ui); font-weight: 600; }
+.worldsw-restart-go:hover { background: var(--gold-edge); }
+.worldsw-restart-go:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.worldsw-restart-go[disabled] { opacity: 0.6; cursor: default; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
    the element's radius, so until now a rounded focus ring drew around a square
@@ -6171,12 +6187,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
         <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
-      <!-- The rows are a read-only LIST (not a menu) while switching is deferred to
-           slice 2b: they show which Kosmoses exist and mark the active one, but do
-           not act. The one real action, New Kosmos, is a native button. When 2b makes
-           the rows actionable, this becomes a menu with roving focus. -->
+      <!-- #2238 slice 2b-iii: the rows are now ACTIONABLE. Each non-active row is a
+           button that switches the active Kosmos (POST /api/worlds/active); the active
+           row is marked and inert. A world's data-root is applied at board boot, so a
+           switch needs the board to restart to load it -- on a successful switch the
+           restart banner below appears with "Restart now". New Kosmos still creates. -->
       <div class="worldsw-menu" id="worldsw-menu" hidden>
         <div class="worldsw-list" id="worldsw-list" role="list" aria-label="Your Kosmoses"></div>
+        <!-- Shown after a successful switch: a world's roots load only on board boot,
+             so switching needs a restart. Hidden until worldswSwitch reveals it. -->
+        <div class="worldsw-restart" id="worldsw-restart" role="status" hidden>
+          <span class="worldsw-restart-msg" id="worldsw-restart-msg"></span>
+          <button class="worldsw-restart-go" id="worldsw-restart-go" type="button">Restart now</button>
+        </div>
         <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
@@ -15641,28 +15664,140 @@ function worldswRender(data) {
   const activeId = active ? active.id : null;
   const activeName = (active && active.name) || 'Kosmos';
   nameEl.textContent = activeName;
-  // The label does not say "choose"/"switch": row selection is deferred to slice 2b,
-  // so the only wired action here is New Kosmos.
   document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your Kosmoses. Current: ' + activeName);
-  /* Rows are built from textContent, never innerHTML, so a world name is never
-     interpreted as markup. Read-only until slice 2b wires the switch. */
+  /* #2238: rows are built from textContent, never innerHTML, so a world name is
+     never interpreted as markup. A NON-active row is a switch control (role=button,
+     keyboard-operable); the active row is inert (aria-current, listitem). */
   list.textContent = '';
   for (const w of data.worlds) {
+    const isActive = w.id === activeId;
     const row = document.createElement('div');
     row.className = 'worldsw-row';
-    row.setAttribute('role', 'listitem');
-    if (w.id === activeId) row.setAttribute('aria-current', 'true');
+    const wname = w.name || 'Kosmos';
+    if (isActive) {
+      row.setAttribute('role', 'listitem');
+      row.setAttribute('aria-current', 'true');
+    } else {
+      row.setAttribute('role', 'button');
+      row.setAttribute('tabindex', '0');
+      row.setAttribute('aria-label', 'Switch to ' + wname);
+      const go = () => worldswSwitch(w.id, wname);
+      row.addEventListener('click', go);
+      row.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+      });
+    }
     const check = document.createElement('span');
     check.className = 'worldsw-check';
     check.setAttribute('aria-hidden', 'true');
     check.textContent = '✓';
     const nm = document.createElement('span');
     nm.className = 'worldsw-rowname';
-    nm.textContent = w.name || 'Kosmos';
+    nm.textContent = wname;
     row.append(check, nm);
     list.appendChild(row);
   }
   sw.hidden = false;
+}
+/* #2238 slice 2b-iii: switch the active Kosmos. The registry flip is POST
+   /api/worlds/active (#2212); because a world's data-root is applied only at board
+   boot, a successful switch cannot change the served projects/agents until the board
+   restarts -- so on success we reveal the restart banner ("Restart now") rather than
+   claiming the switch is already live. Failures are classified by the endpoint's
+   contract (404 no-such-world, 409 busy, else generic). */
+let WORLDSW_SWITCHING = false;
+async function worldswSwitch(id, name) {
+  if (WORLDSW_SWITCHING) return;
+  const restart = document.getElementById('worldsw-restart');
+  const rmsg = document.getElementById('worldsw-restart-msg');
+  WORLDSW_SWITCHING = true;
+  try {
+    let res;
+    try {
+      res = await fetch('/api/worlds/active', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id }),
+      });
+    } catch {
+      rmsg.textContent = 'Could not reach Kosmos to switch. Try again.';
+      restart.hidden = false;
+      document.getElementById('worldsw-restart-go').hidden = true;
+      return;
+    }
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      const because = body && body.because;
+      if (res.status === 404) { await worldsFetch().catch(() => {}); rmsg.textContent = because || 'That Kosmos is no longer here; the list has been refreshed.'; }
+      else if (res.status === 409) { rmsg.textContent = because || 'Another Kosmos operation is in progress. Try again in a moment.'; }
+      else { rmsg.textContent = because || 'Could not switch to that Kosmos.'; }
+      restart.hidden = false;
+      document.getElementById('worldsw-restart-go').hidden = true;
+      return;
+    }
+    // Success: the active world is now recorded. Mark it in the list + header, and
+    // reveal the restart affordance (the served world changes on restart, not before).
+    await worldsFetch().catch(() => {});
+    rmsg.textContent = 'Switched to ' + name + '. Kosmos needs to restart to load its projects and agents.';
+    document.getElementById('worldsw-restart-go').hidden = false;
+    restart.hidden = false;
+  } finally {
+    WORLDSW_SWITCHING = false;
+  }
+}
+/* #2238: restart the board so it boots into the newly-active world. POST
+   /api/board/restart responds first, then the board exits and launchd respawns it
+   (applying the active world's roots at start()). We then poll GET /api/worlds until
+   the board answers again and reload into the new world. On a board with no launchd
+   respawn the endpoint says so and we tell the person to reopen Kosmos themselves. */
+let WORLDSW_RESTARTING = false;
+async function worldswRestartNow() {
+  if (WORLDSW_RESTARTING) return;
+  const go = document.getElementById('worldsw-restart-go');
+  const rmsg = document.getElementById('worldsw-restart-msg');
+  WORLDSW_RESTARTING = true;
+  go.disabled = true;
+  try {
+    let res, body;
+    try {
+      res = await fetch('/api/board/restart', { method: 'POST' });
+      body = await res.json().catch(() => null);
+    } catch {
+      // The POST did not complete. The board is NOT confirmed restarting (the
+      // endpoint sends its 200 before it goes down), so treat this as a failure.
+      rmsg.textContent = 'Could not reach Kosmos to restart. Quit and reopen it to load the new one.';
+      go.disabled = false;
+      return;
+    }
+    // The endpoint always answers HTTP 200: {ok:true, restarting:true} when it is
+    // going down (launchd will respawn it), or {ok:false, because} when it cannot
+    // self-restart. Branch on the BODY's ok, never res.ok alone.
+    if (!res.ok || !body || body.ok !== true) {
+      rmsg.textContent = (body && body.because) || 'Could not restart automatically. Quit and reopen Kosmos to load the new one.';
+      go.disabled = false;
+      return;
+    }
+    // Going down; launchd respawns into the active world. Wait for it to answer.
+    rmsg.textContent = 'Restarting Kosmos...';
+    await worldswAwaitBoard();
+  } finally {
+    WORLDSW_RESTARTING = false;
+  }
+}
+// Poll GET /api/worlds until the restarted board answers, then reload into the new
+// world. Bounded so a board that never comes back does not spin forever.
+async function worldswAwaitBoard() {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    try {
+      const res = await fetch('/api/worlds', { cache: 'no-store' });
+      if (res.ok) { location.reload(); return; }
+    } catch { /* board still down; keep polling */ }
+  }
+  const rmsg = document.getElementById('worldsw-restart-msg');
+  if (rmsg) rmsg.textContent = 'Kosmos is taking a while to come back. Refresh the page in a moment.';
+  const go = document.getElementById('worldsw-restart-go');
+  if (go) go.disabled = false;
 }
 function worldswClose() {
   const menu = document.getElementById('worldsw-menu');
@@ -15733,6 +15868,7 @@ async function worldAddSubmit() {
   if (!btn) return;
   btn.addEventListener('click', (e) => { e.stopPropagation(); worldswToggle(); });
   document.getElementById('worldsw-new').addEventListener('click', worldAddOpen);
+  document.getElementById('worldsw-restart-go').addEventListener('click', worldswRestartNow);
   document.getElementById('world-add-cancel').addEventListener('click', worldAddClose);
   document.getElementById('world-add-go').addEventListener('click', worldAddSubmit);
   const input = document.getElementById('world-add-name');

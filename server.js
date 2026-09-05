@@ -230,6 +230,20 @@ const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registr
    /api/worlds routes fall back to the live baseRoot -- correct then because no
    override was set. `worldRegistryBase` is declared at the top of the file. */
 function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
+/* #2238: the launchd label of THIS installed board, derived the SAME way
+   install/setup.sh does (~1284): `com.kosmos.board` for the default KOSMOS_HOME,
+   else `com.kosmos.board.<first 8 of sha256(KOSMOS_HOME)>`. Exported and pure so
+   the derivation (the part most likely to drift from setup.sh) is pinned by a test
+   directly, not only through a live restart nobody can run on the shared box. The
+   normalization mirrors setup.sh: collapse repeated slashes, strip a trailing one. */
+function boardRestartLabel(env) {
+  const home = (env && env.HOME) || '';
+  const norm = (p) => String(p).replace(/\/{2,}/g, '/').replace(/\/$/, '');
+  const def = norm(home + '/.local/share/kosmos');
+  const kh = norm((env && env.KOSMOS_HOME) || def);
+  if (kh === def) return 'com.kosmos.board';
+  return 'com.kosmos.board.' + require('node:crypto').createHash('sha256').update(kh).digest('hex').slice(0, 8);
+}
 /* #1704: translate engine.worlds errors into something a person creating a Kosmos
    can read. store.safeKey (reused for the world id) throws "invalid agent name",
    which is wrong wording for a world; the others are already clear. */
@@ -2585,6 +2599,35 @@ const server = http.createServer((req, res) => {
         sendJson(res, 200, { ok: true, world, restartRequired: true });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #2238: restart THIS board so it boots into the newly-active world. A world's
+     data-root applies only at start(), so a switch (POST /api/worlds/active) cannot
+     change the served projects/agents until the board restarts. The installed board
+     is a launchd KeepAlive job; `launchctl kickstart -k` kills it and launchd respawns
+     it, re-running start() against the now-active world.
+     SAFE-BY-DESIGN: we confirm the launchd label is actually LOADED (launchctl print
+     exits 0) BEFORE responding ok + kickstarting. If it is not -- a dev `node server.js`,
+     or a label we cannot resolve -- we NEVER exit or kill; we return an honest
+     "reopen Kosmos yourself". So a wrong derivation degrades to a no-op message, never
+     a board killed with no respawn. launchctl is injectable via KOSMOS_LAUNCHCTL so the
+     test drives both arms with a fake (a LIVE hit on the shared box would restart the
+     real review board, so it is never tested live). */
+  if (pathname === '/api/board/restart' && req.method === 'POST') {
+    const launchctl = process.env.KOSMOS_LAUNCHCTL || '/bin/launchctl';
+    const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+    if (uid === null) { sendJson(res, 200, { ok: false, because: 'Quit and reopen Kosmos to load the new one.' }); return; }
+    const target = 'gui/' + uid + '/' + boardRestartLabel(process.env);
+    const execFile = require('node:child_process').execFile;
+    // Probe first: is this label a live launchd job we can restart?
+    execFile(launchctl, ['print', target], (probeErr) => {
+      if (probeErr) { sendJson(res, 200, { ok: false, because: 'Quit and reopen Kosmos to load the new one.' }); return; }
+      // Loaded: tell the client we are going down, flush, THEN kickstart (which kills
+      // this process; launchd respawns it into the active world). The client polls
+      // /api/worlds until we answer again and reloads.
+      sendJson(res, 200, { ok: true, restarting: true });
+      setTimeout(() => { try { execFile(launchctl, ['kickstart', '-k', target], () => {}); } catch (_e) { /* respawn is launchd's job */ } }, 250);
+    });
     return;
   }
   const globalSkillRm = pathname.match(/^\/api\/skills\/([^/]+)$/);
@@ -9371,6 +9414,10 @@ if (require.main === module) {
 // routes reading `req.url` around it were.
 module.exports = {
   server, start, pathOf, decodeSegment, resetHeardBudgetForTests,
+  /* #2238: exported so the board-restart launchd label derivation (which mirrors
+     install/setup.sh and would silently target the wrong/no job if it drifted) is
+     pinned by a direct test, not only through a live restart nobody runs on the box. */
+  boardRestartLabel,
   /* #2128: exported so the four dependsOnClaude cases (some non-codex agent,
      every agent codex, no agents, a configured account that no longer forces it)
      are pinned DIRECTLY, without an HTTP harness that cannot inject agents. */
