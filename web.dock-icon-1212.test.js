@@ -4,10 +4,13 @@
  * remind people that they can add it to their desktop... It doesn't have to be
  * huge, just something that will visually grab their attention."
  *
- * 🔑 THE SENTENCE SAYS "IT" AND HAD NOTHING TO POINT AT. "Drag it onto the Dock"
- * asks somebody to find one thing in a folder of hundreds, by a name they met ten
- * minutes ago. The picture is the referent, so this is the sentence becoming
- * answerable rather than an ornament beside it.
+ * 🔑 THE SENTENCE SAYS "IT" AND NEEDS SOMETHING TO POINT AT. "Drag it to the far
+ * left" asks somebody to pick one icon out of the row in their Dock, by an app
+ * they met ten minutes ago. The picture is the referent, so this is the sentence
+ * becoming answerable rather than an ornament beside it.
+ * (kosmos#2258: the line no longer says "onto the Dock"; on a fresh install Kosmos
+ * is already in the Dock, so that sent people to drag a second copy. It now says
+ * it is already there, drag it to the far left. The icon-as-referent point stands.)
  *
  *   node --test web.dock-icon-1212.test.js
  */
@@ -26,7 +29,7 @@ const row = () => {
 test('the icon stands beside the sentence that names it', () => {
   const r = row();
   assert.match(r, /<img[^>]*class="dockrow-i"/, 'the icon is gone from the Dock row');
-  assert.match(r, /Drag it onto the Dock/, 'the icon has been separated from the sentence it illustrates');
+  assert.match(r, /Drag it to the far left/, 'the icon has been separated from the sentence it illustrates');
   assert.match(r, /alt="The Kosmos app icon"/,
     'the icon has no accessible name; it is informative here, not decorative, so an empty alt would drop the point of it');
 });
