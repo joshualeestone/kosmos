@@ -33,21 +33,15 @@ test.afterEach(() => fp.setTransport(null));
 
 test('token not filed -> ok:false, a clear message, nothing written', async () => {
   const dir = path.join(SB, 'd-notoken');
-  // Force token() to resolve to null deterministically (independent of whether
-  // this machine happens to have the target filed): no PATH and a HOME with no
-  // .local/bin means neither secrets-map.sh candidate is found.
-  const savedPath = process.env.PATH; const savedHome = process.env.HOME;
-  process.env.PATH = ''; process.env.HOME = path.join(SB, 'empty-home');
+  // An explicit empty token forces the not-filed path deterministically (no
+  // dependence on whether this machine has the target filed), and asserts the
+  // list is never attempted without a token.
   fp.setTransport({ list: async () => { throw new Error('should not list without a token'); }, get: async () => '' });
-  try {
-    const r = await fp.pull(dir, {});   // no opts.token -> resolves via token() -> null
-    assert.equal(r.ok, false);
-    assert.match(r.because, /token is not filed/);
-    assert.equal(r.written, 0);
-    assert.ok(!fs.existsSync(dir) || fs.readdirSync(dir).length === 0);
-  } finally {
-    process.env.PATH = savedPath; process.env.HOME = savedHome;
-  }
+  const r = await fp.pull(dir, { token: '' });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /token is not filed/);
+  assert.equal(r.written, 0);
+  assert.ok(!fs.existsSync(dir) || fs.readdirSync(dir).length === 0);
 });
 
 test('pull writes each collected report as a triage-readable .md', async () => {

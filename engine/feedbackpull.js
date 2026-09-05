@@ -36,6 +36,7 @@
  */
 
 const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const store = require('./store');
@@ -45,9 +46,13 @@ const PREFIX = 'feedback/';
 // The secrets-map target the blob token is filed under. Documented here and on
 // kosmos#2296 so /add-secret files it under this exact name.
 const FEEDBACK_TOKEN_TARGET = 'vercel-blob-feedback';
-// Default landing dir for pulled reports, under the data root (prod-inert when
-// AGENT_WORKFORCE_DATA is unset, like the rest of the store).
-const DEFAULT_DIR = path.join(store.ROOT, 'collected-feedback');
+// Default landing dir for pulled reports, under the data root. Computed LAZILY
+// (a function, not a const): store.ROOT is a lazy getter made lazy on purpose
+// (store.js), so freezing it at module-load would re-introduce the frozen-root
+// sandbox-leak hazard store.js documents -- a requirer that sets
+// AGENT_WORKFORCE_DATA after this module loads would otherwise write to the real
+// data root. feedback.js's dir() stays lazy for the same reason.
+function defaultDir() { return path.join(store.ROOT, 'collected-feedback'); }
 
 let transport = null; // tests inject { list: async(token)=>[{url,pathname}], get: async(url)=>text }
 function setTransport(t) { transport = t; }
@@ -59,8 +64,14 @@ function setTransport(t) { transport = t; }
  * over a pipe (not a tty), which the accessor requires.
  */
 function token() {
-  const home = process.env.HOME || '';
-  const bins = ['secrets-map.sh', path.join(home, '.local', 'bin', 'secrets-map.sh')];
+  // os.homedir() (NOT process.env.HOME): cross-platform, so this carries no
+  // Windows-hostile env-home coupling. The pull command runs on the agent fleet
+  // where the secrets map lives; a home that cannot be resolved just drops the
+  // second candidate.
+  let home = '';
+  try { home = os.homedir() || ''; } catch { home = ''; }
+  const bins = ['secrets-map.sh'];
+  if (home) bins.push(path.join(home, '.local', 'bin', 'secrets-map.sh'));
   for (const bin of bins) {
     try {
       const out = execFileSync(bin, ['value', FEEDBACK_TOKEN_TARGET], {
@@ -128,9 +139,12 @@ function fileName(rec) {
  */
 async function pull(dir, opts) {
   const o = opts || {};
-  const target = dir || DEFAULT_DIR;
+  const target = dir || defaultDir();
   const tp = transport || { list: defaultList, get: defaultGet };
-  const tok = o.token || token();
+  // An explicit `token` key (even '') skips resolution -- lets a test force the
+  // not-filed path deterministically without depending on the machine's secrets
+  // map. Absent key -> resolve via the map.
+  const tok = Object.prototype.hasOwnProperty.call(o, 'token') ? o.token : token();
   if (!tok) {
     return {
       ok: false, written: 0, skipped: 0, dir: target,
@@ -164,5 +178,5 @@ async function pull(dir, opts) {
 
 module.exports = {
   pull, setTransport, token, toMarkdown, fileName,
-  FEEDBACK_TOKEN_TARGET, PREFIX, DEFAULT_DIR, BLOB_API,
+  FEEDBACK_TOKEN_TARGET, PREFIX, defaultDir, BLOB_API,
 };
