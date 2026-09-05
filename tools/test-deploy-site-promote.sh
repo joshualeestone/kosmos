@@ -52,13 +52,15 @@ while [ $# -gt 0 ]; do
   esac
 done
 rel="${url#"$HOST_URL"/}"
-path="$LIVE_DIR/$rel"
+# NB: not `path=` -- in zsh `path` is tied to PATH, and tools/test-zsh-tied-names.sh
+# statically refuses any shell file that writes it (a file sourced into zsh would clobber PATH).
+served_file="$LIVE_DIR/$rel"
 if [ -n "$wfmt" ]; then
-  if [ -f "$path" ]; then [ -n "$dest" ] && cp "$path" "$dest"; printf '200'; else printf '404'; fi
+  if [ -f "$served_file" ]; then [ -n "$dest" ] && cp "$served_file" "$dest"; printf '200'; else printf '404'; fi
   exit 0
 fi
-[ -f "$path" ] || exit 22
-if [ -n "$dest" ]; then cp "$path" "$dest"; else cat "$path"; fi
+[ -f "$served_file" ] || exit 22
+if [ -n "$dest" ]; then cp "$served_file" "$dest"; else cat "$served_file"; fi
 exit 0
 CURL
 chmod +x "$BIN/curl"
