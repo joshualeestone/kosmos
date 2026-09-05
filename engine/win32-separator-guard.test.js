@@ -24,13 +24,18 @@
  *
  * 🛑 WHAT THIS CATCHES, AND WHAT IT DOES NOT (stated so nobody gets the false
  * confidence #1732 was about, this time via syntax instead of platform). The
- * SEP_LITERAL patterns match a ':'/'; ' separator written AT the split/join call
- * site as a string literal, a template literal, or a single-char regex literal,
- * with or without a limit argument. They deliberately do NOT follow a separator
- * through a VARIABLE (`const SEP = ':'; x.split(SEP)`): a static line scan cannot,
- * and that indirection is itself a smell -- if you find yourself hoisting a path
- * separator into a const, use `path.delimiter`. No such indirection exists in the
- * tree today (grep-verified); this note is the honest disclosure of the residual.
+ * SEP_PATTERNS match a ':'/'; ' separator written AS A LITERAL AT the split/join
+ * call site -- a string literal, a template literal, or a single-char regex
+ * literal, with or without a limit argument, on a single line of real code
+ * (comment lines are skipped, symmetrically with the positive pin's markerInCode).
+ * A static line scan cannot see a separator that is NOT a literal at the call site:
+ * hoisted through a variable (`const SEP = ':'; x.split(SEP)`), built via
+ * `new RegExp(':')`, reached through a custom split helper, or written across two
+ * lines. None of those forms exists in the tree today (grep-verified), none is a
+ * realistic path-list-separator shape, and each is itself a smell -- if you find
+ * yourself hoisting or constructing a path separator, use `path.delimiter`. This
+ * note is the honest disclosure of the residual: the guard closes the realistic
+ * class, not every conceivable spelling.
  *
  *   node --test engine/win32-separator-guard.test.js
  */
@@ -52,7 +57,20 @@ const SEP_PATTERNS = [
   /\.(?:split|join)\(\s*(['"`])[:;]\1\s*(?:,[^)]*)?\)/,   // quoted / template literal
   /\.(?:split|join)\(\s*\/[:;]\/[a-z]*\s*(?:,[^)]*)?\)/,  // single-char regex literal
 ];
-function isSeparatorHit(line) { return SEP_PATTERNS.some((rx) => rx.test(line)); }
+
+// A whole-line comment: `//`, `*` (continuation of a block comment), or `/*`. Skipped
+// by BOTH the negative scan and the positive pin, so a docblock ILLUSTRATING the
+// hostile form (`x.split(':')` in prose) never trips the guard -- the same
+// code-vs-comment discipline in both directions. Deliberately does NOT strip a
+// TRAILING `//` comment from a code line: doing so would drop `.split(':')` after a
+// `http://`-bearing string on the same line and MISS a real hit (a false negative is
+// the one direction a guard against missed instances must not take); a real
+// `x.split(':') // note` is a genuine hit and stays one.
+function isCommentLine(line) {
+  const t = line.trimStart();
+  return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
+}
+function isSeparatorHit(line) { return !isCommentLine(line) && SEP_PATTERNS.some((rx) => rx.test(line)); }
 
 /**
  * The reviewed non-path allow list. Each entry: the file, a distinctive substring
@@ -75,16 +93,21 @@ const ALLOW = [
 
 function scanEngineSeparatorHits() {
   const hits = [];
+  const unreadable = [];
   for (const name of fs.readdirSync(ENGINE_DIR)) {
     if (!name.endsWith('.js') || name.endsWith('.test.js')) continue;
     const full = path.join(ENGINE_DIR, name);
     let src;
-    try { src = fs.readFileSync(full, 'utf8'); } catch { continue; }
+    // FAIL LOUD, not open: readdir already listed this file, so a read failure is a
+    // real anomaly, and silently skipping it in a guard whose whole job is not to
+    // MISS an instance would be the exact blind spot #1732 is about. Record it and
+    // let the dedicated test below turn it red.
+    try { src = fs.readFileSync(full, 'utf8'); } catch (e) { unreadable.push(name + ' (' + (e && e.code || 'read error') + ')'); continue; }
     src.split('\n').forEach((line, idx) => {
       if (isSeparatorHit(line)) hits.push({ file: name, line: idx + 1, text: line.trim() });
     });
   }
-  return hits;
+  return { hits, unreadable };
 }
 
 // A marker appears in real CODE (not only inside a comment) iff some source line
@@ -95,18 +118,22 @@ function scanEngineSeparatorHits() {
 // tell code from a description of code).
 function markerInCode(src, marker) {
   return src.split('\n').some((line) => {
+    if (isCommentLine(line)) return false;
     const at = line.indexOf(marker);
     if (at < 0) return false;
-    const t = line.trimStart();
-    if (t.startsWith('*') || t.startsWith('//') || t.startsWith('/*')) return false;
     const slash = line.indexOf('//');
-    if (slash >= 0 && slash < at) return false;   // marker sits after a line comment
+    if (slash >= 0 && slash < at) return false;   // marker sits after a trailing line comment
     return true;
   });
 }
 
+test('#1732 no engine/ .js file was skipped unread (a missed file is the blind spot this guards)', () => {
+  const { unreadable } = scanEngineSeparatorHits();
+  assert.deepEqual(unreadable, [], 'engine/ .js files that readdir listed but could not be read: ' + JSON.stringify(unreadable));
+});
+
 test('#1732 every hardcoded :/; split-or-join in engine/ is a path.delimiter fix or a reviewed non-path use', () => {
-  const hits = scanEngineSeparatorHits();
+  const { hits } = scanEngineSeparatorHits();
   const unclassified = hits.filter(
     (h) => !ALLOW.some((a) => a.file === h.file && h.text.includes(a.snippet)),
   );
@@ -123,7 +150,7 @@ test('#1732 every hardcoded :/; split-or-join in engine/ is a path.delimiter fix
 });
 
 test('#1732 each allow entry matches EXACTLY its declared count (no new identical hit blessed, no dead entry)', () => {
-  const hits = scanEngineSeparatorHits();
+  const { hits } = scanEngineSeparatorHits();
   const mismatches = [];
   for (const a of ALLOW) {
     const actual = hits.filter((h) => h.file === a.file && h.text.includes(a.snippet)).length;
