@@ -627,8 +627,8 @@ wait_up() {
     # NAME, turning an unattributable flaky red into an attributable one.
     #
     # Two shapes reach the log and the pattern must match BOTH. The board server
-    # (server.js, what boot_board/boot_board_org and the inline P4/P5/P6/P10
-    # boots run) catches EADDRINUSE and writes a friendly "port <N> is already in
+    # (server.js, run by boot_board/boot_board_org and every inline `node
+    # ./server.js` boot) catches EADDRINUSE and writes a friendly "port <N> is already in
     # use. Is a board already running?" (server.js ~9345) - no "EADDRINUSE", no
     # "address". A server without that graceful path (thread-server.js, or any
     # bare node default) emits a raw "listen EADDRINUSE: address already in use".
@@ -707,8 +707,8 @@ run_one() {
 #
 # #1073, honest about the window: #633's "a few milliseconds between picking and
 # binding" holds only for the FIRST port bound. pick_ports takes all 16 up front
-# (below), but the servers bind them across the whole run, so a late port (P7/P9
-# are bound minutes in) has a pick-to-bind window of MINUTES, not milliseconds.
+# (below), but the servers bind them across the whole run, so a port bound late
+# (minutes into the run) has a pick-to-bind window of MINUTES, not milliseconds.
 # It is still a NARROW race, not an inevitability: free_port binds :0 and the
 # kernel hands out ephemeral ports monotonically, so two runs minutes apart land
 # in well-separated blocks and only collide if the ephemeral counter wraps or a

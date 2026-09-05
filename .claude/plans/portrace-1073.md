@@ -9,7 +9,7 @@ before the challenge-loop, per the pre-challenge-gate contract.
 `free_port`, which binds `:0`, reads the port, then CLOSES the socket, releasing
 the port back to the OS), then the servers bind them across the whole ~11-minute
 run. The `#633` comment claims the pick-to-bind window is "a few milliseconds",
-which holds only for the FIRST port bound: P7/P9 bind minutes later, so their
+which holds only for the FIRST port bound: late boots bind minutes later, so their
 window is genuinely minutes. In that window another run can take the port.
 
 It is a NARROW race, not an inevitability (the kernel hands out ephemeral ports
