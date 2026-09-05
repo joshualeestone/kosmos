@@ -133,6 +133,20 @@ function stripFrontmatter(raw) {
   return m ? s.slice(m[0].length) : s;
 }
 
+/** The `date:` (YYYY-MM-DD) from a report's `---`...`---` frontmatter header, or
+ *  null. #2296: a pulled report (engine/feedbackpull.js) has a `<date>__<install>.md`
+ *  name, not a bare `YYYY-MM-DD.md`, so triage's --dir reads the day from HERE
+ *  instead of the filename, keeping --since working on the collected corpus.
+ *  Read only within the header block, and only a well-formed date, so a `date:`
+ *  in the prose body cannot be mistaken for the report's day. */
+function frontmatterDate(raw) {
+  const s = String(raw == null ? '' : raw);
+  const fm = s.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!fm) return null;
+  const m = fm[1].match(/(?:^|\n)date:\s*(\d{4}-\d{2}-\d{2})\s*(?:\n|$)/);
+  return m ? m[1] : null;
+}
+
 /** Just the body (frontmatter stripped), or null when there is no report. */
 function readBody(date) {
   const raw = read(date);
@@ -158,4 +172,4 @@ function list() {
     .reverse();
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, stripFrontmatter, has, list };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, stripFrontmatter, frontmatterDate, has, list };

@@ -111,3 +111,12 @@ test('default write targets today (no date option needed)', () => {
   assert.equal(res.date, feedback.today());
   assert.equal(feedback.readBody(feedback.today()).trim(), 'todays report');
 });
+
+test('#2296 frontmatterDate reads the date from the header, ignores a body date, null when absent', () => {
+  assert.equal(feedback.frontmatterDate('---\ndate: 2026-09-04\ninstall: x\n---\nbody here'), '2026-09-04');
+  // a date-looking line in the BODY (after the header) must not be mistaken for the day
+  assert.equal(feedback.frontmatterDate('---\ninstall: x\n---\nchanged on 2026-01-01 maybe'), null);
+  assert.equal(feedback.frontmatterDate('no frontmatter at all'), null);
+  assert.equal(feedback.frontmatterDate('---\ndate: not-a-date\n---\nb'), null);
+  assert.equal(feedback.frontmatterDate(null), null);
+});

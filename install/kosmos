@@ -1105,7 +1105,7 @@ cmd_feedback() {
   # install (missing runtime) refuse in the CLI's own voice rather than letting a
   # raw "node: No such file" surface, matching cmd_adopt's runtime guard.
   case "$sub" in
-    write|show|list|triage)
+    write|show|list|triage|pull)
       if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
         say "Kosmos cannot find its own runtime, so it cannot save or read a report."
         exit 2
@@ -1192,7 +1192,7 @@ cmd_feedback() {
             // A non-date filename has no day, so it gets a null date rather than
             // a bogus label; under --since it is skipped, since a since-filter
             // can only include reports it can confirm are on or after the day.
-            const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(n) ? n.slice(0, -3) : null;
+            const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(n) ? n.slice(0, -3) : fb.frontmatterDate(raw);
             if (since && (date === null || date < since)) continue;
             reports.push({ date, body });
           }
@@ -1215,15 +1215,42 @@ cmd_feedback() {
       ' "$KOSMOS_HOME/app"
       exit $?
       ;;
+    pull)
+      # The BRIDGE (#2296): pull the COLLECTED reports (transmitted by opted-in
+      # installs, stored server-side as blobs) down into a local dir that
+      # `triage --dir` reads. READ-ONLY against the store; needs the blob token
+      # (read via secrets-map, so this is not blocked on token provisioning -- it
+      # returns a clear "not filed" message until the token exists).
+      local p_dir=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --dir) p_dir="${2:-}"; shift 2 || { say "--dir needs a path"; exit 2; } ;;
+          *) say "Unknown option for pull: $1"; exit 2 ;;
+        esac
+      done
+      KOSMOS_PULL_DIR="$p_dir" "$NODE" -e '
+        const fp = require(process.argv[1] + "/engine/feedbackpull");
+        const dir = process.env.KOSMOS_PULL_DIR || "";
+        fp.pull(dir || undefined).then((r) => {
+          if (!r.ok) { console.error(r.because); process.exit(1); }
+          process.stdout.write("pulled " + r.written + " report(s)"
+            + (r.skipped ? " (" + r.skipped + " skipped)" : "")
+            + " to " + r.dir + "\n");
+          process.stdout.write("next: kosmos feedback triage --dir " + r.dir + "\n");
+        }).catch(() => { console.error("could not pull the collected feedback"); process.exit(1); });
+      ' "$KOSMOS_HOME/app"
+      exit $?
+      ;;
     ""|help|-h|--help)
       say "Usage: kosmos feedback write [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today)"
       say "       kosmos feedback list"
+      say "       kosmos feedback pull [--dir PATH]  (bring collected reports down for triage)"
       say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
       exit 2
       ;;
     *)
-      say "Unknown: kosmos feedback $sub. Try: write | show | list | triage"
+      say "Unknown: kosmos feedback $sub. Try: write | show | list | pull | triage"
       exit 2
       ;;
   esac
