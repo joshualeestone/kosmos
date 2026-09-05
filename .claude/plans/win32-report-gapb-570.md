@@ -400,3 +400,62 @@ So the 54 remaining failures are pre-existing Windows platform failures —
 **proven by control, not asserted** — and this branch's net effect on the suite is
 one file moved from red to green. Not one file fails here that did not fail on
 clean main, and no file fails harder.
+
+---
+
+## FINDING 3 (fixed, 3 of them): the guards that could not see Windows
+
+Chasing one CI failure turned up a systemic class. Four instances, all the same
+shape, all found in one day, all invisible on the all-macOS fleet:
+
+| file | symptom on Windows | status |
+|---|---|---|
+| `engine/windows-coupling-audit-1732.test.js` | all 11 classified files read as unclassified | **fixed** |
+| `fixture-discipline.test.js` | 3 self-checks red; an 88-line allowlist stopped applying | **fixed** |
+| `web.machine-absence-claims.test.js` | `engine/machine.js ... must be in scope` while it sat in the list as `engine\machine.js` | **fixed** |
+| *(the CI failure itself)* | my own hand-built roster row | **fixed** |
+
+**The shape, stated once:** a path API call has two possible jobs — *reaching* a
+file, and *being a key compared against a literal*. `path.join` is correct for the
+first and wrong for the second, and on macOS the two are the same string, so the
+mistake is free until it is not. This is the third time this lane has paid for it
+in a week (`path.extname` in #2183, `path.join` twice here).
+
+⚠️ **The failure mode is worse than a wrong answer.** A broken detector reads
+exactly like a clean codebase. `fixture-discipline` inverted in *both* directions
+at once: 88 sanctioned lines read as violations, while the rules that were aimed
+at nothing reported it plainly only because someone had written positive controls.
+
+⭐ **The self-checks are the reason any of this was visible**, and they were added
+for a different reason than the one that saved them. `fixture-discipline`'s
+control says "a lint that scans an empty list passes forever" — written against a
+*stale file list*. It turned out to cover a *platform the author never ran on*.
+That is the argument for positive controls in one line, and it is stronger than
+the one originally given for them.
+
+### Left alone deliberately, and why
+
+Three more files build `path.join('engine', f)` keys and **pass on Windows**:
+`comment-deferral.test.js`, `engine.reachable.test.js` (three sites),
+`one-derivation.test.js`. They pass because their comparisons are host-built on
+both sides, so the mismatch cancels. They are latent, not broken, and I did not
+touch them: changing working code on a theory is how a cleanup becomes a
+regression.
+
+I also did **not** add a blanket lint banning `path.join` for key construction.
+The honest version of that rule needs to distinguish a key from a path, which is
+not decidable from the syntax — and a rule that fires on the shape rather than
+the defect would red those three working files and read as coverage while
+catching nothing new. That is precisely the "a rule that only catches the
+formatting nobody uses reads as coverage and is not" trap `fixture-discipline`
+already warns about. The two source pins added to the coupling audit are the
+scoped version of the guard; a cross-suite rule wants its own card and a
+sharper predicate.
+
+### Separately: a real platform difference, not a key bug
+
+`engine.runnable-not-directory.test.js` fails 3 on Windows on
+`isRunnable`/`':'`-candidates/empty-env semantics. That is the POSIX exec-bit and
+`path.delimiter` class, not this one — and it is the same `-x` question flagged as
+UNVERIFIED in Q2 above. Still unverified; recorded here so it is not lost, not
+claimed as understood.

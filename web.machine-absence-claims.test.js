@@ -57,8 +57,19 @@ const SOURCES = [
   'install/pkg-resources/welcome.html',
   'install/pkg-scripts/installing.html',
 ];
+/* 🛑 '/' NOT path.join, BECAUSE THESE ENTRIES ARE COMPARED, NOT ONLY OPENED. The
+   three literals above are forward-slashed and the scope assertion below asks
+   `SOURCES.includes('engine/machine.js')`, so an entry built with the HOST
+   separator is a different string on Windows: the guard went red there with
+   "engine/machine.js ... must be in scope" while machine.js sat in the list as
+   'engine\machine.js'. Measured on Windows 2026-09-05, and pre-existing on clean
+   origin/main. Fourth instance of one shape found the same day -- see the #1732
+   coupling audit and fixture-discipline.test.js -- so it is worth saying plainly:
+   a path API call has two possible jobs, and only one of them is
+   separator-agnostic. `existsSync` and `readFileSync` still work on these,
+   because Node accepts '/' on Windows. */
 for (const f of fs.readdirSync('engine')) {
-  if (f.endsWith('.js') && !f.endsWith('.test.js')) SOURCES.push(path.join('engine', f));
+  if (f.endsWith('.js') && !f.endsWith('.test.js')) SOURCES.push('engine/' + f);
 }
 
 /**
