@@ -143,13 +143,27 @@ test('#2140 S2 default-codex (isDefault account) sends an EMPTY dir so the route
   assert.doesNotMatch(r.els['d-model'].innerHTML, /Claude|sonnet|opus/i, 'no Claude model appears for a default-codex agent');
 });
 
-test('#2140 S2 current-not-in-list -> "Let OpenAI choose" selected (never a wrong pre-select)', async () => {
+test('#2191 S2 current-not-in-(collapsed)-list -> the current model is injected + selected (its actual model shown, never a WRONG pre-select)', async () => {
+  /* Supersedes the pre-#2191 assertion. Before the snapshot collapse, a current
+     model absent from the menu fell back to auto-selected ("Let OpenAI choose").
+     After the collapse, "absent from the menu" is the NORMAL case for a
+     snapshot-pinned agent -- the pinned model is real, just collapsed away -- so
+     the picker now adds a row for the agent's ACTUAL current model and selects
+     it. The original intent survives: it still never pre-selects a DIFFERENT
+     model (it must not silently swap the snapshot pin for its collapsed alias). */
   const r = await run({
-    agent: openaiAgent(CARDS.ours, { plannedModelName: 'gpt-4o-mini-retired' }),
+    agent: openaiAgent(CARDS.ours, { plannedModelName: 'gpt-4o-2024-08-06' }),
     fetchOk: true,
-    fetchBody: { ok: true, models: [{ key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'x' }] },
+    fetchBody: { ok: true, models: [
+      { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', why: 'x' },
+      { key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'x' },
+    ] },
   });
-  assert.match(r.els['d-model'].innerHTML, /value="" selected>Let OpenAI choose/, 'a current model not in the list falls back to auto-selected');
+  const html = r.els['d-model'].innerHTML;
+  assert.match(html, /value="gpt-4o-2024-08-06"[^>]*selected/, 'the pinned snapshot is injected and pre-selected (its actual model)');
+  assert.doesNotMatch(html, /value="" selected/, '"Let OpenAI choose" is NOT auto-selected when we know the current model');
+  assert.doesNotMatch(html, /value="gpt-4o"[^>]*selected/, 'the collapsed representative is NOT silently selected in place of the pin (non-destructive)');
+  assert.equal(r.els['d-model'].dataset.current, 'gpt-4o-2024-08-06', 'dataset.current reflects the actual pinned model');
 });
 
 test('#2140 S2 NOT LISTABLE: single "OpenAI picks its own model for now" option, no Claude, reason on the msg', async () => {
