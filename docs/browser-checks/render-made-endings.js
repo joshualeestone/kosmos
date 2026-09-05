@@ -110,8 +110,19 @@ const MADE = {
   });
 
   check('the timeout ending is reached and says so', /has not come up/.test(ending.head), `"${ending.head}"`);
-  check('it says the screen stopped waiting, not the agent',
-    /stopped waiting, it did not stop it/.test(ending.warn), `"${ending.warn.slice(0, 90)}…"`);
+  // #2193: the message was trimmed to essentials. It still says the agent keeps
+  // trying (which conveys it was NOT stopped, replacing the old "this screen
+  // stopped waiting, it did not stop it" sentence), names the folder, and offers
+  // conditional removal -- and the verbose lines Josh flagged are gone.
+  check('it says the agent keeps trying (so it was not stopped)',
+    /keeps trying at every login/.test(ending.warn), `"${ending.warn.slice(0, 120)}…"`);
+  check('it still names the folder (a "keeps trying" with no where is a job you cannot find)',
+    /work\/workers\/rosie/.test(ending.warn), `"${ending.warn.slice(0, 120)}…"`);
+  check('it still offers conditional removal under Agents',
+    /if it appears under Agents, you can remove it there/.test(ending.warn), `"${ending.warn.slice(0, 120)}…"`);
+  check('the verbose lines Josh flagged are gone (#2193 trim)',
+    !/on your computer either way/.test(ending.warn) && !/we cannot clear it out/.test(ending.warn)
+      && !/stopped waiting, it did not stop it/.test(ending.warn), `"${ending.warn.slice(0, 160)}…"`);
   check('no button offers to go and see it under Agents',
     !ending.buttons.some((b) => /under Agents/i.test(b)), JSON.stringify(ending.buttons));
   check('the offer is to look again, and it can be pressed',

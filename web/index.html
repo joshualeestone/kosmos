@@ -8419,9 +8419,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            agent directly.
            🔑 THIS ENDING NEEDED A TRUER OFFER RATHER THAN THE SAME ONE. It is
            reached when the agent WAS created and the board has not seen it come
-           up within thirty seconds, and the honest fact about that moment is in
-           the sentence above it: this screen stopped waiting, it did not stop
-           the agent. So the offer is to wait again, which is the thing the
+           up within thirty seconds, and the honest fact about that moment is that
+           this screen stopped waiting, it did not stop the agent -- the trimmed
+           warn copy carries it now as "it keeps trying at every login" (#2193).
+           So the offer is to wait again, which is the thing the
            person actually wants and the only one this screen can carry out.
            Sending them to a list to hunt for a card that does not exist yet was
            never that. -->
@@ -27552,33 +27553,29 @@ async function watchForAgent(name, result, attempt) {
     warn.innerHTML = '<b>This one is only half made.</b> ' + esc(result.because || '')
       + '<br>Nothing is running under that name, and this screen has stopped waiting for it.';
   } else {
+    // #2193 (Josh, 0.6.30): this message was "a big ass error message" -- trimmed
+    // to the essentials. Kept: the status line Josh quoted; that it keeps trying
+    // (which is also what tells the person the agent was NOT stopped, so the old
+    // "this screen stopped waiting, it did not stop it" sentence is no longer
+    // needed to say it); WHERE the folder is; and how to remove it. Dropped: "the
+    // folder and instructions are on your computer either way", the stopped-waiting
+    // sentence, and the "if it never appears we cannot clear it out yet" caveat.
+    //
+    // ⚠️ Saying "it keeps trying" WITHOUT saying where is how a person ends up
+    // with a job they cannot find -- so the folder stays named. Remove is
+    // CONDITIONAL ("if it appears under Agents") because the board is built from
+    // live panes: an agent that never came up has no card, and the Remove control
+    // lives on the card (the gap is kosmos#127).
+    //
+    // ⚠️ The folder comes from the ANSWER (result.folder), not a path built here.
+    // This page once guessed `~/work/workers/<name>`, wrong on any machine started
+    // with AGENT_WORKFORCE_WORKERS set -- pointing a stuck person at a folder that
+    // does not exist.
     warn.innerHTML = '<b>It was set up, but nothing is running under that name yet.</b> '
-      + 'The folder and the instructions are on your computer either way. It may still '
-      + 'appear under Agents on its own: this screen stopped waiting, it did not stop it.'
-      // ⚠️ This is the screen where somebody is most likely to want an agent
-      // gone, and saying "it is set to keep trying" without saying where is how
-      // a person ends up with a job they cannot find.
-      //
-      // Remove exists. DELETE is still manual, and there is no route to it from
-      // here at all: the board is built from live panes, so an agent that never
-      // came up has no card and the Remove control lives on the card. That is
-      // why the offer below is CONDITIONAL ("if it appears under Agents") and
-      // why the other arm says we cannot clear it out yet rather than naming a
-      // recipe. The gap itself is kosmos#127.
-      //
-      // 📌 This comment used to end "which is why the README recipe stays". The
-      // recipe went in the same commit that rewrote the lines below it, so the
-      // comment explained a decision that had been reversed directly above the
-      // lines reversing it. The FACT in it was still true and only the
-      // CONCLUSION had died, which is why this keeps the fact.
-      // ⚠️ The folder comes from the ANSWER, not from a path built here. This
-      // page guessed `~/work/workers/<name>`, which is wrong on any machine
-      // started with AGENT_WORKFORCE_WORKERS set — pointing a stuck person at a
-      // folder that does not exist.
       + (result.folder
-        ? '<br>It is set to keep trying at every login. Its folder is <code>' + esc(result.folder)
-          + '</code>. If it appears under Agents, you can remove it there. If it never appears, we cannot clear it out for you yet.'
-        : '<br>It is set to keep trying at every login. If it appears under Agents, you can remove it there. If it never appears, we cannot clear it out for you yet.');
+        ? 'It keeps trying at every login. Its folder is <code>' + esc(result.folder)
+          + '</code>; if it appears under Agents, you can remove it there.'
+        : 'It keeps trying at every login. If it appears under Agents, you can remove it there.');
   }
   warn.hidden = false;
   document.getElementById('made-look').hidden = false;

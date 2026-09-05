@@ -779,9 +779,11 @@ test('a write that fails stops the creation instead of loading a job that cannot
   // returned CREATED -- "set up and starting" over an agent whose startup
   // script was never written. That is worse than untrue: bash exits at once on
   // a missing script and KeepAlive restarts it, so the machine gets a job that
-  // fails every thirty seconds forever. And the screen built on this told the
-  // person "the folder and the instructions are on your computer either way",
-  // which is false in exactly the case that produced it.
+  // fails every thirty seconds forever. And the screen built on this used to tell
+  // the person "the folder and the instructions are on your computer either way"
+  // (that reassurance was removed in #2193), which was false in exactly the case
+  // that produced it -- which is why a failed write returns PARTIAL (with its own
+  // reason) rather than CREATED.
   const calls = recorder();
   create.setDryRun(false);
 
