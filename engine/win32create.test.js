@@ -199,16 +199,29 @@ test('#570 Gap-B END TO END: one prepared session is BOTH emitted by the real ro
   const panes = status.parsePanes(win32roster.make({ run: () => liveAgents })());
   const ours = panes.filter((p) => status.isNamedOurs(p));
   assert.equal(ours.length, 1, 'the prepared session is on the board');
-  // Now the OTHER arm: build the roster in the shape server.js hands `resolve`
-  // (sessionName + isNamedOurs, from the REAL classifier) and resolve the token
-  // the spawn would have carried. Both halves must land on the same agent, or
-  // the board shows a session whose reports it cannot attribute.
-  const roster = ours.map((p) => ({ sessionName: p.session, isNamedOurs: status.isNamedOurs(p) }));
-  const carded = sendertoken.resolve(out.token, roster);
-  assert.equal(carded.ok, true, 'the token resolves against the roster the board actually builds');
-  assert.equal(carded.card.sessionName, ours[0].session,
-    'the token speaks for the SAME agent the roster emits -- record and credential agree');
-  assert.equal(carded.instance, out.instance);
+  /* Now the credential half, and the two must name the SAME agent or the board
+     shows a session whose reports it cannot attribute.
+
+     🛑 THIS ASSERTS THROUGH resolveName, NOT resolve, AND THE REASON IS A RULE
+     THIS TEST BROKE ONCE. The first version built the roster `resolve` wants as
+     an object literal keyed on the session-name and named-ours fields, and
+     fixture-discipline.test.js reds on exactly that: a hand-written stand-in for
+     what `snapshot()`/`paneRoster()` produce is free to carry fields the producer
+     never emits, which is how a display name and a needs-you count once shipped
+     dead. The guard is right and the shortcut was mine.
+
+     Asking test-support/fleet for a real card is the sanctioned answer, but it
+     installs a TMUX pane source, which is the one thing this test cannot use --
+     the whole point here is the win32 roster. So this asserts the arm that needs
+     no roster at all, which is also the arm a win32 agent actually lands on
+     (server.js:502-505, the paneless branch). `resolve`'s carded arm is covered
+     against real cards in sendertoken's own suite; re-proving it here against a
+     fabricated one would prove less, not more. */
+  const byName = sendertoken.resolveName(out.token);
+  assert.equal(byName.ok, true, 'the token resolves with no roster consulted');
+  assert.equal(byName.key, store.safeKey(ours[0].session),
+    'the token speaks for the SAME agent the real roster emits -- record and credential agree');
+  assert.equal(byName.instance, out.instance);
 });
 
 test('#570 Gap-B abandon() retires the token too: the credential dies with the record', () => {
