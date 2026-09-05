@@ -459,3 +459,82 @@ sharper predicate.
 `path.delimiter` class, not this one — and it is the same `-x` question flagged as
 UNVERIFIED in Q2 above. Still unverified; recorded here so it is not lost, not
 claimed as understood.
+
+---
+
+## FINDING 4 (fixed): a control frozen on the wrong platform
+
+`engine.runnable-not-directory.test.js` had already been fixed once for this: its
+`':' asks for NO candidates` assertion builds from `path.delimiter` and carries a
+comment saying why — *"Pinning the POSIX separator gave this arm the SAME win32
+blindness the code had."*
+
+Forty lines below that comment, **the control that proves the assertion means
+anything** was still a literal `'/a:/b'`. So was its twin on the env arrival
+route. On Windows `path.delimiter` is `';'`, so `'/a:/b'` is one element and both
+controls went red — while `github.js` behaved exactly as its own docblock
+documents, which states outright that the spellings in it are POSIX and are `';'`
+on Windows. **The code was right; the controls were asserting the other
+platform.**
+
+⇒ **Fixing an assertion and leaving its control on the old assumption is its own
+failure shape**, and worth naming because this file is unusually careful about
+controls everywhere else. The control is the half that decides whether an arm can
+fail at all, so a control frozen on the wrong platform silently narrows the arm it
+exists to widen.
+
+Both now build from `path.delimiter`. 19/3 → 21/1 on Windows.
+
+---
+
+## FINDING 5 (carded, not fixed): kosmos#2270 — isRunnable on Windows
+
+The one remaining failure in that file is **not** the separator class and is real
+product behaviour: `runnableExactly` gates on `fs.accessSync(p, fs.constants.X_OK)`,
+which Node documents as a **no-op on Windows** (it behaves as `F_OK`), and
+`chmod` there cannot make a file non-executable in the first place. Measured:
+
+```
+accessSync(X_OK) on a chmod-644 plain file -> PASSES on win32
+```
+
+The directory half still holds (`st.isFile()` carries it everywhere). What is lost
+is the non-executable-file half: on Windows executability is the **extension**,
+which is why `pathextCandidates` exists — but `runnableExactly` accepts any
+candidate that is a file, so an extensionless `claude` where the resolver looks
+reads as a usable runner. That is #1592's "reports missing with no diagnostic"
+with the sign flipped: **reports present with no diagnostic**, in the resolution
+path the whole port depends on.
+
+Filed as **kosmos#2270** with the fix shape (platform-injectable, per
+`docs/windows-source-coupling-1732.md`) and two flags: it will interact with the
+accessSync audit, and the existing fixture plants a non-executable file with
+`chmodSync(0o644)`, which is itself a no-op there — so the fixture needs a win32
+spelling or the arm still cannot fail on Windows.
+
+---
+
+## Net effect of this branch on Windows
+
+| file | before | after |
+|---|---|---|
+| `engine/win32create.test.js` | 8 / 0 | **14 / 0** (+6 new) |
+| `engine/windows-coupling-audit-1732.test.js` | 4 / 1 | **7 / 0** (+2 guards) |
+| `fixture-discipline.test.js` | 17 / 3 | **20 / 0** |
+| `web.machine-absence-claims.test.js` | 3 / 1 | **4 / 0** |
+| `engine.runnable-not-directory.test.js` | 19 / 3 | **21 / 1** (the 1 is kosmos#2270) |
+
+**Nine Windows failures closed, none introduced, eight new tests added.** The full
+165-file engine sweep against clean `origin/main` showed zero regressions.
+
+## Still open, in order
+
+1. ~~Token handoff~~ — **DONE**.
+2. **Decide the win32 report-writer's shape** with Pete — measurements above.
+3. **Throttle key** off the minted session id (the `nopane` collapse).
+4. **Dedup migration** for `reporthook`'s `MARKER` before a second filename ships.
+5. **kosmos#2040** — token confidentiality on win32 (ACL, not mode).
+6. **kosmos#2270** — isRunnable's X_OK no-op.
+7. **No supported way to run the suite on Windows** (no `node`, no `bash`; entry
+   point is `bash tools/run-tests.sh`). Everything here ran against the bundled
+   runtime directly.
