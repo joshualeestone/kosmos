@@ -62,6 +62,11 @@ function chk(ok, label, extra) {
     await page.click('#fr-next');
     await page.waitForSelector('#fr-pane-intro:not([hidden])', { timeout: 8000 });
     chk(!(await page.locator('#fr-pane-intro').isHidden()), 'clicking Set up Kosmos shows the pre-flight interstitial BEFORE the setup steps');
+    // WCAG 2.1 SC 4.1.3 (the project floor): entering the interstitial must move
+    // focus to its title, exactly as frGo does on every numbered step, or a
+    // screen-reader user is moved to a new screen with no announcement.
+    chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'fr-title'),
+      'entering the interstitial focuses #fr-title (a screen-reader announcement, like every other step)');
     chk(await page.locator('#fr-pane-1').isHidden(), 'the Success screen is hidden while the interstitial shows');
     chk(await page.locator('#fr-pane-2').isHidden(), 'Welcome is NOT shown yet -- the interstitial comes first');
     const introText = (await page.locator('#fr-pane-intro').textContent()).replace(/\s+/g, ' ').trim();

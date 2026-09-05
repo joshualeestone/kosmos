@@ -34163,6 +34163,13 @@ function frShowExplainer() {
   document.getElementById('fr-forgot').innerHTML = '';
   FR_FORGOT = false;
   frActions({ label: 'Continue', go: () => frGo(2) });
+  // #2163: focus the new screen's title, exactly as frGo does on every numbered
+  // step. #fr-title carries tabindex="-1" for this (WCAG 2.1 SC 4.1.3, the
+  // project floor): without it, "Set up Kosmos" moves a sighted user to a new
+  // screen but announces NOTHING to a screen-reader user -- the exact defect the
+  // focus line exists to prevent, which an interstitial that only rewrote the
+  // title text would reintroduce for the one new screen.
+  document.getElementById('fr-title').focus();
 }
 
 function frGo(step) {
