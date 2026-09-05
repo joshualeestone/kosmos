@@ -78,6 +78,24 @@ const REF = 'docs/windows-source-coupling-1732.md';
 // excludes test-support/*.js and docs/browser-checks/*.js (test fixtures and
 // render checks, fleet-only). Widen this set only to code that ships to /
 // executes on Windows.
+/* 🛑 THE KEY IS ALWAYS FORWARD-SLASHED, AND THIS AUDIT IS WHY IT HAS TO BE.
+   These values are not only paths -- they are the JOIN KEY against INVENTORY's
+   `file` field, which is written as a forward-slash literal ('engine/status.js').
+   `path.join` uses the HOST separator, so on Windows every key came out
+   'engine\status.js', matched no inventory row, and expectedCount returned 0 for
+   ALL ELEVEN classified files at once. Measured on Windows 2026-09-05: every row
+   in the inventory read as unclassified, so the ratchet was not merely wrong, it
+   was inverted -- the audit built to catch Windows-hostile coupling was itself
+   disabled by Windows-hostile coupling, and it is GREEN on this all-macOS fleet,
+   which is the one place nobody would ever see it.
+
+   ⚠️ `path.join` IS on this file's own portable list (line ~173) and that list is
+   right: it is portable for REACHING a file. It is not portable for building a
+   string you then compare to a literal. The flavour has to be chosen by what the
+   value is FOR, which is the same lesson #2183 paid for with `path.extname`.
+   Reads still work because Node accepts forward slashes on Windows too. */
+const relKey = (...parts) => parts.join('/');
+
 function productFiles() {
   const files = [];
   const dirScan = [
@@ -89,7 +107,7 @@ function productFiles() {
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { continue; }
     for (const e of entries) {
       if (e.isFile() && e.name.endsWith('.js') && !e.name.endsWith('.test.js')) {
-        files.push(path.join(prefix, e.name));
+        files.push(relKey(prefix, e.name));
       }
     }
   }
@@ -439,4 +457,49 @@ test('#1776 pin: engine/securewrite.js handles O_NOFOLLOW vanishing on win32 und
   assert.match(code, /\(\s*NOFOLLOW\s*\|\|\s*0\s*\)/,
     'engine/securewrite.js must OR O_NOFOLLOW in undefined-safe as (NOFOLLOW || 0), so the flag ' +
     'vanishing on win32 cannot malform the open flags (#1776).');
+});
+
+// ============================================================================
+// #570: THE AUDIT'S OWN PLATFORM GUARD.
+//
+// The ratchet above joins its scan against INVENTORY on a repo-relative path
+// STRING. That join silently produced nothing on Windows for every classified
+// file (path.join emits '\' there, the inventory is written with '/'), which
+// turned the whole audit off on the only platform it is about -- while staying
+// green here. Two arms, because one of them cannot see it:
+//
+//   1. a BEHAVIOURAL invariant that every inventory row is actually reachable by
+//      the scanner. It is the property that broke; it runs everywhere.
+//   2. a SOURCE PIN, because arm 1 passes on macOS both before and after the
+//      fix -- path.join and '/' are the same string here. Only reading the code
+//      can catch a re-introduction from a Mac. Same reasoning as
+//      win32-separator-guard.test.js, and the same reason #2183 needed one.
+// ============================================================================
+
+test('#570: every INVENTORY row names a file the scanner actually yields', () => {
+  const yielded = new Set(productFiles());
+  const orphans = [...new Set(INVENTORY.map((e) => e.file))].filter((f) => !yielded.has(f));
+  assert.deepEqual(orphans, [],
+    'an inventory row whose file the scanner never yields can never be matched, so every\n'
+    + 'coupling in that file reads as UNCLASSIFIED. On Windows this was true of ALL of them\n'
+    + 'at once (path.join built "engine\\\\status.js"; the inventory says "engine/status.js").\n'
+    + 'Orphans: ' + JSON.stringify(orphans));
+});
+
+test('#570: the scanner builds its inventory key with "/" and never the host separator', () => {
+  // Arm 2: a SOURCE pin. On macOS path.join(prefix, name) === prefix + '/' + name,
+  // so arm 1 and every behavioural check pass whether or not this regresses. The
+  // only way to see it from here is to read the code that builds the key.
+  const src = fs.readFileSync(__filename, 'utf8');
+  const pushes = src.split('\n')
+    .map((line, i) => ({ lineno: i + 1, line }))
+    .filter(({ line }) => /files\.push\(/.test(line) && !/^\s*(\/\/|\*)/.test(line));
+  assert.ok(pushes.length > 0, 'the scanner still pushes keys somewhere (this pin has not gone stale)');
+  const hostJoined = pushes.filter(({ line }) => /path\.(join|sep|resolve)/.test(line));
+  assert.deepEqual(hostJoined.map((p) => `${p.lineno}: ${p.line.trim()}`), [],
+    'a key pushed through path.join/sep/resolve carries the HOST separator, which matches\n'
+    + 'the forward-slash INVENTORY on macOS and nowhere else. Build it with relKey().');
+  // And the built keys themselves, whatever platform this runs on.
+  const bad = productFiles().filter((f) => f.includes('\\'));
+  assert.deepEqual(bad, [], 'no key carries a backslash');
 });
