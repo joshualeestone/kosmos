@@ -60,3 +60,15 @@ that installs an agent carrying viewport/screen state but NOT asking, eng-mode O
 to Projects + the conversation/detail tab, and asserts the terminal is hidden; a sibling arm
 with an ASKING agent asserts the question panel STAYS (the safety control). That pins the leak;
 gate it on ENG_ON; the check ships as the browser-check.
+
+## Reproduction state injection (from test-support/fleet.js)
+- `fleet.agent(name, { state: 'working', screen: '<terminal text>' })` = the CHROME case:
+  a working agent with terminal output that should be HIDDEN in Off. This is the leak arm.
+- `fleet.agent(name, { state: 'needs_you', ... })` = the SAFETY case: an asking agent whose
+  question panel must STAY visible in Off. This is the control arm.
+- Harness: set the sandbox env vars, `fleet.install([...])`, `srv.start(0)`, navigate to the
+  project page + the agent detail/conversation view, read `.pj-viewport`/`.pj-screen`
+  computed visibility with ENG_ON false, and assert chrome hidden + question-panel shown.
+- Open question for the repro to answer: which render path shows the terminal WITHOUT the
+  ENG_ON gate (a project-page path missing pjApplyEngMode, or the detail/conversation view's
+  own screen surface). Then gate exactly that path on ENG_ON.
