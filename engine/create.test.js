@@ -3901,6 +3901,29 @@ test('#1356: the picker offers Claude Opus 4.8 and Claude Fable 5.1, and the boa
   }
 });
 
+test('#2140: the Claude picker is ordered most-powerful-first in Josh\'s exact order (item 10)', () => {
+  const create = require('./create');
+  // Josh, 0.6.35 feedback item 10: Fable 5.1, Fable 5, Opus 5, Opus 4.8, Sonnet, Haiku.
+  // The MODELS array order IS the picker's display order, so assert it verbatim.
+  // The dangerous answer this catches: a reorder that regresses (e.g. Fable 5
+  // above 5.1 again, or Sonnet floating up) shows a different sequence here.
+  const claudeOrder = create.MODELS
+    .filter((m) => m.provider === 'anthropic')
+    .map((m) => m.arg);
+  assert.deepEqual(claudeOrder, [
+    'claude-fable-5-1',   // Fable 5.1 (most capable, leads)
+    'claude-fable-5',     // Fable 5
+    'claude-opus-5',      // Opus 5
+    'claude-opus-4-8',    // Opus 4.8
+    'claude-sonnet-5',    // Sonnet (still the default, mid-list by power)
+    'claude-haiku-4-5-20251001', // Haiku (least, last)
+  ], 'the Claude model menu is not in Josh\'s most-powerful-first order (#2140 item 10)');
+  // The reorder must NOT have changed the default: Sonnet 5 stays pre-selected.
+  const defaults = create.MODELS.filter((m) => m.default);
+  assert.equal(defaults.length, 1, 'exactly one default');
+  assert.equal(defaults[0].arg, 'claude-sonnet-5', 'the default stays Sonnet 5 (order changed, default did not)');
+});
+
 test('#1026: modelFor refuses a real model belonging to the OTHER provider', () => {
   const create = require('./create');
   // The control first: it resolves within the right provider, or the refusal

@@ -98,16 +98,20 @@ const runners = require('./runners'); // #1616: one definition of runnable
  * line a person can choose by, which no runner can produce. This change is the
  * prerequisite: the shape that makes adding them safe.
  */
+/* #2140 (Josh, 0.6.35 feedback item 10): the Claude picker is ordered
+   MOST-POWERFUL-FIRST, in Josh's exact order: Fable 5.1, Fable 5, Opus 5,
+   Opus 4.8, Sonnet, Haiku. The array order IS the display order (the picker
+   renders MODELS in sequence), so this list is the single source of that order;
+   engine/create.test.js asserts it exactly. The DEFAULT is unchanged (Sonnet 5,
+   `default: true` below) -- Josh asked to reorder the menu, not to change which
+   model is pre-selected; that is a separate call. */
 const MODELS = [
-  { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
-    why: 'The most capable, and the most expensive to run. For work where being right matters more than being quick.' },
-  // #1356: Josh asked for Fable 5.1 (2026-09-01) alongside Opus 4.8. The id is
-  // pinned from the tool's own model list (claude-fable-5-1), matching the
-  // claude-fable-5 point-release shape; the `why` is grounded in the runner's
-  // own banner ("writes better code and reports progress on long tasks") rather
-  // than invented. Added alongside Fable 5 (Josh said "add"), not replacing it.
+  // #1356: Fable 5.1 (Josh, 2026-09-01), id pinned from the tool's own model
+  // list (claude-fable-5-1). #2140: it leads the menu as the most capable.
   { key: 'fable51', provider: 'anthropic', label: 'Claude Fable 5.1', arg: 'claude-fable-5-1',
-    why: 'The newest Fable. Strong on code, and it reports progress as it works through a long task.' },
+    why: 'The newest and most capable Fable. Strong on code, and it reports progress as it works through a long task.' },
+  { key: 'fable', provider: 'anthropic', label: 'Claude Fable 5', arg: 'claude-fable-5',
+    why: 'The previous Fable. Very capable, and the most expensive to run. For work where being right matters more than being quick.' },
   { key: 'opus', provider: 'anthropic', label: 'Claude Opus 5', arg: 'claude-opus-5',
     why: 'Slower, and it holds more of a long job in its head.' },
   // #1356: Josh asked to add Opus 4.8 (2026-08-28). The product already knew it
