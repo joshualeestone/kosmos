@@ -731,7 +731,27 @@ function platformKey() {
  * rather than resumed: a byte-range resume would hash clean or dirty the same
  * way, but restart is simpler to reason about and the file downloads once
  * (measured: 281MB, 9 seconds on this machine's connection).
+ *
+ * #875: a COMPLETED, verified binary for the target version, on the other hand,
+ * is REUSED, not re-fetched. A prior attempt whose download finished but whose
+ * install step failed keeps the binary (see installClaudeCode), so a retry that
+ * reaches here finds it and skips the ~376MB download Josh reported starting
+ * over. It is hash-verified before reuse, so a truncated or tampered file
+ * re-downloads rather than installs -- the same guarantee as the post-fetch
+ * checksum below, applied to a file that has been sitting on disk.
  */
+/* Streaming sha256 of a file on disk, so verifying a ~281MB reuse candidate
+   does not load the whole file into memory (#875). */
+function sha256File(p) {
+  const hash = crypto.createHash('sha256');
+  const fd = fs.openSync(p, 'r');
+  try {
+    const buf = Buffer.allocUnsafe(1 << 20);
+    let n;
+    while ((n = fs.readSync(fd, buf, 0, buf.length, null)) > 0) hash.update(buf.subarray(0, n));
+  } finally { fs.closeSync(fd); }
+  return hash.digest('hex');
+}
 async function download(onProgress, track, platform = process.platform) {
   /* kosmos macOS-only gate (Option A, extended to the provider-binary download at
      Splinter's ruling 2026-09-01): the binary this fetches is a `darwin-${arch}`
@@ -790,6 +810,24 @@ async function download(onProgress, track, platform = process.platform) {
       }
     }
   } catch { /* nothing stale to clean */ }
+
+  /**
+   * #875: reuse a verified binary already on disk for this version instead of
+   * re-downloading it. The dir sweep above keeps only this version's `dest`, so
+   * a binary left by a prior attempt whose install failed is exactly what lands
+   * here. Hash-verify it first: a partial or tampered file falls through to a
+   * fresh download rather than being installed. Report it as instantly complete
+   * so the progress bar finishes rather than hanging on a skipped fetch.
+   */
+  try {
+    if (fs.existsSync(dest) && sha256File(dest) === want) {
+      if (typeof onProgress === 'function') {
+        const n = fs.statSync(dest).size;
+        try { onProgress(n, n); } catch { /* progress is best-effort */ }
+      }
+      return { path: dest, version };
+    }
+  } catch { /* any read/hash trouble: fall through to a fresh download */ }
 
   const got = await fetchFile(`${base}/${version}/${plat}/claude`, part, onProgress, undefined, track);
   activeRequest = null;
@@ -1541,11 +1579,16 @@ async function installClaudeCode(hooks) {
     return { ok: false, cancelled: true, message: 'the sign-in was stopped' };
   }
   if (!inst.ok) {
-    // ⚠️ The binary goes too: a stuck install otherwise strands 281MB per
-    // attempted version in app data, which is exactly what the deletion on
-    // the success path below exists to prevent. A retry re-downloads in
-    // seconds; the disk does not get the file back on its own.
-    try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
+    // #875: KEEP the verified binary. It downloaded and passed its checksum;
+    // only the install step failed, often transiently. Deleting it forced the
+    // whole ~376MB download to start over on the next Connect (Josh, 2026-08-25:
+    // "it downloaded the whole 376MB, then i hit connect and it started the
+    // whole download over"), and made the download screen's own promise ("This
+    // is the one big download") false. A retry now reuses this binary via the
+    // reuse-if-verified path in download(). Stranding is still bounded: every
+    // fresh download sweeps all OTHER versions from the dir (see download's
+    // "every fresh download owns the dir"), so at most this one version sits
+    // until the next Connect, exactly as the success-path cleanup guarantees.
     return fail('Claude downloaded but did not finish setting itself up', tailOf(`${inst.stdout || ''}\n${inst.stderr || ''}`) || 'it stopped without saying why');
   }
   /**

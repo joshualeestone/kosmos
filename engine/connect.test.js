@@ -213,13 +213,17 @@ test('a download service answering nonsense is an error, not a hang', async (t) 
   await assert.rejects(() => connect.download(), /did not answer with a version/);
 });
 
-test('a stuck install does not strand the 281MB download in app data', async (t) => {
+test('#875: a stuck install KEEPS the verified download so a retry reuses it', async (t) => {
   /**
-   * ⚠️ The success path deletes the binary after install for exactly this
-   * reason; the FAILURE path forgot to, stranding one file per attempted
-   * version with nothing that would ever clean it. Driven end to end: a real
-   * (fixture) download through the real flow, an install that fails through
-   * the seam, and the downloads dir asked afterwards.
+   * #875 reverses the old contract. This test used to assert the binary was
+   * DELETED on install failure (to avoid stranding). Josh reported the real
+   * cost of that: "it downloaded the whole 376MB, then i hit connect and it
+   * started the whole download over." The verified binary is now KEPT on
+   * install failure, so a retry reuses it (download()'s reuse-if-verified path).
+   * Stranding is still bounded -- a fresh download of a DIFFERENT version sweeps
+   * it -- and that half is proven by the "sweeps a kept older binary" test
+   * below. Driven end to end: a real (fixture) download, an install that fails
+   * through the seam, and the downloads dir asked afterwards.
    */
   connect.resetForTests();
   clearClaudeConfig();
@@ -246,7 +250,7 @@ test('a stuck install does not strand the 281MB download in app data', async (t)
   await connect.start();
   await until(() => connect.state().phase === connect.PHASE.STUCK, 10000);
   /**
-   * 🔑 PRINT `tail`, NOT JUST `because`. The generic catch at connect.js:797
+   * 🔑 PRINT `tail`, NOT JUST `because`. The generic catch at connect.js
    * passes the REAL error as becomeStuck's third argument, which lands in state
    * as `tail` and is surfaced by publicView. So when this assertion fails with
    * the generic `something went wrong that we did not plan for`, the actual
@@ -261,9 +265,111 @@ test('a stuck install does not strand the 281MB download in app data', async (t)
     `because=${JSON.stringify(connect.state().because)} tail=${JSON.stringify(connect.state().tail)}`);
 
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
-  const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
+  const kept = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
     .filter((f) => f.includes('9.9.7'));
-  assert.deepEqual(leftovers, [], `the failed install stranded: ${leftovers.join(', ')}`);
+  assert.deepEqual(kept, [`claude-9.9.7-${connect.platformKey()}`],
+    `the verified binary should be kept for reuse, found: ${kept.join(', ') || '(nothing)'}`);
+  // And it is intact -- a retry's reuse check will hash it and accept it.
+  const onDisk = fs.readFileSync(nodePath.join(dir, kept[0]));
+  assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum,
+    'the kept binary is not byte-identical to what was downloaded');
+});
+
+test('#875: download reuses a verified on-disk binary instead of re-fetching', async (t) => {
+  /**
+   * The reuse path is the fast retry Josh was denied. First a real download
+   * fills the cache; then a second download() for the SAME version runs against
+   * a server whose BINARY endpoint is broken (500) but whose metadata still
+   * answers. If reuse works, the broken binary endpoint is never needed and the
+   * call succeeds off disk; if it were re-fetching, it would hit the 500 and
+   * fail. That broken endpoint is the discriminator -- it can return the
+   * dangerous answer.
+   */
+  connect.resetForTests();
+  const binary = crypto.randomBytes(120 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.5', binary, checksum });
+  const first = await connect.download();
+  assert.equal(first.version, '9.9.5');
+
+  // Same version, but the binary endpoint now fails. Metadata still answers.
+  let binaryHits = 0;
+  const server = http.createServer((req, res) => {
+    if (req.url === '/latest') { const b = Buffer.from('9.9.5'); res.writeHead(200, { 'content-length': b.length }); res.end(b); return; }
+    if (req.url === '/9.9.5/manifest.json') { const b = Buffer.from(JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } })); res.writeHead(200, { 'content-length': b.length }); res.end(b); return; }
+    binaryHits += 1; res.writeHead(500); res.end('binary endpoint is broken');
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => { server.close(); delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+
+  const seen = [];
+  const again = await connect.download((g, total) => seen.push([g, total]));
+  assert.equal(again.path, first.path, 'reuse returned a different path than the cached binary');
+  assert.equal(binaryHits, 0, 'download re-fetched the binary instead of reusing the verified copy');
+  const onDisk = fs.readFileSync(again.path);
+  assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum, 'the reused binary is not the verified one');
+  assert.ok(seen.length > 0 && seen[seen.length - 1][0] === binary.length,
+    'reuse should report the download as instantly complete so the bar finishes');
+});
+
+test('#875 control: a corrupted on-disk binary is re-fetched, not reused', async (t) => {
+  /**
+   * The reuse must be gated on the checksum, or a truncated/tampered cached file
+   * would be installed. Corrupt the cached binary and confirm download() falls
+   * through to a real fetch that restores the correct bytes. This is the control
+   * for the reuse test above: if the hash gate were dropped, this would return
+   * the corrupt file.
+   */
+  connect.resetForTests();
+  const binary = crypto.randomBytes(120 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  let binaryHits = 0;
+  const paths = {
+    '/latest': () => Buffer.from('9.9.4'),
+    '/9.9.4/manifest.json': () => Buffer.from(JSON.stringify({ platforms: { [connect.platformKey()]: { checksum } } })),
+  };
+  const server = http.createServer((req, res) => {
+    if (paths[req.url]) { const b = paths[req.url](); res.writeHead(200, { 'content-length': b.length }); res.end(b); return; }
+    binaryHits += 1; res.writeHead(200, { 'content-length': binary.length }); res.end(binary);
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  t.after(() => { server.close(); delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = `http://127.0.0.1:${server.address().port}`;
+
+  const first = await connect.download();
+  assert.equal(binaryHits, 1, 'the first download should fetch the binary once');
+  // Corrupt the cached binary in place.
+  fs.writeFileSync(first.path, Buffer.concat([binary, Buffer.from('tampered')]));
+
+  const again = await connect.download();
+  assert.equal(binaryHits, 2, 'a corrupted cache must trigger a real re-fetch, not a reuse');
+  const onDisk = fs.readFileSync(again.path);
+  assert.equal(crypto.createHash('sha256').update(onDisk).digest('hex'), checksum, 're-fetch did not restore the verified bytes');
+});
+
+test('#875: a fresh download of a new version sweeps a kept older binary', async (t) => {
+  /**
+   * The bound on stranding, now that install failure keeps the binary. The
+   * dir-owns-the-directory sweep means one kept version sits at most until the
+   * next Connect of a DIFFERENT version, which removes it -- so keeping the
+   * binary cannot accumulate one file per attempted version.
+   */
+  connect.resetForTests();
+  const binOld = crypto.randomBytes(80 * 1024);
+  const sumOld = crypto.createHash('sha256').update(binOld).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.8.1', binary: binOld, checksum: sumOld });
+  const old = await connect.download();
+  assert.ok(fs.existsSync(old.path), 'the older version did not land');
+
+  const binNew = crypto.randomBytes(80 * 1024);
+  const sumNew = crypto.createHash('sha256').update(binNew).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.8.2', binary: binNew, checksum: sumNew });
+  t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
+  const fresh = await connect.download();
+
+  assert.ok(fs.existsSync(fresh.path), 'the new version did not land');
+  assert.equal(fs.existsSync(old.path), false, 'the older kept binary was not swept by the new download');
 });
 
 test('cancel mid-download aborts the stream and leaves nothing behind', async (t) => {
