@@ -26774,12 +26774,14 @@ document.getElementById('rolesel').addEventListener('change', () => {
    native radio makes the promise and keeps it in the same breath. */
 
 function openCreate(initialMode) {
-  /* #1652: an optional starting mode for the create form. Only a KNOWN mode
-     string is honoured; anything else (notably the Event object this is bound to
-     as a click handler, and the no-arg `frFinish(openCreate)` call) falls
-     through to 'pm', so every existing entry point is unchanged. The first-run
-     "I already have agent files here" link passes 'import'. */
-  const startMode = (initialMode === 'import' || initialMode === 'own' || initialMode === 'list') ? initialMode : 'pm';
+  /* #1652: an optional starting mode for the create form. Today the only caller
+     that passes one is the first-run "look in my Documents/Downloads" link, which
+     passes 'import', so ONLY 'import' is honoured and everything else falls
+     through to 'pm'. That covers every existing entry unchanged (the Event object
+     this is bound to as a click handler, and the no-arg `frFinish(openCreate)`
+     call, both resolve to 'pm'). A future caller wanting 'own'/'list' widens this
+     deliberately rather than leaving dead accepted values here now. */
+  const startMode = initialMode === 'import' ? 'import' : 'pm';
   PICKED = null;
   /* 🛑 THE RADIOS ARE CLEARED, WHICH THE OLD PICKER NEVER DID. A form control
      keeps its state across a hidden panel, so reopening this form used to show
