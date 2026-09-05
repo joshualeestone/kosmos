@@ -2588,6 +2588,32 @@ test('#2255: the operator toggles an emoji reaction on a room post, and the room
   });
 });
 
+test('#2255: the agent react route refuses a bad project and an unresolvable sender (never mints operator authority)', async () => {
+  const THUMB = '\u{1F44D}';
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`, { text: 'react to me' });
+    assert.equal(posted.status, 200, posted.body);
+    const rows = json(await req(`/api/project/${project.id}/room`)).rows.filter((r) => r.kind === 'post');
+    const postId = rows[rows.length - 1].id;
+
+    // Bad project -> ok:false, nothing stored.
+    const badProj = json(await post('/api/react', { project: 'no-such-project', of: postId, emoji: THUMB, from_pane: '%3' }));
+    assert.equal(badProj.ok, false, 'a react into an unknown project is refused');
+
+    // No/unresolvable pane -> ok:false. The sender is read from from_pane and can
+    // never be forged in the body, so a missing pane cannot react as anybody.
+    const noPane = json(await post('/api/react', { project: project.id, of: postId, emoji: THUMB }));
+    assert.equal(noPane.ok, false, 'a react with no resolvable sender is refused');
+    const spoof = json(await post('/api/react', { project: project.id, of: postId, emoji: THUMB, from: 'zeta', operator: true, from_pane: '%9999' }));
+    assert.equal(spoof.ok, false, 'a body-supplied identity/operator flag cannot mint a reactor');
+
+    // And nothing landed: the post carries no reactions.
+    const after = json(await req(`/api/project/${project.id}/room`)).rows.filter((r) => r.kind === 'post');
+    assert.equal(after[after.length - 1].reactions, undefined, 'a refused agent react wrote no reaction');
+  });
+});
+
 test('#1895: the room text view renders a broadcast as "the room" in the operator zone, through the SERVER not a copy', async () => {
   /* ⚠️ WHY THIS EXISTS ALONGSIDE room-clock-1895.test.js. That suite proved
      roomClock in isolation and REPLICATED server.js's line composition into a

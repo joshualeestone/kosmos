@@ -6230,6 +6230,37 @@ const server = http.createServer((req, res) => {
         { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+
+  /* #2255: an AGENT reacts to a room post. The agent surface, mirroring
+     /api/post: the sender is read from `from_pane` (never trusted from the body)
+     and can never mint operator authority -- that flag is only ever set by the
+     operator's own /api/project/:id/room/:postId/react route. `react()` toggles
+     the emoji as this agent (its session name), and refuses a bad emoji or a
+     post that does not exist. */
+  if (pathname === '/api/react' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const roster = safeRoster();
+        if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running' }); return; }
+        let found = null;
+        try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
+        if (!found) { sendJson(res, 200, { ok: false, because: 'there is no project by that name' }); return; }
+        const sender = messages.resolveSender(body.from_pane, roster);
+        if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
+        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName });
+        sendJson(res, out.ok ? 200 : 400, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   /* The `/api/agent/:name/conversation` route is gone with the box that
      read it (Josh, 2026-08-23 12:38). It merged every project thread and the
      agent-to-agent record into one tail for the agent page; a room's
