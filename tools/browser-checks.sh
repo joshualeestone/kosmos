@@ -1125,7 +1125,14 @@ fi
 # fail -- the exact #1915 regression class, detailRing intact but nothing reaching the
 # page); a fixed non-reading arc reds the "arc changes with the reading" arm. That is
 # what makes the green mean anything.
-for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-a11y-gate-2125 render-engmode-gate-2131 render-preflight-2163 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-subprojects-1994; do
+# render-worlds-switcher-1704 joins the same way (#1704 slice-3, the multiple-Kosmos
+# switcher): own mktemp roots, OS-chosen port via srv.start(0), server.js in-process,
+# fleet.install, runs bare. It drives GET /api/worlds (the switcher lists worlds, one
+# marked active) and POST /api/worlds (the create modal validates, then creates a
+# Kosmos that appears in the list on refetch) against its OWN throwaway registry.
+# Proven RED against the pre-#1704 page: the switcher markup is absent, so arm 1's
+# "#worldsw not hidden" wait times out and the run exits 1.
+for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-a11y-gate-2125 render-engmode-gate-2131 render-preflight-2163 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-subprojects-1994 render-worlds-switcher-1704; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture
