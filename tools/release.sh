@@ -495,19 +495,22 @@ if [ "$_suite_exit" -ne 0 ]; then
   # #2006: a cut runs the suite under the load the cut itself creates, so a
   # load-sensitive concurrency test can red a release for a reason unrelated to
   # the change. Before aborting, apply run-tests.sh:190's own discriminator
-  # AUTOMATICALLY -- rerun each failing FILE alone. A file that goes green alone
-  # was starved by the cut's own parallel suite (contention makes false reds,
-  # never false greens), not broken by the change; a file that stays red alone,
-  # or a failure that is not an isolable node test file, is real and aborts.
-  # SCOPE: this guards the step-3 node/shell suite (`yarn test`) only, and only
-  # the cut's OWN-parallelism contention (a file that goes green alone). It does
-  # NOT cover step 3b, the headless browser checks below (a separate runner), and
-  # it does NOT shed EXTERNAL box load: a heavy background job saturating the box
-  # starves the alone-rerun too, so this aborts (safe) but the cut still stalls.
-  # That load-shedding fix, for both runners, is carded as #2017.
+  # AUTOMATICALLY. Two red shapes: a failing NODE test file (rerun each FAILING
+  # FILE alone) and a POST-node SHELL-stage red (node passed, then `yarn -s
+  # test:shell` reds under an unrelated agent's live page layer -- the browser-run
+  # guard tests are the most contention-sensitive in the suite; rerun the shell
+  # stage alone, #2006 shell extension). Either way: green alone was starvation,
+  # not the change (contention makes false reds, never false greens); a red that
+  # stays red alone, or a failure that cannot be isolated, is real and aborts.
+  # SCOPE: this guards the step-3 suite (`yarn test`: the node suite AND the shell
+  # stage). It does NOT cover step 3b, the headless browser checks below (a
+  # separate runner), and it does NOT shed EXTERNAL box load: a heavy background
+  # job saturating the box starves the alone-rerun too, so this aborts (safe) but
+  # the cut still stalls. That load-shedding fix, for both runners, is carded as
+  # #2017.
   # `if VAR=$(...)` captures the verdict's exit WITHOUT tripping errexit and
   # WITHOUT a pipe -- a pipe would let a downstream exit mask the verdict's.
-  echo "--- #2006: re-running the failing file(s) in isolation before deciding ---"
+  echo "--- #2006: re-running the failing file(s)/shell stage in isolation before deciding ---"
   if _rr_out="$(kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi
   printf '%s\n' "$_rr_out"
   if [ "$_rr_rc" -eq 0 ]; then _rr_word=contention_dismissed; else _rr_word=real_red; fi
@@ -516,10 +519,10 @@ if [ "$_suite_exit" -ne 0 ]; then
     printf '%s version=%s isolation_rerun=%s suite_exit=%s\n' "$(date -u +%FT%TZ)" "$V" "$_rr_word" "$_suite_exit"
   } >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
   if [ "$_rr_rc" -ne 0 ]; then
-    echo "the suite is genuinely red: a failing file stayed red when re-run alone, or the failure could not be isolated. Aborting the cut. Full output: $_suite_log"
+    echo "the suite is genuinely red: a failing file (or the shell stage) stayed red when re-run alone, or the failure could not be isolated. Aborting the cut. Full output: $_suite_log"
     exit 1
   fi
-  echo "the suite red was CONTENTION, not the change: every failing file passed when re-run alone. Continuing the cut (#2006)."
+  echo "the suite red was CONTENTION, not the change: every failing file (or the shell stage) passed when re-run alone. Continuing the cut (#2006)."
 fi
 rm -f "$_suite_log"
 

@@ -36,15 +36,71 @@ kosmos_failing_test_files() {
     | sed 's/^test at //' | sort -u
 }
 
+# #2006 (shell-stage extension): a post-node stage red (fail_count == 0). The node
+# suite passed and then a later stage failed. run-tests.sh runs, after a green node
+# suite: (1) `yarn -s test:shell` -- a SEQUENTIAL &&-chain of shell tests, several
+# of which are the most contention-sensitive tests in the whole suite because they
+# walk process ancestry and count live `bash tools/browser-checks.sh` runs
+# (test-browser-run-guard.sh's "does not refuse itself" and "#1391 descendant not
+# excluded"), so an UNRELATED agent's live page layer on this shared box reds them
+# with symptoms that read exactly like broken code; then (2) the repo-local
+# browser-check gate, which is FAIL-SOFT on the cut's frozen trunk (returns 0 when
+# it cannot diff origin/main...HEAD or there is no web/ change) and so cannot red
+# here. The coverage assertion fires BEFORE the node suite, so a coverage red has
+# no node tally and is caught by the empty-tally abort (never reaches this branch).
+# Therefore a fail-0 red during a cut is the SHELL stage, and the SAME asymmetry the
+# node path relies on holds: contention manufactures false REDS, never false greens,
+# so a single GREEN re-run of the shell stage alone proves the red was starvation.
+#
+# Re-run the shell stage ALONE (`yarn -s test:shell`, no 4400-test node load
+# competing for the box, so an unrelated browser run has room to finish), up to
+# `max` attempts with a short pause between them (external contention clears with
+# TIME, not with removing the cut's own parallelism -- test:shell is sequential, it
+# has none). Dismiss ONLY on a green; a persistent red is a real shell-test failure
+# and aborts. Returns 0 (contention, dismiss) or 1 (real red, abort).
+#
+# SEAMS (so the test proves both verdicts without a real 2-minute suite):
+#   KOSMOS_SHELL_RERUN_CMD   the command run in $repo (default `yarn -s test:shell`)
+#   KOSMOS_SHELL_RERUN_SLEEP seconds to pause between attempts (default 5; 0 in tests)
+# Written errexit-safe (release.sh sources this under set -euo pipefail): the rerun
+# runs in an `if ( ... )` subshell so its non-zero does not abort, and the
+# inter-attempt pause is guarded by an `if` (a bare `&&` list could trip errexit).
+kosmos_shell_stage_rerun_verdict() {
+  local repo="$1" max="${2:-3}" attempt rc
+  local cmd="${KOSMOS_SHELL_RERUN_CMD:-yarn -s test:shell}"
+  local sleep_s="${KOSMOS_SHELL_RERUN_SLEEP:-5}"
+  echo "isolation-rerun: node reported 0 failing tests, so the node suite passed and this red is a POST-node stage. The browser-check gate is fail-soft on the cut's frozen trunk (it cannot red here) and a coverage mismatch fires before the node suite (no tally -> aborted above), so this is the SHELL stage (yarn test:shell)."
+  echo "isolation-rerun: re-running the shell stage ALONE (no node-suite load), so an unrelated live page layer has room to clear (contention makes false reds, never false greens; a single green alone proves the shell stage passes)."
+  attempt=1
+  while [ "$attempt" -le "$max" ]; do
+    if ( cd "$repo" && eval "$cmd" ) >/dev/null 2>&1; then rc=0; else rc=$?; fi
+    if [ "$rc" -eq 0 ]; then
+      echo "  shell stage: PASSED alone on attempt $attempt/$max -> contention, not a defect. Dismissed."
+      echo "isolation-rerun: the shell-stage red was contention, not the change. The cut proceeds (#2006)."
+      return 0
+    fi
+    echo "  shell stage: still red alone on attempt $attempt/$max (exit $rc)."
+    attempt=$((attempt + 1))
+    if [ "$attempt" -le "$max" ] && [ "$sleep_s" -gt 0 ]; then sleep "$sleep_s"; fi
+  done
+  echo "  shell stage: red in isolation across all $max attempts -> a real shell-test failure, not contention. The cut aborts."
+  return 1
+}
+
 # Re-run each failing file ALONE (a single file => no cross-file concurrency =>
 # no self-contention) up to `max` attempts. A pass on ANY attempt dismisses that
 # file as contention. Returns 0 when EVERY failing file went green alone (the
 # suite red was contention; the cut may proceed) and 1 otherwise -- a file that
-# stayed red across all attempts, a named file that is missing, or NO
-# identifiable node test-file failure at all (a shell test, the browser-check
-# gate, the coverage assertion, or a could-not-run: not isolable here, so not
-# dismissable). Narrates every rerun and the reason to stdout, so the cut's log
-# shows it re-ran and why (the card's acceptance).
+# stayed red across all attempts, or a named file that is missing.
+#
+# Two red shapes reach here: a NODE test-file failure (fail_count > 0), handled by
+# the file-by-file rerun below; and a POST-node stage red (fail_count == 0 -- the
+# node suite passed, then a later stage failed), handled by the shell-stage rerun
+# (#2006 shell extension, kosmos_shell_stage_rerun_verdict). A red that names no
+# node file AND has no readable node tally at all (a killed suite, a coverage
+# mismatch that fired before the node suite) still aborts: it cannot be proven a
+# dismissable stage. Narrates every rerun and the reason to stdout, so the cut's
+# log shows it re-ran and why (the card's acceptance).
 kosmos_isolation_rerun_verdict() {
   local log="$1" repo="$2" max="${3:-3}"
   local line files file attempt rc dismissed fail_count testat_count
@@ -57,16 +113,23 @@ kosmos_isolation_rerun_verdict() {
   # at" line per failing test (measured, node 26), so cross-check the two:
   #  - no readable tally (the suite was killed before printing one) => cannot
   #    prove completeness => abort;
-  #  - node reported ZERO failing tests => the red is a LATER stage (a shell
-  #    test, the browser-check gate, or the coverage assertion; run-tests.sh runs
-  #    those only after the node suite is green), which is not an isolable node
-  #    file -- and a stray "test at" echoed by such a stage must NOT be mistaken
-  #    for the failure => abort;
+  #  - node reported ZERO failing tests => the node suite PASSED and the red is a
+  #    POST-node stage. run-tests.sh runs, after a green node suite, `yarn -s
+  #    test:shell` (the &&-chain of shell tests) then the repo-local browser-check
+  #    gate. The gate is FAIL-SOFT on the cut's frozen trunk (it returns 0 when it
+  #    cannot diff origin/main...HEAD or there is no web/ change), so it cannot red
+  #    here; a coverage mismatch fires BEFORE the node suite, so it yields no tally
+  #    at all and is caught by the empty-tally abort above, never reaching this
+  #    branch. So a fail-0 red during a cut is the SHELL stage, which the same
+  #    asymmetry makes dismissable -- hand it to kosmos_shell_stage_rerun_verdict
+  #    (a stray "test at" echoed by a shell test is irrelevant: this branch never
+  #    reads the node file list). This is the #2006 shell extension;
   #  - fewer "test at" lines than node's fail count => a failure is in a shape
   #    this does not parse => abort.
-  # The ONLY path that proceeds to a rerun is a red that IS a node test failure,
-  # fully accounted for. When unsure this aborts exactly as the cut would without
-  # the feature: it only ever makes the cut more lenient when PROVEN safe.
+  # A node red proceeds to the file-by-file rerun only when fully accounted for; a
+  # fail-0 red proceeds to the shell-stage rerun. When unsure (no tally, incomplete
+  # parse) this aborts exactly as the cut would without the feature: it only ever
+  # makes the cut more lenient when PROVEN safe.
   fail_count="$(grep -E '^ℹ fail [0-9]+' "$log" 2>/dev/null | tail -1 | grep -oE '[0-9]+' | tail -1 || true)"
   # MUST use the SAME '\.test\.js' anchor as kosmos_failing_test_files: a failing
   # test whose "test at" line names a NON-.test.js path (node emits e.g. "test at
@@ -84,8 +147,11 @@ kosmos_isolation_rerun_verdict() {
     return 1
   fi
   if [ "$fail_count" -eq 0 ]; then
-    echo "isolation-rerun: node reported 0 failing tests, so this red is a later stage (a shell test, the browser-check gate, or the coverage assertion), not an isolable node test file. Not dismissing; the cut aborts."
-    return 1
+    # #2006 shell extension: the node suite passed, so this is a post-node stage
+    # red -- the SHELL stage (the browser-check gate is fail-soft on the frozen
+    # trunk; a coverage mismatch has no tally and aborted above). Re-run the shell
+    # stage alone: a green proves the red was contention.
+    if kosmos_shell_stage_rerun_verdict "$repo" "$max"; then return 0; else return 1; fi
   fi
 
   files=()
