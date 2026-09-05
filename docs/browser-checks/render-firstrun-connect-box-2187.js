@@ -10,10 +10,14 @@
  * checkrow after. The fix styles that ONE element as the box.
  *
  * 🔑 WHY A SOURCE TEST CANNOT SEE THIS. The box is a CSS rule
- * (`#firstrun #fr-sub:not(:empty)`) whose whole behaviour is conditional on the
- * element being non-empty and on the pack's forced-light ground -- a computed
- * result, not a declared one. A rule that loses the cascade, or a wrong colour
- * token, reads in the diff exactly like a rule that works.
+ * (`#firstrun #fr-sub:not(:empty)`) whose visible behaviour is conditional on the
+ * element being non-empty -- a computed result, not a declared one. A rule that
+ * loses the cascade, or a wrong colour token, reads in the diff exactly like a
+ * rule that works, and only the empty-vs-full contrast the arms below drive can
+ * tell them apart. (Theme is NOT a variable this check exercises: `#firstrun` is
+ * single-look forced-light in both themes -- it re-pins `--k-surface:#ffffff` --
+ * and the gold wash is a hardcoded theme-independent rgba, so light and dark
+ * render identically here. A dark arm would assert the same bytes twice.)
  *
  * The three arms, and the empty one is the discriminator:
  *  1. CONNECTED: drive the page's own frPaintSubscription() with a connected
@@ -46,9 +50,12 @@ function check(name, pass, detail) {
 }
 
 // The gold wash is rgba(184,137,32,.08) fill / rgba(184,137,32,.28) border,
-// the same values .fr-confirm uses. A gold hue is r > g > b with r near 184;
-// a transparent, white, or grey background fails this and so would a wrong
-// token. Tolerance is generous because the fill composites over the card.
+// the same values .fr-confirm uses. getComputedStyle returns the DECLARED rgba
+// uncomposited (r=184,g=137,b=32 exactly), so the box passes with tolerance 0
+// today; the discriminator is the gold HUE ordering (r > g > b with r near 184),
+// which a transparent, white, or grey background fails and so would a wrong
+// token. The tolerance is a defensive margin so a small future tweak to the
+// exact gold value still reads as gold rather than reding this check.
 function isGold(rgb) {
   if (!rgb) return false;
   const m = rgb.match(/rgba?\(([^)]+)\)/i);
