@@ -44,3 +44,23 @@ poll path shows "?" rather than hiding (the code's own principle, quoted at the
   violates the code's stated honesty rule (a floored 0 is "0+", not "none"); the alert
   tile hides on a raw definite count (needs_you), but Working has the unknown-floor
   case that needs_you does not.
+
+## Adoption note (Renet Tilley, night shift 2026-09-05)
+
+Splinter routed #2157 to me after Angel parked her WIP branch `workchip-2157`
+(paused for the #2129 release blocker, then mis-parked as an interactive-browser
+card). I ADOPTED her branch rather than rebuild: the web/index.html change and the
+server.test.js extracted-slice test are correct and complete, so I rebased her three
+commits onto current green main (clean, disjoint from the pathext fix that had reddened
+main) as `workchip-2157-rt`.
+
+What I ADDED, because the WIP lacked it and it is what the card needs (Splinter asked
+for it explicitly): a hermetic browser-check `docs/browser-checks/render-workchip-zero-2157.js`
+(the #1959 file:// pattern), wired into tools/browser-checks.sh (no-boot loop) and
+indexed in the README. It drives the page's OWN tick() with a stubbed /api/status and
+asserts, in a REAL browser (chromium + webkit), the thing a fake-element unit test
+cannot see: that hiding the tile actually removes the `.act` ANIMATION from layout at a
+known zero -- which is Josh's literal complaint ("the animated thing" moving at 0). Four
+render cases + the wrapper-structure arm, 10/10 both engines, proven RED against the
+pre-fix page (no `#st-working-tile` id there). The four wiring guards
+(wired/indexed/selectors/reason-grep) pass.
