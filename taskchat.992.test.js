@@ -195,6 +195,12 @@ test('#992 the rest of the lifecycle records too: part-added, part-closed/reopen
   assert.deepEqual(kinds, ['created', 'part-added', 'part-closed', 'part-reopened', 'assigned']);
   const unassign = taskchat.read(p.id, made.number).find((r) => r.kind === 'assigned');
   assert.equal(unassign.who, null, 'an unassign records who: null');
+  // #992 (iter-6 nit): part-added carries its new part's id, exactly as the
+  // sibling part events do, so a reader can correlate a part-added with the
+  // part-closed / part-reopened / assigned events on that same part.
+  const partAdded = taskchat.read(p.id, made.number).find((r) => r.kind === 'part-added');
+  assert.equal(typeof partAdded.partId, 'number', 'part-added stores partId as a number');
+  assert.equal(partAdded.partId, partId, 'part-added carries the id of the part it added');
 });
 
 test('#992 a task created pre-assigned records its birth assignee on `created`', () => {
@@ -242,6 +248,30 @@ test('#992 numeric fields keep their type: partId is a number, not a string', ()
   const assigned = taskchat.read(p.id, made.number).find((r) => r.kind === 'assigned');
   assert.equal(typeof assigned.partId, 'number', 'partId is stored as a number');
   assert.equal(assigned.partId, partId);
+});
+
+test('#992 a failed transcript append never breaks the task: tasks.create still returns the task', () => {
+  // #992 (iter-6 nit): the caller-side half of the best-effort promise. record()
+  // swallows its own failure and returns false; this proves the task write that
+  // triggered it still stands and the task is returned. Force the append to fail
+  // by making the task-chats directory non-writable (a new file cannot be created
+  // in a 0o555 dir). Assumes a non-root runner (this fleet runs as a normal user);
+  // as root the write would not be blocked and the empty-transcript check would
+  // fail loudly rather than false-pass -- which is the correct signal.
+  const p = freshProject();
+  const dir = taskchat.taskChatsDir();
+  fs.mkdirSync(dir, { recursive: true });
+  fs.chmodSync(dir, 0o555);
+  try {
+    const made = tasks.create(p.id, { sentence: 'survives a dead transcript', made: { via: 'screen' } });
+    assert.ok(made && Number.isInteger(made.number), 'the task is still created and returned');
+    assert.equal(made.sentence, 'survives a dead transcript');
+    // the append failed and was swallowed, so nothing was recorded -- proving the
+    // failure was real and yet did not propagate into the task write.
+    assert.deepEqual(taskchat.read(p.id, made.number), [], 'record() failed silently; the task write stood anyway');
+  } finally {
+    fs.chmodSync(dir, 0o755); // restore so the round-robin after-hook can remove the tree
+  }
 });
 
 test.after(() => { try { fs.rmSync(DATA, { recursive: true, force: true }); } catch { /* best effort */ } });

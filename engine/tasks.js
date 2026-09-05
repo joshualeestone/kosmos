@@ -218,14 +218,21 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
   // offers members, so an assignee that is not on the project reaches here only
   // via the API, and #761 now types a line into whoever `who` names -- a check
   // that never fired before this had a live-pane side effect to guard.
+  // #992 (iter-6 nit): capture the new part's id so the transcript's part-added
+  // line carries `partId`, exactly as its sibling part events (assigned /
+  // part-closed / part-reopened) do -- otherwise a reader cannot correlate a
+  // part-added with the later events on that same part. Computed inside the
+  // callback (nextPartId needs the live parts), read after a successful write.
+  let newPartId = null;
   const task = writeParts(projectId, n, (parts, t, p) => {
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the part cannot be given to it');
     }
-    return parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null,
+    newPartId = nextPartId(parts);
+    return parts.concat([{ id: newPartId, who: whoKey, sentence: said, closedAt: null,
       addedVia: viaOf(made), createdAt: new Date().toISOString() }]);
   });
-  taskchat.record(projectId, Number(n), { kind: 'part-added', sentence: said, who: whoKey });
+  taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
   return { ok: true, task };
 }
 

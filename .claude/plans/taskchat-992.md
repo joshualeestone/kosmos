@@ -43,12 +43,27 @@ capturing the text Kosmos controls and, until now, discarded: the task lifecycle
 - engine/tasks.js -- wired at every lifecycle point; each call sits AFTER the
   successful projects.mutate / writeParts, so a refused write records nothing; an
   assignment resubmit of the current agent (moved false) records nothing.
-- taskchat.992.test.js -- 12 tests: round-trip + `at` stamp + append order,
+- taskchat.992.test.js -- 20 tests: round-trip + `at` stamp + append order,
   per-task and per-project file isolation, [] on missing/unreadable/invalid,
   fail-soft on bad input, malformed-line skip, control-char flattening,
   append-not-rewrite (retention), under-app-data-not-project-folder, and the
   tasks.js integration (create/close/reopen/assign + resubmit-records-nothing +
   refused-write-records-nothing).
+
+## Iteration-6 nits applied on resume (2026-09-05 night shift)
+Challenge-loop converged at iteration 6 (two consecutive zero-code-defect passes);
+these two are polish, not defects, applied after a clean rebase onto origin/main:
+1. **part-added carries `partId`.** Its sibling part events (assigned /
+   part-closed / part-reopened) all record `partId`; part-added did not, so a
+   reader could not correlate a part-added with the later events on that same
+   part. `nextPartId` is now captured into a closure inside the writeParts
+   callback and recorded. Covered by the lifecycle test.
+2. **The caller-side half of the best-effort promise is tested.** A new test
+   forces record() to fail (a non-writable task-chats dir) and asserts
+   tasks.create still returns the task and nothing was recorded -- proving the
+   swallowed failure never propagates into the task write.
+Full suite green after the rebase: node 4721/4721 pass, 0 fail; the shipped
+shell gate (tools/run-tests.sh test:shell chain) ran to completion.
 
 ## Deliberate follow-ups (scoped, NOT in this PR)
 1. **Task-Settings reveal button + route** -- the project half already exists
