@@ -124,6 +124,34 @@ grep -qE 'curl -fsSL .*/setup \| KOSMOS_UPDATE_CHANNEL=staging sh' "$REPO/tools/
   && ok "staging hand-off: the fresh-install command puts the channel var on the sh (right of the pipe)" \
   || no "staging hand-off: the fresh-install command does not set the channel var on the sh"
 
+# --- setup.sh: the #2066 source-channel write (data root + token), extracted and evaluated ----
+# The install records which channel pointer it fetched from into <store.ROOT>/source-channel, so
+# the board (server.js sourceChannelNow, #2089) can paint a STAGING badge. Assert the token AND
+# that the file lands where the read side looks (store.ROOT = AGENT_WORKFORCE_DATA/AgentWorkforce,
+# mirroring engine/store.js dataRootFor). A missing file reads prod, so a staging install that
+# writes nothing masquerades as prod -- that is the failure this guards.
+source_channel_write() {  # $1 = KOSMOS_UPDATE_CHANNEL, $2 = AGENT_WORKFORCE_DATA sandbox root
+  local KOSMOS_UPDATE_CHANNEL="$1" AGENT_WORKFORCE_DATA="$2" _PTR_FILE="latest.json" _wf_data_root _source_channel
+  [ "${KOSMOS_UPDATE_CHANNEL:-}" = staging ] && _PTR_FILE="latest-staging.json"
+  if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then _wf_data_root="$AGENT_WORKFORCE_DATA/AgentWorkforce"; else _wf_data_root="$HOME/Library/Application Support/AgentWorkforce"; fi
+  if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+  mkdir -p "$_wf_data_root" 2>/dev/null && printf '%s\n' "$_source_channel" > "$_wf_data_root/source-channel"
+}
+scS="$T/sc-staging"; source_channel_write staging "$scS"
+[ "$(cat "$scS/AgentWorkforce/source-channel" 2>/dev/null)" = staging ] && ok "source-channel: a STAGING install writes 'staging' to <store.ROOT>/source-channel" || no "source-channel: staging install did not write 'staging'"
+scP="$T/sc-prod"; source_channel_write '' "$scP"
+[ "$(cat "$scP/AgentWorkforce/source-channel" 2>/dev/null)" = prod ] && ok "source-channel: a DEFAULT (prod) install writes 'prod' (an unrecorded install must not masquerade as staging)" || no "source-channel: default install did not write 'prod'"
+scW="$T/sc-whatever"; source_channel_write whatever "$scW"
+[ "$(cat "$scW/AgentWorkforce/source-channel" 2>/dev/null)" = prod ] && ok "source-channel: a non-staging channel value records prod" || no "source-channel: non-staging value not prod"
+# the write path must match the READ path: the file lands at AGENT_WORKFORCE_DATA/AgentWorkforce/source-channel
+[ -f "$scS/AgentWorkforce/source-channel" ] && ok "source-channel: the file lands at <AGENT_WORKFORCE_DATA>/AgentWorkforce/source-channel (matches store.ROOT the server reads)" || no "source-channel: file not at the store.ROOT the read side uses"
+# Guard the extracted copy against drift from the real setup.sh (red-capable: removing the write fails these).
+grep -qF 'printf '"'"'%s\n'"'"' "$_source_channel" > "$_wf_data_root/source-channel"' "$REPO/install/setup.sh" && ok "source-channel: setup.sh carries the write (extract matches source)" || no "source-channel: setup.sh no longer writes source-channel (the STAGING badge would never light)"
+grep -qF 'if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi' "$REPO/install/setup.sh" && ok "source-channel: setup.sh keys the token on _PTR_FILE (the same selector the pointer fetch uses)" || no "source-channel: setup.sh token selector drifted"
+grep -qF '_wf_data_root="$AGENT_WORKFORCE_DATA/AgentWorkforce"' "$REPO/install/setup.sh" && ok "source-channel: setup.sh honors AGENT_WORKFORCE_DATA (mirrors dataRootFor, so tests + sandbox seed the real path)" || no "source-channel: setup.sh data-root override drifted from dataRootFor"
+# Cross-check: the read side (server.js, #2089) reads the same filename this writes.
+grep -qF "'source-channel'" "$REPO/server.js" && ok "source-channel: server.js read side reads the same 'source-channel' filename this writes" || no "source-channel: read side (server.js) does not name source-channel -- the two halves would not meet"
+
 echo "----"
 echo "test-staging-wire-2036: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
