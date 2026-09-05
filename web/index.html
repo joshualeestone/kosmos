@@ -15519,10 +15519,15 @@ function worldswRender(data) {
   const nameEl = document.getElementById('worldsw-name');
   const list = document.getElementById('worldsw-list');
   if (!sw || !nameEl || !list) return;
+  // The world used for the promoted name is the SAME one marked below (activeId),
+  // so a stale activeWorldId cannot make the name and the marked row disagree.
   const active = data.worlds.find((w) => w.id === data.activeWorldId) || data.worlds[0];
+  const activeId = active ? active.id : null;
   const activeName = (active && active.name) || 'Kosmos';
   nameEl.textContent = activeName;
-  document.getElementById('worldsw-btn').setAttribute('aria-label', 'Current Kosmos: ' + activeName + '. Choose a Kosmos');
+  // The label does not say "choose"/"switch": row selection is deferred to slice 2b,
+  // so the only wired action here is New Kosmos.
+  document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your Kosmoses. Current: ' + activeName);
   /* Rows are built from textContent, never innerHTML, so a world name is never
      interpreted as markup. Read-only until slice 2b wires the switch. */
   list.textContent = '';
@@ -15530,7 +15535,7 @@ function worldswRender(data) {
     const row = document.createElement('div');
     row.className = 'worldsw-row';
     row.setAttribute('role', 'listitem');
-    if (w.id === data.activeWorldId) row.setAttribute('aria-current', 'true');
+    if (w.id === activeId) row.setAttribute('aria-current', 'true');
     const check = document.createElement('span');
     check.className = 'worldsw-check';
     check.setAttribute('aria-hidden', 'true');
