@@ -123,12 +123,28 @@ test('duplicate names within the source collapse to one key', () => {
   assert.deepEqual(src(), ['alpha']);
 });
 
-test('a name that safeKey rejects cannot reach the board (skipped, not thrown)', () => {
+test('an underscore-only name is a VALID distinct key (safeKey keeps underscores)', () => {
   const { src } = harness({
-    plists: ['com.kosmos.agent.alpha.plist', 'com.kosmos.agent.___.plist'],   // '___' -> safeKey keeps it? no: only [^a-z0-9_-] stripped, _ kept
+    plists: ['com.kosmos.agent.alpha.plist', 'com.kosmos.agent.___.plist'],
     jobs: { alpha: { runner: 'claude' }, '___': { runner: 'claude' } },
     dirs: { alpha: true, '___': true },
   });
-  // '___' safeKeys to '___' (underscores are kept), so it is a valid distinct key.
+  // safeKey strips only [^a-z0-9_-], so '___' survives unchanged and is a valid,
+  // distinct board key -- both names reach the board.
   assert.deepEqual(src().sort(), ['___', 'alpha']);
+});
+
+test('a name that safeKey REJECTS (strips to empty) is SKIPPED, not thrown', () => {
+  // A plist name that is all punctuation: safeKey strips [^a-z0-9_-] to '' and
+  // THROWS. The source must swallow that (continue) so one un-keyable name cannot
+  // cost the whole board, and a good sibling must still land. This is the arm the
+  // createdroster.js safeKey try/catch exists for; without it this test throws.
+  const { src } = harness({
+    plists: ['com.kosmos.agent.!!!.plist', 'com.kosmos.agent.alpha.plist'],
+    jobs: { '!!!': { runner: 'claude' }, alpha: { runner: 'claude' } },
+    dirs: { '!!!': true, alpha: true },
+  });
+  let out;
+  assert.doesNotThrow(() => { out = src(); });
+  assert.deepEqual(out, ['alpha']);   // the punctuation name safeKeys to '' -> skipped
 });

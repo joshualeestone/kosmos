@@ -6,14 +6,16 @@
  * empty state (`boardEmpty()`) then told a person holding unrun agents to
  * "create your first".
  *
- * 🔑 THE ROSTER ANALOG OF discover.foundCreated, at the surface that reaches the
- * user. `discover.foundCreated` listed the same agents, but every consumer of
- * `found()`/`/api/found-agents` filters `already !== true` (they are ADOPT-
- * external screens), and a Kosmos-created agent is `already:true`, so those rows
- * were correctly dropped -- the fix was merged-but-inert. The BOARD empty state
- * is driven by `status.snapshot()`, not `found()`, so the created-never-run
- * source belongs HERE, as a third roster source `snapshot()` merges, complementary
- * to the two it already has:
+ * 🔑 THE ROSTER ANALOG OF THE win32 OWNERSHIP RECORD (engine/win32sessions +
+ * engine/win32roster, #2174/#570): list an agent because WE created it (a job we
+ * wrote), never because a folder was parsed as one. An earlier fix for #1078
+ * attempted the same detection through discover (a `found()`-based source), but
+ * every consumer of `found()`/`/api/found-agents` filters `already !== true`
+ * (they are ADOPT-external screens) and a Kosmos-created agent is `already:true`,
+ * so those rows were correctly dropped -- that approach was merged-but-inert. The
+ * BOARD empty state is driven by `status.snapshot()`, not `found()`, so the
+ * created-never-run source belongs HERE, as a third roster source `snapshot()`
+ * merges, complementary to the two it already has:
  *   1. tmux `list-panes`      -- agents with a live pane.
  *   2. `status.panelessKeys`  -- token-known agents beating with no pane (the
  *                                win32/remote path). It requires a sender token
@@ -23,8 +25,8 @@
  *                                never-run agent (never alive) is correctly
  *                                excluded there; this is the gap it leaves.
  *
- * 🛑 THREE FAIL-CLOSED PROPERTIES, all mirrored from discover.foundCreated, because
- * this source ADMITS agents to the board and the board must manage only ours:
+ * 🛑 THREE FAIL-CLOSED PROPERTIES, because this source ADMITS agents to the board
+ * and the board must manage only ours:
  *   1. A KOSMOS-OWNED KEY. A row is produced only for a plist under
  *      `create.AGENTS_DIR` matching the `com.kosmos.agent.` prefix that
  *      `create.readJob` validates as a real Kosmos job (name charset + the
@@ -42,7 +44,7 @@
  *      to ACT must get the failure and refuse.
  *
  * ⚠️ The `status.sandboxIsInconsistent()` guard is kept (mirrors
- * foundCreated/foundCodex): this reads `AGENTS_DIR` (launchd) via a non-configRoots
+ * discover.foundCodex): this reads `AGENTS_DIR` (launchd) via a non-configRoots
  * path, so a declared fixture that forgot the launch override could otherwise read
  * the real machine's LaunchAgents. In an inconsistent sandbox it returns nothing.
  *
@@ -83,12 +85,19 @@ function make(opts) {
   const status = o.status || require('./status');
   const store = o.store || require('./store');
   return function createdRoster(excludeKeys) {
-    // A failed look must refuse honestly, exactly like the discover sources.
-    if (status.sandboxIsInconsistent()) return [];
+    // A failed look must refuse honestly, exactly like the discover sources. Every
+    // external read here is wrapped so the "never throws -> []" contract in the
+    // docblock is TRUE for any caller, not merely because today's sole caller
+    // (status.snapshot) happens to wrap it -- and a throw returns [] (fail closed:
+    // no created rows), the same safe direction as the guards below.
+    let inconsistent;
+    try { inconsistent = status.sandboxIsInconsistent(); } catch { return []; }
+    if (inconsistent) return [];
     // FAIL CLOSED: an unreadable removed list surfaces nothing rather than risk
     // resurrecting a removed agent onto the board.
-    const removed = remove.removedNames();
-    if (!removed.ok) return [];
+    let removed;
+    try { removed = remove.removedNames(); } catch { return []; }
+    if (!removed || !removed.ok) return [];
     const removedSet = new Set(removed.names.map((n) => create.cleanName(n)));
     const exclude = excludeKeys instanceof Set ? excludeKeys : new Set();
     let files;
