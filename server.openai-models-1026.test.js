@@ -79,6 +79,9 @@ test('#1026 serves a known account\'s chat models, filtered and defaulted, sourc
     assert.deepEqual(out.models.map((m) => m.arg), ['gpt-5', 'gpt-4o'],
       'embeddings and the realtime variant are filtered out; chat models ranked');
     assert.equal(out.models.filter((m) => m.default).length, 1);
+    // #2191: runnableKeys is a server-side validation input, never shipped to the
+    // display route -- the collapse's whole point is a small menu/payload.
+    assert.ok(!('runnableKeys' in out), 'the display route must not ship the full un-collapsed runnableKeys to the client');
   } finally { openai.setFetcher(null); }
 });
 

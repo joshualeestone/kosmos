@@ -66,6 +66,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       current: sel.dataset.current,
     };
 
+    // SNAPSHOT-PINNED (#2191): the agent is pinned to a raw dated snapshot that
+    // the collapsed menu no longer lists. The picker must add a row for it and
+    // pre-select it -- showing the agent's ACTUAL model, not "Let OpenAI choose".
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', why: 'The everyday choice.' },
+      { key: 'o3', provider: 'openai', label: 'o3', arg: 'o3', why: 'A reasoning model.' },
+    ] }) });
+    paintOpenaiDetailModel({ ...agent, plannedModelName: 'gpt-4o-2024-08-06' }, 'oa1');
+    await settle();
+    const snapshotPinned = {
+      injectedRow: /value="gpt-4o-2024-08-06"/.test(sel.innerHTML),
+      injectedSelected: /value="gpt-4o-2024-08-06"[^>]*selected/.test(sel.innerHTML),
+      autoNotSelected: !/value=""[^>]*selected/.test(sel.innerHTML),
+      current: sel.dataset.current,
+    };
+
     // NOT LISTABLE
     window.fetch = async () => ({ ok: true, json: async () => ({ ok: false, because: 'this sign-in cannot list models yet; it is not an API key' }) });
     paintOpenaiDetailModel({ ...agent, plannedModelName: '' }, 'oa1');
@@ -114,7 +130,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       };
     }
 
-    return { listable, notListable, sequence };
+    return { listable, snapshotPinned, notListable, sequence };
   });
 
   await browser.close();
@@ -127,6 +143,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.listable.currentSelected) problems.push('LISTABLE: the agent\'s current model (o3) is not pre-selected');
     if (!r.listable.noClaude) problems.push('LISTABLE: a Claude model appears on an OpenAI agent detail page');
     if (r.listable.current !== 'o3') problems.push('LISTABLE: dataset.current is not the agent\'s current key: ' + JSON.stringify(r.listable.current));
+    if (!r.snapshotPinned.injectedRow) problems.push('SNAPSHOT (#2191): the agent\'s pinned snapshot (gpt-4o-2024-08-06) is not offered as a row once the menu collapses it');
+    if (!r.snapshotPinned.injectedSelected) problems.push('SNAPSHOT (#2191): the pinned snapshot row is not pre-selected');
+    if (!r.snapshotPinned.autoNotSelected) problems.push('SNAPSHOT (#2191): "Let OpenAI choose" is selected instead of the agent\'s actual pinned model');
+    if (r.snapshotPinned.current !== 'gpt-4o-2024-08-06') problems.push('SNAPSHOT (#2191): dataset.current is not the pinned snapshot: ' + JSON.stringify(r.snapshotPinned.current));
     if (!r.notListable.onlyOption || !/OpenAI picks its own model for now/.test(r.notListable.optionText)) problems.push('NOT LISTABLE: not a single "OpenAI picks its own model for now" option: ' + JSON.stringify(r.notListable.optionText));
     if (!r.notListable.noClaude) problems.push('NOT LISTABLE: a Claude model appears under OpenAI');
     if (!/signed in with ChatGPT/.test(r.notListable.msg)) problems.push('NOT LISTABLE: the reason-keyed note is missing from the msg');

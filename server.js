@@ -2854,8 +2854,14 @@ const server = http.createServer((req, res) => {
               : openaiAccounts.defaultDir();
             try {
               const got = await openaiAccounts.accountModels(dir);
-              if (got && got.ok && Array.isArray(got.models)
-                  && !got.models.some((m) => m && m.key === wantModel)) {
+              // #2191: validate against the FULL runnable set (un-collapsed), not
+              // the collapsed display menu -- a real snapshot id the account has
+              // (e.g. gpt-4o-2024-08-06) must not be refused just because the
+              // picker shows only its representative. runnableAllowlist() returns
+              // null when the account could not be checked, so a not-ok result
+              // fails OPEN (#1916); only a definitive miss on an ok result refuses.
+              const allowed = openaiAccounts.runnableAllowlist(got);
+              if (allowed && !allowed.includes(wantModel)) {
                 sendJson(res, 400, { error: `${wantModel} is not a model this account can run; pick one from the list` });
                 return;
               }
@@ -3320,8 +3326,12 @@ const server = http.createServer((req, res) => {
             const dir = job.configDir || openaiAccounts.defaultDir();
             try {
               const got = await openaiAccounts.accountModels(dir);
-              if (got && got.ok && Array.isArray(got.models)
-                  && !got.models.some((m) => m && m.key === chosen)) {
+              // #2191: validate against the FULL runnable set (un-collapsed) via
+              // the shared runnableAllowlist() -- a stored snapshot id must still
+              // validate even though the menu collapses it. null => account not
+              // checkable => fail open (#1916); only a definitive miss refuses.
+              const allowed = openaiAccounts.runnableAllowlist(got);
+              if (allowed && !allowed.includes(chosen)) {
                 sendJson(res, 400, { outcome: 'refused', because: `${chosen} is not a model this agent's account can run; pick one from the list` });
                 return;
               }
@@ -3937,7 +3947,13 @@ const server = http.createServer((req, res) => {
     } catch { known = false; }
     if (!known) { sendJson(res, 404, { ok: false, models: [], because: 'we do not know that account on this computer' }); return; }
     openaiAccounts.accountModels(dir)
-      .then((out) => sendJson(res, 200, out))
+      // #2191: runnableKeys (the full un-collapsed snapshot list) is a
+      // SERVER-SIDE validation input, not display data -- the picker reads only
+      // `models`. Strip it from the display route's response so the whole point
+      // of the collapse (a small payload/menu) is not undone by shipping every
+      // snapshot to the client. The validation routes call accountModels
+      // directly, so they still get runnableKeys.
+      .then((out) => { const { runnableKeys, ...display } = out || {}; sendJson(res, 200, display); })
       .catch(() => sendJson(res, 200, { ok: false, models: [], because: 'we could not read this account\'s models just now' }));
     return;
   }

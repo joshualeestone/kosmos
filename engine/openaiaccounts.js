@@ -692,11 +692,26 @@ function prettyOpenaiLabel(id) {
   return /^gpt/i.test(s) ? s.replace(/^gpt/i, 'GPT') : s;
 }
 
+/* #2191: the snapshot-base of an OpenAI id -- the id with a trailing ISO-date
+   snapshot suffix (`-YYYY-MM-DD`) removed, and nothing else.
+
+   ⚠️ ONLY the trailing ISO date is stripped, on purpose. `-mini` / `-nano` /
+   `-preview` and `-latest` are NOT snapshots -- gpt-4o-mini is a DIFFERENT model
+   from gpt-4o, and chatgpt-4o-latest is an alias, not a dated cut -- so they are
+   part of the base and must never collapse together. And the date must be
+   TRAILING: `gpt-4-1106-preview` carries its date mid-id, so it is left intact
+   (a small, old residual, documented on #2191) rather than risk mangling it.
+   The dominant modern bloat is the trailing-ISO form (gpt-4o-2024-08-06,
+   o3-2025-04-16, gpt-4o-mini-2024-07-18, ...), which this collapses. */
+function openaiSnapshotBase(id) {
+  return String(id).replace(/-\d{4}-\d{2}-\d{2}$/, '');
+}
+
 /* Pure: the /v1/models `data` array -> the chat-model menu rows, most-capable
-   first, de-duplicated, exactly one marked default. No I/O, so a test drives it
-   directly with a fixture list. The default is the most capable row that is not
-   a -mini / -nano / -preview variant (else the first) -- chosen among what the
-   account actually has, never invented. */
+   first, ONE row per model (dated snapshots collapsed, #2191), exactly one
+   marked default. No I/O, so a test drives it directly with a fixture list. The
+   default is the most capable row that is not a -mini / -nano / -preview variant
+   (else the first) -- chosen among what the account actually has, never invented. */
 function chatModelsFromList(data) {
   const rows = (Array.isArray(data) ? data : [])
     .map((m) => (m && typeof m.id === 'string' ? m.id : null))
@@ -706,20 +721,70 @@ function chatModelsFromList(data) {
       return fam ? { id, rank: fam.rank, why: fam.why } : null;
     })
     .filter(Boolean);
-  rows.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
-  const seen = new Set();
-  const out = [];
+  /* #2191: collapse dated snapshots to one representative per base, so the
+     picker shows "gpt-4o", not gpt-4o plus every gpt-4o-YYYY-MM-DD OpenAI
+     returns. Prefer the base ALIAS id when the account lists it (the alias
+     always points at the current snapshot, which is what a non-technical user
+     wants); otherwise the newest dated snapshot. The chosen `arg` is ALWAYS a
+     real id the account returned -- an alias is used only when present, never
+     synthesized, preserving the #1026 invariant that a runner launches with a
+     real model id. */
+  const byBase = new Map();
   for (const r of rows) {
-    if (seen.has(r.id)) continue;
-    seen.add(r.id);
-    out.push({ key: r.id, provider: 'openai', label: prettyOpenaiLabel(r.id), arg: r.id, why: r.why });
+    const base = openaiSnapshotBase(r.id);
+    const prev = byBase.get(base);
+    if (!prev) { byBase.set(base, r); continue; }
+    const prevIsAlias = prev.id === base;
+    const curIsAlias = r.id === base;
+    // The exact alias beats any dated snapshot. Between two of the same kind
+    // (two snapshots, or a duplicate alias), the greater id wins -- ISO dates
+    // sort by recency, so that is the newest snapshot.
+    if (curIsAlias && !prevIsAlias) { byBase.set(base, r); continue; }
+    // Plain `>` (not localeCompare): the two ids share an identical base prefix
+    // and differ only in a fixed-width trailing YYYY-MM-DD of ASCII digits, so
+    // lexical order is chronological order, locale-independently -- the newest wins.
+    if (curIsAlias === prevIsAlias && r.id > prev.id) byBase.set(base, r);
   }
+  const collapsed = [...byBase.values()];
+  collapsed.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
+  const out = collapsed.map((r) => ({ key: r.id, provider: 'openai', label: prettyOpenaiLabel(r.id), arg: r.id, why: r.why }));
   if (out.length) {
     const isLite = (id) => /-(mini|nano|preview)(-|$)/i.test(id);
     const flagship = out.find((m) => !isLite(m.arg)) || out[0];
     flagship.default = true;
   }
   return out;
+}
+
+/* #2191: the FULL set of runnable chat-model ids the account returned, deduped
+   and UN-collapsed. This is the validation allowlist for a chosen model, kept
+   separate from chatModelsFromList's collapsed DISPLAY menu: a snapshot id the
+   account genuinely has (e.g. a stored gpt-4o-2024-08-06) must still validate,
+   even though the picker now shows only its collapsed representative. Same
+   chat-family filter as the menu, so it never admits a non-chat id. Pure. */
+function chatRunnableIds(data) {
+  const seen = new Set();
+  for (const m of (Array.isArray(data) ? data : [])) {
+    const id = m && typeof m.id === 'string' ? m.id : null;
+    if (id && openaiFamilyOf(id)) seen.add(id);
+  }
+  return [...seen];
+}
+
+/* #2191: the validation allowlist for a chosen model, derived from an
+   accountModels() result. Returns the array of ids a choice may be checked
+   against, or NULL when validation must NOT refuse -- i.e. the account could not
+   be checked (not ok), so the choice fails OPEN (#1916, never block on a
+   validator that could not answer). Prefers the full un-collapsed runnableKeys
+   (so a real snapshot id validates even though the menu collapses it); falls
+   back to the collapsed menu keys only if an older result shape omits
+   runnableKeys. Shared by both the create and change-model routes so their
+   validation cannot drift. Pure. */
+function runnableAllowlist(got) {
+  if (!got || !got.ok) return null;
+  if (Array.isArray(got.runnableKeys)) return got.runnableKeys;
+  if (Array.isArray(got.models)) return got.models.map((m) => m && m.key).filter(Boolean);
+  return null;
 }
 
 /**
@@ -788,7 +853,15 @@ async function accountModels(dir) {
     // chat model we recognise -- a real, distinct answer, not a failure.
     return { ok: false, models: [], because: 'this account has no chat models we recognise yet' };
   }
-  return { ok: true, models };
+  /* #2191: `models` is the COLLAPSED display menu (one row per model, dated
+     snapshots folded away). `runnableKeys` is the FULL un-collapsed set of chat
+     ids the account returned. They differ on purpose: the picker should be
+     short, but a chosen model must be validated against everything the account
+     can actually run -- a stored/submitted snapshot id like gpt-4o-2024-08-06 is
+     still runnable even though the menu now shows only "gpt-4o". The change-model
+     and create routes validate against runnableKeys so curation narrows the
+     DISPLAY, not the runnable set. */
+  return { ok: true, models, runnableKeys: chatRunnableIds(data) };
 }
 
 /** Every OpenAI account, live-checked. One bad row's own failure cannot sink
@@ -828,6 +901,6 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
-  accountModels, chatModelsFromList,
+  accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
