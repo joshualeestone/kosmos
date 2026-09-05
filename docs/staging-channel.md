@@ -67,16 +67,29 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    ("a site-copy deploy must never move the installer pointer"). Until the guarded `--promote` mode
    lands (**#2195**), deploy the pointer with `release.sh`'s proven step-8 machinery by hand. A
    promote is POINTER-ONLY: the versioned artifacts are already served from the staging cut.
+   The artifacts MUST already be in `$S/dist` from the staging cut: `site_deploy_export` CARRIES from
+   the working tree, it does NOT fetch (that is deploy-site.sh's addition), and `promote-channel.sh`
+   already refreshed the local `kosmos-arm64.tar.gz` alias. Run the export + deploy under **bash**
+   (the two libs are `#!/bin/bash` and are not safe to source into zsh), and CHAIN so a failed or
+   empty export never reaches `vercel` (an early `site_deploy_export` refusal leaves an empty dir,
+   and a deploy of that is the #1669 empty-site shape):
    ```sh
-   S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
+   S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce; HOST=https://installkosmos.com
    git -C "$S" commit dist/latest.json -m "promote <V> to prod" && git -C "$S" push origin HEAD:refs/heads/main
-   cd "$R"; . tools/lib/site-deploy.sh; . tools/lib/pkg-inputs.sh
-   EXPORT=$(mktemp -d); site_deploy_export "$S" "$EXPORT" "$(git -C "$S" rev-parse HEAD)"
-   # verify the export carried latest.json=<V>, kosmos-<V>-arm64.tar.gz, the kosmos-arm64.tar.gz
-   # alias, tmux-arm64, Kosmos.pkg, and the .kosmos-release-export marker. The artifacts MUST
-   # already be in $S/dist: site_deploy_export CARRIES from the working tree, it does NOT fetch
-   # (that is deploy-site.sh's addition). promote-channel.sh already refreshed the local alias.
-   ( cd "$EXPORT" && vercel deploy --prod --yes ); rm -rf "$EXPORT"
+   bash <<'DEPLOY'
+   set -eu
+   S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
+   . "$R/tools/lib/site-deploy.sh"; . "$R/tools/lib/pkg-inputs.sh"
+   EXPORT=$(mktemp -d)
+   site_deploy_export "$S" "$EXPORT" "$(git -C "$S" rev-parse HEAD)" || { rm -rf "$EXPORT"; echo "export failed"; exit 1; }
+   # the .vercelignore guard, exactly as release.sh step 8 runs it (a missing/bad .vercelignore lets
+   # Vercel fall back to the site .gitignore and DROP dist/*.pkg):
+   drop=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore") || { rm -rf "$EXPORT"; echo "no .vercelignore in export"; exit 1; }
+   [ -z "$drop" ] || { rm -rf "$EXPORT"; echo ".vercelignore would drop: $drop"; exit 1; }
+   # honest-marker: the export must carry the pointer + the release marker (and the artifacts it globbed)
+   [ -f "$EXPORT/dist/latest.json" ] && [ -f "$EXPORT/.kosmos-release-export" ] || { rm -rf "$EXPORT"; echo "export missing pointer/marker"; exit 1; }
+   ( cd "$EXPORT" && vercel deploy --prod --yes ) && rm -rf "$EXPORT"
+   DEPLOY
    ```
    Then **verify SERVED prod BY CONTENT** from outside: `curl $HOST/dist/latest.json` names `<V>`,
    and the DOWNLOADED `kosmos-<V>-arm64.tar.gz` sha matches the pointer. The control that returns the
