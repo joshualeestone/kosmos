@@ -538,3 +538,73 @@ spelling or the arm still cannot fail on Windows.
 7. **No supported way to run the suite on Windows** (no `node`, no `bash`; entry
    point is `bash tools/run-tests.sh`). Everything here ran against the bundled
    runtime directly.
+
+---
+
+## The read side, verified on real Windows rather than assumed
+
+`win32create.js` says its id round-trip was measured **on this Mac**, and
+`win32roster` has only ever been driven by injected fixtures. Both are now
+confirmed against real machine state on Windows (2026-09-05), read-only, against
+the real ownership record.
+
+### `claude agents --json` on Windows returns exactly the documented shape
+
+```json
+[ { "pid": 9508,
+    "cwd": "C:\\Users\\joshu",
+    "kind": "interactive",
+    "startedAt": 1788632031134,
+    "sessionId": "1f50b4c5-d0d3-4522-b749-1841f8d8cc36",
+    "name": "joshu-35",
+    "status": "busy" } ]
+```
+
+Field for field what `win32roster.js:9` documents, and `kind: "interactive"` is
+the value the spawn constraint requires. Nothing about the shape differs on this
+platform.
+
+### It confirms WHY the record is load-bearing, with a live example
+
+`name` is `joshu-35`, derived from `cwd` (`C:\Users\joshu`) — **not** a Kosmos
+agent name. That is exactly the docblock's claim ("claude names the session from
+its cwd"), now shown rather than asserted: without the ownership record the board
+would file this session under a directory name.
+
+Also worth noting for anything that later parses it: `cwd` comes back
+backslashed.
+
+### Fail-closed holds against a REAL unrecorded session
+
+The one live session on this box is the operator's own — this one. Feeding the
+REAL `win32roster` the REAL live list against the REAL record:
+
+```
+live sessions on this box : 1
+  1f50b4c5-... | kind=interactive | name=joshu-35 | recorded-as-ours=false
+
+roster rows emitted       : 0
+classified as OURS        : 0
+```
+
+An unrecorded session is invisible to the board, on live data, with no fixture
+anywhere in the path. That is the property the whole paneless-roster design rests
+on, and it had never been exercised against a real machine.
+
+### Still unmeasured: the WRITE side
+
+What remains is the half `win32create.js` explicitly defers — the interactive
+spawn that consumes `prepareSession()`'s `launchArgs` and `env`. Proving it needs
+starting a real Claude session on a real Windows box, which spends the operator's
+quota and creates a live session, so it is not something to do unannounced. The
+two constraints it must satisfy are already written down and unverified here:
+
+1. the spawn must be **interactive** (`--bg` mints its own id and ignores
+   `--session-id`), and
+2. it must be **top-level**, not a child of another Claude session — a
+   `CLAUDE_CODE_CHILD_SESSION` marker suppresses registration entirely, so a
+   session spawned from inside this one would never appear in the list above and
+   the roster would never emit it.
+
+Constraint 2 has a sharp edge for whoever tests this: running the experiment
+*from an agent session* is exactly the condition that makes it silently fail.
