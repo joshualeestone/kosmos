@@ -1508,7 +1508,11 @@ async function installClaudeCode(hooks) {
     // killSession: this unlinks BY PATH, and a successor downloading the
     // same version renames to the identical path -- a stale unlink landing
     // after that rename costs the successor an honest re-download, never
-    // silent corruption.)
+    // silent corruption. #875 widens the set of successors this can touch: a
+    // successor that REUSES the same-version binary (download's reuse path)
+    // rather than re-downloading it exposes the same identical `dest`, so the
+    // same by-path unlink can cost it the same honest re-download -- the
+    // consequence is unchanged, still never corruption.)
     try { fs.unlinkSync(downloaded.path); } catch { /* already gone */ }
     return { ok: false, cancelled: true, message: 'the sign-in was stopped' };
   }
