@@ -87,5 +87,5 @@ Decided (not building a speculative fix against fixed code): ship a REGRESSION G
 docs/browser-checks/render-engmode-gate-2131.js asserts eng-OFF hides the terminal on both
 views, the eng-ON control makes the SAME elements visible (so OFF is not vacuous), and the
 SAFETY arm pins the exemption the fix must never break (an ASKING agent keeps #d-qask visible
-in Off). 9 checks, a population floor, wired into browser-checks.sh + README. #2131 can be
+in Off). 8 checks, a population floor, wired into browser-checks.sh + README. #2131 can be
 verify-and-closed on the next fresh 0.6.31 build. No web/index.html change (nothing to fix).

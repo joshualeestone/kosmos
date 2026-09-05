@@ -125,9 +125,6 @@ const firstViewportVis = `() => { const e = document.querySelector('.pj-viewport
     chk(qaskVis === 'VISIBLE', 'SAFETY: an asking agent keeps its question panel (#d-qask) VISIBLE even with Engineering mode OFF (never gated away - it is how the answer is typed)', qaskVis);
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
-
-    // Population floor: a gutted run that asserts nothing must not read green.
-    if (ran < 8) { console.log('\nrender-engmode-gate-2131: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   } finally {
     if (browser) await browser.close();
     if (server) server.close();
@@ -135,6 +132,9 @@ const firstViewportVis = `() => { const e = document.querySelector('.pj-viewport
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
 
+  // Population floor AFTER cleanup: a gutted run that asserts nothing must not read
+  // green, and process.exit here skips no finally (the try's cleanup already ran).
+  if (ran < 8) { console.log('\nrender-engmode-gate-2131: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (fail.length) { console.log('\n' + fail.length + ' FAILED'); process.exit(1); }
   console.log('\nrender-engmode-gate-2131: all ' + ran + ' checks passed (terminal gated on Engineering mode; question panel exempt)');
 })().catch((e) => { console.error(e); process.exit(1); });
