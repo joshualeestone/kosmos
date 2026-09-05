@@ -90,6 +90,18 @@ require `at` be a parseable date (Number.isFinite(Date.parse)), parity with
 engine/messages.js rowShaped -- drops a foreign/torn append carrying a non-date `at`.
 Two new tests. Surrogate-slice NIT remains deferred (as above).
 
+## Challenge-loop resume iteration 3 (2026-09-05): one doc line, two defers
+Fresh review found no code defect. Added one comment in addPart noting the
+explicit-closedAt-wins asymmetry (a task closed via task.closedAt stays closed
+after adding a part, so records no reopened -- correct). Deferred, with reason:
+(a) the CONVENTION suggesting a breadcrumb in record()'s catch -- the bare
+best-effort catch on the record/write path IS the codebase convention
+(messages.js's own record/deliver paths use `catch { return false; }` /
+`catch { /* best effort */ }` with no breadcrumb, and no process.emitWarning or
+debug-hook pattern exists anywhere in engine/; the ENOENT distinction cited is on
+messages.js's READ path, which taskchat.read() already mirrors). Adding a warning
+would introduce an unmatched new pattern. (b) the surrogate-slice NIT (as above).
+
 ## Deliberate follow-ups (scoped, NOT in this PR)
 1. **Task-Settings reveal button + route** -- the project half already exists
    (POST /api/chats/reveal opens store.ROOT/chats). A sibling

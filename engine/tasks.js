@@ -229,6 +229,9 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
   // task-level reopen, on the same derived transition setPartClosed/setClosed
   // record. A new part is always open, so addPart can only reopen, never
   // complete; that is why there is no `closed` counterpart here.
+  // A task closed via an explicit task.closedAt stays closed after adding a part
+  // (progressOf gives closedAt precedence over all-parts-done), so THAT case
+  // records no reopened -- correctly, the task genuinely remains closed.
   let taskReopened = false;
   const task = writeParts(projectId, n, (parts, t, p) => {
     if (whoKey && !(p.agents || []).includes(whoKey)) {
