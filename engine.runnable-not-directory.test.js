@@ -989,8 +989,19 @@ test("':' asks for NO candidates explicitly, and does not fall back to the real 
     if (beforeCand === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;
     else process.env.AGENT_WORKFORCE_GH_CANDIDATES = beforeCand;
   }
-  // And a real override still splits, so the parameter is genuinely consulted.
-  assert.deepStrictEqual(gh.ghCandidateList('/a:/b'), ['/a', '/b'],
+  /* And a real override still splits, so the parameter is genuinely consulted.
+     🛑 BUILT FROM path.delimiter, for the reason the arm forty lines up already
+     gives in full -- and this control is where that reasoning had NOT been
+     applied. The assertion was fixed to stop pinning the POSIX separator; the
+     CONTROL THAT PROVES THE ASSERTION MEANS ANYTHING was left as a literal
+     '/a:/b', so on Windows it split to one element and went red while the code
+     was behaving exactly as documented (github.js's own docblock says the
+     spellings there are POSIX and are ';' on Windows).
+     ⇒ Fixing an assertion and leaving its control on the old assumption is its
+     own failure shape: the control is the half that decides whether the arm can
+     fail at all. Identical on POSIX, where path.delimiter IS ':'. */
+  const twoPaths = ['/a', '/b'];
+  assert.deepStrictEqual(gh.ghCandidateList(twoPaths.join(path.delimiter)), twoPaths,
     'the override is not being consulted at all');
 });
 
@@ -1900,8 +1911,12 @@ test('an EMPTY env var means UNSET, not "no candidates", or gh reads as missing'
     );
     /* CONTROL: a real value must still be honoured, or the assertion above would
        pass for a function that ignores the env entirely. */
-    process.env.AGENT_WORKFORCE_GH_CANDIDATES = '/a:/b';
-    assert.deepStrictEqual(gh.ghCandidateList(), ['/a', '/b'],
+    /* path.delimiter, not a literal ':' -- same reason as the sibling control,
+       and the same place the fix had not reached: this is the ENV arrival route
+       of the identical fact, and it was pinned to the POSIX spelling too. */
+    const twoPaths = ['/a', '/b'];
+    process.env.AGENT_WORKFORCE_GH_CANDIDATES = twoPaths.join(path.delimiter);
+    assert.deepStrictEqual(gh.ghCandidateList(), twoPaths,
       'control: a real env override is no longer honoured, so the arm above proves nothing');
   } finally {
     if (before === undefined) delete process.env.AGENT_WORKFORCE_GH_CANDIDATES;

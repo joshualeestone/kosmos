@@ -114,7 +114,9 @@ test('#570 abandon() drops a prepared session from the record', () => {
   const out = win32create.prepareSession({ name: 'shortlived', runner: 'claude' });
   assert.equal(out.ok, true);
   assert.equal(win32sessions.isOurs(out.sessionId), true, 'recorded before abandon');
-  const r = win32create.abandon(out.sessionId);
+  // It takes the PREPARED OBJECT, not the id: retiring the right token needs the
+  // name and instance, and neither is recoverable from a session id.
+  const r = win32create.abandon(out);
   assert.equal(r.ok, true, 'abandon reports ok');
   assert.equal(win32sessions.isOurs(out.sessionId), false, 'the session is no longer ours after abandon');
 });
@@ -146,3 +148,140 @@ test('#570 END TO END: a prepared session that goes live is emitted by the REAL 
 // The "operator's own" fixture above mints its id straight from crypto.randomUUID
 // (imported at module scope), NOT via prepareSession -- calling prepareSession
 // would RECORD it, defeating the point of an UNRECORDED session.
+
+/* ---------------------------------------------------------------------------
+ * #570 Gap-B: the SENDER TOKEN half.
+ *
+ * The route that records a report (`POST /api/report` -> `resolveAgentSender`)
+ * was already built for a paneless caller: token first, pane second, and its
+ * token arm returns a card without reading TMUX_PANE. What was missing was the
+ * other half -- nothing on Windows minted a token or handed one to the agent.
+ * These drive the mint through the REAL sendertoken store, and the strongest one
+ * resolves a prepared session's token through the SAME two arms the route uses.
+ * ------------------------------------------------------------------------- */
+const sendertoken = require('./sendertoken');
+const store = require('./store');
+
+test('#570 Gap-B prepareSession mints a sender token and hands it out as spawn env', () => {
+  const out = win32create.prepareSession({ name: 'tok-1', runner: 'claude' });
+  assert.equal(out.ok, true);
+  assert.equal(typeof out.token, 'string', 'a token was minted');
+  assert.match(out.token, /^[0-9a-f]+$/, 'the token is hex by construction (no re-validation needed in-process)');
+  assert.equal(typeof out.instance, 'string', 'the run is identified, so exactly this run can be retired later');
+  assert.equal(out.tokenBecause, null, 'nothing to explain when the mint succeeded');
+  // The caller never spells the variable name: it merges `env` verbatim.
+  assert.deepEqual(out.env, { KOSMOS_AGENT_TOKEN: out.token },
+    'env carries the token under the name install/kosmos reads it back from');
+  assert.equal(out.name, 'tok-1', 'the roster name comes back, because abandon needs it to key the retire');
+});
+
+test('#570 Gap-B the minted token RESOLVES to the agent with no pane anywhere (the arm win32 lands on)', () => {
+  const out = win32create.prepareSession({ name: 'tok-paneless', runner: 'claude' });
+  assert.equal(out.ok, true);
+  // server.js:502 -- resolveName is the arm that does not consult a pane roster,
+  // and it is the one a win32 agent reaches. The key is the safeKey'd ROSTER
+  // name, which on win32 is meta.name with no derivation.
+  const byName = sendertoken.resolveName(out.token);
+  assert.equal(byName.ok, true, 'the token resolves without a roster, so no pane is needed to be identified');
+  assert.equal(byName.key, store.safeKey('tok-paneless'),
+    'it keys on the ROSTER name -- minting under anything else files it where resolve never looks');
+  assert.equal(byName.instance, out.instance, 'and it names the run that minted it');
+});
+
+test('#570 Gap-B END TO END: one prepared session is BOTH emitted by the real roster AND resolvable by its token', () => {
+  const out = win32create.prepareSession({ name: 'gapb-e2e', runner: 'claude' });
+  assert.equal(out.ok, true);
+  // The session goes live under the pinned id, exactly as the roster end-to-end
+  // test above establishes.
+  const liveAgents = [
+    { pid: 11, cwd: '/w/e', kind: 'interactive', startedAt: 1, sessionId: out.sessionId, name: 'gapb-cwdname', status: 'idle' },
+  ];
+  const panes = status.parsePanes(win32roster.make({ run: () => liveAgents })());
+  const ours = panes.filter((p) => status.isNamedOurs(p));
+  assert.equal(ours.length, 1, 'the prepared session is on the board');
+  /* Now the credential half, and the two must name the SAME agent or the board
+     shows a session whose reports it cannot attribute.
+
+     🛑 THIS ASSERTS THROUGH resolveName, NOT resolve, AND THE REASON IS A RULE
+     THIS TEST BROKE ONCE. The first version built the roster `resolve` wants as
+     an object literal keyed on the session-name and named-ours fields, and
+     fixture-discipline.test.js reds on exactly that: a hand-written stand-in for
+     what `snapshot()`/`paneRoster()` produce is free to carry fields the producer
+     never emits, which is how a display name and a needs-you count once shipped
+     dead. The guard is right and the shortcut was mine.
+
+     Asking test-support/fleet for a real card is the sanctioned answer, but it
+     installs a TMUX pane source, which is the one thing this test cannot use --
+     the whole point here is the win32 roster. So this asserts the arm that needs
+     no roster at all, which is also the arm a win32 agent actually lands on
+     (server.js:502-505, the paneless branch). `resolve`'s carded arm is covered
+     against real cards in sendertoken's own suite; re-proving it here against a
+     fabricated one would prove less, not more. */
+  const byName = sendertoken.resolveName(out.token);
+  assert.equal(byName.ok, true, 'the token resolves with no roster consulted');
+  assert.equal(byName.key, store.safeKey(ours[0].session),
+    'the token speaks for the SAME agent the real roster emits -- record and credential agree');
+  assert.equal(byName.instance, out.instance);
+});
+
+test('#570 Gap-B abandon() retires the token too: the credential dies with the record', () => {
+  const out = win32create.prepareSession({ name: 'tok-abandon', runner: 'claude' });
+  assert.equal(out.ok, true);
+  assert.equal(sendertoken.resolveName(out.token).ok, true, 'live before abandon');
+  const r = win32create.abandon(out);
+  assert.equal(r.ok, true, 'abandon reports ok');
+  assert.equal(win32sessions.isOurs(out.sessionId), false, 'the record is gone');
+  // sendertoken.js:46 -- mint no longer rotates, so a token outlives its session
+  // unless someone retires it. Leaving it is a live credential for a session that
+  // will never run.
+  assert.equal(sendertoken.resolveName(out.token).ok, false,
+    'the token no longer resolves -- it did not outlive the session it was minted for');
+});
+
+test('#570 Gap-B abandon() retires ONLY this run, leaving the other live run speaking', () => {
+  // Two launches of ONE agent -- the case sendertoken exists to make visible.
+  const first = win32create.prepareSession({ name: 'twolaunch', runner: 'claude' });
+  const second = win32create.prepareSession({ name: 'twolaunch', runner: 'claude' });
+  assert.equal(first.ok, true);
+  assert.equal(second.ok, true);
+  assert.notEqual(first.instance, second.instance, 'two launches are two runs');
+  const r = win32create.abandon(first);
+  assert.equal(r.ok, true);
+  // RETIRE, never REVOKE. revoke() drops every token for the name, which would
+  // silence a run that is working fine because a different one failed to start.
+  assert.equal(sendertoken.resolveName(first.token).ok, false, 'the abandoned run is cut off');
+  assert.equal(sendertoken.resolveName(second.token).ok, true,
+    'the OTHER live run still speaks -- abandoning one launch is not revoking the agent');
+});
+
+test('#570 Gap-B a token-store fault DEGRADES the session, it does not fail the launch', () => {
+  /* The Mac supervisor rule is "a mint is never worth a failed launch", and this
+     keeps it -- but the consequence differs here (no pane to fall back to), so
+     the reason is SURFACED rather than swallowed.
+
+     The fault is scoped to ONE agent token file: sendertoken DIR is captured
+     from store.ROOT at require time, so it cannot be redirected live the way the
+     win32sessions getter can. Putting a DIRECTORY where that agent .json belongs
+     makes the write fail for this name and no other.
+
+     🛑 THE PATH COMES FROM THE MODULE (sendertoken.DIR), NOT REBUILT HERE. The
+     first version of this test joined SANDBOX + 'data' + 'sendertokens' by hand
+     and blocked a path nothing writes to -- store.ROOT appends an
+     'AgentWorkforce' segment -- so the mint SUCCEEDED and the test asserted a
+     degradation that had not happened. A rebuilt path is a second copy of a fact
+     the module already owns, and this is what that costs. */
+  const name = 'mintfault';
+  const blocked = nodePath.join(sendertoken.DIR, store.safeKey(name) + '.json');
+  fs.mkdirSync(blocked, { recursive: true });
+  const out = win32create.prepareSession({ name, runner: 'claude' });
+  assert.equal(out.ok, true, 'the session still prepares -- a mint fault is not a failed launch');
+  assert.equal(win32sessions.isOurs(out.sessionId), true, 'and it IS recorded, so the board can still see it');
+  assert.equal(out.token, null, 'no token was minted');
+  assert.deepEqual(out.env, {}, 'env is EMPTY rather than carrying an undefined -- a caller can spread it blind');
+  assert.ok(typeof out.tokenBecause === 'string' && out.tokenBecause.length > 0,
+    'the degradation is named: this agent will be capture-only, with no needs_you/blocked of its own');
+  // And abandon still works on it: no instance means nothing to retire, which is
+  // not a failure to report.
+  const r = win32create.abandon(out);
+  assert.equal(r.ok, true, 'abandoning a tokenless prepare is clean, not a phantom retire failure');
+});
