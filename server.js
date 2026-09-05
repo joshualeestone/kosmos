@@ -855,6 +855,13 @@ function accountForAgent(name, known) {
   if (found) {
     return {
       dir: found.dir, email: found.email, label: found.label,
+      /* #2225: the human-chosen account name (`.kosmos-name` sidecar), the same
+         value the pickers/Settings row have shown since #2095. Read here off the
+         dir so the board's `a.account` carries it and the agent-detail runs-on
+         line can lead with it instead of the path slug. `readName` is null when
+         no sidecar exists (every Claude dir today), so this is a no-op for those
+         and never stands in for `email`/`label`. */
+      name: openaiAccounts.readName(found.dir),
       /* `organization` is a LIVE-only fact (Claude's `organizationName`); the
          record has no source for it. Present and null rather than absent, so
          both readers return the same shape. */
@@ -870,7 +877,7 @@ function accountForAgent(name, known) {
      ⭐ Two derivations of one fact, in the field I unified one round earlier:
      the live path was fixed and its sibling was not. Same miss, third time. */
   return dir
-    ? { dir, email: null, label: null, organization: null, isDefault: accounts.isDefaultDir(dir) }
+    ? { dir, email: null, label: null, name: openaiAccounts.readName(dir), organization: null, isDefault: accounts.isDefaultDir(dir) }
     : null;
 }
 
@@ -9366,6 +9373,14 @@ module.exports = {
      `setLiveReader` is the seam for the ROUTE's live arm, which `whoamiFor`
      alone cannot cover: the wiring is where the session name is chosen. */
   whoamiFor, setLiveReader,
+  /* #2225: exported so the account-record read is pinned DIRECTLY. The board's
+     `a.account` is this function's return (server.js ~1901), and the runs-on
+     line leads with its `name`; an HTTP harness that produces a codex agent with
+     a `.kosmos-name` sidecar AND surfaces it on the board snapshot is far more
+     setup than pinning the one field the display depends on. The whoami route
+     hand-picks fields off this record and deliberately drops `name`, so a shape
+     control here is the only place that parity is stated. */
+  accountForAgent,
   /* Exported so the sentence can be pinned DIRECTLY. It is the only part of
      this answer a person actually reads, and five mutations of it survived the
      whole suite - including the model standing in for the account - because the

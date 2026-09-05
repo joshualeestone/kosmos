@@ -11273,6 +11273,19 @@ function modelLine(a) {
  * disagree (a job edited by hand, a session started some other way). The server
  * only looks up the second when the first is absent.
  */
+/* #2225: the account identifier shown in the runs-on parenthetical on the agent
+   detail. The human-chosen name leads -- a named OpenAI account (`.kosmos-name`),
+   now carried on `a.account` because the board reads it off the launch dir since
+   #2225 -- so this line names the account the same way the pickers and the
+   Settings row have since #2095, instead of the raw path slug. It falls back to
+   the email, then the slug (`label`), for accounts that were never named, and
+   returns '' when nothing identifies the account so the caller omits the
+   parenthetical entirely. Kept a pure helper so each fallback rung can be pinned
+   directly. */
+function acctParenthetical(a) {
+  const acct = a && a.account;
+  return (acct && (acct.name || acct.email || acct.label)) || '';
+}
 function runsOnLine(a) {
   const name = modelLine(a);
   /* ⚠️ THE TENSE COMES FROM `pres`, THE SAME DERIVATION THE PRESENCE DOT DRAWS,
@@ -19508,7 +19521,7 @@ function openDetail(sessionName, section) {
      window after a Move both therefore name the account the agent will
      use, not the one the live session still runs on, and the Move
      verdict sentence is what names that window on screen. */
-  const acctEmail = a && a.account && (a.account.email || a.account.label);
+  const acctEmail = acctParenthetical(a);
   drun.innerHTML = esc(runs.lead) + '<b>' + esc(runs.name) + '</b>'
     + (acctEmail ? ' (' + esc(acctEmail) + ')' : '');
   /* #149/#150: the sentence alone says WHAT, this says WHY and the way in.
