@@ -24659,6 +24659,23 @@ function acctUnknownLive(a) {
   if (c.badge) return c.badge === 'unchecked';
   return c.state === 'unknown';
 }
+function acctOfferableTarget(a) {
+  // For a picker that OFFERS an account to run an agent on (the create-agent
+  // account picker): exclude only the CONFIRMED-unusable -- `rejected` (a real
+  // call was rejected, #874 -- an account that 401s used to read `connected` and
+  // be offered, then the agent could not run) and `signed_out`. UNCERTAIN
+  // (unchecked / unknown) is INCLUDED-and-labelled, never hidden -- the
+  // include-and-label philosophy #881/#960 established here, so a timeout is not
+  // read as a false absence. Same "an option that always fails is worse than an
+  // option that is not there" rule the picker already applied to signed_out,
+  // extended to rejected now that the badge can see it. Fallback for a badge-less
+  // row (OpenAI / version skew): the legacy state !== 'none'. A row with no
+  // connection info is offered, as before.
+  const c = a && a.connection;
+  if (!c) return true;
+  if (c.badge) return c.badge !== 'rejected' && c.badge !== 'signed_out';
+  return c.state !== 'none';
+}
 let ACCOUNTS = [];
 /* 🛑 A FAILED READ AND AN EMPTY LIST ARE DIFFERENT FACTS AND THE FETCH USED TO
    COLLAPSE THEM. `res.ok ? res.json() : null` then `|| []` made a 500 arrive as "you
@@ -25972,7 +25989,13 @@ function fillCreateAccounts() {
      silent. Applies to both providers now that OpenAI rows carry a real
      `connection` field too (#960; #881's own iteration 8 caught this
      exact call site missing the treatment its Claude-only siblings had). */
-  const working = list.filter((x) => !x.connection || x.connection.state !== 'none');
+  /* #1959: exclude the CONFIRMED-unusable via acctOfferableTarget (badge rejected
+     or signed_out), not just raw state === 'none'. A `rejected` Claude account has
+     state === 'connected' (the #874 premise this function's own comment names at
+     "the badge cannot see a REJECTED token"), so before this it was OFFERED as a
+     create target and the new agent could not run. Uncertain accounts stay offered
+     and labelled (below), preserving the include-and-label philosophy. */
+  const working = list.filter((x) => acctOfferableTarget(x));
   const movable = openai ? working : working.filter((x) => x.memoryShared);
   const usable = movable.length ? movable : working;
   /* #1917: two accounts on one email rendered as two identical options, so a real
@@ -25992,7 +26015,7 @@ function fillCreateAccounts() {
   const acctQual = accountQualifiers(usable);
   const qualOf = (x) => { const q = acctQual.get(String(x.dir || '')); return q ? ' (' + q + ')' : ''; };
   const nameOf = (x) => (x.email || (x.provider === 'openai' && x.keyTail ? 'API key ending ' + x.keyTail : '') || x.label || x.dir) + qualOf(x);
-  const labelOf = (x) => x.connection && x.connection.state === 'unknown' ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));
+  const labelOf = (x) => acctUnknownLive(x) ? esc(nameOf(x)) + ' (could not check just now)' : esc(nameOf(x));  // #1959: badge vocabulary (unchecked / state unknown), consistent with the offer filter above
   asel.innerHTML = usable.length
     ? usable.map((x) =>
       `<option value="${esc(x.dir)}"${x.isDefault ? ' selected' : ''}>${labelOf(x)}</option>`).join('')

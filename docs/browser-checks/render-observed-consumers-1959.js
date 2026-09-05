@@ -186,6 +186,39 @@ function check(name, pass, detail) {
         `workingCurrent=${JSON.stringify(picker.workingCurrent)}`);
     }
 
+    // ---- Arm 4: fillCreateAccounts create picker (consumer 3) ----
+    const create = await page.evaluate(async () => {
+      const asel = document.getElementById('create-account');
+      const psel = document.getElementById('create-provider');
+      if (!asel || !psel || typeof fillCreateAccounts !== 'function') return { missing: true };
+      const seed = (rows) => { try { CREATE_ACCOUNTS = rows; } catch { /* not writable */ } };
+      // Three Claude accounts (provider !== 'openai'), memoryShared so the Claude
+      // path offers them: one rejected, one working, one unchecked.
+      seed([
+        { dir: '/rej', provider: 'anthropic', memoryShared: true, email: 'rej@x', connection: { badge: 'rejected', state: 'connected' } },
+        { dir: '/work', provider: 'anthropic', memoryShared: true, email: 'work@x', connection: { badge: 'working', state: 'connected' } },
+        { dir: '/unk', provider: 'anthropic', memoryShared: true, email: 'unk@x', connection: { badge: 'unchecked', state: 'unknown' } },
+      ]);
+      psel.value = '';  // anything but 'openai' -> the Claude path
+      fillCreateAccounts();
+      const opts = Array.from(asel.options).map((o) => ({ value: o.value, text: o.textContent }));
+      return {
+        dirs: opts.map((o) => o.value),
+        unkText: (opts.find((o) => o.value === '/unk') || {}).text || '',
+      };
+    });
+
+    if (create.missing) {
+      check(`${engine}: fillCreateAccounts + create-account/create-provider reachable`, false, '');
+    } else {
+      check(`${engine}: create picker EXCLUDES a rejected account as a run target (#874)`,
+        !create.dirs.includes('/rej') && create.dirs.includes('/work') && create.dirs.includes('/unk'),
+        `offered=${JSON.stringify(create.dirs)}`);
+      check(`${engine}: create picker still offers an unchecked account, labelled`,
+        /could not check/i.test(create.unkText),
+        `unkText=${JSON.stringify(create.unkText)}`);
+    }
+
     await browser.close();
   }
 

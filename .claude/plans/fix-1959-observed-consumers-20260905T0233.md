@@ -49,13 +49,20 @@ observed->consumer join (accountForAgent, keyed by agent name) exists ONLY in th
 /api/accounts route today, so only consumers fed by /api/accounts can read `.badge` without new
 server->engine plumbing.
 
-**THIS PR delivers the two consumers that ARE fed by /api/accounts (so the badge is already on the
+**THIS PR delivers the THREE consumers that ARE fed by /api/accounts (so the badge is already on the
 row) - a clean, browser-verifiable slice, web/index.html ONLY (no server.js, so no collision with
 the active whoami PR #2218):**
 - `paintConnLive()` - the board "connected & thinking" summary. Now counts `acctUsableLogin`
   (rejected excluded - the #874 defect on this surface).
 - `paintAccountPicker()` - the move/disconnect eligibility. A `rejected` current account is now
   signed out (the move UI appears); a usable sibling is offered as the target.
+- `fillCreateAccounts()` - the CREATE-agent account picker (folded in from a challenge-loop
+  finding: it is a third /api/accounts-fed consumer, and the card's named "account picker"). Uses a
+  third helper `acctOfferableTarget` (exclude the CONFIRMED-unusable - rejected/signed_out - but keep
+  the include-and-label philosophy for uncertain/unchecked). Before this a `rejected` account
+  (state `connected`) was offered as a create target and the new agent could not run; its own comment
+  named the trap ("the badge cannot see a REJECTED token"). The create picker's `labelOf` also now
+  reads the badge vocabulary (`acctUnknownLive`) for the "could not check just now" annotation.
 
 **DEFERRED to a browser-capable session (documented on the card, stays open under Addresses #1959):**
 - **`subscription.js computeMachine` (the #2130 machine-level "any signed in" banner).** Genuinely
