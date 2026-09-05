@@ -36,7 +36,7 @@ test('OFF by default: an install nobody has asked sends nothing', () => {
 });
 
 test('an unreadable setting fails to OFF, not on', () => {
-  // A directory where the file should be is unreadable-as-JSON: must read off,
+  // A present-but-unparseable settings file (invalid JSON) must read off,
   // because the only thing gated here is data leaving the machine.
   fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
   fs.writeFileSync(feedbacksend.FILE, 'not json{');
