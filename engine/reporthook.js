@@ -39,16 +39,36 @@ const HOOK_EVENTS = Object.freeze([
    the script NAME rather than the full command means a future change to
    the command text (a flag, a timeout) will not stack a second entry
    beside a hand-installed or older one -- the cost is that such changes
-   need their own migration, which is stated here so nobody discovers it. */
-const MARKER = 'kosmos-report-hook.sh';
+   need their own migration, which is stated here so nobody discovers it.
+
+   #570: the STEM, not `kosmos-report-hook.sh`, so ONE dedup key matches both
+   the posix hook (`bash ".../kosmos-report-hook.sh"`) and the native-win32 hook
+   (`"<node>" ".../kosmos-report-hook.js"`) -- the win32 bundle carries no bash,
+   so its hook is the node entry beside this module. Widening `.sh` -> the stem
+   is backward-compatible: every already-wired `.sh` command still contains the
+   stem, so a machine that had the old hook reads as ours and is repointed/kept
+   exactly as before. The stem is specific enough that nothing else matches. */
+const MARKER = 'kosmos-report-hook';
 
 /**
  * Where the hook script is, from where THIS module is: installed, engine/
  * sits beside bin/ inside app/; on a source checkout, engine/ sits beside
  * install/. Probed, not assumed, the clipath way; null when neither exists
  * rather than a guess that fails at fire time.
+ *
+ * #570 -- PLATFORM-AWARE. On native win32 the posix hook cannot run (the
+ * Windows bundle carries no bash, gate-(b)), so the hook is the node entry
+ * `kosmos-report-hook.js` that sits beside THIS module -- in `app/engine/` when
+ * installed (the Windows bundle's engine glob ships it) and in `engine/` on a
+ * source checkout, so a single `__dirname`-relative resolve finds it in both.
+ * `platform` is injectable so the branch is unit-testable off a real Windows box.
  */
-function hookScriptPath() {
+function hookScriptPath(platform) {
+  const plat = platform || process.platform;
+  if (plat === 'win32') {
+    const js = path.resolve(__dirname, 'kosmos-report-hook.js');
+    return fs.existsSync(js) ? js : null;
+  }
   const installed = path.resolve(__dirname, '..', 'bin', 'kosmos-report-hook.sh');
   if (fs.existsSync(installed)) return installed;
   const source = path.resolve(__dirname, '..', 'install', 'kosmos-report-hook.sh');
@@ -56,11 +76,44 @@ function hookScriptPath() {
   return null;
 }
 
-function entryFor(scriptPath) {
+/**
+ * The hook command Claude Code runs, per platform. posix: `bash "<script>"`.
+ * win32 (#570): `"<node>" "<script>"` -- the node entry, run through the same
+ * node that is doing the wiring (on a win32 install that is the bundled
+ * runtime/node.exe, so no path is resolved from HOME, keeping this module's
+ * zero-dependency contract). Both `platform` and `node` are injectable so the
+ * branch is unit-testable; they default to the running process.
+ */
+function entryFor(scriptPath, opts) {
+  const o = opts || {};
+  const plat = o.platform || process.platform;
+  if (plat === 'win32') {
+    const node = o.node || process.execPath;
+    return {
+      matcher: '',
+      hooks: [{ type: 'command', command: '"' + node + '" "' + scriptPath + '"', timeout: 15 }],
+    };
+  }
   return {
     matcher: '',
     hooks: [{ type: 'command', command: 'bash "' + scriptPath + '"', timeout: 15 }],
   };
+}
+
+/**
+ * True when a path holds a character we refuse to embed in the hook command
+ * for that platform. posix (the value rides inside a double-quoted `bash`
+ * command in sh): a quote, backslash, dollar or backtick would break out of or
+ * execute inside the command. win32 (the value rides inside a double-quoted
+ * command run by cmd.exe): a double-quote breaks the quoting and `%` triggers
+ * variable expansion -- but a backslash is the ORDINARY path separator, so the
+ * posix guard's `\\` would refuse every real Windows path. Type-safe: a
+ * non-string is unsafe rather than throwing on `.test`.
+ */
+function unsafeForCommand(s, plat) {
+  if (typeof s !== 'string') return true;
+  if (plat === 'win32') return /["%]/.test(s);
+  return /["\\$`]/.test(s);
 }
 
 function entryIsOurs(entry) {
@@ -78,16 +131,26 @@ function entryIsOurs(entry) {
  * born, an install still finishes; the board falls back to scraping, which
  * is the pre-#526 world, not a corruption).
  */
-function ensureWired(settingsPath, scriptPath) {
+function ensureWired(settingsPath, scriptPath, opts) {
   if (!scriptPath) return { wired: false, because: 'the reporting hook script is not on this machine' };
-  /* The path is embedded in a double-quoted bash command; a quote,
-     backslash, dollar or backtick in it would break the command or execute
-     inside it. setup.sh refuses similar characters for the profile write,
-     and this keeps the pair consistent (Angel's review). No real
-     KOSMOS_HOME carries these; a hand-built one that does gets a sentence
-     instead of a settings file that runs it. */
-  if (/["\\$`]/.test(scriptPath)) {
-    return { wired: false, because: 'the hook script path contains characters we will not embed in a command' };
+  const o = opts || {};
+  const plat = o.platform || process.platform;
+  /* On win32 the command embeds a second path -- the node executable -- so the
+     guard below must vet it too. It defaults to the node doing the wiring
+     (the bundled runtime/node.exe on a win32 install), the same source entryFor
+     uses; injectable for tests. Null off win32, where the command is bash-only. */
+  const node = plat === 'win32' ? (o.node || process.execPath) : null;
+  /* The path(s) are embedded in a double-quoted hook command; a character that
+     would break the quoting or execute inside it is refused. The unsafe set is
+     platform-specific (unsafeForCommand): backslash is dangerous in sh but is
+     the ordinary separator on win32, so a single posix guard would refuse every
+     Windows path. setup.sh refuses similar characters for the profile write,
+     and this keeps the pair consistent (Angel's review). No real KOSMOS_HOME
+     carries these; a hand-built one that does gets a sentence instead of a
+     settings file that runs it. On win32 BOTH the script path and the node path
+     are vetted. */
+  if (unsafeForCommand(scriptPath, plat) || (node !== null && unsafeForCommand(node, plat))) {
+    return { wired: false, because: 'the hook command path contains characters we will not embed in a command' };
   }
   /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
      a release cut, resolves an app/bin/kosmos-report-hook.sh that GENUINELY
@@ -183,7 +246,7 @@ function ensureWired(settingsPath, scriptPath) {
      ours by the marker, so replacing it is not clobbering somebody's
      configuration -- and leaving it is how a machine keeps running a hook
      nobody has looked at since August. */
-  const wantCommand = entryFor(scriptPath).hooks[0].command;
+  const wantCommand = entryFor(scriptPath, { platform: plat, node }).hooks[0].command;
   for (const event of HOOK_EVENTS) {
     const existing = Array.isArray(data.hooks[event]) ? data.hooks[event] : [];
     const mine = existing.filter(entryIsOurs);
@@ -193,11 +256,11 @@ function ensureWired(settingsPath, scriptPath) {
       if (mine.some((e) => e.hooks.some((h) => h && h.command === wantCommand))) continue;
       /* Ours, but aimed at another copy. Replace only OUR entries; anything
          else in this event's list is somebody else's hook and is untouched. */
-      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? entryFor(scriptPath) : e));
+      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? entryFor(scriptPath, { platform: plat, node }) : e));
       changed = true;
       continue;
     }
-    data.hooks[event] = existing.concat([entryFor(scriptPath)]);
+    data.hooks[event] = existing.concat([entryFor(scriptPath, { platform: plat, node })]);
     changed = true;
   }
   if (!changed) return { wired: true, changed: false };
@@ -217,4 +280,4 @@ function ensureWired(settingsPath, scriptPath) {
   return { wired: true, changed: true };
 }
 
-module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, entryIsOurs, ensureWired };
+module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, unsafeForCommand, entryIsOurs, ensureWired };

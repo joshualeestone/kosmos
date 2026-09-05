@@ -255,3 +255,13 @@ test('CONTROL: these assertions are reading the file they think they are', () =>
   assert.ok(MAC.length > 10000, 'the Mac builder is suspiciously short');
   assert.match(WIN, /build-kosmos-windows|win-\$ARCH/, 'this is not the Windows builder');
 });
+
+test('#570 the native-win32 report hook is verified into the zip, not just glob-staged', () => {
+  // engine/*.js ships via the glob, but the win32 report hook is the hook on
+  // that platform (no bash), so its presence must be GUARANTEED, not incidental
+  // to a glob a future refactor could narrow. The build's own refuse-loop names
+  // it, so a build that fails to stage it aborts rather than shipping a Windows
+  // bundle that cannot report.
+  assert.match(WIN, /for want in[^\n]*"app\/engine\/kosmos-report-hook\.js"/,
+    'the win32 build does not verify the report hook is in the zip');
+});

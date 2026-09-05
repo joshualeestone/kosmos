@@ -249,3 +249,65 @@ test('#1467 CONTROL: somebody else hook in the same event survives repointing', 
   assert.equal(cmds.some((c) => c.includes(SCRIPT)), true);
   assert.equal(cmds.some((c) => c.includes(STALE)), false);
 });
+
+// ---- #570: the native-win32 branch (platform injected, so it runs on the Mac) ----
+
+const WIN_NODE = 'C:\\Program Files\\Kosmos\\runtime\\node.exe';
+const WIN_SCRIPT = 'C:\\Program Files\\Kosmos\\app\\engine\\kosmos-report-hook.js';
+
+test('#570 entryFor: win32 runs the node entry through node.exe; darwin stays bash', () => {
+  const win = reporthook.entryFor(WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(win.hooks[0].command, '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"');
+  const mac = reporthook.entryFor('/app/engine/kosmos-report-hook.sh', { platform: 'darwin' });
+  assert.equal(mac.hooks[0].command, 'bash "/app/engine/kosmos-report-hook.sh"');
+});
+
+test('#570 hookScriptPath: win32 returns the .js entry beside this module; posix returns the .sh', () => {
+  // The .js entry ships in engine/ (source) and app/engine/ (installed); on this
+  // source checkout it sits beside reporthook.js, so the win32 probe finds it.
+  const js = reporthook.hookScriptPath('win32');
+  assert.ok(js && js.endsWith('kosmos-report-hook.js'), 'win32 did not resolve the node hook: ' + js);
+  const sh = reporthook.hookScriptPath('linux');
+  assert.ok(sh && sh.endsWith('kosmos-report-hook.sh'), 'posix did not resolve the bash hook: ' + sh);
+});
+
+test('#570 unsafeForCommand: backslash is a normal separator on win32 but dangerous in sh', () => {
+  // The whole reason the guard is platform-specific: a Windows path is all backslashes.
+  assert.equal(reporthook.unsafeForCommand(WIN_SCRIPT, 'win32'), false, 'a normal Windows path was refused');
+  assert.equal(reporthook.unsafeForCommand('C:\\a\\b.js', 'linux'), true, 'sh must refuse a backslash');
+  // win32 refuses a double-quote and a % (cmd.exe variable expansion); posix refuses $ and backtick.
+  assert.equal(reporthook.unsafeForCommand('C:\\a"b.js', 'win32'), true);
+  assert.equal(reporthook.unsafeForCommand('C:\\a%PATH%b.js', 'win32'), true);
+  assert.equal(reporthook.unsafeForCommand('/a/b$x.sh', 'linux'), true);
+  assert.equal(reporthook.unsafeForCommand('/a/b.sh', 'linux'), false);
+  assert.equal(reporthook.unsafeForCommand(null, 'win32'), true, 'a non-string is unsafe, not a throw');
+});
+
+test('#570 ensureWired win32: all seven events wired with the node.exe command', () => {
+  const p = fresh();
+  const r = reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(r.wired, true);
+  const data = readJson(p);
+  for (const event of reporthook.HOOK_EVENTS) {
+    assert.equal(oursIn(data, event), 1, 'event ' + event + ' not wired once');
+    assert.equal(data.hooks[event][0].hooks[0].command, '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"');
+  }
+});
+
+test('#570 ensureWired win32 guard: a node path with a double-quote is refused, a backslash path is not', () => {
+  const bad = reporthook.ensureWired(fresh(), WIN_SCRIPT, { platform: 'win32', node: 'C:\\a"evil\\node.exe' });
+  assert.equal(bad.wired, false, 'a quote in the node path must be refused');
+  // Control: an ordinary all-backslash Windows install path wires fine.
+  const ok = reporthook.ensureWired(fresh(), WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(ok.wired, true, 'a normal backslash path was wrongly refused');
+});
+
+test('#570 MARKER stem: a widened marker recognises BOTH the .sh and the .js command as ours', () => {
+  // Back-compat: an already-wired bash entry (the pre-#570 shape) is still ours.
+  const shEntry = { matcher: '', hooks: [{ type: 'command', command: 'bash "/app/bin/kosmos-report-hook.sh"', timeout: 15 }] };
+  const jsEntry = reporthook.entryFor(WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  assert.equal(reporthook.entryIsOurs(shEntry), true, 'the widened marker lost the .sh entry');
+  assert.equal(reporthook.entryIsOurs(jsEntry), true, 'the widened marker does not match the .js entry');
+  // A truly foreign hook is still not ours.
+  assert.equal(reporthook.entryIsOurs({ hooks: [{ command: 'bash "/somebody/else.sh"' }] }), false);
+});
