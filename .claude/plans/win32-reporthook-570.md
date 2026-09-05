@@ -52,9 +52,11 @@ re-implementation of the record engine.
 ## Weakest premise
 The exact `/api/report` behavior on a real win32 box (does the hook fire natively, does the POST land)
 cannot be verified from a Mac. Everything here is Mac-unit-tested by injecting platform/node and the
-fetch transport; the box's role is the real-win32 verify (Splinter is routing that). The node-path
-ephemerality (a release-cut sandbox node.exe written into a durable settings file) is not separately
-guarded beyond the existing #1582 script-path refusal; low risk, no win32 cut path exists today, noted.
+fetch transport; the box's role is the real-win32 verify (Splinter is routing that). The one residual
+unverifiable-from-a-Mac point is which shell Claude Code uses to run a hook on Windows: the win32
+command-safety guard is the conservative superset of cmd.exe and PowerShell metacharacters, so it
+over-refuses (degrading to scraping) rather than under-refusing, and can be relaxed once the box
+confirms the shell.
 
 ## Tests
 engine/kosmos-report-hook.test.js (event->word mapping incl the source guard + throttle, resolvePort

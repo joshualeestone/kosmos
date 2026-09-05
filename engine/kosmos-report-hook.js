@@ -53,8 +53,10 @@
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const crypto = require('node:crypto');
 
-const DEFAULT_TIMEOUT_MS = 8000;
+const DEFAULT_TIMEOUT_MS = 8000;   // SessionStart: needs its delivery verdict
+const SHORT_TIMEOUT_MS = 3000;     // every other event: a fire-report, keep the turn snappy
 const HEARTBEAT_SECONDS = 60;
 const DEFAULT_PORT = 16180;
 
@@ -162,14 +164,23 @@ function resolveUrl(env, uid) {
   return 'http://127.0.0.1:' + resolvePort(env, uid);
 }
 
-/** The board token, read from <store.ROOT>/board.token; null when absent (a
- *  non-enforcing board), so the header is simply omitted. */
-function readBoardToken(root) {
-  if (!root || typeof root !== 'string') return null;
-  try {
-    const t = fs.readFileSync(path.join(root, 'board.token'), 'utf8').trim();
-    return t || null;
-  } catch { return null; }
+/** The board token comes from engine/boardauth.readToken() -- the ONE source of
+ *  truth for the token path (boardauth.tokenPath = store.ROOT/board.token), the
+ *  same reader the sibling client bin/codex-report-bridge.js uses. This module
+ *  does NOT re-derive the path: a second copy of that formula would drift the
+ *  day boardauth relocates the token (e.g. the #2040 win32-ACL work) and a
+ *  win32 enforcing board would silently refuse this hook's reports. null (a
+ *  non-enforcing board) omits the header. */
+function readBoardToken() {
+  try { return require('./boardauth').readToken(); } catch { return null; }
+}
+
+/** The POST timeout, per event: the loud SessionStart send needs its verdict, so
+ *  it gets the full window; every other event is a fire-report whose loss is
+ *  harmless (the next event re-reports), so it uses a short window to bound the
+ *  latency it can add to the person's own turn if the board accepts-but-hangs. */
+function timeoutFor(report) {
+  return (report && report.loud) ? DEFAULT_TIMEOUT_MS : SHORT_TIMEOUT_MS;
 }
 
 /** The per-launch agent token, only when it is a bare hex string (#570 step
@@ -205,7 +216,11 @@ async function deliver(report, io) {
     let body = '';
     try { body = await res.text(); } catch { body = ''; }
     const recorded = /"recorded"\s*:\s*true/.test(body);
-    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body };
+    // The server's own reason, for the loud SessionStart message (the CLI
+    // surfaces this too): a refusal carries "error", a not-recorded carries
+    // "because". Either is the actionable sentence; a bare status is not.
+    const m = body.match(/"error"\s*:\s*"([^"]*)"/) || body.match(/"because"\s*:\s*"([^"]*)"/);
+    return { ok: !!(res && res.ok) && recorded, status: res && res.status, recorded, body, because: m ? m[1] : '' };
   } catch (err) {
     return { ok: false, error: (err && err.message) ? err.message : String(err) };
   } finally {
@@ -214,10 +229,16 @@ async function deliver(report, io) {
 }
 
 /** The throttle key: TMUX_PANE if present (there is none on native Windows),
- *  else the per-launch agent token, else a constant. Sanitized for a filename. */
+ *  else a HASH of the per-launch agent token, else a constant. The token is
+ *  hashed, never used verbatim: the key becomes a marker FILENAME under %TEMP%,
+ *  and #1970 keeps the credential off enumerable surfaces -- a hash gives a
+ *  stable per-agent throttle without writing the secret to disk. */
 function throttleKey(env) {
-  const raw = (env && (env.TMUX_PANE || env.KOSMOS_AGENT_TOKEN)) || 'nopane';
-  return String(raw).replace(/[^A-Za-z0-9_-]/g, '_');
+  const pane = env && env.TMUX_PANE;
+  if (pane) return String(pane).replace(/[^A-Za-z0-9_-]/g, '_');
+  const tok = env && env.KOSMOS_AGENT_TOKEN;
+  if (tok) return 'a' + crypto.createHash('sha256').update(String(tok)).digest('hex').slice(0, 16);
+  return 'nopane';
 }
 
 /** Heartbeat gate for PreToolUse: at most one working line per HEARTBEAT_SECONDS
@@ -275,22 +296,30 @@ async function main(io) {
   if (!report) return 0;
 
   const url = o.url || resolveUrl(env, typeof o.uid === 'number' ? o.uid : safeUid());
-  let root = o.storeRoot;
-  if (root === undefined) { try { root = require('./store').ROOT; } catch { root = null; } }
+  // The board token: injectable for tests, else boardauth (the single source).
+  const boardToken = o.boardToken !== undefined ? o.boardToken : readBoardToken();
   const verdict = await deliver(report, {
     url,
-    boardToken: readBoardToken(root),
+    boardToken,
     agentToken: agentToken(env),
     fetchImpl: o.fetchImpl,
-    timeoutMs: o.timeoutMs,
+    timeoutMs: o.timeoutMs || timeoutFor(report),
     fromPane: env.TMUX_PANE || '',
   });
 
   if (report.loud && !verdict.ok) {
-    // SessionStart: say it once, out loud, the way the bash hook does.
+    // SessionStart: say it once, out loud, the way the bash hook does -- and
+    // surface the SERVER'S reason when it gave one. A 200-with-recorded:false
+    // (e.g. the board is enforcing and the agent token was missing) must NOT
+    // read as "the board answered 200", which implies success; the `because`
+    // is the actionable sentence, so it wins over the bare status.
     const reason = verdict.error
       ? ('the board could not be reached (' + verdict.error + ')')
-      : (verdict.status ? ('the board answered ' + verdict.status) : 'the report was not recorded');
+      : (verdict.because
+        ? ('the board refused it (' + verdict.because + ')')
+        : (verdict.recorded === false
+          ? 'the report was not recorded'
+          : (verdict.status ? ('the board answered ' + verdict.status) : 'the report was not recorded')));
     stdout(JSON.stringify({
       systemMessage: 'Kosmos reporting is OFF for this session: ' + reason
         + '. The board is falling back to reading the screen.',
@@ -307,8 +336,8 @@ function safeUid() {
 
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
-  readBoardToken, agentToken, deliver, throttleKey, heartbeatDue, main,
-  HEARTBEAT_SECONDS, DEFAULT_PORT,
+  readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue, main,
+  HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 
 /* Run only when invoked directly (Claude Code runs `"<node>" "<this>"`); a

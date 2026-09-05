@@ -76,15 +76,35 @@ test('resolvePort: KOSMOS_PORT wins; the uid fallback mirrors install/kosmos exa
   assert.equal(hook.resolvePort({ KOSMOS_PORT: 'junk' }, 1000), hook.DEFAULT_PORT + 1 + (1000 % 3999), 'a junk port is ignored');
 });
 
-test('agentToken accepts only a bare hex string; readBoardToken tolerates an absent file', () => {
+test('agentToken accepts only a bare hex string', () => {
   assert.equal(hook.agentToken({ KOSMOS_AGENT_TOKEN: 'deadbeef00' }), 'deadbeef00');
   assert.equal(hook.agentToken({ KOSMOS_AGENT_TOKEN: 'NOT-HEX!' }), null);
   assert.equal(hook.agentToken({}), null);
-  assert.equal(hook.readBoardToken('/no/such/dir/anywhere'), null);
-  // A real board.token round-trips.
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-hook-bt-'));
-  fs.writeFileSync(path.join(dir, 'board.token'), 'abc123\n');
-  assert.equal(hook.readBoardToken(dir), 'abc123');
+});
+
+test('readBoardToken delegates to boardauth (the single source) and never throws', () => {
+  // The path formula lives ONLY in boardauth; this reader must not re-derive it.
+  // boardauth.readToken reads store.ROOT/board.token and returns a string or null;
+  // here we assert only that the delegate returns that shape without throwing
+  // (boardauth's own tests own the path correctness).
+  const v = hook.readBoardToken();
+  assert.ok(v === null || typeof v === 'string', 'readBoardToken must return string|null');
+});
+
+test('timeoutFor: SessionStart gets the full window, every other event a short one', () => {
+  assert.equal(hook.timeoutFor({ loud: true }), hook.DEFAULT_TIMEOUT_MS);
+  assert.equal(hook.timeoutFor({ loud: false }), hook.SHORT_TIMEOUT_MS);
+  assert.ok(hook.SHORT_TIMEOUT_MS < hook.DEFAULT_TIMEOUT_MS, 'the fire-report window must be shorter');
+});
+
+test('throttleKey never writes the agent token verbatim (it is hashed for the filename)', () => {
+  const tok = 'deadbeefcafef00d';
+  const key = hook.throttleKey({ KOSMOS_AGENT_TOKEN: tok });
+  assert.ok(!key.includes(tok), 'the raw token must not become a marker filename (#1970)');
+  // Stable per agent.
+  assert.equal(key, hook.throttleKey({ KOSMOS_AGENT_TOKEN: tok }));
+  // A pane, when present, is used directly (sanitized).
+  assert.equal(hook.throttleKey({ TMUX_PANE: '%3' }), '_3');
 });
 
 test('deliver POSTs to /api/report with the two token headers and the CLI body shape', async () => {
@@ -132,7 +152,7 @@ function mainIo(input, extra) {
     input,
     env: (extra && extra.env) || {},
     uid: -1,
-    storeRoot: null,           // no board token
+    boardToken: null,          // injected: hermetic, never reads a real token
     throttleDir: path.join(dir, 'throttle'),
     now: (extra && extra.now) || (() => 1000),
     url: 'http://127.0.0.1:16180',
@@ -176,6 +196,19 @@ test('main: SessionStart says reporting is OFF, out loud, when delivery fails', 
   const parsed = JSON.parse(msg);
   assert.match(parsed.systemMessage, /reporting is OFF/);
   assert.match(parsed.systemMessage, /ECONNREFUSED/);
+});
+
+test('main: a 200-but-not-recorded SessionStart surfaces the server reason, not "answered 200"', async () => {
+  let msg = '';
+  const io = mainIo(evt('SessionStart', { source: 'startup' }), {
+    // Enforcing board, missing agent token -> 200 with recorded:false + a because.
+    fetchImpl: async () => ({ ok: true, status: 200, text: async () => '{"recorded":false,"because":"no agent matched this pane"}' }),
+    stdout: (s) => { msg += s; },
+  });
+  await hook.main(io);
+  const parsed = JSON.parse(msg);
+  assert.match(parsed.systemMessage, /no agent matched this pane/, 'the actionable server reason must be surfaced');
+  assert.doesNotMatch(parsed.systemMessage, /answered 200/, 'a not-recorded 200 must not read as success');
 });
 
 test('main: a NON-loud event stays silent on a delivery failure', async () => {
