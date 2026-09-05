@@ -96,5 +96,10 @@ git -C "$T/other" add -A && git -C "$T/other" commit -q -m c3 && git -C "$T/othe
 OUT3="$(site_push_with_replay "$T/site" "$(git -C "$T/site" rev-parse HEAD)" "$MSG" "$T" 1 "$PATHS" 2>/dev/null)"
 [ "$?" != 0 ] && ok "bounded: it refuses (non-zero) when the max is exhausted, not an infinite loop" || bad "bounded: it returned 0 despite an unresolvable race"
 
+# ---- Case 4: a relative reindex_dir is refused (the temp index would land in the
+# wrong place under `git -C`), before any push is attempted.
+OUT4="$(site_push_with_replay "$T/site2" "$(git -C "$T/site2" rev-parse HEAD)" "$MSG" "relative/dir" 5 "$PATHS" 2>/dev/null)"
+[ "$?" != 0 ] && ok "guard: a relative reindex_dir is refused" || bad "guard: a relative reindex_dir was accepted (got '$OUT4')"
+
 echo "site-push-race: $FAILS failures"
 [ "$FAILS" = 0 ] || exit 1
