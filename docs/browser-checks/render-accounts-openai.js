@@ -11,8 +11,10 @@
  * key's tail and never the key; the field is emptied once stored; the row
  * lists by provider; no OpenAI row carries the Claude history arm (no
  * ruling for codex yet); on the create form, choosing OpenAI leaves the
- * account menu live and offers the new account while the model menu still
- * parks; choosing Anthropic back shows no OpenAI account; and removal ASKS
+ * account menu live and offers the new account, and the model menu offers
+ * the listable account's OWN OpenAI models (never a Claude model; #2140/#2167
+ * -- only a NOT-listable account parks on "OpenAI picks its own model for now");
+ * choosing Anthropic back shows no OpenAI account; and removal ASKS
  * FIRST (#1683, #1702), so the first press only arms and leaves the account
  * on the list, and the second press is what removes it; and the answer says
  * the sign-in file is still on the computer and nothing was deleted, which is
@@ -239,8 +241,32 @@ let failed = 0;
   await p.waitForTimeout(300);
   const opts = await p.evaluate(() => { const s = document.getElementById('create-account'); return { disabled: s.disabled, opts: [...s.options].map((o) => o.textContent), val: s.value }; });
   say('account menu is enabled for OpenAI and offers the new account', !opts.disabled && opts.opts.some((o) => /API key ending WALK/.test(o)), JSON.stringify(opts));
-  const model = await p.evaluate(() => document.getElementById('create-model').disabled);
-  say('model menu still parks for OpenAI', model === true);
+  /* #2140/#2167: the model menu for a LISTABLE OpenAI account. WALK is an API key,
+     and the harness (browser-checks.sh) stubs its /v1/models -> {data:[{id:"gpt-4o"}]},
+     so it IS listable: paintOpenaiCreateModel shows an ENABLED picker of its OWN
+     OpenAI models ("Let OpenAI choose" + gpt-4o), never a Claude model. Only a
+     NOT-listable / ChatGPT account parks on the single "OpenAI picks its own model
+     for now" option. (The old assertion here read create-model.disabled===true --
+     the pre-#2140 park-everything behavior -- and was racy: it could catch the
+     synchronous "Loading..." disabled frame before the async /v1/models fetch
+     resolved and enabled the picker.)
+     WALK is the only OpenAI account this fixture seeds and is auto-selected on
+     the provider switch (the account read above shows it as the selected `val`),
+     so its models are what load -- no explicit selectOption is needed (an explicit
+     select by the option's temp-dir value raced the account menu's re-render and
+     timed out). Just WAIT for the fetch to settle past "Loading...". */
+  await p.waitForFunction(() => {
+    const s = document.getElementById('create-model');
+    return s && !/Loading/i.test(s.innerHTML);
+  }, { timeout: 8000 }).catch(() => {});
+  const cm = await p.evaluate(() => {
+    const s = document.getElementById('create-model');
+    return { disabled: s.disabled, opts: [...s.options].map((o) => o.textContent) };
+  });
+  say('model menu is ENABLED for a listable OpenAI account and offers its own OpenAI models (#2140/#2167)',
+    cm.disabled === false && cm.opts.some((o) => /gpt-4o/i.test(o)), JSON.stringify(cm));
+  say('the listable OpenAI model menu shows no Claude model',
+    !cm.opts.some((o) => /Claude|Sonnet|Opus|Haiku/i.test(o)), JSON.stringify(cm));
   await p.selectOption('#create-provider', 'anthropic');
   await p.waitForTimeout(300);
   const back = await p.evaluate(() => { const s = document.getElementById('create-account'); return [...s.options].map((o) => o.textContent); });
