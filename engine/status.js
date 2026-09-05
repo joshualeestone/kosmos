@@ -2468,6 +2468,38 @@ function classify(pane, paneText) {
     }
     return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'nothing on its screen says what it is doing' };
   }
+  /**
+   * A win32 agent (#570). It has no tmux pane to scrape; its scrape-equivalent is
+   * `claude agents --json`'s per-session status, supplied by win32capture as the
+   * `paneText` for a win32 pane (command === win32roster.WIN32_COMMAND, "claude.exe",
+   * a value tmux never emits on the Mac, so this arm is inert for every Mac/codex
+   * pane). Gets its own arm, like the codex arm above, because the runtime beneath
+   * it is different and its "screen" is a status token, not lines of text.
+   *
+   * 🔑 THIS IS THE SCRAPE-EQUIVALENT, NOT THE WHOLE STATE. It maps only the coarse
+   * working/idle the live list can see; `needs_you`/`blocked` are NOT here and
+   * never can be from `agents --json` (measured: a waiting session reads `idle`).
+   * They arrive through the SELF-REPORT path and are merged by reconcileReport,
+   * which OUTRANKS this scrape when a fresh report exists -- exactly as it does
+   * over a Mac pane scrape. So a win32 agent that self-reports needs_you shows red
+   * regardless of this arm; this arm only answers for one that is not reporting.
+   *
+   * STOPPED is deliberately absent: the win32 ROSTER emits a row only for a session
+   * that is BOTH recorded AND live in `agents --json`, so a pane reaching classify
+   * is live by construction. A gone session simply stops being emitted (absence),
+   * which is where "stopped" is decided for win32 -- not here.
+   */
+  if (pane.command === require('./win32roster').WIN32_COMMAND) {
+    if (paneText === 'busy') {
+      return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
+    }
+    if (paneText === 'idle') {
+      return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it is idle at its prompt' };
+    }
+    // null (a failed/absent live read) or any status token we do not recognise:
+    // refuse honestly rather than assert a state off a look that did not land.
+    return { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'we could not read its state' };
+  }
   if (!isClaudeRunning(pane.command)) {
     return { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'Claude is not running for this one' };
   }
