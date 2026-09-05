@@ -512,7 +512,7 @@ async function look(page, name) {
            to miss: it reads as settled history rather than as a live rule.
            ⇒ Asserted PRESENT here and ABSENT on the last step (below), which
            is the reverse of what this file said an hour ago. */
-        if (!/Drag Kosmos onto the Dock, the strip of icons/.test(text)) {
+        if (!/Kosmos is already in your Dock, the strip of icons/.test(text)) {
           problems.push(`${shot.name} [${scheme}]: the Success screen has no Dock line; Josh asked for it back on 2026-08-27`);
         }
         if (/Keep in Dock/.test(text)) {
@@ -614,7 +614,7 @@ async function look(page, name) {
     if (last.trim().length < 20) {
       problems.push('the LAST step rendered almost nothing, so the Dock assertion below tests nothing');
     }
-    if (/Drag Kosmos onto the Dock, the strip of icons/.test(last)) {
+    if (/Kosmos is already in your Dock, the strip of icons/.test(last)) {
       problems.push('the LAST step tells the person to drag Kosmos to the Dock again, which Josh ruled out on 2026-08-27');
     }
     await pg.close();
