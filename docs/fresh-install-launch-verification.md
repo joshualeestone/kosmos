@@ -52,11 +52,23 @@ empty Projects tab. That was every tester with an existing fleet.
 
 **How to check it without the full wizard (served API, agent-runnable):** the seed
 is a server behavior, so it can be checked against the served board's API directly
-rather than only by eye. On a store whose `first-run.json` has been re-armed
-(`rm first-run.json`; see clean-machine-retest.md) and that holds no projects yet:
+rather than only by eye.
+
+🛑 **The store must have NEVER seeded the welcome project, and `rm first-run.json`
+alone does NOT give you that.** The seed fires only when BOTH the store holds no
+projects AND a once-EVER flag `seeded-project.json` is absent (the flag is what
+lets "never had one" differ from "the person deleted it"). Re-arming the wizard
+removes `first-run.json`; it does **not** remove `seeded-project.json`. So a store
+that was onboarded once, then had its welcome project deleted, has an empty
+Projects list but a PRESENT flag - completing first run there seeds nothing and
+the after-count reads 0. That is correct product behavior, and a verifier who
+read it as a regression would file a **false FAIL**. Use a store that has never
+seeded: a full destructive wipe (`rm -rf` the store, per clean-machine-retest.md)
+or a genuinely new account. Both clear the flag with the rest of the store.
 
 ```
-# GET projects BEFORE completing first run -> expect no "Getting started"
+# On a NEVER-SEEDED store (full wipe / new account), first run not yet completed:
+# GET projects BEFORE -> expect no "Getting started"
 curl -s "$BOARD/api/projects" | grep -c 'Getting started'      # expect 0
 # complete first run
 curl -s -X POST "$BOARD/api/first-run/complete" -H "origin: $BOARD"
@@ -64,10 +76,10 @@ curl -s -X POST "$BOARD/api/first-run/complete" -H "origin: $BOARD"
 curl -s "$BOARD/api/projects" | grep -c 'Getting started'      # expect 1
 ```
 
-⚠️ **Do NOT run the re-arm/complete form against a store you care about** - it
-mutates real first-run state and seeds a real project. Run it against a
-throwaway store / a test account, per clean-machine-retest.md. `$BOARD` is the
-served board's own per-account address (see the CLI, do not assume 16180).
+⚠️ **Do NOT run the wipe/complete form against a store you care about** - it
+destroys real data and seeds a real project. Run it against a throwaway store /
+a test account, per clean-machine-retest.md. `$BOARD` is the served board's own
+per-account address (see the CLI, do not assume 16180).
 
 **Weakest premise, named:** the server seed is unit- and route-tested (see
 `server.projects.test.js` `#2279` tests), so this scenario's job is to confirm the
@@ -162,4 +174,5 @@ native half needs a fresh-macOS tester and is flagged, not waved through.
 - **Windows** - the reading-half / runner story is its own lane (#2281 and the
   Piece-3 work); this scenario is the macOS served board.
 - **Provider connect beyond Claude** (OpenAI/Codex) - covered by its own checks
-  (`render-firstrun-openai-connectbox-2241.js`, the provider-marks checks).
+  (`render-firstrun-openai-connectbox-2241.js`, `render-picker-provider-2097.js`,
+  `render-openai-key-step.js`, `render-openai-only-2096.js`).
