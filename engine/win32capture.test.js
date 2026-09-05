@@ -140,6 +140,15 @@ test('#570 a THROWING run() or record.read() degrades to null, never propagates 
   });
   assert.doesNotThrow(() => throwRecord('a:0.0'), 'a throwing record.read() must not propagate');
   assert.equal(throwRecord('a:0.0'), null, 'a throwing record.read() -> null -> UNKNOWN');
+
+  // now() is an injected callable too -- a throwing clock must degrade, not propagate.
+  const throwNow = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'a')],
+    record: recordOf({ 'sid-1': { name: 'a' } }),
+    now: () => { throw new Error('clock blew up'); },
+  });
+  assert.doesNotThrow(() => throwNow('a:0.0'), 'a throwing now() must not propagate');
+  assert.equal(throwNow('a:0.0'), null, 'a throwing now() -> null -> UNKNOWN');
 });
 
 test('#570 a FAILED live read refuses with null, never a state', () => {

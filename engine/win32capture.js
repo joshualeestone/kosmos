@@ -79,7 +79,13 @@ function make(opts) {
   let cache = null;
 
   function byNameNow() {
-    const t = now();
+    // now() is an injected callable too, so it is under the same never-throw
+    // contract as run()/record.read(): a throwing clock returns a transient failed
+    // read (NOT cached) -> null -> UNKNOWN, rather than propagating out of
+    // capturePane -> snapshot and blanking the whole tick. Date.now never throws,
+    // so this only defends an injected clock, for full parity with the contract.
+    let t;
+    try { t = now(); } catch { return { at: 0, ok: false, byName: new Map() }; }
     if (cache && (t - cache.at) < ttlMs) return cache;
     const byName = new Map();
     let ok = false;
@@ -95,60 +101,60 @@ function make(opts) {
     try {
       const agents = run();
       if (Array.isArray(agents)) {
-      ok = true;
-      // Read the record only after the live read succeeded -- a persistently
-      // failing `agents --json` should not cost a disk read every window, matching
-      // win32roster.make, which reads the record only inside its Array.isArray arm.
-      const owned = record.read();
-      // sessionId -> live status AND -> live name, for the join below. The live
-      // name is needed because the roster falls back to it when the recorded name
-      // is empty (see the name resolution below), and the capture's key must match
-      // the roster's emitted name exactly.
-      const liveStatus = new Map();
-      const liveName = new Map();
-      for (const a of agents) {
-        if (a && typeof a === 'object' && typeof a.sessionId === 'string') {
-          liveStatus.set(a.sessionId, a.status);
-          // Store a.name RAW (no typeof guard), exactly as win32roster reads it in
-          // `flat(rec.name || a.name || '')`. flat() does the String() coercion, so
-          // a truthy non-string live name resolves the SAME in both seams; a
-          // typeof-'' guard here would make the capture skip a row the roster still
-          // emits by that name -> a permanent UNKNOWN. This completes the byte-
-          // identical parity for the a.name half of the fallback, not just rec.name.
-          liveName.set(a.sessionId, a.name);
+        ok = true;
+        // Read the record only after the live read succeeded -- a persistently
+        // failing `agents --json` should not cost a disk read every window, matching
+        // win32roster.make, which reads the record only inside its Array.isArray arm.
+        const owned = record.read();
+        // sessionId -> live status AND -> live name, for the join below. The live
+        // name is needed because the roster falls back to it when the recorded name
+        // is empty (see the name resolution below), and the capture's key must match
+        // the roster's emitted name exactly.
+        const liveStatus = new Map();
+        const liveName = new Map();
+        for (const a of agents) {
+          if (a && typeof a === 'object' && typeof a.sessionId === 'string') {
+            liveStatus.set(a.sessionId, a.status);
+            // Store a.name RAW (no typeof guard), exactly as win32roster reads it in
+            // `flat(rec.name || a.name || '')`. flat() does the String() coercion, so
+            // a truthy non-string live name resolves the SAME in both seams; a
+            // typeof-'' guard here would make the capture skip a row the roster still
+            // emits by that name -> a permanent UNKNOWN. This completes the byte-
+            // identical parity for the a.name half of the fallback, not just rec.name.
+            liveName.set(a.sessionId, a.name);
+          }
         }
-      }
-      // recorded-name -> live status, joined on the UUID. Re-validate the record
-      // with the SAME gates win32roster re-applies at emit (validId on the key,
-      // validName on the resolved name), so the capture's key set EQUALS the
-      // roster's emitted-name set by construction -- the "one definition, two call
-      // sites" discipline win32roster and win32sessions already hold for reading
-      // this untrusted store. validId is also what rejects a reserved record key
-      // (__proto__/constructor/prototype via RESERVED_ID); Object.keys yields only
-      // own keys, so no hasOwnProperty guard is needed here (unlike win32roster,
-      // whose loop key comes from the external agents array, not from Object.keys).
-      // ⚠️ NAME UNIQUENESS is assumed among live recorded sessions: if two
-      // sessionIds carry the same recorded name (a stale record never forget()-ed
-      // before a same-named session is re-created), the later-iterated one wins
-      // this key silently. The roster has the same ambiguity (it would emit two
-      // rows both claiming the name), and neither is reachable until the win32
-      // create/restart flow is wired into create.js (see win32create.js) -- a
-      // guard belongs there, with that flow, not here.
-      for (const sid of Object.keys(owned)) {
-        if (!win32sessions.validId(sid)) continue;
-        if (!liveStatus.has(sid)) continue;
-        // BYTE-IDENTICAL to the roster's emitted session name: `owned[sid] || {}`
-        // then flat(rec.name || <live name> || ''), then validName-gated. No
-        // `typeof` guard on rec.name -- the roster does not have one, and flat()
-        // coerces any non-string via String(), so a hand-corrupted truthy
-        // non-string name resolves the SAME way in both seams. Falling back to the
-        // LIVE name when the recorded name is empty is what the roster does, so a
-        // row it addresses by the live name still resolves a status here.
-        const rec = owned[sid] || {};
-        const name = win32roster.flat(rec.name || liveName.get(sid) || '');
-        if (!win32sessions.validName(name)) continue;
-        byName.set(name, liveStatus.get(sid));
-      }
+        // recorded-name -> live status, joined on the UUID. Re-validate the record
+        // with the SAME gates win32roster re-applies at emit (validId on the key,
+        // validName on the resolved name), so the capture's key set EQUALS the
+        // roster's emitted-name set by construction -- the "one definition, two call
+        // sites" discipline win32roster and win32sessions already hold for reading
+        // this untrusted store. validId is also what rejects a reserved record key
+        // (__proto__/constructor/prototype via RESERVED_ID); Object.keys yields only
+        // own keys, so no hasOwnProperty guard is needed here (unlike win32roster,
+        // whose loop key comes from the external agents array, not from Object.keys).
+        // ⚠️ NAME UNIQUENESS is assumed among live recorded sessions: if two
+        // sessionIds carry the same recorded name (a stale record never forget()-ed
+        // before a same-named session is re-created), the later-iterated one wins
+        // this key silently. The roster has the same ambiguity (it would emit two
+        // rows both claiming the name), and neither is reachable until the win32
+        // create/restart flow is wired into create.js (see win32create.js) -- a
+        // guard belongs there, with that flow, not here.
+        for (const sid of Object.keys(owned)) {
+          if (!win32sessions.validId(sid)) continue;
+          if (!liveStatus.has(sid)) continue;
+          // BYTE-IDENTICAL to the roster's emitted session name: `owned[sid] || {}`
+          // then flat(rec.name || <live name> || ''), then validName-gated. No
+          // `typeof` guard on rec.name -- the roster does not have one, and flat()
+          // coerces any non-string via String(), so a hand-corrupted truthy
+          // non-string name resolves the SAME way in both seams. Falling back to the
+          // LIVE name when the recorded name is empty is what the roster does, so a
+          // row it addresses by the live name still resolves a status here.
+          const rec = owned[sid] || {};
+          const name = win32roster.flat(rec.name || liveName.get(sid) || '');
+          if (!win32sessions.validName(name)) continue;
+          byName.set(name, liveStatus.get(sid));
+        }
       }
     } catch {
       // An injected run()/record.read() threw. Treat it as a failed read: no state
