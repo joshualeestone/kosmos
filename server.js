@@ -3856,6 +3856,18 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/accounts/openai/models' && req.method === 'GET') {
     let dir = '';
     try { dir = new URL(req.url, ROUTING_BASE).searchParams.get('dir') || ''; } catch { dir = ''; }
+    /* #2140 Surface 2: an empty dir means the DEFAULT OpenAI account. A
+       default-codex agent's card resolves its account to the default CLAUDE
+       account (accountForAgent falls back to it when configDir is null), which is
+       not an OpenAI account -- so the detail picker deliberately sends an EMPTY dir
+       for that isDefault case rather than the Claude dir (which would 404 here).
+       Resolve it to the default OpenAI account's dir, then validate + fetch as
+       normal. The create flow always passes the selected account's dir, so this
+       only affects the detail page's default-codex case. Still fail-closed: no
+       default OpenAI account -> dir stays empty -> 400 below. */
+    if (!dir) {
+      try { const def = openaiAccounts.list().find((a) => a && a.isDefault); if (def) dir = def.dir; } catch { /* leave empty */ }
+    }
     if (!dir) { sendJson(res, 400, { ok: false, models: [], because: 'no account was named' }); return; }
     /* Only an account this computer actually knows -- a resolved-path match
        against the enumerated list, so a caller on this unauthenticated local

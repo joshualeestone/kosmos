@@ -93,10 +93,17 @@ test('#1026 CONTROL: an unknown dir is refused 404, never fetched', async () => 
   } finally { openai.setFetcher(null); }
 });
 
-test('#1026 a missing dir param is a 400', async () => {
-  const got = await get('/api/accounts/openai/models');
-  assert.equal(got.status, 400);
-  assert.equal(json(got).ok, false);
+test('#1026/#2140 a missing dir resolves to the DEFAULT OpenAI account (Surface 2)', async () => {
+  // #2140 Surface 2: a default-codex agent (no configDir) has no dir to name, so
+  // an empty dir now means the default OpenAI account (here HOME/.codex) rather
+  // than a 400. The route still validates the resolved dir is a known account, so
+  // this is not the arbitrary-path enumeration the fail-closed posture guarded.
+  openai.setFetcher(async () => ({ status: 200, body: { data: [{ id: 'gpt-4o' }] } }));
+  try {
+    const got = await get('/api/accounts/openai/models');
+    assert.equal(got.status, 200);
+    assert.equal(json(got).ok, true, 'a missing dir should resolve to the default account and list its models');
+  } finally { openai.setFetcher(null); }
 });
 
 test('#1026 the route never 500s: a non-200 from OpenAI is a plain ok:false answer', async () => {
