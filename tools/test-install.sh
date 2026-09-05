@@ -155,7 +155,7 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # catch); what is wrong is that the list is updated AFTER a red cut instead of
 # in the commit that adds the file.
 # ⇒ IF YOU ADD A FILE TO installSupervisor, ADD IT HERE IN THE SAME COMMIT.
-EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentWorkforce/bin/codex-report-bridge.js ./AgentWorkforce/bin/engine-path)"
+EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentWorkforce/bin/codex-report-bridge.js ./AgentWorkforce/bin/engine-path ./AgentWorkforce/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
@@ -402,7 +402,9 @@ EXPECTED_SURVIVORS="$(printf '%s\n' "$DATA_FINGERPRINT" | while read -r _h _f; d
 done)"
 ADDED="$(printf '%s\n' "$DATA_PATHS_BEFORE" > "$SB/.before.txt"; data_paths > "$SB/.after.txt"; comm -13 "$SB/.before.txt" "$SB/.after.txt")"
 # 🛑 EXPECTED_ADDS is what the INSTALL writes (installSupervisor: the supervisor,
-# the codex bridge, engine-path). It is NOT the place for what the app writes
+# the codex bridge, engine-path; plus AgentWorkforce/source-channel, which setup.sh
+# writes to record which channel pointer the build was fetched from, #2066). It is
+# NOT the place for what the app writes
 # during its own BOOT: #1494 makes the board write AgentWorkforce/wouldping/
 # needs-you.jsonl when it starts, which the smoke boot in this gate triggers, so
 # it lands in ADDED as an "unexpected" file and reds a correct cut. The
@@ -420,7 +422,7 @@ GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
 chk "installing over an existing home leaves the person's own files byte for byte" \
   "[ \"\$SURVIVED\" = \"\$EXPECTED_SURVIVORS\" ]"
 chk "and nothing the person had is gone" "[ -z \"\$GONE\" ]"
-chk "and the only things it added are the supervisor and the codex bridge the agents point at" \
+chk "and the only things it added are the supervisor, the codex bridge, and the #2066 source-channel marker" \
   "[ \"\$ADDED\" = \"\$EXPECTED_ADDS\" ]"
 # A mismatch names its paths. The 0.5.24 cut went red on this check with a
 # correct bundle and the red named no file, so learning which one meant
@@ -759,7 +761,7 @@ printf '{"dismissedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/f
 # ⚠️ THE PREMISE OF THE REMOVAL CHECK, ASSERTED. The agent plist above is
 # seeded here for exactly this reason; the board's is written by the install
 # instead, so "it is gone" would pass vacuously on any run where it was never
-# written — which is precisely the bug this change fixes.
+# written - which is precisely the bug this change fixes.
 chk "the board's login job is there before the uninstall (or its removal cannot fail)" "[ -f \"$BOARD_PLIST\" ]"
 chk "the three remembered-answer files are there before the uninstall too" \
   "[ -f \"$SB/data/AgentWorkforce/first-run.json\" ] && [ -f \"$SB/data/AgentWorkforce/seen-version.json\" ] && [ -f \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
