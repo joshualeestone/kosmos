@@ -76,6 +76,15 @@ test('scrub covers Windows account homes (C:\\Users\\name), backslash-bound', ()
   assert.ok(!/:\\Users\\/.test(feedbacksend.scrub('D:\\Users\\bob\\x')), 'a Windows account name leaked');
 });
 
+test('scrub is case-insensitive (macOS + Windows filesystems are)', () => {
+  // A body can quote a real path in any case on a case-insensitive FS; a
+  // case-sensitive guard would leak the account name.
+  assert.equal(feedbacksend.scrub('/users/joe/x'), '~/x');
+  assert.equal(feedbacksend.scrub('c:\\users\\joe\\x'), '~\\x');
+  assert.equal(feedbacksend.scrub('C:\\USERS\\JOE\\x'), '~\\x');
+  assert.ok(!/users\\/i.test(feedbacksend.scrub('c:\\Users\\joe\\proj')), 'a lower-case Windows account name leaked');
+});
+
 test('scrub covers an exotic own-home (custom $HOME) with a boundary - the fallback branch', () => {
   // On a standard mac/Linux box os.homedir() matches the generic /Users|/home
   // arm, so the own-home fallback (the sole de-identifier for an exotic home

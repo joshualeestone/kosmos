@@ -110,12 +110,17 @@ function scrub(text) {
   // segment is replaced and EVERY account is covered (not just this machine's)
   // -- a report can quote another agent's path, and that name must not leave
   // either.
-  out = out.replace(/\/(?:Users|home)\/[^/\s"']+/g, '~');
+  // CASE-INSENSITIVE on purpose (the `i` flag on every arm below). macOS and
+  // Windows filesystems are case-insensitive, so a body can quote `/users/joe`
+  // or `c:\users\joe` for a real path; a case-sensitive guard narrower than the
+  // class it names becomes the leak it was meant to prevent. Over-scrubbing a
+  // capitalized non-path token (`/Home/Dashboard`) is the safe direction.
+  out = out.replace(/\/(?:Users|home)\/[^/\s"']+/gi, '~');
   // Windows account home: C:\Users\<name> -> ~. store.js carries a real win32
   // branch (roaming AppData), so Windows is a supported install target and a
   // backslash home path must be redacted too -- the POSIX arm above, being
   // forward-slash bound, never reaches it.
-  out = out.replace(/[A-Za-z]:\\Users\\[^\\/\s"']+/g, '~');
+  out = out.replace(/[A-Za-z]:\\Users\\[^\\/\s"']+/gi, '~');
   // This machine's own home, for an exotic layout the shapes above miss (a
   // custom $HOME, /var/root, or a non-C:\Users Windows home). BOUNDED with a
   // lookahead (including a backslash) so a home that PREFIXES another dir is
@@ -123,9 +128,9 @@ function scrub(text) {
   // inside /home/joanna, corrupting the body and leaking a fragment.
   let home = null;
   try { home = os.homedir(); } catch { home = null; }
-  if (home && !/^\/(?:Users|home)\//.test(home) && !/^[A-Za-z]:\\Users\\/.test(home)) {
+  if (home && !/^\/(?:Users|home)\//i.test(home) && !/^[A-Za-z]:\\Users\\/i.test(home)) {
     const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp(esc + '(?=[/\\\\\\s"\']|$)', 'g'), '~');
+    out = out.replace(new RegExp(esc + '(?=[/\\\\\\s"\']|$)', 'gi'), '~');
   }
   return out;
 }
