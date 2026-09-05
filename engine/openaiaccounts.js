@@ -646,7 +646,7 @@ async function checkLive(dir) {
    The `why` lines are copy keyed by family (no runner can produce them); the
    `arg`/id always comes from the account. */
 /* rank low = more capable / preferred as default. prefix matched lowercased.
-   ⚠️ ORDER MATTERS: openaiFamilyOf takes the FIRST prefix an id startsWith, and
+   ⚠️ ORDER MATTERS: openaiModelClass takes the FIRST prefix an id startsWith, and
    some prefixes nest ('gpt-4o' and 'gpt-4.1' both startWith 'gpt-4'), so the
    specific families are listed BEFORE the bare 'gpt-4' catch-all. A row's why/
    rank comes from the first match, so mis-ordering would mis-describe a model,
@@ -696,15 +696,6 @@ function openaiModelClass(id) {
   if (OPENAI_NON_CHAT.some((bad) => low.includes(bad))) return { kind: 'nonchat' };
   const fam = OPENAI_CHAT_FAMILIES.find((f) => low.startsWith(f.prefix));
   return fam ? { kind: 'chat', fam } : { kind: 'unknown' };
-}
-
-/** The chat family an id belongs to, or null (a non-chat variant OR an
-    unrecognised id). Pure. Contract unchanged: callers that only care about a
-    recognised chat family still get null for everything else -- the unknown
-    bucket is surfaced through openaiModelClass, not here. */
-function openaiFamilyOf(id) {
-  const c = openaiModelClass(id);
-  return c.kind === 'chat' ? c.fam : null;
 }
 
 /* #2140 (Astra): an offered-but-unrecognised model. Ranked after every known

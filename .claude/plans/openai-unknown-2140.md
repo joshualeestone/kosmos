@@ -21,9 +21,10 @@ Astra's rule for the unknown case: **mark, do not erase** — offer it with a
 
 1. New pure `openaiModelClass(id)` → `{kind:'chat',fam}` | `{kind:'nonchat'}` |
    `{kind:'unknown'}`. Denylist checked first, so a non-chat variant of a known
-   family (`gpt-4o-audio-*`) is nonchat, never unknown. `openaiFamilyOf` is
-   reimplemented on top of it with its exact prior contract (null for nonchat AND
-   unknown), so existing callers are unchanged.
+   family (`gpt-4o-audio-*`) is nonchat, never unknown. Both former callers of
+   `openaiFamilyOf` (`chatModelsFromList`, `chatRunnableIds`) now use
+   `openaiModelClass` directly, and `openaiFamilyOf` (never exported, no external
+   callers) is removed as dead code rather than left reading as live.
 2. `chatModelsFromList` now emits a row for an unknown id: rank `OPENAI_UNKNOWN_RANK`
    (last), label suffixed `" (compatibility not verified)"` (the marker shows in
    the dropdown itself; the why-note only elaborates the selected row),
