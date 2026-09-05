@@ -92,6 +92,18 @@ A Kosmos-created agent only ever has one brief, so the guard never changes its
 behaviour. A test arm writes a pre-existing destination and asserts neither
 file is lost (verified red-capable).
 
+## Rollout note (blind-review iter-5, no code change)
+
+A codex agent CREATED before this fix has its brief in CLAUDE.md but its plist
+records runner:codex. After this deploys, `fileFor`/`readIdentity` resolve
+AGENTS.md, which does not yet exist, so the file-derived name/staleness
+momentarily misses. This is NOT a regression from a working state: such an agent
+was already broken (codex boots AGENTS.md per discover.js, which was never
+written), and the normal `projects.syncAgent`/doctrine heal writes the doctrine
++ block to AGENTS.md on the next pass, self-healing it. `readIdentity` also
+prefers the recorded profile displayName first, so named agents are unaffected.
+No code change; recorded for rollout awareness.
+
 ## Weakest premise / known follow-up (out of scope): the name-regime residual
 
 A blind-review WARNING deferred here with a code read.
