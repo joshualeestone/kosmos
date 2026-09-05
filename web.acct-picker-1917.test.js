@@ -40,6 +40,12 @@ function runFillCreate(accounts, providerValue) {
   // eval scope must include them or the function throws ReferenceError.
   const offerSrc = grab('function acctOfferableTarget(');
   const unkSrc = grab('function acctUnknownLive(');
+  // #2095: fillCreateAccounts now names accounts through the shared acctPrimaryName
+  // helper (which itself calls acctChosenName), so the eval scope must include both
+  // or the extracted function throws ReferenceError. (accountQualifiers uses only
+  // acctChosenName, not acctPrimaryName.)
+  const chosenNameSrc = grab('function acctChosenName(');
+  const primNameSrc = grab('function acctPrimaryName(');
   const fillSrc = grab('function fillCreateAccounts(');
   const asel = { innerHTML: '' };
   const provider = { value: providerValue || 'anthropic' };
@@ -49,6 +55,8 @@ function runFillCreate(accounts, providerValue) {
   };
   const factory = new Function('document', 'accounts', `
     ${escSrc}
+    ${chosenNameSrc}
+    ${primNameSrc}
     ${qualSrc}
     ${offerSrc}
     ${unkSrc}
