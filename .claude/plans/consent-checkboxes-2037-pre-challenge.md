@@ -2,58 +2,69 @@
 pre_challenge: true
 method: challenge-loop
 branch: consent-checkboxes-2037
-diff_hash: 24c02a70d9b389fa06f699a1b60ec5d7a73674a91b4fe2f414340283198ed07f
+diff_hash: fcf51f41d04a4e9d497ab2bc9ba2f1cc740a6a54b00276a51e127d69f9b18248
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-05T19:00:57Z
-iterations: 2
+timestamp: 2026-09-05T19:48:50Z
+iterations: 6
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 2
-**Converged:** Yes (iteration 2 produced zero new BLOCKER/WARNING/CONVENTION findings)
-**Total findings:** 5 (0 BLOCKERs, 1 WARNING, 1 CONVENTION, 3 NITs)
-**Fixed:** 1 | **Deferred:** 4 | **Asked (awaiting user):** 0
+**Iterations:** 6 (fresh blind agent each pass)
+**Converged:** Yes (the final pass produced zero new BLOCKER/WARNING/CONVENTION findings)
+**Total findings:** 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, several NITs
+**Fixed:** 4 WARNINGs + 1 test-comment NIT | **Deferred:** the CONVENTION (later resolved by adding the plan file) + the remaining NITs
 
-The change is engine-only: `engine/feedbacksend.js` (the #2037 transmit seam, off by default) plus its test and a reachability-guard excuse. No web/ change, so no browser-check gate chain is involved.
+Every WARNING was in `scrub()`, the sole outbound redaction of the transmit seam. The loop hardened it pass by pass. Engine-only change (no web/), so no browser-check gate chain is involved; the full suite ran green (validation hash `fcf51f41d04a`).
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
-**New findings:** 0 BLOCKERs, 1 WARNING, 1 CONVENTION, 2 NITs
-- [WARNING] engine/feedbacksend.js:115 (pre-fix) - the non-/Users home scrub was an unbounded substring replace: it covered only this machine's home (a report quoting another account's /home path would leak that name) and could prefix-corrupt (/home/jo rewriting inside /home/joanna). Scrub is the sole outbound redaction. --> FIXED (commit 3502727c): rewrite covers /Users/<name> AND /home/<name> for every account with a path boundary, and the exotic-home fallback is bounded by a lookahead. Guard test added.
-- [CONVENTION] .claude/plans/ - no plan file for the transmit slice (sibling 2037 plans cover author/PM/local-report). --> DEFERRED: night-shift build from a documented handoff plus the #2037 card design comment, which serve as the design record for this small slice.
-- [NIT] engine/feedbacksend.js:110 - scrub does not cover Windows (C:\Users\name) or URL-encoded home shapes. --> DEFERRED: the deployment target is macOS; /Users and /home cover it.
-- [NIT] engine/feedbacksend.js:138,146 - payload reads the day's file twice (feedback.read for the null check, feedback.readBody for the body). --> DEFERRED: using feedback.readBody keeps frontmatter-stripping in one place (feedback.js); duplicating it to save one local read couples the modules, a worse tradeoff. Harmless (single-threaded, idempotent, local).
+- [WARNING] engine/feedbacksend.js scrub - the non-/Users home branch was an unbounded substring replace: it covered only this machine's home and could prefix-corrupt (/home/jo inside /home/joanna). --> FIXED: /Users AND /home for every account, boundary-safe.
+- [CONVENTION] no plan file for the branch. --> initially DEFERRED, later RESOLVED by adding `.claude/plans/consent-checkboxes-2037-20260905.md` (the pre-challenge-gate requires it).
+- [NIT] Windows/URL-encoded shapes; [NIT] payload double-read. --> DEFERRED (see NITs).
 
 #### Iteration 2
-**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
-**Duplicates of prior findings:** 2 (the no-plan-file CONVENTION; the payload double-read NIT)
-**Converged** - no new actionable findings. Iteration 2 independently confirmed the iteration-1 scrub fix (its prefix-corruption guard test) and verified the reachability excuse is honest (no caller for maybeSend; the /api/feedback POST route writes locally only).
-- [NIT] engine/feedbacksend.js:113 - scrub's char class consumes trailing punctuation attached to a bare home segment (/Users/joe. -> ~) and over-matches a coincidental /Users/ inside a URL. --> DEFERRED: body corruption only, never a leak (the account name is always removed) - it errs in the safe direction. A punctuation-precise fix risks UNDER-scrubbing (a valid username can contain dots/hyphens), which is the dangerous direction (a leak). The safe over-match is the deliberate choice.
+Zero new actionable findings on the code; the scrub fix and the reachability excuse were independently confirmed.
+
+(The plan file was then added, which changed the diff; the loop was re-run from a fresh baseline so the proof covers the plan-file-inclusive diff.)
+
+#### Iteration 3
+- [WARNING] scrub did not cover Windows home paths (C:\Users\<name>); store.js has a real win32 branch, so an account name would leak once default-ON. --> FIXED: added the Windows arm + backslash boundary + guard test.
+
+#### Iteration 4
+- [WARNING] the own-home fallback lookahead branch (sole de-identifier for an exotic $HOME) had zero executed test coverage - on a standard mac/Linux box os.homedir() matches the generic arm. --> FIXED: a test forces the branch via a $HOME override and asserts both redaction and the prefix boundary. Also corrected the plan's understated scrub scope.
+
+#### Iteration 5
+- [WARNING] the scrub arms were case-sensitive; macOS/Windows filesystems are case-insensitive, so a body quoting /users/joe or c:\users\joe would leak. --> FIXED: added the i flag to every home-shape regex (class-level, not just the one arm flagged) + guard test for lower/upper case mac and Windows paths.
+
+#### Iteration 6
+Zero new BLOCKER/WARNING/CONVENTION. Two NITs: a spaced Windows account name is half-redacted (DEFERRED - the whitespace boundary is load-bearing for prose protection; removing it over-scrubs prose; Windows-only, feature off), and a mis-describing test comment (FIXED). **Converged.**
 
 ### Final Ledger
 
-| # | Iter | Category | File:Line | Description | Status | Resolution |
-|---|------|----------|-----------|-------------|--------|------------|
-| 1 | 1 | WARNING | engine/feedbacksend.js:115 | unbounded/partial home scrub | FIXED | 3502727c |
-| 2 | 1 | CONVENTION | .claude/plans/ | no plan file for transmit slice | DEFERRED | design on #2037 card + handoff |
-| 3 | 1 | NIT | engine/feedbacksend.js:110 | Windows/URL-encoded home shapes | DEFERRED | macOS target |
-| 4 | 1 | NIT | engine/feedbacksend.js:138,146 | payload double-read | DEFERRED | readBody single source; harmless |
-| 5 | 2 | NIT | engine/feedbacksend.js:113 | scrub over-matches trailing punctuation/URL | DEFERRED | errs safe; precise fix risks a leak |
+| # | Iter | Category | File | Description | Status | Resolution |
+|---|------|----------|------|-------------|--------|------------|
+| 1 | 1 | WARNING | engine/feedbacksend.js | unbounded/prefix home scrub | FIXED | 3502727c |
+| 2 | 1 | CONVENTION | .claude/plans/ | no plan file | RESOLVED | f74ac309 (plan added) |
+| 3 | 3 | WARNING | engine/feedbacksend.js | Windows home not scrubbed | FIXED | 4011d525 |
+| 4 | 4 | WARNING | engine/feedbacksend.js | fallback branch untested | FIXED | 37b0aaf7 |
+| 5 | 5 | WARNING | engine/feedbacksend.js | scrub case-sensitive | FIXED | f7ca03f5 |
+| 6 | 6 | NIT | engine/feedbacksend.test.js | inaccurate comment | FIXED | (this branch) |
 
-### Outstanding questions (ASKED, still unresolved when the run ended)
+### Outstanding questions (ASKED, still unresolved)
 None.
 
-### NITs (non-blocking, across all iterations)
-- [NIT] engine/feedbacksend.js:110 - Windows/URL-encoded home shapes (iteration 1)
-- [NIT] engine/feedbacksend.js:138,146 - payload double-read (iteration 1)
-- [NIT] engine/feedbacksend.js:113 - scrub trailing-punctuation/URL over-match (iteration 2)
+### NITs (non-blocking, deferred with reasons)
+- Spaced Windows account name half-redacted (leak direction, but Windows-only, feature off; the whitespace boundary protects prose - removing it over-scrubs). Revisit if Windows becomes first-class before PR-C's default-ON.
+- payload() reads the report file twice (kept: feedback.readBody is the single source of frontmatter-stripping; harmless).
+- scrub eats trailing punctuation (safe over-scrub; a precise fix risks under-scrubbing = a leak).
+- A synchronously-throwing injected sender leaves the abort timer briefly uncleared (mirrors ping.js; production fetch never throws sync).
+- URL-encoded home shapes not scrubbed (not realistic in an agent-authored report body).
 
-### Strengths (across all iterations)
-- Faithful mirror of the proven ping.js/notify.js phone-home discipline: read() fails-to-OFF, NODE_TEST_CONTEXT network guard, injectable sender seam, bounded AbortController timeout, fire-and-forget with every error swallowed and no promise handed to a caller.
-- Data cannot leave the machine today: default OFF (enforced and tested), and maybeSend has no production caller; the reachability excuse was independently verified honest.
-- Tests assert meaningful, red-able outcomes: the #2246 contract keys pinned in both payload() and the on-wire body, generated_at guarded with a distinctive past timestamp (no 1ms race), the network-guard test asserts underTest() first so it cannot pass vacuously, and the scrub boundary is guarded against prefix corruption.
-- payload() is the single source of the #2246 contract shape and matches it exactly; only `body` carries free text, which is the one field scrub() targets.
+### Strengths (across iterations)
+- Faithful mirror of the proven ping.js/notify.js phone-home seam: fails-to-OFF, NODE_TEST_CONTEXT network guard, injectable sender, bounded AbortController timeout, fire-and-forget with errors swallowed and no promise handed to a caller.
+- Data provably cannot leave today: default OFF (enforced + tested), maybeSend unwired with an honest, independently-verified #265 excuse.
+- Tests are meaningful and red-able: contract keys pinned on both payload() and the on-wire body; generated_at guarded with a distinctive past timestamp (no 1ms race); the network-guard test asserts underTest() first so it cannot pass vacuously; every scrub case carries a negative no-leak / prefix-boundary assertion.
