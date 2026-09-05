@@ -43,7 +43,12 @@ const SCRIPT = page.scriptOf(PAGE);
    `'/api/accounts/' + provider` concatenation between them was exercised by
    nothing, on the card whose whole point is making the Claude row live. */
 function world(fetchImpl, provider) {
-  const start = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-forget]'))");
+  /* #2264 generalised this loop to bind [data-remove] too, so the anchor is now
+     the two-selector form. The extracted block covers both Disconnect
+     (data-forget) and Delete-and-remove (data-remove); this fixture's btn
+     carries data-forget, so it exercises the Disconnect path (isRemove false ->
+     CONFIRM "Remove it?", body {dir}), unchanged. */
+  const start = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-forget], [data-remove]'))");
   const end = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-share]'))", start);
   assert.ok(start > 0 && end > start, 'the remove-account binding moved; re-anchor this test');
 
