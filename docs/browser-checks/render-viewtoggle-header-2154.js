@@ -90,6 +90,19 @@ const { chromium } = require('playwright');
     // --- Consolidated view: the header copy is gone, the rail copy takes over. ---
     say(!(await visible(HEAD)), 'consolidated view: the header toggle is gone (headright collapses)');
     say(await visible(RAIL), 'consolidated view: the toggle is in the agents rail');
+    // #2194: the rail copy is ordered like the header (toggle to the RIGHT of the
+    // light/dark pill), so the two controls do not swap sides when a person flips
+    // between the tabbed and consolidated views. Reds on the pre-#2194 rail.
+    const railOrder = await pg.evaluate(() => {
+      const lay = document.querySelector('#rail-me .laypick');
+      const th = document.querySelector('#rail-me .themepick');
+      if (!lay || !th) return null;
+      const l = lay.getBoundingClientRect(), t = th.getBoundingClientRect();
+      return { layLeft: Math.round(l.left), thRight: Math.round(t.right) };
+    });
+    say(railOrder && railOrder.layLeft >= railOrder.thRight,
+      'consolidated view: the rail toggle sits to the right of the light/dark switcher too (#2194, no swap between views)',
+      railOrder ? JSON.stringify(railOrder) : 'one of the rail .laypick/.themepick missing');
     say((await ariaOf(RAIL + ' [data-layout-switch="consolidated"]')) === 'true', 'consolidated view: the rail one-screen segment is checked');
     say((await ariaOf(RAIL + ' [data-layout-switch="tabs"]')) === 'false', 'consolidated view: the rail tabs segment is not checked');
 

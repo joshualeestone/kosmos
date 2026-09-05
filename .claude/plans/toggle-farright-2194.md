@@ -23,9 +23,16 @@ selector keys on the old order (verified). So this is a pure DOM reorder:
    placement and it reds on the pre-#2194 page (where the toggle was to the switcher's left).
    Updated the opening sentence + README row to match.
 
-Scope: the header (tabbed view) only, which is what the card asks. The consolidated view
-hides `.headright` and uses the rail's own `railme-lay`/`railme-theme`; that is a separate
-order not named by this card.
+Scope: the card names the header's top-right controls, but the same two controls are
+duplicated in the consolidated-view rail (`#rail-me`, also horizontal flex). A header-only
+change would make the toggle and switcher SWAP sides when a person flips between the tabbed
+and consolidated views. So this also reorders the rail to match (`railme-theme` then
+`railme-lay`, toggle far-right there too) -- consistency across the two views, a reversible
+call per Josh's ruling; the rail comment carries the reasoning. Added a rail position arm to
+the browser-check too. Also added a bracketed `[superseded by #2194]` cross-reference in
+`render-theme-toggle.js` (whose docblock quoted Josh's 2026-08-22 "light/dark is the far
+right", now no longer the layout) -- the quote itself is kept verbatim; that check's own
+geometry arm (stamp left of the switcher) is unaffected.
 
 ## Verification
 

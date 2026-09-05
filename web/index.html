@@ -10549,10 +10549,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <span class="railme-face" id="rail-me-face">You</span>
     <span class="railme-b"><span class="railme-n" id="rail-me-name">You</span><span class="railme-s">Settings</span></span>
   </button>
+  <span class="themepick railme-theme" role="radiogroup" aria-label="Appearance">
+      <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>
+        <span class="vh">Light</span>
+      </button>
+      <button type="button" class="themeopt" data-theme-set="dark" role="radio" aria-checked="false" title="Dark">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2z"/></svg>
+        <span class="vh">Dark</span>
+      </button>
+    </span>
   <!-- #2154: the view toggle's consolidated-view home. The header's .headright
        (and its .laypick) is hidden in this view, so without a copy here a person
-       who switched to one screen would have no way back to the tabs. Same pattern
-       as the light/dark pill beside it, which is duplicated for the same reason:
+       who switched to one screen would have no way back to the tabs. It sits to
+       the RIGHT of the light/dark pill here too (#2194), matching the header
+       order, so the two controls do not swap sides when you flip between views;
        both instances carry data-layout-switch, so the one document-level handler
        and applyLayout's sync serve both places, verbatim. -->
   <span class="laypick railme-lay" role="radiogroup" aria-label="Board view">
@@ -10563,16 +10574,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button type="button" class="layopt" data-layout-switch="consolidated" role="radio" aria-checked="false" title="One screen">
         <svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"><rect x="1.6" y="2.6" width="12.8" height="10.8" rx="1.6"/><path d="M6 2.6V13.4"/></svg>
         <span class="vh">Agents and Projects on one screen</span>
-      </button>
-    </span>
-  <span class="themepick railme-theme" role="radiogroup" aria-label="Appearance">
-      <button type="button" class="themeopt" data-theme-set="light" role="radio" aria-checked="false" title="Light">
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M2.6 12h2.2M19.2 12h2.2M5.4 5.4l1.6 1.6M17 17l1.6 1.6M18.6 5.4L17 7M7 17l-1.6 1.6"/></svg>
-        <span class="vh">Light</span>
-      </button>
-      <button type="button" class="themeopt" data-theme-set="dark" role="radio" aria-checked="false" title="Dark">
-        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 14.2A8.2 8.2 0 0 1 9.8 4a8.2 8.2 0 1 0 10.2 10.2z"/></svg>
-        <span class="vh">Dark</span>
       </button>
     </span>
 </div>

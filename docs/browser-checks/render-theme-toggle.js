@@ -9,6 +9,12 @@
  * "the light/dark mode is to the far right and the agent status is to the left
  * of it. Right now we're showing it in the reverse way."
  *
+ * [Superseded in part by #2194, 2026-09-04: the board-view toggle was moved past
+ * the light/dark switcher, so the switcher is no longer the far-right control.
+ * Josh's 08-22 words are kept verbatim as the record. This check's own geometry
+ * arm (the status stamp is to the LEFT of the switcher) is unaffected and still
+ * holds; only the "far right" description above no longer matches the layout.]
+ *
  * ⚠️ ALL FOUR OF THOSE ARE GEOMETRY OR PAINT, so they are asserted on a rendered
  * page rather than in the markup. The one that markup cannot answer at all is
  * the highlight: with `Auto` gone, nothing is stored until somebody picks, so
