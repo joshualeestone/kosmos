@@ -82,11 +82,14 @@ function make(opts) {
     const t = now();
     if (cache && (t - cache.at) < ttlMs) return cache;
     const agents = run();
-    const owned = record.read();
     const byName = new Map();
     let ok = false;
     if (Array.isArray(agents)) {
       ok = true;
+      // Read the record only after the live read succeeded -- a persistently
+      // failing `agents --json` should not cost a disk read every window, matching
+      // win32roster.make, which reads the record only inside its Array.isArray arm.
+      const owned = record.read();
       // sessionId -> live status AND -> live name, for the join below. The live
       // name is needed because the roster falls back to it when the recorded name
       // is empty (see the name resolution below), and the capture's key must match
@@ -101,15 +104,13 @@ function make(opts) {
       }
       // recorded-name -> live status, joined on the UUID. Re-validate the record
       // with the SAME gates win32roster re-applies at emit (validId on the key,
-      // validName on the name) and key the map on win32roster.flat(name) -- the
-      // EXACT value the roster emits as the pane's session/target name. This is
-      // the "one definition, two call sites" discipline win32roster and
-      // win32sessions already hold for reading this untrusted store: without it a
-      // recorded name carrying a tab/CR/LF would be keyed here UNFLATTENED while
-      // the roster emits the flattened form, so the join would silently miss (->
-      // UNKNOWN) for that agent, and an empty/invisible name -- which the roster
-      // never emits a row for -- would be admitted as a "" key. hasOwnProperty so
-      // a record key like "toString" cannot pull a phantom off Object.prototype.
+      // validName on the resolved name), so the capture's key set EQUALS the
+      // roster's emitted-name set by construction -- the "one definition, two call
+      // sites" discipline win32roster and win32sessions already hold for reading
+      // this untrusted store. validId is also what rejects a reserved record key
+      // (__proto__/constructor/prototype via RESERVED_ID); Object.keys yields only
+      // own keys, so no hasOwnProperty guard is needed here (unlike win32roster,
+      // whose loop key comes from the external agents array, not from Object.keys).
       // ⚠️ NAME UNIQUENESS is assumed among live recorded sessions: if two
       // sessionIds carry the same recorded name (a stale record never forget()-ed
       // before a same-named session is re-created), the later-iterated one wins
@@ -118,19 +119,17 @@ function make(opts) {
       // create/restart flow is wired into create.js (see win32create.js) -- a
       // guard belongs there, with that flow, not here.
       for (const sid of Object.keys(owned)) {
-        if (!Object.prototype.hasOwnProperty.call(owned, sid)) continue;
         if (!win32sessions.validId(sid)) continue;
         if (!liveStatus.has(sid)) continue;
-        const rec = owned[sid];
-        // EXACT parity with the roster's emitted session name (win32roster.js:
-        // `flat(rec.name || a.name || '')`, then validName-gated). Falling back to
-        // the LIVE name when the recorded name is empty is what the roster does,
-        // and matching it here is what makes the capture's key set EQUAL the
-        // roster's emitted-name set rather than merely a subset -- so a row the
-        // roster addresses by the live name (empty recorded name) still resolves a
-        // status instead of reading UNKNOWN forever.
-        const recName = rec && typeof rec.name === 'string' ? rec.name : '';
-        const name = win32roster.flat(recName || liveName.get(sid) || '');
+        // BYTE-IDENTICAL to the roster's emitted session name: `owned[sid] || {}`
+        // then flat(rec.name || <live name> || ''), then validName-gated. No
+        // `typeof` guard on rec.name -- the roster does not have one, and flat()
+        // coerces any non-string via String(), so a hand-corrupted truthy
+        // non-string name resolves the SAME way in both seams. Falling back to the
+        // LIVE name when the recorded name is empty is what the roster does, so a
+        // row it addresses by the live name still resolves a status here.
+        const rec = owned[sid] || {};
+        const name = win32roster.flat(rec.name || liveName.get(sid) || '');
         if (!win32sessions.validName(name)) continue;
         byName.set(name, liveStatus.get(sid));
       }
