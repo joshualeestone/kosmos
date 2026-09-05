@@ -420,7 +420,10 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 47 after kosmos#2241 added render-firstrun-openai-connectbox-2241.js, whose per-problem
      `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more SHAPE-1
      finding-emit site, confirmed quotable (same shape as render-firstrun-connect-box-2187). */
-  const EXPECTED_SITES = 47;
+  /* 48 after kosmos#2255 added render-reactions-2255.js, whose `bad()` helper prints
+     `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit site,
+     confirmed quotable (a `FAIL ` prefix the gate quotes). */
+  const EXPECTED_SITES = 48;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
