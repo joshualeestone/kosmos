@@ -872,51 +872,51 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # the served script matches no revision at all. Named paths only, never
 # add -A: the site checkout carries other people's in-progress page work.
 [ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is not on main"; exit 1; }
-# 🛑 PATH-LIMITED AT EVERY STEP, the commit included. `git add <paths>`
-# alone was not enough: a plain `git commit` takes the WHOLE index, so
-# anything somebody had staged in this shared checkout would have ridden
-# the release commit to origin/main unseen (caught in review). The
-# `-- <paths>` on the commit leaves other staged work exactly as staged.
-# What the push DOES carry: any commits already on this checkout's main
-# that were not pushed yet, which the deploy would serve regardless.
-# #2036: commit the CHANNEL pointer ($POINTER_FILE). In the default staging channel this
-# is dist/latest-staging.json and dist/latest.json (prod) is deliberately NOT in the set,
+# #2036: the CHANNEL pointer ($POINTER_FILE). In the default staging channel this
+# is dist/latest-staging.json; dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
 _site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json setup setup.sha256 versions.html"
-# The message is a variable because the push below may have to REPLAY this commit
-# onto a moved origin/main (#2276), and the replay must carry the same message.
 _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
-# shellcheck disable=SC2086
-git -C "$SITE" add $_site_paths
-# shellcheck disable=SC2086
-if ! git -C "$SITE" diff --quiet HEAD -- $_site_paths; then
-  # shellcheck disable=SC2086
-  git -C "$SITE" commit -q -m "$_site_commit_msg" -- $_site_paths
-fi
-# The sha that deploys is the sha that is PUSHED, read before the push and
-# pushed by name: the checkout is shared and a commit can land between a
-# push of "HEAD" and the archive (#649).
-# ⚠️ ON MAIN, CHECKED HERE and not only at the top of 7b's block: the push
-# below names refs/heads/main as its target, so a site checkout left on some
-# branch would put that branch's tip (plus this commit) onto main, or be
-# rejected with a message that blames the wrong cause.
-[ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is on '$(git -C "$SITE" rev-parse --abbrev-ref HEAD)', not main; refusing to push its tip onto origin/main"; exit 1; }
-SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
-# 🛑 #2276: SURVIVE A SITE MERGE THAT LANDS MID-CUT, WITHOUT TOUCHING THE SHARED
-# CHECKOUT. Agents merge chaoskosmos-site PRs through GitHub while a cut runs, so
-# origin/main can move between the rev-parse above and the push and reject it
-# non-fast-forward. The old recovery was a MANUAL `pull --rebase` + a re-cut (a
-# forced version bump), turning a routine race into an aborted release; and an
-# in-script `pull --rebase` is UNSAFE because this checkout is shared and carries
-# other people's in-progress page work (a rebase needs a clean tree). The pushed
-# sha is what step 8 archives and deploys, so we capture it back into SITE_SHA.
-# site_push_with_replay replays ONLY the release files onto the moved tip in a
-# temporary index (no working-tree touch) and retries -- see tools/lib/site-push.sh.
+# 🛑 #2276/#2278/#2286: BUILD THE RELEASE COMMIT ON THE FRESHLY-FETCHED origin/main,
+# never on the shared local main. Agents merge chaoskosmos-site PRs through GitHub
+# while a cut runs, so origin/main moves mid-cut. The pre-#2286 path committed on
+# local main and pushed that: after any race it left local main DIVERGED (every
+# later cut's first push then rejected) and it OVERLAID a concurrent versions.html
+# edit (that edit lost from the served tree). site_commit_on_fresh_main instead
+# stages the release files from the WORKING TREE into a TEMPORARY index over the
+# fetched tip, RE-INSERTS our versions entry into the fresh page (so a concurrent
+# versions.html edit survives), commit-trees onto that tip and pushes, retrying
+# only a genuine non-ff. It never touches the working tree, the real index, or
+# local main. The pushed sha is what step 8 archives, so capture it back into
+# SITE_SHA. Named paths only; versions.html must be in the set. See
+# tools/lib/site-push.sh.
 . "$REPO/tools/lib/site-push.sh"
-SITE_SHA="$(site_push_with_replay "$SITE" "$SITE_SHA" "$_site_commit_msg" "$BUILD_ROOT" 5 "$_site_paths")" || exit 1
+SITE_SHA="$(site_commit_on_fresh_main "$SITE" "$_site_commit_msg" "$BUILD_ROOT" 5 "$_site_paths" "$V" "$REPO")" || exit 1
+# Verify the pushed commit actually carries every release file, and that our
+# versions entry landed on the FRESH page (the re-insert worked): a content check
+# on the sha that will deploy, not on the shared working tree.
 # shellcheck disable=SC2086
-[ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
-echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
+for _p in $_site_paths; do
+  git -C "$SITE" cat-file -e "$SITE_SHA:$_p" 2>/dev/null || { echo "the pushed release commit $SITE_SHA is missing '$_p'"; exit 1; }
+done
+if ! git -C "$SITE" show "$SITE_SHA:versions.html" | grep -q "id=\"v$(printf '%s' "$V" | tr . -)\""; then
+  echo "the pushed versions.html has no entry for $V; the re-insert did not land"; exit 1
+fi
+# Best-effort: bring the shared checkout back to clean + current. The release files
+# are safely on origin/main now, so discard our working-tree copies (all cut-owned
+# paths -- no colleague edits them, so this is the one class of file it is safe to
+# discard) and fast-forward local main to the pushed tip. NEVER abort the cut on a
+# cleanup miss -- the release is already pushed and step 8 deploys from SITE_SHA. If
+# a colleague's uncommitted page work blocks the ff, the checkout is left BEHIND
+# origin/main (not diverged, so no future cut is rejected) and self-heals on the
+# next fetch. This is what keeps cut-generated files from sitting uncommitted in the
+# shared checkout for a `commit -a` to sweep up.
+# shellcheck disable=SC2086
+git -C "$SITE" checkout -- $_site_paths 2>/dev/null || true
+rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json"
+git -C "$SITE" merge --ff-only "$SITE_SHA" >/dev/null 2>&1 \
+  || echo "   note: left the site checkout BEHIND origin/main (colleague work present?); it is not diverged and self-heals on the next fetch"
+echo "   site release commit pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
 
 step "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
 # 🛑 NEVER THE WORKING TREE. This deployed $SITE itself, so a cut published
