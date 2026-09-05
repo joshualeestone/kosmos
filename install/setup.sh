@@ -3434,6 +3434,37 @@ if [ "$KOSMOS_HOME" != "$_kosmos_home_default" ]; then
   # three lines above.
   [ -n "${AGENT_WORKFORCE_HALF_SANDBOX_OK:-}" ] || export AGENT_WORKFORCE_HALF_SANDBOX_OK=1
 fi
+
+# #2066: record which channel pointer this install fetched from, so the board can paint a
+# STAGING badge for a staging tester (the read side shipped dormant in #2089: server.js
+# sourceChannelNow reads <store.ROOT>/source-channel, trims+lowercases, and folds anything
+# but "staging" to prod). Written BEFORE the board starts so its first read is correct; a
+# missing file reads prod, so an unrecorded staging install would masquerade as prod.
+#
+# 🔑 ONE WRITE COVERS BOTH the fresh-install and the update path. The join contract (#2066)
+# asked for a write in setup.sh AND engine/update.js, but update.js's auto-update does NOT
+# install in-process: it spawns THIS setup.sh via `curl | sh` with KOSMOS_UPDATE_CHANNEL set
+# (engine/update.js beginInstall), so _PTR_FILE here already reflects the update's channel.
+# setup.sh is the single funnel both paths share; a second write in update.js would be
+# redundant and could diverge. (Flagged to Mona Lisa, the read-side author.)
+#
+# store.ROOT mirrors engine/store.js dataRootFor (via its root() caller, store.js:158) for
+# this macOS-only installer: an AGENT_WORKFORCE_DATA override (the sandbox the tests seed),
+# else AGENT_WORKFORCE_HOME (the general engine home seam, #1780), else $HOME. The
+# AGENT_WORKFORCE_HOME arm is load-bearing: root() reads AGENT_WORKFORCE_HOME||os.homedir(),
+# so a bare $HOME here would write under a different root than the board reads when that seam
+# is set (DATA unset), and the badge would silently never light.
+if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then
+  _wf_data_root="$AGENT_WORKFORCE_DATA/AgentWorkforce"
+else
+  _wf_data_root="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support/AgentWorkforce"
+fi
+if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
+if mkdir -p "$_wf_data_root" 2>/dev/null; then
+  printf '%s\n' "$_source_channel" > "$_wf_data_root/source-channel" 2>/dev/null \
+    || printf '  (could not record the source channel; the board will read the default, prod)\n'
+fi
+
 step "Starting Kosmos."
 KOSMOS_SAY_INDENT="     " "$KOSMOS_HOME/bin/kosmos" start || die "Kosmos installed but would not start. What it said is above; it is safe to paste the install line again."
 ok
