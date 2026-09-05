@@ -748,6 +748,36 @@ async function accountModels(dir) {
   if (typeof key !== 'string' || !key) return { ok: false, models: [], because: 'we could not read this account\'s key' };
   const r = await askModels(key);
   if (r.unreachable) return { ok: false, models: [], because: r.because };
+  // #2140 error matrix (Astra's spec): a non-200 is NOT one undifferentiated
+  // "no models" state. Map the status to an honest, distinct `because` so the
+  // note the user sees names what actually happened -- a rejected key is not an
+  // unreachable OpenAI, and a permission denial is not "no models".
+  if (r.status === 401) {
+    return { ok: false, models: [], because: 'this account\'s API key was rejected by OpenAI (401)' };
+  }
+  if (r.status === 403) {
+    // Name the denied OPERATION, never "no models": /v1/models needs api.model.read
+    // on the key AND the project role, and a read-only or wrong-project key 403s.
+    return { ok: false, models: [], because: 'this account\'s key is not allowed to list models (403)' };
+  }
+  if (r.status === 429) {
+    // OpenAI answers 429 for BOTH request-rate and spend/quota; the structured
+    // error code separates them (insufficient_quota / billing vs rate_limit_*).
+    const code = (r.body && r.body.error && (r.body.error.code || r.body.error.type)) || '';
+    // NB: not "limit" -- `rate_limit_exceeded` contains it and is a rate case, not billing.
+    if (/quota|billing|insufficient|spend/i.test(String(code))) {
+      return { ok: false, models: [], because: 'this account has hit its OpenAI usage or billing limit (429)' };
+    }
+    // Ambiguous 429 (no/parseless body, so no code) falls to the RATE wording on
+    // purpose: it is the softer, retryable read. Defaulting the unknown case to
+    // billing would false-alarm a genuine rate-limit (the common 429) as a spend
+    // problem; a billing 429 in practice carries `insufficient_quota`, so it takes
+    // the arm above rather than this default.
+    return { ok: false, models: [], because: 'OpenAI is rate-limiting this account right now (429)' };
+  }
+  if (typeof r.status === 'number' && r.status >= 500) {
+    return { ok: false, models: [], because: 'OpenAI is having trouble right now (' + r.status + ')' };
+  }
   if (r.status !== 200) {
     return { ok: false, models: [], because: 'OpenAI did not return this account\'s models (it answered ' + (r.status || 'nothing usable') + ')' };
   }

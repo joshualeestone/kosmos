@@ -138,6 +138,53 @@ test('#1315: an unreachable OpenAI at add time ACCEPTS the key, never a false re
   } finally { openai.setFetcher(null); }
 });
 
+/* ── #2140 accountModels error matrix (Astra's spec) ──────────────────────
+   A non-200 from /v1/models is NOT one undifferentiated "no models" state:
+   each status maps to a distinct, honest `because`. writeAuth is idempotent, so
+   arranging the apikey account inside the helper removes any test-order coupling. */
+const ERR_DIR = '.codex-errmatrix';
+const errModels = async (fetcher) => {
+  writeAuth(ERR_DIR, { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-errmatrixKEYtail01' });
+  openai.setFetcher(fetcher);
+  try { return await openai.accountModels(nodePath.join(SANDBOX, ERR_DIR)); }
+  finally { openai.setFetcher(null); }
+};
+
+test('#2140 accountModels: a 401 is a distinct "key rejected", never no-models/unreachable', async () => {
+  const out = await errModels(async () => ({ status: 401, body: { error: { code: 'invalid_api_key' } } }));
+  assert.equal(out.ok, false);
+  assert.match(out.because, /rejected by OpenAI \(401\)/);
+  assert.doesNotMatch(out.because, /no chat models|did not return|reach/i, 'a rejected key must not read as no-models or unreachable');
+  assert.ok(!JSON.stringify(out).includes('sk-proj'), 'the answer must never carry the key');
+});
+
+test('#2140 accountModels: a 403 names the denied operation, never "no models"', async () => {
+  const out = await errModels(async () => ({ status: 403, body: { error: { code: 'insufficient_permissions' } } }));
+  assert.equal(out.ok, false);
+  assert.match(out.because, /not allowed to list models \(403\)/);
+  assert.doesNotMatch(out.because, /no chat models/i);
+});
+
+test('#2140 accountModels: a 429 quota/billing code is a billing state, distinct from a rate limit', async () => {
+  const billing = await errModels(async () => ({ status: 429, body: { error: { code: 'insufficient_quota' } } }));
+  assert.match(billing.because, /usage or billing limit \(429\)/);
+  const rate = await errModels(async () => ({ status: 429, body: { error: { code: 'rate_limit_exceeded' } } }));
+  assert.match(rate.because, /rate-limiting this account/);
+  assert.notEqual(billing.because, rate.because, 'billing and rate-limit 429s must be told apart');
+});
+
+test('#2140 accountModels: a 5xx is a distinct retryable "OpenAI is having trouble"', async () => {
+  const out = await errModels(async () => ({ status: 503, body: null }));
+  assert.equal(out.ok, false);
+  assert.match(out.because, /having trouble right now \(503\)/);
+});
+
+test('#2140 accountModels CONTROL: a 200 with a chat model still returns ok (the matrix did not swallow the good path)', async () => {
+  const out = await errModels(async () => ({ status: 200, body: { object: 'list', data: [{ id: 'gpt-4o' }] } }));
+  assert.equal(out.ok, true, out.because);
+  assert.ok(out.models.some((m) => /gpt-4o/i.test((m && (m.label || m.arg || m.key)) || '')), 'the good path must still list the account model');
+});
+
 test('#1315: a locally-invalid add (bad shape) passes straight through and never asks OpenAI', async () => {
   let asked = false;
   openai.setFetcher(async () => { asked = true; return { status: 200, body: { data: [] } }; });

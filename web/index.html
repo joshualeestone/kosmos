@@ -25726,6 +25726,24 @@ function openaiNoModelsNote(because) {
   if (/no chat models we recognise|no chat models/i.test(b)) {
     return 'We could not find a model we recognise on this account, so it will use OpenAI\'s default. You can change this later.';
   }
+  // #2140 error matrix: distinct states, ordered BEFORE the generic "could not
+  // reach" case (a rejected key is not an unreachable OpenAI). Each names what
+  // actually happened and the remedy, and none says "no models".
+  if (/rejected by OpenAI \(401\)/i.test(b)) {
+    return 'OpenAI rejected this account\'s API key, so we cannot list its models. Reconnect this account to choose a model.';
+  }
+  if (/not allowed to list models \(403\)/i.test(b)) {
+    return 'This account\'s key is not allowed to list models (its OpenAI project or role denies it), so it will use OpenAI\'s default. Fix the key\'s permissions to choose a specific model.';
+  }
+  if (/usage or billing limit \(429\)/i.test(b)) {
+    return 'This account has hit its OpenAI usage or billing limit, so we cannot list its models right now. It will use OpenAI\'s default.';
+  }
+  if (/rate-limiting this account/i.test(b)) {
+    return 'OpenAI is rate-limiting this account right now, so we could not list its models. It will use OpenAI\'s default; try again shortly.';
+  }
+  if (/having trouble right now/i.test(b)) {
+    return 'OpenAI is having trouble right now, so we could not list this account\'s models. It will use OpenAI\'s default; try again shortly.';
+  }
   if (/did not return|answered|reach|unreachable|could not read this account'?s models/i.test(b)) {
     return 'We could not reach OpenAI to list this account\'s models right now, so it will use its default. You can change this later.';
   }
