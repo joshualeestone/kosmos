@@ -92,12 +92,20 @@ let failed = 0;
      diagnosis with a consequence of the first attempt.
      ⇒ Disconnect has no engine route yet (#770), so the account cannot be
      removed from the page. A per-attempt label is the fix available here.
-     Nothing asserts on this string; it is checked as "API key ending WALK". */
-  await p.fill('#acct-openai-label', 'Walk Test ' + process.pid + '-' + Date.now().toString(36).slice(-4));
+     #2095: this label is now the account's PRIMARY display, so the add message
+     and the account row both name it (the assertions below check for it). */
+  const walkLabel = 'Walk Test ' + process.pid + '-' + Date.now().toString(36).slice(-4);
+  await p.fill('#acct-openai-label', walkLabel);
   await p.click('#acct-openai-go');
   await p.waitForTimeout(1200);
   const msg = await p.innerText('#acct-openai-msg');
-  say('adding answers with the tail, never the key', /API key ending WALK/.test(msg) && !/walkwalk/.test(msg), msg);
+  /* #2095: the add message now LEADS WITH THE CHOSEN NAME ("Added: <label>."),
+     not the key tail -- the tail is only the fallback message when no name is
+     entered. This test always enters a name, so it asserts the name is shown.
+     The security half is unchanged and load-bearing: the full key ("walkwalk...")
+     must never appear in the message. */
+  say('the add message names the chosen account, never the full key',
+    /Added/.test(msg) && msg.includes(walkLabel) && !/walkwalk/.test(msg), msg);
   say('the key field is emptied after the add', (await p.inputValue('#acct-openai-key')) === '');
   // #770: each account is its own box now (.acct-row retired), a green
   // Connected mark and a Disconnect door on every one.
@@ -240,7 +248,11 @@ let failed = 0;
   await p.selectOption('#create-provider', 'openai');
   await p.waitForTimeout(300);
   const opts = await p.evaluate(() => { const s = document.getElementById('create-account'); return { disabled: s.disabled, opts: [...s.options].map((o) => o.textContent), val: s.value }; });
-  say('account menu is enabled for OpenAI and offers the new account', !opts.disabled && opts.opts.some((o) => /API key ending WALK/.test(o)), JSON.stringify(opts));
+  /* #2095: the create-form account menu now LEADS WITH THE CHOSEN NAME
+     (acctPrimaryName), not the key tail, so it offers the account as
+     "Walk Test <pid>-<suffix>". Assert the menu is enabled and offers the
+     account by that chosen name. */
+  say('account menu is enabled for OpenAI and offers the new account', !opts.disabled && opts.opts.some((o) => o.includes(walkLabel)), JSON.stringify(opts));
   /* #2140/#2167: the model menu for a LISTABLE OpenAI account. WALK is an API key,
      and the harness (browser-checks.sh) stubs its /v1/models -> {data:[{id:"gpt-4o"}]},
      so it IS listable: paintOpenaiCreateModel shows an ENABLED picker of its OWN
