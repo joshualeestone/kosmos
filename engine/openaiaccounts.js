@@ -343,6 +343,67 @@ function forgetAccount(dir, usedBy) {
   };
 }
 
+/**
+ * #2264: DELETE AND REMOVE an OpenAI account -- the destructive sibling of
+ * forgetAccount. forgetAccount RENAMES the directory aside (reversible, the
+ * credential survives); this DELETES it, so the sign-in is gone from this
+ * computer. Josh, 2026-09-05: a connection he no longer wants to see at all,
+ * credential and all -- "not just disconnect it".
+ *
+ * 🛑 EVERY GUARD forgetAccount HAS (same-home + name shape, the running-agents
+ * gate, the identity guard -- NEVER rm a name-shaped folder that is not an
+ * account), plus one forgetAccount does NOT: the DEFAULT `.codex` is REFUSED.
+ * forgetAccount can rename the default aside because a rename is recoverable and
+ * a fresh sign-in recreates it; DELETING the default codex home is not that -- it
+ * is the home other codex agents resolve to when nothing overrides CODEX_HOME.
+ * The default's action is Disconnect (reversible); delete is for the named
+ * accounts a person actually wants gone. Only the final step differs from
+ * forget: rmSync instead of renameSync. Irreversible on purpose; the UI asks
+ * with a destructive confirm.
+ */
+function removeAccount(dir, usedBy) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const base = path.basename(clean);
+
+  if (path.dirname(clean) !== home || !(base === '.codex' || base.startsWith('.codex-'))) {
+    return { ok: false, removed: false, because: 'that is not an OpenAI account on this computer' };
+  }
+  /* 🛑 ENV-AWARE, NOT A BASENAME CHECK (#2264 review). The default is where
+     `defaultDir()` points, and CODEX_HOME / AGENT_WORKFORCE_CODEX_HOME move it,
+     so `base === '.codex'` is wrong in BOTH directions: it would DELETE the real
+     default when it is a moved `.codex-<label>` (irreversible loss of the home
+     other codex agents resolve to), and over-refuse a stale `.codex` that is no
+     longer the default. forgetAccount's `wasDefault` uses exactly this
+     comparison. This is defence in depth on an unauthenticated local endpoint
+     that DELETES a directory, so it must hold regardless of the UI's own
+     (env-aware) hiding of the button on the default row. */
+  if (clean === path.resolve(defaultDir())) {
+    return { ok: false, removed: false, because: 'the default account cannot be deleted; disconnect it instead' };
+  }
+  const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+  if (agents.length) {
+    return {
+      ok: false,
+      removed: false,
+      usedBy: agents,
+      because: agents.length === 1
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
+          + 'Move them to another account or remove them first.',
+    };
+  }
+  if (!fs.existsSync(clean)) {
+    return { ok: true, removed: false, because: 'that account is already gone from this computer' };
+  }
+  if (!identityOf(clean)) {
+    return { ok: false, removed: false, because: 'that is not an OpenAI account on this computer' };
+  }
+  try { fs.rmSync(clean, { recursive: true, force: true }); }
+  catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  return { ok: true, removed: true, because: null };
+}
+
 function cleanLabel(label) {
   return String(label == null ? '' : label).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
 }
@@ -1011,7 +1072,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
-  list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,

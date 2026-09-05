@@ -4085,6 +4085,12 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         const dir = body && typeof body.dir === 'string' ? body.dir : '';
         if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // #2264: the same DELETE route, with `remove:true`, DELETES the account
+        // (credential and all) instead of disconnecting it. The fail-closed
+        // agents enumeration below is identical either way - a delete is at
+        // least as dangerous as a rename - so only the final engine call and the
+        // answer differ.
+        const remove = !!(body && body.remove === true);
 
         let isDefault = false;
         try { isDefault = path.resolve(dir) === path.resolve(openaiAccounts.defaultDir()); }
@@ -4176,6 +4182,19 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        if (remove) {
+          const gone = openaiAccounts.removeAccount(dir, usedBy);
+          if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
+          sendJson(res, 200, {
+            removed: gone.removed === true,
+            because: gone.removed
+              ? 'That account is deleted from this computer. Its sign-in file is gone.'
+              : 'That account was already gone from this computer.',
+            accounts: openaiAccounts.list(),
+          });
+          return;
+        }
+
         const out = openaiAccounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
           sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
@@ -4260,6 +4279,11 @@ const server = http.createServer((req, res) => {
         try { body = JSON.parse(raw || 'null'); } catch { body = null; }
         const dir = body && typeof body.dir === 'string' ? body.dir : '';
         if (!dir) { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // #2264: with `remove:true` this DELETE route DELETES the account
+        // (credential and all) rather than disconnecting it. Same fail-closed
+        // agents enumeration either way; only the final engine call and the
+        // answer differ.
+        const remove = !!(body && body.remove === true);
 
         /* `=== true` because isDefaultDir answers NULL for an unresolvable path,
            which would make this boolean|null. Both are falsy at the one use
@@ -4386,6 +4410,19 @@ const server = http.createServer((req, res) => {
           sendJson(res, 400, {
             error: 'we could not check which agents are on this account, so nothing was changed',
             usedBy: [],
+          });
+          return;
+        }
+
+        if (remove) {
+          const gone = accounts.removeAccount(dir, usedBy);
+          if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
+          sendJson(res, 200, {
+            removed: gone.removed === true,
+            because: gone.removed
+              ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
+              : 'That account was already gone from this computer.',
+            accounts: accounts.list(),
           });
           return;
         }

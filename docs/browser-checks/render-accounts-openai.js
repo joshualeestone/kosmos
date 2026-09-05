@@ -238,6 +238,35 @@ let failed = 0;
       defaultRow.length > 0 && defaultRow.every((b) => !b.disabled && b.ariaDisabled && !b.forgets && /^Disconnect$/.test(b.label)),
       JSON.stringify(defaultRow));
   }
+  /* #2264: "Delete and remove" is the destructive third action. It appears on
+     every NON-DEFAULT row (both providers) and NEVER on a default row, because
+     removeAccount refuses the default. Captured per .acct-box so each verdict is
+     tied to the account it is about, like the Disconnect arms above.
+     🛑 The OpenAI account in this fixture may be the DEFAULT .codex (its
+     Disconnect is live because forgetAccount can forget the default), in which
+     case it correctly has NO delete button -- so this does not assert a delete
+     on the OpenAI row. The two Claude rows are the known default/non-default
+     pair; the third arm keeps every RENDERED delete honest. */
+  const removeRows = await p.evaluate(() => [...document.querySelectorAll('#set-accounts .acct-box')].map((box) => {
+    const b = box.querySelector('.acct-remove');
+    return {
+      row: (box.innerText || '').replace(/\s+/g, ' ').trim(),
+      hasRemove: !!b,
+      removeWired: !!(b && b.dataset && b.dataset.remove),
+      removeLabel: b ? (b.innerText || '').trim() : null,
+    };
+  }));
+  const rrow = (needle) => removeRows.filter((r) => r.row.includes(needle));
+  say('#2264: the DEFAULT Claude account has NO Delete-and-remove (the default cannot be deleted)',
+    rrow('main@example.com').length > 0 && rrow('main@example.com').every((r) => !r.hasRemove),
+    JSON.stringify(removeRows));
+  say('#2264: the NON-DEFAULT Claude account offers a live Delete-and-remove',
+    rrow('walk@example.com').length > 0 && rrow('walk@example.com').every((r) => r.hasRemove && r.removeWired && /^Delete and remove$/.test(r.removeLabel)),
+    JSON.stringify(rrow('walk@example.com')));
+  say('#2264: every rendered Delete-and-remove is wired (data-remove) and labelled',
+    removeRows.filter((r) => r.hasRemove).every((r) => r.removeWired && /^Delete and remove$/.test(r.removeLabel)),
+    JSON.stringify(removeRows.filter((r) => r.hasRemove)));
+
   // Create form: OpenAI provider -> account menu offers the new account
   await p.goto(BASE + '/?tab=create', { waitUntil: 'load' });
   await p.waitForSelector('#pick-pm:not([hidden])', { timeout: 8000 });

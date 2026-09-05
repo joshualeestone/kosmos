@@ -586,8 +586,17 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
   font-weight: 600; color: var(--label-2); white-space: nowrap; }
 .acct-unknown .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--label-2); flex: 0 0 8px; }
 .acct-reauth,
-.acct-disconnect { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
+.acct-disconnect,
+.acct-remove { align-self: flex-start; background: none; border: 0; padding: 0; font: inherit; font-size: .8125rem;
   color: var(--label-2); text-decoration: underline; cursor: pointer; min-height: 24px; }
+/* #2264: the per-connection actions on ONE bar-separated row instead of stacked
+   single links. Each action after the first carries a left bar (--k-rule, the
+   same hairline as the box), so an OpenAI two-action row and a Claude
+   three-action row both lay out with no separator markup and no empty bars. */
+.acct-actions { display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; row-gap: 6px; }
+.acct-actions > button { align-self: center; }
+.acct-actions > button:not(:first-child) { border-left: 1px solid var(--k-rule); margin-left: 10px; padding-left: 10px; }
+.acct-remove.armed { font-weight: 600; color: var(--danger, #b3261e); }
 /* #1710: the armed (one-press-from-disconnect) state was invisible -- the handler
    adds .armed but there was no rule, so only the word changed. This is the most
    destructive of the three arm-in-place controls and was the only one with no visual
@@ -14855,6 +14864,11 @@ async function paintAccounts() {
          account is a pasted key and re-keying it is a different act with a
          different form. A Claude-flow button on an OpenAI row would run the wrong
          sign-in, which is the shape #1372 kept these two providers apart for. */
+      /* #2264: the per-connection actions on ONE bar-separated row, not stacked
+         single links (Josh: stacked rows keep pushing the page down). The bar is
+         a CSS border-left on each action after the first (.acct-actions), so a
+         row with two actions or three lays out the same with no separator markup. */
+      + '<div class="acct-actions">'
       + (isOpenai ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
           /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
@@ -14951,6 +14965,18 @@ async function paintAccounts() {
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
             + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
+      /* #2264: DELETE AND REMOVE - the destructive third action, on every
+         NON-default row of both providers (removeAccount refuses the default, so
+         it gets no button, matching the disabled Disconnect above). data-remove
+         (not data-forget) so the removal handler tells delete from disconnect and
+         sends remove:true; the provider rides the same data-forget-provider
+         attribute the two DELETE routes already read. */
+      + (a.isDefault ? ''
+        : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
+          + 'data-forget-provider="' + (isOpenai ? 'openai' : 'claude') + '" '
+          + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
+          + 'title="Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.">Delete and remove</button>')
+      + '</div>'
       + '</div>';
   };
   box.innerHTML = accountGroupsHtml(list, acctRowHtml);
@@ -15063,7 +15089,18 @@ async function paintAccounts() {
       }, 60);
     });
   }
-  for (const btn of box.querySelectorAll('[data-forget]')) {
+  for (const btn of box.querySelectorAll('[data-forget], [data-remove]')) {
+    /* #2264: ONE handler for BOTH Disconnect (data-forget, a reversible rename)
+       and Delete and remove (data-remove, a destructive delete). They share the
+       arm-in-place confirm, the provider guard, the repaint-then-message order
+       and the a11y handling; only the confirm WORDING and the DELETE body's
+       `remove` flag differ, and both are read off the button so the two cannot
+       drift apart -- the same one-source discipline #1659 applied to the label. */
+    const isRemove = !!(btn.dataset && typeof btn.dataset.remove === 'string');
+    const targetDir = btn.dataset.forget || btn.dataset.remove;
+    /* Delete says "for good" (it IS irreversible); Disconnect deliberately does
+       not, because a rename survives and its success sentence says so. */
+    const CONFIRM = isRemove ? 'Delete for good?' : 'Remove it?';
     /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
        Disconnect link at the bottom that asks first". It shipped without
        the asking half, so one click removed an account with no confirm.
@@ -15104,7 +15141,7 @@ async function paintAccounts() {
          ⇒ The armed name now STARTS with the visible text and keeps the account
          identity after it, so it satisfies both: the words on screen are sayable,
          and the row is still identified. */
-      btn.setAttribute('aria-label', on ? 'Remove it? ' + REST_LABEL : REST_LABEL);
+      btn.setAttribute('aria-label', on ? CONFIRM + ' ' + REST_LABEL : REST_LABEL);
     };
     btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
@@ -15127,7 +15164,7 @@ async function paintAccounts() {
         if (msg) msg.textContent = 'we could not tell which provider that account belongs to, so nothing was changed';
         return;
       }
-      if (!armed) { armed = true; btn.textContent = 'Remove it?'; btn.classList.add('armed'); armLabel(true); return; }
+      if (!armed) { armed = true; btn.textContent = CONFIRM; btn.classList.add('armed'); armLabel(true); return; }
       btn.disabled = true;
       acctCancelSay();
       if (msg) msg.textContent = '';
@@ -15149,7 +15186,7 @@ async function paintAccounts() {
         const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ dir: btn.dataset.forget }),
+          body: JSON.stringify(isRemove ? { dir: targetDir, remove: true } : { dir: targetDir }),
         });
         const out = await res.json().catch(() => null);
         if (!res.ok) throw new Error((out && out.error) || 'we could not remove that account');
