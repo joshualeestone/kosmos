@@ -763,3 +763,84 @@ test('#1919: preacceptBypass fills an EMPTY settings file (safe: a preference, n
   assert.equal(r.ok, true);
   assert.equal(sRead(d)[BYPASS_KEY], true);
 });
+
+/* ── #1629: trust follows the ACCOUNT, not the config this process happens to read ──
+   The delete-the-agent bug. trustFolder wrote hasTrustDialogAccepted into the
+   config THIS process reads (~/.claude.json), but a FLIPPED agent reads its own
+   account's <configDir>/.claude.json (Claude Code honours CLAUDE_CONFIG_DIR). So
+   the flag never reached the file the agent read: the agent met Claude Code's
+   terminal trust prompt with "No, exit" preselected, and the Enter reflex that
+   clears a stuck composer DELETED it instead. These tests pin the three config
+   resolutions the #1629/#2129 fix put in CONFIG/trustFolder, so a refactor cannot
+   silently reintroduce a data-loss bug that was invisible until an agent vanished.
+   None was covered before: no test set CLAUDE_CONFIG_DIR or passed opts.configDir. */
+const cfgPath = (dir) => nodePath.join(dir, '.claude.json');
+const cfgRead = (dir) => JSON.parse(fs.readFileSync(cfgPath(dir), 'utf8'));
+
+test('#1629: trustFolder({configDir}) writes into THAT account\'s config, and leaves the default one untouched', () => {
+  clear(); // the default config (AGENT_WORKFORCE_CLAUDE_CONFIG) starts absent
+  const accountB = acctDir();          // the account an agent was flipped TO
+  // trustFolder edits Claude Code's own config and REFUSES to fabricate one, so
+  // simulate that Claude Code has run for this account (an empty config exists).
+  fs.writeFileSync(cfgPath(accountB), '{}');
+  const d = folder();
+  const r = trustFolder(d, { configDir: accountB });
+  assert.equal(r.ok, true, r.because);
+  // The flag landed in the flipped account's config -- the file the agent reads.
+  // (r.key is the trusted FOLDER path, the key under projects, not the config file.)
+  assert.equal(cfgRead(accountB).projects[r.key][KEY], true, 'the flipped account never got the trust flag');
+  // ...and the default config this process reads was NOT written. Writing HERE
+  // while the flipped agent read ELSEWHERE is the exact bug.
+  assert.ok(!fs.existsSync(CONFIG), 'the default config was written on a flip; the agent would still meet the prompt');
+});
+
+test('#1629: with CLAUDE_CONFIG_DIR set (a flipped agent\'s own process), trustFolder targets $CLAUDE_CONFIG_DIR/.claude.json', () => {
+  // The env branch of CONFIG. AGENT_WORKFORCE_CLAUDE_CONFIG is the test seam and
+  // shadows it, so unset it here to exercise the real CLAUDE_CONFIG_DIR path.
+  const savedOverride = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  const savedCcd = process.env.CLAUDE_CONFIG_DIR;
+  const savedHome = process.env.HOME;
+  const engineDir = acctDir();
+  try {
+    delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+    process.env.CLAUDE_CONFIG_DIR = engineDir;
+    // 🛑 SAFETY NET, non-negotiable: this test unsets AGENT_WORKFORCE_CLAUDE_CONFIG
+    // to exercise the real CLAUDE_CONFIG_DIR branch, so CONFIG's LAST fallback is
+    // homeDir()/.claude.json. If the CLAUDE_CONFIG_DIR branch is ever broken, this
+    // test would otherwise write into the OPERATOR'S real ~/.claude.json (measured:
+    // a perturbation run did exactly that). Point HOME at the sandbox so a broken
+    // fix falls back to a non-existent sandbox file and trustFolder refuses,
+    // catching the regression WITHOUT touching a real config.
+    process.env.HOME = SANDBOX;
+    fs.writeFileSync(cfgPath(engineDir), '{}'); // Claude Code has run for this account
+    const d = folder();
+    const r = trustFolder(d);
+    assert.equal(r.ok, true, r.because);
+    assert.equal(cfgRead(engineDir).projects[r.key][KEY], true, 'trust ignored CLAUDE_CONFIG_DIR -- the pre-#1629 bug');
+  } finally {
+    if (savedOverride === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG; else process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = savedOverride;
+    if (savedCcd === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCcd;
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+  }
+});
+
+test('#2129: a DEFAULT-account agent IGNORES the engine\'s CLAUDE_CONFIG_DIR (trust lands where a no-CCD agent reads)', () => {
+  // The carve-out. A default-account agent launches with NO CLAUDE_CONFIG_DIR and
+  // reads ~/.claude.json, even though the ENGINE process runs under its own
+  // CLAUDE_CONFIG_DIR. Following the engine's dir would clear the prompt in a file
+  // the agent never reads -- the used-machine-vs-fresh-Mac split #2129 measured.
+  const savedCcd = process.env.CLAUDE_CONFIG_DIR;
+  const engineDir = acctDir();
+  try {
+    fs.writeFileSync(CONFIG, '{}');              // the default account's config (what the agent reads)
+    process.env.CLAUDE_CONFIG_DIR = engineDir;   // the engine's own account, which must be IGNORED here
+    const d = folder();
+    const r = trustFolder(d, { agentDefaultAccount: true });
+    assert.equal(r.ok, true, r.because);
+    // Lands in the default (AGENT_WORKFORCE_CLAUDE_CONFIG here), NOT the engine dir.
+    assert.equal(read().projects[r.key][KEY], true, 'the default-account trust flag is missing');
+    assert.ok(!fs.existsSync(cfgPath(engineDir)), 'the default-account write followed the engine CLAUDE_CONFIG_DIR (#2129 bug)');
+  } finally {
+    if (savedCcd === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCcd;
+  }
+});
