@@ -616,8 +616,20 @@ boot_thread_server() {
 
 wait_up() {
   local port="$1" logf="$2" i
-  for i in $(seq 1 60); do
+  # KOSMOS_BC_WAIT_TRIES only exists so the #1073 test can exercise the timeout
+  # arm without waiting the real 30s (60 * 0.5s). Unset in every real run.
+  for i in $(seq 1 "${KOSMOS_BC_WAIT_TRIES:-60}"); do
     curl -s "http://127.0.0.1:$port/api/status" >/dev/null 2>&1 && return 0
+    # #1073: a port picked up front but bound minutes later can be taken by
+    # another run in the interim. node then fails to bind, writes EADDRINUSE and
+    # exits, so polling the full 30s only delays a red whose cause is already
+    # sitting in the log. Read the collision from the server's own log and report
+    # it BY NAME, turning an unattributable flaky red into an attributable one.
+    if [ -f "$logf" ] && grep -qiE 'EADDRINUSE|address already in use' "$logf" 2>/dev/null; then
+      log "port :$port was already in use when the server tried to bind it (#1073 pick-to-bind collision, NOT a flaky check). server log tail:"
+      tail -5 "$logf" 2>/dev/null
+      return 1
+    fi
     sleep 0.5
   done
   log "server on :$port never answered; log tail:"; tail -5 "$logf" 2>/dev/null
@@ -674,9 +686,21 @@ run_one() {
 # on one Mac, the release gate and a person's own check, talked to each
 # other's boards and then lost them when the other run ended: a red that read
 # as a flaky check and was a collision. A port the kernel just handed out is
-# free for this run alone; the window between picking and binding is a few
-# milliseconds and two runs started seconds apart never share one. The
-# chosen ports are printed so a log can be read back against a boot.
+# free for this run alone.
+#
+# #1073, honest about the window: #633's "a few milliseconds between picking and
+# binding" holds only for the FIRST port bound. pick_ports takes all 16 up front
+# (below), but the servers bind them across the whole run, so a late port (P7/P9
+# are bound minutes in) has a pick-to-bind window of MINUTES, not milliseconds.
+# It is still a NARROW race, not an inevitability: free_port binds :0 and the
+# kernel hands out ephemeral ports monotonically, so two runs minutes apart land
+# in well-separated blocks and only collide if the ephemeral counter wraps or a
+# run reuses a just-freed block. When it does fire, the loser's server exits with
+# EADDRINUSE; wait_up reads that from the server log and names it (#1073) rather
+# than reporting a generic 30s flaky timeout, so a collision is attributable
+# instead of masquerading as a flaky check. Fully closing the race (re-picking a
+# port when its bind loses) is a larger change tracked on #1073.
+# The chosen ports are printed so a log can be read back against a boot.
 free_port() {
   node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})'
 }
