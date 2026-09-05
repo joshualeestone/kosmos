@@ -31,7 +31,10 @@
  *     connected" only when truly none.
  *  3. paintAccountPicker ELIGIBILITY -- a REJECTED current account is now signed
  *     out (the move UI appears), with a working sibling offered as the target; a
- *     working current account is not signed out (control).
+ *     working current account is not signed out (control); and an UNCHECKED current
+ *     account (live check unreadable) is NOT called signed out but reads
+ *     could-not-check (#1959 NIT / #2023 -- reds on the pre-fix page, which derived
+ *     signedOut from !acctUsableLogin alone and so falsely claimed signed-out here).
  *  4. fillCreateAccounts CREATE PICKER -- a REJECTED account is EXCLUDED as a run
  *     target (#874), while an unchecked account stays OFFERED and labelled. (The
  *     labelled-unchecked check is a precondition, not a discriminator: the pre-fix
@@ -190,6 +193,7 @@ function check(name, pass, detail) {
       const rows = [
         { dir: '/rej', memoryShared: true, email: 'rej@x', connection: { badge: 'rejected', state: 'connected' } },
         { dir: '/work', memoryShared: true, email: 'work@x', connection: { badge: 'working', state: 'connected' } },
+        { dir: '/unk', memoryShared: true, email: 'unk@x', connection: { badge: 'unchecked', state: 'unknown' } },
       ];
       const out = {};
       // Current account = rejected: signedOut true, a working sibling is a target.
@@ -202,6 +206,14 @@ function check(name, pass, detail) {
       msg.textContent = '';
       await paintAccountPicker({ account: { dir: '/work' }, sessionName: 'a2' });
       out.workingCurrent = msg.textContent;
+      // #1959 NIT: current account = UNCHECKED (live check unreadable). Must NOT
+      // claim "signed out" (a definite claim about a state we cannot read); reads
+      // could-not-check instead. Reds on the pre-fix page, which derived signedOut
+      // from !acctUsableLogin alone and so rendered the signed-out sentence here.
+      seed(rows);
+      msg.textContent = '';
+      await paintAccountPicker({ account: { dir: '/unk' }, sessionName: 'a3' });
+      out.unknownCurrent = msg.textContent;
       return out;
     });
 
@@ -214,6 +226,9 @@ function check(name, pass, detail) {
       check(`${engine}: control -- a working current account is NOT signed out`,
         !/signed out/i.test(picker.workingCurrent),
         `workingCurrent=${JSON.stringify(picker.workingCurrent)}`);
+      check(`${engine}: an UNCHECKED current account is NOT called signed out, reads could-not-check (#1959 NIT / #2023)`,
+        !/signed out/i.test(picker.unknownCurrent) && /could not check/i.test(picker.unknownCurrent),
+        `unknownCurrent=${JSON.stringify(picker.unknownCurrent)}`);
     }
 
     // ---- Arm 4: fillCreateAccounts create picker (consumer 3) ----
