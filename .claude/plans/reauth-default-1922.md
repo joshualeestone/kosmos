@@ -1797,8 +1797,9 @@ down.** The arm deletes `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`:653`), so it now 
 
 **A judgement call, documented rather than silently taken. CORRECTED at iteration 22: there are TWO
 residuals, not one, and my first version of this paragraph named only one while presenting itself as
-the enumeration.** `grep -n 'the seam' engine/connect.test.js` returns `599, 605, 621` in this
-docblock. **I left `:605` and `:621`, for different reasons:**
+the enumeration.** `grep -n 'the seam' engine/connect.test.js` returns **five** hits (222, 599, 605, 621, 1418); the
+three IN THIS DOCBLOCK are 599, 605, 621. 🛑 **Corrected at iteration 23: I first wrote the three as
+though they were the grep's output.** Third instance of quoting a region as a command result. **I left `:605` and `:621`, for different reasons:**
 - `:621` -- the referent (`process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`) is named explicitly on the
   line directly above, so only one candidate is in scope.
 - `:605` -- it is a **verbatim quotation** of the earlier false claim being retracted, and editing
@@ -1837,8 +1838,15 @@ Verdict: **ready to merge, no BLOCKER, no WARNING, three CONVENTIONs.** All conf
 
 **1. The PR body credited this branch with a test it did not write.** It said *"The branch's own
 `#1560` arm ... asserts that and passes."* Measured: the arm exists **on origin/main**
-(`git grep -c ... origin/main -- engine/connect.test.js` = 1) and **my diff adds nothing referencing
-1560** (`git diff origin/main...HEAD | grep -c 1560` = 0). It is a pre-existing ENGINE arm, while the
+(`git grep -c ... origin/main -- engine/connect.test.js` = 1) and **my diff adds no test ARM named
+#1560**: scoped to the test file that would hold one,
+`git diff origin/main...HEAD -- engine/connect.test.js | grep -c 1560` = 0.
+🛑 **CORRECTED at iteration 23, and the error was in the EVIDENCE LINE of the attribution fix
+itself.** This paragraph first recorded that command WITHOUT its pathspec, as
+`git diff origin/main...HEAD | grep -c 1560`, which prints **20** (4 in source, all `#1560` comments;
+control `grep -c 1922` = 27, so the pipeline is live). ⇒ **I ran a scoped command and wrote down an
+unscoped one.** The conclusion held; the evidence as recorded was false, and it was the evidence for a
+fix about false evidence. It is a pre-existing ENGINE arm, while the
 paragraph's subject is the route. Substance stands; the attribution sent a reviewer hunting the diff
 for something that is not in it. ⇒ **This was the worst-placed of the three: the PR body is the only
 artifact that leaves the repo.**
@@ -1861,7 +1869,7 @@ origin/main...HEAD -- engine/connect.js server.js` now prints 92 + 47 = **139**.
 with the command, per this plan's own rule that a number is a measurement frozen at a moment.
 
 **What iteration 22 checked and found clean, with controls** (recorded because a clean result is only
-worth anything if the search was live): all 16 `grep -n` citations executed, the only two zero-hit
+worth anything if the search was live): every `grep -n` citation executed, the only two zero-hit
 ones being inside the iteration-21 record that documents them as broken; the three replacement
 `server.js` anchors; the 12-of-44 ratio re-measured post-rebase in BOTH mention and assignment forms;
 the seam-set-nowhere-outside-tests claim (assignment sweep returns exactly `live-connect.js:29`); both
@@ -1869,3 +1877,46 @@ the seam-set-nowhere-outside-tests claim (assignment sweep returns exactly `live
 byte-matching. Baselines re-run: 40/40 and 54/54, exit 0, worktree left pristine.
 
 🛑 **STILL NOT CONVERGED.** Three findings is not zero. Iteration 23 follows.
+
+### Iteration 23, 2026-09-04 23:50: a BLOCKER in the evidence line of the fix for false evidence
+
+Verdict: **NOT converged. 1 BLOCKER, 1 WARNING, 2 CONVENTIONs, all four mine, all in `f9134fc9` or
+the artifact it edited.** Every one confirmed with a control before fixing.
+
+🛑 **THE BLOCKER IS THE SIGNATURE DEFECT ONE LEVEL DEEPER.** Iteration 22 caught the PR body crediting
+this branch with a pre-existing test. My fix for that recorded its evidence as
+`git diff origin/main...HEAD | grep -c 1560` = 0. **That command prints 20** (control: `grep -c 1922`
+= 27, so the pipeline is live). What I actually RAN was scoped to `-- engine/connect.test.js`, which
+does return 0. ⇒ **I ran a scoped command and wrote down an unscoped one.**
+
+⭐ **Name the error precisely, because "be careful" does not catch it: THE RECORDED COMMAND WAS NOT
+THE COMMAND EXECUTED.** Transcribing a command into prose drops its pathspec, its flags, its working
+directory, and the transcription is never re-run. The conclusion survived (no test ARM named #1560 is
+added; the four source hits are all comments), but the evidence for it was false, **in the paragraph
+whose subject is false evidence.** ✅ **Remedy: paste the command from the shell, do not retype it,
+and re-run the pasted form once before committing.**
+
+**WARNING, in the PR body, the only artifact that leaves the repo.** The sentence said a signed-out
+user opens the gate "and a missing binary opens it too", then cited the `#1560` arm as asserting
+**that**. The arm asserts only the first clause (`loggedIn:false` -> `phase != CONNECTED`,
+`connect.test.js:1397`). The missing-binary case lives in a **different** pre-existing file,
+`engine/connect.nobinary-1580.test.js:137`. ⇒ **Source scope narrower than sentence scope**, the shape
+this branch has now produced at every level. Now cites both arms separately.
+
+**CONVENTION: `grep -n 'the seam'` returns FIVE hits (222, 599, 605, 621, 1418), not the three I
+listed.** Third time I have quoted a REGION as though it were a command's output, in the paragraph
+confessing exactly that habit.
+
+**CONVENTION, and the general point is worth more than the fix: three extractors produced three
+counts of "the citations".** My prose said 16, the reviewer counted 18, my own extractor counted 15.
+Nobody is lying: a count of citations is an artifact of the extraction regex, not a property of the
+document. ⇒ **Replaced the number with the method.** A bare count doing rhetorical work ("I was
+thorough") should be a command, or absent.
+
+**Independently re-verified clean by the reviewer, with controls:** every citation executed (the only
+zero-hit two are the ones the iteration-21 record documents as broken); the `#1560` arm text verbatim
+on `origin/main`; `--numstat` = 92+47 = 139; `create.js` four sites; the assignment sweep returning
+exactly `live-connect.js:29`; the three surviving "this branch's own" claims genuinely in the diff;
+and the recorded validation hash matching the newest jsonl row. Baselines 54/54 and 40/40, exit 0.
+
+🛑 **NOT CONVERGED. Iteration 24 follows.**
