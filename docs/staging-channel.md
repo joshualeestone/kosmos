@@ -88,6 +88,12 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    too (a rollback promotes a PRIOR committed pointer). Run it on the machine that ran the staging
    cut, where `$S/dist` holds the sha-verified artifacts.
 
+   If the release being promoted ALSO bumped the Windows build, the committed HEAD carries a new
+   `kosmos-<newV>-win-x64.zip` name and the honest-marker check refuses against the hardcoded default
+   (`$WINZIP`, #2008). Set `KOSMOS_WIN_ZIP=kosmos-<newV>-win-x64.zip bash tools/deploy-site.sh
+   --promote` in that case. A promote is likelier to hit this than a same-Windows site-copy, so it is
+   called out here; the durable fix is the unversioned win alias (#2008).
+
    **Fallback: the manual `release.sh` step-8 machinery**, documented below for understanding and for
    the rare case `deploy-site.sh` is unavailable. It has the same shape `--promote` automates.
 

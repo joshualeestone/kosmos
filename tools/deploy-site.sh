@@ -92,6 +92,10 @@ git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "deploy-site: $
 [ -f "$REPO/tools/lib/site-deploy.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/site-deploy.sh"; exit 1; }
 [ -f "$REPO/tools/lib/pkg-inputs.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pkg-inputs.sh (defines pkg_upload_filter_excludes)"; exit 1; }
 [ -f "$REPO/tools/verify-served.sh" ]  || { echo "deploy-site: cannot find $REPO/tools/verify-served.sh"; exit 1; }
+# sha256-name.sh is sourced ONLY on the --promote path (it derives the alias sidecar). Check it here,
+# guarded on PROMOTE, so the failure is a clear up-front precondition rather than a cryptic set-e
+# abort mid-run when the source fails -- matching the checks above for the other sourced libs.
+[ "$PROMOTE" != 1 ] || [ -f "$REPO/tools/lib/sha256-name.sh" ] || { echo "deploy-site: --promote needs $REPO/tools/lib/sha256-name.sh (to derive the alias checksum), which is missing"; exit 1; }
 command -v vercel >/dev/null 2>&1 || { echo "deploy-site: vercel CLI not found"; exit 1; }
 
 # --- 1) fetch and verify the CURRENT live artifacts into the site dist/ -------
