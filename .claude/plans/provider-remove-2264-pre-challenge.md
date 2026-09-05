@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: provider-remove-2264
-diff_hash: a254dac7af586c76bee8f503423ff035a861b8d2059e09fb220a4d5e10b3d197
+diff_hash: 8b8d6190b0615be97bcc407194da75285c8e0c511343ef6503c2d37010cf3255
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-05T19:18:17Z
@@ -59,6 +59,14 @@ was paused mid-run for a launch-cut browser-quiet window; re-run on CLEAR).
 | 1 | 1 | WARNING | engine/openaiaccounts.js removeAccount | default refusal was a basename check, would delete a moved default | FIXED | env-aware `clean === defaultDir()` + test |
 | 2 | 1 | NIT | server.remove-2264.test.js | route test Claude-only | FIXED | added OpenAI route remove test |
 | 3 | 2 | NIT | (pre-existing) | defaultDir() unguarded throw, mirrors forgetAccount | NO ACTION | pre-existing, does not throw in practice |
+
+### Post-convergence fix (CI full-suite, not a product change)
+The full-suite CI red'd on web.ask-first-1683.test.js (9 fails): it slices the
+disconnect handler out of the page by anchoring on the loop literal, which the
+generalization to [data-forget],[data-remove] moved. Re-anchored the test to the
+two-selector form; the fixture still exercises the Disconnect path unchanged
+(10/10). No product code changed after iter-2's convergence; this is the
+handler-extraction test catching up to the handler.
 
 ### Outstanding questions (ASKED)
 None.
