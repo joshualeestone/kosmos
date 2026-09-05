@@ -69,7 +69,10 @@ site_push_with_replay() {
   local sha="$start_sha" attempt=1
   while :; do
     local push_err push_rc
-    push_err="$(git -C "$site" push -q origin "$sha:refs/heads/main" 2>&1)"; push_rc=$?
+    # LC_ALL=C so git's rejection text stays English and the discrimination grep
+    # below is locale-independent (a translated "non-fast-forward" would otherwise
+    # be misread as a non-race failure -- it fails safe, but this removes the risk).
+    push_err="$(LC_ALL=C git -C "$site" push -q origin "$sha:refs/heads/main" 2>&1)"; push_rc=$?
     if [ "$push_rc" = 0 ]; then
       printf '%s\n' "$sha"
       return 0
