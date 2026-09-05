@@ -39,3 +39,26 @@ the check asserts the loader is started-on-nav / finished-on-error as STATE, not
 - Render-only/hermetic, NOT interactive-live-app: runnable headless via the pinned Playwright runtime,
   no claude-fe. (Earlier mis-parked needs-browser; corrected.)
 - No em dashes. Merge on green, no reviewer (Kosmos beta).
+
+## Adoption note (Renet Tilley, night shift 2026-09-05)
+
+Splinter routed #2190 to me after Angel built it (branch `createnav-2190`, worktree
+preserved) but stopped at ~89% context WITHOUT merging, to avoid dying mid-challenge-loop.
+Her fix is built, hermetically verified, perturbation-proven, and iteration-1-reviewed (a
+blind agent found one real regression -- a K-loader RAF leak on walk-away, fixed with a
+`dropMyLoader()` helper keyed on `MADE_MARK === myMark` so it finishes only this attempt's
+loader -- plus two NITs, all fixed). I ADOPTED her branch (created `createnav-2190-rt` from
+its tip and rebased onto current green main; clean, the nav change is disjoint from the
+churn since her base) rather than rebuild.
+
+REMAINING when adopted, and the gating question Splinter set (Step 1): the full
+browser-checks.sh on Angel's ~10-behind checkout showed 2 reds NEITHER hers --
+`render-accounts-openai` (the OpenAI account/model menu) and `render-create-form` (the
+create-form layout). #2190 touches ONLY the create-go NAV handler; a grep of this branch's
+web/index.html diff for account/create-form/model-menu markup is EMPTY, so those surfaces
+are untouched. Per the stale-worktree class, they must be baselined on a CLEAN origin/main
+before merge: if they fail there too they are pre-existing (merge #2190 on its own green);
+if they pass on clean main but fail here, investigate (implausible given scope). That
+baseline + the challenge-loop's browser gate are HELD during Splinter's browser-quiet
+window (he is sequencing a 6.35 re-cut against render-tier browser contention); resumed the
+moment he lifts it.
