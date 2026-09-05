@@ -840,9 +840,11 @@ test('#2140 openaiModelClass: chat vs denylisted-nonchat vs unknown, with contro
   // Denylist wins even inside a known family (checked first).
   assert.equal(openai.openaiModelClass('gpt-4o-audio-preview').kind, 'nonchat', 'a non-chat variant of a chat family is nonchat, not unknown');
   assert.equal(openai.openaiModelClass('text-embedding-3-large').kind, 'nonchat', 'an embedding model is nonchat');
-  // Neither a known family nor denylisted -> unknown (a future chat family).
-  assert.equal(openai.openaiModelClass('gpt-6').kind, 'unknown', 'an unrecognised future model is unknown, not dropped');
-  assert.equal(openai.openaiModelClass('o5').kind, 'unknown', 'an unrecognised future reasoning model is unknown too');
+  // #2140 item 9: a gpt version NEWER than the top fixed family (gpt-5) is now a
+  // recognised, top-ranked chat model, not 'unknown'. A non-gpt unrecognised id
+  // (no version to parse) stays 'unknown' and is offered as such.
+  assert.equal(openai.openaiModelClass('gpt-6').kind, 'chat', 'a gpt version newer than gpt-5 is a recognised (top-ranked) chat model, #2140 item 9');
+  assert.equal(openai.openaiModelClass('o5').kind, 'unknown', 'a non-gpt unrecognised id is still unknown (offered)');
   // CONTROL: a denylist term inside an otherwise-unknown family still wins -> nonchat.
   assert.equal(openai.openaiModelClass('o5-audio').kind, 'nonchat', 'a denylisted variant of an unknown family is nonchat, never offered');
   assert.equal(openai.openaiModelClass('gpt-3.5-turbo').kind, 'unknown', 'a real chat model outside the allowlist is unknown (offered), not silently dropped');
@@ -851,13 +853,13 @@ test('#2140 openaiModelClass: chat vs denylisted-nonchat vs unknown, with contro
 test('#2140 chatModelsFromList OFFERS an unknown id, ranked last, marked, never the default', () => {
   const data = [
     { id: 'gpt-5' },      // recognised, most capable -> the default
-    { id: 'gpt-6' },      // unknown future model -> offered, unverified, last
+    { id: 'o5' },         // non-gpt unrecognised model -> offered, unverified, last
     { id: 'whisper-1' },  // nonchat -> still dropped
   ];
   const rows = openai.chatModelsFromList(data);
   const args = rows.map((r) => r.arg);
-  assert.deepEqual(args, ['gpt-5', 'gpt-6'], 'the unknown id is offered and sorts after the recognised one; the non-chat id is dropped');
-  const unknown = rows.find((r) => r.arg === 'gpt-6');
+  assert.deepEqual(args, ['gpt-5', 'o5'], 'the unknown id is offered and sorts after the recognised one; the non-chat id is dropped');
+  const unknown = rows.find((r) => r.arg === 'o5');
   assert.equal(unknown.unverified, true, 'the unknown row is flagged unverified');
   assert.match(unknown.label, /compatibility not verified/i, 'the marker is in the label so it shows in the dropdown');
   assert.ok(unknown.why && /recognise|confirm|chat/i.test(unknown.why), 'the unknown row carries an honest why');
@@ -868,7 +870,7 @@ test('#2140 chatModelsFromList OFFERS an unknown id, ranked last, marked, never 
 });
 
 test('#2140 an account with ONLY unknown models offers them, unverified, with NO default', () => {
-  const rows = openai.chatModelsFromList([{ id: 'gpt-6' }, { id: 'o5' }]);
+  const rows = openai.chatModelsFromList([{ id: 'o5' }, { id: 'mystery-9' }]);
   assert.equal(rows.length, 2, 'both unknown models are offered, not erased');
   assert.ok(rows.every((r) => r.unverified === true), 'every offered row is marked unverified');
   assert.equal(rows.filter((r) => r.default === true).length, 0, 'no default is set when every option is unverified (the picker prepends its own selected "Let OpenAI choose")');
@@ -884,6 +886,60 @@ test('#2140 chatRunnableIds: an unknown id is runnable (offerable => runnable); 
   assert.ok(runnable.includes('gpt-6'), 'an offered unknown id validates, so a stored/chosen one is not refused');
   assert.ok(runnable.includes('gpt-4o'), 'a recognised chat id is runnable');
   assert.ok(!runnable.includes('text-embedding-3-large'), 'a denylisted non-chat id is never runnable');
+});
+
+/* #2140 (Josh, 0.6.35 item 9): the OpenAI picker is sorted most-powerful-first,
+   by GPT version DESCENDING then tier within a version. A tier newer than the top
+   fixed family (gpt-5) must rank at the TOP as a recognised model, NOT at the
+   bottom with a "compatibility not verified" marker (the pre-fix behaviour). */
+
+test('#2140 item 9: gpt tiers newer than gpt-5 sort to the top in Josh\'s version-then-tier order', () => {
+  // Deliberately shuffled input; the fixture uses the gpt-<version>-<tier> id shape.
+  const data = [
+    { id: 'gpt-4o' }, { id: 'gpt-5.4-mini' }, { id: 'gpt-5.6-luna' }, { id: 'gpt-5' },
+    { id: 'gpt-5.5' }, { id: 'gpt-5.6-terra' }, { id: 'gpt-4' }, { id: 'gpt-5.4-pro' },
+    { id: 'gpt-5.6-soul' }, { id: 'gpt-5.5-pro' }, { id: 'gpt-5.4-nano' },
+  ];
+  const args = openai.chatModelsFromList(data).map((r) => r.arg);
+  assert.deepEqual(args, [
+    'gpt-5.6-terra', 'gpt-5.6-soul', 'gpt-5.6-luna',   // 5.6 tier, Terra>Soul>Luna
+    'gpt-5.5-pro', 'gpt-5.5',                           // 5.5 tier, Pro>plain
+    'gpt-5.4-pro', 'gpt-5.4-nano', 'gpt-5.4-mini',      // 5.4 tier, Pro>Nano>Mini
+    'gpt-5',                                            // then the fixed families, unchanged
+    'gpt-4o', 'gpt-4',
+  ], 'the OpenAI picker is not in Josh\'s most-powerful-first version-then-tier order');
+});
+
+test('#2140 item 9: a newer-than-gpt-5 tier is RECOGNISED, not marked "compatibility not verified"', () => {
+  const rows = openai.chatModelsFromList([{ id: 'gpt-5.6-terra' }, { id: 'gpt-5' }]);
+  const terra = rows.find((r) => r.arg === 'gpt-5.6-terra');
+  assert.ok(terra, 'the newer tier is offered');
+  assert.ok(!terra.unverified, 'a parsed newer gpt tier is recognised, not flagged unverified');
+  assert.doesNotMatch(terra.label, /compatibility not verified/i, 'no unverified marker on a recognised newer tier');
+  assert.ok(terra.why && !/compatibility not verified/i.test(terra.why), 'it carries a real why, not the unverified copy');
+});
+
+test('#2140 item 9 CONTROL: gpt-5 and the GPT-4s keep their existing order (no regression below the new tiers)', () => {
+  const args = openai.chatModelsFromList([{ id: 'gpt-4' }, { id: 'gpt-4o' }, { id: 'gpt-5' }, { id: 'gpt-4.1' }]).map((r) => r.arg);
+  assert.deepEqual(args, ['gpt-5', 'gpt-4.1', 'gpt-4o', 'gpt-4'],
+    'the fixed families below gpt-5 must be untouched by the version-lift');
+});
+
+test('#2140 item 9: forward-compatible -- a future gpt-6 sorts above the gpt-5.6 tier', () => {
+  const args = openai.chatModelsFromList([{ id: 'gpt-5.6-terra' }, { id: 'gpt-6' }, { id: 'gpt-5' }]).map((r) => r.arg);
+  assert.deepEqual(args, ['gpt-6', 'gpt-5.6-terra', 'gpt-5'], 'a higher version must sort first with no code change');
+});
+
+test('#2140 item 9 CONTROL: a non-chat variant of a newer tier is still dropped, and a non-gpt unknown is still unverified-last', () => {
+  // gpt-5.6-audio: newer version BUT denylisted -> dropped (nonchat wins, #1026 preserved).
+  const rows = openai.chatModelsFromList([{ id: 'gpt-5.6-audio' }, { id: 'gpt-5.6-terra' }, { id: 'mystery-model-9' }]);
+  const args = rows.map((r) => r.arg);
+  assert.ok(!args.includes('gpt-5.6-audio'), 'a non-chat variant of a newer tier is dropped, not lifted');
+  assert.equal(args[0], 'gpt-5.6-terra', 'the chat tier still leads');
+  // A genuinely unknown NON-gpt id keeps the unknown-last + unverified behaviour.
+  const mystery = rows.find((r) => r.arg === 'mystery-model-9');
+  assert.ok(mystery && mystery.unverified, 'a non-gpt unrecognised id is still offered unverified (unchanged)');
+  assert.equal(args[args.length - 1], 'mystery-model-9', 'the unknown non-gpt id still sorts last');
 });
 
 /* #2191: runnableAllowlist is the glue both the create and change-model routes
