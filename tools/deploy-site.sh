@@ -247,6 +247,8 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # "command not found" that the release path never hits because it sources pkg-inputs.sh first.
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/pkg-inputs.sh"
+# #1667: served-verify helpers (negative control + content-type tell) for the post-deploy checks.
+. "$REPO/tools/lib/served-verify.sh"
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }
 
@@ -310,14 +312,19 @@ done
 # the served latest.json (tracked, committed) must still name $ART after the deploy.
 sj=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: could not re-read the served latest.json after deploy -- investigate."; exit 1; }
 printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest.json no longer names $ART after deploy -- investigate."; exit 1; }
-# tracked / git-archive-shipped surfaces: a 200 is enough -- git archive ships committed bytes
-# deterministically, and a bytes-vs-agent-workforce compare is exactly the version-skew trap the
-# verify-served.sh removal avoids. The win zip is under /dist; /setup is at the site root.
-served_200() {  # <full-url> <label>
-  c=$(curl -sSL -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$1") || { echo "deploy-site: could not reach $1 to confirm it is served (transport error) -- investigate; the deploy already ran."; exit 1; }
-  [ "$c" = "200" ] || { echo "deploy-site: $2 is NOT served ($c) after deploy -- investigate."; exit 1; }
-}
-served_200 "$HOST/dist/$WINZIP" "the Windows zip $WINZIP"
-served_200 "$HOST/setup"        "/setup"
+# tracked / git-archive-shipped surfaces: git archive ships committed bytes deterministically, and a
+# bytes-vs-agent-workforce compare is exactly the version-skew trap the verify-served.sh removal
+# avoids. So each is checked with served_verify_asset_ok (a 200 AND a content-type that is NOT an
+# html page). The win zip is under /dist; /setup is at the site root.
+#
+# #1667: a 200 only means a request SUCCEEDED, not that the asset you named exists -- on this infra a
+# preview/deployment URL 302s to an SSO page that 200s (text/html) for EVERY path. $HOST is the
+# production alias, which discriminates (a nonexistent path 404s), but PROVE that at runtime before
+# trusting any 200 here rather than assuming the alias is still sound. served_verify_host_discriminates
+# refuses if a path that cannot exist returns 200; served_verify_asset_ok also rejects a 200 carrying
+# text/html. (tools/lib/served-verify.sh, sourced above.)
+served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
+served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo "deploy-site: investigate; the deploy already ran."; exit 1; }
+served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: investigate; the deploy already ran."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
