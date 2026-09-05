@@ -206,7 +206,18 @@ function managedRoot() {
  */
 function pathextCandidates(p, platform = process.platform, env = process.env) {
   if (platform !== 'win32') return [p];
-  if (path.extname(p)) return [p];
+  /* 🛑 path.win32.extname, NOT path.extname -- this function committed, inside
+     itself, the very bug it exists to fix. Bare `path.extname` is the HOST's
+     flavour: on a Mac it is the POSIX one, which does not treat a backslash as a
+     separator, so it reads `C:\Users\a\.local\bin\claude` as a single basename
+     and returns ".local\bin\claude". Non-empty, so the win32 branch concluded the
+     path already carried a suffix and offered no candidates -- correct on
+     Windows, inert everywhere else, and therefore invisible to me while every
+     measurement I ran was on Windows. CI on the Mac caught it, which is the
+     machine whose blind spot the injected platform exists to remove.
+     ⇒ The path FLAVOUR must be chosen by the platform being REASONED ABOUT,
+     never by the one doing the reasoning. */
+  if (path.win32.extname(p)) return [p];
   /* The machine's own list, because it is the list the loader will use; the
      literal is the documented Windows default for the case where the variable
      is missing from a stripped environment. */
