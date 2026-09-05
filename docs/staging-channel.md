@@ -110,10 +110,12 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    skips that verification, and `deploy-site.sh` cannot repopulate it here (its committed-vs-live
    guard refuses this exact state). #2195's tool will fetch + sha-verify each artifact like
    `deploy-site.sh` does.
-   Then **verify SERVED prod BY CONTENT** from outside: `curl $HOST/dist/latest.json` names `<V>`,
-   and the DOWNLOADED `kosmos-<V>-arm64.tar.gz` sha matches the pointer. The control that returns the
-   dangerous answer is "still `<old V>`" -- confirm it actually flipped. (First run for 0.6.30,
-   2026-09-04; the vercel project aliases chaoskosmos.com + installkosmos.com.)
+   Then **verify SERVED prod BY CONTENT** from outside, CACHE-BUSTED (a stale edge copy can read the
+   old version right after a deploy, as deploy-site.sh's own fetches guard against): `curl -H
+   'Cache-Control: no-cache' "$HOST/dist/latest.json"` names `<V>`, and the DOWNLOADED tarball from
+   `curl -H 'Cache-Control: no-cache' "$HOST/dist/kosmos-<V>-arm64.tar.gz"` sha-matches the pointer.
+   The control that returns the dangerous answer is "still `<old V>`" -- confirm it actually flipped.
+   (First run for 0.6.30, 2026-09-04; the vercel project aliases chaoskosmos.com + installkosmos.com.)
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
 
