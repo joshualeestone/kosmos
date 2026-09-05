@@ -275,6 +275,46 @@ test('#1704: POST /api/worlds refuses the reserved id and translates a bad name'
   assert.match(JSON.parse(bad.body).because, /name we can use for a Kosmos/, 'the engine error is translated for a person');
 });
 
+// #1704 slice 2b-ii: POST /api/worlds/active switches the active world in the registry.
+test('#1704 2b-ii: POST /api/worlds/active switches the active world and reports restartRequired', async () => {
+  // Create a world to switch to (does not switch on its own -- proven by the sibling test above).
+  const made = await postJson('/api/worlds', { name: 'Switch Target' });
+  assert.equal(made.status, 200);
+  const targetId = JSON.parse(made.body).world.id;
+
+  try {
+    const switched = await postJson('/api/worlds/active', { id: targetId });
+    assert.equal(switched.status, 200);
+    const body = JSON.parse(switched.body);
+    assert.equal(body.ok, true);
+    assert.equal(body.world.id, targetId, 'the response reports the now-active world');
+    assert.equal(body.restartRequired, true, 'the switch takes effect on the next board start, so restartRequired is honest');
+
+    // The registry now reports the switch (GET reads it fresh) even though the
+    // running board still serves the previous world's roots until it restarts.
+    const after = JSON.parse((await req('/api/worlds')).body);
+    assert.equal(after.activeWorldId, targetId, 'GET /api/worlds reflects the switch');
+  } finally {
+    // Leave the sandbox on the default world so later tests that assume it are unaffected.
+    const back = await postJson('/api/worlds/active', { id: 'default' });
+    assert.equal(back.status, 200);
+    assert.equal(JSON.parse((await req('/api/worlds')).body).activeWorldId, 'default', 'restored to default');
+  }
+});
+
+test('#1704 2b-ii: POST /api/worlds/active is 404 for an unknown id and 400 for a missing id', async () => {
+  const unknown = await postJson('/api/worlds/active', { id: 'no-such-world-xyz' });
+  assert.equal(unknown.status, 404, 'a well-formed id that names no world is not-found, not a malformed request');
+  assert.match(JSON.parse(unknown.body).because, /no Kosmos with that id/);
+
+  const missing = await postJson('/api/worlds/active', {});
+  assert.equal(missing.status, 400, 'a missing id is a malformed request');
+  assert.match(JSON.parse(missing.body).because, /which Kosmos/);
+
+  // The failures did not move the active world off default.
+  assert.equal(JSON.parse((await req('/api/worlds')).body).activeWorldId, 'default', 'a failed switch left the active world untouched');
+});
+
 test('#1938: /api/scan-agents caches the disk walk, and a mutating route invalidates it', async () => {
   /* 🛑 THE WALK IS HEAVY AND THE BOARD POLLS IT EVERY 5s. Without the route cache,
      every viewer on the agents tab crawls the disk several times a minute, synchronously.

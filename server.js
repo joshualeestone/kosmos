@@ -2456,7 +2456,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   /* #1704: the multiple-Kosmos registry. GET lists the worlds + the active one;
-     POST creates one (does NOT switch to it -- switch is slice 2b's /api/worlds/active).
+     POST creates one (does NOT switch to it -- switch is POST /api/worlds/active, below).
      worldBase() is the registry base captured at start() before any world override,
      so these operate on the registry regardless of which world is active. */
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -2481,6 +2481,49 @@ const server = http.createServer((req, res) => {
         try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
         sendJson(res, 200, { ok: true, world });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #1704 slice 2b-ii: switch the active world. This records activeWorldId in the
+     registry (worlds.setActiveWorld) and reports restartRequired. It deliberately
+     does NOT stop-and-relaunch the board: a world's env overrides (the data /
+     projects / workers roots) are applied ONCE at board startup by
+     worlds.applyActiveWorldEnv, so a running board keeps serving the PREVIOUS
+     world's roots until it restarts. That stop-and-relaunch lifecycle -- and the
+     per-world launchd agents that ride it -- is the next slice; this route is the
+     registry switch plus the honest restartRequired signal the switcher UI needs,
+     with no board self-restart merged (which would be a fleet-affecting action on
+     a shared box). worldBase() is the pre-override registry base captured at
+     start(), so the switch operates on the registry regardless of which world is
+     active. */
+  if (pathname === '/api/worlds/active' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        // A missing id is a MALFORMED request (400); a well-formed id that names no
+        // world is NOT-FOUND (404). They are different failures and the switcher UI
+        // acts on them differently (fix the request vs refresh the world list).
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to switch to (an id)' }); return; }
+        let base;
+        // A base error is a SERVER condition (broken login env), not a bad request:
+        // 500, and never leak the internal dataRootFor message.
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.setActiveWorld(base, id); }
+        catch (e) {
+          // setActiveWorld throws `no such world "<id>"` for an id absent from the
+          // registry; any other throw is an unexpected write failure.
+          if (/no such world/i.test(String((e && e.message) || ''))) {
+            sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return;
+          }
+          sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
+        }
+        // restartRequired: the switch is recorded, but the running board still
+        // serves the previous world's roots until it restarts (see block comment).
+        sendJson(res, 200, { ok: true, world, restartRequired: true });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
