@@ -64,9 +64,10 @@ served_verify_asset_ok() {
   fi
   # #1667 tell: a real asset carries a content-type, and it is never an html page. Media types are
   # case-insensitive (RFC 2045), so lowercase before matching -- a server sending Text/HTML must not
-  # slip through (the fleet's most-repeated false-zero class). An EMPTY content-type is also refused:
-  # a 200 with no content-type cannot be confirmed to be a real asset.
-  _svao_ct_lc=$(printf '%s' "$_svao_ct" | tr 'A-Z' 'a-z')
+  # slip through (the fleet's most-repeated false-zero class). Use the [:upper:]/[:lower:] class form,
+  # not an A-Z range (locale-collation-fragile, and the newer lib convention here). An EMPTY
+  # content-type is also refused: a 200 with no content-type cannot be confirmed to be a real asset.
+  _svao_ct_lc=$(printf '%s' "$_svao_ct" | tr '[:upper:]' '[:lower:]')
   case "$_svao_ct_lc" in
     '')
       echo "served-verify: ${_svao_label} returned 200 but with NO content-type -- cannot confirm it is a real asset, not a page (#1667) -- ${_svao_url}" >&2

@@ -61,6 +61,19 @@ HTTP request per deploy.
   concurrent `bash tools/browser-checks.sh`, pid 36115, on the shared Mac) - reproduced identically on
   the clean main checkout, so not this change; CI runs on a clean runner.
 
+## Review dispositions
+- iter1 WARNING (case-sensitive html match): FIXED (lowercase before matching; new red-capable arm).
+  iter1 NITs (empty content-type accepted, no curl timeouts, no [ -f ] source guard): all FIXED.
+- iter2 CONVENTION (tr A-Z range form is locale-fragile): FIXED (tr '[:upper:]' '[:lower:]', the
+  newer lib convention). iter2 NIT (terse caller messages): improved.
+- iter2 WARNING (the negative control couples on the prod alias 404-ing unknown /dist paths; a future
+  Vercel SPA catch-all / rewrite that 200s unknown paths would make every deploy refuse here):
+  DEFERRED as acceptable-by-design. This is the feature, not a bug: if the prod alias ever started
+  200-ing unknown /dist paths, the discrimination the WHOLE served-verify relies on would be broken,
+  and a verification gate that REFUSES rather than certifies blind is exactly right. It runs after
+  `vercel deploy --prod`, so a false refusal triggers investigation, never state corruption, and the
+  message names the #1667 shape so the cause is obvious. The coupling is recorded here so it is known.
+
 ## Routing (the non-release instruments, to their owners)
 - Installer reachable() accepts 206 (dead "could not reach" message) -> Ice Cream Kitty (installer).
 - Deployment-URL checks read blind (302 for subject and control) -> Angel/Renet.
