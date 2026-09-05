@@ -4606,14 +4606,24 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
 /* The reconcile default for a beat-known paneless agent (win32/remote): it holds a
    token so it MAY speak, but has said nothing yet on this board. */
 const PANELESS_DEFAULT = { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'it has no window on this computer to read, and it has not said anything yet' };
-/* #1078: the reconcile default for a Kosmos-created-but-never-run agent. STOPPED,
-   not UNKNOWN: we KNOW it exists (a launchd job we wrote) and KNOW it is not running
-   (no pane, no beat), which is exactly classify()'s own STOPPED/STRUCTURED reading
-   ("Claude is not running for this one"), not the "we could not read it" of UNKNOWN.
-   Routed through reconcileReport like every paneless card, so a truly never-run
-   agent shows STOPPED while one that ran-then-stopped-and-went-cold (plist present,
-   pane gone, beat stale) correctly surfaces its last decayed report instead. */
-const NEVER_RUN_DEFAULT = { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'it was created on this computer and has not been started yet' };
+/* #1078: the reconcile default for a Kosmos-created agent that is not on the board
+   (no pane, no live beat). STOPPED, not UNKNOWN: we KNOW it exists (a launchd job we
+   wrote) and KNOW it is not running, which is exactly classify()'s own
+   STOPPED/STRUCTURED reading ("Claude is not running for this one"), not the "we
+   could not read it" of UNKNOWN.
+   🛑 reconcileReport RULE 2 SHORT-CIRCUITS on a STOPPED/STRUCTURED default (the
+   `scraped.state === STOPPED && confidence === STRUCTURED` branch below), ABOVE the
+   working/needs_you/blocked report rules -- so a card built on this default is
+   ALWAYS STOPPED: a stale self-report from a prior run is NOT surfaced (a clean
+   "stopped" report only changes the copy to "it said it was stopping", still
+   STOPPED). That is deliberate, not a gap: this source lists an agent with NO pane
+   and NO live beat, so any report it still holds is from a dead session and stale,
+   and STOPPED is the honest reading -- the same false-calm reasoning Rule 3 applies
+   one state over. The copy therefore asserts only what is certainly true of every
+   card here -- created, and not running -- and NOT "never started", because this
+   source cannot distinguish a truly never-run agent from one that ran once and went
+   cold (both are a job + worker dir with no pane and no beat). */
+const NEVER_RUN_DEFAULT = { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'it was created on this computer and is not running right now' };
 
 function panelessCard(key, nowMs, defaultStatus) {
   const identity = readIdentity(key);

@@ -32,6 +32,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const status = require('./status');
 const store = require('./store');
+const selfreport = require('./selfreport');
 const fleet = require('../test-support/fleet');
 
 /* One Mac pane in every fleet below is the control: an assertion that the
@@ -61,7 +62,7 @@ test('a created-never-run agent appears as a STOPPED, paneless card', () => {
     assert.equal(card.paneless, true, 'a created-never-run card must be paneless');
     assert.equal(card.state, status.STATE.STOPPED, 'a never-run agent is STOPPED, not unknown');
     assert.equal(card.stateConfidence, status.CONFIDENCE.STRUCTURED);
-    assert.match(card.because, /created on this computer and has not been started/);
+    assert.match(card.because, /created on this computer and is not running/);
     assert.equal(card.isNamedOurs, true);
     // Control, in the same read: the live Mac agent is here and is NOT paneless,
     // so `paneless`/state are discriminating rather than constant.
@@ -70,6 +71,26 @@ test('a created-never-run agent appears as a STOPPED, paneless card', () => {
     assert.equal(mac.paneless, false);
     assert.equal(mac.state, status.STATE.WORKING);
   });
+});
+
+test('a stale self-report from a prior run is NOT surfaced -- the card stays STOPPED (reconcileReport Rule 2)', () => {
+  // A created agent that ran once, said "blocked", then went cold (no pane, no live
+  // beat) has a lingering self-report on file. NEVER_RUN_DEFAULT is STOPPED/STRUCTURED,
+  // and reconcileReport Rule 2 short-circuits on that above the report rules, so the
+  // card must be STOPPED, NOT blocked -- a report from a dead session is stale. This
+  // pins the behavior the comment describes (and that an earlier comment got wrong).
+  const r = selfreport.record('coldagent', { state: 'blocked', on: 'a signed installer', owner: 'Josh' });
+  assert.equal(r.recorded, true, 'the fixture self-report was refused: ' + r.because);
+  try {
+    withCreated(() => ['coldagent'], (cards) => {
+      const card = cards.find((c) => c.sessionName === 'coldagent');
+      assert.ok(card, 'the cold agent did not appear on the board');
+      assert.equal(card.state, status.STATE.STOPPED, 'a stale report leaked through -- the card is not STOPPED');
+      assert.notEqual(card.state, status.STATE.BLOCKED, 'the dead-session report was surfaced');
+    });
+  } finally {
+    try { fs.rmSync(selfreport.DIR, { recursive: true, force: true }); } catch { /* best effort */ }
+  }
 });
 
 test('the created source is handed the board keys to dedup against (the live Mac agent is excluded)', () => {

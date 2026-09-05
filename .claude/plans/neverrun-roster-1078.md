@@ -42,10 +42,14 @@ The Mac board roster gets a THIRD source, complementary to the two it already ha
   existing UNKNOWN object, so the panelessKeys path is byte-identical). The created
   path passes `NEVER_RUN_DEFAULT = { state: STOPPED, confidence: STRUCTURED,
   because: 'it was created on this computer and has not been started yet' }`.
-  Routing through `reconcileReport(selfreport.read(key), default)` means a truly
-  never-run agent shows STOPPED, while an agent that ran-then-stopped-and-went-cold
-  (plist present, pane gone, beat stale) correctly surfaces its last (decayed)
-  report — the same behavior panelessCard already gives paneless agents.
+  Routing through `reconcileReport(selfreport.read(key), NEVER_RUN_DEFAULT)`: because
+  the default is STOPPED/STRUCTURED, reconcileReport Rule 2 SHORT-CIRCUITS above the
+  report rules, so a card built on this source is ALWAYS STOPPED — a stale self-report
+  from a prior run is NOT surfaced (verified by execution in challenge iteration 2). That
+  is deliberate: this source lists agents with no pane and no live beat, so any report
+  they hold is from a dead session and stale, and STOPPED is the honest reading. The
+  copy therefore asserts only "created, not running", never "never started", since the
+  source cannot tell a truly never-run agent from one that ran once and went cold.
 - `server.js`: wire `setCreatedSource(require('./engine/createdroster').make())`
   on the Mac path (gated `!== 'win32'`). The enumeration is plist-based (launchd),
   so it is Mac-specific; the win32 never-run analog (a win32sessions-record source)

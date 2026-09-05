@@ -98,6 +98,12 @@ function make(opts) {
     let removed;
     try { removed = remove.removedNames(); } catch { return []; }
     if (!removed || !removed.ok) return [];
+    // Normalize both sides with create.cleanName -- the SAME transform remove.js keys
+    // its own record under (recordRemoval stores cleanName(name); isRemoved compares
+    // cleanName(name)), so this skip matches remove.js's own notion of "removed". The
+    // plist name is a slugFor slug and cleanName leaves a slug unchanged, so the two
+    // sides align today; the invariant to preserve is that cleanName stays the shared
+    // key with remove.js, NOT that it equals slugFor.
     const removedSet = new Set(removed.names.map((n) => create.cleanName(n)));
     const exclude = excludeKeys instanceof Set ? excludeKeys : new Set();
     let files;
