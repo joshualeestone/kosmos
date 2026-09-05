@@ -108,11 +108,24 @@ printf '#!/bin/bash\nsleep 30\n' > "$T/tools/browser-checks.sh"; chmod +x "$T/to
 # refused" would be true no matter what the shipped expression matched -- the
 # control would pass for a reason nobody checked. So count before and after:
 # the decoy must add exactly one, whatever else is running.
-live_count() {
-  local o self="${1:-$$}"
-  o="$(KOSMOS_BC_SELF_PID="$self" kosmos_refuse_if_browser_run_live "count" 2>&1)"
-  case "$o" in *" live; first: "*) echo "$o" | sed -n 's/.*Mac (\([0-9]*\) live;.*/\1/p';; *) echo 0;; esac
+# #2287: key on the guard's EXIT CODE (its actual verdict: 1 = a live run was seen for this caller,
+# 0 = none), NOT its message text. The old live_count parsed a "Mac (<n> live; first: ..." COUNT that
+# the guard's current message (cut-guard.sh:301, a single <detail>, no count) no longer emits, so it
+# returned 0 for EVERY caller and the delta assertion below was always 0 != 1. The rc is what the
+# guard is actually deciding and cannot drift with the message wording. This makes the arm a boolean
+# pair (mine must not refuse for the excluded decoy; theirs must) rather than a count-delta; that suits
+# the arm's documented IDLE-box precondition, where there is no background page layer to cancel out.
+live_refuses() {
+  KOSMOS_BC_SELF_PID="${1:-$$}" kosmos_refuse_if_browser_run_live "count" >/dev/null 2>&1
+  [ "$?" -eq 1 ] && echo 1 || echo 0
 }
+# #2287: prove live_refuses's rc-keying on the controlled probe seam, so the fix is validated by the
+# DEFAULT run (the real-path arm below only runs opt-in on an idle box). Red-capable: probe-live -> 1,
+# probe-quiet -> 0; a helper that ignored rc (the old text-parse bug) would print 0 for probe-live.
+r="$(KOSMOS_BC_PROBE="$T/probe-live" live_refuses "$$")"
+if [ "$r" = "1" ]; then pass "live_refuses reports 1 when the guard refuses (seam)"; else fail "live_refuses on a live probe: $r"; fi
+r="$(KOSMOS_BC_PROBE="$T/probe-quiet" live_refuses "$$")"
+if [ "$r" = "0" ]; then pass "live_refuses reports 0 when the guard passes (seam)"; else fail "live_refuses on a quiet probe: $r"; fi
 # 🛑 OPT-IN, AND THE REASON IS NOT TIDINESS. This decoy is a literal
 # `bash tools/browser-checks.sh`, deliberately, so the SHIPPED pgrep
 # expression matches it -- that is the only thing that makes this a real-path
@@ -142,16 +155,21 @@ fi
 ( cd "$T" && bash tools/browser-checks.sh ) & decoy=$!
 sleep 30 & unrel=$!
 sleep 1
-mine="$(live_count $$)"        # the decoy is OUR descendant -> excluded
-theirs="$(live_count $unrel)"  # the decoy is unrelated to $unrel -> counted
+mine="$(live_refuses $$)"        # the decoy is OUR descendant -> excluded -> guard does NOT refuse
+theirs="$(live_refuses $unrel)"  # the decoy is unrelated to $unrel -> seen -> guard refuses
 out="$(KOSMOS_BC_SELF_PID=$unrel kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 # Kill by PID. Never `pkill -f browser-checks.sh` -- that matches every agent's
 # real run on this shared Mac, across account dirs.
 kill "$decoy" "$unrel" 2>/dev/null; wait "$decoy" "$unrel" 2>/dev/null
-if [ "$theirs" -eq $((mine + 1)) ]; then
-  pass "the SHIPPED pgrep sees a real page layer AND the subtree exclusion drops it for its own run (mine=$mine theirs=$theirs)"
+# #2287: an rc-based pair, not a count-delta (the guard emits no count to delta). On the documented
+# IDLE box: theirs must refuse (the shipped pgrep saw the real decoy) AND name it (browser-checks.sh),
+# and mine must NOT refuse (the #1391 subtree exclusion dropped the decoy for its own ancestor). Both
+# claims the old delta proved, now keyed on the guard's verdict. If the box is not idle, `mine` may
+# refuse on a background layer and this fails loudly -- correct for an opt-in idle-only diagnostic.
+if [ "$theirs" -eq 1 ] && [ "$mine" -eq 0 ] && has "$out" "browser-checks.sh"; then
+  pass "the SHIPPED pgrep sees a real page layer (names it) AND the subtree exclusion drops it for its own run (mine=$mine theirs=$theirs)"
 else
-  fail "real pgrep/#1391 delta: expected theirs=mine+1, got mine=$mine theirs=$theirs"
+  fail "real pgrep/#1391: expected theirs=1 mine=0 + named, got mine=$mine theirs=$theirs out=$out"
 fi
 if [ "$rc" -eq 1 ] && has "$out" "browser-checks.sh"; then
   pass "and an out-of-subtree real page layer refuses and is named"
