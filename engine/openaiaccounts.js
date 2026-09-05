@@ -741,7 +741,11 @@ const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'im
 
 /* #2140 (Josh, 0.6.35 feedback item 9): sort the OpenAI picker most-powerful-first.
    Josh's order runs by GPT VERSION descending (5.6 > 5.5 > 5.4 > ...), then by
-   TIER within a version (Terra > Soul > Luna, Pro > plain > Nano > Mini).
+   TIER within a version (Terra > Soul > Luna, Pro > plain > Mini > Nano).
+   ⚠️ Mini > Nano, corrected in #2263 (openaiTierScore below): nano is OpenAI's
+   SMALLEST tier, so most-powerful-first puts mini above it. This comment said
+   "Nano > Mini" until #2284 -- the original #2140 order, which #2263 fixed in
+   code but not here; a 0.6.36 re-request of the sort echoed this stale line.
 
    THE ACTUAL BUG (measured, not assumed): a newer tier the account returns, e.g.
    `gpt-5.6-terra`, ALREADY matched the fixed `gpt-5` prefix, so it was a
