@@ -2450,8 +2450,12 @@ const server = http.createServer((req, res) => {
      worldBase() is the registry base captured at start() before any world override,
      so these operate on the registry regardless of which world is active. */
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
-    const base = worldBase();
-    sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+    try {
+      const base = worldBase(); // can throw only on a broken login env (worldRegistryBase null -> baseRoot rethrows)
+      sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+    } catch (_e) {
+      sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
+    }
     return;
   }
   if (pathname === '/api/worlds' && req.method === 'POST') {

@@ -40,12 +40,24 @@ and gives the UI its list + create endpoints. The switch flow (2b) is separate.
 - **Dedup-on-read** (cosmetic): a hand-edited registry with duplicate ids surfaces both
   to the UI. Safe (find/worldBaseDir handle dups); 2b/cosmetic.
 
-## The named-world "does a root resolve before start()" question -- DEFERRED to 2b
-applyActiveWorldEnv only changes roots when a NAMED world is active, which cannot happen
-until 2b's switch. So in 2a the wiring is always a no-op and the "did any module resolve a
-root at module-load, before start()" analysis (the correctness premise for a NON-default
-active world) is a 2b concern. The codebase invariant (#1443/#1432: roots are per-call,
-NOT at require) is the basis; 2b verifies no module violates it.
+## 🛑 TOP 2b BLOCKER (found by the 2a blind review): 11 modules freeze the data root at REQUIRE
+applyActiveWorldEnv only changes roots when a NAMED world is active, which 2b's switch enables.
+An earlier draft of this plan claimed the #1443/#1432 invariant ("roots are per-call, NOT at
+require") holds fleet-wide -- that is FALSE. Measured: **11 engine modules capture the data root
+at REQUIRE time** with `const BASE = store.ROOT` (store.ROOT is a live getter, but a plain const
+captures its value once) and build data-file paths from it: commitments.js, autoupdate.js,
+forget.js, engmode.js, heartbeat-setting.js, limits.js, notify.js, ping.js, policy.js, remote.js,
+you.js. All are required at server.js top level BEFORE start(), so start()'s applyActiveWorldEnv
+sets AGENT_WORKFORCE_DATA too late for them.
+- In 2a this is a genuine NO-OP: the default world sets no override, so `store.ROOT` at require
+  IS the correct root. Existing installs are unaffected -- this does NOT block 2a.
+- In 2b it is a SYSTEMIC CROSS-WORLD DATA BLEED: switch to a named world and these 11 keep
+  serving the DEFAULT world's you.json / policy.json / commitments/ / limits.json / remote.json
+  while the rest of the board serves the named world.
+- **2b MUST, before exposing switch:** make these roots lazy (re-resolve per call, the #1443
+  fix applied to these modules) OR re-require/re-init them after applyActiveWorldEnv. A grep for
+  `const .* = store\.ROOT` across engine/ finds the set; each also needs its derived path consts
+  made lazy. This is the load-bearing correctness work of 2b, not an afterthought.
 
 ## Verification
 - engine/worlds.registry-1704.test.js: 17/17 (14 registry + 3 lock).

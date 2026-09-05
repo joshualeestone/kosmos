@@ -188,7 +188,16 @@ function withRegistryLock(base, fn) {
       catch (_e) { stale = true; } // the holder vanished between EEXIST and stat
       if (!stale) throw new Error('another Kosmos operation is in progress, try again in a moment');
       try { fs.rmdirSync(lockDir); } catch (_e) { /* someone else broke it first */ }
-      fs.mkdirSync(lockDir); // if this throws EEXIST, we lost the stale-break race; caught below
+      /* Break-and-acquire. If this mkdir throws EEXIST (another board re-took the
+         broken lock first), the outer catch turns it into the retryable error.
+         RESIDUAL WINDOW (accepted): if two boards BOTH judged the lock stale, one
+         can rmdir the OTHER's freshly-acquired lock and both then run fn -> a
+         lost-update. It needs a crashed prior holder AND a sub-millisecond
+         two-board collision, so it is vanishingly rare at this single-board-per-
+         install app's scale; a token-in-the-lock ("only break a lock whose token
+         is unchanged, verify mine after acquiring") is the robust fix if
+         multi-board contention ever becomes real. */
+      fs.mkdirSync(lockDir);
       held = true;
     }
     return fn();
