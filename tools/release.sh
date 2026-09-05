@@ -891,6 +891,10 @@ _site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and ve
 # SITE_SHA. Named paths only; versions.html must be in the set. See
 # tools/lib/site-push.sh.
 . "$REPO/tools/lib/site-push.sh"
+# The `|| exit 1` is load-bearing under this script's `set -e`: calling the function
+# in a tested context (the `|| ...`) suspends errexit for its whole body, so its
+# internal non-ff retry loop runs all attempts instead of aborting the cut on the
+# first rejected push. Do NOT change this to a bare `SITE_SHA="$(...)"`.
 SITE_SHA="$(site_commit_on_fresh_main "$SITE" "$_site_commit_msg" "$BUILD_ROOT" 5 "$_site_paths" "$V" "$REPO")" || exit 1
 # Verify the pushed commit actually carries every release file, and that our
 # versions entry landed on the FRESH page (the re-insert worked): a content check
@@ -911,8 +915,12 @@ fi
 # origin/main (not diverged, so no future cut is rejected) and self-heals on the
 # next fetch. This is what keeps cut-generated files from sitting uncommitted in the
 # shared checkout for a `commit -a` to sweep up.
+# Per-path, not `checkout -- $_site_paths`: the new versioned manifest is UNTRACKED
+# in the local index (it only reaches origin/main via the temp index), and git
+# refuses an ENTIRE multi-path checkout when any one pathspec matches no tracked
+# file -- which would restore NOTHING and leave the tracked release files dirty.
 # shellcheck disable=SC2086
-git -C "$SITE" checkout -- $_site_paths 2>/dev/null || true
+for _p in $_site_paths; do git -C "$SITE" checkout -- "$_p" 2>/dev/null || true; done
 rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json"
 git -C "$SITE" merge --ff-only "$SITE_SHA" >/dev/null 2>&1 \
   || echo "   note: left the site checkout BEHIND origin/main (colleague work present?); it is not diverged and self-heals on the next fetch"

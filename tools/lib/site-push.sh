@@ -82,7 +82,11 @@ site_commit_on_fresh_main() {
       return 1
     }
     local new_base
-    new_base="$(git -C "$site" rev-parse FETCH_HEAD)" || return 1
+    # Resolve the remote-tracking ref, not FETCH_HEAD: the same fetch updates
+    # refs/remotes/origin/main via the clone's default refspec, and unlike FETCH_HEAD
+    # it cannot be moved out from under us by another agent's concurrent fetch in
+    # this shared checkout between here and the push.
+    new_base="$(git -C "$site" rev-parse origin/main)" || return 1
     [ -n "$new_base" ] || { echo "could not resolve the fetched origin/main tip; refusing to build the release commit" >&2; return 1; }
 
     local reindex="$reindex_dir/site-reindex.$attempt"

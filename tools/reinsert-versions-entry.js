@@ -36,6 +36,9 @@ if (!baseFile || !ourFile || !version) {
 
 // 0.6.37 -> v0-6-37, matching the id="v0-6-37" anchors on the page.
 const id = 'v' + String(version).replace(/\./g, '-');
+// Escaped for embedding in a RegExp below. Today `id` is only [v0-9-] so this is a
+// no-op, but it hardens the anchor against a future non-numeric version string.
+const idRe = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 const base = fs.readFileSync(baseFile, 'utf8');
 const ours = fs.readFileSync(ourFile, 'utf8');
@@ -50,7 +53,7 @@ if (base.includes(`id="${id}"`)) {
 // through the next 4-space-indented </article> (entries never nest). The 4-space
 // indent is load-bearing -- it is how insert-release-entry.js anchors, and it
 // avoids matching an </article> that might appear inside prose at another indent.
-const startRe = new RegExp(`( {4})<article class="rel" id="${id}">`);
+const startRe = new RegExp(`( {4})<article class="rel" id="${idRe}">`);
 const startMatch = ours.match(startRe);
 if (!startMatch) {
   console.error(`our versions.html has no entry for ${id}; refusing to re-insert`);

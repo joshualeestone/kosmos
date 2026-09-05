@@ -141,20 +141,51 @@ git -C "$T/oC.git" show "$NEW_C:versions.html" | grep -q 'id="v9-9-9"' && ok "C:
 [ "$(git -C "$T/sC" rev-parse HEAD)" = "$LOCAL_BEFORE_C" ] && ok "C: local main not moved on the clean path" || bad "C: local main moved on clean path"
 
 # =====================================================================
-# NOTE ON THE max BOUND: because each attempt FETCHES a fresh tip before building,
-# a single concurrent merge is absorbed on the next attempt (Cases A and B prove
-# that). Exhausting max needs origin/main to keep moving between every fetch and
-# push -- a live continuous race, which is not deterministically reproducible in a
-# unit test, so it is deliberately NOT asserted here rather than faked with a test
-# that could not fail. What IS proven: a race is recovered (A, B) and a non-race
-# failure is never retried (E, below).
-#
-# Case E: a non-race push failure (a broken remote) is NOT retried; it aborts with
-# git's own error immediately.
+# The push discrimination grep (site-push.sh: retry ONLY a genuine non-ff), the
+# retry loop, and the max bound. These are driven deterministically with a
+# pre-receive hook on the bare origin that counts push attempts and rejects each
+# one -- the hook's stderr becomes the client's push error, so it controls which
+# branch of the discrimination grep fires. (A LIVE moving-tip race is absorbed on
+# the next fetch, so it cannot exhaust max in a unit test; the hook reproduces the
+# rejected-push path without needing timing.)
+
+# Case E1: a broken remote makes the FETCH fail first -- the function aborts before
+# any push, non-zero.
 mk_site "$T/oE.git" "$T/sE"
 git -C "$T/sE" remote set-url origin "$T/does-not-exist.git"
 OUT_E="$(site_commit_on_fresh_main "$T/sE" "$MSG" "$T" 5 "$PATHS" "$VER" "$REPO" 2>/dev/null)"; RC=$?
-[ "$RC" != 0 ] && ok "E: a broken remote aborts (non-zero), no retry storm" || bad "E: a broken remote returned 0"
+[ "$RC" != 0 ] && ok "E1: a broken remote (fetch fails) aborts non-zero" || bad "E1: a broken remote returned 0"
+
+# Case E2: a NON-race push rejection (the hook's message does not match the non-ff
+# grep) aborts after EXACTLY ONE attempt -- no retry storm.
+mk_site "$T/oE2.git" "$T/sE2"
+cat > "$T/oE2.git/hooks/pre-receive" <<EOF
+#!/bin/sh
+echo x >> "$T/e2-count"
+echo "remote error: authentication required -- not a race" >&2
+exit 1
+EOF
+chmod +x "$T/oE2.git/hooks/pre-receive"
+rm -f "$T/e2-count"
+OUT_E2="$(site_commit_on_fresh_main "$T/sE2" "$MSG" "$T" 5 "$PATHS" "$VER" "$REPO" 2>/dev/null)"; RC=$?
+CNT2=$(wc -l < "$T/e2-count" 2>/dev/null | tr -d ' ')
+{ [ "$RC" != 0 ] && [ "$CNT2" = 1 ]; } && ok "E2: a non-race push rejection aborts after ONE attempt (no retry)" || bad "E2: rc=$RC attempts=$CNT2 (expected non-zero + exactly 1)"
+
+# Case E3: a persistent NON-FF rejection (the hook echoes 'non-fast-forward', which
+# the grep matches) RETRIES up to max and then aborts. Exercises the retry loop and
+# the bound. max=3 -> exactly 3 push attempts, then non-zero.
+mk_site "$T/oE3.git" "$T/sE3"
+cat > "$T/oE3.git/hooks/pre-receive" <<EOF
+#!/bin/sh
+echo x >> "$T/e3-count"
+echo "non-fast-forward" >&2
+exit 1
+EOF
+chmod +x "$T/oE3.git/hooks/pre-receive"
+rm -f "$T/e3-count"
+OUT_E3="$(site_commit_on_fresh_main "$T/sE3" "$MSG" "$T" 3 "$PATHS" "$VER" "$REPO" 2>/dev/null)"; RC=$?
+CNT3=$(wc -l < "$T/e3-count" 2>/dev/null | tr -d ' ')
+{ [ "$RC" != 0 ] && [ "$CNT3" = 3 ]; } && ok "E3: a persistent non-ff retries to max (3) then aborts" || bad "E3: rc=$RC attempts=$CNT3 (expected non-zero + exactly 3)"
 
 # =====================================================================
 # Case F: guards -- a relative reindex_dir is refused; a paths set without
