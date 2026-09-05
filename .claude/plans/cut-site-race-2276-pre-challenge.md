@@ -2,12 +2,13 @@
 pre_challenge: true
 method: challenge-loop
 branch: cut-site-race-2276
-diff_hash: 9bb4d151d0178e7626e1139afe3eb8679a8f15c3cc2e31d023577477af0168e9
+diff_hash: e3e8c396281afd0e4e3498ddeb6eb7027fffdf474ad7b810863b272800c898eb
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-05T20:42:47Z
+timestamp: 2026-09-05T21:22:02Z
 iterations: 2
 converged: true
+rebased: 2026-09-05T21:22Z onto origin/main (Baron approved; main had moved). diff_hash recomputed on the new base; site-push test re-run green on the rebased HEAD; only the package.json test:shell line reconciled (main's entries + the site-push entries).
 ---
 
 ## [CHALLENGE-LOOP] Summary
