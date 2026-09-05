@@ -883,12 +883,15 @@ step "== 7b. the site's release files are committed and pushed BEFORE they deplo
 # is dist/latest-staging.json and dist/latest.json (prod) is deliberately NOT in the set,
 # so prod stays at its prior version until promote-channel.sh flips it.
 _site_paths="dist/$POINTER_FILE dist/kosmos-$V-arm64.manifest.json setup setup.sha256 versions.html"
+# The message is a variable because the push below may have to REPLAY this commit
+# onto a moved origin/main (#2276), and the replay must carry the same message.
+_site_commit_msg="$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry"
 # shellcheck disable=SC2086
 git -C "$SITE" add $_site_paths
 # shellcheck disable=SC2086
 if ! git -C "$SITE" diff --quiet HEAD -- $_site_paths; then
   # shellcheck disable=SC2086
-  git -C "$SITE" commit -q -m "$V: the $CUT_CHANNEL pointer ($POINTER_FILE), installer and versions entry" -- $_site_paths
+  git -C "$SITE" commit -q -m "$_site_commit_msg" -- $_site_paths
 fi
 # The sha that deploys is the sha that is PUSHED, read before the push and
 # pushed by name: the checkout is shared and a commit can land between a
@@ -899,11 +902,18 @@ fi
 # rejected with a message that blames the wrong cause.
 [ "$(git -C "$SITE" rev-parse --abbrev-ref HEAD)" = main ] || { echo "the site checkout is on '$(git -C "$SITE" rev-parse --abbrev-ref HEAD)', not main; refusing to push its tip onto origin/main"; exit 1; }
 SITE_SHA="$(git -C "$SITE" rev-parse HEAD)"
-git -C "$SITE" push -q origin "$SITE_SHA:refs/heads/main" || {
-  echo "could not push the site (origin/main moved, or no network). The $V site commit is local."
-  echo "Recover: git -C \"$SITE\" pull --rebase && git -C \"$SITE\" push, then re-run release.sh; expect to bump the version, because the bundle build is not byte-reproducible and the versioned name refuses different bytes."
-  exit 1
-}
+# 🛑 #2276: SURVIVE A SITE MERGE THAT LANDS MID-CUT, WITHOUT TOUCHING THE SHARED
+# CHECKOUT. Agents merge chaoskosmos-site PRs through GitHub while a cut runs, so
+# origin/main can move between the rev-parse above and the push and reject it
+# non-fast-forward. The old recovery was a MANUAL `pull --rebase` + a re-cut (a
+# forced version bump), turning a routine race into an aborted release; and an
+# in-script `pull --rebase` is UNSAFE because this checkout is shared and carries
+# other people's in-progress page work (a rebase needs a clean tree). The pushed
+# sha is what step 8 archives and deploys, so we capture it back into SITE_SHA.
+# site_push_with_replay replays ONLY the release files onto the moved tip in a
+# temporary index (no working-tree touch) and retries -- see tools/lib/site-push.sh.
+. "$REPO/tools/lib/site-push.sh"
+SITE_SHA="$(site_push_with_replay "$SITE" "$SITE_SHA" "$_site_commit_msg" "$BUILD_ROOT" 5 "$_site_paths")" || exit 1
 # shellcheck disable=SC2086
 [ -z "$(git -C "$SITE" status --porcelain -- $_site_paths)" ] || { echo "release files still dirty after the commit"; exit 1; }
 echo "   site committed and pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
