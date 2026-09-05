@@ -682,9 +682,22 @@ function isAgentSession(pane) {
   // agent process in its command. `@kosmos_runner` is a session marker that
   // SURVIVES a crash back to a shell, so keying on it here would report a crashed
   // codex agent as running, the exact "too loose" hazard the header guards. The
-  // crash case stays `isFleetSession` (restartable) and `isAgentSession` false,
-  // matching Claude. `codex`/`codex.exe` is as unambiguous as `claude` (see
-  // `isCodexCommand`), so this reintroduces no `node`-style dev-server hazard.
+  // crash case stays `isFleetSession` (restartable, via its NAME arm) and
+  // `isAgentSession` false, the same running-vs-crashed split the Claude path
+  // has. `codex`/`codex.exe` matches only two literal names (see
+  // `isCodexCommand`), so this reintroduces no `node`-style dev-server hazard in
+  // THIS tier.
+  //
+  // ⚠️ Scope of the parallel, stated precisely: it is the running-vs-crashed
+  // split in `isAgentSession`/`rank`, NOT fleet-membership INFERENCE.
+  // `isFleetSession`'s process arm deliberately gets no codex fallback: it
+  // infers membership for an UNNAMED pane from a native-Claude version string
+  // because nothing else on a machine fronts as one, whereas a bare `codex` is
+  // ambiguous the way `node` is (a person can run the codex CLI by hand), so an
+  // unclaimed `codex` pane must NOT be claimed as ours. A Kosmos codex agent is
+  // recognised by its `@kosmos_agent` claim (the name arm), which is why keying
+  // membership on the command is unnecessary here and would be the looser,
+  // wrong direction.
   return isClaudeCommand(pane.command) || isCodexCommand(pane.command);
 }
 
