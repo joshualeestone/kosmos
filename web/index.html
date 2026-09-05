@@ -15550,11 +15550,17 @@ function worldswClose() {
   menu.hidden = true;
   document.getElementById('worldsw-btn').setAttribute('aria-expanded', 'false');
 }
-function worldswToggle() {
+function worldswOpen() {
   const menu = document.getElementById('worldsw-menu');
   const btn = document.getElementById('worldsw-btn');
-  if (!menu || !btn) return;
-  if (menu.hidden) { menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
+  if (!menu || !btn || !menu.hidden) return;
+  menu.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+function worldswToggle() {
+  const menu = document.getElementById('worldsw-menu');
+  if (!menu) return;
+  if (menu.hidden) worldswOpen();
   else worldswClose();
 }
 function worldAddOpen() {
@@ -15591,7 +15597,12 @@ async function worldAddSubmit() {
       return;
     }
     worldAddClose();
-    await worldsFetch().catch(() => {}); // the new Kosmos now appears in the switcher list
+    await worldsFetch().catch(() => {});
+    // Every create in Kosmos gives visible feedback and lands the item in a visible
+    // list (see New project / New task). Switching is deferred to slice 2b, so the
+    // active header name does not change on create; open the menu so the person sees
+    // the new Kosmos take its place in the list instead of the modal just vanishing.
+    worldswOpen();
   } catch {
     msg.textContent = 'Could not reach Kosmos. Try again.';
     go.disabled = false;

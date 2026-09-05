@@ -15,8 +15,8 @@
  *  2. The menu lists the worlds, with exactly one marked active.
  *  3. The create modal validates: Create is disabled on an empty name, enabled
  *     once a name is typed.
- *  4. Creating a Kosmos closes the modal and the new world appears in the list
- *     (the real POST /api/worlds + refetch).
+ *  4. Creating a Kosmos closes the modal, the switcher menu re-opens on its own,
+ *     and the new world appears in the list (the real POST /api/worlds + refetch).
  *  5. The switcher is hidden in the consolidated view (a tab-view header element
  *     until the persistent-header work lands).
  *
@@ -95,16 +95,22 @@ function chk(ok, label, extra) {
     await page.fill('#world-add-name', 'Client work');
     chk(!(await page.locator('#world-add-go').isDisabled()), 'Create enables once a name is typed');
 
-    // ── Arm 4: creating a Kosmos closes the modal + the new world appears. ───
+    // ── Arm 4: creating a Kosmos closes the modal, then the switcher menu re-opens
+    //    on its own with the new world in the list -- the app's create convention:
+    //    visible feedback + the item lands in a visible list. ────────────────────
     await page.click('#world-add-go');
     const closed = await page.waitForFunction(() => document.getElementById('world-add-modal').hidden, null, { timeout: 6000 })
       .then(() => true).catch(() => false);
     chk(closed, 'creating a Kosmos closes the create modal');
-    await page.click('#worldsw-btn');
-    await page.waitForSelector('#worldsw-menu:not([hidden])', { timeout: 4000 });
-    // Wait on the new ROW itself, not just the modal close: worldAddClose() hides the
-    // modal synchronously BEFORE the refetch+render completes, so waiting on the row
-    // is what makes this race-free.
+    // No manual click: the menu re-opens itself after the refetch. This arm reds if
+    // worldswOpen() is removed from the create path -- the menu stays hidden and both
+    // this assertion and the row wait below time out.
+    const reopened = await page.waitForFunction(() => !document.getElementById('worldsw-menu').hidden, null, { timeout: 4000 })
+      .then(() => true).catch(() => false);
+    chk(reopened, 'the switcher menu re-opens after create so the new Kosmos is visible');
+    // Wait on the new ROW itself, not just the menu: worldAddClose() hides the modal
+    // synchronously BEFORE the refetch+render completes, so waiting on the row is what
+    // makes this race-free.
     const appeared = await page.waitForFunction(
       () => Array.from(document.querySelectorAll('#worldsw-list .worldsw-rowname')).some((n) => n.textContent === 'Client work'),
       null, { timeout: 6000 }).then(() => true).catch(() => false);
