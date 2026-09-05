@@ -2886,9 +2886,17 @@ test('the suggested default role is the project manager, by name and not by posi
   assert.match(script, /PICKED = \(roleByKey\('pm'\)/,
     'the default assignment no longer picks by name; a positional default '
     + 'silently changes what Continue accepts when the catalogue reorders');
-  assert.match(script, /pickMode\('pm'\)/,
-    'nothing arms the recommended mode by default any more, so the screen '
-    + 'opens on whatever mode survived the last edit');
+  /* #1652: loadRoles gained an optional starting mode (the first-run "look in my
+     Documents" link passes 'import'); the DEFAULT is still the recommended 'pm'.
+     Pin both halves so the guard's intent survives: the mode falls back to 'pm'
+     when nothing is passed, AND pickMode is armed with that mode. A default of
+     anything but 'pm', or a loadRoles that stopped arming a mode, still reds. */
+  assert.match(script, /const mode = initialMode \|\| 'pm';/,
+    'the create form no longer defaults to the recommended mode, so it opens '
+    + 'on whatever mode survived the last edit');
+  assert.match(script, /pickMode\(mode\)/,
+    'nothing arms the starting mode any more, so the screen opens on whatever '
+    + 'mode a control was left in');
 });
 
 test('the board SAYS part of the fleet could not be read, in words on the screen', () => {

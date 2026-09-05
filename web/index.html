@@ -5768,6 +5768,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 }
 #firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* #1652: the inline "Look in my Documents and Downloads" link inside the
+   create-ending copy. An in-sentence action, so it is a button styled as an
+   underlined link (the same treatment as the #fr-alt secondary link), sitting on
+   the baseline of the note it lives in rather than as its own block. */
+#firstrun .fr-lookimport {
+  background: transparent; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--k-ink); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+#firstrun .fr-lookimport:hover { color: var(--k-ink-2); }
+#firstrun .fr-lookimport:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; border-radius: 3px; }
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
 #firstrun .fr-body h2:focus-visible { outline: none; }
@@ -26548,13 +26559,20 @@ function roleByKey(key) {
   return (ROLES || []).find((r) => r.key === key) || null;
 }
 
-async function loadRoles() {
+async function loadRoles(initialMode) {
+  /* #1652: which mode the create form lands on. Defaults to 'pm' so every
+     existing caller (the board's New agent, the boot path, the first-run fork's
+     Giddy Up) is unchanged; the first-run "I already have agent files here"
+     link passes 'import' so the person lands straight on the import panel, which
+     fires the on-demand TCC scan of Documents/Downloads/Desktop. Captured here
+     so the async fetch path below honours it too. */
+  const mode = initialMode || 'pm';
   const msg = document.getElementById('roles-msg');
   // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
   // Returning early on the second visit left the picker rendered from last
   // time with its old choice still marked, while `openCreate` had just
   // cleared it -- a screen showing a selection the page did not have.
-  if (ROLES && ROLES.length) { updateRecPill(); pickMode('pm'); return; }
+  if (ROLES && ROLES.length) { updateRecPill(); pickMode(mode); return; }
   msg.textContent = 'Loading…';
   try {
     const res = await fetch('/api/roles', { cache: 'no-store' });
@@ -26570,7 +26588,7 @@ async function loadRoles() {
     if (!ROLES.length) throw new Error('none came back');
     msg.textContent = '';
     buildPicker();
-    pickMode('pm');
+    pickMode(mode);
   } catch (err) {
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
@@ -26755,7 +26773,13 @@ document.getElementById('rolesel').addEventListener('change', () => {
    ARIA role PROMISED this behaviour, so the code had to keep the promise. A
    native radio makes the promise and keeps it in the same breath. */
 
-function openCreate() {
+function openCreate(initialMode) {
+  /* #1652: an optional starting mode for the create form. Only a KNOWN mode
+     string is honoured; anything else (notably the Event object this is bound to
+     as a click handler, and the no-arg `frFinish(openCreate)` call) falls
+     through to 'pm', so every existing entry point is unchanged. The first-run
+     "I already have agent files here" link passes 'import'. */
+  const startMode = (initialMode === 'import' || initialMode === 'own' || initialMode === 'list') ? initialMode : 'pm';
   PICKED = null;
   /* 🛑 THE RADIOS ARE CLEARED, WHICH THE OLD PICKER NEVER DID. A form control
      keeps its state across a hidden panel, so reopening this form used to show
@@ -26795,12 +26819,17 @@ function openCreate() {
   document.getElementById('role-next').disabled = true;
   cstep('role');
   showTab('create');
-  loadRoles();
+  loadRoles(startMode);
   /* Read on every open, not once on boot: the standing answer can be changed
      in Settings between two visits to this form. */
 }
 
-document.getElementById('new-agent').addEventListener('click', openCreate);
+/* #1652: wrapped, not bare. `openCreate` now takes an optional first arg
+   (initialMode); binding it directly would hand the click Event in as that arg
+   (harmless -- it validates to 'pm' -- but exactly the #752 hazard the
+   click-bindings guard forbids). The wrapper passes nothing, so it opens on the
+   default mode. */
+document.getElementById('new-agent').addEventListener('click', () => openCreate());
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
@@ -26884,7 +26913,9 @@ document.getElementById('made-look').addEventListener('click', () => {
   document.getElementById('made-head').textContent = 'Looking for ' + (MADE_LAST.result.shownAs || MADE_LAST.name);
   watchForAgent(MADE_LAST.name, MADE_LAST.result, ++WATCH);
 });
-document.getElementById('made-retry').addEventListener('click', openCreate);
+/* #1652: wrapped for the same reason as #new-agent above -- openCreate now
+   takes an optional mode arg, so it must not be bound bare to a DOM event. */
+document.getElementById('made-retry').addEventListener('click', () => openCreate());
 
 document.getElementById('role-next').addEventListener('click', () => {
   const role = roleByKey(PICKED);
@@ -37661,7 +37692,19 @@ function frPaintFleet() {
        📌 Built hidden rather than built on click, same rule as the found list's
        undo: an element that already exists cannot be the element a later edit
        forgets to create. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>';
+    /* #1652: the fresh-install "find my agents" gap. The AUTO scan that ran
+       before this screen is deliberately TCC-free (#2125), so it never looked in
+       Documents/Downloads/Desktop -- exactly where a person who was sent or
+       downloaded an agent file keeps it. Rather than reverse #2125 and bombard
+       every install with macOS permission prompts, offer a CONTEXTUAL one-click
+       (the `frForkActions` create-branch link below) that opens the import panel
+       and fires the on-demand scan of those folders, where the permission prompt
+       is expected because the person just asked. This line tells them the option
+       exists; the link does it. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>'
+      + '<p class="fr-foundnote">Already have an agent file on this computer? '
+      + '<button type="button" class="fr-lookimport">Look in my Documents and Downloads</button> '
+      + '(Kosmos will ask macOS for permission).</p>';
     frForkActions();
     return;
   }
@@ -37716,12 +37759,29 @@ function frForkActions() {
   if (path === 'adopt' && Number.isInteger(count) && count > 0) {
     frActions({ label: 'Take me to my agents', go: () => frFinish(() => showTab('agents')) });
   } else if (path === 'create') {
+    /* Giddy Up ONLY -- Josh's ruling (server.test.js: "I want it to say 'Giddy
+       Up'"), so the fork keeps its single button. The #1652 "look in my
+       Documents/Downloads" affordance is NOT a second fork button; it is an
+       inline quiet link inside the create-ending copy (see the box.innerHTML at
+       the create arm of frPaintFleet + the #fr-fleet delegated handler), so this
+       ruling is preserved. */
     frActions({ label: 'Giddy Up', go: () => frFinish(openCreate) });
   } else {
     frActions({ label: 'Show me my agents', go: () => frFinish(() => showTab('agents')) },
       { label: 'Create an agent', go: () => frFinish(openCreate) });
   }
 }
+
+/* #1652: the create-ending "look in my Documents/Downloads" affordance. Delegated
+   on #fr-fleet (stable across the innerHTML repaints of its own content), so the
+   inline link the create arm of frPaintFleet draws is always live. It finishes
+   first run and opens the create form on the IMPORT mode, whose
+   populateFoundImports() fires the on-demand `/api/scan-import` of the TCC folders
+   the auto scan skips (#2125) -- the contextual, person-chosen path, so the macOS
+   permission prompt there is expected rather than a fresh-install ambush. */
+document.getElementById('fr-fleet').addEventListener('click', (e) => {
+  if (e.target.closest('.fr-lookimport')) { frFinish(() => openCreate('import')); }
+});
 
 /* --------------------------------------------------------------------------
    Step 1 - getting back (the return content, rendered on the orientation step, FR_STEP_RETURN)
