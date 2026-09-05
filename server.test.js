@@ -10499,6 +10499,27 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
   }
 });
 
+/* #2037 PR-C1: the daily-report send opt-in route. Off by default, round-trips.
+   (The send BEHAVIOR/dedup is unit-tested in engine/feedbacksend.test.js; the
+   board sweep WIRING is pinned in web.feedback-switch-2037.test.js.) */
+test('feedback: /api/feedback-setting is OFF by default and round-trips', async () => {
+  const feedbacksendEngine = require('./engine/feedbacksend');
+  try {
+    assert.equal(JSON.parse((await req('/api/feedback-setting')).body).on, false,
+      'the daily-report send is not OFF by default (default-ON is PR-C2, with the install disclosure)');
+    const put = await req('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
+    assert.equal(put.status, 200, put.body);
+    assert.equal(JSON.parse(put.body).on, true, 'PUT did not turn the send on');
+    assert.equal(JSON.parse((await req('/api/feedback-setting')).body).on, true, 'the flip did not persist');
+    // A non-boolean is refused, not silently coerced.
+    const bad = await req('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: 'yes' }) });
+    assert.equal(bad.status, 400, 'a non-boolean on was accepted');
+    await req('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+  } finally {
+    fs.rmSync(feedbacksendEngine.FILE, { force: true });
+  }
+});
+
 /** Several files on one message (#358, Josh 1:59 PM): both ride the row, both
  *  paths reach the pane, the cap holds, and one bad id refuses the whole send. */
 test('attachments: a message carries several files, in order, with every path in the pane line', async (t) => {
