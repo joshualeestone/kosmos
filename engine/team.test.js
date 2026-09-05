@@ -9,21 +9,29 @@ const assert = require('node:assert/strict');
 const { createTeam, DEFAULT_TEAM_CAP } = require('./team');
 
 /* A fake createAgent that records every opts it was handed and answers per a
-   per-name script, so a test can make some members succeed and others refuse. */
+   per-name script. It returns the REAL create.createAgent success shape, which
+   carries NO id -- the id is read back from the profile, never returned -- so
+   the team's id handling is exercised against the shape production actually
+   produces, not an id the real function never returns. */
 function fakeCreator(script) {
   const calls = [];
   const fn = (opts) => {
     calls.push(opts);
     const name = opts && opts.name;
     const verdict = (script && Object.prototype.hasOwnProperty.call(script, name)) ? script[name] : { outcome: 'created' };
-    if (verdict.outcome === 'created') return { outcome: 'created', name, id: verdict.id || ('id-' + name) };
+    if (verdict.outcome === 'created') return { outcome: 'created', name /* no id, matching real createAgent */ };
     return { outcome: 'refused', because: verdict.because || 'refused' };
   };
   fn.calls = calls;
   return fn;
 }
 
-const okDeps = (script, env) => ({ createAgent: fakeCreator(script), env: env || {} });
+/* The profile-id reader the real team reads back through, faked: a created agent
+   named X has id 'id-X'. This is the SAME seam create.createAgent uses, so the
+   test models "create returns a name, id comes from the profile". */
+const fakeReadAgentId = (name) => (name ? 'id-' + name : null);
+
+const okDeps = (script, env) => ({ createAgent: fakeCreator(script), readAgentId: fakeReadAgentId, env: env || {} });
 
 test('#1279: a full team is created; every member carries createdBy + purpose', () => {
   const deps = okDeps();
@@ -41,7 +49,11 @@ test('#1279: a full team is created; every member carries createdBy + purpose', 
   assert.equal(r.refused.length, 0);
   assert.equal(r.because, null);
   assert.deepEqual(r.created.map((c) => c.name).sort(), ['BuildBot', 'TestBot']);
-  assert.ok(r.created.every((c) => typeof c.id === 'string'), 'each created agent reports its id');
+  /* The id is READ BACK by name (create.createAgent returns no id), so a caller
+     that lists a freshly-built team can address each new agent. */
+  assert.deepEqual(r.created.slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [{ name: 'BuildBot', id: 'id-BuildBot' }, { name: 'TestBot', id: 'id-TestBot' }],
+    'the id was not read back by name');
 
   // The whole point: provenance rides onto EVERY member.
   for (const call of deps.createAgent.calls) {
@@ -150,6 +162,36 @@ test('#1279: the cap is overridable -- opts.cap, then env, then the default', ()
   const over = createTeam({ creator: 'PM', purpose: 'x', members, cap: 0 }, deps);
   assert.equal(over.outcome, 'refused', 'cap:0 and a garbage env must not disable the cap');
   assert.match(over.because, new RegExp('the cap is ' + DEFAULT_TEAM_CAP));
+});
+
+test('#1279: id is null when the profile cannot be read back (DRY_RUN / no profile), never invented', () => {
+  // The real readAgentId returns null on a DRY_RUN create that wrote no profile.
+  const deps = { createAgent: fakeCreator(), readAgentId: () => null, env: {} };
+  const r = createTeam({ creator: 'PM', purpose: 'x', members: [{ name: 'A', role: 'r' }] }, deps);
+  assert.equal(r.outcome, 'created');
+  assert.equal(r.created[0].id, null, 'an unreadable id was invented rather than left null');
+});
+
+test('#1279: duplicate member names -> the second is refused (delegated to createAgent), team is PARTIAL', () => {
+  // A stateful fake modelling real createAgent, which refuses a name that already
+  // exists ("there is already an agent called X"). createTeam does no de-dup of
+  // its own; it forwards both and buckets the refusal.
+  const seen = new Set();
+  const calls = [];
+  const statefulCreate = (opts) => {
+    calls.push(opts);
+    if (seen.has(opts.name)) return { outcome: 'refused', because: 'there is already an agent called ' + opts.name };
+    seen.add(opts.name);
+    return { outcome: 'created', name: opts.name };
+  };
+  const r = createTeam(
+    { creator: 'PM', purpose: 'x', members: [{ name: 'Dup', role: 'r' }, { name: 'Dup', role: 'r' }] },
+    { createAgent: statefulCreate, readAgentId: fakeReadAgentId, env: {} });
+  assert.equal(calls.length, 2, 'both same-named members were forwarded to createAgent');
+  assert.equal(r.outcome, 'partial');
+  assert.equal(r.created.length, 1);
+  assert.equal(r.refused.length, 1);
+  assert.match(r.refused[0].because, /already an agent called Dup/);
 });
 
 test('#1279: a malformed member is refused by shape and never reaches createAgent', () => {

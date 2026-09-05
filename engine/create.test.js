@@ -3489,6 +3489,36 @@ test('#1279: an agent-created agent records createdBy + purpose; a plain create 
   assert.equal(last.purpose, 'ship the installer');
 });
 
+test('#1279 INTEGRATION: team.createTeam against the REAL createAgent reads back real ids and stamps provenance', () => {
+  const team = require('./team');
+  recorder();
+  create.setDryRun(false);
+  const r = team.createTeam({
+    creator: 'ProjectManagerPete',
+    purpose: 'ship the Windows installer',
+    members: [
+      { ...BINS, name: 'team-eng', role: 'pm' },
+      { ...BINS, name: 'team-qa', role: 'writer' },
+    ],
+  });
+  assert.equal(r.outcome, 'created');
+  assert.equal(r.created.length, 2);
+  /* THE POINT THE BLIND REVIEW CAUGHT: create.createAgent returns NO id, so the
+     team must read it back from the profile. Prove it does, against the real
+     function -- each created entry's id is the REAL minted profile id, not null. */
+  for (const c of r.created) {
+    const real = store.readProfile(c.name).id;
+    assert.match(String(real), /^[0-9a-f]{12}$/, 'the profile was not minted');
+    assert.equal(c.id, real, 'createTeam did not read back the real id (it would be null off the create return)');
+  }
+  /* ...and provenance really landed on each birth record through the team seam. */
+  const births = create.createdLog().slice(-2);
+  for (const b of births) {
+    assert.equal(b.createdBy, 'ProjectManagerPete');
+    assert.equal(b.purpose, 'ship the Windows installer');
+  }
+});
+
 test('an existing agent is backfilled on first write, and a restored profile is a different agent (#170)', () => {
   const name = 'old-timer';
   const file = nodePath.join(store.PROFILES, store.safeKey(name) + '.json');

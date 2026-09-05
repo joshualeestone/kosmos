@@ -2346,9 +2346,12 @@ function createAgent(opts) {
        exists. Both are drift-prevention (Baron's #1279 design note: agent-created
        agents make roster drift the default outcome unless creation records WHY an
        agent exists). NULL when absent -- a directly operator-created agent omits
-       them, so every pre-#1279 record and every hand-create stays byte-identical
-       (createdBy/purpose null) and only an agent-created agent carries them. Same
-       sanitize-and-slice posture as role/model above; recorded, never a gate. */
+       them, so it stays FUNCTIONALLY unchanged: the two keys are present as null
+       rather than gone, and the only birth-log consumer (register.js) reads only
+       outcome/name/at, so nothing keys on their absence. (Records already ON DISK
+       from before this are untouched; a new plain create's line simply carries
+       the two null keys.) Same sanitize-and-slice posture as role/model above;
+       recorded, never a gate. */
     createdBy: (opts && opts.createdBy) ? String(opts.createdBy).slice(0, 120) : null,
     purpose: (opts && opts.purpose) ? String(opts.purpose).slice(0, 300) : null,
     outcome: (out && out.outcome) || 'unknown',

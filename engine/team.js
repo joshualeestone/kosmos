@@ -45,6 +45,17 @@
  */
 
 const create = require('./create');
+const store = require('./store');
+
+/* Read a created agent's id the SAME way create.createAgent does (#170): from
+   the profile, the single mint point. createAgent's RETURN carries no id -- the
+   id lives in the profile and the birth record and is read back, never returned
+   -- so createTeam must read it back too rather than expecting it on the return.
+   Null on any failure or a DRY_RUN create that wrote no profile, exactly like the
+   birth record's own id field. */
+function defaultReadAgentId(name) {
+  try { return store.readProfile(name).id || null; } catch { return null; }
+}
 
 /* The Kosmos-owned default. A team assembled for one stated purpose is a handful
    of agents; a request for more than this is far likelier a runaway or a mistake
@@ -78,14 +89,16 @@ function resolveCap(opts, env) {
  * @param {Array<object>} opts.members  one create.createAgent opts object per
  *   agent ({name, role, ...}). Must be a non-empty array no longer than the cap.
  * @param {number} [opts.cap]  override the team-size cap (positive integer).
- * @param {object} [deps]  { createAgent, env } -- injectable seam for tests;
- *   defaults to create.createAgent and process.env.
+ * @param {object} [deps]  { createAgent, readAgentId, env } -- injectable seam
+ *   for tests; defaults to create.createAgent, the profile-id reader, and
+ *   process.env.
  * @returns {{outcome:'created'|'partial'|'refused', created:Array<{name,id}>,
  *   refused:Array<{name,because}>, because:(string|null), creator:string,
  *   purpose:string, cap:number}}
  */
 function createTeam(opts, deps) {
   const doCreate = (deps && typeof deps.createAgent === 'function') ? deps.createAgent : create.createAgent;
+  const readId = (deps && typeof deps.readAgentId === 'function') ? deps.readAgentId : defaultReadAgentId;
   const env = (deps && deps.env) || process.env;
 
   const creator = (opts && typeof opts.creator === 'string') ? opts.creator.trim() : '';
@@ -127,7 +140,12 @@ function createTeam(opts, deps) {
     const out = doCreate(Object.assign({}, member, { createdBy: creator, purpose }));
     const memberName = String((member.name !== undefined && member.name !== null) ? member.name : '').slice(0, 120) || null;
     if (out && out.outcome === 'created') {
-      created.push({ name: out.name || memberName, id: (out.id !== undefined ? out.id : null) });
+      /* The id is read back from the profile by the agent's canonical NAME (the
+         slug create.createAgent returns), never taken off the create return --
+         which carries no id. Same source create.createAgent's own birth record
+         reads (#170), so the two can never disagree. */
+      const createdName = out.name || memberName;
+      created.push({ name: createdName, id: (createdName ? readId(createdName) : null) });
     } else {
       refused.push({ name: memberName, because: (out && out.because) ? String(out.because) : 'creation refused for a reason it did not name' });
     }
