@@ -138,6 +138,11 @@ site_commit_on_fresh_main() {
     # our fetch->push window). Any other failure -- auth, a protected ref, a broken
     # remote -- is not a race; abort immediately with git's own error rather than
     # burning retries and then misreporting "origin/main kept moving".
+    # The `printf | grep` pipe is SAFE here (unlike release_versions_entry_present's
+    # deliberate no-pipe capture): $push_err is a few lines of git error text, well
+    # under the pipe buffer, so printf never gets SIGPIPE from grep -q exiting early.
+    # Do NOT copy this pattern to large data, and do not "fix" the versions check to
+    # a pipe -- there the 269KB page DOES trigger the SIGPIPE-under-pipefail abort.
     if ! printf '%s' "$push_err" | grep -qiE 'fetch first|non-fast-forward|\[rejected\]|cannot lock ref|failed to (update|lock) ref'; then
       echo "site push failed for a reason that is not a moved origin/main; not retrying. git said:" >&2
       printf '%s\n' "$push_err" >&2

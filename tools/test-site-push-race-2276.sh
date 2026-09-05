@@ -231,7 +231,10 @@ BIGSZ=$(wc -c < "$T/sG/versions.html" | tr -d ' ')
 # Case F: guards -- a relative reindex_dir is refused; a paths set without
 # versions.html is refused; both before any push.
 mk_site "$T/oF.git" "$T/sF"
-OUT_F1="$(site_commit_on_fresh_main "$T/sF" "$MSG" "relative/dir" 5 "$PATHS" "$VER" "$REPO" 2>/dev/null)"; [ "$?" != 0 ] && ok "F: relative reindex_dir refused" || bad "F: relative reindex_dir accepted"
+# capture stderr and assert the GUARD's own message fired (not a downstream git
+# error), which proves it refuses EARLY -- before any fetch or push.
+ERR_F1="$(site_commit_on_fresh_main "$T/sF" "$MSG" "relative/dir" 5 "$PATHS" "$VER" "$REPO" 2>&1 1>/dev/null)"; RC=$?
+{ [ "$RC" != 0 ] && printf '%s' "$ERR_F1" | grep -q "reindex_dir must be an absolute path"; } && ok "F: relative reindex_dir refused early by the guard (its message fired)" || bad "F: relative reindex_dir not caught by the guard (rc=$RC)"
 OUT_F2="$(site_commit_on_fresh_main "$T/sF" "$MSG" "$T" 5 "dist/latest-staging.json setup" "$VER" "$REPO" 2>/dev/null)"; [ "$?" != 0 ] && ok "F: a paths set without versions.html refused" || bad "F: missing versions.html accepted"
 
 # =====================================================================

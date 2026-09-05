@@ -910,24 +910,35 @@ done
 if ! release_versions_entry_present "$SITE" "$SITE_SHA" "$V"; then
   echo "the pushed versions.html has no entry for $V; the re-insert did not land"; exit 1
 fi
-# Best-effort: bring the shared checkout back to clean + current. The release files
-# are safely on origin/main now, so discard our working-tree copies (all cut-owned
-# paths -- no colleague edits them, so this is the one class of file it is safe to
-# discard) and fast-forward local main to the pushed tip. NEVER abort the cut on a
-# cleanup miss -- the release is already pushed and step 8 deploys from SITE_SHA. If
-# a colleague's uncommitted page work blocks the ff, the checkout is left BEHIND
-# origin/main (not diverged, so no future cut is rejected) and self-heals on the
-# next fetch. This is what keeps cut-generated files from sitting uncommitted in the
-# shared checkout for a `commit -a` to sweep up.
-# Per-path, not `checkout -- $_site_paths`: the new versioned manifest is UNTRACKED
+# Best-effort: bring the shared checkout back toward clean + current. The release
+# files are safely on origin/main now, so discard our working-tree copies of the
+# STRICTLY cut-owned artifacts (the channel pointer, the manifest, setup,
+# setup.sha256) -- those are generated only by the cut, so discarding them cannot
+# lose anyone's work -- then fast-forward local main to the pushed tip. NEVER abort
+# the cut on a cleanup miss: the release is already pushed and step 8 deploys from
+# SITE_SHA. If colleague work (or the deliberately-kept dirty versions.html below)
+# blocks the ff, the checkout is left BEHIND origin/main -- not diverged, so no
+# future cut is rejected -- and self-heals on the next cut's `reset --hard`.
+#
+# 🛑 versions.html is DELIBERATELY EXCLUDED from the discard. It is the ONE release
+# path colleagues also edit (that contention is the whole premise of #2286's
+# re-insert), so `git checkout -- versions.html` here could throw away an
+# uncommitted colleague edit. Leaving it dirty is the safe choice: our entry is
+# already on origin/main, and the next cut's `reset --hard origin/main` cleans it.
+# Per-path (not `checkout -- $_site_paths`): the new versioned manifest is UNTRACKED
 # in the local index (it only reaches origin/main via the temp index), and git
 # refuses an ENTIRE multi-path checkout when any one pathspec matches no tracked
-# file -- which would restore NOTHING and leave the tracked release files dirty.
+# file -- which would restore NOTHING and leave the tracked files dirty.
 # shellcheck disable=SC2086
-for _p in $_site_paths; do git -C "$SITE" checkout -- "$_p" 2>/dev/null || true; done
+for _p in $_site_paths; do
+  [ "$_p" = versions.html ] && continue
+  git -C "$SITE" checkout -- "$_p" 2>/dev/null || true
+done
 rm -f "$SITE/dist/kosmos-$V-arm64.manifest.json"
+# The kept-dirty versions.html will usually make this ff decline -- that is expected
+# and safe (BEHIND, not diverged). The next cut's `reset --hard origin/main` cleans up.
 git -C "$SITE" merge --ff-only "$SITE_SHA" >/dev/null 2>&1 \
-  || echo "   note: left the site checkout BEHIND origin/main (colleague work present?); it is not diverged and self-heals on the next fetch"
+  || echo "   note: left the site checkout BEHIND origin/main (a dirty versions.html or colleague work); it is not diverged and self-heals on the next cut's reset"
 echo "   site release commit pushed: $(git -C "$SITE" log --oneline -1 "$SITE_SHA")"
 
 step "== 8. deploy, from an export of the COMMITTED site plus the named artifacts (#649) =="
