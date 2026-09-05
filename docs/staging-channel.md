@@ -117,7 +117,7 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    (a rendered page with dead download buttons is the #1669 shape deploy-site.sh section 6 guards),
    plus `/setup`:
    ```sh
-   HOST=https://installkosmos.com; S=$HOME/work/chaoskosmos-site; V=<V>   # the promoted version
+   HOST=https://installkosmos.com; S=$HOME/work/chaoskosmos-site; V=0.6.xx   # set V to the promoted version
    curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json"   # must name <V>; control: "still <old V>" = did NOT flip
    for f in "kosmos-$V-arm64.tar.gz" kosmos-arm64.tar.gz tmux-arm64.tar.gz Kosmos.pkg; do
      s=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$f" | shasum -a 256 | awk '{print $1}')
