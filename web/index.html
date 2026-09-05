@@ -10162,8 +10162,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): "Agents talking to each other" moved
          here from its own top-level tab, which is deleted. Block 3 of the consolidated
-         Automation section, before the future Daily report (#2037). The block is Mona
-         Lisa's verbatim copy and the SAME `.toggle` + tier-select it already shipped;
+         Automation section, before the Daily report (#2037, now the block below).
+         The block is Mona Lisa's verbatim copy and the SAME `.toggle` + tier-select it already shipped;
          the only change is where it lives. The move's acceptance is that its STORED
          value survives -- it does, because paintLimits reads /api/limits, never the DOM. -->
     <section class="dbox">
@@ -10190,6 +10190,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <p class="dhint" id="lim-high-note" hidden style="margin:12px 0 0;">A hundred exchanges an hour can add up if your provider charges per use.</p>
       <p class="dhint" id="lim-off-note" hidden style="margin:12px 0 0;">Your agents will keep talking as long as they have something to say. Kosmos will still tell you when a conversation stops going anywhere, but it will not step in.</p>
       <p class="dhint" id="lim-msg" role="status" style="margin:8px 0 0;"></p>
+    </section>
+    <!-- #2037 PR-C1: the daily product-feedback report opt-in. The "future Daily
+         report" the note above reserved this slot for. Copy is Mona Lisa's
+         approved design, Josh's decision 2026-09-03: label "Make Kosmos work
+         better for everyone.", subtext the daily-note line. Same .toggle shape
+         as the switches above; ships ON by default (Josh: "baked in day one",
+         #2037/#2013), this switch is the opt-OUT and carries the disclosure. The
+         install-time disclosure checkbox is the immediate fast-follow (PR-C2).
+         Could-not-read is the PRIVACY treatment (Mona Lisa 2026-09-03): the row
+         stays present and the knob is HIDDEN (never a false Off), with an
+         actionable line - a privacy switch a person cannot find is one they
+         cannot turn off. -->
+    <section class="dbox">
+      <h3 class="dlab">Daily report</h3>
+      <div class="setrow" id="feedback-row">
+        <div><b>Make Kosmos work better for everyone.</b>
+          <p class="dhint" style="margin:2px 0 0;">Allow an agent to send a daily note with any system issues or improvement suggestions.</p></div>
+        <button class="toggle" id="feedback-toggle" role="switch" aria-label="Send a daily product-feedback note" hidden><i></i></button>
+      </div>
+      <p class="dhint" id="feedback-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
   </section>
   <!-- #853. Josh asked for real per-model, per-day token usage. The ENGINE
@@ -16467,6 +16487,58 @@ async function tellToggleClick() {
 }
 document.getElementById('tell-toggle').addEventListener('click', tellToggleClick);
 
+/* #2037 PR-C1: the daily product-feedback SEND switch, in Settings > Automation.
+   Same three pieces and same PRIVACY could-not-read treatment as the tell switch
+   above: paint from a read, refresh on arrival, save on click; a non-ok GET
+   (403 on an enforcing board) draws could-not-read, never a false Off, because a
+   privacy switch that reads Off while the engine may be sending is the exact
+   failure this treatment exists to prevent. Ships ON by default (Josh: "baked in
+   day one"); this switch is the opt-out. The install-time disclosure checkbox is
+   the fast-follow (PR-C2). */
+let FEEDBACK_EPOCH = 0;
+function feedbackPaint(r) {
+  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
+  paintSwitch('feedback-toggle', unread ? null : r.on === true);
+  document.getElementById('feedback-msg').textContent = unread
+    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
+    : '';
+}
+async function refreshFeedback() {
+  const mine = ++FEEDBACK_EPOCH;
+  try {
+    const res = await fetch('/api/feedback-setting');
+    if (!res.ok) { if (mine === FEEDBACK_EPOCH) feedbackPaint(null); return; }
+    const r = await res.json();
+    if (mine === FEEDBACK_EPOCH) feedbackPaint(r);
+  } catch {
+    if (mine === FEEDBACK_EPOCH) feedbackPaint(null);
+  }
+}
+let FEEDBACK_SAVING = false;
+async function feedbackToggleClick() {
+  if (FEEDBACK_SAVING) return;
+  FEEDBACK_SAVING = true;
+  const mine = ++FEEDBACK_EPOCH;
+  const msg = document.getElementById('feedback-msg');
+  try {
+    const on = document.getElementById('feedback-toggle').getAttribute('aria-checked') !== 'true';
+    const res = await fetch('/api/feedback-setting', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ on }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== FEEDBACK_EPOCH) return;
+    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
+    feedbackPaint(body);
+  } catch {
+    msg.textContent = 'We could not save that setting.';
+  } finally {
+    FEEDBACK_SAVING = false;
+  }
+}
+document.getElementById('feedback-toggle').addEventListener('click', feedbackToggleClick);
+
 /**
  * The create page's copy of the standing answer (#258, restored #2020 on Josh's
  * 2026-09-05 reversal).
@@ -16594,6 +16666,7 @@ refreshEngMode();
 refreshAutoUpdate();
 refreshTell();     // #2020: read the two telemetry opt-out switches (three-state, 403-safe)
 refreshNotify();
+refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshYou();
 /* The Accessibility door (kosmos#1344).
    🛑 ATTACHED ONCE, HERE, NOT INSIDE `paintSettings`. The sleep buttons live

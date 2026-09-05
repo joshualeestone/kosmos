@@ -16,11 +16,14 @@
  * payload() below is the single source of that shape; a test pins the keys so
  * the two sides cannot drift.
  *
- * 🛑 OFF BY DEFAULT, FOR NOW. Josh ruled #2037 default-checked-on, but a
- * default-on phone-home with no off-switch is the exact harm #2020 documents.
- * The default flips ON in the same change that ships the Settings/setup control
- * (#2013: a default and its control are ONE decision). Until that control
- * exists, read() fails to OFF and nothing leaves the machine.
+ * 🛑 ON BY DEFAULT. Josh ruled #2037 default-checked-on ("baked in day one",
+ * 2026-09-05), and the default flips ON in the SAME change that ships the
+ * Settings > Automation opt-out switch and the board send trigger (#2013: a
+ * default and its control are ONE decision, landed together). So a never-asked
+ * machine SENDS its scrubbed daily report by default; the person opts OUT in
+ * Settings. The install-time disclosure surface (a switch on the install flow's
+ * Screen 6) is the immediate fast-follow (PR-C2). A present-but-UNREADABLE file
+ * still fails to OFF, the safe direction for a body leaving the machine.
  *
  * 🔑 WHAT LEAVES IS SCRUBBED. feedback.js keeps home paths / project / agent
  * names on disk on purpose (useful to the user's own agent). The SEND path is
@@ -57,27 +60,36 @@ let sender = null;   // tests inject; production uses global fetch
 const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPOINT;
 
 /**
- * The opt-in preference. Fails to OFF, like ping/notify: an absent file means
- * nobody has turned it on yet (and the default is off until the control ships);
- * a present-but-unreadable file could be hiding an off we cannot see, and the
- * only thing gated here is data leaving the machine.
+ * The opt-in preference. A never-asked machine (no file) defaults ON, Josh's
+ * ruling: the daily report is "baked in day one", a default-checked opt-in
+ * (#2037/#2013, relayed by Splinter 2026-09-05, the launch's #1 feature). The
+ * Settings switch is the opt-OUT and carries the disclosure copy; the
+ * install-time disclosure checkbox is the immediate fast-follow (PR-C2).
+ * A present-but-UNREADABLE file still fails to OFF (unlike the never-asked
+ * default): it could be hiding an off we cannot see, and the only thing gated
+ * here is a report body leaving the machine. Same split as ping.js.
  */
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, ok: true };
-    return { on: false, ok: false };
+    if (err && err.code === 'ENOENT') return { on: true, sent: null, ok: true };
+    return { on: false, sent: null, ok: false };
   }
   let parsed;
-  try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, ok: false };
-  return { on: parsed.on === true, ok: true };
+  try { parsed = JSON.parse(raw); } catch { return { on: false, sent: null, ok: false }; }
+  if (!parsed || typeof parsed !== 'object') return { on: false, sent: null, ok: false };
+  // `sent` is the date key (YYYY-MM-DD) of the last report the board actually
+  // sent, the once-per-day dedup marker. A non-string is treated as never-sent.
+  return { on: parsed.on === true, sent: typeof parsed.sent === 'string' ? parsed.sent : null, ok: true };
 }
 
 function write(patch) {
   const cur = read();
-  const next = { on: cur.on, ...patch };
+  // Preserve BOTH fields across a partial write: setOn must not wipe the `sent`
+  // dedup marker, and markSent must not flip `on`. JSON.stringify drops an
+  // undefined/null `sent` cleanly, so a never-sent file stays {on:...}.
+  const next = { on: cur.on, ...(cur.sent ? { sent: cur.sent } : {}), ...patch };
   delete next.ok;
   try {
     fs.mkdirSync(path.dirname(FILE), { recursive: true });
@@ -205,10 +217,48 @@ function maybeSend(date) {
   } catch { /* nothing here may reach the caller */ }
 }
 
+/**
+ * The board-sweep entry point: send a day's report AT MOST ONCE, even though the
+ * board calls this on a repeating timer. The short-lived `kosmos feedback` CLI
+ * cannot fire-and-forget a send (it exits), so the long-lived board owns the
+ * trigger (#2037 PR-C1). Dedup lives here, not in maybeSend, so the direct/test
+ * callers of maybeSend keep their unguarded semantics.
+ *
+ * 🛑 MARK-SENT BEFORE THE POST, ON PURPOSE. The send is fire-and-forget, so a
+ * failed POST cannot be observed here anyway; marking sent up front means a
+ * down collector does not make the sweep re-POST every hour for the rest of the
+ * day. It is a best-effort DAILY report - a missed day is lost, next day's
+ * sends. Returns nothing (like maybeSend), so no caller can wait on it.
+ */
+function sendDailyOnce(date) {
+  try {
+    // Same guard maybeSend applies, but EARLIER so a test run does not even
+    // record a `sent` marker for a send that the underTest guard will block.
+    // Only when nothing has been injected: a test with its own sender is
+    // exercising the real path and must be allowed to mark + send.
+    if (!sender && underTest()) return;
+    const d = date || feedback.today();
+    const st = read();                    // one read for both gates, atomic within the tick
+    if (!st.on) return;                   // opt-in gate (default ON; the person opts out in Settings)
+    if (st.sent === d) return;            // already sent today
+    if (feedback.read(d) == null) return; // no report for that day, nothing to mark or send
+    // Mark first, and only send if the mark PERSISTED. If the setting-file write
+    // fails (disk full/permission) we do NOT send: an unrecorded send would make
+    // every hourly sweep re-POST the same day's report to the collector forever,
+    // which is the exact failure this once-per-day guard exists to prevent. A
+    // missed day (favouring not-sending) is the safe direction for a best-effort
+    // daily report.
+    if (!markSent(d).ok) return;
+    maybeSend(d);
+  } catch { /* nothing here may reach the caller */ }
+}
+
+function markSent(date) { return write({ sent: date }); }
+
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 
 module.exports = {
-  FILE, read, setOn, write, scrub, payload, maybeSend, setSender, underTest,
-  DEFAULT_ENDPOINT, CONSENT_VERSION,
+  FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
+  setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
 };

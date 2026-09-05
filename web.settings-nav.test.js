@@ -80,14 +80,16 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
 // "Agents Talking" top-level tab is gone (checked by the nav-order test above,
 // which no longer lists 'talking'); its one block lives here as block 3. Daily
 // report (#2037) is not built yet, so it is not asserted -- it becomes block 4.
-test('#2054: Automation holds Auto-save, Prompter, Agents talking in order, and Agents Talking is no longer its own tab', () => {
+test('#2054: Automation holds Auto-save, Prompter, Agents talking, Daily report in order, and Agents Talking is no longer its own tab', () => {
   const at = BODY.indexOf('id="s-sec-automation"');
   assert.ok(at > -1, 'the Automation section is gone');
   const end = BODY.indexOf('<section class="dsec"', at + 1);
   const sec = BODY.slice(at, end > at ? end : undefined);
   const headings = [...sec.matchAll(/<h3 class="dlab">([^<]+)<\/h3>/g)].map((m) => m[1]);
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agents talking to each other'],
-    'the Automation blocks are not Auto-save, Prompter, Agents talking in that order');
+  // #2037 PR-C1: "Daily report" is the fourth block, the one the section's own
+  // placeholder note reserved ("before the future Daily report (#2037)").
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Agents talking to each other', 'Daily report'],
+    'the Automation blocks are not Auto-save, Prompter, Agents talking, Daily report in that order');
   // The tab and its section are deleted, not merely hidden.
   assert.doesNotMatch(BODY, /data-go="talking"/, 'the Agents Talking nav pill survives');
   assert.doesNotMatch(BODY, /id="s-sec-talking"/, 'the Agents Talking section survives');

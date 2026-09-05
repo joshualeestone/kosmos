@@ -1,10 +1,11 @@
 'use strict';
 /**
  * The TRANSMIT half of the daily product-feedback loop (kosmos#2037): the
- * separate, gated send layer over engine/feedback.js. Sending is off by default
- * (the switch); the local write is always on (feedback.js, tested there). What
- * leaves the machine is scrubbed of home paths and matches the #2246 collect
- * contract exactly. Sandboxed data root before the require.
+ * separate, gated send layer over engine/feedback.js. Sending is ON by default
+ * (Josh: "baked in day one"), with the Settings switch as the opt-out; the local
+ * write is always on (feedback.js, tested there). What leaves the machine is
+ * scrubbed of home paths and matches the #2246 collect contract exactly.
+ * Sandboxed data root before the require.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -29,15 +30,21 @@ test('the setting file lands under the sandboxed data root, so the tests are iso
   assert.ok(feedbacksend.FILE.startsWith(SANDBOX), `${feedbacksend.FILE} not under ${SANDBOX}`);
 });
 
-test('OFF by default: an install nobody has asked sends nothing', () => {
-  // No setting file at all -> fails to off. This is the #2020 half: a phone-home
-  // must not default on until its control ships (default+control land together).
-  assert.equal(feedbacksend.read().on, false);
+test('ON by default: a never-asked machine has the daily report opt-in on', () => {
+  // No setting file at all -> ON. Josh's ruling (#2037/#2013, 2026-09-05): the
+  // daily report is "baked in day one", a default-checked opt-in, with the
+  // Settings switch as the opt-out (and its disclosure copy). The control ships
+  // WITH the default (default+control land together), which is why this flip is
+  // in the same PR as the Settings switch and the board trigger.
+  assert.equal(feedbacksend.read().on, true);
 });
 
-test('an unreadable setting fails to OFF, not on', () => {
-  // A present-but-unparseable settings file (invalid JSON) must read off,
-  // because the only thing gated here is data leaving the machine.
+test('an unreadable setting still fails to OFF, not on (unlike the never-asked default)', () => {
+  // A present-but-unparseable settings file (invalid JSON) must read off, even
+  // though a never-asked machine defaults ON: a corrupt file could be hiding an
+  // off we cannot see, and the only thing gated here is a report body leaving
+  // the machine. The never-asked default (on) and the unreadable case (off) are
+  // deliberately different, same split as ping.js.
   fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
   fs.writeFileSync(feedbacksend.FILE, 'not json{');
   assert.equal(feedbacksend.read().on, false);
@@ -136,6 +143,7 @@ test('payload is null when there is no report for that day (nothing to send)', (
 
 test('maybeSend does NOTHING while the opt-in is off', () => {
   feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(false); // default is ON now, so turn it off explicitly to test the off-gate
   let calls = 0;
   feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
   feedbacksend.maybeSend('2026-09-04');
@@ -196,5 +204,83 @@ test('a test run never reaches the real network', () => {
     assert.equal(reached, 0, 'a test run reached the network');
   } finally {
     globalThis.fetch = realFetch;
+  }
+});
+
+/* sendDailyOnce: the board-sweep entry point with once-per-day dedup (#2037 PR-C1). */
+
+test('sendDailyOnce sends a day\'s report exactly once, even called repeatedly', () => {
+  feedback.write('a finding', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-09-04');
+  feedbacksend.sendDailyOnce('2026-09-04');
+  feedbacksend.sendDailyOnce('2026-09-04');
+  assert.equal(calls, 1, 'the daily report was sent more than once');
+  assert.equal(feedbacksend.read().sent, '2026-09-04', 'the sent marker was not recorded');
+});
+
+test('sendDailyOnce sends nothing when the opt-in is turned off', () => {
+  feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(false); // the default is ON now, so turn it OFF explicitly to test the off-gate
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-09-04');
+  assert.equal(calls, 0, 'an off setting still sent');
+  assert.equal(feedbacksend.read().sent, null, 'an off setting recorded a sent marker');
+});
+
+test('sendDailyOnce sends again on a NEW day (the dedup is per-day, not forever)', () => {
+  feedback.write('day one', { date: '2026-09-04' });
+  feedback.write('day two', { date: '2026-09-05' });
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-09-04');
+  feedbacksend.sendDailyOnce('2026-09-04'); // same day, deduped
+  feedbacksend.sendDailyOnce('2026-09-05'); // new day, sends
+  assert.equal(calls, 2, 'the per-day dedup either blocked the new day or failed to block the repeat');
+  assert.equal(feedbacksend.read().sent, '2026-09-05', 'the sent marker did not advance to the new day');
+});
+
+test('sendDailyOnce with no report for the day marks nothing and sends nothing', () => {
+  feedbacksend.setOn(true);
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  feedbacksend.sendDailyOnce('2026-01-01'); // no report on that date
+  assert.equal(calls, 0, 'a day with no report still sent');
+  assert.equal(feedbacksend.read().sent, null, 'a day with no report recorded a sent marker (would block a real report later)');
+});
+
+test('setOn does not wipe the sent marker, and markSent does not flip on', () => {
+  feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(true);
+  feedbacksend.markSent('2026-09-04');
+  feedbacksend.setOn(false);
+  assert.equal(feedbacksend.read().sent, '2026-09-04', 'toggling the switch wiped the dedup marker');
+  feedbacksend.markSent('2026-09-05');
+  assert.equal(feedbacksend.read().on, false, 'markSent flipped the opt-in');
+});
+
+test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-POST)', () => {
+  // The re-send hole: if markSent's disk write fails but the POST succeeds, `sent`
+  // never persists and every sweep re-POSTs the same day forever. The fix sends
+  // only when the mark persisted. Force write to fail (read still succeeds) by
+  // blocking the atomic-rename temp path with a directory of the same name.
+  feedback.write('a finding', { date: '2026-09-04' });
+  feedbacksend.setOn(true); // FILE now readable as {on:true}
+  const tmpBlock = feedbacksend.FILE + '.tmp';
+  fs.mkdirSync(tmpBlock, { recursive: true }); // writeFileSync(tmp) will now EISDIR
+  let calls = 0;
+  feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
+  try {
+    // Precondition: the read still works (so the opt-in gate passes), but the write fails.
+    assert.equal(feedbacksend.read().on, true, 'setup: the setting is not readable, so this proves nothing');
+    assert.equal(feedbacksend.markSent('2026-09-04').ok, false, 'setup: the write did not fail, so this proves nothing');
+    feedbacksend.sendDailyOnce('2026-09-04');
+    assert.equal(calls, 0, 'a send happened even though the sent-marker could not be recorded (re-POST-forever risk)');
+  } finally {
+    fs.rmSync(tmpBlock, { recursive: true, force: true });
   }
 });

@@ -314,6 +314,7 @@ const forget = require('./engine/forget');
 const ping = require('./engine/ping');
 const notify = require('./engine/notify');
 const feedback = require('./engine/feedback');
+const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: the opt-in-gated send layer
 const heartbeat = require('./engine/heartbeat');
 const heartbeatSetting = require('./engine/heartbeat-setting');
 const selfreport = require('./engine/selfreport');
@@ -3496,6 +3497,31 @@ const server = http.createServer((req, res) => {
         const saved = ping.setOn(body.on);
         if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
         const r = ping.read();
+        sendJson(res, 200, { on: r.on, ok: r.ok });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
+    return;
+  }
+
+  /* The daily product-feedback SEND opt-in (#2037 PR-C1). Mirrors ping-setting:
+     GET returns the switch state, PUT flips it. The send layer (scrub + the
+     #2246 contract) is engine/feedbacksend.js; the board sweep fires it. Default
+     is ON (Josh: "baked in day one"); the person opts out here. The install-time
+     disclosure surface is the fast-follow (PR-C2). */
+  if (pathname === '/api/feedback-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try { const r = feedbacksend.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
+    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
+    return;
+  }
+  if (pathname === '/api/feedback-setting' && req.method === 'PUT') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
+        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        const saved = feedbacksend.setOn(body.on);
+        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
+        const r = feedbacksend.read();
         sendJson(res, 200, { on: r.on, ok: r.ok });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
@@ -9188,6 +9214,18 @@ function start(port = PORT) {
         } catch { /* best-effort, like the nudge sweep */ }
       }, Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_AUTOHANDOFF_MS) : 60 * 1000); // the env is the test seam only
       if (ahSweep && typeof ahSweep.unref === 'function') ahSweep.unref();
+      /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
+         owns the trigger because the short-lived `kosmos feedback` CLI cannot
+         fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default
+         ON, opt out in Settings) and dedups per day via a `sent` marker, so the
+         exact cadence is not critical; hourly keeps it cheap. Sibling to the
+         sweeps above: its own timer, unref'd so it never holds the process open,
+         best-effort. It sends nothing when the person has opted out, and nothing
+         under test (feedbacksend's underTest guard). */
+      const feedbackSweep = setInterval(() => {
+        try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
+      }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only
+      if (feedbackSweep && typeof feedbackSweep.unref === 'function') feedbackSweep.unref();
       /* #1945: the update-awareness sweep. `updates.poke()` is the ONLY thing
          that fetches latest.json and can fire an auto-install, and its only
          other caller is the /api/status route -- which runs only while someone

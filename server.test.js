@@ -10499,6 +10499,32 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
   }
 });
 
+/* #2037 PR-C1: the daily-report send opt-in route. ON by default (Josh, "baked
+   in day one"), round-trips. (The send BEHAVIOR/dedup is unit-tested in
+   engine/feedbacksend.test.js; the board sweep WIRING in web.feedback-switch-2037.test.js.) */
+test('feedback: /api/feedback-setting is ON by default and round-trips', async () => {
+  const feedbacksendEngine = require('./engine/feedbacksend');
+  // Leading cleanup so the default assertion is self-contained (does not depend
+  // on no prior test having left a feedbacksend.json in the server data root).
+  fs.rmSync(feedbacksendEngine.FILE, { force: true });
+  try {
+    assert.equal(JSON.parse((await req('/api/feedback-setting')).body).on, true,
+      'the daily-report send is not ON by default (Josh: baked in day one, #2037/#2013)');
+    const off = await req('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+    assert.equal(off.status, 200, off.body);
+    assert.equal(JSON.parse(off.body).on, false, 'PUT did not turn the send off');
+    assert.equal(JSON.parse((await req('/api/feedback-setting')).body).on, false, 'the opt-out did not persist');
+    // Back on, and confirm it round-trips both ways.
+    const on = await req('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
+    assert.equal(JSON.parse(on.body).on, true, 'PUT did not turn the send back on');
+    // A non-boolean is refused, not silently coerced.
+    const bad = await req('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: 'yes' }) });
+    assert.equal(bad.status, 400, 'a non-boolean on was accepted');
+  } finally {
+    fs.rmSync(feedbacksendEngine.FILE, { force: true });
+  }
+});
+
 /** Several files on one message (#358, Josh 1:59 PM): both ride the row, both
  *  paths reach the pane, the cap holds, and one bad id refuses the whole send. */
 test('attachments: a message carries several files, in order, with every path in the pane line', async (t) => {
