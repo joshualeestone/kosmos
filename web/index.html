@@ -5831,6 +5831,26 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-confirm { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 #firstrun .fr-confirm[hidden] { display: none; }
+/* #2187: the Claude connect output box, right under the Claude row. Everything
+   the connect flow writes into #fr-sub -- the setup/installing notifications
+   ("Downloading Claude...", "Setting Claude up on this computer...", the progress
+   bar) AND the final "... is connected" checkrow -- lands here, at different
+   moments, in the same spot. Josh, 2026-09-04 (0.6.30 fresh install): group the
+   connected checkbox and the setup text that leads up to it into a light-gold
+   box. That box is the SAME gold wash as .fr-confirm above (its sibling in this
+   same connect sequence, and the pack's attention treatment) rather than a new
+   tone, so the whole Claude connect step -- confirm, then flow, then connected --
+   reads as one contained thing under the row.
+   🔑 `:not(:empty)` carries the box, and the empty rule removes it entirely.
+   #fr-sub is set to '' before connect and on every not-connected repaint
+   (frPaintSubscription's none/unknown arm, frConnectStart's error catch), so an
+   always-on box would be a bare gold rectangle under Claude before anyone presses
+   Connect. The action buttons (Continue / Check again / Cancel) live in the
+   wizard's sticky footer via frActions, NOT in #fr-sub, so they stay outside this
+   box as before. */
+#firstrun #fr-sub:not(:empty) { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
+#firstrun #fr-sub:empty { display: none; }
 /* ⚠️ `.fr-body p.fr-confirm-t`, NOT `.fr-confirm-t`. At (1,1,0) it lost every
    declaration to `#firstrun .fr-body p` at (1,1,1), so the confirm sentence
    rendered as ordinary muted body copy on the one panel whose job is to be
