@@ -97,8 +97,17 @@ function chk(ok, label, extra) {
       'bg=' + m.btnBg + ' plainBtn=' + m.plainBtnBg);
     chk(!/This one is optional/.test(m.paneText),
       'the pushy "This one is optional / now-or-later" framing is gone');
-    chk(/You can turn this on anytime in Settings, under Keeping agents running/.test(m.paneText),
-      'the reworded where-to-do-it-later pointer stays (#1214 out, kept per Mona Lisa without the "optional" framing)');
+    // #2125 slice 3 (Josh, 2026-09-04): Continue is now GATED on a real
+    // Accessibility check, superseding the 09-01 offer-not-require. So the
+    // "anytime in Settings" skip-out is GONE (you can no longer skip it here),
+    // replaced by what-to-toggle guidance that names finding Tmux in the list AND
+    // the Automation ("control your computer") grant macOS may also ask for.
+    chk(!/You can turn this on anytime in Settings/.test(m.paneText),
+      'the offer-not-require "anytime in Settings" skip-out is gone -- Continue is now gated');
+    chk(/Find Tmux in the Accessibility list and switch it on/.test(m.paneText),
+      'the what-to-toggle guidance names finding Tmux in the Accessibility list', m.paneText.slice(0, 120));
+    chk(/let Tmux control your computer, allow that too/.test(m.paneText),
+      'the guidance also covers the Automation ("control your computer") grant tmux needs', m.paneText.slice(0, 160));
 
     await page.screenshot({ path: path.join(OUT, `fr-pane-${step}-a11y.png`) });
     console.log('screenshot: ' + path.join(OUT, `fr-pane-${step}-a11y.png`));
