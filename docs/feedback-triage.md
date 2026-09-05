@@ -94,6 +94,15 @@ reversibly and are recorded here so they can be revisited:
   risky direction and can be enabled later if the loop proves trustworthy; the
   safe default is that a person opens every card.
 
+## Known limits
+
+- The signal/noise scoring is English-only. `classify`/`normalize` work on
+  Latin words, so a report body written in another script normalizes to empty
+  and lands in the "below the bar" section rather than as a candidate. It is
+  still shown (nothing is dropped from the digest), but it is not scored or
+  clustered. The daily write-ups are authored by the pm agent in English today;
+  if non-English reports become common, the scorer needs language handling.
+
 ## What this process deliberately does not include
 
 The transport - sending reports off a tester's machine to a central place - is

@@ -102,6 +102,7 @@ function parseItems(body) {
   const lines = String(body == null ? '' : body).split(/\r?\n/);
   const items = [];
   let current = null;
+  let currentIndent = 0;
   const push = () => {
     if (current != null) {
       const t = current.trim();
@@ -117,14 +118,18 @@ function parseItems(body) {
     if (heading.test(line)) { push(); continue; }
     const m = line.match(bullet);
     if (m) {
-      // A new top-level bullet starts a new item; a deeply-indented bullet
-      // (a sub-point) folds into the item it belongs to.
+      // A bullet more indented than the CURRENT item's bullet is a sub-point
+      // and folds into it; a bullet at the same or lesser indent starts a new
+      // item. Relative to the current item, not an absolute >=4: a whole list
+      // that happens to be indented (every bullet at 4+) must still be N items,
+      // not one item with N-1 sub-points folded in.
       const indent = (line.match(/^\s*/) || [''])[0].length;
-      if (indent >= 4 && current != null) {
+      if (current != null && indent > currentIndent) {
         current += ' ' + m[1].trim();
       } else {
         push();
         current = m[1].trim();
+        currentIndent = indent;
       }
     } else if (current != null) {
       // A continuation line of the current item (wrapped prose or a bullet's
@@ -213,8 +218,10 @@ function groupDuplicates(entries, threshold) {
     // order-dependent -- a chain A~B, B~C, A!~C clusters as [A,B,C] but splits
     // as [A,C,B], because C is only ever compared to A -- and would list one
     // recurring issue as two entries depending on report order. Iterating to a
-    // fixed point makes the clustering order-independent. n is a day's items,
-    // so the extra passes are cheap.
+    // fixed point makes the clustering order-independent. n is the item count
+    // over the reports being triaged (a day, or a --dir of collected reports);
+    // at realistic feedback volume the extra passes are cheap, and it always
+    // terminates (a cluster stops growing once no unassigned entry links in).
     let grew = true;
     while (grew) {
       grew = false;

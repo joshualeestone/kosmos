@@ -32,6 +32,27 @@ test('parseItems splits a real report shape into items, dropping headings and fo
   assert.ok(!items.some((i) => /^What did not work$/i.test(i) || /^Suggestions$/i.test(i)));
 });
 
+test('parseItems folds a bullet only when it is MORE indented than the current item, not by an absolute depth', () => {
+  // A whole list that happens to be indented (every bullet at 4 spaces) must
+  // stay N items, not collapse into one with the rest folded in.
+  const indentedList = [
+    '    - first indented point',
+    '    - second indented point',
+    '    - third indented point',
+  ].join('\n');
+  assert.equal(triage.parseItems(indentedList).length, 3, 'a uniformly-indented list collapsed into one item');
+
+  // A genuine sub-bullet (more indented than its parent) folds into the parent.
+  const nested = [
+    '- parent point about the export',
+    '    - a detail under the parent',
+    '- second top-level point',
+  ].join('\n');
+  const items = triage.parseItems(nested);
+  assert.equal(items.length, 2, 'a nested sub-bullet should fold into its parent, leaving 2 items');
+  assert.match(items[0], /parent point about the export a detail under the parent/);
+});
+
 test('classify scores an actionable specific high and pure sentiment as noise', () => {
   const actionable = triage.classify('The create form hangs when I pick GPT and no key is saved');
   assert.ok(actionable.score >= 1, 'an actionable bug report should clear the bar: ' + JSON.stringify(actionable));

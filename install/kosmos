@@ -1205,7 +1205,12 @@ cmd_feedback() {
         const openCards = (process.env.KOSMOS_TRIAGE_CARDS || "").split("\n").map((s) => s.trim()).filter(Boolean);
         const result = tri.triage(reports, { openCards });
         const dates = reports.map((r) => r.date).filter(Boolean).sort();
-        const range = dates.length ? (dates[0] + " .. " + dates[dates.length - 1]) : "no reports found";
+        // "no reports found" only when there really are none. With reports that
+        // have no dated filename (a --dir of undated notes) say so, rather than
+        // heading a digest of real items with "no reports found".
+        const range = reports.length === 0 ? "no reports found"
+          : dates.length ? (dates[0] + " .. " + dates[dates.length - 1])
+          : reports.length + " report(s), no dated filenames";
         process.stdout.write(tri.renderDigest(result, { range }) + "\n");
       ' "$KOSMOS_HOME/app"
       exit $?
