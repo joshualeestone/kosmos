@@ -54,6 +54,10 @@ const workerfile = require('./workerfile');
    with create.workersDir() under a HOME-only sandbox. AGENT_WORKFORCE_WORKERS still wins. */
 function rootDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), 'work', 'workers'); }
 
+// The claude/default brief name. Since #2245 this no longer drives `fileFor`
+// (which chooses per-runner via `create.briefFilename`); it survives as the
+// export and the traversal-test anchors, both of which resolve the claude
+// default. Not the single source of the brief filename any more.
 const FILENAME = 'CLAUDE.md';
 
 /**

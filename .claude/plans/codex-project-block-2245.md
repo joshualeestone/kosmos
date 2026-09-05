@@ -64,3 +64,24 @@ CLAUDE.md brief would be orphaned and its AGENTS.md (if any) would need a re-tel
 to gain the block, and `tellAgent` will not create one. #2245 is the create-time
 gap (Kosmos-created codex agents), which this closes; the switch-migration case is
 flagged as a separate follow-up rather than expanded into here.
+
+### Second residual (blind-review WARNING, deferred with a code read)
+
+`fileFor` resolves the DIRECTORY via `store.safeKey(agent)` (broad acceptance)
+but the RUNNER via `create.readJob(agent)`, which validates the name with
+`NAME_RE` (`^[a-z0-9][a-z0-9_-]{1,31}$`) and returns null on a miss, so the
+runner falls back to 'claude' -> CLAUDE.md. A CONNECTED codex agent whose name
+passes `nameUsable` but fails `NAME_RE` (uppercase, a dot, a space, single char)
+therefore gets its brief routed to CLAUDE.md, not the AGENTS.md it reads.
+
+Deferred, not fixed, on a code read:
+- NOT a regression: pre-#2245 every agent got CLAUDE.md, so this is unchanged
+  behaviour for these agents, and it is fail-closed to the historical default.
+- Kosmos-CREATED codex agents (this card's launch-blocker scope) are provably
+  unaffected: creation gates the name through `NAME_RE`, so whenever `readJob`
+  succeeds `safeKey(agent) === agent` and there is no wrong-file hazard.
+- The fix is not a one-liner: `readJob`'s `NAME_RE` guards `plistPath(name)`, a
+  path built from the name, so relaxing it to match `safeKey` has its own
+  path-traversal surface and deserves its own scoped change.
+
+Tracked on #2250 (the same connected/non-birth code path as the switch case).
