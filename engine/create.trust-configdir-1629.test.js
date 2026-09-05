@@ -44,7 +44,27 @@ const create = require('./create');
 const trust = require('./trust');
 const status = require('./status');
 
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* 🛑 A REAL EXECUTABLE, SPELLED FOR WHATEVER PLATFORM THIS RUNS ON. These stand
+   in for "a binary that exists and is runnable" -- nothing here executes them,
+   because `create.setRunner` is stubbed in every arm below. `/bin/echo` says that
+   in POSIX, and on Windows it says nothing at all: the path does not exist, so
+   `createAgent` refuses at the binary check and never reaches the trust write.
+   The precondition assertion then fires -- "the create path reached the trust
+   write at all" -- and all four arms in this file read as failures when in fact
+   they never ran. Measured on Windows 2026-09-05: 0 pass / 4 fail, entirely on
+   the fixture.
+
+   `process.execPath` is the portable spelling of the same idea: the node binary
+   running this test, which by construction exists and is executable on every
+   platform. Identical in effect on the Mac.
+
+   📌 THE SAME `/bin/echo` FIXTURE APPEARS IN ~20 OTHER SUITES and is the single
+   largest source of Windows create/server noise. It is NOT swept here on
+   purpose: some of those arms may actually EXECUTE the binary and assert on
+   echo's output, where substituting node would break them on the Mac. That wants
+   a per-file read and a shared test-support constant, not a find-and-replace. */
+const REAL_BIN = process.execPath;
+const BINS = { claudeBin: REAL_BIN, tmuxBin: REAL_BIN };
 
 /* #1794: the create path checks the pane roster before the trust write; a live
    tmux throws on a boardless CI runner, so create refuses BEFORE it reaches the
@@ -97,7 +117,7 @@ test('#1629 create half: an OpenAI agent never gets a CODEX_HOME as its CLAUDE t
     // existed and why it could pass vacuously. Passing a runnable stub makes the
     // arm reach the write deterministically everywhere, so the precondition below
     // is real rather than environment-dependent.
-    create.createAgent({ ...BINS, codexBin: '/bin/echo', name: 'ct-openai', role: 'pm', provider: 'openai' });
+    create.createAgent({ ...BINS, codexBin: REAL_BIN, name: 'ct-openai', role: 'pm', provider: 'openai' });
     assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.equal(opts && opts.configDir, null,
@@ -131,7 +151,7 @@ test('#2129 create half: an OpenAI agent does NOT createIfAbsent a CLAUDE config
   withTrustSpy((seen) => {
     // Runnable codexBin so the OpenAI arm reaches the trust write on a machine
     // without codex (CI); see the note in the sibling OpenAI test above.
-    create.createAgent({ ...BINS, codexBin: '/bin/echo', name: 'ct-openai-fresh', role: 'pm', provider: 'openai' });
+    create.createAgent({ ...BINS, codexBin: REAL_BIN, name: 'ct-openai-fresh', role: 'pm', provider: 'openai' });
     assert.ok(seen.length >= 1, 'PRECONDITION: the create path reached the trust write');
     const [, opts] = seen[0];
     assert.notEqual(opts && opts.createIfAbsent, true,
