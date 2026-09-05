@@ -8959,7 +8959,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
-                    <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-haspopup="true" aria-expanded="false" aria-controls="pj-emoji">&#128512;</button>
+                    <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji">&#128512;</button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
@@ -32398,8 +32398,16 @@ function pjEmojiOpen() {
 function pjEmojiClose() {
   const panel = document.getElementById('pj-emoji');
   const btn = document.getElementById('pj-emoji-btn');
+  /* Restore focus to the trigger ONLY when a panel button held it (the keyboard
+     Escape flow) -- otherwise the focused emoji button becomes display:none and
+     focus falls to <body>. Guarded on activeElement so an OUTSIDE click, whose
+     focus is elsewhere, does not have focus yanked to the emoji button. */
+  const restore = panel && !panel.hidden && panel.contains(document.activeElement);
   if (panel) panel.hidden = true;
-  if (btn) btn.setAttribute('aria-expanded', 'false');
+  if (btn) {
+    btn.setAttribute('aria-expanded', 'false');
+    if (restore) btn.focus();
+  }
 }
 
 function pjEmojiToggle() {

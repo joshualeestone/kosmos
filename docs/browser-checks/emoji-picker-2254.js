@@ -121,17 +121,22 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
     say('a keyboard pick (focus an emoji button + Enter) inserts the emoji',
       afterKb === 'hi ' + first + kbGlyph, JSON.stringify(afterKb) + ' kb=' + kbGlyph);
 
-    // Arm 6: Escape closes the panel and clears aria-expanded.
+    // Arm 6: Escape closes the panel, resets aria-expanded, AND (a11y) restores
+    // focus to the trigger when a panel button held it (else focus falls to body).
+    await p.evaluate(() => document.querySelectorAll('#pj-emoji button[data-emoji]')[0].focus());
     await p.keyboard.press('Escape');
     await p.waitForFunction(() => document.getElementById('pj-emoji').hidden, null, { timeout: 5000 }).catch(() => {});
     const closed = await p.evaluate(() => ({
       hidden: document.getElementById('pj-emoji').hidden,
       expanded: document.getElementById('pj-emoji-btn').getAttribute('aria-expanded'),
+      focusOnBtn: document.activeElement === document.getElementById('pj-emoji-btn'),
     }));
     say('Escape closes the panel and resets aria-expanded', closed.hidden === true && closed.expanded === 'false',
       'hidden=' + closed.hidden + ' expanded=' + closed.expanded);
+    say('Escape from inside the panel restores focus to the trigger (a11y)', closed.focusOnBtn === true,
+      'focusOnBtn=' + closed.focusOnBtn);
 
-    // Arm 6: the whole feature loaded with no page error (also catches a JS
+    // Arm 8: the whole feature loaded with no page error (also catches a JS
     // syntax error in the added block).
     say('no page errors', errs.length === 0, errs.join(' | '));
   } catch (e) {
