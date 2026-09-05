@@ -82,6 +82,17 @@ A browser-check (`render-observed-consumers-1959.js`, hermetic file://) with thr
 helper matrix (acctUsableLogin/acctUnknownLive across every badge + the badge-less fallback); the
 paintConnLive summary via a fetch stub (counts usable, EXCLUDES rejected, honest on unchecked); and
 the paintAccountPicker eligibility via a seeded ACCOUNTS global (a rejected current account is signed
-out and offers the working target; a working current account is the control). Verified 16/16
-(chromium+webkit) on the fix, and proven RED on the pre-fix page by OBSERVED BEHAVIOR: it counts
-"3 accounts connected" (rejected included) and a rejected current account gets no move prompt.
+out and offers the working target; a working current account is the control); and the
+fillCreateAccounts create picker via a seeded CREATE_ACCOUNTS global (a rejected account excluded as
+a run target, an unchecked one still offered+labelled). Verified 20/20 (chromium+webkit) on the fix,
+and proven RED on the pre-fix page by OBSERVED BEHAVIOR: it counts "3 accounts connected" (rejected
+included), a rejected current account gets no move prompt, and the create picker offers the rejected
+account.
+
+## A known follow-up (deliberately out of this slice)
+The move-eligibility (paintAccountPicker) still treats an `unchecked` (could-not-tell) current
+account as `signedOut` -> the definite "The account this agent runs on is signed out" message. That
+is pre-existing (the pre-fix `state !== 'connected'` already treated `unknown` as signed out) and is
+UNCHANGED by this PR, so it is not a regression. Distinguishing it (a could-not-check message via
+acctUnknownLive) is a real message-design addition with its own semantics call, so it is left for the
+same browser-capable follow-up that owns computeMachine, rather than expanding this slice.

@@ -18,17 +18,24 @@
  * OWN functions, so a change to what they compute cannot pass here while breaking
  * on screen.
  *
- * The arms (each reds against the pre-#1959 raw-state reads):
- *  1. HELPER MATRIX -- the shared logic both consumers use. acctUsableLogin is
- *     true for working + signed_in_unverified, false for rejected/signed_out/
- *     unchecked, and falls back to state==='connected' for a badge-less row.
- *     acctUnknownLive is true only for unchecked / state==='unknown'.
+ * The four arms. Most reds against the pre-#1959 page by OBSERVED BEHAVIOR (the
+ * consumer functions exist on both pages); the two exceptions are called out.
+ *  1. HELPER MATRIX -- the three shared helpers. acctUsableLogin is true for
+ *     working + signed_in_unverified, false for rejected/signed_out/unchecked;
+ *     acctUnknownLive is true only for unchecked / state==='unknown';
+ *     acctOfferableTarget is false only for rejected/signed_out. All fall back to
+ *     the legacy .state for a badge-less row. (This arm reds on the pre-fix page
+ *     because the helpers are ABSENT there, not via a raw-state read.)
  *  2. paintConnLive SUMMARY -- counts usable logins (rejected EXCLUDED, the #874
  *     fix on this surface); honest "could not check" on unchecked; "nothing
  *     connected" only when truly none.
  *  3. paintAccountPicker ELIGIBILITY -- a REJECTED current account is now signed
  *     out (the move UI appears), with a working sibling offered as the target; a
  *     working current account is not signed out (control).
+ *  4. fillCreateAccounts CREATE PICKER -- a REJECTED account is EXCLUDED as a run
+ *     target (#874), while an unchecked account stays OFFERED and labelled. (The
+ *     labelled-unchecked check is a precondition, not a discriminator: the pre-fix
+ *     labelOf already keyed on state==='unknown', so it passes on both pages.)
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-observed-consumers-1959.js
