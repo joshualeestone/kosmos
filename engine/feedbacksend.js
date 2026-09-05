@@ -111,16 +111,21 @@ function scrub(text) {
   // -- a report can quote another agent's path, and that name must not leave
   // either.
   out = out.replace(/\/(?:Users|home)\/[^/\s"']+/g, '~');
+  // Windows account home: C:\Users\<name> -> ~. store.js carries a real win32
+  // branch (roaming AppData), so Windows is a supported install target and a
+  // backslash home path must be redacted too -- the POSIX arm above, being
+  // forward-slash bound, never reaches it.
+  out = out.replace(/[A-Za-z]:\\Users\\[^\\/\s"']+/g, '~');
   // This machine's own home, for an exotic layout the shapes above miss (a
-  // custom $HOME, /var/root). BOUNDED with a lookahead so a home that PREFIXES
-  // another dir is not half-rewritten -- an unbounded substring replace turns
-  // /home/jo into ~ inside /home/joanna, corrupting the body and leaking a
-  // fragment.
+  // custom $HOME, /var/root, or a non-C:\Users Windows home). BOUNDED with a
+  // lookahead (including a backslash) so a home that PREFIXES another dir is
+  // not half-rewritten -- an unbounded substring replace turns /home/jo into ~
+  // inside /home/joanna, corrupting the body and leaking a fragment.
   let home = null;
   try { home = os.homedir(); } catch { home = null; }
-  if (home && !/^\/(?:Users|home)\//.test(home)) {
+  if (home && !/^\/(?:Users|home)\//.test(home) && !/^[A-Za-z]:\\Users\\/.test(home)) {
     const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp(esc + '(?=[/\\s"\']|$)', 'g'), '~');
+    out = out.replace(new RegExp(esc + '(?=[/\\\\\\s"\']|$)', 'g'), '~');
   }
   return out;
 }

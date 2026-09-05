@@ -68,6 +68,14 @@ test('scrub covers OTHER accounts (/home/<name>) with a boundary, no prefix corr
   assert.equal(feedbacksend.scrub('/Users/alice and /Users/alicia/x'), '~ and ~/x');
 });
 
+test('scrub covers Windows account homes (C:\\Users\\name), backslash-bound', () => {
+  // store.js has a real win32 branch, so Windows is a supported target; a
+  // backslash home path must be redacted too or an account name leaks.
+  assert.equal(feedbacksend.scrub('C:\\Users\\joe\\proj\\a.md'), '~\\proj\\a.md');
+  assert.equal(feedbacksend.scrub('quote C:\\Users\\jane\\secret here'), 'quote ~\\secret here');
+  assert.ok(!/:\\Users\\/.test(feedbacksend.scrub('D:\\Users\\bob\\x')), 'a Windows account name leaked');
+});
+
 test('payload matches the #2246 collect contract exactly, with a scrubbed body', () => {
   feedback.write('the + button did nothing at /Users/someagent/proj', { date: '2026-09-04' });
   const p = feedbacksend.payload('2026-09-04');
