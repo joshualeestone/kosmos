@@ -125,6 +125,11 @@ function activeWorld(base) {
    before it ever reaches this join. */
 function worldBaseDir(base, world) {
   if (!world || world.id === DEFAULT_ID) return null;
+  // The guard travels WITH the join (#1798: guard the result, not each caller).
+  // readRegistry already drops non-clean ids, so this only fires if a caller hands
+  // in a world from some other source (a request body, a cached pre-filter object);
+  // it throws rather than joining an unsafe id into a path that escapes the store.
+  if (!CLEAN_ID.test(world.id)) throw new Error(`unsafe world id ${JSON.stringify(world.id)}`);
   return path.join(base, WORLDS_SUBDIR, world.id);
 }
 

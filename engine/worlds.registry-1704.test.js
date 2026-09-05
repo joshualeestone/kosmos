@@ -155,6 +155,15 @@ test('CONTROL: a traversing id in a hand-edited registry is DROPPED on read, nev
   }
 });
 
+test('worldBaseDir THROWS on a non-clean id passed directly (the guard travels with the join)', () => {
+  const base = sandbox();
+  // A world object obtained from a source other than readRegistry (e.g. a request body).
+  assert.throws(() => worlds.worldBaseDir(base, { id: '../../evil' }), /unsafe world id/);
+  assert.throws(() => worlds.envOverridesFor(base, { id: 'has space' }), /unsafe world id/);
+  assert.equal(worlds.worldBaseDir(base, worlds.defaultWorld()), null, 'default still returns null, no throw');
+  assert.ok(worlds.worldBaseDir(base, { id: 'acme' }).endsWith(path.join('worlds', 'acme')), 'a clean id joins normally');
+});
+
 test('writeRegistry is atomic (round-trips through a rename)', () => {
   const base = sandbox();
   const reg = worlds.readRegistry(base); // synthesized default (no file yet)

@@ -83,7 +83,7 @@ world. First write of worlds.json (on the first "create world") seeds the defaul
   migration-safe core: readRegistry (default-when-absent, fail-safe), listWorlds,
   activeWorld, createWorld, setActiveWorld, envOverridesFor, applyActiveWorldEnv.
   The RELEASE GATE lives here and is executable: no registry => default world =>
-  NO env overrides => legacy roots byte-for-byte unchanged. 11 tests pass,
+  NO env overrides => legacy roots byte-for-byte unchanged. 14 tests pass,
   including the migration gate + a traversal control. Pure data layer, no server.js
   change, no web/ change (so no browser-check gate).
 - **Slice 2 (next, mine): wiring + API + switch lifecycle.** Call
@@ -97,7 +97,7 @@ world. First write of worlds.json (on the first "create world") seeds the defaul
   slice 2's API contract.
 
 ## Built in slice 1 (done)
-`engine/worlds.js` + `engine/worlds.registry-1704.test.js` (11/11). safeKey reused
+`engine/worlds.js` + `engine/worlds.registry-1704.test.js` (14/14). safeKey reused
 from store.js (traversal-safe ids); atomic registry writes; AGENT_WORKFORCE_LAUNCH
 deliberately NOT overridden (shared launchd resource, a slice-2 switch-lifecycle
 concern).
