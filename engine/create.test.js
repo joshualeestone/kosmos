@@ -3463,6 +3463,32 @@ test('a refused creation records no id, because nothing was born', () => {
   assert.equal(last.id, null);
 });
 
+test('#1279: an agent-created agent records createdBy + purpose; a plain create records null (provenance)', () => {
+  recorder();
+  create.setDryRun(false);
+  /* Agent-created: the creator and stated purpose land on the birth record, so
+     the receipt answers "who made this and what for" -- Baron's drift guard. */
+  create.createAgent({ ...BINS, name: 'team-member', role: 'pm', createdBy: 'ProjectManagerPete', purpose: 'ship the installer' });
+  let last = create.createdLog().slice(-1)[0];
+  assert.equal(last.createdBy, 'ProjectManagerPete');
+  assert.equal(last.purpose, 'ship the installer');
+  /* A plain operator create carries neither, so every pre-#1279 record and every
+     hand-create stays byte-identical: createdBy and purpose are null, not absent
+     keys guessed at read time. */
+  create.createAgent({ ...BINS, name: 'plain-agent', role: 'pm' });
+  last = create.createdLog().slice(-1)[0];
+  assert.equal(last.createdBy, null, 'a plain create invented a creator');
+  assert.equal(last.purpose, null, 'a plain create invented a purpose');
+  /* A refusal still records the provenance it was ASKED for -- the receipt is
+     "who tried to make what, and what happened", so a refused team member is
+     traceable to the creator that asked for it. */
+  create.createAgent({ name: '###', role: 'pm', createdBy: 'ProjectManagerPete', purpose: 'ship the installer' });
+  last = create.createdLog().slice(-1)[0];
+  assert.equal(last.outcome, create.OUTCOME.REFUSED);
+  assert.equal(last.createdBy, 'ProjectManagerPete', 'a refused member lost the creator that asked for it');
+  assert.equal(last.purpose, 'ship the installer');
+});
+
 test('an existing agent is backfilled on first write, and a restored profile is a different agent (#170)', () => {
   const name = 'old-timer';
   const file = nodePath.join(store.PROFILES, store.safeKey(name) + '.json');
