@@ -34083,9 +34083,14 @@ const FR_STEPS = 7;
 // The constant keeps its name so the generation-guard pins keep reading.
 const FR_STEP_RETURN = 1;
 // #1214 inserted the Accessibility offer as step 5, so About-you moved from 5 to
-// 6 (and the fleet ending from 6 to 7). This constant is the single source the
-// About-you generation guard and its "next step" read from, so moving the step
-// is this one edit plus the eyebrow map and the frGo branch below.
+// 6 (and the fleet ending from 6 to 7). These constants are the single source the
+// step guards and their "next step" reads read from, so moving a step is these
+// edits plus the eyebrow map and the frGo branch below.
+// #2125 slice 3: the Accessibility gate's step, named for the a11y-poll STOP guard
+// (frGo's `step !== FR_STEP_A11Y`, which tears down the poll on leaving the step),
+// the same way FR_STEP_YOU names the About-you guard. The ordered frGo if/else-if
+// ladder itself stays literal (1..7), matching every other branch.
+const FR_STEP_A11Y = 5;
 const FR_STEP_YOU = 6;
 // ⚠️ The About-you step's generation, same contract as FR_RETURN_GEN: a
 // continuation captured under one generation must do NOTHING once the
@@ -34267,7 +34272,7 @@ function frGo(step) {
   if (step !== FR_STEP_YOU) FR_YOU_GEN += 1;
   // #2125 slice 3: leaving the Accessibility step stops its gate poll and
   // invalidates any in-flight one (bumping the generation), same contract as above.
-  if (step !== 5) { FR_A11Y_GEN += 1; frA11yStop(); }
+  if (step !== FR_STEP_A11Y) { FR_A11Y_GEN += 1; frA11yStop(); }
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance
   // (the pack's progression; only the colour survives of the old gather).
@@ -34329,13 +34334,12 @@ function frGo(step) {
       { label: 'Check again', go: frPaintMachine });
     frPaintMachine();
   } else if (step === 5) {
-    // #1214: the Accessibility offer. Continue proceeds whether or not the person
-    // opened the setting (Josh ruled offer-not-require, 2026-09-01); the in-pane
-    // button is the offer and the "anytime in Settings, under Keeping agents
-    // running" sentence is the where-to-do-it-later out. (#1940 REWORDED that
-    // sentence -- dropped the pushy "This one is optional ... now, or later"
-    // framing, kept the orientation -- Josh's copy via Mona Lisa. Continue is the
-    // skip; the pointer is the out; the offer-not-require ruling is unchanged.)
+    // HISTORY (#1214/#1940, SUPERSEDED below by #2125 -- kept as the trail, not the
+    // current state): the Accessibility step was once offer-not-require. Josh ruled
+    // that 2026-09-01: Continue proceeded whether or not the person opened the setting,
+    // with an in-pane "anytime in Settings, under Keeping agents running" sentence as
+    // the where-to-do-it-later out (#1940 reworded that sentence via Mona Lisa). #2125
+    // REMOVED that sentence and that ruling; the live behavior is the gate below.
     // #2125 slice 3 (Josh, 2026-09-04): SUPERSEDES the 09-01 offer-not-require.
     // Continue is now GATED on a real Accessibility check (the native app writes an
     // AXIsProcessTrusted reading, attributed to tmux; the engine surfaces it at

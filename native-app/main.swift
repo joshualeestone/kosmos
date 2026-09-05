@@ -651,11 +651,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // read must run UNDER tmux, not as the kosmos-app (whose own trust is a false
     // reading). So the hatches are spawned under the bundled tmux.
     //
-    // 🛑 The attribution (does an under-tmux re-exec report tmux's trust or the app's?)
-    // is the LOAD-BEARING UNKNOWN of #2125 and is UNVERIFIED on a dev box. It is the
-    // deferred fresh-install gate flagged on #2125; until it is verified, this keeps a
-    // reading flowing but the FRONTEND gate stays fail-safe, so a wrong reading cannot
-    // strand anyone in prod (prod ships the gate only after that verify passes).
+    // 🛑 THE ONE WAY THIS CAN FALSE-BLOCK A USER, STATED PLAINLY. The frontend gate is
+    // fail-safe for every UNCHECKABLE state (browser/no-file/stale/malformed/fetch-error
+    // all leave Continue live). The single exception is a POSITIVE checkable:true +
+    // trusted:false, which BLOCKS -- correctly if it is tmux's real trust, but a
+    // FALSE-BLOCK if the under-tmux attribution reads the APP's trust instead (app
+    // ungranted, tmux granted -> trusted:false -> the user grants Tmux as the pane says
+    // and Continue stays stuck). Whether an under-tmux re-exec reports tmux's trust or
+    // the app's is the LOAD-BEARING UNKNOWN of #2125, UNVERIFIED on a dev box (a11y
+    // granted broadly -> AXIsProcessTrusted true either way). #2189 confirms the
+    // under-tmux surface has real fresh-install trouble (the Open-Accessibility button
+    // surfaces no Tmux to enable), which is the axprompt half of exactly this seam.
+    //
+    // ⚠️ THE PROTECTION IS THE RELEASE PROCESS, NOT THIS CODE. There is no in-code guard
+    // here (no feature flag, no channel check, no bias-to-trusted default): this writer
+    // emits the REAL reading unconditionally, deliberately, so the attribution CAN be
+    // verified on a fresh install (the bias-to-trusted mitigation in the plan would make
+    // the writer inert and UNVERIFIABLE, which is why it is NOT applied). So a
+    // #2125-carrying build MUST NOT promote to prod until the deferred fresh-install
+    // verify on #2125 passes on staging. If that human gate is skipped, this code can
+    // false-block. Ruled by Splinter (build-now + deferred-verify); do not silently
+    // change it to a bias default without re-opening that decision, because it breaks
+    // the verify.
     private func startA11yTrustChecks() {
         // The bundled tmux lives under the resolved install home, the same home
         // startBoard uses. resolveInstall is a pure, synchronous function; a failure
