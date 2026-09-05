@@ -111,7 +111,7 @@ test('CONTROL: with no injected sender under test, nothing is sent even when on,
   }
 });
 
-test('both telemetry opt-out rows are PRESENT and wired, and the sends stay OFF by default (#2020 step 1)', () => {
+test('both telemetry opt-out rows are PRESENT and wired; ping defaults ON (#2020/#2013), notify stays OFF', () => {
   /* 🛑 THE HISTORY, so nobody re-derives it: this pinned the rows PRESENT before
      2026-08-26, then their ABSENCE after Josh removed both (his item 3). #2020
      restores them as opt-out CONTROLS (Josh 09-03: "on, and they can turn it off"),
