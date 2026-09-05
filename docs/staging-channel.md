@@ -81,7 +81,6 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    gate the deploy on the push landing (else prod moves ahead of `origin` and a later fresh-checkout
    deploy reverts the promote), and gate it on every artifact being present in the export:
    ```sh
-   HOST=https://installkosmos.com   # for the verify step below; the vercel project aliases installkosmos.com + chaoskosmos.com
    bash <<'DEPLOY'
    set -eu
    S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
