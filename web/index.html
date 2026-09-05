@@ -16441,16 +16441,21 @@ function createTellPaint(r) {
       : 'Turned off in Settings.');
 }
 
+let CREATE_TELL_EPOCH = 0;
 async function refreshCreateTell() {
   /* Painted as unreadable FIRST, then upgraded, so a slow fetch never shows a
      stale claim. A non-ok GET (403 on an enforcing board, or 500) is
-     could-not-read, not off (#2047), the same rule the Settings row follows. */
+     could-not-read, not off (#2047), the same rule the Settings row follows.
+     The epoch guard discards a stale response when the form is re-opened
+     mid-fetch, matching refreshTell/refreshNotify. */
+  const mine = ++CREATE_TELL_EPOCH;
   createTellPaint(null);
   try {
     const res = await fetch('/api/ping-setting');
-    if (!res.ok) { createTellPaint(null); return; }
-    createTellPaint(await res.json());
-  } catch { createTellPaint(null); }
+    if (!res.ok) { if (mine === CREATE_TELL_EPOCH) createTellPaint(null); return; }
+    const r = await res.json();
+    if (mine === CREATE_TELL_EPOCH) createTellPaint(r);
+  } catch { if (mine === CREATE_TELL_EPOCH) createTellPaint(null); }
 }
 
 let NOTIFY_EPOCH = 0;

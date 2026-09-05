@@ -147,8 +147,8 @@ test('both telemetry opt-out rows are PRESENT and wired; ping defaults ON (#2020
      never said flip it off"); the notify send has no such ruling, so it stays
      OFF until he gives one. */
   const ping = require('./ping');
-  assert.equal(notify.read().on, false, 'the notify send default changed with no step-3 ruling from Josh');
-  assert.equal(ping.read().on, true, 'the ping send default is ON (Josh 2026-09-05, #2020/#2013)');
+  assert.equal(notify.read().on, false, 'the notify send defaulted ON with no step-3 ruling from Josh');
+  assert.equal(ping.read().on, true, 'the ping send defaulted OFF, but #2020/#2013 requires it ON (Josh 2026-09-05)');
   /* 🛑 THE DISCLOSURE COPY MUST COVER WHAT THE PAYLOAD SENDS (#2020 step 2 = honest
      disclosure). This pins the payload's EXACT field set; the notify row's copy above
      is human-verified to name each one - the agent's name and session, kind

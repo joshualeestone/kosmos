@@ -202,5 +202,5 @@ test('the created-ping CREATE-PAGE control is present, and the send defaults ON,
   /* And the half a present control alone cannot cover: the default. */
   fresh();
   assert.equal(ping.read().on, true,
-    'the control is back but the send defaults OFF: a dead opt-out nobody can turn on');
+    'the control is present but the send still defaults OFF (#2013: they must move together)');
 });
