@@ -379,3 +379,24 @@ not a measurement.)
 2. `reporthook`'s dedup `MARKER` is a filename, so a second writer under a new
    name stacks a hook instead of deduping. That needs a migration BEFORE any
    second filename ships, and it is not written down anywhere yet.
+
+---
+
+## Full-suite regression check (165 engine test files, Windows)
+
+Ran every `engine/*.test.js` on this branch and again on a detached clean
+`origin/main`, and diffed the two:
+
+```
+baseline (clean origin/main) files with failures: 55
+branch                       files with failures: 54
+
+in BRANCH but not baseline (regressions):  (none)
+in BASELINE but not branch (fixed):        engine/windows-coupling-audit-1732.test.js  was 4/1
+same file, different counts:               (none)
+```
+
+So the 54 remaining failures are pre-existing Windows platform failures —
+**proven by control, not asserted** — and this branch's net effect on the suite is
+one file moved from red to green. Not one file fails here that did not fail on
+clean main, and no file fails harder.
