@@ -35256,7 +35256,13 @@ function frPaintConnect(st) {
       // Same in-flight guard as the button: a second Enter after the first
       // code was typed earns a 409 that stomps the "Code sent." receipt.
       const go = document.getElementById('fr-conn-code-go');
-      if (e.key === 'Enter' && !(go && go.disabled)) frConnSubmitCode();
+      // #2186: this field has its own Enter gesture, so stop the keystroke here
+      // rather than letting it bubble to the wizard-wide frEnterSubmit -- parity
+      // with fr-openai-key. It is safe today only because the connect phase hides
+      // #fr-next (frActions(null, {Cancel})); this makes it safe even if a future
+      // phase shows Continue during code entry, so Enter can never both submit the
+      // code AND click Continue.
+      if (e.key === 'Enter') { e.stopPropagation(); if (!(go && go.disabled)) frConnSubmitCode(); }
     };
     frConnPaintUrl(st && st.url);
     frActions(null, { label: 'Cancel', go: frConnCancel });
@@ -35760,8 +35766,75 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
 // audience, and with no form around the field it failed silently -- flagged
 // independently by two review iterations. Enter submits, same as Add.
 document.getElementById('fr-openai-key').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fr-openai-go').click(); }
+  // ⚠️ stopPropagation, not only preventDefault: #2186 added a wizard-wide
+  // Enter->Continue handler on #firstrun (below). This field has its OWN
+  // Enter gesture (submit the key), so the event must NOT also bubble up and
+  // trip the shared Continue -- one Enter, one action. The Continue button is
+  // hidden during key entry anyway (frActions(null, {Cancel})), so this is
+  // belt-and-braces, but it keeps the two handlers from ever both firing.
+  if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); document.getElementById('fr-openai-go').click(); }
 });
+/* #2186: wizard-wide Enter->Continue. Pressing Enter on a first-run step, when
+   that step is valid (Continue is showing AND enabled), does exactly what
+   clicking Continue does -- so a keyboard user never has to reach for the
+   mouse on every step. It is deliberately GENERIC: it acts on whatever
+   #fr-next currently is, so it stays correct across every step (Continue,
+   "Make my first agent", "Continue anyway") without knowing which step it is
+   on, mirroring how frActions rebinds that one button per step.
+   It is a NAMED function, not an inline lambda, so a test can lift and RUN it
+   against a stub event/document (the page-testing pattern this repo uses for
+   behaviour rather than string-matching) -- see web.firstrun-enter-2186.test.js.
+   The guards, and why each is here:
+   - e.repeat: a HELD Enter fires repeated keydowns; without this it would race
+     through several steps at once (the "no double-submit / Enter held" case in
+     the acceptance). Only the first press of a hold acts.
+   - e.isComposing / keyCode 229: mid-IME-composition Enter confirms the
+     composition; it must not also submit the step.
+   - TEXTAREA / contentEditable: Enter is a newline there, never a submit
+     (the acceptance's multi-line carve-out). There is no textarea in the
+     wizard today, but this keeps the rule true if one is added.
+   - BUTTON / A / SELECT: let the browser's own Enter activation stand -- Enter
+     on the focused Continue button already clicks it (so acting again would be
+     a double), Enter on a link/select is native behaviour. One deliberate
+     consequence: on the About-you step, Enter while focused on the tz SELECT
+     does NOT advance -- native select behaviour wins, and the name/does text
+     inputs are where Enter=Continue lands. Intentionally inert, not a gap.
+   - #fr-next hidden / disabled / aria-disabled: this is the "step is valid"
+     test. It mirrors Continue's own enabled state exactly, so an invalid step
+     (Continue greyed, e.g. About-you before its fields are filled, or a
+     connect flow where Continue is hidden) does nothing -- the acceptance's
+     "does nothing harmful" arm. The openai-key field, which is the one place
+     inside the wizard with its own Enter gesture, stops propagation above. */
+function frEnterSubmit(e) {
+  if (e.key !== 'Enter' || e.repeat) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  const t = e.target;
+  if (t) {
+    const tag = t.tagName;
+    if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
+    if (t.isContentEditable) return;
+    // 🛑 A SEARCH FIELD IS A TYPE-AND-FILTER FIELD, NOT A FILL-AND-CONTINUE ONE.
+    // The "Your agents" ending (#fr-fleet) shows Continue enabled AND carries a
+    // live search box (#fr-foundsearch, type=search) whose only handler is an
+    // `input` filter -- so Enter there has no field action and would bubble here
+    // and fire frFinish, ejecting the person mid-adoption. Before #2186 Enter in
+    // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
+    // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
+    if (tag === 'INPUT' && String(t.type).toLowerCase() === 'search') return;
+  }
+  if (document.getElementById('firstrun').hidden) return;
+  const next = document.getElementById('fr-next');
+  if (!next || next.hidden || next.disabled || next.getAttribute('aria-disabled') === 'true') return;
+  e.preventDefault();
+  // ⚠️ preventDefault only, NOT stopPropagation -- deliberately. The Enter still
+  // bubbles to document; every document-level keydown handler in this file guards
+  // on Escape/Tab, so none double-acts on it today. This is the intentional
+  // asymmetry with fr-openai-key above, which DOES stopPropagation because it has
+  // a competing Enter gesture on the SAME field. If a document-level Enter handler
+  // is ever added, revisit this line before it double-triggers while the wizard is open.
+  next.click();
+}
+document.getElementById('firstrun').addEventListener('keydown', frEnterSubmit);
 document.getElementById('fr-openai-go').addEventListener('click', async () => {
   const keyField = document.getElementById('fr-openai-key');
   const go = document.getElementById('fr-openai-go');
