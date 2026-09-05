@@ -1885,8 +1885,11 @@ the artifact it edited.** Every one confirmed with a control before fixing.
 
 🛑 **THE BLOCKER IS THE SIGNATURE DEFECT ONE LEVEL DEEPER.** Iteration 22 caught the PR body crediting
 this branch with a pre-existing test. My fix for that recorded its evidence as
-`git diff origin/main...HEAD | grep -c 1560` = 0. **That command prints 20** (control: `grep -c 1922`
-= 27, so the pipeline is live). What I actually RAN was scoped to `-- engine/connect.test.js`, which
+`git diff origin/main...HEAD | grep -c 1560` = 0. **That command printed 20** at `f9134fc9`, the
+commit under review when it was measured (control there: `grep -c 1922` = 27, so the pipeline was
+live). 🛑 **Both figures are PINNED TO THAT COMMIT deliberately, and iteration 24 explains why: on
+HEAD they now read 26 and 30, because the commit that RECORDED the correction added six lines
+containing those very tokens.** Writing the number changed the number. What I actually RAN was scoped to `-- engine/connect.test.js`, which
 does return 0. ⇒ **I ran a scoped command and wrote down an unscoped one.**
 
 ⭐ **Name the error precisely, because "be careful" does not catch it: THE RECORDED COMMAND WAS NOT
@@ -1920,3 +1923,51 @@ exactly `live-connect.js:29`; the three surviving "this branch's own" claims gen
 and the recorded validation hash matching the newest jsonl row. Baselines 54/54 and 40/40, exit 0.
 
 🛑 **NOT CONVERGED. Iteration 24 follows.**
+
+### Iteration 24, 2026-09-05 00:00: the document is inside the system it measures
+
+Verdict: **NOT converged. 1 BLOCKER, 1 WARNING**, both in `4969d638`, both with one root cause:
+**the commit was made after its own evidence was measured.**
+
+**The BLOCKER was a STATE defect, not a text defect, and that distinction changes the fix.** The PR
+body tells a reviewer to run two commands and check that the newest validation row's hash equals the
+current diff hash. At HEAD they did not match: newest row `290ec3ab1b83` measures `f9134fc9`, the
+PARENT, while HEAD hashed to `1f9dc45cf4c4`. A reviewer following that instruction would correctly
+conclude the branch was **not validated at its head**, because it was not.
+
+⭐ **THE INSTRUMENT WORKED. Nothing in the PR body needed changing** (that paragraph already explains
+that any later commit moves the hash, which is why it gives commands rather than a figure). The fix
+was to RUN the validation, which has now landed: `head=4969d638`, ran not skipped, and the PR body's
+own two commands now agree at `1f9dc45cf4c4`, status `clean`. **Verified by running the reader's
+instruction verbatim rather than by asserting it.**
+
+🔑 **THE ORDERING RULE THIS EXPOSES, WHICH IS A WORKFLOW FACT AND NOT FIXABLE IN PROSE: every commit
+invalidates the validation, and recording a validation IS a commit.** So the branch is only ever
+self-consistent at one moment: after the final commit's validation, with no commit following it.
+⇒ **Converge, then commit, then validate, then open the PR. A fix commit made after the validating
+run silently returns the branch to unvalidated, with a green run still sitting in the log.**
+
+**The WARNING is the same thing one level in, and it is the sharpest instance this branch has
+produced.** My iteration-23 entry recorded `grep -c 1560` = 20 with control `grep -c 1922` = 27.
+On HEAD those now read **26 and 30**. Nothing was mismeasured: at `f9134fc9` they return exactly 20
+and 27. **The commit that WROTE the correction added six lines containing those tokens, so the act of
+recording the number changed the number.** ⇒ A self-referential count in a document that is itself
+inside the diff it counts can never be stable. **Both figures are now pinned to the commit at which
+they were measured**, which is the only form that stays true.
+
+⚠️ **AND MY OWN FIX FROM 40 MINUTES AGO WAS BROKEN, FOUND WHILE READING ITS OUTPUT.** I gave the
+validation waiter a per-run log via `mktemp ".../validation.XXXXXX.log"`. **`mktemp` only substitutes
+X's at the END of a template**, so it created a file named literally `validation.XXXXXX.log`: a FIXED
+name, which is precisely the cross-run collision the change existed to remove. Measured both forms
+(`probe.XXXXXX.log` -> unchanged; `probe.log.XXXXXX` -> `probe.log.R9QG1N`). It passed this time only
+because one run was active. ⇒ **A fix that relocates a defect while appearing to remove it is worse
+than no fix, because it retires the question.**
+
+**Independently confirmed clean by the reviewer, with controls:** both cited arms (`#1560` at
+`origin/main:engine/connect.test.js:1397`, `#1580` in `connect.nobinary-1580.test.js`), neither added
+by this diff; the gate claim matching `connect.js:1107`; all 20 file-scoped citations executed; the
+five `the seam` hits; `--numstat` = 139; `create.js` four instances against five grep hits. It also
+caught its own dead instrument (a control returning the sha256 of empty input from a missing `--`)
+and said so.
+
+🛑 **NOT CONVERGED. Iteration 25 follows, and the validation after it must be the last action.**
