@@ -250,6 +250,58 @@ test('#992 numeric fields keep their type: partId is a number, not a string', ()
   assert.equal(assigned.partId, partId);
 });
 
+test('#992 completing a multi-part task by closing its last part records a task-level `closed`; reopening a part records `reopened`', () => {
+  // The gap this closes: a multi-part task completes via the DERIVED
+  // progressOf().closed state (all parts closed) with no task.closedAt write, so
+  // before this its completion showed only as part-closed lines and never a
+  // task-level `closed`. See tasks.js setPartClosed.
+  const p = freshProject(['ada', 'bo']);
+  const made = tasks.create(p.id, { sentence: 'two-parter', who: 'ada', made: { via: 'screen' } });
+  tasks.addPart(p.id, made.number, { sentence: 'second half', who: 'bo', made: { via: 'screen' } });
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const [p1, p2] = tasks.partsOf(tasks.byNumber(proj, made.number)).map((x) => x.id);
+  // close part 1 -> task NOT complete (part 2 still open) -> no task-level closed
+  tasks.setPartClosed(p.id, made.number, p1, new Date().toISOString());
+  assert.equal(taskchat.read(p.id, made.number).filter((r) => r.kind === 'closed').length, 0,
+    'no task-level closed while another part is still open');
+  // close part 2 (the last open one) -> task derived-complete -> records closed
+  tasks.setPartClosed(p.id, made.number, p2, new Date().toISOString());
+  const afterLast = taskchat.read(p.id, made.number);
+  assert.equal(afterLast.filter((r) => r.kind === 'closed').length, 1,
+    'closing the last open part completes the task and records a task-level closed');
+  assert.deepEqual(afterLast.map((r) => r.kind).slice(-2), ['part-closed', 'closed'],
+    'the derived task closed follows the part-closed that caused it');
+  // reopen a part on the completed task -> no longer complete -> records reopened
+  tasks.setPartClosed(p.id, made.number, p2, null);
+  assert.deepEqual(taskchat.read(p.id, made.number).map((r) => r.kind).slice(-2),
+    ['part-reopened', 'reopened'], 'reopening a part on a completed task records the task reopened');
+});
+
+test('#992 an explicit close of an already-complete (all-parts-closed) task records no duplicate `closed`', () => {
+  // Consistency guard for the derived-transition model: setPartClosed already
+  // recorded the completion, so an explicit close() on top of it is not a new
+  // completion and must add nothing (setClosed compares the derived state).
+  const p = freshProject(['ada']);
+  const made = tasks.create(p.id, { sentence: 'x', who: 'ada', made: { via: 'screen' } });
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const partId = tasks.partsOf(tasks.byNumber(proj, made.number))[0].id;
+  tasks.setPartClosed(p.id, made.number, partId, new Date().toISOString());
+  assert.equal(taskchat.read(p.id, made.number).filter((r) => r.kind === 'closed').length, 1,
+    'closing the only part already recorded the completion');
+  tasks.close(p.id, made.number); // explicit close of an already-complete task
+  assert.equal(taskchat.read(p.id, made.number).filter((r) => r.kind === 'closed').length, 1,
+    'the explicit close adds no duplicate closed');
+});
+
+test('#992 a refused addPart records nothing (agent not on the project)', () => {
+  const p = freshProject(['ada']); // bo is NOT a member
+  const made = tasks.create(p.id, { sentence: 'x', made: { via: 'screen' } });
+  // the membership throw sits inside writeParts before newPartId/record, so the
+  // part-added line is never written -- only the create stands.
+  assert.throws(() => tasks.addPart(p.id, made.number, { sentence: 'nope', who: 'bo', made: { via: 'screen' } }));
+  assert.deepEqual(taskchat.read(p.id, made.number).map((r) => r.kind), ['created']);
+});
+
 test('#992 a failed transcript append never breaks the task: tasks.create still returns the task', () => {
   // #992 (iter-6 nit): the caller-side half of the best-effort promise. record()
   // swallows its own failure and returns false; this proves the task write that

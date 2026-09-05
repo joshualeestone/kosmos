@@ -65,6 +65,21 @@ these two are polish, not defects, applied after a clean rebase onto origin/main
 Full suite green after the rebase: node 4721/4721 pass, 0 fail; the shipped
 shell gate (tools/run-tests.sh test:shell chain) ran to completion.
 
+## Challenge-loop resume iteration 1 (2026-09-05): derived task-closure recorded
+A fresh blind review found the one real gap: a MULTI-part task completes via the
+DERIVED progressOf().closed state (task.closedAt OR all parts closed), reached by
+closing the last open part with NO task.closedAt write -- so a multi-part task's
+completion showed only as part-closed lines and never a task-level `closed`.
+Fixed uniformly: setPartClosed and setClosed both now record `closed`/`reopened`
+on the derived progressOf().closed transition. This also makes an explicit close
+of an already-all-parts-closed task record nothing (no duplicate), keeping the two
+close paths consistent. Three new tests (multi-part completion + reopen, no-dup on
+explicit-close-of-complete, refused-addPart-records-nothing). Deferred, with reason:
+UTF-16 surrogate-boundary slice (cosmetic; JSON escapes/restores, line integrity
+holds), whoSeen on `created` (folds into the follow-up provenance pass #2/#3, not
+piecemeal), and C1 control chars (correct by design -- only U+000A splits JSONL,
+display-escaping is the renderer's job, matching messages.js).
+
 ## Deliberate follow-ups (scoped, NOT in this PR)
 1. **Task-Settings reveal button + route** -- the project half already exists
    (POST /api/chats/reveal opens store.ROOT/chats). A sibling

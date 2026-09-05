@@ -280,18 +280,38 @@ function assignPart(projectId, n, partId, who, made) {
 /** Finish a part, or put it back. The parent's state follows from its parts. */
 function setPartClosed(projectId, n, partId, closedAt) {
   let found = false;
-  let transition = false;
-  const task = writeParts(projectId, n, (parts) => parts.map((x) => {
-    if (Number(x.id) !== Number(partId)) return x;
-    found = true;
-    // #992: record only a real open<->closed TRANSITION, not a re-close (which
-    // passes a fresh timestamp so a raw closedAt comparison would misfire). Same
-    // fidelity gate as assignPart's `moved`: no spurious lifecycle events.
-    transition = (!!x.closedAt) !== (!!closedAt);
-    return { ...x, closedAt };
-  }));
+  let partTransition = false;
+  // #992: does closing/reopening THIS part flip the whole task's derived
+  // completion? +1 the task just completed, -1 it just re-opened, 0 no change.
+  let taskTransition = 0;
+  const task = writeParts(projectId, n, (parts, t) => {
+    const next = parts.map((x) => {
+      if (Number(x.id) !== Number(partId)) return x;
+      found = true;
+      // #992: record only a real open<->closed TRANSITION, not a re-close (which
+      // passes a fresh timestamp so a raw closedAt comparison would misfire). Same
+      // fidelity gate as assignPart's `moved`: no spurious lifecycle events.
+      partTransition = (!!x.closedAt) !== (!!closedAt);
+      return { ...x, closedAt };
+    });
+    // #992: a MULTI-part task completes when its last open part closes -- that is
+    // the derived progressOf().closed state (tasks.js progressOf: task.closedAt OR
+    // all parts closed), and it is reached with NO task.closedAt write to hang a
+    // `closed` event on. Without recording the derived transition here, a
+    // multi-part task's completion (and its re-opening when a part is reopened)
+    // never appears in its transcript, only the per-part lines. Compare the
+    // derived state before/after the part change; setClosed records the SAME
+    // derived transition, so the two paths stay consistent and never double-count.
+    if (found) {
+      const before = progressOf({ ...t, parts }).closed;
+      const after = progressOf({ ...t, parts: next }).closed;
+      if (before !== after) taskTransition = after ? 1 : -1;
+    }
+    return next;
+  });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
-  if (transition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
+  if (partTransition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
+  if (taskTransition) taskchat.record(projectId, Number(n), { kind: taskTransition > 0 ? 'closed' : 'reopened' });
   return { ok: true, task };
 }
 
@@ -311,20 +331,28 @@ function reopen(projectId, n) {
 
 function setClosed(projectId, n, closedAt) {
   let changed;
-  let transition = false;
+  // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
+  let transition = 0;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
-    // #992: only a real open<->closed transition is recorded (a re-close passes a
-    // fresh timestamp, so compare closed-ness, not the raw value).
-    transition = (!!t.closedAt) !== (!!closedAt);
+    // #992: record on the DERIVED completion state (progressOf), not the raw
+    // parent closedAt. Two reasons: (1) a re-close passes a fresh timestamp, so
+    // comparing closed-ness rather than the value logs no duplicate; (2) an
+    // explicit close of a task whose parts are ALREADY all closed (so it was
+    // derived-closed before this call) is not a new completion and records
+    // nothing -- which also keeps this consistent with setPartClosed, so the two
+    // close paths never emit two `closed` lines for one completion.
+    const before = progressOf(t).closed;
     changed = { ...t, closedAt };
+    const after = progressOf(changed).closed;
+    if (before !== after) transition = after ? 1 : -1;
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
-  if (transition) taskchat.record(projectId, changed.number, { kind: closedAt ? 'closed' : 'reopened' });
+  if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
   return changed;
 }
 
