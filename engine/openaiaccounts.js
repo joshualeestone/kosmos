@@ -678,13 +678,42 @@ const OPENAI_CHAT_FAMILIES = [
 // that fails to start is the failure this card exists to prevent.
 const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'image', 'embedding', 'moderation', 'whisper', 'dall-e', 'instruct'];
 
-/** The chat family an id belongs to, or null (not a recognised chat model, or a
-    non-chat variant within a chat family). Pure. */
-function openaiFamilyOf(id) {
+/* #2140 (Astra): the /v1/models filter has THREE outcomes, not two, and the
+   third is the point of this slice. An id is one of:
+     - 'chat'    a recognised chat family -> offer it normally.
+     - 'nonchat' a denylisted non-chat variant (audio/tts/embedding/realtime/
+                 transcribe/search/image/moderation/whisper/dall-e/instruct): it
+                 DEFINITELY cannot drive a chat agent, so it stays dropped (#1026).
+     - 'unknown' neither -- a model we do not recognise yet (a future gpt-6/o5).
+                 It MIGHT be a new chat family, so Astra's rule is mark, do not
+                 erase: offer it ranked LAST with a "compatibility not verified"
+                 note, never as the default. Folding unknown in with nonchat (the
+                 old null) silently dropped a drivable future model.
+   The denylist is checked FIRST so a non-chat variant inside a known family
+   (gpt-4o-audio-*) classifies as nonchat, never unknown. Pure. */
+function openaiModelClass(id) {
   const low = String(id).toLowerCase();
-  if (OPENAI_NON_CHAT.some((bad) => low.includes(bad))) return null;
-  return OPENAI_CHAT_FAMILIES.find((f) => low.startsWith(f.prefix)) || null;
+  if (OPENAI_NON_CHAT.some((bad) => low.includes(bad))) return { kind: 'nonchat' };
+  const fam = OPENAI_CHAT_FAMILIES.find((f) => low.startsWith(f.prefix));
+  return fam ? { kind: 'chat', fam } : { kind: 'unknown' };
 }
+
+/** The chat family an id belongs to, or null (a non-chat variant OR an
+    unrecognised id). Pure. Contract unchanged: callers that only care about a
+    recognised chat family still get null for everything else -- the unknown
+    bucket is surfaced through openaiModelClass, not here. */
+function openaiFamilyOf(id) {
+  const c = openaiModelClass(id);
+  return c.kind === 'chat' ? c.fam : null;
+}
+
+/* #2140 (Astra): an offered-but-unrecognised model. Ranked after every known
+   family so it never sorts to the top or becomes the default; marked in the
+   LABEL so the marker shows in the dropdown itself (the why-note only elaborates
+   the SELECTED row); and given an honest why. No em dash (house style). */
+const OPENAI_UNKNOWN_RANK = 999;
+const OPENAI_UNVERIFIED_MARK = ' (compatibility not verified)';
+const OPENAI_UNVERIFIED_WHY = 'We do not recognise this model, so we cannot confirm it works as a chat agent. It may not start. Pick it only if you know it is a chat model OpenAI can run.';
 
 /** 'gpt-4o' -> 'GPT-4o'; 'o3'/'chatgpt-*' left as OpenAI writes them. Cosmetic. */
 function prettyOpenaiLabel(id) {
@@ -717,8 +746,11 @@ function chatModelsFromList(data) {
     .map((m) => (m && typeof m.id === 'string' ? m.id : null))
     .filter(Boolean)
     .map((id) => {
-      const fam = openaiFamilyOf(id);
-      return fam ? { id, rank: fam.rank, why: fam.why } : null;
+      const c = openaiModelClass(id);
+      if (c.kind === 'chat') return { id, rank: c.fam.rank, why: c.fam.why, unverified: false };
+      // #2140: an unknown id is OFFERED (ranked last, marked) rather than dropped.
+      if (c.kind === 'unknown') return { id, rank: OPENAI_UNKNOWN_RANK, why: OPENAI_UNVERIFIED_WHY, unverified: true };
+      return null; // nonchat -> dropped (#1026), never offered
     })
     .filter(Boolean);
   /* #2191: collapse dated snapshots to one representative per base, so the
@@ -747,11 +779,22 @@ function chatModelsFromList(data) {
   }
   const collapsed = [...byBase.values()];
   collapsed.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
-  const out = collapsed.map((r) => ({ key: r.id, provider: 'openai', label: prettyOpenaiLabel(r.id), arg: r.id, why: r.why }));
+  const out = collapsed.map((r) => ({
+    key: r.id, provider: 'openai',
+    label: prettyOpenaiLabel(r.id) + (r.unverified ? OPENAI_UNVERIFIED_MARK : ''),
+    arg: r.id, why: r.why,
+    ...(r.unverified ? { unverified: true } : {}),
+  }));
   if (out.length) {
     const isLite = (id) => /-(mini|nano|preview)(-|$)/i.test(id);
-    const flagship = out.find((m) => !isLite(m.arg)) || out[0];
-    flagship.default = true;
+    /* #2140: the default is chosen only among VERIFIED (recognised) rows -- an
+       unverified model is offered but NEVER pre-selected (Astra). If the account
+       lists ONLY unverified models, there is no default: the create/detail
+       pickers each prepend their own "Let OpenAI choose" as the selected option,
+       so a no-default menu is never a menu with nothing selected. */
+    const verified = out.filter((m) => !m.unverified);
+    const flagship = verified.find((m) => !isLite(m.arg)) || verified[0];
+    if (flagship) flagship.default = true;
   }
   return out;
 }
@@ -760,13 +803,17 @@ function chatModelsFromList(data) {
    and UN-collapsed. This is the validation allowlist for a chosen model, kept
    separate from chatModelsFromList's collapsed DISPLAY menu: a snapshot id the
    account genuinely has (e.g. a stored gpt-4o-2024-08-06) must still validate,
-   even though the picker now shows only its collapsed representative. Same
-   chat-family filter as the menu, so it never admits a non-chat id. Pure. */
+   even though the picker now shows only its collapsed representative. Mirrors
+   the menu's offerable set (chat AND #2140 unknown ids), so it never admits a
+   denylisted non-chat id but does validate an offered-unverified one. Pure. */
 function chatRunnableIds(data) {
   const seen = new Set();
   for (const m of (Array.isArray(data) ? data : [])) {
     const id = m && typeof m.id === 'string' ? m.id : null;
-    if (id && openaiFamilyOf(id)) seen.add(id);
+    // #2140: offerable => runnable. Chat AND unknown ids validate (an unknown id
+    // is offered, so a stored/chosen one must not be refused); only denylisted
+    // non-chat ids stay out (they are never offered, so never chosen).
+    if (id && openaiModelClass(id).kind !== 'nonchat') seen.add(id);
   }
   return [...seen];
 }
@@ -913,6 +960,6 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
-  accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist,
+  accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

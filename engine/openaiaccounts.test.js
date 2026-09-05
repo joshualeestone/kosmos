@@ -827,6 +827,65 @@ test('#2191 chatRunnableIds tolerates garbage without throwing', () => {
   assert.deepEqual(openai.chatRunnableIds([{ notid: 1 }, 'x', null]), []);
 });
 
+/* #2140 (Astra): the "compatibility not verified" slice. The filter has THREE
+   outcomes -- a recognised chat family, a denylisted non-chat variant, and an
+   UNKNOWN id we do not recognise yet. Unknown must be OFFERED (mark, don't erase)
+   ranked last and never default; non-chat must STAY dropped (#1026 must not
+   regress). Controls prove both directions, since offering a non-chat model is
+   the fail-to-start #1026 exists to prevent. */
+
+test('#2140 openaiModelClass: chat vs denylisted-nonchat vs unknown, with controls', () => {
+  assert.equal(openai.openaiModelClass('gpt-4o').kind, 'chat', 'a recognised family is chat');
+  assert.equal(openai.openaiModelClass('gpt-4o-2024-08-06').kind, 'chat', 'a dated snapshot of a family is chat');
+  // Denylist wins even inside a known family (checked first).
+  assert.equal(openai.openaiModelClass('gpt-4o-audio-preview').kind, 'nonchat', 'a non-chat variant of a chat family is nonchat, not unknown');
+  assert.equal(openai.openaiModelClass('text-embedding-3-large').kind, 'nonchat', 'an embedding model is nonchat');
+  // Neither a known family nor denylisted -> unknown (a future chat family).
+  assert.equal(openai.openaiModelClass('gpt-6').kind, 'unknown', 'an unrecognised future model is unknown, not dropped');
+  assert.equal(openai.openaiModelClass('o5').kind, 'unknown', 'an unrecognised future reasoning model is unknown too');
+  // CONTROL: a denylist term inside an otherwise-unknown family still wins -> nonchat.
+  assert.equal(openai.openaiModelClass('o5-audio').kind, 'nonchat', 'a denylisted variant of an unknown family is nonchat, never offered');
+  assert.equal(openai.openaiModelClass('gpt-3.5-turbo').kind, 'unknown', 'a real chat model outside the allowlist is unknown (offered), not silently dropped');
+});
+
+test('#2140 chatModelsFromList OFFERS an unknown id, ranked last, marked, never the default', () => {
+  const data = [
+    { id: 'gpt-5' },      // recognised, most capable -> the default
+    { id: 'gpt-6' },      // unknown future model -> offered, unverified, last
+    { id: 'whisper-1' },  // nonchat -> still dropped
+  ];
+  const rows = openai.chatModelsFromList(data);
+  const args = rows.map((r) => r.arg);
+  assert.deepEqual(args, ['gpt-5', 'gpt-6'], 'the unknown id is offered and sorts after the recognised one; the non-chat id is dropped');
+  const unknown = rows.find((r) => r.arg === 'gpt-6');
+  assert.equal(unknown.unverified, true, 'the unknown row is flagged unverified');
+  assert.match(unknown.label, /compatibility not verified/i, 'the marker is in the label so it shows in the dropdown');
+  assert.ok(unknown.why && /recognise|confirm|chat/i.test(unknown.why), 'the unknown row carries an honest why');
+  assert.ok(!unknown.default, 'an unknown model is never the default');
+  const defaults = rows.filter((r) => r.default === true);
+  assert.equal(defaults.length, 1, 'exactly one default');
+  assert.equal(defaults[0].arg, 'gpt-5', 'the default is the recognised model, never the unknown one');
+});
+
+test('#2140 an account with ONLY unknown models offers them, unverified, with NO default', () => {
+  const rows = openai.chatModelsFromList([{ id: 'gpt-6' }, { id: 'o5' }]);
+  assert.equal(rows.length, 2, 'both unknown models are offered, not erased');
+  assert.ok(rows.every((r) => r.unverified === true), 'every offered row is marked unverified');
+  assert.equal(rows.filter((r) => r.default === true).length, 0, 'no default is set when every option is unverified (the picker prepends its own selected "Let OpenAI choose")');
+});
+
+test('#2140 CONTROL: a non-chat id is still dropped even beside an unknown one (no #1026 regression)', () => {
+  const rows = openai.chatModelsFromList([{ id: 'text-embedding-3-large' }, { id: 'gpt-6' }]);
+  assert.deepEqual(rows.map((r) => r.arg), ['gpt-6'], 'nonchat stays dropped; only the unknown id is offered');
+});
+
+test('#2140 chatRunnableIds: an unknown id is runnable (offerable => runnable); a non-chat id is not', () => {
+  const runnable = openai.chatRunnableIds([{ id: 'gpt-6' }, { id: 'text-embedding-3-large' }, { id: 'gpt-4o' }]);
+  assert.ok(runnable.includes('gpt-6'), 'an offered unknown id validates, so a stored/chosen one is not refused');
+  assert.ok(runnable.includes('gpt-4o'), 'a recognised chat id is runnable');
+  assert.ok(!runnable.includes('text-embedding-3-large'), 'a denylisted non-chat id is never runnable');
+});
+
 /* #2191: runnableAllowlist is the glue both the create and change-model routes
    use to decide what a chosen model may be validated against. Its contract is
    the load-bearing part of the fix, so it is unit-tested directly rather than
