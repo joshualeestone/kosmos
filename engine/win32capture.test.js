@@ -47,6 +47,22 @@ test('#570 capture joins recorded-name -> sessionId -> live status (NOT by live 
     'the live cwd-derived name is not the recorded name and must not join');
 });
 
+test('#570 the join keys on flat(name) and rejects invisible names, matching what the roster emits', () => {
+  // A recorded name carrying a tab: the roster emits the FLATTENED session name
+  // (win32roster.flat -> single space), so the capture must key on the same
+  // flattened value or the join silently misses.
+  const cap = win32capture.make({
+    run: () => [live('sid-tab', 'busy', 'x'), live('sid-blank', 'idle', 'y')],
+    record: recordOf({
+      'sid-tab': { name: 'has\ttab', runner: 'claude' },
+      'sid-blank': { name: '   ', runner: 'claude' },   // invisible: roster emits no row
+    }),
+  });
+  assert.equal(cap('has tab:0.0'), 'busy', 'looked up by the FLATTENED name the roster emits');
+  assert.equal(cap('has\ttab:0.0'), null, 'the raw unflattened name is not how the roster addresses it');
+  assert.equal(cap('   :0.0'), null, 'an invisible name is rejected (validName), never keyed as a blank');
+});
+
 test('#570 an UNRECORDED live session has no capture (fail-closed parity with the roster)', () => {
   const cap = win32capture.make({
     run: () => [live('sid-op', 'busy', 'agent1-d2')],   // operator's own, not recorded

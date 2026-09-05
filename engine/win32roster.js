@@ -146,4 +146,4 @@ function make(opts) {
   };
 }
 
-module.exports = { make, defaultRun, WIN32_COMMAND };
+module.exports = { make, defaultRun, WIN32_COMMAND, flat };

@@ -87,15 +87,32 @@ function make(opts) {
           liveStatus.set(a.sessionId, a.status);
         }
       }
-      // recorded-name -> live status, joined on the UUID. hasOwnProperty so a
-      // record key like "toString" cannot pull a phantom off Object.prototype
-      // (matching win32sessions.isOurs's discipline).
+      // recorded-name -> live status, joined on the UUID. Re-validate the record
+      // with the SAME gates win32roster re-applies at emit (validId on the key,
+      // validName on the name) and key the map on win32roster.flat(name) -- the
+      // EXACT value the roster emits as the pane's session/target name. This is
+      // the "one definition, two call sites" discipline win32roster and
+      // win32sessions already hold for reading this untrusted store: without it a
+      // recorded name carrying a tab/CR/LF would be keyed here UNFLATTENED while
+      // the roster emits the flattened form, so the join would silently miss (->
+      // UNKNOWN) for that agent, and an empty/invisible name -- which the roster
+      // never emits a row for -- would be admitted as a "" key. hasOwnProperty so
+      // a record key like "toString" cannot pull a phantom off Object.prototype.
+      // ⚠️ NAME UNIQUENESS is assumed among live recorded sessions: if two
+      // sessionIds carry the same recorded name (a stale record never forget()-ed
+      // before a same-named session is re-created), the later-iterated one wins
+      // this key silently. The roster has the same ambiguity (it would emit two
+      // rows both claiming the name), and neither is reachable until the win32
+      // create/restart flow is wired into create.js (see win32create.js) -- a
+      // guard belongs there, with that flow, not here.
       for (const sid of Object.keys(owned)) {
         if (!Object.prototype.hasOwnProperty.call(owned, sid)) continue;
+        if (!win32sessions.validId(sid)) continue;
+        if (!liveStatus.has(sid)) continue;
         const rec = owned[sid];
-        if (rec && typeof rec.name === 'string' && liveStatus.has(sid)) {
-          byName.set(rec.name, liveStatus.get(sid));
-        }
+        const name = rec && typeof rec.name === 'string' ? rec.name : '';
+        if (!win32sessions.validName(name)) continue;
+        byName.set(win32roster.flat(name), liveStatus.get(sid));
       }
     }
     cache = { at: t, ok, byName };
