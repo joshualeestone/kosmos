@@ -63,6 +63,38 @@ test('#570 the join keys on flat(name) and rejects invisible names, matching wha
   assert.equal(cap('   :0.0'), null, 'an invisible name is rejected (validName), never keyed as a blank');
 });
 
+test('#570 empty recorded name falls back to the LIVE name, matching what the roster emits', () => {
+  // A hand-corrupted store (record() enforces validName, so this is not reachable
+  // normally): the recorded name is empty. The roster emits the row by the LIVE
+  // name (flat(rec.name || a.name)); the capture must key on the same live name or
+  // that pane reads UNKNOWN forever. This proves the key set EQUALS the roster's
+  // emitted set, not merely a subset.
+  const cap = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'live-name-x')],
+    record: recordOf({ 'sid-1': { name: '', runner: 'claude' } }),
+  });
+  assert.equal(cap('live-name-x:0.0'), 'busy', 'resolved by the live name the roster falls back to');
+});
+
+test('#570 an UNRECOGNISED status token yields UNKNOWN, never a guessed state (end to end)', () => {
+  // The path most likely to surface if `claude agents --json` gains new status
+  // values beyond busy/idle: the capture returns the token, and classify's win32
+  // arm maps anything that is not busy/idle to UNKNOWN rather than a guess.
+  const agents = [live('sid-1', 'compacting', 'x')];
+  const record = { 'sid-1': { name: 'novel-1', runner: 'claude' } };
+  const rec = { read: () => record };
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === 'novel-1');
+    assert.ok(a, 'the session is on the board');
+    assert.equal(a.state, status.STATE.UNKNOWN, 'an unrecognised status token -> UNKNOWN, not a guessed working/idle');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
 test('#570 an UNRECORDED live session has no capture (fail-closed parity with the roster)', () => {
   const cap = win32capture.make({
     run: () => [live('sid-op', 'busy', 'agent1-d2')],   // operator's own, not recorded

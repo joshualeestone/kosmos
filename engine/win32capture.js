@@ -33,11 +33,18 @@
  * look that did not happen. Same refuse-honestly discipline as a failed
  * `capture-pane`.
  *
- * ⚠️ ONE READ PER TICK, memoized. `snapshot` calls the capture ONCE PER PANE in a
- * loop, so a naive reader would run `agents --json` N times per board tick. A
- * short TTL memo collapses all per-pane calls within one tick to a single read
- * (the roster does its own separate read for the source seam; that is two reads
- * per tick total, still fewer than the Mac path's one-per-pane `capture-pane`).
+ * ⚠️ COLLAPSES A TICK'S PER-PANE CALLS, via a short TTL memo (not a strict
+ * per-tick cache). `snapshot` calls the capture ONCE PER PANE in a loop, so a
+ * naive reader would run `agents --json` N times per board tick; the TTL window
+ * (default 1500ms) serves all of a tick's per-pane calls from one read. Because it
+ * is a time window and NOT tied to the tick boundary, two consequences are
+ * accepted as honest and self-healing: (1) the roster does its own separate,
+ * un-memoized read for the source seam, so within one tick the capture's status
+ * can be up to ttlMs staler than the roster's fresh row -- a just-appeared session
+ * briefly reads UNKNOWN, a busy->idle transition can lag one tick; (2) that is two
+ * reads per tick total, still far fewer than the Mac path's one `capture-pane` per
+ * pane. Every stale outcome is a safe direction (UNKNOWN or a one-tick-late state,
+ * never a wrong-session leak) and clears on the next window.
  */
 const win32sessions = require('./win32sessions');
 const win32roster = require('./win32roster');
@@ -80,11 +87,16 @@ function make(opts) {
     let ok = false;
     if (Array.isArray(agents)) {
       ok = true;
-      // sessionId -> live status, for the join below.
+      // sessionId -> live status AND -> live name, for the join below. The live
+      // name is needed because the roster falls back to it when the recorded name
+      // is empty (see the name resolution below), and the capture's key must match
+      // the roster's emitted name exactly.
       const liveStatus = new Map();
+      const liveName = new Map();
       for (const a of agents) {
         if (a && typeof a === 'object' && typeof a.sessionId === 'string') {
           liveStatus.set(a.sessionId, a.status);
+          liveName.set(a.sessionId, typeof a.name === 'string' ? a.name : '');
         }
       }
       // recorded-name -> live status, joined on the UUID. Re-validate the record
@@ -110,9 +122,17 @@ function make(opts) {
         if (!win32sessions.validId(sid)) continue;
         if (!liveStatus.has(sid)) continue;
         const rec = owned[sid];
-        const name = rec && typeof rec.name === 'string' ? rec.name : '';
+        // EXACT parity with the roster's emitted session name (win32roster.js:
+        // `flat(rec.name || a.name || '')`, then validName-gated). Falling back to
+        // the LIVE name when the recorded name is empty is what the roster does,
+        // and matching it here is what makes the capture's key set EQUAL the
+        // roster's emitted-name set rather than merely a subset -- so a row the
+        // roster addresses by the live name (empty recorded name) still resolves a
+        // status instead of reading UNKNOWN forever.
+        const recName = rec && typeof rec.name === 'string' ? rec.name : '';
+        const name = win32roster.flat(recName || liveName.get(sid) || '');
         if (!win32sessions.validName(name)) continue;
-        byName.set(win32roster.flat(name), liveStatus.get(sid));
+        byName.set(name, liveStatus.get(sid));
       }
     }
     cache = { at: t, ok, byName };
