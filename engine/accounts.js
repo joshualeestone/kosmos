@@ -626,5 +626,60 @@ function forgetAccount(dir, usedBy) {
   return { ok: true, forgotten: true, movedTo: target, wasDefault: false, because: null };
 }
 
-module.exports = { list, listLive, forgetAccount, FORGOTTEN_PREFIX, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+/**
+ * #2264: DELETE AND REMOVE a Claude account -- the destructive sibling of
+ * forgetAccount. forgetAccount RENAMES the directory aside (reversible, the
+ * credential survives on disk); this DELETES it, so the sign-in is gone from
+ * this computer. Josh, 2026-09-05: a connection to someone else's account he no
+ * longer wants to see at all, credential and all -- "not just disconnect it".
+ *
+ * 🛑 EVERY GUARD forgetAccount HAS, because deleting is strictly more dangerous
+ * than renaming: same-home + name shape; the DEFAULT `.claude` is refused (it is
+ * the folder Claude Code uses when nothing says otherwise, and other accounts'
+ * history may live under it via prepare()'s projects symlinks); the
+ * running-agents gate (a running agent's launch file points here by absolute
+ * path); and the identity guard (NEVER rm a name-shaped folder that is not an
+ * account -- `.claude-workers` is the measured example). Only the final step
+ * differs: rmSync instead of renameSync. Irreversible on purpose; the UI asks
+ * with a destructive confirm.
+ */
+function removeAccount(dir, usedBy) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const base = path.basename(clean);
+
+  if (path.dirname(clean) !== home || !(base === '.claude' || base.startsWith('.claude-'))) {
+    return { ok: false, removed: false, because: 'that is not a Claude account on this computer' };
+  }
+  if (base === '.claude') {
+    return {
+      ok: false,
+      removed: false,
+      because: 'Kosmos does not delete this computer’s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.',
+    };
+  }
+  const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
+  if (agents.length) {
+    return {
+      ok: false,
+      removed: false,
+      usedBy: agents,
+      because: agents.length === 1
+        ? `${agents[0]} is set up to run on this account. Move it to another account or remove it first.`
+        : `${agents.length} agents are set up to run on this account: ${agents.join(', ')}. `
+          + 'Move them to another account or remove them first.',
+    };
+  }
+  if (!fs.existsSync(clean)) {
+    return { ok: true, removed: false, because: 'that account is already gone from this computer' };
+  }
+  if (!identityOf(clean)) {
+    return { ok: false, removed: false, because: 'that is not a Claude account on this computer' };
+  }
+  try { fs.rmSync(clean, { recursive: true, force: true }); }
+  catch { return { ok: false, removed: false, because: 'we could not delete that account from this computer' }; }
+  return { ok: true, removed: true, because: null };
+}
+
+module.exports = { list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };
