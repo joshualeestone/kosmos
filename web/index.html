@@ -24211,10 +24211,22 @@ async function paintOpenaiDetailModel(a, forWhom) {
     if (gen !== OPENAI_DETAIL_GEN) return;                 // superseded by a newer paint
     if (!CURRENT || CURRENT.sessionName !== forWhom) return; // panel moved to another agent
     if (out && out.ok && Array.isArray(out.models) && out.models.length) {
-      OPENAI_PICK_MODELS = out.models.slice();
-      const hasCurrent = currentKey && out.models.some((m) => m.key === currentKey);
+      /* #2191: the menu is now the COLLAPSED set (one row per model, dated
+         snapshots folded away). If this agent is pinned to a model the collapsed
+         menu no longer lists -- a raw dated snapshot, pickable before the collapse
+         or set via the API -- add a row for it so the picker shows the agent's
+         ACTUAL current model and can re-select it, rather than falsely showing
+         "Let OpenAI choose". Non-destructive: it selects the exact pinned id, so
+         opening the picker never silently rewrites the pin to a collapsed alias.
+         Running is unaffected (validation uses the full runnable set). */
+      const inMenu = !!currentKey && out.models.some((m) => m.key === currentKey);
+      const shown = (currentKey && !inMenu)
+        ? out.models.concat([{ key: currentKey, label: currentKey }])
+        : out.models;
+      OPENAI_PICK_MODELS = shown.slice();
+      const hasCurrent = !!currentKey && shown.some((m) => m.key === currentKey);
       sel.innerHTML = '<option value=""' + (hasCurrent ? '' : ' selected') + '>Let OpenAI choose (recommended)</option>'
-        + out.models.map((m) => '<option value="' + esc(m.key) + '"' + (m.key === currentKey ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
+        + shown.map((m) => '<option value="' + esc(m.key) + '"' + (m.key === currentKey ? ' selected' : '') + '>' + esc(m.label) + '</option>').join('');
       sel.dataset.current = hasCurrent ? currentKey : '';
       sel.disabled = !usable;
       paintModelWhy('d-model', 'd-model-why');

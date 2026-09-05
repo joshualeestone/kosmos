@@ -3938,7 +3938,13 @@ const server = http.createServer((req, res) => {
     } catch { known = false; }
     if (!known) { sendJson(res, 404, { ok: false, models: [], because: 'we do not know that account on this computer' }); return; }
     openaiAccounts.accountModels(dir)
-      .then((out) => sendJson(res, 200, out))
+      // #2191: runnableKeys (the full un-collapsed snapshot list) is a
+      // SERVER-SIDE validation input, not display data -- the picker reads only
+      // `models`. Strip it from the display route's response so the whole point
+      // of the collapse (a small payload/menu) is not undone by shipping every
+      // snapshot to the client. The validation routes call accountModels
+      // directly, so they still get runnableKeys.
+      .then((out) => { const { runnableKeys, ...display } = out || {}; sendJson(res, 200, display); })
       .catch(() => sendJson(res, 200, { ok: false, models: [], because: 'we could not read this account\'s models just now' }));
     return;
   }
