@@ -3038,7 +3038,12 @@ const server = http.createServer((req, res) => {
           result.projects = projectsToJoin.map((id) => {
             try {
               projects.addAgent(id, result.name, roster, { via: isViaScreen(req) ? 'screen' : 'process' });
-              return home && id === home.id ? { id, added: true, seeded: true } : { id, added: true };
+              // #2279: `seeded` means WE made this home in THIS request. In the
+              // adopt case (first-run already seeded it, homeCreated=false) the
+              // agent joined an existing home, so it is a plain add -- a native
+              // client keying a "we made you a home" affordance off `seeded`
+              // must not fire on an adopt.
+              return home && homeCreated && id === home.id ? { id, added: true, seeded: true } : { id, added: true };
             } catch (err) {
               return { id, added: false, because: String((err && err.message) || 'we could not put it on that project') };
             }
