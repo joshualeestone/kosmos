@@ -632,9 +632,16 @@ wait_up() {
     # use. Is a board already running?" (server.js ~9345) - no "EADDRINUSE", no
     # "address". A server without that graceful path (thread-server.js, or any
     # bare node default) emits a raw "listen EADDRINUSE: address already in use".
-    # "already in use" is the substring common to both; EADDRINUSE is kept so a
-    # raw stack still matches even if the wording around it shifts.
-    if [ -f "$logf" ] && grep -qiE 'EADDRINUSE|already in use' "$logf" 2>/dev/null; then
+    # The raw shape is caught by EADDRINUSE; the board shape by the exact phrase
+    # "is already in use". The phrase is anchored on "is " deliberately: a bare
+    # "already in use" would also match an unrelated future boot diagnostic
+    # ("name already in use", a coordinator 409), and this grep only runs when
+    # /api/status has NOT answered, so a benign match here would abort an
+    # otherwise-healthy boot. (curl-first each iteration already means a server
+    # that DOES come up returns 0 before this grep ever runs.) Residual, narrow
+    # and accepted: a future non-port message using the exact words "is already
+    # in use" would still match - #1073 tracks tightening further if one appears.
+    if [ -f "$logf" ] && grep -qiE 'EADDRINUSE|is already in use' "$logf" 2>/dev/null; then
       log "port :$port was already in use when the server tried to bind it (#1073 pick-to-bind collision, NOT a flaky check). server log tail:"
       tail -5 "$logf" 2>/dev/null
       return 1
@@ -709,8 +716,8 @@ run_one() {
 # already in use" line, a bare node server a raw EADDRINUSE. wait_up matches
 # either from the server log and names the collision (#1073) rather than a
 # generic 30s flaky timeout, so it is attributable, not a flaky check. Closing
-# the race fully (re-picking a
-# port when its bind loses) is a larger change tracked on #1073.
+# the race fully (re-picking a port when its bind loses) is a larger change
+# tracked on #1073.
 # The chosen ports are printed so a log can be read back against a boot.
 free_port() {
   node -e 'const s=require("node:net").createServer();s.listen(0,"127.0.0.1",()=>{process.stdout.write(String(s.address().port));s.close()})'

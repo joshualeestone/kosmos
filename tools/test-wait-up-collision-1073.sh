@@ -19,6 +19,8 @@
 #                            too; reds against a too-narrow EADDRINUSE-only pattern
 #   2.  no-boot           -> the control: returns 1 with the generic "never
 #                            answered" message and does NOT false-fire the collision path
+#   2b. benign-phrase     -> a near-miss "already in use" (no "is", no EADDRINUSE)
+#                            does NOT false-fire; guards the "is already in use" anchor
 #   3.  success           -> a real server answering /api/status still returns 0
 #
 # The control arm is the one that can return the dangerous answer: if the
@@ -98,6 +100,25 @@ case "$out" in
   *"pick-to-bind collision"*) bad "no-boot FALSE-fired the collision path on a log with no EADDRINUSE" ;;
   *"never answered"*)         ok "no-boot reports the generic 'never answered', collision path not triggered" ;;
   *)                          bad "no-boot produced neither expected message; got: $out" ;;
+esac
+
+# --- 2b. benign-phrase control: "already in use" without "is" must NOT fire ---
+# The detection is anchored on "is already in use" (not bare "already in use")
+# so an unrelated future boot diagnostic - a coordinator "name already in use",
+# a 409 - cannot be misread as a #1073 port collision and abort a healthy boot.
+# This arm is the control for that anchor: a log carrying the near-miss phrase
+# with no "is" and no EADDRINUSE must fall through to the generic timeout. It
+# reds if the grep is loosened back to bare "already in use".
+BENIGN_LOG="$T/benign.log"
+cat > "$BENIGN_LOG" <<EOF
+coordinator: the name heather is already-taken; that handle already in use elsewhere
+EOF
+out="$(KOSMOS_BC_WAIT_TRIES=2 wait_up "$DEAD_PORT" "$BENIGN_LOG")"; rc=$?
+[ "$rc" -eq 1 ] && ok "benign-phrase returns non-zero" || bad "benign-phrase should return 1, got $rc"
+case "$out" in
+  *"pick-to-bind collision"*) bad "benign 'already in use' (no 'is', no EADDRINUSE) FALSE-fired the collision path" ;;
+  *"never answered"*)         ok "benign 'already in use' does not false-fire; generic timeout stands" ;;
+  *)                          bad "benign-phrase produced neither expected message; got: $out" ;;
 esac
 
 # --- 3. success arm: a real server answering /api/status -> returns 0 --------
