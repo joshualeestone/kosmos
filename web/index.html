@@ -5863,6 +5863,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun #fr-sub:not(:empty) { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 #firstrun #fr-sub:empty { display: none; }
+/* #2241: the connected OpenAI outcome renders the SAME gold check-row box as the
+   Claude #fr-sub above. Keyed on the .fr-connbox class (set by frPaintOpenai only
+   in the connected state), NOT :not(:empty), because #fr-openai-msg also carries
+   the not-connected dead-reason line, which must stay a plain hint, not a gold
+   success box. */
+/* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
+   .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
+   moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
+#firstrun #fr-openai-msg { margin: -4px 0 10px; }
+#firstrun #fr-openai-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 /* ⚠️ `.fr-body p.fr-confirm-t`, NOT `.fr-confirm-t`. At (1,1,0) it lost every
    declaration to `#firstrun .fr-body p` at (1,1,1), so the confirm sentence
    rendered as ordinary muted body copy on the one panel whose job is to be
@@ -7847,7 +7858,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              INSIDE the flow, where "Added: API key ending xxxx." landed in a
              display:none subtree -- invisible, and the aria-live announcement
              never fired. The message must survive the form it reports on. -->
-        <p class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:-4px 0 10px;"></p>
+        <!-- #2241: a DIV (was a p) so the connected state can hold the .fr-check gold
+             check-row block, the same shape Claude's #fr-sub uses; stays a plain dhint
+             line for the not-yet-connected / dead-reason states. -->
+        <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite"></div>
         <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
              reorder moved it past the wrong closing tag, so the list showed five
              rows instead of six: Gemini vanished until somebody pressed Connect on
@@ -36553,12 +36567,14 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
  * form stays usable for a fresh key instead of a dead one wearing
  * Connected.
  *
- * ⚠️ THE MESSAGE SAYS WHAT IS TRUE, NOT WHAT JUST HAPPENED, except right
- * after it happened. Told directly (`justAdded`) it reports the action
- * ("Added…"); asked cold on pane entry it reports the state ("An OpenAI
- * account is connected…") -- without this split, stepping back to pane 2
- * and forward to pane 3 again would claim to have "Added" an account this
- * page never touched this session.
+ * ⚠️ THE CONNECTED STATE IS ONE UNIFORM BOX (kosmos#2241). Josh asked for the
+ * OpenAI outcome to look like Claude's: the same gold check-row box reading
+ * "OpenAI GPT Codex is connected. This computer is signed in." So both arms --
+ * told directly right after an Add, and asked cold on pane entry -- render the
+ * identical box (rendered below via the shared frCheckRow into #fr-openai-msg).
+ * `justAdded` no longer splits the MESSAGE; it only decides whether to clear the
+ * key field. There is no "Added…" line to leak across a step-back any more,
+ * because the box states the connection, which is true whenever it shows.
  */
 async function frPaintOpenai(known) {
   const connectBtn = document.getElementById('fr-openai-connect');
@@ -36618,9 +36634,19 @@ async function frPaintOpenai(known) {
     // hidden field (the justAdded path already cleared it on success).
     const keyField = document.getElementById('fr-openai-key');
     if (!justAdded && keyField) keyField.value = '';
-    msg.textContent = justAdded
-      ? 'Added' + (keyTail ? ': API key ending ' + keyTail : '') + '.'
-      : 'An OpenAI account is connected' + (keyTail ? ' (API key ending ' + keyTail + ')' : '') + '.';
+    /* #2241 (Josh, 0.6.35): render the SAME gold check-row box the Claude
+       connection uses (frPaintSubscription paints frCheckRow into #fr-sub), not a
+       plain "Added: API key ending" line, so the two providers read identically
+       when connected. Same builder, same 'ok' state; the box is the .fr-connbox
+       gold wash, keyed on a class because this element also carries the dead
+       reason (below), which must not look like a success. The key last-4 stays as
+       a secondary detail inside the box. */
+    msg.className = 'fr-connbox';
+    msg.innerHTML = frCheckRow({
+      state: 'ok',
+      title: 'OpenAI GPT Codex is connected',
+      detail: 'This computer is signed in.' + (keyTail ? ' (API key ending ' + keyTail + ')' : ''),
+    });
     /* #2134: a connected OpenAI account is a usable model provider, so the model
        step can proceed. frPaintSubscription offers Continue ONLY for a connected
        CLAUDE subscription and otherwise renders "Skip connecting a model" -- it is
@@ -36654,6 +36680,7 @@ async function frPaintOpenai(known) {
     // form yanked shut under them by an unrelated repaint. A positively
     // dead key names itself (its because), so the person knows why the row
     // says Connect over an account that exists.
+    msg.className = 'dhint';  /* #2241: not connected -> plain line, not the gold box */
     msg.textContent = deadWhy || '';
   }
   // The disclosure state must track the flow it controls: the connected
