@@ -92,7 +92,7 @@ async function visiblePane(page) {
       'Enter on an INVALID step does nothing (still on About-you)', 'pane=' + (await visiblePane(page)));
 
     // ARM 2 (valid step): fill the fields, then Enter must advance -- exactly as
-    // a Continue click would. Catch the real POST /api/you the Continue fires so
+    // a Continue click would. Catch the real PUT /api/you the Continue fires so
     // this proves the handler triggered Continue's action, not just a repaint.
     await page.fill('#fr-you-name', 'Alex');
     await page.fill('#fr-you-do', 'I run a company');

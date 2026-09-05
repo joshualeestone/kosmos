@@ -35809,6 +35809,12 @@ function frEnterSubmit(e) {
   const next = document.getElementById('fr-next');
   if (!next || next.hidden || next.disabled || next.getAttribute('aria-disabled') === 'true') return;
   e.preventDefault();
+  // ⚠️ preventDefault only, NOT stopPropagation -- deliberately. The Enter still
+  // bubbles to document; every document-level keydown handler in this file guards
+  // on Escape/Tab, so none double-acts on it today. This is the intentional
+  // asymmetry with fr-openai-key above, which DOES stopPropagation because it has
+  // a competing Enter gesture on the SAME field. If a document-level Enter handler
+  // is ever added, revisit this line before it double-triggers while the wizard is open.
   next.click();
 }
 document.getElementById('firstrun').addEventListener('keydown', frEnterSubmit);
