@@ -78,6 +78,14 @@ function chk(ok, label, extra) {
     await page.click('#worldsw-new');
     await page.waitForSelector('#world-add-modal:not([hidden])', { timeout: 4000 });
     chk(await page.locator('#world-add-go').isDisabled(), 'Create is disabled with an empty name');
+    // The modal declares aria-modal, so focus is trapped: it opens on the name
+    // field and Tab keeps it inside (Create is filtered out while disabled, so it
+    // cycles name <-> Cancel). Guards the #world-add-modal focus-trap entry.
+    chk(await page.evaluate(() => document.getElementById('world-add-modal').contains(document.activeElement)),
+      'the create modal opens with focus inside it');
+    await page.keyboard.press('Tab');
+    chk(await page.evaluate(() => document.getElementById('world-add-modal').contains(document.activeElement)),
+      'Tab keeps focus inside the create modal (the focus trap)');
     await page.fill('#world-add-name', 'Client work');
     chk(!(await page.locator('#world-add-go').isDisabled()), 'Create enables once a name is typed');
 

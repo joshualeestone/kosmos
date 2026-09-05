@@ -15500,9 +15500,6 @@ function openAcctReauth(dir, email) {
    (the active-flip) is slice 2b; until it lands the rows are read-only and only
    "New Kosmos" acts. The switcher stays hidden on a board that has no /api/worlds
    route (pre-2a), so it degrades to today's header cleanly. */
-/* Held for slice 2b's switch, which needs the current world set to flip the
-   active one; unread until then. */
-let WORLDS_LAST = null;
 async function worldsFetch() {
   let data;
   try {
@@ -15511,7 +15508,6 @@ async function worldsFetch() {
     data = await res.json();
   } catch { return; }
   if (!data || !Array.isArray(data.worlds) || data.worlds.length === 0) return;
-  WORLDS_LAST = data;
   worldswRender(data);
 }
 function worldswRender(data) {
@@ -29458,6 +29454,11 @@ document.addEventListener('keydown', (e) => {
        fold's summary is a REAL tab stop and is listed, or shift-Tab from
        it would leak backwards off the dialog. */
     ['doc-modal', ['doc-fold-sum', 'doc-keep', 'doc-go'], 'doc-keep'],
+    /* #1704 slice-3: the create-a-Kosmos dialog. It declares aria-modal, so it
+       gets the real trap (name field, Cancel, Create). Create is filtered out
+       while it is disabled on an empty name, so Tab cycles name<->Cancel until a
+       name is typed, then includes Create. */
+    ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
