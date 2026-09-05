@@ -30845,13 +30845,18 @@ function pjRichSpans(seg, names) {
     if (/^https?:\/\/[^\s￼]+$/.test(core)) {
       return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
     }
-    /* A cited project file -> a "Show me" chip (#355), same rule as pjLinkPaths
-       (last path segment, no `..`), only when a `names` set is supplied. Held
-       like the URL so the chip is atomic and inert through the emphasis pass --
-       `**notes.md**` bolds the chip rather than leaking a marker. `core` is
-       already esc()'d at step 2, so it is used as-is (never double-escaped); a
-       name carrying an escaped char simply falls through to plain text, which
-       is the safe direction. */
+    /* A cited project file -> a "Show me" chip (#355), same PATH rule as
+       pjLinkPaths (last segment, no `..`), only when a `names` set is supplied.
+       Held like the URL so the chip is atomic and inert through the emphasis
+       pass -- `**notes.md**` bolds the chip rather than leaking a marker.
+       ⚠️ One deliberate difference from pjLinkPaths: the lookup here is on the
+       already-esc()'d token (step 2 ran first), whereas pjLinkPaths matches the
+       raw token. So a document literally named with an HTML-special character
+       (`&`, `<`, `>`, `"`) does not chip in the room, where it would on the row
+       surfaces. That is the safe direction (it falls through to plain escaped
+       text, never a double-escape or an injection) and such names are
+       vanishingly rare; using the escaped `core` as-is is what keeps the chip
+       from double-escaping. */
     if (hasNames && core && !core.includes('..')) {
       const base = core.split('/').pop();
       if (names.has(base)) {
