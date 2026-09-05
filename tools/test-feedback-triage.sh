@@ -47,6 +47,15 @@ section "$out" "## Below the bar" | grep -qi "Love it" \
 out2="$(run --dir "$REPORTS" --since 2026-09-02)" || fail "triage --since exited non-zero"
 printf '%s\n' "$out2" | grep -q "1 report(s)" || fail "--since did not restrict to one report: $(printf '%s' "$out2" | grep -i summary)"
 
+
+# 2b. #2296: a PULLED report has a <date>__<install>.md name (not a bare date), so
+# its day comes from the frontmatter. Without the frontmatter-date fallback it would
+# read as undated and --since could not include it.
+printf -- '---\ndate: 2026-09-03\ninstall: inst-aaa\n---\n- The export button label overlaps the icon on the pulled report too.\n' > "$REPORTS/2026-09-03__inst-aaa.md"
+outp="$(run --dir "$REPORTS" --since 2026-09-03)" || fail "triage --since with a pulled (frontmatter-dated) file exited non-zero"
+printf '%s\n' "$outp" | grep -q "1 report(s)" || fail "the pulled <date>__<install>.md was not dated from frontmatter for --since: $(printf '%s' "$outp" | grep -i summary)"
+rm -f "$REPORTS/2026-09-03__inst-aaa.md"
+
 # 3. --cards - (stdin): the dock item resembling an open card is FLAGGED in the
 # "already carded" section, and is NOT also a fresh candidate.
 out3="$(printf '%s\n' 'The dock icon is easy to lose among other applications' | run --dir "$REPORTS" --cards -)" || fail "triage --cards - exited non-zero"
