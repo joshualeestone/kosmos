@@ -784,6 +784,34 @@ test('#2191 CONTROL: collapse never drops a whole model -- a snapshots-only fami
   assert.equal(rows[0].arg, 'o4-mini-2025-04-16', 'as its real snapshot id');
 });
 
+test('#2191 chatRunnableIds is the FULL un-collapsed chat set (snapshots kept, non-chat dropped)', () => {
+  // The validation allowlist must NOT be narrowed by the display collapse: a
+  // snapshot id the account has is still runnable. This is the direct guard for
+  // the change-model / create routes.
+  const data = [
+    { id: 'gpt-4o' },
+    { id: 'gpt-4o-2024-08-06' },      // a snapshot -- collapsed OUT of the menu, but still runnable
+    { id: 'gpt-4o-mini' },
+    { id: 'text-embedding-3-large' }, // non-chat -- must stay out
+    { id: 'gpt-4o' },                 // duplicate -- deduped
+  ];
+  const runnable = openai.chatRunnableIds(data);
+  assert.ok(runnable.includes('gpt-4o-2024-08-06'), 'a real snapshot id is runnable even though the menu collapses it');
+  assert.ok(runnable.includes('gpt-4o') && runnable.includes('gpt-4o-mini'), 'aliases are runnable too');
+  assert.ok(!runnable.includes('text-embedding-3-large'), 'a non-chat id is never runnable');
+  assert.equal(runnable.filter((id) => id === 'gpt-4o').length, 1, 'deduped');
+  // The split is the whole point: the collapsed menu drops the snapshot, the
+  // runnable set keeps it.
+  const menuKeys = openai.chatModelsFromList(data).map((r) => r.key);
+  assert.ok(!menuKeys.includes('gpt-4o-2024-08-06'), 'the display menu collapses the snapshot');
+  assert.ok(runnable.includes('gpt-4o-2024-08-06'), 'but the runnable set does not');
+});
+
+test('#2191 chatRunnableIds tolerates garbage without throwing', () => {
+  assert.deepEqual(openai.chatRunnableIds(null), []);
+  assert.deepEqual(openai.chatRunnableIds([{ notid: 1 }, 'x', null]), []);
+});
+
 test('#1026 accountModels: a 200 with a real /v1/models body returns the filtered menu with a default', async () => {
   writeAuth('.codex-models200', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-modelskeyMOD1' });
   const dir = nodePath.join(SANDBOX, '.codex-models200');
@@ -800,6 +828,26 @@ test('#1026 accountModels: a 200 with a real /v1/models body returns the filtere
     assert.deepEqual(out.models.map((m) => m.arg), ['gpt-5', 'gpt-4o', 'gpt-4o-mini']);
     assert.equal(out.models.filter((m) => m.default).length, 1);
     assert.equal(sawAuthHeader, 'Bearer sk-proj-modelskeyMOD1', 'the account key was sent to /v1/models');
+  } finally { openai.setFetcher(null); }
+});
+
+test('#2191 accountModels returns a collapsed menu AND an un-collapsed runnableKeys set (validation is not narrowed)', async () => {
+  writeAuth('.codex-models-runnable', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-runnableKEY1' });
+  const dir = nodePath.join(SANDBOX, '.codex-models-runnable');
+  openai.setFetcher(async () => ({ status: 200, body: { object: 'list', data: [
+    { id: 'gpt-4o' }, { id: 'gpt-4o-2024-05-13' }, { id: 'gpt-4o-2024-08-06' }, { id: 'gpt-4o-mini' },
+  ] } }));
+  try {
+    const out = await openai.accountModels(dir);
+    assert.equal(out.ok, true);
+    // The MENU is collapsed: one row per model, no dated snapshot rows.
+    assert.deepEqual(out.models.map((m) => m.key), ['gpt-4o', 'gpt-4o-mini']);
+    // The RUNNABLE set is the full un-collapsed chat set -- so the change-model /
+    // create routes still accept a stored snapshot id that the menu no longer shows.
+    assert.ok(Array.isArray(out.runnableKeys), 'accountModels exposes runnableKeys for validation');
+    assert.ok(out.runnableKeys.includes('gpt-4o-2024-08-06'),
+      'a real snapshot id stays runnable even though it is collapsed out of the menu');
+    assert.ok(out.runnableKeys.includes('gpt-4o') && out.runnableKeys.includes('gpt-4o-mini'));
   } finally { openai.setFetcher(null); }
 });
 

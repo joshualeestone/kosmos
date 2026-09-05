@@ -753,6 +753,21 @@ function chatModelsFromList(data) {
   return out;
 }
 
+/* #2191: the FULL set of runnable chat-model ids the account returned, deduped
+   and UN-collapsed. This is the validation allowlist for a chosen model, kept
+   separate from chatModelsFromList's collapsed DISPLAY menu: a snapshot id the
+   account genuinely has (e.g. a stored gpt-4o-2024-08-06) must still validate,
+   even though the picker now shows only its collapsed representative. Same
+   chat-family filter as the menu, so it never admits a non-chat id. Pure. */
+function chatRunnableIds(data) {
+  const seen = new Set();
+  for (const m of (Array.isArray(data) ? data : [])) {
+    const id = m && typeof m.id === 'string' ? m.id : null;
+    if (id && openaiFamilyOf(id)) seen.add(id);
+  }
+  return [...seen];
+}
+
 /**
  * The chat models a specific OpenAI account can run, as picker rows -- sourced
  * from that account's own /v1/models (the call the key check already makes),
@@ -819,7 +834,15 @@ async function accountModels(dir) {
     // chat model we recognise -- a real, distinct answer, not a failure.
     return { ok: false, models: [], because: 'this account has no chat models we recognise yet' };
   }
-  return { ok: true, models };
+  /* #2191: `models` is the COLLAPSED display menu (one row per model, dated
+     snapshots folded away). `runnableKeys` is the FULL un-collapsed set of chat
+     ids the account returned. They differ on purpose: the picker should be
+     short, but a chosen model must be validated against everything the account
+     can actually run -- a stored/submitted snapshot id like gpt-4o-2024-08-06 is
+     still runnable even though the menu now shows only "gpt-4o". The change-model
+     and create routes validate against runnableKeys so curation narrows the
+     DISPLAY, not the runnable set. */
+  return { ok: true, models, runnableKeys: chatRunnableIds(data) };
 }
 
 /** Every OpenAI account, live-checked. One bad row's own failure cannot sink
@@ -859,6 +882,6 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
-  accountModels, chatModelsFromList, openaiSnapshotBase,
+  accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };
