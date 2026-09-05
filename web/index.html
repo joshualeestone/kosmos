@@ -35760,8 +35760,58 @@ document.getElementById('fr-openai-confirm-go').addEventListener('click', async 
 // audience, and with no form around the field it failed silently -- flagged
 // independently by two review iterations. Enter submits, same as Add.
 document.getElementById('fr-openai-key').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') { e.preventDefault(); document.getElementById('fr-openai-go').click(); }
+  // ⚠️ stopPropagation, not only preventDefault: #2186 added a wizard-wide
+  // Enter->Continue handler on #firstrun (below). This field has its OWN
+  // Enter gesture (submit the key), so the event must NOT also bubble up and
+  // trip the shared Continue -- one Enter, one action. The Continue button is
+  // hidden during key entry anyway (frActions(null, {Cancel})), so this is
+  // belt-and-braces, but it keeps the two handlers from ever both firing.
+  if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); document.getElementById('fr-openai-go').click(); }
 });
+/* #2186: wizard-wide Enter->Continue. Pressing Enter on a first-run step, when
+   that step is valid (Continue is showing AND enabled), does exactly what
+   clicking Continue does -- so a keyboard user never has to reach for the
+   mouse on every step. It is deliberately GENERIC: it acts on whatever
+   #fr-next currently is, so it stays correct across every step (Continue,
+   "Make my first agent", "Continue anyway") without knowing which step it is
+   on, mirroring how frActions rebinds that one button per step.
+   It is a NAMED function, not an inline lambda, so a test can lift and RUN it
+   against a stub event/document (the page-testing pattern this repo uses for
+   behaviour rather than string-matching) -- see web.firstrun-enter-2186.test.js.
+   The guards, and why each is here:
+   - e.repeat: a HELD Enter fires repeated keydowns; without this it would race
+     through several steps at once (the "no double-submit / Enter held" case in
+     the acceptance). Only the first press of a hold acts.
+   - e.isComposing / keyCode 229: mid-IME-composition Enter confirms the
+     composition; it must not also submit the step.
+   - TEXTAREA / contentEditable: Enter is a newline there, never a submit
+     (the acceptance's multi-line carve-out). There is no textarea in the
+     wizard today, but this keeps the rule true if one is added.
+   - BUTTON / A / SELECT: let the browser's own Enter activation stand -- Enter
+     on the focused Continue button already clicks it (so acting again would be
+     a double), Enter on a link/select is native behaviour.
+   - #fr-next hidden / disabled / aria-disabled: this is the "step is valid"
+     test. It mirrors Continue's own enabled state exactly, so an invalid step
+     (Continue greyed, e.g. About-you before its fields are filled, or a
+     connect flow where Continue is hidden) does nothing -- the acceptance's
+     "does nothing harmful" arm. The openai-key field, which is the one place
+     inside the wizard with its own Enter gesture, stops propagation above. */
+function frEnterSubmit(e) {
+  if (e.key !== 'Enter' || e.repeat) return;
+  if (e.isComposing || e.keyCode === 229) return;
+  const t = e.target;
+  if (t) {
+    const tag = t.tagName;
+    if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
+    if (t.isContentEditable) return;
+  }
+  if (document.getElementById('firstrun').hidden) return;
+  const next = document.getElementById('fr-next');
+  if (!next || next.hidden || next.disabled || next.getAttribute('aria-disabled') === 'true') return;
+  e.preventDefault();
+  next.click();
+}
+document.getElementById('firstrun').addEventListener('keydown', frEnterSubmit);
 document.getElementById('fr-openai-go').addEventListener('click', async () => {
   const keyField = document.getElementById('fr-openai-key');
   const go = document.getElementById('fr-openai-go');
