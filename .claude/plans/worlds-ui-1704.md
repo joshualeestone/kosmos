@@ -35,8 +35,9 @@ count is available (flagged to Angel on the card).
 
 - `docs/browser-checks/render-worlds-switcher-1704.js` (self-booting, own sandbox registry, in
   the runner + indexed): switcher shows the active name; menu lists worlds with exactly one
-  active-marked; Create disabled-then-enabled; create closes the modal and the new world
-  appears on refetch; switcher hidden in consolidated. 13/13 PASS. Reds on the pre-#1704 page
-  (switcher markup absent -> the first wait times out -> exit 1).
+  active-marked; Create disabled-then-enabled; create closes the modal, the switcher menu
+  re-opens on its own, and the new world appears on refetch; the duplicate-name error path
+  shows the server reason; switcher hidden in consolidated. 14/14 PASS. Reds on the pre-#1704
+  page (switcher markup absent -> the first wait times out -> exit 1).
 - `browser-checks-indexed.test.js` + `tools.browser-checks-wired.test.js`: 9/9.
 - No em dashes in any user-facing change.
