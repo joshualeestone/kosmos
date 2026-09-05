@@ -18,12 +18,15 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const path = require('node:path');
 
-/* The engine requires in `src`, in source order, ignoring block comments (which
-   in server.js quote `require(...)` in prose). Line comments never carry an engine
-   require in this file, and stripping block comments is enough to remove the prose
-   mentions; the require literal itself is unambiguous. */
+/* The engine requires in `src`, in source order, ignoring comments (which in
+   server.js quote `require(...)` in prose). Strips block comments AND line
+   comments so a future `//` comment carrying a require literal above the bootstrap
+   cannot false-fail the ordering assertion; the `[^:]` guard on the line-comment
+   strip leaves `://` in URLs untouched. The require literal itself is unambiguous. */
 function engineRequiresInOrder(src) {
-  const code = src.replace(/\/\*[\s\S]*?\*\//g, ''); // drop block comments
+  const code = src
+    .replace(/\/\*[\s\S]*?\*\//g, '')        // block comments
+    .replace(/(^|[^:])\/\/[^\n]*/g, '$1');   // line comments, but not `://`
   const re = /require\((['"])\.\/engine\/([A-Za-z0-9_.-]+)\1\)/g;
   const out = [];
   let m;
@@ -41,6 +44,18 @@ test('engine/worldenv is the FIRST engine require in server.js (the ordering inv
   // And it is the bootstrap call, not a stray reference.
   assert.match(src, /require\(['"]\.\/engine\/worldenv['"]\)\.bootstrapWorldEnv\(/,
     'server.js must call worldenv.bootstrapWorldEnv at the top');
+});
+
+test('a require literal quoted in a // line comment above the bootstrap does not fool the check', () => {
+  const src = [
+    "const fs = require('node:fs');",
+    "// historically this was require('./engine/commitments') -- prose, not code",
+    "const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);",
+    "const commitments = require('./engine/commitments');",
+  ].join('\n');
+  const requires = engineRequiresInOrder(src);
+  assert.equal(requires[0], 'worldenv', 'the // comment mention must be stripped, not counted');
+  assert.deepEqual(requires, ['worldenv', 'commitments'], 'only the real code requires remain, in order');
 });
 
 test('the check CAN fail: a non-worldenv engine require placed first is caught', () => {
