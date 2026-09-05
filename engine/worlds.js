@@ -85,7 +85,8 @@ function readRegistry(base) {
   if (!worlds.some((w) => w.id === DEFAULT_ID)) worlds.unshift(defaultWorld());
   let activeWorldId = typeof obj.activeWorldId === 'string' ? obj.activeWorldId : DEFAULT_ID;
   if (!worlds.some((w) => w.id === activeWorldId)) activeWorldId = DEFAULT_ID;
-  return { version: obj.version === 1 ? 1 : 1, activeWorldId, worlds };
+  // The schema is v1 today; a future v2 migration would branch on obj.version here.
+  return { version: 1, activeWorldId, worlds };
 }
 
 /* Atomic publish: write to a temp in the same dir, then rename over the target,
@@ -106,7 +107,10 @@ function activeWorld(base) {
 
 /* The on-disk base of a world's subtrees. null (no override) for the default
    world -- its data lives at the legacy roots. Named worlds nest under
-   <base>/worlds/<id>/. */
+   <base>/worlds/<id>/. Resolution is BY ID, deliberately: a world's location is
+   derived from its safeKey id, never read from the stored `base` field (which is
+   informational only, see createWorld), so a hand-edited `base` cannot relocate a
+   world or open a traversal out of <base>/worlds. */
 function worldBaseDir(base, world) {
   if (!world || world.id === DEFAULT_ID) return null;
   return path.join(base, WORLDS_SUBDIR, world.id);
@@ -148,6 +152,8 @@ function createWorld(base, name) {
   fs.mkdirSync(path.join(dir, 'AgentWorkforce'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
   fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
+  // `base` is INFORMATIONAL (what worldBaseDir derives from the id); it is never
+  // read for resolution, so it cannot be a relocation or traversal seam.
   const world = { id, name: String(name), createdAt: new Date().toISOString(), base: path.join(WORLDS_SUBDIR, id) };
   reg.worlds.push(world);
   writeRegistry(base, reg);

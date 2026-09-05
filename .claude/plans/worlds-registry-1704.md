@@ -101,3 +101,8 @@ world. First write of worlds.json (on the first "create world") seeds the defaul
 from store.js (traversal-safe ids); atomic registry writes; AGENT_WORKFORCE_LAUNCH
 deliberately NOT overridden (shared launchd resource, a slice-2 switch-lifecycle
 concern).
+
+## Slice-2 requirements surfaced by the slice-1 blind review (MUST address before the API exposes create/switch)
+1. **Serialize registry writes.** createWorld/setActiveWorld are read-modify-write over worlds.json with no lock; two boards on one machine can lost-update (last rename wins, the other's entry silently dropped, its dir orphaned). Slice 1 is unwired so it cannot bite yet, but slice 2's API MUST serialize (a lockfile, or read-verify-after-rename) before create/switch is reachable.
+2. **Launchd isolation for named-world agents.** AGENT_WORKFORCE_LAUNCH is NOT overridden in slice 1 (a sound boundary while nothing runs a named world). The moment slice 2 lets a named world go active AND run agents, their launchd plists land in the shared LaunchAgents dir (create.js:211 agentsDir()) and collide by agent name with the default world's. workersDir IS isolated, so the worker root is right but the service name is shared. Slice 2 must scope the launchd label/dir per world (or block named-world agent launch until it does).
+3. **Translate store.safeKey's error at the API.** safeKey throws "invalid agent name" for a bad WORLD name; slice 2's API layer should translate the message before it reaches a user creating a world.
