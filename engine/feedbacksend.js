@@ -57,16 +57,20 @@ let sender = null;   // tests inject; production uses global fetch
 const endpoint = () => process.env.AGENT_WORKFORCE_FEEDBACK_URL || DEFAULT_ENDPOINT;
 
 /**
- * The opt-in preference. Fails to OFF, like ping/notify: an absent file means
- * nobody has turned it on yet (and the default is off until the control ships);
- * a present-but-unreadable file could be hiding an off we cannot see, and the
- * only thing gated here is data leaving the machine.
+ * The opt-in preference. A never-asked machine (no file) defaults ON, Josh's
+ * ruling: the daily report is "baked in day one", a default-checked opt-in
+ * (#2037/#2013, relayed by Splinter 2026-09-05, the launch's #1 feature). The
+ * Settings switch is the opt-OUT and carries the disclosure copy; the
+ * install-time disclosure checkbox is the immediate fast-follow (PR-C2).
+ * A present-but-UNREADABLE file still fails to OFF (unlike the never-asked
+ * default): it could be hiding an off we cannot see, and the only thing gated
+ * here is a report body leaving the machine. Same split as ping.js.
  */
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); }
   catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, sent: null, ok: true };
+    if (err && err.code === 'ENOENT') return { on: true, sent: null, ok: true };
     return { on: false, sent: null, ok: false };
   }
   let parsed;
@@ -242,12 +246,11 @@ function sendDailyOnce(date) {
 }
 
 function markSent(date) { return write({ sent: date }); }
-function sentOn(date) { return read().sent === date; }
 
 /* Test hooks. Production never calls these. */
 function setSender(f) { sender = f; }
 
 module.exports = {
-  FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent, sentOn,
+  FILE, read, setOn, write, scrub, payload, maybeSend, sendDailyOnce, markSent,
   setSender, underTest, DEFAULT_ENDPOINT, CONSENT_VERSION,
 };

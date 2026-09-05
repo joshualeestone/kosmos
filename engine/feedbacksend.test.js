@@ -29,15 +29,21 @@ test('the setting file lands under the sandboxed data root, so the tests are iso
   assert.ok(feedbacksend.FILE.startsWith(SANDBOX), `${feedbacksend.FILE} not under ${SANDBOX}`);
 });
 
-test('OFF by default: an install nobody has asked sends nothing', () => {
-  // No setting file at all -> fails to off. This is the #2020 half: a phone-home
-  // must not default on until its control ships (default+control land together).
-  assert.equal(feedbacksend.read().on, false);
+test('ON by default: a never-asked machine has the daily report opt-in on', () => {
+  // No setting file at all -> ON. Josh's ruling (#2037/#2013, 2026-09-05): the
+  // daily report is "baked in day one", a default-checked opt-in, with the
+  // Settings switch as the opt-out (and its disclosure copy). The control ships
+  // WITH the default (default+control land together), which is why this flip is
+  // in the same PR as the Settings switch and the board trigger.
+  assert.equal(feedbacksend.read().on, true);
 });
 
-test('an unreadable setting fails to OFF, not on', () => {
-  // A present-but-unparseable settings file (invalid JSON) must read off,
-  // because the only thing gated here is data leaving the machine.
+test('an unreadable setting still fails to OFF, not on (unlike the never-asked default)', () => {
+  // A present-but-unparseable settings file (invalid JSON) must read off, even
+  // though a never-asked machine defaults ON: a corrupt file could be hiding an
+  // off we cannot see, and the only thing gated here is a report body leaving
+  // the machine. The never-asked default (on) and the unreadable case (off) are
+  // deliberately different, same split as ping.js.
   fs.mkdirSync(nodePath.dirname(feedbacksend.FILE), { recursive: true });
   fs.writeFileSync(feedbacksend.FILE, 'not json{');
   assert.equal(feedbacksend.read().on, false);
@@ -136,6 +142,7 @@ test('payload is null when there is no report for that day (nothing to send)', (
 
 test('maybeSend does NOTHING while the opt-in is off', () => {
   feedback.write('body', { date: '2026-09-04' });
+  feedbacksend.setOn(false); // default is ON now, so turn it off explicitly to test the off-gate
   let calls = 0;
   feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
   feedbacksend.maybeSend('2026-09-04');
@@ -213,9 +220,9 @@ test('sendDailyOnce sends a day\'s report exactly once, even called repeatedly',
   assert.equal(feedbacksend.read().sent, '2026-09-04', 'the sent marker was not recorded');
 });
 
-test('sendDailyOnce sends nothing while the opt-in is off', () => {
+test('sendDailyOnce sends nothing when the opt-in is turned off', () => {
   feedback.write('body', { date: '2026-09-04' });
-  // default is OFF; do not setOn
+  feedbacksend.setOn(false); // the default is ON now, so turn it OFF explicitly to test the off-gate
   let calls = 0;
   feedbacksend.setSender(() => { calls += 1; return Promise.resolve(); });
   feedbacksend.sendDailyOnce('2026-09-04');

@@ -10173,11 +10173,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          report" the note above reserved this slot for. Copy is Mona Lisa's
          approved design, Josh's decision 2026-09-03: label "Make Kosmos work
          better for everyone.", subtext the daily-note line. Same .toggle shape
-         as the switches above; ships OFF by default (the default-ON flip + the
-         install-time disclosure checkbox are PR-C2). Could-not-read is the
-         PRIVACY treatment (Mona Lisa 2026-09-03): the row stays present and the
-         knob is HIDDEN (never a false Off), with an actionable line - a privacy
-         switch a person cannot find is one they cannot turn off. -->
+         as the switches above; ships ON by default (Josh: "baked in day one",
+         #2037/#2013), this switch is the opt-OUT and carries the disclosure. The
+         install-time disclosure checkbox is the immediate fast-follow (PR-C2).
+         Could-not-read is the PRIVACY treatment (Mona Lisa 2026-09-03): the row
+         stays present and the knob is HIDDEN (never a false Off), with an
+         actionable line - a privacy switch a person cannot find is one they
+         cannot turn off. -->
     <section class="dbox">
       <h3 class="dlab">Daily report</h3>
       <div class="setrow" id="feedback-row">
@@ -16468,8 +16470,9 @@ document.getElementById('tell-toggle').addEventListener('click', tellToggleClick
    above: paint from a read, refresh on arrival, save on click; a non-ok GET
    (403 on an enforcing board) draws could-not-read, never a false Off, because a
    privacy switch that reads Off while the engine may be sending is the exact
-   failure this treatment exists to prevent. Ships OFF by default (the default-ON
-   flip + the install-time disclosure checkbox are PR-C2). */
+   failure this treatment exists to prevent. Ships ON by default (Josh: "baked in
+   day one"); this switch is the opt-out. The install-time disclosure checkbox is
+   the fast-follow (PR-C2). */
 let FEEDBACK_EPOCH = 0;
 function feedbackPaint(r) {
   const unread = !r || r.ok === false || typeof r.on !== 'boolean';

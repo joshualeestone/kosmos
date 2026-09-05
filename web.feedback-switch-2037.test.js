@@ -37,22 +37,28 @@ const CODE = codeOnly(SERVER);
 
 test('the board (not the CLI) fires the daily send on a timer, and the engine is wired in', () => {
   assert.match(CODE, /require\('\.\/engine\/feedbacksend'\)/, 'server.js does not require feedbacksend');
-  // The sweep: sendDailyOnce called from inside a setInterval. Assert both the
-  // call and that it sits in a timer, so a call moved out of the sweep (never
-  // firing) or a timer with nothing in it both go red.
-  assert.match(CODE, /setInterval\(\(\) => \{[\s\S]*?feedbacksend\.sendDailyOnce\(feedback\.today\(\)\)/,
-    'the board does not fire feedbacksend.sendDailyOnce on a timer (the send never happens on a real install)');
+  // The sweep: sendDailyOnce called from INSIDE the feedbackSweep timer body.
+  // Anchored to `const feedbackSweep = setInterval(() => {` and bounded by `[^}]*`
+  // (never crossing a `}`), so the call cannot be satisfied by a DIFFERENT sweep's
+  // setInterval nor by the call being moved out of the timer to a bare statement -
+  // both regressions the earlier lazy `[\s\S]*?` would have passed.
+  assert.match(CODE, /const feedbackSweep = setInterval\(\(\) => \{[^}]*feedbacksend\.sendDailyOnce\(feedback\.today\(\)\)/,
+    'feedbacksend.sendDailyOnce is not called from inside the feedbackSweep timer (the send never fires on a real install)');
   // unref'd like its sibling sweeps, so it never holds the process open.
-  assert.match(CODE, /feedbackSweep[\s\S]{0,120}unref/,
+  assert.match(CODE, /const feedbackSweep = setInterval[\s\S]{0,300}feedbackSweep[^;]*unref/,
     'the feedback sweep is not unref\'d, so it can hold the board process open');
 });
 
-test('the engine send defaults OFF (the default-ON flip is PR-C2)', () => {
-  // Pinned here as well as in feedbacksend.test.js so C2\'s deliberate flip is a
-  // reviewed change, not an accident: ENOENT (a never-asked machine) reads off.
-  assert.match(codeOnly(fs.readFileSync(nodePath.join(__dirname, 'engine', 'feedbacksend.js'), 'utf8')),
-    /err\.code === 'ENOENT'\) return \{ on: false/,
-    'the feedback send no longer defaults OFF; a default-ON content phone-home must ship WITH the install disclosure (PR-C2)');
+test('the engine send defaults ON (Josh: baked in day one), unreadable still fails OFF', () => {
+  const eng = codeOnly(fs.readFileSync(nodePath.join(__dirname, 'engine', 'feedbacksend.js'), 'utf8'));
+  // ENOENT (a never-asked machine) reads ON - the launch default, pinned so the
+  // flip is deliberate and visible. The unreadable/corrupt path still reads OFF
+  // (the safe direction for a report body leaving the machine), so this asserts
+  // BOTH: on for absent, off for the non-ENOENT error return.
+  assert.match(eng, /err\.code === 'ENOENT'\) return \{ on: true/,
+    'the feedback send no longer defaults ON (Josh ruled it baked in day one, #2037/#2013)');
+  assert.match(eng, /return \{ on: false, sent: null, ok: false \};\s*\n\s*\}/,
+    'the unreadable/corrupt path no longer fails to OFF (a report body could leave the machine on a read we cannot trust)');
 });
 
 test('the Settings switch is present, in Automation, with the approved copy', () => {

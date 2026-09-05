@@ -67,11 +67,12 @@ async function run() {
     // ── 200 CONTROL: a readable board renders both switches with a real position ──
     const p1 = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
     await openUpdates(p1);
-    // The default each switch should read, per-toggle: the ping (tell-toggle)
-    // shipped its on-flip (#2020, "we need that back in for sure"), so it reads
-    // ON; notify's on-flip is still held and feedback's is PR-C2, so both read
-    // OFF. An independent, browser-level catch on a wrong default per switch.
-    const DEFAULT_ON = { 'tell-toggle': true, 'notify-toggle': false, 'feedback-toggle': false };
+    // The default each switch should read, per-toggle: the ping (tell-toggle,
+    // #2020) and the daily report (feedback-toggle, #2037 "baked in day one")
+    // both shipped their on-flips, so they read ON; notify's on-flip is still
+    // held, so it reads OFF. An independent, browser-level catch on a wrong
+    // default per switch.
+    const DEFAULT_ON = { 'tell-toggle': true, 'notify-toggle': false, 'feedback-toggle': true };
     for (const id of IDS) {
       const s = await readSwitch(p1, id);
       check(id + ' [200 control]: renders when the setting reads', s.hidden === false, JSON.stringify(s));
