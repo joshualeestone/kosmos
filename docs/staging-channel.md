@@ -86,29 +86,30 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    git -C "$S" diff --quiet -- dist/latest.json || git -C "$S" commit -- dist/latest.json -m "promote <V> to prod"   # skip commit on a re-run where it is already committed
    git -C "$S" push origin HEAD:refs/heads/main   # a failed push must NOT proceed to a deploy (set -e stops here)
    . "$R/tools/lib/site-deploy.sh"; . "$R/tools/lib/pkg-inputs.sh"
-   EXPORT=$(mktemp -d)
-   site_deploy_export "$S" "$EXPORT" "$(git -C "$S" rev-parse HEAD)" || { rm -rf "$EXPORT"; echo "export failed"; exit 1; }
+   EXPORT=$(mktemp -d); trap 'rm -rf "$EXPORT"' EXIT   # removed on ANY exit: success, a guard, or a failed deploy
+   site_deploy_export "$S" "$EXPORT" "$(git -C "$S" rev-parse HEAD)" || { echo "export failed"; exit 1; }
    # the .vercelignore guard, as release.sh step 8 runs it (a missing/bad one lets Vercel drop dist/*.pkg):
    set +e; drop=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore"); rc=$?; set -e
-   [ "$rc" = 0 ] || { rm -rf "$EXPORT"; echo ".vercelignore missing (rc=1) or unevaluable (rc=$rc)"; exit 1; }
-   [ -z "$drop" ] || { rm -rf "$EXPORT"; echo ".vercelignore would drop: $drop"; exit 1; }
-   # the #1669 guard site_deploy_export omits: every critical artifact + sidecar must be in the export.
+   [ "$rc" = 0 ] || { echo ".vercelignore missing (rc=1) or unevaluable (rc=$rc)"; exit 1; }
+   [ -z "$drop" ] || { echo ".vercelignore would drop: $drop"; exit 1; }
+   # the #1669 guard site_deploy_export omits: every critical gitignored artifact + sidecar must be present.
    ART=$(sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p' "$EXPORT/dist/latest.json")
-   [ -n "$ART" ] || { rm -rf "$EXPORT"; echo "export latest.json names no artifact"; exit 1; }
+   [ -n "$ART" ] || { echo "export latest.json names no artifact"; exit 1; }
    for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
-     [ -f "$EXPORT/dist/$f" ] || { rm -rf "$EXPORT"; echo "export dropped $f (#1669); $S/dist is incomplete -- fetch the live artifacts into it first"; exit 1; }
+     [ -f "$EXPORT/dist/$f" ] || { echo "export dropped $f (#1669); $S/dist is incomplete"; exit 1; }
    done
-   ( cd "$EXPORT" && vercel deploy --prod --yes ); rc=$?; rm -rf "$EXPORT"; [ "$rc" = 0 ] || { echo "vercel deploy failed"; exit 1; }
+   ( cd "$EXPORT" && vercel deploy --prod --yes )   # set -e + the EXIT trap: a failed deploy exits non-zero and cleans up
    DEPLOY
    ```
-   The per-artifact loop only guards the GITIGNORED set; tracked artifacts (`latest.json`, the
-   Windows zip) ship via `git archive` and cannot be dropped by an incomplete `dist/`. If `$S/dist`
-   IS incomplete (promoting from a machine that did not run the staging cut -- `deploy-site.sh`
-   cannot repopulate it here, since its committed-vs-live guard refuses this exact state), fetch each
-   served artifact first, e.g. `for f in "$ART" "$ART.sha256" kosmos-arm64.tar.gz
-   kosmos-arm64.tar.gz.sha256 tmux-arm64.tar.gz tmux-arm64.tar.gz.sha256 Kosmos.pkg Kosmos.pkg.sha256
-   Kosmos.pkg.inputs; do curl -fsSL "$HOST/dist/$f" -o "$S/dist/$f"; done` (the versioned bytes are
-   served immutably), then re-run the block.
+   Replace `<V>` with the version being promoted (the heredoc is single-quoted, so it will not
+   expand a variable). The per-artifact loop guards only the GITIGNORED set; tracked artifacts
+   (`latest.json`, the Windows zip) ship via `git archive` and cannot be dropped by an incomplete
+   `dist/`. If `$S/dist` IS incomplete (promoting from a machine that did not run the staging cut),
+   the right fix is to run this promote-deploy ON the machine that ran the staging cut, where the
+   artifacts are present and were sha-verified at cut time -- repopulating a foreign checkout by hand
+   skips that verification, and `deploy-site.sh` cannot repopulate it here (its committed-vs-live
+   guard refuses this exact state). #2195's tool will fetch + sha-verify each artifact like
+   `deploy-site.sh` does.
    Then **verify SERVED prod BY CONTENT** from outside: `curl $HOST/dist/latest.json` names `<V>`,
    and the DOWNLOADED `kosmos-<V>-arm64.tar.gz` sha matches the pointer. The control that returns the
    dangerous answer is "still `<old V>`" -- confirm it actually flipped. (First run for 0.6.30,
