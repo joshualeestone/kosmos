@@ -2799,6 +2799,12 @@ test('#2279: first-run completion seeds the welcome home even with no agent crea
   const root = require('./engine/store').ROOT;
   try { fsx.rmSync(path.join(root, 'seeded-project.json'), { force: true }); } catch { /* fresh */ }
   try { fsx.rmSync(path.join(root, 'first-run.json'), { force: true }); } catch { /* fresh */ }
+  // Isolate the messages LOG for THIS test. The welcome id is deterministic
+  // ('gettingstarted'), and reset() clears projects.json but NOT the LOG, so a
+  // sibling seed test's note to the same id would otherwise satisfy a presence
+  // check even if this run's first-run seed wrote nothing -- a vacuous pass. A
+  // clean LOG here makes the exact note count below actually able to fail.
+  try { fsx.writeFileSync(require('./engine/messages').LOG, ''); } catch { /* fresh */ }
   assert.equal(projectsEngine.readAll().length, 0, 'control: the sandbox starts with no projects');
   // The case the agent-path seeds could never reach: a fresh install whose
   // agents are already on the board (adopted), so nothing is created through
@@ -2812,14 +2818,12 @@ test('#2279: first-run completion seeds the welcome home even with no agent crea
   assert.equal(home.name, 'Getting started');
   assert.equal(home.made && home.made.via, 'kosmos');
   assert.deepEqual(home.agents, [], 'the welcome home is seeded empty -- no agent exists yet at first-run');
-  // The welcoming room note is present -- the first thing a new person reads.
-  // (Presence, not an exact count: the welcome id is deterministic and the
-  // messages LOG is not reset between tests, so notes from sibling seed tests
-  // that reuse the same id accumulate here.)
+  // Exactly one welcoming room note, from first-run -- the first thing a new
+  // person reads. Exact (not presence) now that the LOG is clean for this test.
   const room = json(await req('/api/project/' + home.id + '/room')).rows;
   const notes = room.filter((m) => m.kind === 'note');
-  assert.ok(notes.some((n) => /only here to show you around/.test(n.text || '')),
-    'first-run did not add the welcome room note');
+  assert.equal(notes.length, 1, 'first-run did not add exactly one welcome room note');
+  assert.match(notes[0].text, /only here to show you around/);
   // Composes with the agent path via the shared once-ever flag: an agent
   // created afterwards ADOPTS this home rather than growing a second, and lands
   // in it so the first agent still has somewhere to work.
