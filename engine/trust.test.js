@@ -826,21 +826,44 @@ test('#1629: with CLAUDE_CONFIG_DIR set (a flipped agent\'s own process), trustF
 
 test('#2129: a DEFAULT-account agent IGNORES the engine\'s CLAUDE_CONFIG_DIR (trust lands where a no-CCD agent reads)', () => {
   // The carve-out. A default-account agent launches with NO CLAUDE_CONFIG_DIR and
-  // reads ~/.claude.json, even though the ENGINE process runs under its own
-  // CLAUDE_CONFIG_DIR. Following the engine's dir would clear the prompt in a file
-  // the agent never reads -- the used-machine-vs-fresh-Mac split #2129 measured.
+  // reads its own home .claude.json, even though the ENGINE process runs under its
+  // own CLAUDE_CONFIG_DIR. Following the engine's dir would clear the prompt in a
+  // file the agent never reads -- the used-machine-vs-fresh-Mac split #2129 measured.
+  //
+  // 🛑 AGENT_WORKFORCE_CLAUDE_CONFIG MUST BE UNSET here, or the test is VACUOUS: it
+  // is the FIRST branch of BOTH CONFIG and defaultAgentConfig, so with it set the
+  // carve-out's target (defaultAgentConfig) and the bug's target (CONFIG(null)) are
+  // the SAME file and deleting the carve-out changes nothing. (Caught by review:
+  // the earlier version of this test passed with the carve-out removed.)
+  const savedOverride = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
   const savedCcd = process.env.CLAUDE_CONFIG_DIR;
-  const engineDir = acctDir();
+  const savedHome = process.env.HOME;
+  const savedAwHome = process.env.AGENT_WORKFORCE_HOME;
+  const engineDir = acctDir();      // the engine's own account (must be IGNORED)
+  const defaultHome = acctDir();    // the default account's HOME (where a no-CCD agent reads)
   try {
-    fs.writeFileSync(CONFIG, '{}');              // the default account's config (what the agent reads)
-    process.env.CLAUDE_CONFIG_DIR = engineDir;   // the engine's own account, which must be IGNORED here
+    // 🛑 SAFETY NET, same reason as test 2: with the override unset, defaultAgentConfig
+    // falls to AGENT_WORKFORCE_HOME||homeDir()/.claude.json and CONFIG(null)'s last
+    // fallback is homeDir()/.claude.json -- both the operator's REAL config unless
+    // pinned to the sandbox. So point BOTH at sandbox dirs.
+    delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+    process.env.CLAUDE_CONFIG_DIR = engineDir;
+    process.env.HOME = SANDBOX;
+    process.env.AGENT_WORKFORCE_HOME = defaultHome;
+    fs.writeFileSync(cfgPath(defaultHome), '{}');   // Claude Code has run for the default account
     const d = folder();
     const r = trustFolder(d, { agentDefaultAccount: true });
     assert.equal(r.ok, true, r.because);
-    // Lands in the default (AGENT_WORKFORCE_CLAUDE_CONFIG here), NOT the engine dir.
-    assert.equal(read().projects[r.key][KEY], true, 'the default-account trust flag is missing');
+    // WITH the carve-out: trust lands in the DEFAULT account's config
+    // (AGENT_WORKFORCE_HOME), ignoring the engine's CLAUDE_CONFIG_DIR.
+    assert.equal(cfgRead(defaultHome).projects[r.key][KEY], true, 'the default-account config did not get the trust flag');
+    // WITHOUT it (the #2129 bug), the write would have followed CLAUDE_CONFIG_DIR
+    // into the engine's own account instead.
     assert.ok(!fs.existsSync(cfgPath(engineDir)), 'the default-account write followed the engine CLAUDE_CONFIG_DIR (#2129 bug)');
   } finally {
+    if (savedOverride === undefined) delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG; else process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = savedOverride;
     if (savedCcd === undefined) delete process.env.CLAUDE_CONFIG_DIR; else process.env.CLAUDE_CONFIG_DIR = savedCcd;
+    if (savedHome === undefined) delete process.env.HOME; else process.env.HOME = savedHome;
+    if (savedAwHome === undefined) delete process.env.AGENT_WORKFORCE_HOME; else process.env.AGENT_WORKFORCE_HOME = savedAwHome;
   }
 });
