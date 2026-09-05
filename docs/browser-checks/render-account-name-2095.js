@@ -13,7 +13,7 @@
  * paintAccounts() against a stubbed /api/accounts (no board needed) and reads the
  * rendered `#set-accounts .acct-box`. Load-bearing assertions: a NAMED OpenAI row
  * shows its name (never the key) as the primary `.acct-who b`, with the key on a
- * secondary `.acct-org` line; an UNNAMED OpenAI row is unchanged (key is primary);
+ * secondary `.acct-keytail` line; an UNNAMED OpenAI row is unchanged (key is primary);
  * a Claude row is unchanged (email is primary); and an arbitrary name is HTML-
  * escaped, never injected as markup.
  *
@@ -94,7 +94,7 @@ const ACCOUNTS = [
         primary: who ? (who.textContent || '').trim() : null,
         // an injected <b>/<span> inside the name would show as an element child
         primaryChildEls: who ? who.childElementCount : -1,
-        orgs: keytails,
+        keytails,
       };
     });
     return { count: boxes.length, rows };
@@ -113,8 +113,8 @@ const ACCOUNTS = [
   const named = byPrimary['account1'];
   if (!named) problems.push('the named account did not render "account1" as its primary label (the #2095 bug: key shown instead of name)');
   else {
-    if (!named.orgs.some((o) => /API key ending NfYA/.test(o))) {
-      problems.push('the named account did not keep "API key ending NfYA" as a secondary .acct-org detail');
+    if (!named.keytails.some((o) => /API key ending NfYA/.test(o))) {
+      problems.push('the named account did not keep "API key ending NfYA" as a secondary .acct-keytail detail');
     }
   }
   // The key-tail must NOT be a primary label for the NAMED account.
