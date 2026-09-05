@@ -4632,9 +4632,11 @@ function panelessCard(key, nowMs, defaultStatus) {
      deliberate: the report rules -- a stale `working` decaying, `blocked` and
      `needs_you` never decaying -- are the same rules for an agent with no
      screen, and copying them here is how two readings of one report start to
-     disagree. The default is the "nothing said yet" verdict for THIS card kind:
-     PANELESS_DEFAULT (UNKNOWN) for a beat-known agent, NEVER_RUN_DEFAULT
-     (STOPPED) for a created-never-run agent (#1078). */
+     disagree. The default is the baseline this card kind reconciles a report
+     against -- NOT necessarily "nothing said yet": PANELESS_DEFAULT (UNKNOWN,
+     "nothing said yet") for a beat-known agent, NEVER_RUN_DEFAULT (STOPPED, a
+     positive "created and not running") for a created agent with no pane/beat
+     (#1078). */
   const status = reconcileReport(
     selfreport.read(key),
     defaultStatus || PANELESS_DEFAULT,

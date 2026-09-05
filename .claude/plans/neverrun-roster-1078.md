@@ -34,10 +34,11 @@ The Mac board roster gets a THIRD source, complementary to the two it already ha
   agent — remove.js's "caller about to act must refuse" doctrine). The
   `status.sandboxIsInconsistent()` guard is kept (mirrors foundCreated/foundCodex).
 - `status.js`: a `createdSource = null` + `setCreatedSource(fn)` seam (mirrors
-  `setPaneSource`/`setPaneCapture`). In `snapshot()`, AFTER the panelessKeys loop,
-  build the full board-key set (paneKeys + the paneless keys just pushed), call
-  `createdSource(boardKeys)` when set, and push one card per returned key via
-  `panelessCard(key, nowMs, NEVER_RUN_DEFAULT)`.
+  `setPaneSource`/`setPaneCapture`). In `snapshot()`, a `boardKeys` set is seeded
+  from paneKeys and extended with each paneless-beat key as it is pushed; then after
+  the panelessKeys loop, `createdSource(boardKeys)` is called when set, and one card
+  per returned key is pushed via `panelessCard(key, nowMs, NEVER_RUN_DEFAULT)`. So
+  the set handed to the source is paneKeys ∪ successfully-pushed paneless keys.
 - `panelessCard` gains an optional 3rd param `defaultStatus` (defaults to the
   existing UNKNOWN object, so the panelessKeys path is byte-identical). The created
   path passes `NEVER_RUN_DEFAULT = { state: STOPPED, confidence: STRUCTURED,
