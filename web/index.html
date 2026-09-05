@@ -1204,7 +1204,7 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   border: 0; border-top: 0.5px solid var(--separator); background: none; cursor: pointer;
   font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0 0 7px 7px; }
 .worldsw-new:hover { color: var(--gold-edge); }
-.worldsw-new:focus-visible, .worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
@@ -6145,13 +6145,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          click wires to the switch. Hidden until the worlds load so a single-world
          install does not flash an empty control. -->
     <div class="worldsw" id="worldsw" hidden>
-      <button class="worldsw-btn" id="worldsw-btn" type="button" aria-haspopup="menu" aria-expanded="false" aria-controls="worldsw-menu">
+      <button class="worldsw-btn" id="worldsw-btn" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="worldsw-menu">
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
         <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
-      <div class="worldsw-menu" id="worldsw-menu" role="menu" aria-label="Your Kosmoses" hidden>
-        <div class="worldsw-list" id="worldsw-list"></div>
-        <button class="worldsw-new" id="worldsw-new" type="button" role="menuitem">
+      <!-- The rows are a read-only LIST (not a menu) while switching is deferred to
+           slice 2b: they show which Kosmoses exist and mark the active one, but do
+           not act. The one real action, New Kosmos, is a native button. When 2b makes
+           the rows actionable, this becomes a menu with roving focus. -->
+      <div class="worldsw-menu" id="worldsw-menu" hidden>
+        <div class="worldsw-list" id="worldsw-list" role="list" aria-label="Your Kosmoses"></div>
+        <button class="worldsw-new" id="worldsw-new" type="button">
           <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
         </button>
       </div>
@@ -15496,6 +15500,8 @@ function openAcctReauth(dir, email) {
    (the active-flip) is slice 2b; until it lands the rows are read-only and only
    "New Kosmos" acts. The switcher stays hidden on a board that has no /api/worlds
    route (pre-2a), so it degrades to today's header cleanly. */
+/* Held for slice 2b's switch, which needs the current world set to flip the
+   active one; unread until then. */
 let WORLDS_LAST = null;
 async function worldsFetch() {
   let data;
@@ -15523,7 +15529,7 @@ function worldswRender(data) {
   for (const w of data.worlds) {
     const row = document.createElement('div');
     row.className = 'worldsw-row';
-    row.setAttribute('role', 'menuitem');
+    row.setAttribute('role', 'listitem');
     if (w.id === data.activeWorldId) row.setAttribute('aria-current', 'true');
     const check = document.createElement('span');
     check.className = 'worldsw-check';
@@ -15531,7 +15537,7 @@ function worldswRender(data) {
     check.textContent = '✓';
     const nm = document.createElement('span');
     nm.className = 'worldsw-rowname';
-    nm.textContent = w.name;
+    nm.textContent = w.name || 'Kosmos';
     row.append(check, nm);
     list.appendChild(row);
   }

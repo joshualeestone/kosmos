@@ -67,6 +67,10 @@ const ESCAPES_VIA = {
   'acct-add-modal': /Escape[\s\S]{0,300}acct-add-modal/,
   'del-modal':      /del-modal'\)\.addEventListener\('keydown'[\s\S]{0,80}Escape/,
   'rm-modal':       /Escape[\s\S]{0,300}rm-modal/,
+  /* #1704 slice-3: the create-a-Kosmos modal. Its Escape lives in the multiple-
+     Kosmos switcher's keydown listener, which closes this modal (before the menu)
+     on Escape. The table caught it the moment the modal was added, as designed. */
+  'world-add-modal': /Escape[\s\S]{0,300}world-add-modal/,
   /* Added by kosmos#1303 H: the add-a-member picker became a dialog, and this
      sweep caught it the moment it did -- the table refused a modal nobody had
      checked. The guard doing its job on its own author. */

@@ -88,8 +88,14 @@ function chk(ok, label, extra) {
     chk(closed, 'creating a Kosmos closes the create modal');
     await page.click('#worldsw-btn');
     await page.waitForSelector('#worldsw-menu:not([hidden])', { timeout: 4000 });
+    // Wait on the new ROW itself, not just the modal close: worldAddClose() hides the
+    // modal synchronously BEFORE the refetch+render completes, so waiting on the row
+    // is what makes this race-free.
+    const appeared = await page.waitForFunction(
+      () => Array.from(document.querySelectorAll('#worldsw-list .worldsw-rowname')).some((n) => n.textContent === 'Client work'),
+      null, { timeout: 6000 }).then(() => true).catch(() => false);
     const names = await page.locator('#worldsw-list .worldsw-rowname').allTextContents();
-    chk(names.includes('Client work'), 'the new Kosmos appears in the switcher list (the real POST + refetch)', JSON.stringify(names));
+    chk(appeared && names.includes('Client work'), 'the new Kosmos appears in the switcher list (the real POST + refetch)', JSON.stringify(names));
 
     // ── Arm 5: the switcher is hidden in the consolidated view. ──────────────
     await page.click('.headright .laypick [data-layout-switch="consolidated"]');
