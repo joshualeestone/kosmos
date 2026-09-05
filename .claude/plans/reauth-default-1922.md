@@ -17,7 +17,7 @@ one thing the rest of this codebase deliberately never does.
 
 **Three independent measurements, none of them mine, none requiring a credential:**
 
-1. **`grep -n 'confirmed live on this machine' engine/accounts.js`**, written by whoever built `listLive`: *"confirmed live on this
+1. **`grep -n 'confirmed live on' engine/accounts.js`**, written by whoever built `listLive`: *"confirmed live on this
    machine, `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the real `claude` binary read
    `<HOME>/.claude/.claude.json` instead."*
 2. **A canary run on this Mac 2026-09-02** (recorded in `~/.claude/bin/which-account.sh`): a launch
@@ -45,8 +45,8 @@ first sign-in  (the fall-through)            connect.start({ })                 
 RE-AUTH        (the `accountDir` branch)     connect.start({ configDir: known.dir })  UNCONDITIONAL <- the defect
 ```
 
-**Reproduce the three sites:** `grep -n 'connect.start(' server.js` **returns FOUR lines; the one at
-4616 is prose inside a comment.** (The same caveat this plan already carries for the `create.js`
+**Reproduce the three sites:** `grep -n 'connect.start(' server.js` **returns FOUR lines; one of
+them is prose inside a comment rather than a call.** (The same caveat this plan already carries for the `create.js`
 grep, and it was missing here for four iterations. **A reproducing command is only better than a
 line number if its output is described accurately** -- otherwise it just moves the drift from the
 number to the count.) **The launch:** `grep -n 'const launchDir' engine/connect.js`.
@@ -400,7 +400,7 @@ at both sites.
   rounds. **"Corrected where it was made" is a claim about a sweep, and I wrote it having corrected
   one site.**
 - **The route's conditional spread was a third spelling** of a decision `engine/create.js` writes as
-  a one-liner in four places. Now matches them. The repo's own rule, at `grep -n 'Two spellings' engine/accounts.js`: *"Two
+  a one-liner in four places. Now matches them. The repo's own rule, at `grep -n 'most expensive habit' engine/accounts.js`: *"Two
   derivations of one fact is this codebase's most expensive habit."*
 - **The fixture splits across two sandbox files what production keeps in one.** Inherited from the
   harness rather than introduced here; now stated in the docblock.
@@ -1274,7 +1274,7 @@ for this card and what a general scrub would need.
 
 The retraction archaeology in `server.js` was deferred at iteration 12 on house-consistency grounds.
 **Iteration 13 checked that defence rather than accepting it** and found the identical shape at
-`server.js:781`, `:1553` and `:4995`, all outside this diff. The deferral stands on measured grounds
+all outside this diff, locatable by `grep -n 'an earlier version of this comment claimed' server.js`, `grep -n 'THIS GATE IS COST, NOT CORRECTNESS' server.js` and `grep -n 'THE THING THAT DID NOT EXIST' server.js`. The deferral stands on measured grounds
 rather than on my say-so.
 
 ### Outstanding and procedural, not code
@@ -1323,15 +1323,15 @@ exactly that.
 
 - **"102 of the 109 added source lines"** is the pre-trim pair; at HEAD it is 77 + 32 = 109 again for
   a different reason. The headline no longer quotes a figure at all and points at the command.
-- **`grep -n 'connect.start(' server.js` returns FOUR lines, not three** (4616 is prose in a
-  comment). This plan already carries that caveat for the `create.js` grep and not for this one.
+- **`grep -n 'connect.start(' server.js` returns FOUR lines, not three** (one hit is prose in a
+  comment, not a call). This plan already carries that caveat for the `create.js` grep and not for this one.
   ⇒ **A reproducing command is only better than a line number if its output is described accurately;
   otherwise the drift just moves from the number to the count.**
 
 ### The deferral was checked again, not re-accepted
 
 Commentary density: the reviewer independently re-verified the house-consistency defence
-(`server.js:781`, `:1553`, `:4995`, all outside this diff) rather than taking iteration 12's word or
+(three sites outside this diff; see the reproducing greps recorded above) rather than taking iteration 12's word or
 mine. Deferral stands on measured grounds for the third round running.
 
 ## Findings from challenge-loop iteration 15
@@ -1726,3 +1726,52 @@ and the cheap tiebreak is the artifact that first stated the claim.**
 assignment match, so a file that only names the variable in a comment is counted. The 11 reproduces
 the original figure exactly at the original base, which is why the mention form is the right one to
 report here, but a stricter count would be smaller.
+
+### Iteration 21, 2026-09-04 23:20: three broken citations, and a sweep claim that was false when written
+
+**All three findings confirmed independently before fixing, each with a control.**
+
+1. **A front-matter "reproducing grep" that never reproduced.** The plan cited
+   `grep -n 'confirmed live on this machine' engine/accounts.js` as measurement 1 of three
+   supporting the branch's central premise. It returns **rc=1 at BOTH bases**, so this is not rebase
+   drift: it was false when written. The quoted text is real and present, but it **spans a hard wrap**
+   (`accounts.js:290` ends "confirmed live on", `:291` begins "this machine,"), so the phrase can
+   never match. Control: `grep -c isDefault engine/accounts.js` = 14 on the same file, bogus token = 0.
+   Fixed to `grep -n 'confirmed live on'` (1 hit).
+2. **A second anchor that does not exist:** `grep -n 'Two spellings' engine/accounts.js` = 0 at both
+   bases. The sentence it quotes is at `accounts.js:84`. Fixed to `grep -n 'most expensive habit'`.
+3. **Three line refs invalidated by today's rebase** (`server.js:781`, `:1553`, `:4995`). The
+   comments moved rather than vanished. Replaced with reproducing greps instead of renumbering,
+   because a renumber goes stale at the next rebase and a grep does not.
+
+🛑 **THE SECOND-ORDER FINDING IS THE IMPORTANT ONE.** A commit message on this branch states: *"now
+reproducing greps, verified empty before this sentence was written."* **The verification did not
+happen, or did not cover what the sentence claims.** The branch's own remedy for drifting `file:line`
+citations was "replace them with reproducing greps", and it shipped a reproducing grep that has never
+reproduced. ⇒ **The migration was verified as DONE, not as WORKING.**
+
+⭐ **A FOURTH SITE THE REVIEWER DID NOT REPORT, found by sweeping rather than by trusting the list.**
+The stale `4616` had **two** homes, and the reviewer named only the one in the iteration record. The
+other was in the **front matter** at line 49, which is live guidance. Both now describe the prose hit
+without a line number. **The reviewer's list was a starting point, not the extent of the class.**
+
+🛑 **AND MY OWN CHECKER WAS SILENT, CAUGHT ONLY BY A CONTROL.** I wrote a loop to execute every
+citation and it reported "12 checked, 0 broken". Running the SAME checker against the pre-fix file,
+where two citations were known broken, it also reported **0 broken**. Cause:
+`n=$(grep -c "$pat" "$f" || echo 0)` -> `grep -c` prints `0` AND exits 1, so `||` appends a second
+line and `n` becomes `"0\n0"`, which never equals `"0"`. Rewritten to test `grep -q`'s exit status.
+
+✅ **The verified state, with the instrument proven able to return the dangerous answer:**
+
+| run | citations | broken |
+|---|---|---|
+| pre-fix plan (control) | 9 | **2** (exactly the two reported) |
+| current plan (subject) | 12 | **0** |
+
+✅ **The remedy is an executable check, not an assertion.** Extract every `grep -n '<pat>' <file>`
+from the plan and run it; a citation that returns nothing is a broken instrument whatever the prose
+around it says. That is what turns "verified" from a claim into a result.
+
+⚠️ **OPEN: iteration 21's report was truncated in delivery after finding 3.** I have asked for the
+remainder. This entry covers only what I have verified; the round is NOT closed and there may be
+further findings, including its merge verdict.
