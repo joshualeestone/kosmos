@@ -132,13 +132,18 @@ async function defaultGet(url) {
 }
 
 /** Reconstruct feedback.js's exact on-disk shape from a stored record, so triage
- *  reads a pulled report byte-compatibly with a locally-authored one. */
+ *  reads a pulled report byte-compatibly with a locally-authored one. Header
+ *  VALUES are single-lined: a newline in a stored field (generated_at is only
+ *  length-capped server-side, not charset-filtered) must not shift the
+ *  `---`...`---` boundary stripFrontmatter/frontmatterDate later find. The body
+ *  is free-form below the header, so it is left as-is. */
+function hdrValue(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
 function toMarkdown(rec) {
   const header = [
     '---',
-    'date: ' + (rec && rec.date ? rec.date : ''),
-    'install: ' + (rec && rec.install ? rec.install : 'unknown'),
-    'generated_at: ' + (rec && rec.generated_at ? rec.generated_at : ''),
+    'date: ' + (rec && rec.date ? hdrValue(rec.date) : ''),
+    'install: ' + (rec && rec.install ? hdrValue(rec.install) : 'unknown'),
+    'generated_at: ' + (rec && rec.generated_at ? hdrValue(rec.generated_at) : ''),
     '---',
     '',
   ].join('\n');
@@ -148,7 +153,15 @@ function toMarkdown(rec) {
 /** A collision-free, human-legible filename. The date leads (so `ls` sorts by
  *  day) and the install disambiguates the many installs that share a day; the
  *  frontmatter still carries the real date, and triage's --dir now reads that as
- *  the date (a non-`YYYY-MM-DD.md` name), so `--since` still applies. */
+ *  the date (a non-`YYYY-MM-DD.md` name), so `--since` still applies.
+ *  🔑 (install, date) is a 1:1 key against the store: the collect route (#97)
+ *  keeps ONE record per (install, date) -- it deletes the prior same-day blob
+ *  when a re-send arrives -- so there is no PERSISTENT two-file collision. The
+ *  only window with two same-(install,date) blobs is transient (the collect side
+ *  writes-new-then-deletes-old); a pull caught in it picks one near-identical
+ *  same-day revision by list order, and the next pull resolves to the survivor.
+ *  generated_at is deliberately NOT in the name: adding it would break the
+ *  idempotent per-(install,date) rewrite (a re-pull would pile up files). */
 function fileName(rec) {
   const date = rec && /^\d{4}-\d{2}-\d{2}$/.test(rec.date) ? rec.date : 'undated';
   const inst = String((rec && rec.install) || 'unknown').replace(/[^\w.-]/g, '').slice(0, 64) || 'unknown';

@@ -145,3 +145,12 @@ test('the REAL transport (defaultList/defaultGet) lists with the token, pages, a
     await new Promise((r) => srv.close(r));
   }
 });
+
+test('a newline in a stored header field cannot shift the frontmatter boundary', () => {
+  // generated_at is only length-capped server-side, not charset-filtered; a
+  // newline + a fake fence must not break out of the header.
+  const md = fp.toMarkdown({ install: 'inst', date: '2026-09-04', generated_at: '2026-09-04T00:00:00Z\n---\ninjected: evil', body: 'real body' });
+  assert.equal(feedback.frontmatterDate(md), '2026-09-04', 'the real date is still read');
+  assert.equal(feedback.stripFrontmatter(md).trim(), 'real body', 'the body boundary is intact, no injected header leaked into the body');
+  assert.ok(!/injected: evil/.test(feedback.stripFrontmatter(md)), 'the injected fence did not open a second header');
+});
