@@ -136,6 +136,18 @@ test('#2186: focus on a BUTTON -> handler defers to native activation (no double
   assert.equal(doc.next.clicks, 0, 'the handler double-clicked a focused button');
 });
 
+test('#2186: focus on a link (A) -> handler defers to native activation', () => {
+  const doc = stubDoc();
+  handlerWith(doc)(ev({ target: { tagName: 'A', isContentEditable: false } }));
+  assert.equal(doc.next.clicks, 0);
+});
+
+test('#2186: focus on a SELECT (e.g. the tz picker) -> Enter is native, not Continue', () => {
+  const doc = stubDoc();
+  handlerWith(doc)(ev({ target: { tagName: 'SELECT', isContentEditable: false } }));
+  assert.equal(doc.next.clicks, 0);
+});
+
 test('#2186: held Enter (e.repeat) does not race through steps', () => {
   const doc = stubDoc();
   handlerWith(doc)(ev({ repeat: true }));

@@ -35795,7 +35795,10 @@ document.getElementById('fr-openai-key').addEventListener('keydown', (e) => {
      wizard today, but this keeps the rule true if one is added.
    - BUTTON / A / SELECT: let the browser's own Enter activation stand -- Enter
      on the focused Continue button already clicks it (so acting again would be
-     a double), Enter on a link/select is native behaviour.
+     a double), Enter on a link/select is native behaviour. One deliberate
+     consequence: on the About-you step, Enter while focused on the tz SELECT
+     does NOT advance -- native select behaviour wins, and the name/does text
+     inputs are where Enter=Continue lands. Intentionally inert, not a gap.
    - #fr-next hidden / disabled / aria-disabled: this is the "step is valid"
      test. It mirrors Continue's own enabled state exactly, so an invalid step
      (Continue greyed, e.g. About-you before its fields are filled, or a
