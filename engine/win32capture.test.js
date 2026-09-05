@@ -103,6 +103,25 @@ test('#570 an UNRECORDED live session has no capture (fail-closed parity with th
   assert.equal(cap('agent1-d2:0.0'), null, 'an unrecorded session yields no status');
 });
 
+test('#570 a THROWING run() or record.read() degrades to null, never propagates (never-throw contract)', () => {
+  // A paneCapture must return null on failure, not throw -- a thrown exception would
+  // propagate out of snapshot() and blank the whole board's tick. Production's
+  // run/record swallow to null/{}, but the injected seam must be defended too.
+  const throwRun = win32capture.make({
+    run: () => { throw new Error('agents --json blew up'); },
+    record: recordOf({ 'sid-1': { name: 'a' } }),
+  });
+  assert.doesNotThrow(() => throwRun('a:0.0'), 'a throwing run() must not propagate');
+  assert.equal(throwRun('a:0.0'), null, 'a throwing run() -> null -> UNKNOWN');
+
+  const throwRecord = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'x')],
+    record: { read: () => { throw new Error('record read blew up'); } },
+  });
+  assert.doesNotThrow(() => throwRecord('a:0.0'), 'a throwing record.read() must not propagate');
+  assert.equal(throwRecord('a:0.0'), null, 'a throwing record.read() -> null -> UNKNOWN');
+});
+
 test('#570 a FAILED live read refuses with null, never a state', () => {
   const cap = win32capture.make({
     run: () => null,   // claude agents --json unreadable

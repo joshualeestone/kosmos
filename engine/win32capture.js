@@ -81,10 +81,20 @@ function make(opts) {
   function byNameNow() {
     const t = now();
     if (cache && (t - cache.at) < ttlMs) return cache;
-    const agents = run();
     const byName = new Map();
     let ok = false;
-    if (Array.isArray(agents)) {
+    // NEVER THROW. A paneCapture must return null on a failed read, exactly as a
+    // failed Mac `capture-pane` does -- if this propagated an exception out through
+    // `status.capturePane` -> `snapshot`, one throwing read would blank the WHOLE
+    // board's tick, not just one pane. Production's run/record (win32roster.defaultRun,
+    // win32sessions.read) both swallow their own errors to null/{}, so this cannot
+    // throw there; the guard defends the INJECTED-callable seam boundary (a test or
+    // future caller whose run()/record.read() throws), degrading it to a failed read
+    // (ok:false -> null -> UNKNOWN) rather than taking down the tick. byName is
+    // rebuilt fresh each call and cleared on throw, so a partial join never leaks.
+    try {
+      const agents = run();
+      if (Array.isArray(agents)) {
       ok = true;
       // Read the record only after the live read succeeded -- a persistently
       // failing `agents --json` should not cost a disk read every window, matching
@@ -133,6 +143,12 @@ function make(opts) {
         if (!win32sessions.validName(name)) continue;
         byName.set(name, liveStatus.get(sid));
       }
+      }
+    } catch {
+      // An injected run()/record.read() threw. Treat it as a failed read: no state
+      // is a safe answer (null -> UNKNOWN), a thrown one is not.
+      ok = false;
+      byName.clear();
     }
     cache = { at: t, ok, byName };
     return cache;
