@@ -211,7 +211,11 @@ test('#1492: a signed-out account the agent runs on surfaces the move (or reauth
   const fn = CODE.slice(at, at + 5000);
   assert.match(fn, /ACCOUNTS\.find\(\(x\) => x\.dir === acct\.dir\)/,
     'the picker no longer cross-references the agent account against the live list, so it cannot tell it is signed out (a launch-file read would not know)');
-  assert.match(fn, /state !== 'connected'/, 'no signed-out detection');
+  // #1959: signed-out detection now reads the observed-liveness badge via
+  // !acctUsableLogin(acctLive) (so a rejected credential, #874, is also detected
+  // as unusable), instead of the raw `state !== 'connected'`. Intent unchanged;
+  // mechanism moved to the shared helper.
+  assert.match(fn, /!acctUsableLogin\(acctLive\)/, 'no signed-out detection');
   assert.match(fn, /signed out, so it cannot run\. Pick a signed-in account above/,
     'no directive to move when a signed-in target is offered');
   assert.match(fn, /signed out, so it cannot run\. Sign it in again/,

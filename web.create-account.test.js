@@ -30,11 +30,17 @@ test('fillCreateAccounts() excludes a confirmed-not-signed-in account and labels
   // already applied to a non-shared-memory account a few thousand lines
   // away). A `none` connection state is a POSITIVELY confirmed negative,
   // the one case the asymmetry rule allows acting on.
-  assert.match(fn, /x\.connection\.state !== 'none'/, 'a confirmed-not-signed-in account is no longer filtered out');
+  // #1959: the filter now decides via the shared acctOfferableTarget helper, which
+  // excludes the CONFIRMED-unusable (badge rejected/signed_out; legacy state
+  // 'none' fallback) -- a superset of the old `state !== 'none'` that also catches
+  // a rejected credential (#874). Intent unchanged (a confirmed-not-signed-in
+  // account is filtered out); mechanism moved to the helper.
+  assert.match(fn, /acctOfferableTarget\(/, 'a confirmed-not-signed-in account is no longer filtered out');
   // ⚠️ NOT excluded for `unknown` -- that would be the false-negative
   // mistake this whole feature exists to prevent, applied here instead
-  // of caught. Labelled instead, so the choice stays informed.
-  assert.match(fn, /x\.connection\.state === 'unknown'/, 'the could-not-check label is gone');
+  // of caught. Labelled instead, so the choice stays informed. #1959: the label
+  // now reads the badge vocabulary via acctUnknownLive.
+  assert.match(fn, /acctUnknownLive\(/, 'the could-not-check label is gone');
   assert.match(fn, /could not check just now/, 'the could-not-check account lost its label text');
   // OpenAI rows carry a real connection field too now (#960) -- the filter
   // must apply to both providers, no per-provider bypass.

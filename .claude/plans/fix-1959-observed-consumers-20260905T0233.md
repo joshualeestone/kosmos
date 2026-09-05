@@ -78,13 +78,13 @@ the active whoami PR #2218):**
   (not a real badge consumer).
 
 ## Guard
-A browser-check (`render-observed-consumers-1959.js`, hermetic file://) with three arms: the shared
-helper matrix (acctUsableLogin/acctUnknownLive across every badge + the badge-less fallback); the
+A browser-check (`render-observed-consumers-1959.js`, hermetic file://) with four arms: the shared
+helper matrix (acctUsableLogin/acctUnknownLive/acctOfferableTarget across every badge + the badge-less fallback); the
 paintConnLive summary via a fetch stub (counts usable, EXCLUDES rejected, honest on unchecked); and
 the paintAccountPicker eligibility via a seeded ACCOUNTS global (a rejected current account is signed
 out and offers the working target; a working current account is the control); and the
 fillCreateAccounts create picker via a seeded CREATE_ACCOUNTS global (a rejected account excluded as
-a run target, an unchecked one still offered+labelled). Verified 20/20 (chromium+webkit) on the fix,
+a run target, an unchecked one still offered+labelled). Verified 24/24 (chromium+webkit) on the fix,
 and proven RED on the pre-fix page by OBSERVED BEHAVIOR: it counts "3 accounts connected" (rejected
 included), a rejected current account gets no move prompt, and the create picker offers the rejected
 account.

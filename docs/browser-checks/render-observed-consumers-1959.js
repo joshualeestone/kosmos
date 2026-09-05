@@ -70,7 +70,8 @@ function check(name, pass, detail) {
 
     // ---- Arm 1: the shared helpers (the load-bearing logic) ----
     const helpers = await page.evaluate(() => {
-      if (typeof acctUsableLogin !== 'function' || typeof acctUnknownLive !== 'function') {
+      if (typeof acctUsableLogin !== 'function' || typeof acctUnknownLive !== 'function'
+          || typeof acctOfferableTarget !== 'function') {
         return { missing: true };
       }
       const row = (badge, state) => ({ connection: { badge, state } });
@@ -90,6 +91,20 @@ function check(name, pass, detail) {
           unchecked: acctUnknownLive(row('unchecked', 'unknown')),
           working: acctUnknownLive(row('working', 'connected')),
           fallbackUnknown: acctUnknownLive({ connection: { state: 'unknown' } }),
+        },
+        offerable: {
+          // Excludes ONLY confirmed-unusable (rejected/signed_out); includes
+          // uncertain (unchecked) and working/will-verify. Both the signed_out
+          // branch and the badge-less fallback are exercised here (the gap
+          // iteration 4 found: arm 4 only seeds rejected/working/unchecked).
+          working: acctOfferableTarget(row('working', 'connected')),
+          unverified: acctOfferableTarget(row('signed_in_unverified', 'connected')),
+          unchecked: acctOfferableTarget(row('unchecked', 'unknown')),
+          rejected: acctOfferableTarget(row('rejected', 'connected')),
+          signed_out: acctOfferableTarget(row('signed_out', 'none')),
+          fallbackConnected: acctOfferableTarget({ connection: { state: 'connected' } }),
+          fallbackNone: acctOfferableTarget({ connection: { state: 'none' } }),
+          noConn: acctOfferableTarget({}),
         },
       };
     });
@@ -115,6 +130,14 @@ function check(name, pass, detail) {
       check(`${engine}: acctUnknownLive true only for unchecked / state unknown`,
         helpers.unknown.unchecked === true && helpers.unknown.working === false && helpers.unknown.fallbackUnknown === true,
         `unchecked=${helpers.unknown.unchecked} working=${helpers.unknown.working} fallback=${helpers.unknown.fallbackUnknown}`);
+      const o = helpers.offerable;
+      check(`${engine}: acctOfferableTarget offers working/will-verify/unchecked, EXCLUDES rejected/signed_out`,
+        o.working === true && o.unverified === true && o.unchecked === true
+        && o.rejected === false && o.signed_out === false,
+        `working=${o.working} unverified=${o.unverified} unchecked=${o.unchecked} rejected=${o.rejected} signed_out=${o.signed_out}`);
+      check(`${engine}: acctOfferableTarget falls back to state!=='none' for a badge-less row`,
+        o.fallbackConnected === true && o.fallbackNone === false && o.noConn === true,
+        `connected=${o.fallbackConnected} none=${o.fallbackNone} noConn=${o.noConn}`);
     }
 
     // ---- Arm 2: paintConnLive summary (consumer 1) ----
