@@ -812,6 +812,35 @@ test('#2191 chatRunnableIds tolerates garbage without throwing', () => {
   assert.deepEqual(openai.chatRunnableIds([{ notid: 1 }, 'x', null]), []);
 });
 
+/* #2191: runnableAllowlist is the glue both the create and change-model routes
+   use to decide what a chosen model may be validated against. Its contract is
+   the load-bearing part of the fix, so it is unit-tested directly rather than
+   only through the routes: null MUST mean "do not refuse" (fail open, #1916), a
+   real snapshot id MUST be accepted, and a genuinely-bogus id MUST be refused. */
+
+test('#2191 runnableAllowlist: an ok result yields the FULL runnable set, so a snapshot id validates', () => {
+  const got = { ok: true, models: [{ key: 'gpt-4o' }], runnableKeys: ['gpt-4o', 'gpt-4o-2024-08-06'] };
+  const allowed = openai.runnableAllowlist(got);
+  assert.deepEqual(allowed, ['gpt-4o', 'gpt-4o-2024-08-06']);
+  // the route decision this drives: a real snapshot id is accepted, a bogus one refused.
+  assert.ok(allowed.includes('gpt-4o-2024-08-06'), 'a stored snapshot id is accepted');
+  assert.ok(!allowed.includes('gpt-4o-9999-99-99'), 'a model the account never listed is refused');
+});
+
+test('#2191 runnableAllowlist: falls back to the collapsed menu keys when runnableKeys is absent (older shape)', () => {
+  const got = { ok: true, models: [{ key: 'gpt-4o' }, { key: 'o3' }, { notkey: 1 }] };
+  assert.deepEqual(openai.runnableAllowlist(got), ['gpt-4o', 'o3'], 'menu keys, junk filtered out');
+});
+
+test('#2191 runnableAllowlist: a NOT-ok result returns null so the routes FAIL OPEN (#1916)', () => {
+  // The account could not be checked (rejected key, unreachable, non-apikey, etc.)
+  // -- validation must NOT refuse a choice on an answer we could not get.
+  assert.equal(openai.runnableAllowlist({ ok: false, models: [], because: 'unreachable' }), null);
+  assert.equal(openai.runnableAllowlist(null), null);
+  assert.equal(openai.runnableAllowlist(undefined), null);
+  assert.equal(openai.runnableAllowlist({ ok: true }), null, 'ok but no lists -> nothing to check against -> fail open');
+});
+
 test('#1026 accountModels: a 200 with a real /v1/models body returns the filtered menu with a default', async () => {
   writeAuth('.codex-models200', { auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-modelskeyMOD1' });
   const dir = nodePath.join(SANDBOX, '.codex-models200');

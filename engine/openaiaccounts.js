@@ -740,7 +740,10 @@ function chatModelsFromList(data) {
     // (two snapshots, or a duplicate alias), the greater id wins -- ISO dates
     // sort by recency, so that is the newest snapshot.
     if (curIsAlias && !prevIsAlias) { byBase.set(base, r); continue; }
-    if (curIsAlias === prevIsAlias && r.id.localeCompare(prev.id) > 0) byBase.set(base, r);
+    // Plain `>` (not localeCompare): the two ids share an identical base prefix
+    // and differ only in a fixed-width trailing YYYY-MM-DD of ASCII digits, so
+    // lexical order is chronological order, locale-independently -- the newest wins.
+    if (curIsAlias === prevIsAlias && r.id > prev.id) byBase.set(base, r);
   }
   const collapsed = [...byBase.values()];
   collapsed.sort((a, b) => (a.rank - b.rank) || a.id.localeCompare(b.id));
@@ -766,6 +769,22 @@ function chatRunnableIds(data) {
     if (id && openaiFamilyOf(id)) seen.add(id);
   }
   return [...seen];
+}
+
+/* #2191: the validation allowlist for a chosen model, derived from an
+   accountModels() result. Returns the array of ids a choice may be checked
+   against, or NULL when validation must NOT refuse -- i.e. the account could not
+   be checked (not ok), so the choice fails OPEN (#1916, never block on a
+   validator that could not answer). Prefers the full un-collapsed runnableKeys
+   (so a real snapshot id validates even though the menu collapses it); falls
+   back to the collapsed menu keys only if an older result shape omits
+   runnableKeys. Shared by both the create and change-model routes so their
+   validation cannot drift. Pure. */
+function runnableAllowlist(got) {
+  if (!got || !got.ok) return null;
+  if (Array.isArray(got.runnableKeys)) return got.runnableKeys;
+  if (Array.isArray(got.models)) return got.models.map((m) => m && m.key).filter(Boolean);
+  return null;
 }
 
 /**
@@ -882,6 +901,6 @@ module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
-  accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds,
+  accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

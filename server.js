@@ -2848,13 +2848,10 @@ const server = http.createServer((req, res) => {
               // #2191: validate against the FULL runnable set (un-collapsed), not
               // the collapsed display menu -- a real snapshot id the account has
               // (e.g. gpt-4o-2024-08-06) must not be refused just because the
-              // picker now shows only its representative. Fall back to the menu
-              // keys if an older accountModels shape omits runnableKeys. Only a
-              // DEFINITIVE miss on an ok result refuses; not-ok fails open (#1916).
-              const allowed = got && got.ok
-                ? (Array.isArray(got.runnableKeys) ? got.runnableKeys
-                   : (Array.isArray(got.models) ? got.models.map((m) => m && m.key).filter(Boolean) : null))
-                : null;
+              // picker shows only its representative. runnableAllowlist() returns
+              // null when the account could not be checked, so a not-ok result
+              // fails OPEN (#1916); only a definitive miss on an ok result refuses.
+              const allowed = openaiAccounts.runnableAllowlist(got);
               if (allowed && !allowed.includes(wantModel)) {
                 sendJson(res, 400, { error: `${wantModel} is not a model this account can run; pick one from the list` });
                 return;
@@ -3320,14 +3317,11 @@ const server = http.createServer((req, res) => {
             const dir = job.configDir || openaiAccounts.defaultDir();
             try {
               const got = await openaiAccounts.accountModels(dir);
-              // #2191: validate against the FULL runnable set (un-collapsed), not
-              // the collapsed display menu -- a stored snapshot id must still
-              // validate. Fall back to the menu keys if runnableKeys is absent.
-              // Only a definitive miss on an ok result refuses; not-ok fails open (#1916).
-              const allowed = got && got.ok
-                ? (Array.isArray(got.runnableKeys) ? got.runnableKeys
-                   : (Array.isArray(got.models) ? got.models.map((m) => m && m.key).filter(Boolean) : null))
-                : null;
+              // #2191: validate against the FULL runnable set (un-collapsed) via
+              // the shared runnableAllowlist() -- a stored snapshot id must still
+              // validate even though the menu collapses it. null => account not
+              // checkable => fail open (#1916); only a definitive miss refuses.
+              const allowed = openaiAccounts.runnableAllowlist(got);
               if (allowed && !allowed.includes(chosen)) {
                 sendJson(res, 400, { outcome: 'refused', because: `${chosen} is not a model this agent's account can run; pick one from the list` });
                 return;
