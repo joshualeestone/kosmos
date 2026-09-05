@@ -1182,10 +1182,18 @@ cmd_feedback() {
           let names = [];
           try { names = nfs.readdirSync(dir); } catch (e) { console.error("cannot read --dir: " + dir); process.exit(2); }
           for (const n of names.filter((x) => /\.md$/.test(x)).sort()) {
-            const raw = nfs.readFileSync(npath.join(dir, n), "utf8");
-            const body = raw.replace(/^---\n[\s\S]*?\n---\n?/, "");
-            const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(n) ? n.slice(0, -3) : n.replace(/\.md$/, "");
-            if (since && date < since) continue;
+            // Guard the per-file read: a subdirectory named x.md or a
+            // permission-denied file would otherwise throw a raw node trace and
+            // bypass the CLI refusing in its own voice. Skip it with a note.
+            let raw;
+            try { raw = nfs.readFileSync(npath.join(dir, n), "utf8"); }
+            catch (e) { console.error("skipping unreadable report: " + n); continue; }
+            const body = fb.stripFrontmatter(raw);
+            // A non-date filename has no day, so it gets a null date rather than
+            // a bogus label; under --since it is skipped, since a since-filter
+            // can only include reports it can confirm are on or after the day.
+            const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(n) ? n.slice(0, -3) : null;
+            if (since && (date === null || date < since)) continue;
             reports.push({ date, body });
           }
         } else {

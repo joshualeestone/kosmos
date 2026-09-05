@@ -49,6 +49,12 @@ const ACTION = new Set([
   'because', 'when', 'if', 'need', 'needs', 'needed', 'improve', 'better', 'fix',
   'unable', 'blocked', 'blocker', 'refused', 'rejected', 'empty', 'blank', 'lost',
   'duplicate', 'duplicated', 'twice', 'race', 'stale', 'silent', 'silently',
+  // Visual / layout bugs are a big share of fresh-install feedback and rarely
+  // use the words above, so name them explicitly or a real UI report ("the
+  // label overlaps the icon") scores as noise.
+  'overlap', 'overlaps', 'overlapping', 'clipped', 'cut', 'cutoff', 'hidden',
+  'misaligned', 'misplaced', 'truncated', 'garbled', 'offscreen', 'overflow',
+  'overflows', 'overflowing', 'cramped', 'tiny', 'huge', 'unreadable',
 ]);
 
 /** Stop-words removed before token overlap so two phrasings of one issue match. */
@@ -202,11 +208,23 @@ function groupDuplicates(entries, threshold) {
     if (clusterOf[i] !== -1) continue;
     const members = [i];
     clusterOf[i] = clusters.length;
-    for (let j = i + 1; j < entries.length; j += 1) {
-      if (clusterOf[j] !== -1) continue;
-      if (members.some((m) => similarity(entries[m].text, entries[j].text) >= th)) {
-        clusterOf[j] = clusters.length;
-        members.push(j);
+    // True single-linkage: re-scan ALL unassigned entries against ALL current
+    // members until the cluster stops growing. A forward-only single pass is
+    // order-dependent -- a chain A~B, B~C, A!~C clusters as [A,B,C] but splits
+    // as [A,C,B], because C is only ever compared to A -- and would list one
+    // recurring issue as two entries depending on report order. Iterating to a
+    // fixed point makes the clustering order-independent. n is a day's items,
+    // so the extra passes are cheap.
+    let grew = true;
+    while (grew) {
+      grew = false;
+      for (let j = 0; j < entries.length; j += 1) {
+        if (clusterOf[j] !== -1) continue;
+        if (members.some((m) => similarity(entries[m].text, entries[j].text) >= th)) {
+          clusterOf[j] = clusters.length;
+          members.push(j);
+          grew = true;
+        }
       }
     }
     clusters.push({ members });

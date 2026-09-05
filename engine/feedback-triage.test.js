@@ -44,6 +44,10 @@ test('classify scores an actionable specific high and pure sentiment as noise', 
   const fragment = triage.classify('nice');
   assert.equal(fragment.score, 0, 'a one-word fragment is noise');
   assert.ok(fragment.reasons.some((r) => /too short/.test(r)));
+
+  // A visual/layout bug is a real report even without the classic error words.
+  const visual = triage.classify('the export button label overlaps the icon');
+  assert.ok(visual.score >= 1, 'a layout bug (overlaps) should clear the bar, not land in noise: ' + JSON.stringify(visual));
 });
 
 test('similar phrasings of one issue cluster together; unrelated ones do not', () => {
@@ -56,6 +60,20 @@ test('similar phrasings of one issue cluster together; unrelated ones do not', (
   const entries = [{ text: a, date: '2026-09-01' }, { text: b, date: '2026-09-02' }, { text: c, date: '2026-09-02' }];
   const clusters = triage.groupDuplicates(entries, 0.6);
   assert.equal(clusters.length, 2, 'the two duplicate-rows items should collapse to one cluster, leaving 2 total');
+});
+
+test('groupDuplicates is true single-linkage: a transitive chain clusters regardless of input order', () => {
+  // A~B and B~C but A!~C (B is the bridge). A forward-only pass leaves C in its
+  // own cluster when the input arrives as [A,C,B], because C is only compared
+  // to A. True single-linkage must give ONE cluster in either order.
+  const A = 'export button missing its label';
+  const B = 'export button label overlaps the icon';
+  const C = 'the icon overlaps the timestamp';
+  assert.ok(triage.similarity(A, B) >= 0.3 && triage.similarity(B, C) >= 0.3, 'chain links must hold');
+  assert.ok(triage.similarity(A, C) < 0.3, 'the chain ends must NOT be directly similar, or the test is not testing single-linkage');
+  const mk = (arr) => arr.map((t, i) => ({ text: t, date: '2026-09-0' + (i + 1) }));
+  assert.equal(triage.groupDuplicates(mk([A, B, C]), 0.3).length, 1, '[A,B,C] should be one cluster');
+  assert.equal(triage.groupDuplicates(mk([A, C, B]), 0.3).length, 1, '[A,C,B] must ALSO be one cluster (order-independence)');
 });
 
 test('matchOpenCard flags a duplicate of an open card and passes a novel item', () => {
