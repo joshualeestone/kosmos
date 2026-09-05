@@ -25,8 +25,9 @@
  * 🛑 WHAT THIS CATCHES, AND WHAT IT DOES NOT (stated so nobody gets the false
  * confidence #1732 was about, this time via syntax instead of platform). The
  * SEP_PATTERNS match a ':'/'; ' separator written AS A LITERAL AT the split/join
- * call site -- a string literal, a template literal, or a single-char regex
- * literal, with or without a limit argument, on a single line of real code
+ * call site -- a string literal, a template literal, a single-char regex literal
+ * (/:/), or a char-class regex literal (/[:;]/, the idiomatic "split on either
+ * separator"), with or without a limit argument, on a single line of real code
  * (comment lines are skipped, symmetrically with the positive pin's markerInCode).
  * A static line scan cannot see a separator that is NOT a literal at the call site:
  * hoisted through a variable (`const SEP = ':'; x.split(SEP)`), built via
@@ -54,18 +55,30 @@ const ENGINE_DIR = __dirname;
 // REGRESSION of one of them to a literal ':' WOULD match and, being un-allow-listed,
 // fail here. See the docblock for the one shape this cannot see (variable indirection).
 const SEP_PATTERNS = [
-  /\.(?:split|join)\(\s*(['"`])[:;]\1\s*(?:,[^)]*)?\)/,   // quoted / template literal
-  /\.(?:split|join)\(\s*\/[:;]\/[a-z]*\s*(?:,[^)]*)?\)/,  // single-char regex literal
+  /\.(?:split|join)\(\s*(['"`])[:;]\1\s*(?:,[^)]*)?\)/,        // quoted / template literal
+  /\.(?:split|join)\(\s*\/[:;]\/[a-z]*\s*(?:,[^)]*)?\)/,       // single-char regex literal  /:/  /;/
+  /\.(?:split|join)\(\s*\/\[[:;]+\]\/[a-z]*\s*(?:,[^)]*)?\)/,  // char-class regex literal   /[:;]/ /[:]/ /[;:]/
 ];
 
 // A whole-line comment: `//`, `*` (continuation of a block comment), or `/*`. Skipped
 // by BOTH the negative scan and the positive pin, so a docblock ILLUSTRATING the
 // hostile form (`x.split(':')` in prose) never trips the guard -- the same
-// code-vs-comment discipline in both directions. Deliberately does NOT strip a
-// TRAILING `//` comment from a code line: doing so would drop `.split(':')` after a
-// `http://`-bearing string on the same line and MISS a real hit (a false negative is
-// the one direction a guard against missed instances must not take); a real
-// `x.split(':') // note` is a genuine hit and stays one.
+// code-vs-comment discipline in both directions.
+//
+// 🔑 LINE-BASED ON PURPOSE, and the residual is the safe direction. Two things it
+// does NOT do, both to avoid a FALSE NEGATIVE (missing a real hit -- the one
+// direction a guard against missed instances must never take):
+//   1. It does NOT strip a TRAILING `//` from a code line: a real
+//      `x.split(':') // note` stays a hit, and a `.split(':')` after a
+//      `http://`-bearing string is not silently dropped.
+//   2. It does NOT track `/* ... */` block state across lines. A block-comment
+//      continuation line NOT prefixed with `*` (a real style in engine/) is
+//      therefore read as code. The cost is only a FALSE POSITIVE (a future prose
+//      line illustrating the hostile form inside such a block would red the scan --
+//      fail-closed, refine by prefixing `*` or moving the example), and for the
+//      positive pin it is defended in depth by the unclassified-hit test. A stateful
+//      stripper would fix that but would mis-handle `//`/`/*` inside a string and
+//      reintroduce false negatives, which is the worse trade for this guard.
 function isCommentLine(line) {
   const t = line.trimStart();
   return t.startsWith('//') || t.startsWith('*') || t.startsWith('/*');
