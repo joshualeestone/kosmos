@@ -806,14 +806,10 @@ function whoamiProjectsClause(projectNames) {
   // Capitalised because this clause is a full sentence (it follows
   // `sentenceForWhoami`'s terminating period), matching the other clauses.
   if (!ps.length) return 'It is on no projects';
-  // A small "A", "A and B", "A, B, and C" join. `engine/projects` has its own
-  // `andList` with the same Oxford-comma form, but it is not exported and this is
-  // the whole of what is needed; matching its shape keeps the product consistent
-  // without widening that module's surface for one caller.
-  const list = ps.length === 1 ? ps[0]
-    : ps.length === 2 ? ps[0] + ' and ' + ps[1]
-      : ps.slice(0, -1).join(', ') + ', and ' + ps[ps.length - 1];
-  return 'Its projects are ' + list;
+  // `projects.andList` is the ONE list-join in the product (Oxford-comma form);
+  // reused rather than re-implemented here, per this codebase's "two derivations
+  // of one thing drift" rule.
+  return 'Its projects are ' + projects.andList(ps);
 }
 
 /**

@@ -11171,6 +11171,38 @@ test('#1899: whoami reports the agent name, identity source, and projects (not j
   }
 });
 
+test('#1899: whoami identifies a token-presenting agent by its launch token (route, end to end)', async () => {
+  /* The identitySource is re-derived at the route from the same token-presence
+     inputs resolveAgentSender reads. This drives the TOKEN branch end to end (a
+     minted agent token, no pane) so the re-derivation is guarded against future
+     resolver-precedence drift, not only unit-tested in isolation. */
+  const sendertokenEngine = require('./engine/sendertoken');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('tokworker', { state: 'idle' })]);
+  try {
+    server.setLiveReader(() => ({ ok: false, because: 'stubbed for this test' }));
+    const minted = sendertokenEngine.mint('tokworker');
+    assert.equal(minted.ok, true, 'could not mint a token for the fixture');
+
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': minted.token },
+      body: JSON.stringify({}),   // no pane; the token alone identifies the agent
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'the route refused a token-resolvable sender: ' + r.body);
+    assert.equal(out.agent, 'tokworker', 'the token resolved to a different agent');
+    assert.equal(out.identitySource, 'its launch token',
+      'a token-presenting agent must be identified by its launch token, end to end');
+    assert.ok(out.because.startsWith('This agent is tokworker, identified by its launch token.'),
+      'the sentence must name the token as the identity source: ' + out.because);
+  } finally {
+    server.setLiveReader(null);
+    fleet.restore();
+  }
+});
+
 test('#1899: the identity and projects clauses compose one shape (unit)', () => {
   const { whoamiIdentityClause, whoamiProjectsClause } = require('./server.js');
   // Name + source lead.
