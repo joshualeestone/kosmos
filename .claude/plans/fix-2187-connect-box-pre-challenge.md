@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: fix-2187-connect-box
-diff_hash: c6c23851a796403e5de0eb8bb97a0c82e601f56e6b22a1c629d5c8ab2edcab1d
+diff_hash: f5df1fc49bb7a8722057f5228583e7423583f8688edbe7a57d57c7849bc737e1
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-05T06:44:43Z
-iterations: 5
+timestamp: 2026-09-05T07:10:00Z
+iterations: 7
 converged: true
 ---
 
@@ -42,6 +42,15 @@ Clean baseline. One `test-cut-guard.sh` failure under contention (0.6.31 release
 
 #### Iteration 5 (post-rebase re-run: 6.0 baseline + blind review)
 6.0 validation passed clean (hash c6c23851a796). Blind review found **0 NEW findings** - only the already-deferred plan-file CONVENTION and the two already-deferred NITs (box-every-phase, hardcoded-literal drift). Confirmed the browser-checks.sh rebase union is intact (both checks present exactly once) and the hermetic-wiring BLOCKER stays resolved. Re-converged.
+
+#### Iteration 6 (plan-file backfill + blind review)
+The pre-challenge-gate hook requires a plan file (not just this proof); a night-shift direct build had none, so `fix-2187-connect-box-20260905T0146.md` was backfilled documenting the design. Blind review found ONE new CONVENTION: this proof file itself contained literal em dashes (my prose, not the code) - stripped with perl. The two NITs re-raised were already-deferred dups. The plan file changed the diff_hash to f5df1fc4 (it is INCLUDED in the hash; the proof is not).
+
+#### Iteration 7 (final blind review)
+**New findings:** 0. Converged. No BLOCKER/WARNING/CONVENTION; two non-blocking NITs, both already-deferred (box-every-phase; isGold tolerance width, where the comment already names the r>g>b hue ordering as the real discriminator). Confirmed NO em dashes in any changed file (all five spellings checked) and the wiring is complete.
+
+### Validation basis for the final tree
+The last full-suite validation ran CLEAN on the code at hash c6c23851a796 (iteration 5). The only change since is the docs plan file `.claude/plans/fix-2187-connect-box-20260905T0146.md`. The one test that reads `.claude/plans/` (`no-brand-refs-1881.test.js`) explicitly EXCLUDES that prefix (EXCLUDED_PREFIXES) and was re-run directly here (4/4 pass), so the plan file is invisible to the suite - the four code files are byte-unchanged from the c6c238 clean run. A fresh full-suite re-run was not possible at finalize time (the 0.6.32 release cut held the machine claim, and forcing past it risks corrupting that release); CI provides the authoritative server-side re-validation on the exact tree. `subdir_audit` passed clean (no changed subdir CLAUDE.md files).
 
 ### Final Ledger
 
