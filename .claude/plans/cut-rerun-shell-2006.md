@@ -28,48 +28,53 @@ The workaround tonight was a brokered browser-quiet window; this is the durable 
 
 ## What "done" looks like
 
-- A fail-0 red during a cut (node passed, shell stage red) is re-run ALONE (`yarn -s
-  test:shell`) up to `max` attempts and DISMISSED only on a green; a persistent red
-  still aborts.
-- The change never dismisses anything that is not the shell stage: a coverage
-  mismatch (fires before node -> empty tally) still aborts; the browser-check gate is
-  fail-soft on the frozen trunk (cannot red here) so a fail-0 red is necessarily the
-  shell stage.
+- A fail-0 red during a cut (node's tally is 0, so the red is not an isolable node
+  file) is handled by re-running the WHOLE `yarn test` gate ALONE up to `max` attempts;
+  DISMISSED only on a green, a persistent red still aborts.
+- The change never dismisses a real red: re-running the exact gate reproduces a real
+  red in ANY stage (a node process-error, a shell test, or the browser-check gate). A
+  coverage mismatch (fires before node -> empty tally) still aborts before this branch.
 - Unit-tested off-box (test-cut-rerun-guard.sh) with a contention case (dismiss), a
   persistent-red control (abort), a transient red-then-green case (dismiss on retry),
-  a cwd check, and errexit-safety; both verdicts perturbation-verified.
+  a cwd check, and errexit-safety on BOTH the dismiss and the multi-attempt abort paths;
+  both verdicts perturbation-verified.
 
 ## Safety argument (why a fail-0 dismiss is sound)
 
-run-tests.sh order after a green node suite: (1) `yarn -s test:shell` then (2) the
-repo-local browser-check gate. The coverage assertion fires BEFORE the node suite, so
-a coverage red yields no node tally at all -> caught by the existing empty-tally abort,
-never reaching the fail-0 branch. The browser-check gate diffs `origin/main...HEAD` and
-is FAIL-SOFT (returns 0 when it cannot diff or there is no web/ change), so on the cut's
-frozen trunk it cannot red. Therefore a fail-0 red during a cut is the SHELL stage, and
-the same asymmetry applies: a single green rerun of the shell stage alone proves the red
-was starvation.
+The first design re-ran only `yarn -s test:shell` on the fail-0 path, on the premise
+that a fail-0 red is necessarily the shell stage. Blind review found the hole: node's
+`ℹ fail 0` TALLY is not node's EXIT status. node can exit non-zero while printing
+`ℹ fail 0` and no `test at` line (a top-level unhandled rejection, a lingering handle),
+in which case run-tests.sh stops AT node, the shell stage never runs, and re-running
+only `test:shell` would pass on a quiet box and wrongly dismiss a genuine node-stage red.
 
-Weakest premise: "the browser-check gate cannot red on the cut's frozen trunk." It rests
-on the gate being fail-soft and the trunk having no web/ diff against origin/main. If a
-cut ever ran on a tree with a real web/ diff against origin/main AND that change lacked
-a browser-check assertion, the gate could red and a shell-stage rerun going green would
-wrongly dismiss it. Mitigation: cuts run the frozen trunk (an ancestor of / equal to
-origin/main), where that diff is empty; and any such web/ gap would already have been
-refused at PR time by the same gate. Documented in the lib.
+Fix: do not guess which stage failed. Re-run the EXACT gate the cut ran (`yarn test`),
+which reproduces a real red in any stage, and dismiss only when the whole gate goes
+green. The asymmetry still carries the safety (contention makes false reds, never false
+greens). A coverage mismatch fires BEFORE the node suite (no tally at all) and is caught
+by the existing empty-tally abort, so it never reaches this branch. Re-running through
+run-tests.sh from inside the cut is safe: its #1962 machine-claim consult is
+cookie-excluded, so the cut's own `yarn test` self-excludes and runs rather than
+refusing (run-tests.sh:54-62, verified).
+
+Cost accepted: the fail-0 rerun re-runs the node suite too (heavier than a shell-only
+rerun). In the common shell-contention case node already passed, so it re-passes; the
+node re-run is the price of not guessing the stage, and it is bounded (`max` attempts).
+Under persistent external load a node concurrency test may starve on the rerun and abort
+-- the SAFE direction (a stall, never a false dismiss), matching the #2017 external-load
+scope note.
 
 ## Changes
 
-- `tools/lib/cut-rerun-guard.sh`: add `kosmos_shell_stage_rerun_verdict`; route the
-  fail-0 branch to it instead of an unconditional abort. Seams
-  `KOSMOS_SHELL_RERUN_CMD` (default `yarn -s test:shell`) and `KOSMOS_SHELL_RERUN_SLEEP`
-  (default 5s between attempts; external contention clears with time, not by removing
-  the cut's own parallelism (test:shell is sequential)). Errexit-safe.
+- `tools/lib/cut-rerun-guard.sh`: add `kosmos_whole_suite_rerun_verdict`; route the
+  fail-0 branch to it instead of an unconditional abort. Seams `KOSMOS_SUITE_RERUN_CMD`
+  (default `yarn test`) and `KOSMOS_SUITE_RERUN_SLEEP` (default 5s between attempts;
+  external contention clears with time). Errexit-safe.
 - `tools/test-cut-rerun-guard.sh`: rewrite the fail-0 section to drive the new behavior
-  via the seam (no real 2-minute suite); add the six cases above.
+  via the seam (no real 2-minute suite); cases above plus a multi-attempt errexit test.
 - `tools/release.sh`: comment + two narration strings updated to say the guard now
-  covers the shell stage too. No behavior change at the call site (it already passes
-  2 args; `max` defaults to 3).
+  covers the fail-0 whole-gate rerun too. No behavior change at the call site (it
+  already passes 2 args; `max` defaults to 3).
 
 ## Release-path coordination (NOT box-gated code, but merge IS sequenced)
 

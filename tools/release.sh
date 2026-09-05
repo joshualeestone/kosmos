@@ -496,12 +496,14 @@ if [ "$_suite_exit" -ne 0 ]; then
   # load-sensitive concurrency test can red a release for a reason unrelated to
   # the change. Before aborting, apply run-tests.sh:190's own discriminator
   # AUTOMATICALLY. Two red shapes: a failing NODE test file (rerun each FAILING
-  # FILE alone) and a POST-node SHELL-stage red (node passed, then `yarn -s
-  # test:shell` reds under an unrelated agent's live page layer -- the browser-run
-  # guard tests are the most contention-sensitive in the suite; rerun the shell
-  # stage alone, #2006 shell extension). Either way: green alone was starvation,
-  # not the change (contention makes false reds, never false greens); a red that
-  # stays red alone, or a failure that cannot be isolated, is real and aborts.
+  # FILE alone) and a fail-0 red that is NOT an isolable node file (node's tally is
+  # 0 -- a post-node stage red, most often the browser-run-guard SHELL tests going
+  # red under an unrelated agent's live page layer, the most contention-sensitive
+  # tests in the suite; but a 0 tally is not proof node passed, so re-run the WHOLE
+  # `yarn test` gate alone, which reproduces a real red in any stage, #2006 post-node
+  # extension). Either way: green alone was starvation, not the change (contention
+  # makes false reds, never false greens); a red that stays red alone, or a failure
+  # that cannot be isolated, is real and aborts.
   # SCOPE: this guards the step-3 suite (`yarn test`: the node suite AND the shell
   # stage). It does NOT cover step 3b, the headless browser checks below (a
   # separate runner), and it does NOT shed EXTERNAL box load: a heavy background
@@ -510,7 +512,7 @@ if [ "$_suite_exit" -ne 0 ]; then
   # #2017.
   # `if VAR=$(...)` captures the verdict's exit WITHOUT tripping errexit and
   # WITHOUT a pipe -- a pipe would let a downstream exit mask the verdict's.
-  echo "--- #2006: re-running the failing file(s)/shell stage in isolation before deciding ---"
+  echo "--- #2006: re-running the failing file(s) / the whole gate in isolation before deciding ---"
   if _rr_out="$(kosmos_isolation_rerun_verdict "$_suite_log" "$REPO" 2>&1)"; then _rr_rc=0; else _rr_rc=$?; fi
   printf '%s\n' "$_rr_out"
   if [ "$_rr_rc" -eq 0 ]; then _rr_word=contention_dismissed; else _rr_word=real_red; fi
@@ -519,10 +521,10 @@ if [ "$_suite_exit" -ne 0 ]; then
     printf '%s version=%s isolation_rerun=%s suite_exit=%s\n' "$(date -u +%FT%TZ)" "$V" "$_rr_word" "$_suite_exit"
   } >> "$HOME/.claude/logs/cut-suite-runs.log" 2>/dev/null || true
   if [ "$_rr_rc" -ne 0 ]; then
-    echo "the suite is genuinely red: a failing file (or the shell stage) stayed red when re-run alone, or the failure could not be isolated. Aborting the cut. Full output: $_suite_log"
+    echo "the suite is genuinely red: a failing file (or the whole gate) stayed red when re-run alone, or the failure could not be isolated. Aborting the cut. Full output: $_suite_log"
     exit 1
   fi
-  echo "the suite red was CONTENTION, not the change: every failing file (or the shell stage) passed when re-run alone. Continuing the cut (#2006)."
+  echo "the suite red was CONTENTION, not the change: every failing file (or the whole gate) passed when re-run alone. Continuing the cut (#2006)."
 fi
 rm -f "$_suite_log"
 

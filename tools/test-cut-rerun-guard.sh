@@ -67,31 +67,33 @@ if out="$(kosmos_isolation_rerun_verdict "$log_fail" "$WORK" 2)"; then rc=0; els
 printf '%s\n' "$out" | grep -q "real failure" && ok "narration names it a real failure" \
   || bad "narration missing 'real failure'"
 
-# --- #2006 SHELL-STAGE EXTENSION: a fail-0 red is the SHELL stage (node passed,
-# the browser-check gate is fail-soft on the cut's trunk, a coverage mismatch has
-# no tally). It re-runs the shell stage ALONE and dismisses ONLY on a green. All of
-# these drive the KOSMOS_SHELL_RERUN_CMD seam so the assertion never runs a real
-# 2-minute suite, and set SLEEP=0 so retries do not pause. A stray 'test at' line
-# is present to prove the shell branch never reads the node file list. ---
-export KOSMOS_SHELL_RERUN_SLEEP=0
+# --- #2006 POST-NODE EXTENSION: a fail-0 red (node tally 0) is NOT an isolable node
+# file. A tally of 0 is not proof node passed (node can exit non-zero with `ℹ fail 0`
+# and no 'test at' line), so the guard re-runs the WHOLE `yarn test` gate alone and
+# dismisses ONLY on a green -- reproducing a real red in any stage (node, shell, or
+# the browser-check gate). All of these drive the KOSMOS_SUITE_RERUN_CMD seam so the
+# assertion never runs a real 2-minute suite, and set SLEEP=0 so retries do not pause.
+# A stray 'test at' line is present to prove this branch never reads the node file
+# list. ---
+export KOSMOS_SUITE_RERUN_SLEEP=0
 log_shellred="$WORK/log-shellred"
-{ tally 100 100 0; echo "test at pass.test.js:2:1"; echo "some shell test then failed"; } > "$log_shellred"
+{ tally 100 100 0; echo "test at pass.test.js:2:1"; echo "some later stage then failed"; } > "$log_shellred"
 
-# CONTROL (dangerous answer): a shell stage that STAYS red alone must NOT be dismissed.
-if out="$(KOSMOS_SHELL_RERUN_CMD=false kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
-[ "$rc" -eq 1 ] && ok "fail-0 + a shell stage that stays red alone -> verdict 1 (abort), even past a stray 'test at'" \
-  || bad "fail-0 shell-red case: rc=$rc, expected 1"
-printf '%s\n' "$out" | grep -q "real shell-test failure" && ok "narration names it a real shell-test failure" \
-  || bad "narration missing 'real shell-test failure'"
+# CONTROL (dangerous answer): a gate that STAYS red alone must NOT be dismissed.
+if out="$(KOSMOS_SUITE_RERUN_CMD=false kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 1 ] && ok "fail-0 + a gate that stays red alone -> verdict 1 (abort), even past a stray 'test at'" \
+  || bad "fail-0 gate-red case: rc=$rc, expected 1"
+printf '%s\n' "$out" | grep -q "a real failure, not contention" && ok "narration names it a real failure" \
+  || bad "narration missing 'a real failure, not contention'"
 
-# CONTENTION: a shell stage that passes alone IS dismissed (the whole point of the extension).
-if out="$(KOSMOS_SHELL_RERUN_CMD=true kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
-[ "$rc" -eq 0 ] && ok "fail-0 + a shell stage that passes alone -> verdict 0 (contention dismissed)" \
-  || bad "fail-0 shell-contention case: rc=$rc, expected 0"
-printf '%s\n' "$out" | grep -q "Dismissed" && ok "shell narration says the stage was dismissed" \
-  || bad "shell narration missing 'Dismissed'"
-printf '%s\n' "$out" | grep -q "The cut proceeds" && ok "shell narration says the cut proceeds" \
-  || bad "shell narration missing the proceed line"
+# CONTENTION: a gate that passes alone IS dismissed (the whole point of the extension).
+if out="$(KOSMOS_SUITE_RERUN_CMD=true kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 0 ] && ok "fail-0 + a gate that passes alone -> verdict 0 (contention dismissed)" \
+  || bad "fail-0 gate-contention case: rc=$rc, expected 0"
+printf '%s\n' "$out" | grep -q "Dismissed" && ok "narration says the gate was dismissed" \
+  || bad "narration missing 'Dismissed'"
+printf '%s\n' "$out" | grep -q "The cut proceeds" && ok "narration says the cut proceeds" \
+  || bad "narration missing the proceed line"
 
 # TRANSIENT contention: red on attempt 1, green on attempt 2 -> dismissed (the retry is what
 # lets an unrelated live page layer clear). A per-scratch counter script flips on the 2nd run.
@@ -102,28 +104,40 @@ n=\$(wc -l < "$cnt" 2>/dev/null | tr -d ' '); echo x >> "$cnt"
 [ "\$n" -ge 1 ] && exit 0 || exit 1
 EOF
 chmod +x "$flip"
-if out="$(KOSMOS_SHELL_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
-[ "$rc" -eq 0 ] && ok "fail-0 + shell red on attempt 1, green on attempt 2 -> verdict 0 (transient contention dismissed)" \
-  || bad "fail-0 shell-transient case: rc=$rc, expected 0"
+if out="$(KOSMOS_SUITE_RERUN_CMD="sh $flip" kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 3)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 0 ] && ok "fail-0 + gate red on attempt 1, green on attempt 2 -> verdict 0 (transient contention dismissed)" \
+  || bad "fail-0 gate-transient case: rc=$rc, expected 0"
 printf '%s\n' "$out" | grep -q "attempt 2/3 -> contention" && ok "narration shows it dismissed on the 2nd attempt" \
   || bad "narration missing the attempt-2 dismissal"
 
 # The rerun runs IN $repo: a command that greps a repo-local file must see it. Prove cd works.
 echo "sentinel" > "$WORK/repo-marker"
-if out="$(KOSMOS_SHELL_RERUN_CMD='grep -q sentinel repo-marker' kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
-[ "$rc" -eq 0 ] && ok "the shell rerun runs INSIDE \$repo (a repo-relative command sees the tree)" \
-  || bad "shell rerun cwd: rc=$rc, expected 0 (grep of a repo-local file should pass)"
+if out="$(KOSMOS_SUITE_RERUN_CMD='grep -q sentinel repo-marker' kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 1)"; then rc=0; else rc=$?; fi
+[ "$rc" -eq 0 ] && ok "the whole-suite rerun runs INSIDE \$repo (a repo-relative command sees the tree)" \
+  || bad "whole-suite rerun cwd: rc=$rc, expected 0 (grep of a repo-local file should pass)"
 
-# ERREXIT: a DIRECT caller under set -euo pipefail (release.sh's context, minus its if-wrapper)
-# must reach the shell rerun and dismiss without aborting at any bare-list step.
+# ERREXIT (dismiss path): a DIRECT caller under set -euo pipefail (release.sh's context, minus
+# its if-wrapper) must reach the rerun loop and dismiss without aborting at any bare-list step.
 export REPO WORK log_shellred
-eset3_out="$(bash -c 'set -euo pipefail; export KOSMOS_SHELL_RERUN_SLEEP=0 KOSMOS_SHELL_RERUN_CMD=true; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 2' 2>&1)"; eset3_rc=$?
+eset3_out="$(bash -c 'set -euo pipefail; export KOSMOS_SUITE_RERUN_SLEEP=0 KOSMOS_SUITE_RERUN_CMD=true; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 2' 2>&1)"; eset3_rc=$?
 if [ "$eset3_rc" -eq 0 ] && printf '%s\n' "$eset3_out" | grep -q "Dismissed"; then
-  ok "as a DIRECT caller under set -euo pipefail, the fail-0 shell rerun reaches the loop and dismisses (errexit-safe)"
+  ok "as a DIRECT caller under set -euo pipefail, the fail-0 rerun reaches the loop and dismisses (errexit-safe)"
 else
-  bad "errexit-safety (shell rerun): rc=$eset3_rc out=[$eset3_out]"
+  bad "errexit-safety (dismiss path): rc=$eset3_rc out=[$eset3_out]"
 fi
-unset KOSMOS_SHELL_RERUN_SLEEP
+
+# ERREXIT (multi-attempt abort path): CMD=false with max 2 EXERCISES the increment
+# (attempt=$((attempt+1))) AND the inter-attempt sleep-guard `if [...] && [...]; then`
+# under active set -e -- the exact lines the dismiss-on-attempt-1 case never reaches.
+# A bare `&&` list or a `((...))` that returned non-zero here would abort before the
+# verdict; the correct behavior is a clean return 1 (the loop exhausts and aborts).
+eset4_out="$(bash -c 'set -euo pipefail; export KOSMOS_SUITE_RERUN_SLEEP=0 KOSMOS_SUITE_RERUN_CMD=false; . "$REPO/tools/lib/cut-rerun-guard.sh"; kosmos_isolation_rerun_verdict "$log_shellred" "$WORK" 2' 2>&1)"; eset4_rc=$?
+if [ "$eset4_rc" -eq 1 ] && printf '%s\n' "$eset4_out" | grep -q "across all 2 attempts"; then
+  ok "as a DIRECT caller under set -euo pipefail, the multi-attempt abort path exercises the increment + sleep-guard and returns 1 cleanly (errexit-safe)"
+else
+  bad "errexit-safety (multi-attempt abort path): rc=$eset4_rc out=[$eset4_out]"
+fi
+unset KOSMOS_SUITE_RERUN_SLEEP
 
 # --- COMPLETENESS: an INCOMPLETE parse (more failures than 'test at' lines) -> verdict 1 ---
 # node says 2 failed but only one has a parseable 'test at' line: do NOT dismiss on the parseable one.
