@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: wizard-enter-2186
-diff_hash: 9d292f5a5926e97a9097bfc5f10ffbb2d39e0425e7423fdc5aae34fea9eaea2e
+diff_hash: e1d3983ec34fb6ff942c2598785d4bba56ad3eeae57e263da7b38df7423577b7
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-05T03:49:36Z
@@ -63,4 +63,10 @@ None.
 - Both test layers discriminate: the unit test lifts and RUNS the real frEnterSubmit against stub events (16 arms + a CONTROL asserting the lift and the #firstrun wiring); the browser check drives a real keydown, uses the gated About-you step for an empty-vs-filled contrast, observes the real PUT /api/you, and reds against a handler-less page (perturbation-verified). (iterations 1-3)
 
 ### Validation
-Full `yarn`/npm test sequence green on the converged HEAD (node --test: 4474 pass / 0 fail), plus the new browser check run headless and perturbation-verified. An earlier 6j run red-flaked only on `test-browser-run-guard.sh` under concurrent browser activity from the 0.6.30 release cut (a documented contention flake, unrelated to this diff); re-run on a quiet box passed clean (this proof's hash).
+Full `yarn`/npm test sequence green on the converged HEAD (node --test: 4474 pass / 0 fail), plus the new browser check run headless and perturbation-verified. An earlier 6j run red-flaked only on `test-browser-run-guard.sh` under concurrent browser activity from the 0.6.30 release cut (a documented contention flake, unrelated to this diff); re-run on a quiet box passed clean.
+
+Note: `diff_hash` was recomputed after adding the branch plan file
+`.claude/plans/wizard-enter-2186.md` (required by the plan-gate hook, and part of
+the hashed diff since only `-pre-challenge.md` is excluded). The plan file is
+documentation of the already-reviewed change; no code changed, so the 3-iteration
+review above still stands.
