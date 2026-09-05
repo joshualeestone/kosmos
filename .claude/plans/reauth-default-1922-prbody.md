@@ -54,8 +54,9 @@ about.
 
 ⚠️ **NOT every default-account machine.** `checkLive` returns `NONE` on a recognised
 `loggedIn: false`, so a genuinely signed-out user still opens the gate and the sign-in runs; a
-missing binary opens it too. The branch's own `#1560` arm ("a connected-looking FILE does not block
-sign-in when the world says signed out") asserts that and passes. ⇒ **Post-fix the false success is
+missing binary opens it too. The pre-existing `#1560` ENGINE arm on main ("a connected-looking FILE does not
+block sign-in when the world says signed out", `engine/connect.test.js`, not added by this branch)
+asserts that and passes. ⇒ **Post-fix the false success is
 bounded to accounts whose stored login is present-but-dead; pre-fix it additionally depended on the
 decoy, so this change plausibly widens who sees it, and by how much is not established.** The write path is correct either way; the repair behind the gate is
 kosmos#1937.

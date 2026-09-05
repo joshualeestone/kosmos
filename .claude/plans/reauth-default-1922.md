@@ -1321,7 +1321,9 @@ exactly that.
 
 ### Two more figures that describe rather than measure
 
-- **"102 of the 109 added source lines"** is the pre-trim pair; at HEAD it is 77 + 32 = 109 again for
+- **"102 of the 109 added source lines"** is the pre-trim pair; the HEAD figure is whatever
+  `git diff --numstat origin/main...HEAD -- engine/connect.js server.js` prints (139 as of the 09-04
+  rebase). Do not quote it; run it. It was
   a different reason. The headline no longer quotes a figure at all and points at the command.
 - **`grep -n 'connect.start(' server.js` returns FOUR lines, not three** (one hit is prose in a
   comment, not a call). This plan already carries that caveat for the `create.js` grep and not for this one.
@@ -1602,7 +1604,7 @@ gets the same scrutiny or it introduces its own defects, and mine has now done t
 
 ✅ Corrected in both shipped homes: post-fix the false success is bounded to accounts whose stored login is
 present-but-dead (NOT every default-account machine: a recognised `loggedIn: false` returns NONE and
-opens the gate, as this branch's own `#1560` arm asserts); pre-fix it additionally depended on the
+opens the gate, as the pre-existing `#1560` engine arm on main asserts); pre-fix it additionally depended on the
 decoy; the widening is plausible and its size is unestablished.
 
 ### The third false sweep-claim
@@ -1643,7 +1645,7 @@ Iteration 19 replaced *"returned NONE on an ordinary machine"* with *"the gate h
 default-account machine"* / *"post-fix the false success is uniform"*, in three homes including the
 PR body.
 
-**False, and this branch's own passing test refutes it:**
+**False, and a passing test refutes it (the `#1560` engine arm, pre-existing on main):**
 
 - `checkLive` returns `STATE.NONE` on a **positively recognised** `loggedIn: false`.
 - The gate opens on `!binaryOnDisk || state === NONE`.
@@ -1793,12 +1795,21 @@ the two variables "were both called 'the seam' here and that collision is the wh
 was misread." ⇒ **The fix asserted the label was the defect and then left the label in place one line
 down.** The arm deletes `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`:653`), so it now says THAT VARIABLE.
 
-**A judgement call, documented rather than silently taken.** The sweep found a third bare "the seam"
-at `:621`, also mine. **I left it.** At `:601` two different variables were both called "the seam"
-inside one docblock, which is genuine overloading; at `:621` the referent
-(`process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`) is named explicitly on the line directly above, so
-only one candidate is in scope. **What would change my mind:** a reader arriving at `:621` without
-reading `:620`, or a future edit that puts a second variable in scope there.
+**A judgement call, documented rather than silently taken. CORRECTED at iteration 22: there are TWO
+residuals, not one, and my first version of this paragraph named only one while presenting itself as
+the enumeration.** `grep -n 'the seam' engine/connect.test.js` returns `599, 605, 621` in this
+docblock. **I left `:605` and `:621`, for different reasons:**
+- `:621` -- the referent (`process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`) is named explicitly on the
+  line directly above, so only one candidate is in scope.
+- `:605` -- it is a **verbatim quotation** of the earlier false claim being retracted, and editing
+  punctuation or wording inside a quotation falsifies the record. ⚠️ Its nearest named variable above
+  is the WRONG referent for it (item 2's seam is the dry-run one), which is a real cost of leaving it.
+**What would change my mind on either:** a reader arriving at `:621` without reading `:620`, a future
+edit putting a second variable in scope there, or a decision that quoted claims should carry an
+inline gloss naming their referent.
+⭐ **The meta-point, since this is the second time in two hours: a paragraph that says "the sweep
+found N" is itself a claim about a sweep, and mine was written from the reviewer's list rather than
+from the grep.**
 
 **Independent mutation re-proof, which is the part I did not ask for and value most.** The reviewer
 re-ran all four mutations itself rather than taking the PR body's word, with baselines before and
@@ -1819,3 +1830,42 @@ directions.**
 
 🛑 **THE LOOP IS NOT CONVERGED.** A verdict of "ready to merge" is not the convergence criterion; a
 round that surfaces NO new issues is, and this round surfaced five. Iteration 22 follows.
+
+### Iteration 22, 2026-09-04 23:36: a false attribution in the PR body, and my sweep list was short again
+
+Verdict: **ready to merge, no BLOCKER, no WARNING, three CONVENTIONs.** All confirmed before fixing.
+
+**1. The PR body credited this branch with a test it did not write.** It said *"The branch's own
+`#1560` arm ... asserts that and passes."* Measured: the arm exists **on origin/main**
+(`git grep -c ... origin/main -- engine/connect.test.js` = 1) and **my diff adds nothing referencing
+1560** (`git diff origin/main...HEAD | grep -c 1560` = 0). It is a pre-existing ENGINE arm, while the
+paragraph's subject is the route. Substance stands; the attribution sent a reviewer hunting the diff
+for something that is not in it. ⇒ **This was the worst-placed of the three: the PR body is the only
+artifact that leaves the repo.**
+
+⭐ **THE REVIEWER FOUND ONE HOME. THE SWEEP FOUND THREE** (`prbody:57`, `plan:1605`, `plan:1646`).
+Second time tonight the reported site was a subset of the class. **Treat a review's file list as a
+starting point and run the grep yourself**; three remaining "this branch's own" hits are about the
+CONTROL arm, the validation log and the remedy, all genuinely ours, so the sweep also had to
+discriminate rather than replace blindly.
+
+**2. My own iteration-21 paragraph claimed to enumerate residuals and named one of two.** Corrected
+in place above: `:605` and `:621` are both left, for DIFFERENT reasons (`:621` has its referent named
+one line up; `:605` is a verbatim quotation, and altering wording inside a quotation falsifies the
+record). ⇒ **A sentence saying "the sweep found N" is itself a claim about a sweep, and I wrote mine
+from the reviewer's list rather than from the grep.** That is the same defect as #1, committed while
+documenting #1.
+
+**3. A stale post-rebase figure.** "at HEAD it is 77 + 32 = 109" is pre-rebase; `git diff --numstat
+origin/main...HEAD -- engine/connect.js server.js` now prints 92 + 47 = **139**. Replaced the figure
+with the command, per this plan's own rule that a number is a measurement frozen at a moment.
+
+**What iteration 22 checked and found clean, with controls** (recorded because a clean result is only
+worth anything if the search was live): all 16 `grep -n` citations executed, the only two zero-hit
+ones being inside the iteration-21 record that documents them as broken; the three replacement
+`server.js` anchors; the 12-of-44 ratio re-measured post-rebase in BOTH mention and assignment forms;
+the seam-set-nowhere-outside-tests claim (assignment sweep returns exactly `live-connect.js:29`); both
+`checkLive` call sites; the gate condition; `known.isDefault`; and the `acctShowSuccess` copy
+byte-matching. Baselines re-run: 40/40 and 54/54, exit 0, worktree left pristine.
+
+🛑 **STILL NOT CONVERGED.** Three findings is not zero. Iteration 23 follows.
