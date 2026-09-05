@@ -31819,7 +31819,7 @@ function pjRoomBody(m, p) {
 /* #2255: the quick-reaction palette the "+" opener reveals. A small fixed set
    (Discord's common ones); a person reacting is choosing fast, not browsing
    every emoji. Escapes, so the source stays plain-ASCII and diffable. */
-const RXN_QUICK = ['\u{1F44D}', '❤\u{FE0F}', '\u{1F525}', '\u{1F389}', '\u{1F602}', '\u{1F440}', '✅', '\u{1F64F}'];
+const RXN_QUICK = ['\u{1F44D}', '\u{2764}\u{FE0F}', '\u{1F525}', '\u{1F389}', '\u{1F602}', '\u{1F440}', '\u{2705}', '\u{1F64F}'];
 /* The reactions row under a room post: one TOGGLE pill per live reaction (marked
    aria-pressed when the viewer is a reactor, with a title naming who), then a
    "+" opener that reveals the palette. Every emoji is esc()'d and comes from the

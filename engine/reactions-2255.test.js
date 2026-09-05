@@ -107,3 +107,48 @@ test('react refuses a bad emoji, a missing target, and a post that does not exis
   const rows = messages.record().rows.filter((m) => m.kind === 'reaction');
   assert.equal(rows.length, 0, 'a refused react writes no event');
 });
+
+// Seed a real post into the log so react() (which reads record()) can find it.
+// The row must satisfy rowShaped for kind 'post': id/from/project strings, a `to`
+// array, a `text` string, and a parseable `at` -- a lighter row is parsed but
+// never reaches `record().rows`, exactly where a first draft of this helper went
+// wrong (react saw no post and refused with the wrong reason).
+function seedPost(id, project, from) {
+  fs.mkdirSync(require('node:path').dirname(messages.LOG), { recursive: true });
+  fs.appendFileSync(messages.LOG,
+    JSON.stringify({ kind: 'post', id, project, from, to: [], text: 'seeded', outcomes: {}, at: new Date().toISOString() }) + '\n', 'utf8');
+}
+
+test('#2255: an agent must be ON the project to react (room isolation), the operator is exempt', () => {
+  seedPost('m1', 'p', 'leo');
+  // A non-member agent is refused, the same room-isolation the post model enforces.
+  const stranger = messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'stranger', members: ['zeta'] });
+  assert.equal(stranger.ok, false, 'a non-member agent reacted into a room it is not on');
+  assert.match(stranger.because, /not on that project/i);
+  // A missing/garbled member list is refused rather than trusted.
+  assert.equal(messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'zeta' }).ok, false,
+    'an agent react with no member list is refused');
+  // A member agent is allowed and lands as its own name.
+  const member = messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'zeta', members: ['zeta'] });
+  assert.equal(member.ok, true, 'a member agent could not react');
+  assert.equal(member.op, 'add');
+  const rec = messages.record().rows.filter((m) => m.kind === 'reaction');
+  assert.equal(rec.length, 1);
+  assert.equal(rec[0].from, 'zeta', 'the reaction did not land as the agent name');
+  assert.notEqual(rec[0].operator, true, 'an agent react must never carry the operator flag');
+  // The operator is in every room they own, so no member list is required.
+  const op = messages.react({ project: 'p', of: 'm1', emoji: FIRE, operator: true });
+  assert.equal(op.ok, true, 'the operator was member-gated');
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'reaction' && m.operator === true).length, 1,
+    'the operator reaction did not store the operator flag');
+});
+
+test('#2255: "you" is reserved for the operator - an agent named "you" cannot react under it', () => {
+  seedPost('m1', 'p', 'leo');
+  // reactionsFor maps the operator flag (not a stored name) to "you"; an agent
+  // literally named "you" would otherwise replay as the operator's own pill.
+  const r = messages.react({ project: 'p', of: 'm1', emoji: THUMB, from: 'you', members: ['you'] });
+  assert.equal(r.ok, false, 'an agent named "you" was allowed to react and would collide with the operator');
+  assert.match(r.because, /reserved/i);
+  assert.equal(messages.record().rows.filter((m) => m.kind === 'reaction').length, 0, 'a refused react wrote no event');
+});

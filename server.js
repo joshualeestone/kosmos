@@ -6315,7 +6315,10 @@ const server = http.createServer((req, res) => {
         if (!found) { sendJson(res, 200, { ok: false, because: 'there is no project by that name' }); return; }
         const sender = messages.resolveSender(body.from_pane, roster);
         if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
-        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName });
+        // #2255: the project's members, same derivation as /api/post -- react()
+        // refuses an agent that is not on the project (room isolation).
+        const members = (found.agents || []).map((a) => a.sessionName);
+        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members });
         sendJson(res, out.ok ? 200 : 400, out);
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,

@@ -1691,8 +1691,11 @@ function reactionsFor(of, rows, youReactor) {
    reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
    The post must exist in the named project (a reaction to nothing is refused,
    never silently stored). `operator:true` reacts as "you"; an agent reacts as
-   its own name. Returns {ok, op, emoji, of} or {ok:false, because}. */
-function react({ project, of, emoji, from, operator }) {
+   its own name and must be on the project (`members` is the project's member
+   sessionNames, the caller's derivation, same as sendPost -- the operator is
+   exempt, being in every room they own). Returns {ok, op, emoji, of} or
+   {ok:false, because}. */
+function react({ project, of, emoji, from, operator, members }) {
   const projectId = String(project == null ? '' : project).trim();
   const postId = String(of == null ? '' : of).trim();
   const e = normalizeReactionEmoji(emoji);
@@ -1701,10 +1704,31 @@ function react({ project, of, emoji, from, operator }) {
   if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
   const reactor = operator === true ? 'you' : String(from == null ? '' : from).trim();
   if (reactor !== 'you' && !reactor) return { ok: false, because: 'we could not tell who is reacting' };
+  /* #2255: 'you' is the operator's reserved reactor sentinel -- reactionsFor
+     maps the `operator:true` flag to it, not a stored name. An AGENT literally
+     named 'you' (a legal tmux session name) would otherwise have its reactions
+     replay as the operator's own and render `mine`. Reserve the name, the same
+     operator-vs-agent care sendPost takes with the `operator` flag. */
+  if (operator !== true && reactor === 'you') {
+    return { ok: false, because: 'that name is reserved, so this reaction could not be attributed' };
+  }
   const rec = record();
   const rows = rec.rows;
   const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
   if (!post) return { ok: false, because: 'there is no post by that id in this room' };
+  /* #2255: the room is its members. An AGENT reacting into a room it is not on
+     is the same cross-room write the post model refuses (sendPost's membership
+     gate) -- a reaction is lighter than a post, but it is still a write into a
+     room that is not the agent's. The operator is in every room they own, so
+     the gate is agent-only, exactly as sendPost's is. */
+  if (operator !== true) {
+    if (!Array.isArray(members) || !members.every((m) => typeof m === 'string' && m)) {
+      return { ok: false, because: 'we could not read who is on that project, so nothing was reacted' };
+    }
+    if (!members.includes(reactor)) {
+      return { ok: false, because: 'you are not on that project, so this room is not yours to react in' };
+    }
+  }
   const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
   const has = !!(cur && cur.who.includes(reactor));
   const op = has ? 'remove' : 'add';
