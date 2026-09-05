@@ -1192,11 +1192,19 @@ function setProvider(name, provider, opts) {
      re-creates the brief, so the guarantee is that the failure is
      near-impossible, not that it self-heals. `job.runner === runner` was
      refused above, so the two filenames always differ here; the guard stays for
-     when the runner set grows. */
+     when the runner set grows.
+     🛑 NEVER CLOBBER AN EXISTING DESTINATION. `renameSync` overwrites, and a
+     CONNECTED agent lives in the person's OWN folder, which can legitimately
+     hold BOTH CLAUDE.md and AGENTS.md (discover.js `connect()` handles "a
+     person who has both"). Overwriting the destination would destroy a file
+     the user wrote, with no backup. So move ONLY when the destination does not
+     already exist: if it does, the new runner already has a brief to read, and
+     the old file is the user's to keep. A Kosmos-CREATED agent only ever has
+     one brief, so this guard never changes its behaviour. */
   const oldBrief = path.join(workerDir(clean), briefFilename(job.runner));
   const newBrief = path.join(workerDir(clean), briefFilename(runner));
-  if (oldBrief !== newBrief) {
-    try { if (fs.existsSync(oldBrief)) fs.renameSync(oldBrief, newBrief); }
+  if (oldBrief !== newBrief && fs.existsSync(oldBrief) && !fs.existsSync(newBrief)) {
+    try { fs.renameSync(oldBrief, newBrief); }
     catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
   try { store.writeProfile(clean, { provider }); }

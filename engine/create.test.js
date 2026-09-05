@@ -3692,6 +3692,25 @@ test('#2245: a provider switch MOVES the brief to the file the new runner boots 
     assert.ok(!fs.existsSync(nodePath.join(bDir, 'AGENTS.md')), 'the codex-born AGENTS.md was orphaned on the switch to claude');
     assert.equal(fs.readFileSync(nodePath.join(bDir, 'CLAUDE.md'), 'utf8'), bornCodex,
       'the codex-born brief was regenerated rather than moved on the switch');
+
+    // --- no-clobber: a folder that already holds BOTH briefs must lose neither
+    // A connected agent lives in the person's own folder, which can hold both
+    // CLAUDE.md and AGENTS.md. The switch must NOT overwrite the destination:
+    // if it exists, the new runner already has a brief and the old file is the
+    // user's to keep. Overwriting would be silent data loss.
+    const c = 'brief-mover-c';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: c, role: 'pm' }).outcome,
+      create.OUTCOME.CREATED);
+    const cDir = create.workerDir(c);
+    const USER_AGENTS = 'USER OWN AGENTS BRIEF - do not clobber';
+    fs.writeFileSync(nodePath.join(cDir, 'AGENTS.md'), USER_AGENTS, 'utf8');
+    const bornClaudeC = fs.readFileSync(nodePath.join(cDir, 'CLAUDE.md'), 'utf8');
+    const swC = create.setProvider(c, 'openai', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swC.outcome, create.OUTCOME.CREATED, swC.because);
+    assert.equal(fs.readFileSync(nodePath.join(cDir, 'AGENTS.md'), 'utf8'), USER_AGENTS,
+      'the switch overwrote the user\'s existing AGENTS.md -- silent data loss');
+    assert.equal(fs.readFileSync(nodePath.join(cDir, 'CLAUDE.md'), 'utf8'), bornClaudeC,
+      'the untouched CLAUDE.md should remain the user\'s file, not be moved onto an existing destination');
   } finally {
     delete process.env.AGENT_WORKFORCE_CODEX_HOME;
   }

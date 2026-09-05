@@ -79,8 +79,18 @@ under "scoped out" is wrong, so this is fixed in-card: `setProvider` now moves
 the brief from the old runner's filename to the new one (a same-directory,
 atomic rename that also removes the orphan) whenever the runner changes, using
 the same `briefFilename` mapping. Best-effort, matching the sibling profile
-write: the plist is the launch truth and a later instructions refresh recreates
-the brief if the rename ever fails.
+write: the plist is the launch truth, and the residual (a near-impossible
+same-directory rename failure) is stated honestly rather than claimed to
+self-heal.
+
+The move NEVER clobbers an existing destination (blind-review iter-4): a
+connected agent lives in the person's own folder, which can hold BOTH CLAUDE.md
+and AGENTS.md (discover.js handles "a person who has both"), so `renameSync`
+runs only when the destination does not already exist. If it does, the new
+runner already has a brief to read and the old file is the user's to keep.
+A Kosmos-created agent only ever has one brief, so the guard never changes its
+behaviour. A test arm writes a pre-existing destination and asserts neither
+file is lost (verified red-capable).
 
 ## Weakest premise / known follow-up (out of scope): the name-regime residual
 
