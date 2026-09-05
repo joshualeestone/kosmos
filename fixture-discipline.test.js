@@ -405,12 +405,36 @@ test('the could-not-look fleets are the engine’s real refusals, not empty ones
  * This mirrors `package.json`'s own test glob (`engine/*.test.js *.test.js`), so
  * a file the suite runs is a file the lints scan, by construction.
  */
+/* 🛑 FORWARD SLASH ALWAYS, BECAUSE THESE ARE COMPARISON KEYS AND NOT PATHS.
+   Every list in this file that names a file -- the control below, the allowlists,
+   the named creators -- is written 'engine/foo.test.js'. `path.join` emits the
+   HOST separator, so on Windows these keys came out 'engine\foo.test.js' and
+   matched none of them. Measured on Windows 2026-09-05, on clean origin/main:
+
+     ✖ the suite has the test files this lint believes it has
+         -> engine/projects.test.js is not being scanned by the lints
+     ✖ no test hand-types a tab-separated pane line
+         -> engine\status.test.js: 88 hand-typed pane lines, 0 allowed
+     ✖ every suite that creates an agent sandboxes CLAUDE CODE's config too
+         -> engine/create.test.js creates agents and this rule no longer sees it,
+            so it is aimed at nothing
+
+   The allowlist entry for status.test.js stopped applying, so 88 sanctioned
+   lines read as 88 violations; the self-checks correctly reported the rules were
+   aimed at nothing. THE SELF-CHECKS WERE RIGHT AND THEY WERE THE ONLY REASON
+   THIS WAS VISIBLE AT ALL -- without them the lints would have scanned an empty
+   intersection and passed. Same defect, same day, as the #1732 coupling audit
+   (kosmos#2266), which is the third instance of one shape: a path API used to
+   build a string that is then compared to a literal. It is portable for REACHING
+   a file and not for that. Reads still work: Node accepts '/' on Windows. */
+const relKey = (...parts) => parts.join('/');
+
 const TEST_FILES = [
   ...fs.readdirSync(__dirname)
     .filter((f) => f.endsWith('.test.js')),
   ...fs.readdirSync(path.join(__dirname, 'engine'))
     .filter((f) => f.endsWith('.test.js'))
-    .map((f) => path.join('engine', f)),
+    .map((f) => relKey('engine', f)),
 ];
 
 function read(rel) {
@@ -618,7 +642,9 @@ test('every suite that creates an agent sandboxes CLAUDE CODE’s config too', (
   const missing = [];
   for (const f of files) {
     const src = fs.readFileSync(f, 'utf8');
-    const rel = path.relative(__dirname, f);
+    // Same rule as TEST_FILES above: `rel` is compared against the named-creator
+    // list below, so it is a KEY and carries '/', not the host separator.
+    const rel = relKey(...path.relative(__dirname, f).split(path.sep));
     /* ⚠️ THIS FILE IS EXCLUDED FROM ITS OWN RULE. It matched on the docblock
        above rather than on any call, which inflated the control below to 4 when
        only 3 suites really create agents — and the docblock's own suggested
