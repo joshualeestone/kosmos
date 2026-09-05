@@ -1,4 +1,4 @@
-# Plan: #2195 — `deploy-site.sh --promote` (guarded pointer-move prod deploy)
+# Plan: #2195 - `deploy-site.sh --promote` (guarded pointer-move prod deploy)
 
 ## Problem
 There is no standalone tool for a POINTER-ONLY prod deploy (a "promote"). `deploy-site.sh` is a
@@ -20,12 +20,12 @@ every other guard stays.
    COMMITTED pointer (the version being promoted TO), not live (still the prior prod version until
    this deploy). The committed-vs-live guard is SKIPPED (the pointer moved on purpose) and replaced
    by a stronger check: fetch + sha-verify the versioned artifact from live (proving the promoted
-   bytes are really served — the staging cut published them, which is what makes a promote a
+   bytes are really served - the staging cut published them, which is what makes a promote a
    pointer-only move) AND assert the committed pointer's advertised sha equals those bytes (guards a
    hand-edited/stale pointer). Also refuse when committed == live (nothing to promote). The
    site-copy path is unchanged and STILL fires the committed-vs-live guard.
 3. **Unversioned alias.** For `--promote`, DERIVE `kosmos-arm64.tar.gz` from the just-verified
-   versioned artifact (`cp` + `sha256_publish_as`), not fetch the live one — the live alias is still
+   versioned artifact (`cp` + `sha256_publish_as`), not fetch the live one - the live alias is still
    the PRIOR prod version until this deploy (a staging cut leaves it there; the promote moves it, per
    `promote-channel.sh` #2036). Fetching it would ship a stale fallback (the #1669 shape). `tmux` is
    version-independent and fetched live in both modes.
@@ -33,7 +33,7 @@ every other guard stays.
 Kept unchanged for `--promote`: the honest-marker export check, the `.vercelignore` guard, the
 post-deploy served-by-content verify (#1669). `Kosmos.pkg` is version-independent (promote-channel
 deliberately never touches it), so `--promote` carries the live pkg unchanged. NOT keyed to
-`latest-staging.json` on purpose — a rollback promotes a PRIOR committed pointer and must still work.
+`latest-staging.json` on purpose - a rollback promotes a PRIOR committed pointer and must still work.
 
 ## Docs
 Fix `docs/staging-channel.md` step 5: name `deploy-site.sh --promote` as the go-live, demote the
@@ -49,5 +49,5 @@ unchanged. Both core behaviors (guard-skip, alias-derive) proven red-capable by 
 ## Workflow for a promote
 1. `promote-channel.sh <site> <port>` (runs the gates, moves the pointer + alias LOCALLY).
 2. commit `latest.json` + push.
-3. `deploy-site.sh --promote` (this change) — the guarded deploy.
+3. `deploy-site.sh --promote` (this change) - the guarded deploy.
 4. verify SERVED prod by content.
