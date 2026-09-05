@@ -24853,7 +24853,16 @@ async function paintAccountPicker(a) {
      "not signed out" (no false move prompt), as before. signedInTarget offers any
      other movable account with a usable login (working or will-verify) as a
      destination -- requiring a verified `working` target would refuse a valid one. */
-  const signedOut = !!(acctLive && acctLive.connection && !acctUsableLogin(acctLive));
+  const signedOut = !!(acctLive && acctLive.connection && !acctUsableLogin(acctLive) && !acctUnknownLive(acctLive));
+  /* #1959 NIT: an UNKNOWN live check (unchecked badge / state 'unknown') is not
+     "signed out". acctUsableLogin is false for it too, so without excluding it the
+     picker rendered a definite "signed out, so it cannot run" about an account it
+     could not read -- the exact #2023 lie (an unreadable state must render as
+     could-not-read, never a definite position). Split it out so the message can say
+     we could not check, and no false cannot-run claim is made. The board-summary
+     count (~20309) already made this same split via anyUnknown; this is the only
+     other site that derived a definite claim from !acctUsableLogin. */
+  const unknownLive = !!(acctLive && acctLive.connection && acctUnknownLive(acctLive));
   const signedInTarget = movable.some((x) => acctUsableLogin(x) && (!acct || x.dir !== acct.dir));
   /* Josh, 2026-08-23 19:56: the dropdown shows the account it is on (the
      email), not a Move-to placeholder; picking a DIFFERENT one is what
@@ -24889,6 +24898,12 @@ async function paintAccountPicker(a) {
     msg.textContent = signedInTarget
       ? 'The account this agent runs on is signed out, so it cannot run. Pick a signed-in account above and press Move.'
       : 'The account this agent runs on is signed out, so it cannot run. Sign it in again from Settings, AI Models.';
+  } else if (msg && !msg.textContent && unknownLive) {
+    /* #1959 NIT: we could not read this account's live check, so we do NOT claim it
+       is signed out (the cannot-run sentence above would be a definite claim about a
+       state we do not know). Say only what is true -- we could not check -- and leave
+       the move dropdown live, which is itself the answer to "can I move this". */
+    msg.textContent = 'We could not check just now whether the account this agent runs on is signed in. Reopen this to try again.';
   }
   /* #1373: ACCOUNTS is the switch picker's source too, and it is filled here.
      Without this call the picker stays hidden until the provider dropdown is
