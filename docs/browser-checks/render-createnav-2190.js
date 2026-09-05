@@ -108,8 +108,8 @@ async function driveCreate(page, agentsOutcome) {
 
   await browser.close();
   if (problems.length) {
-    console.error('FAIL  render-createnav-2190:');
-    for (const p of problems) console.error('  - ' + p);
+    console.error(`render-createnav-2190: ${problems.length} problem(s)`);
+    for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
   console.log('render-createnav-2190: Create advances to the progress screen; an error routes back to the create screen with the message.');
