@@ -84,6 +84,22 @@ test('and the create request reads the control, only sending false when it is un
     'tellKosmos:false is not guarded by the unticked box, so it fires unconditionally');
 });
 
+test('the box is NOT checked in the markup (#258): consent is painted from a read, not hard-coded', () => {
+  /* A `checked` attribute in the static markup would show a tick for the whole
+     first frame, before any read has happened, on the screen where the claim is
+     made - the #258 flash-of-consent defect. createTellPaint sets checked from
+     the real read; the markup must start unchecked. */
+  const at = PAGE.search(/id="create-tell"/);
+  assert.ok(at > -1, 'the checkbox lost its id, so this test is reading nothing');
+  const tag = PAGE.slice(PAGE.lastIndexOf('<', at), PAGE.indexOf('>', at) + 1);
+  assert.match(tag, /^<input\b/, 'that id is no longer on an input');
+  assert.ok(!/\schecked\b/.test(tag),
+    'the box is hard-coded checked in the markup, claiming consent before anything has been read (#258)');
+  // Positive control: the same read finds an attribute that IS present, so a
+  // slice that had silently gone empty could not pass the line above.
+  assert.match(tag, /type="checkbox"/, 'CONTROL: the tag this test read is not the checkbox');
+});
+
 test('the standing answer being ON leaves the box checked, usable, and silent', () => {
   const { box, note } = paint({ on: true, ok: true });
   assert.equal(box.checked, true);
