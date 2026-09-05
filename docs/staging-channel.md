@@ -83,7 +83,7 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    bash <<'DEPLOY'
    set -eu
    S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
-   git -C "$S" commit dist/latest.json -m "promote <V> to prod"
+   git -C "$S" diff --quiet -- dist/latest.json || git -C "$S" commit -- dist/latest.json -m "promote <V> to prod"   # skip commit on a re-run where it is already committed
    git -C "$S" push origin HEAD:refs/heads/main   # a failed push must NOT proceed to a deploy (set -e stops here)
    . "$R/tools/lib/site-deploy.sh"; . "$R/tools/lib/pkg-inputs.sh"
    EXPORT=$(mktemp -d)
@@ -98,9 +98,17 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
      [ -f "$EXPORT/dist/$f" ] || { rm -rf "$EXPORT"; echo "export dropped $f (#1669); $S/dist is incomplete -- fetch the live artifacts into it first"; exit 1; }
    done
-   ( cd "$EXPORT" && vercel deploy --prod --yes ) && rm -rf "$EXPORT"
+   ( cd "$EXPORT" && vercel deploy --prod --yes ); rc=$?; rm -rf "$EXPORT"; [ "$rc" = 0 ] || { echo "vercel deploy failed"; exit 1; }
    DEPLOY
    ```
+   The per-artifact loop only guards the GITIGNORED set; tracked artifacts (`latest.json`, the
+   Windows zip) ship via `git archive` and cannot be dropped by an incomplete `dist/`. If `$S/dist`
+   IS incomplete (promoting from a machine that did not run the staging cut -- `deploy-site.sh`
+   cannot repopulate it here, since its committed-vs-live guard refuses this exact state), fetch each
+   served artifact first, e.g. `for f in "$ART" "$ART.sha256" kosmos-arm64.tar.gz
+   kosmos-arm64.tar.gz.sha256 tmux-arm64.tar.gz tmux-arm64.tar.gz.sha256 Kosmos.pkg Kosmos.pkg.sha256
+   Kosmos.pkg.inputs; do curl -fsSL "$HOST/dist/$f" -o "$S/dist/$f"; done` (the versioned bytes are
+   served immutably), then re-run the block.
    Then **verify SERVED prod BY CONTENT** from outside: `curl $HOST/dist/latest.json` names `<V>`,
    and the DOWNLOADED `kosmos-<V>-arm64.tar.gz` sha matches the pointer. The control that returns the
    dangerous answer is "still `<old V>`" -- confirm it actually flipped. (First run for 0.6.30,
