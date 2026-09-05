@@ -10,22 +10,41 @@ kosmos#2238 (PRIORITY, Josh #3 structural): "create a Kosmos works but you can't
 
 ## Design - two slices
 
-### Slice A (this branch): wire the switch UI + honest restart-required state
-- Make `.worldsw-row` clickable (button semantics + keyboard). Clicking a NON-active row calls POST /api/worlds/active {id}.
-- On 200 {ok, world, restartRequired}: mark the new row active, update the promoted header name, and show an honest "Switched to <name>. Kosmos needs to restart to load its projects and agents." state with a **Restart now** action.
+### Slice A (this branch): wire the switch UI + honest post-switch status
+- The switcher is a **menu**; each non-active row is an actionable `menuitem` (keyboard-operable). Clicking it calls POST /api/worlds/active {id}. (ARIA: role=menu/menuitem, not role=list with a button child, which a blind review flagged as invalid list structure.)
+- On 200 {ok, world, restartRequired}: mark the new row active (aria-current), update the promoted header name, and show an honest status banner: "Switched to <name>. Its projects and agents load the next time the Kosmos board restarts (run \"kosmos restart\", or restart your Mac)." No auto-restart button (see Slice B).
 - Classify failures by the endpoint's contract: 404 (no such world -> refresh the list), 409 (another op in progress -> try again), 400/500 (honest error copy). Never innerHTML a world name (textContent only, matching the existing rows).
 
-### Slice B (this branch): the board self-restart, so "go to it" actually completes
-- New endpoint **POST /api/board/restart**: respond 200 first, then schedule a clean board exit so launchd respawns it into the now-active world. Guard: only meaningful when the board runs under a launchd KeepAlive job; on a non-launchd board return a clear "restart Kosmos yourself" signal rather than exiting into no respawn.
-- "Restart now" (Slice A) calls it, then the UI polls GET /api/worlds until the board answers again and reloads into the new world.
+### Slice B: the board restart, so "go to it" completes -- DEFERRED as the #2238 follow-up
+**A blind challenge review found my first Slice-B mechanism was WRONG, verified against the code:**
+the installed board is NOT a launchd KeepAlive job. `install/setup.sh` sets its login plist to
+**RunAtLoad with NO KeepAlive** ("`kosmos start` daemonises and exits, so it is a run-once job"),
+and `install/kosmos` `cmd_start` daemonises the server via `nohup node app &` -- so launchd does
+NOT own the running board process (it is a detached orphan), and `cmd_start` no-ops when the port
+is already healthy. A `launchctl kickstart -k` therefore re-runs `kosmos start`, which sees the live
+port and does nothing: the old board keeps serving the old world while the UI falsely reports success.
 
-## What is testable in-session vs not (stated honestly)
-- **Hermetic (headless render check):** row-click -> POST /api/worlds/active called with the right id -> active marker + header move -> restart-required state shown; a stubbed 404/409 shows the right copy. This is the #2190/#1921 pattern.
-- **Unit (no live restart):** the /api/board/restart handler responds 200 and INVOKES the restart path (stub the exit/launchctl shim; assert it was called with this board's label, and that a non-launchd board returns the no-respawn signal instead of exiting).
-- **NOT exercised in-session (fleet-sensitive):** an ACTUAL board restart booting into the new world. Restarting `com.kosmos.board` on the shared dev box blips Josh's review dashboard; in the PRODUCT each user has their own board so it is correct. Verify the live restart-into-new-world on an install (Josh's fresh Mac), not on the shared box. Documented as the one un-in-session step.
+Restarting the installed board correctly needs a **detached `kosmos restart` helper** (stop the board
+by pid, wait for the port to free, start a fresh one) PLUS a client **boot-token reconnect** (poll
+until a NEW board's start token differs, not "any 200", or the client reloads into the pre-restart
+board). Both are fleet-sensitive and only verifiable by a LIVE board restart on a real install --
+which cannot be run on the shared box (it would restart the review board). So this slice ships the
+switch + HONEST guidance and defers the auto-restart, rather than shipping a "Restart now" button that
+silently no-ops (strictly worse than honest guidance). The removed endpoint/label/test were the wrong
+mechanism; they are gone from this branch (server.js is unchanged vs origin/main).
 
-## Fleet-box caveat (do not lose)
-A switch-triggered board restart is fleet-affecting ONLY on the shared dev box, and only if someone switches worlds there (not a normal fleet op). In the product it is a per-user board. The endpoint restarts THIS board's launchd label only.
+## What ships on this branch (Slice A only)
+- The switcher rows are actionable menuitems that POST /api/worlds/active {id}; the active marker +
+  promoted name move; an honest status banner names the world and says it loads after a board restart
+  (`run "kosmos restart", or restart your Mac`). No server change.
+
+## Testable in-session vs not
+- **Hermetic (headless render check `render-worldswitch-2238.js`):** row-click -> POST
+  /api/worlds/active {id} -> active marker + header move -> honest banner shown. Control: the pre-fix
+  page has no row click handler, so the POST-called + marker-moved arms red on it (perturbation-proven).
+- **NOT in scope this branch:** the board restart (the #2238 follow-up above), verified on an install.
 
 ## Verify + ship
-- Hermetic render check `render-worldswitch-2238.js` (indexed + wired) + the /api/board/restart unit test, both green; full suite (web change trips the browser-check gate chain - re-run the whole suite). challenge-loop to convergence. No em dashes. PR, no reviewer (Kosmos beta), merge on green. Leave #2238 open + ready-to-test until the live restart-into-new-world is confirmed on an install.
+- render check (indexed + wired) green + perturbation-proven; full suite (web change trips the
+  browser-check gate chain). challenge-loop to convergence. No em dashes. PR, no reviewer (Kosmos beta),
+  merge on green. Leave #2238 open + note the auto-restart follow-up so "go to it" completes on install.
