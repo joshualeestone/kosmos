@@ -1096,8 +1096,9 @@ async function start(opts) {
        auto-prompt, no walkable chooser, so the pane does not classify as
        login-method and the driver has nothing to walk. Measured cold on a
        fabricated account, #1937. (Consistent with the RUNNING-session case:
-       AUTH_FRIENDLY_MESSAGE in `engine/status.js` (#1884), pinned in
-       `engine/status.test.js`.)
+       AUTH_FRIENDLY_MESSAGE in `engine/status.js` (#1884). It is NOT exported,
+       so the NAME greps to zero in the test; the strings are pinned
+       behaviourally: `grep -n 'the evidence must name the remedy' engine/status.test.js`.)
 
        ⇒ **Opening this gate alone buys NOTHING** -- the tick re-reads the
        still-CONNECTED file and finishes connected. The gate and the launch have

@@ -600,7 +600,7 @@ function driverTest(name, fn) {
  *      that collision is the whole reason this row was misread. **The ratio goes
  *      stale silently, so re-count rather than trusting it:**
  *      `find . -maxdepth 1 -name 'server.*.test.js' -exec grep -l AGENT_WORKFORCE_CLAUDE_CONFIG_DIR {} + | wc -l`),
- *      not the blocker, and self-defeating, since THIS ARM DELETES THE SEAM
+ *      not the blocker, and self-defeating, since THIS ARM DELETES THAT VARIABLE
  *      (see the `delete process.env...` below).
  *   2. "a launch arm CANNOT live there whatever the seam does" -- **carries the
  *      identical flaw**. `connect.setDryRun` is exported and the arm below
