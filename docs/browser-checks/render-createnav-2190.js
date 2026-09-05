@@ -54,13 +54,21 @@ async function driveCreate(page, agentsOutcome) {
     // not only a surgical perturbation.
     const duringPostMadeShown = shown('cstep-made');
     const duringPostNameShown = shown('cstep-name');
+    // #2190 review: also pin the K-loader lifecycle, the regression-prone part
+    // (a prior round caught a RAF left running on the hidden canvas). MADE_MARK is
+    // a top-level `let`, reachable here as a bare identifier like loadRoles/cstep:
+    // the click block sets it (startKLoader) so it is non-null during-post; the
+    // route-back (dropMyLoader) finishes it and nulls it.
+    const loaderSet = () => (typeof MADE_MARK !== 'undefined' && MADE_MARK !== null);
+    const duringPostLoaderSet = loaderSet();
     // Then let the fetch resolve and the handler reach its FINAL screen.
     await new Promise((r) => setTimeout(r, 500));
     window.fetch = realFetch;
     return {
-      duringPostMadeShown, duringPostNameShown,
+      duringPostMadeShown, duringPostNameShown, duringPostLoaderSet,
       madeShown: shown('cstep-made'),
       nameShown: shown('cstep-name'),
+      finalLoaderSet: loaderSet(),
       createMsg: (document.getElementById('create-msg').textContent || '').trim(),
       madeHead: (document.getElementById('made-head').textContent || '').trim(),
     };
@@ -91,6 +99,7 @@ async function driveCreate(page, agentsOutcome) {
     if (created.nameShown) problems.push('created: the create screen is still shown (did not advance)');
     if (!/tester/.test(created.madeHead)) problems.push('created: made-head does not name the agent: "' + created.madeHead + '"');
     if (/Making it/.test(created.createMsg)) problems.push('created: the inline "Making it…" is still on the create screen: "' + created.createMsg + '"');
+    if (!created.duringPostLoaderSet) problems.push('created: the K-loader (MADE_MARK) was not started on click - the progress animation must be running while the POST is in flight');
   }
 
   // Scenario 2: a refused outcome ROUTES BACK to the create screen with the message.
@@ -104,6 +113,8 @@ async function driveCreate(page, agentsOutcome) {
     if (!refused.nameShown) problems.push('refused: did not route back to the create screen');
     if (refused.madeShown) problems.push('refused: still on the progress screen (should have routed back)');
     if (!/that name will not work/.test(refused.createMsg)) problems.push('refused: the message is not beside the field: "' + refused.createMsg + '"');
+    if (!refused.duringPostLoaderSet) problems.push('refused: the K-loader (MADE_MARK) was not started on click - it must start on nav, then be dropped on route-back');
+    if (refused.finalLoaderSet) problems.push('refused: the K-loader (MADE_MARK) was NOT dropped on route-back - dropMyLoader must finish it and null MADE_MARK so no RAF is left running on the hidden canvas');
   }
 
   await browser.close();
