@@ -105,14 +105,21 @@ function entryFor(scriptPath, opts) {
  * for that platform. posix (the value rides inside a double-quoted `bash`
  * command in sh): a quote, backslash, dollar or backtick would break out of or
  * execute inside the command. win32 (the value rides inside a double-quoted
- * command run by cmd.exe): a double-quote breaks the quoting and `%` triggers
- * variable expansion -- but a backslash is the ORDINARY path separator, so the
- * posix guard's `\\` would refuse every real Windows path. Type-safe: a
- * non-string is unsafe rather than throwing on `.test`.
+ * command): the double-quote ends the quoting; `%` is cmd.exe variable
+ * expansion; and `$`/backtick are live inside a PowerShell double-quoted string.
+ * We do NOT yet know which shell Claude Code uses to run a hook on Windows, so
+ * the win32 set is the CONSERVATIVE SUPERSET of cmd.exe AND PowerShell -- over-
+ * refusing a path with one of these degrades to falling back to scraping, which
+ * is safe, whereas under-refusing could execute an injected fragment. A
+ * backslash is NOT included: it is the ordinary Windows separator, so the posix
+ * guard's `\\` would refuse every real Windows path. (The box's real-win32
+ * verify confirms the invocation shell; this set can be relaxed to just `["%]`
+ * if it turns out to be cmd.exe only.) Type-safe: a non-string is unsafe rather
+ * than throwing on `.test`.
  */
 function unsafeForCommand(s, plat) {
   if (typeof s !== 'string') return true;
-  if (plat === 'win32') return /["%]/.test(s);
+  if (plat === 'win32') return /["%$`]/.test(s);
   return /["\\$`]/.test(s);
 }
 
@@ -188,7 +195,12 @@ function ensureWired(settingsPath, scriptPath, opts) {
        sentence. underRoot returns false for a non-string rather than calling
        .startsWith on it (#1582 review). */
     const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    const scriptEphemeral = underRoot(scriptPath, rawTmp) || underRoot(scriptPath, realTmp);
+    /* #570: the win32 command embeds TWO paths (node + script), so BOTH must be
+       vetted -- a durable settings file pointing at an ephemeral runtime/node.exe
+       is the same #1582 defect as pointing at an ephemeral script. `node` is null
+       off win32, where the command carries only the script. */
+    const scriptEphemeral = underRoot(scriptPath, rawTmp) || underRoot(scriptPath, realTmp)
+      || (node !== null && (underRoot(node, rawTmp) || underRoot(node, realTmp)));
     /* Durable = a real settings path that is NOT under temp. A null/undefined
        settingsPath is neither durable nor ephemeral here, so the refusal does
        not fire and the downstream read handles the malformed input. */
@@ -200,7 +212,7 @@ function ensureWired(settingsPath, scriptPath, opts) {
        $TMPDIR, and the setup Node process shares that $TMPDIR -- so os.tmpdir()
        here names the same root the ephemeral script lives under. */
     if (scriptEphemeral && settingsDurable) {
-      return { wired: false, because: 'the hook script path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
+      return { wired: false, because: 'a hook command path is under the temp root, which is ephemeral, so it was not written into the durable settings file' };
     }
   }
   let target = settingsPath;

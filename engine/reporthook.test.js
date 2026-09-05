@@ -275,9 +275,11 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
   // The whole reason the guard is platform-specific: a Windows path is all backslashes.
   assert.equal(reporthook.unsafeForCommand(WIN_SCRIPT, 'win32'), false, 'a normal Windows path was refused');
   assert.equal(reporthook.unsafeForCommand('C:\\a\\b.js', 'linux'), true, 'sh must refuse a backslash');
-  // win32 refuses a double-quote and a % (cmd.exe variable expansion); posix refuses $ and backtick.
+  // win32 is the conservative superset of cmd.exe (" and %) AND PowerShell (` and $):
   assert.equal(reporthook.unsafeForCommand('C:\\a"b.js', 'win32'), true);
   assert.equal(reporthook.unsafeForCommand('C:\\a%PATH%b.js', 'win32'), true);
+  assert.equal(reporthook.unsafeForCommand('C:\\a`b.js', 'win32'), true, 'PowerShell backtick must be refused pending the real-win32 shell');
+  assert.equal(reporthook.unsafeForCommand('C:\\a$env.js', 'win32'), true, 'PowerShell $ must be refused pending the real-win32 shell');
   assert.equal(reporthook.unsafeForCommand('/a/b$x.sh', 'linux'), true);
   assert.equal(reporthook.unsafeForCommand('/a/b.sh', 'linux'), false);
   assert.equal(reporthook.unsafeForCommand(null, 'win32'), true, 'a non-string is unsafe, not a throw');
@@ -310,4 +312,21 @@ test('#570 MARKER stem: a widened marker recognises BOTH the .sh and the .js com
   assert.equal(reporthook.entryIsOurs(jsEntry), true, 'the widened marker does not match the .js entry');
   // A truly foreign hook is still not ours.
   assert.equal(reporthook.entryIsOurs({ hooks: [{ command: 'bash "/somebody/else.sh"' }] }), false);
+});
+
+test('#570 + #1582: an ephemeral win32 NODE path into a durable settings file is refused', () => {
+  // The win32 command embeds node too, so a durable settings.json pointing at a
+  // cut-sandbox runtime/node.exe is the same #1582 defect as an ephemeral script.
+  const ephemeralNode = path.join(RESOLVED_TMP, 'kosmos-cut-abc', 'runtime', 'node.exe');
+  const r = reporthook.ensureWired(DURABLE_SETTINGS, WIN_SCRIPT, { platform: 'win32', node: ephemeralNode });
+  assert.equal(r.wired, false, 'an ephemeral node path into a durable settings file must be refused');
+  assert.match(r.because, /ephemeral|temp/);
+});
+
+test('#570 + #1582 control: an ephemeral node in an ephemeral settings file is NOT a mismatch and still wires', () => {
+  // Same node, but the settings file is also under temp -> not durable -> the
+  // node-ephemeral arm must NOT fire (mirrors the script-path refinement).
+  const ephemeralNode = path.join(RESOLVED_TMP, 'kosmos-cut-abc', 'runtime', 'node.exe');
+  const r = reporthook.ensureWired(fresh(), WIN_SCRIPT, { platform: 'win32', node: ephemeralNode });
+  assert.equal(r.wired, true, 'an ephemeral node with an ephemeral settings file must still wire');
 });
