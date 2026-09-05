@@ -14624,7 +14624,7 @@ async function paintAccounts() {
        because a screen reader user cannot see which group the row sits under. */
     const qualName = qual || (isOpenai ? 'OpenAI' : 'Claude');
     const qualTag = qual
-      ? '<span class="acct-qual" title="' + esc('Two accounts on this computer are signed in as ' + (a.email || 'this login') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
+      ? '<span class="acct-qual" title="' + esc('Two accounts on this computer ' + (a.email ? 'are signed in as ' + a.email : 'read alike') + '. This one is ' + qual + '.') + '">' + esc(qual) + '</span>'
       : '';
     /* #864 (Josh, 2026-08-26): "kill the line." The positive arm ("An agent
        moved here keeps its conversation history") was filler nobody outside
