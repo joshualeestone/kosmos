@@ -1,6 +1,6 @@
 # #2140 slice: guard the runtime model-launch link (agent-supervisor -m/--model)
 
-## Context — the persistence chain, audited
+## Context - the persistence chain, audited
 
 The #2140 persistence-hardening slice asks: save a model per agent, and pass that
 exact selection into the runtime. A read-only audit of the full chain found it is
@@ -12,7 +12,7 @@ exact selection into the runtime. A read-only audit of the full chain found it i
    exact chosen id, not remapped through the static Claude MODELS table).
 3. **Persist**: written to the launchd plist's model slot (`$6`), the same slot
    Claude uses; read back by `readJob` (`model: args[7]`).
-4. **Launch**: `bin/agent-supervisor.sh` passes it to the runner — codex as
+4. **Launch**: `bin/agent-supervisor.sh` passes it to the runner - codex as
    `-m "$MODEL"`, claude as `--model "$MODEL"`; an empty MODEL passes no flag
    (the intended "Let OpenAI choose").
 
@@ -22,8 +22,8 @@ No default silently overrides a stored selection.
 
 The create→plist end is already guarded by `create.test.js` ("#2140: an OpenAI
 agent can be CREATED on a chosen model ...", asserts the exact id in the plist
-`-m` slot, empty = auto, malformed = refused). But the **last link** — the
-supervisor actually passing that id into the runtime — had no test. A regression
+`-m` slot, empty = auto, malformed = refused). But the **last link** - the
+supervisor actually passing that id into the runtime - had no test. A regression
 there (dropping `-m`, or applying a default) would ship silently.
 
 ## The change
@@ -38,7 +38,7 @@ argv, then asserts on that argv:
   dated snapshot, so "verbatim" is exercised) present, the codex bypass flag
   present, and `--model` absent.
 - **codex + empty model** → no `-m` flag (auto), runner still launched.
-- **claude + same model (control)** → `--model` present, `-m` absent — the
+- **claude + same model (control)** → `--model` present, `-m` absent - the
   discriminator proving the codex `-m` is arm-specific, not something any runner
   would produce.
 
@@ -60,5 +60,5 @@ argv-construction gap, which is the part a code change in this repo could break.
 
 ## Not in scope
 
-No engine/behavior change — this is a test-only regression guard. The create→plist
+No engine/behavior change - this is a test-only regression guard. The create→plist
 and change-model paths were already correct and guarded.
