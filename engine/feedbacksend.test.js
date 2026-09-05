@@ -76,6 +76,24 @@ test('scrub covers Windows account homes (C:\\Users\\name), backslash-bound', ()
   assert.ok(!/:\\Users\\/.test(feedbacksend.scrub('D:\\Users\\bob\\x')), 'a Windows account name leaked');
 });
 
+test('scrub covers an exotic own-home (custom $HOME) with a boundary - the fallback branch', () => {
+  // On a standard mac/Linux box os.homedir() matches the generic /Users|/home
+  // arm, so the own-home fallback (the sole de-identifier for an exotic home
+  // like /var/root or a custom $HOME) is otherwise never executed. Force it:
+  // node's os.homedir() honors $HOME on POSIX.
+  const orig = process.env.HOME;
+  process.env.HOME = '/opt/exotic-home';
+  try {
+    assert.equal(feedbacksend.scrub('/opt/exotic-home/work/x'), '~/work/x');
+    // A home that PREFIXES another dir must NOT be half-rewritten (the bounded
+    // lookahead is the whole point of this branch).
+    assert.equal(feedbacksend.scrub('/opt/exotic-home-extra/y'), '/opt/exotic-home-extra/y');
+    assert.equal(feedbacksend.scrub('at /opt/exotic-home end'), 'at ~ end');
+  } finally {
+    if (orig === undefined) delete process.env.HOME; else process.env.HOME = orig;
+  }
+});
+
 test('payload matches the #2246 collect contract exactly, with a scrubbed body', () => {
   feedback.write('the + button did nothing at /Users/someagent/proj', { date: '2026-09-04' });
   const p = feedbacksend.payload('2026-09-04');

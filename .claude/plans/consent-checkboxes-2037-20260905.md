@@ -13,7 +13,7 @@ This is deliberately NOT the whole feature. The UI opt-in control, the default-O
 1. **Off by default in this slice, even though Josh ruled #2037 default-checked-on.** A default-on phone-home with no off-switch is the exact harm #2020 documents. Per #2013, a default and its control are one decision, so the default-ON flip lands in the same PR as the Settings/setup opt-in control (PR-C). Until then `read()` fails to OFF and nothing leaves the machine. Weakest premise: that sequencing default-off-now honors Josh's ruling. It does, by landing the flip WITH the control in PR-C; if Josh wants it on the instant the control exists, PR-C delivers exactly that.
 2. **The send layer is a separate module (`feedbacksend.js`), not folded into `feedback.js`.** `feedback.js` explicitly reads no send/opt-in flag; writing is unconditional. Keeping the gate out of it preserves that contract.
 3. **`maybeSend` ships unwired (no production caller) and is excused in the #265 reachability guard.** The `/api/feedback` POST route has no caller today, and the `kosmos feedback write` CLI is engine-direct and short-lived (a fire-and-forget async POST would hang it up to the timeout). The correct trigger is a board-side (long-lived) send, which belongs with the UI slice (PR-C). Wiring the seam into the route now would be cosmetic (the exact orphan-one-level-up the guard catches).
-4. **What leaves is scrubbed of home paths.** `feedback.js` keeps home paths / project / agent names on disk on purpose; the send path is where they are redacted. `/Users/<name>` and `/home/<name>` (any account, boundary-safe) rewrite to `~`. Not called "anonymous" (a body can still name a project; #2037 forbids that word on this data).
+4. **What leaves is scrubbed of home paths.** `feedback.js` keeps home paths / project / agent names on disk on purpose; the send path is where they are redacted. `/Users/<name>` (macOS), `/home/<name>` (Linux) and `C:\Users\<name>` (Windows, since `store.js` carries a win32 branch) all rewrite to `~` for any account, boundary-safe, plus a bounded fallback for this machine's own exotic home (a custom `$HOME`, `/var/root`). Not called "anonymous" (a body can still name a project; #2037 forbids that word on this data).
 
 ## Contract with the collector (kosmos#2246, confirmed)
 
@@ -22,7 +22,7 @@ This is deliberately NOT the whole feature. The UI opt-in control, the default-O
 ## Design (mirrors the proven ping.js / notify.js phone-home seam)
 
 - `read()` / `setOn()`: the opt-in preference, fails-to-OFF (absent/unreadable/non-object all read off).
-- `scrub(text)`: home-path redaction, boundary-safe on every account (mac + Linux).
+- `scrub(text)`: home-path redaction, boundary-safe on every account (macOS `/Users`, Linux `/home`, Windows `C:\Users`), plus a bounded fallback for this machine's own exotic home.
 - `payload(date)`: builds the #2246 contract from `feedback.read`/`readBody` + `ping.installId()`, body scrubbed, `generated_at` taken from the report frontmatter.
 - `maybeSend(date)`: triple gate (test-network guard via `NODE_TEST_CONTEXT`, opt-in on, report exists), then a fire-and-forget POST with a bounded `AbortController` timeout and every error swallowed. Injectable `setSender` for tests.
 
