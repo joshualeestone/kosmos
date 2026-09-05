@@ -11122,6 +11122,110 @@ test('#1304: an agent asking what it runs on gets ONE answer shape, and an unkno
   }
 });
 
+test('#1899: whoami reports the agent name, identity source, and projects (not just account/model)', async () => {
+  /* An agent's name lived only in the prose it was launched with, and the
+     sentence the CLI prints never said it -- so an agent handed the wrong
+     instructions could not READ its way to the mismatch. This pins that the
+     name leads the sentence, the identity SOURCE (here the pane, since no token
+     is presented) is named so a weak identification is visible, and projects
+     are a structured field. */
+  const messagesEngine = require('./engine/messages');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('idworker', { state: 'idle' })]);
+  try {
+    messagesEngine.setRunner(() => ({ ok: true, session: 'idworker-discord' }));
+    server.setLiveReader(() => ({ ok: false, because: 'stubbed for this test' }));
+    const card = board.agents.find((a) => a && a.name === 'idworker');
+    assert.ok(card && card.sessionName, 'the fixture produced no card');
+
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ from_pane: '%7' }),   // a pane, no token -> pane identity
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'the route refused a resolvable sender: ' + r.body);
+
+    // No token was presented, so the board identified this agent by its pane --
+    // the enumerable, spoofable path the card wants made visible.
+    assert.equal(out.identitySource, 'the tmux pane it is running in',
+      'the identity source must say HOW the agent was identified');
+    // Projects is always a structured array (empty for a fixture with none),
+    // never absent, so an agent can read it back programmatically.
+    assert.ok(Array.isArray(out.projects), 'projects must be a structured array');
+
+    // The sentence the CLI prints now LEADS with the name + source, so a
+    // wrong-instructions agent sees the mismatch by reading the output.
+    assert.ok(
+      out.because.startsWith('This agent is ' + card.sessionName + ', identified by the tmux pane it is running in.'),
+      'the sentence must lead with the derived name and identity source: ' + out.because);
+    // The account clause is still present (additive change, not a replacement).
+    assert.match(out.because, /cannot tell which account/, 'the account clause was lost: ' + out.because);
+    // And it closes with the projects clause.
+    assert.match(out.because, /It is on no projects\.$/, 'the projects clause must close the sentence: ' + out.because);
+  } finally {
+    server.setLiveReader(null);
+    messagesEngine.setRunner(null);
+    fleet.restore();
+  }
+});
+
+test('#1899: whoami identifies a token-presenting agent by its launch token (route, end to end)', async () => {
+  /* The identitySource is re-derived at the route from the same token-presence
+     inputs resolveAgentSender reads. This drives the TOKEN branch end to end (a
+     minted agent token, no pane) so the re-derivation is guarded against future
+     resolver-precedence drift, not only unit-tested in isolation. */
+  const sendertokenEngine = require('./engine/sendertoken');
+  const server = require('./server.js');
+  const board = fleet.install([fleet.agent('tokworker', { state: 'idle' })]);
+  try {
+    server.setLiveReader(() => ({ ok: false, because: 'stubbed for this test' }));
+    const minted = sendertokenEngine.mint('tokworker');
+    assert.equal(minted.ok, true, 'could not mint a token for the fixture');
+
+    const r = await req('/api/whoami', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-kosmos-agent-token': minted.token },
+      body: JSON.stringify({}),   // no pane; the token alone identifies the agent
+    });
+    assert.equal(r.status, 200);
+    const out = JSON.parse(r.body);
+    assert.equal(out.ok, true, 'the route refused a token-resolvable sender: ' + r.body);
+    assert.equal(out.agent, 'tokworker', 'the token resolved to a different agent');
+    assert.equal(out.identitySource, 'its launch token',
+      'a token-presenting agent must be identified by its launch token, end to end');
+    assert.ok(out.because.startsWith('This agent is tokworker, identified by its launch token.'),
+      'the sentence must name the token as the identity source: ' + out.because);
+  } finally {
+    server.setLiveReader(null);
+    fleet.restore();
+  }
+});
+
+test('#1899: the identity and projects clauses compose one shape (unit)', () => {
+  const { whoamiIdentityClause, whoamiProjectsClause } = require('./server.js');
+  // Name + source lead.
+  assert.equal(whoamiIdentityClause('angel', 'its launch token'),
+    'This agent is angel, identified by its launch token');
+  assert.equal(whoamiIdentityClause('angel', 'the tmux pane it is running in'),
+    'This agent is angel, identified by the tmux pane it is running in');
+  // No name (the board could not identify the agent) says so plainly, and never
+  // invents a source for a name it does not have.
+  assert.equal(whoamiIdentityClause(null, 'its launch token'), 'The board cannot tell which agent this is');
+  assert.equal(whoamiIdentityClause('', 'its launch token'), 'The board cannot tell which agent this is');
+
+  // Projects: none / one / two / three, with a readable join and no trailing
+  // conjunction confusion.
+  assert.equal(whoamiProjectsClause([]), 'It is on no projects');
+  assert.equal(whoamiProjectsClause(null), 'It is on no projects');
+  assert.equal(whoamiProjectsClause(['Alpha']), 'Its projects are Alpha');
+  assert.equal(whoamiProjectsClause(['Alpha', 'Beta']), 'Its projects are Alpha and Beta');
+  assert.equal(whoamiProjectsClause(['Alpha', 'Beta', 'Gamma']), 'Its projects are Alpha, Beta, and Gamma');
+  // Non-string / empty entries are dropped rather than rendered as blanks.
+  assert.equal(whoamiProjectsClause(['Alpha', '', null, 'Beta']), 'Its projects are Alpha and Beta');
+});
+
 /**
  * #1304, second half. PigeonPete's `engine/runningas.js` reads the environment
  * the claude process is ACTUALLY running with. His measurement is why it wins
@@ -11647,7 +11751,12 @@ test('#1304: a throwing live reader falls back to the record and fabricates noth
       assert.equal(out2.account && out2.account.email, 'sentinel@example.com',
         'the account list was fetched and discarded, so the record path received an empty list');
     } finally { try { fs.rmSync(jobPath, { force: true }); } catch { /* nothing to undo */ } }
-    assert.match(out.because, /^We cannot tell which account/,
+    /* The honest account clause is present rather than a fabricated confident
+       one. #1899 made the identity clause (name + source) LEAD the sentence, so
+       this is no longer at position 0 -- but the anchor here was only ever a
+       proxy for "the account clause did not fabricate a confident answer", which
+       the full honest phrase asserts directly and without depending on order. */
+    assert.match(out.because, /We cannot tell which account this agent runs on, because we have no startup file for it/,
       'a thrown reader produced a confident sentence');
   } finally {
     accountsEngine.list = realList;

@@ -578,6 +578,26 @@ test('an agent is on every project it was added to, read from the agent’s end'
   assert.deepEqual(projects.projectsFor('nobody', ROSTER), []);
 });
 
+test('#1899: namesFor returns the project names for an agent and writes nothing', () => {
+  reset();
+  projects.create({ name: 'One', folder: folder('one'), agents: ['mara'] });
+  projects.create({ name: 'Two', folder: folder('two'), agents: ['claudebot'] });
+  projects.create({ name: 'Three', folder: folder('three'), agents: ['mara'] });
+
+  assert.deepEqual(projects.namesFor('mara').sort(), ['One', 'Three']);
+  assert.deepEqual(projects.namesFor('nobody'), []);
+  assert.deepEqual(projects.namesFor(''), []);
+
+  // 🔑 THE POINT OF namesFor: it is a PURE read. `projectsFor` maps `describe`,
+  // which can heal `everSeen` and `writeAll`, so whoami must not use it. Proven
+  // by the bytes on disk being untouched across the calls (a write would change
+  // them). No `roster` argument is needed for names.
+  const before = fs.readFileSync(projects.file(), 'utf8');
+  projects.namesFor('mara');
+  projects.namesFor('claudebot');
+  assert.equal(fs.readFileSync(projects.file(), 'utf8'), before, 'namesFor wrote to the registry during a read');
+});
+
 test('adding the same agent twice does not put it on twice', () => {
   reset();
   const p = projects.create({ name: 'Dup', folder: folder('dup'), agents: ['mara'] });

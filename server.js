@@ -774,6 +774,45 @@ function sentenceForWhoami(account, model) {
 }
 
 /**
+ * #1899: the IDENTITY clause of the whoami answer, composed by the board so
+ * every agent reads it back the same way.
+ *
+ * 🔑 WHY THIS LEADS THE SENTENCE. An agent's name lives in exactly one place --
+ * the prose it was launched with -- and nothing lets it check that against what
+ * the system believes. `whoami` returned the account and model (and `agent` as a
+ * STRUCTURED field), but the sentence the CLI prints never said the name, so an
+ * agent handed the wrong instructions could not READ its way to the mismatch.
+ * This puts the derived name first.
+ *
+ * 🔑 AND THE SOURCE, because a name is only as trustworthy as how it was
+ * derived. A launch TOKEN is issued to one agent; a tmux PANE id is enumerable
+ * (`tmux list-panes`) and this server binds loopback with no auth, so a
+ * pane-identified agent in a wrong-named session is exactly the mismatch #1899
+ * is about. Saying which one was used makes an untrustworthy identification
+ * visible rather than silent.
+ */
+function whoamiIdentityClause(name, source) {
+  if (!name) return 'The board cannot tell which agent this is';
+  return 'This agent is ' + name + (source ? ', identified by ' + source : '');
+}
+
+/**
+ * #1899: the PROJECTS clause. The card asks whoami to report the agent's
+ * projects, not just its account and model. Composed here for the one-shape
+ * reason the rest of this answer is.
+ */
+function whoamiProjectsClause(projectNames) {
+  const ps = Array.isArray(projectNames) ? projectNames.filter((n) => typeof n === 'string' && n) : [];
+  // Capitalised because this clause is a full sentence (it follows
+  // `sentenceForWhoami`'s terminating period), matching the other clauses.
+  if (!ps.length) return 'It is on no projects';
+  // `projects.andList` is the ONE list-join in the product (Oxford-comma form);
+  // reused rather than re-implemented here, per this codebase's "two derivations
+  // of one thing drift" rule.
+  return 'Its projects are ' + projects.andList(ps);
+}
+
+/**
  * Which account an agent runs on, from its own startup file (#1304).
  *
  * 🔑 ONE DERIVATION, TWO CALLERS, and that is the whole point of it being here
@@ -5629,6 +5668,27 @@ const server = http.createServer((req, res) => {
            asked. So the model never fills in for a missing account, and each
            carries its own null. */
         const model = seenLive.model;
+        /* #1899: HOW this agent was identified, which is a different fact from
+           `source` above (that says which reader answered for the account/model).
+           resolveAgentSender identifies by the presented launch token when there
+           is one, and otherwise falls back to the tmux pane. A pane id is
+           enumerable and this route is unauthenticated, so a pane-identified
+           agent is the weak case the card cares about; naming it makes a possible
+           mismatch visible. Re-derived from the same inputs resolveAgentSender
+           read rather than threaded back through it, because report/reply share
+           that resolver and do not want this label. */
+        const identitySource = ((req.headers && req.headers['x-kosmos-agent-token']) || (body && body.token))
+          ? 'its launch token'
+          : 'the tmux pane it is running in';
+        /* #1899: the NAMES of the agent's projects, via the PURE membership
+           lookup. NOT `projectsFor`, which maps `describe` and can `writeAll` to
+           heal `everSeen` -- a whoami READ must not write to projects.json as a
+           side effect. Fails soft to none: an unreadable projects store must not
+           turn "who am I" into an error. */
+        const projectNames = (() => {
+          try { return projects.namesFor(who); }
+          catch { return []; }
+        })();
         sendJson(res, 200, {
           ok: true,
           agent: who,
@@ -5638,9 +5698,19 @@ const server = http.createServer((req, res) => {
              able to see that one was read from its running process and the
              other from a file. */
           source: seenLive.source,
-          /* One sentence a person can read out, so an agent asked in plain
-             words does not have to compose one and get it subtly wrong. */
-          because: sentenceForWhoami(account, model),
+          /* #1899: HOW the agent itself was identified (token vs pane), and its
+             projects, as structured fields so an agent can CHECK them against
+             what it believes, not only read the sentence. */
+          identitySource,
+          projects: projectNames,
+          /* One sentence a person can read out, so an agent asked in plain words
+             does not have to compose one and get it subtly wrong. #1899 leads it
+             with the name + identity source and closes it with the projects, so
+             the CLI (which prints only this sentence) tells an agent who the
+             board thinks it is. */
+          because: whoamiIdentityClause(who, identitySource) + '. '
+            + sentenceForWhoami(account, model) + ' '
+            + whoamiProjectsClause(projectNames) + '.',
         });
       })
       .catch(() => sendJson(res, 200, { ok: false, because: 'we could not read that request' }));
@@ -9302,6 +9372,10 @@ module.exports = {
      only assertions on it went through the route, where the fixtures could not
      produce a null account and a known model at the same time (#1304). */
   sentenceForWhoami,
+  /* #1899: the identity + projects clauses, exported so the name/source/projects
+     composition is pinned directly (an HTTP fixture cannot easily produce a
+     token-identified agent on real projects). */
+  whoamiIdentityClause, whoamiProjectsClause,
   /* #1112 phase 2: the network-bind auth is exported so each arm can be driven
      directly with a synthetic req. A real remote (non-loopback) socket peer is
      not reachable from a same-machine test -- every local connection is
