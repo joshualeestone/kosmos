@@ -26,7 +26,12 @@ function loadQualifiers() {
   const at = PAGE.indexOf('function accountQualifiers(');
   assert.notEqual(at, -1, 'accountQualifiers is gone from the page');
   const src = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
-  return new Function(src + '; return accountQualifiers;')();
+  // #2095: accountQualifiers' key now calls the shared acctChosenName helper, so
+  // the eval scope must include it or the extracted function throws ReferenceError.
+  const cnAt = PAGE.indexOf('function acctChosenName(');
+  assert.notEqual(cnAt, -1, 'acctChosenName is gone from the page');
+  const cnSrc = PAGE.slice(cnAt, PAGE.indexOf('\n}', cnAt) + 2);
+  return new Function(cnSrc + '\n' + src + '; return accountQualifiers;')();
 }
 const qualifiers = loadQualifiers();
 

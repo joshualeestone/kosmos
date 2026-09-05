@@ -538,7 +538,7 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .acct-box-top { display: flex; align-items: center; gap: 12px; }
 .acct-who { min-width: 0; flex: 1; }
 .acct-who b { font-weight: 650; display: block; }
-.acct-org { display: block; color: var(--label-2); font-size: .8125rem; }
+.acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
    an answer to "why are there two of these", not a thing to read first. Same
    token as .acct-org, which is defined on the light, dark and increased-contrast
@@ -14371,8 +14371,17 @@ let ACCT_PICKER_EPOCH = 0;
    name never wins. Claude accounts have no `.kosmos-name` (readName is
    OpenAI-only), so `a.name` is absent and this falls through to the existing
    email-first chain for them -- Claude rows are unchanged. */
+/* #2095: the trimmed human-chosen name, or '' when there is none. ONE definition
+   of "does this account have a name and what is it", so acctPrimaryName, the
+   accountQualifiers key and acctHasChosenName cannot drift on that question (the
+   #1834 rule). The qualifier key deliberately keeps its OWN '' fallback for
+   finding-8/9 semantics and its own 'key ending' spelling, but the name portion
+   is now this one function everywhere. */
+function acctChosenName(a) {
+  return a && typeof a.name === 'string' ? a.name.trim() : '';
+}
 function acctPrimaryName(a) {
-  const named = a && typeof a.name === 'string' ? a.name.trim() : '';
+  const named = acctChosenName(a);
   if (named) return named;
   const isOpenai = a && a.provider === 'openai';
   return String((a && (a.email
@@ -14383,7 +14392,7 @@ function acctPrimaryName(a) {
    SECONDARY detail rather than the primary label). Only OpenAI accounts have a
    name AND a keyTail; empty for everyone else. */
 function acctHasChosenName(a) {
-  return !!(a && a.provider === 'openai' && typeof a.name === 'string' && a.name.trim());
+  return !!(a && a.provider === 'openai' && acctChosenName(a));
 }
 
 function accountQualifiers(list) {
@@ -14424,7 +14433,7 @@ function accountQualifiers(list) {
      -- so the on-screen name and the accessible name stay distinct. Trimmed so a
      whitespace-only name never becomes the key. */
   const key = (a) => String((a && (
-    (typeof a.name === 'string' && a.name.trim())
+    acctChosenName(a)
     || a.email
     || (a.provider === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '');
   const count = new Map();
@@ -14587,7 +14596,7 @@ async function paintAccounts() {
        Claude rows and for unnamed OpenAI rows (whose primary label already IS the
        key last-4, so repeating it would be noise). */
     const keyDetail = acctHasChosenName(a) && a.keyTail
-      ? '<span class="acct-org">' + esc('API key ending ' + a.keyTail) + '</span>' : '';
+      ? '<span class="acct-keytail">' + esc('API key ending ' + a.keyTail) + '</span>' : '';
     /* Empty for every row whose name is already unique, which is nearly all of
        them. Present only where two rows would otherwise read alike. */
     const qual = acctQual.get(String(a.dir || '')) || '';
@@ -25388,7 +25397,17 @@ function fillSwitchAccounts() {
      Not extracted to a shared helper here: that touches the create form, which is
      not this card's subject, and a shared helper with two callers and two behaviours
      is worse than two honest copies. Worth doing when somebody owns both. */
-  const nameOf = (x) => acctPrimaryName(x);  /* #2095: human-chosen name is the primary label (this list is OpenAI-only) */
+  /* #2095: this picker now leads with the human-chosen NAME (acctPrimaryName), so it
+     must disambiguate the same way fillCreateAccounts does. Before #2095 the label
+     fell back to the inherently-unique keyTail ("API key ending AAAA" vs "...BBBB"),
+     so options were always distinct; leading with a name that two accounts can share
+     would reintroduce the #1917 "a real tester could not tell which to pick" ambiguity
+     on a name axis. accountQualifiers over THIS list gives the default `(main)` and the
+     others a distinguishing label/dir; empty for a unique name, so the common case is
+     unchanged. */
+  const acctQual = accountQualifiers(list);
+  const qualOf = (x) => { const q = acctQual.get(String(x.dir || '')); return q ? ' (' + q + ')' : ''; };
+  const nameOf = (x) => acctPrimaryName(x) + qualOf(x);  /* #2095: human-chosen name is the primary label (this list is OpenAI-only) */
   const labelOf = (x) => (x.connection && x.connection.state === 'unknown'
     ? esc(nameOf(x)) + ' (could not check just now)'
     : esc(nameOf(x)));

@@ -87,12 +87,14 @@ const ACCOUNTS = [
     const boxes = [...document.querySelectorAll('#set-accounts .acct-box')];
     const rows = boxes.map((b) => {
       const who = b.querySelector('.acct-who b');
-      const orgs = [...b.querySelectorAll('.acct-org')].map((o) => (o.textContent || '').trim());
+      // #2095: the key last-4 secondary detail is `.acct-keytail` (a dedicated
+      // class, so it does not collide with `.acct-org` = organisation, per #1393).
+      const keytails = [...b.querySelectorAll('.acct-keytail')].map((o) => (o.textContent || '').trim());
       return {
         primary: who ? (who.textContent || '').trim() : null,
         // an injected <b>/<span> inside the name would show as an element child
         primaryChildEls: who ? who.childElementCount : -1,
-        orgs,
+        orgs: keytails,
       };
     });
     return { count: boxes.length, rows };

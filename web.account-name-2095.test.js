@@ -28,16 +28,19 @@ function grab(sig) {
   return PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
 }
 
-/* acctPrimaryName + acctHasChosenName are pure and self-contained. */
+/* acctPrimaryName + acctHasChosenName both call the shared acctChosenName, so the
+   eval scope must include it. */
 const helpers = new Function(`
+  ${grab('function acctChosenName(')}
   ${grab('function acctPrimaryName(')}
   ${grab('function acctHasChosenName(')}
   return { acctPrimaryName, acctHasChosenName };
 `)();
 const { acctPrimaryName, acctHasChosenName } = helpers;
 
-/* accountQualifiers is pure; it returns a Map of dir -> qualifier. */
+/* accountQualifiers is pure; its key calls acctChosenName, so include it too. */
 const qualify = new Function('list', `
+  ${grab('function acctChosenName(')}
   ${grab('function accountQualifiers(')}
   return accountQualifiers(list);
 `);

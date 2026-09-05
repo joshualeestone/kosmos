@@ -101,7 +101,9 @@ function world(pageText, { accounts, unreadable, current, providerValue }) {
     console,
   };
   vm.runInNewContext(
-    page.liftAll(script, ['esc', 'openaiAllDead', 'fillSwitchAccounts'])
+    // #2095: fillSwitchAccounts now disambiguates via accountQualifiers and names
+    // accounts through acctPrimaryName (which calls acctChosenName); lift all three.
+    page.liftAll(script, ['esc', 'openaiAllDead', 'accountQualifiers', 'acctChosenName', 'acctPrimaryName', 'fillSwitchAccounts'])
     + '\n' + page.liftConst(script, 'providerOf')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_HINT')
     + '\n' + page.liftConst(script, 'SWITCH_ACCT_UNREADABLE')

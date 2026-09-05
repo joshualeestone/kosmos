@@ -94,6 +94,13 @@ test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at
     const acctOfferableTarget = eval('(' + grab('function acctOfferableTarget(') + ')');
     // eslint-disable-next-line no-eval, no-unused-vars
     const acctUnknownLive = eval('(' + grab('function acctUnknownLive(') + ')');
+    /* #2095: fillCreateAccounts names accounts through acctPrimaryName (which calls
+       acctChosenName); slice both real helpers so the eval scope has them.
+       acctChosenName must be defined first, since acctPrimaryName closes over it. */
+    // eslint-disable-next-line no-eval, no-unused-vars
+    const acctChosenName = eval('(' + grab('function acctChosenName(') + ')');
+    // eslint-disable-next-line no-eval, no-unused-vars
+    const acctPrimaryName = eval('(' + grab('function acctPrimaryName(') + ')');
     // eslint-disable-next-line no-eval
     eval('(' + fn + ')')();
     return arow.hidden;
