@@ -3920,22 +3920,24 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      long unbroken token. */
   white-space: pre-wrap; overflow-wrap: anywhere; }
 .dm.mine .dm-b { background: rgba(214,166,46,.14); }
-/* #2067: restricted-markdown treatments emitted by pjRich, on the two row
-   surfaces it renders -- the talk thread (.dm-b) and the project message list
-   (.pj-msg-text). Everything here is INLINE so it coexists with .dm-b's
-   pre-wrap; line breaks are the <br>s pjRich emits, not block margins.
-   strong/em/s need no rule (the UA already renders them). Colours ride the
-   existing theme tokens, so they flip with light/dark like the rest. */
-.dm-b .mdh, .pj-msg-text .mdh { font-weight: 700; font-size: 1.0625rem; }
-.dm-b .mdc, .pj-msg-text .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+/* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
+   surfaces that render them -- the talk thread (.dm-b) and the project message
+   list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
+   (.msg-b), via pjProse (#2239 wired the room, the surface #2067 deferred).
+   Everything here is INLINE so it coexists with .dm-b's pre-wrap; line breaks
+   are the <br>s the renderer emits, not block margins. strong/em/s need no rule
+   (the UA already renders them). Colours ride the existing theme tokens, so
+   they flip with light/dark like the rest. */
+.dm-b .mdh, .pj-msg-text .mdh, .msg-b .mdh { font-weight: 700; font-size: 1.0625rem; }
+.dm-b .mdc, .pj-msg-text .mdc, .msg-b .mdc { font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .85em; background: var(--k-sunk, rgba(20,22,26,.08)); padding: .05em .35em; border-radius: 5px; }
-.dm-b .mdcb, .pj-msg-text .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
+.dm-b .mdcb, .pj-msg-text .mdcb, .msg-b .mdcb { display: inline-block; max-width: 100%; overflow-x: auto;
   white-space: pre-wrap; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85em;
   background: var(--k-sunk, rgba(20,22,26,.08)); padding: 4px 8px; border-radius: 6px; }
-.dm-b .mdq, .pj-msg-text .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
-.dm-b .mdli::before, .pj-msg-text .mdli::before { content: "\2022\00a0\00a0"; }
-.dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
-.dm-b .mdhr, .pj-msg-text .mdhr { display: inline-block; width: 100%; margin: 4px 0;
+.dm-b .mdq, .pj-msg-text .mdq, .msg-b .mdq { border-left: 2px solid var(--k-rule); padding-left: 8px; color: var(--k-ink-2); }
+.dm-b .mdli::before, .pj-msg-text .mdli::before, .msg-b .mdli::before { content: "\2022\00a0\00a0"; }
+.dm-b .mdli.mdlin::before, .pj-msg-text .mdli.mdlin::before, .msg-b .mdli.mdlin::before { content: attr(data-n) "\00a0\00a0"; }
+.dm-b .mdhr, .pj-msg-text .mdhr, .msg-b .mdhr { display: inline-block; width: 100%; margin: 4px 0;
   border-top: 1px solid var(--k-rule); vertical-align: middle; }
 /* 🛑 THERE IS NO RULE FOR `.theirs`, AND ADDING ONE MADE IT WORSE. The first
    version set `background: var(--k-surface); border: 1px solid var(--k-rule)`
@@ -30658,6 +30660,47 @@ function pjLinkPaths(text, names) {
  * (`js title="x.js"` -- a save-as name, not an origin) and anything with
  * `..` fall through to nothing, which is what shipped before.
  */
+/* #2239: rich prose for the project ROOM activity thread. The two pjRich row
+   surfaces (talk thread, project message list) render restricted markdown; this
+   room thread only escaped + autolinked, so an agent's bold/italic/heading and
+   its paragraph breaks arrived as raw `**`, `#` and collapsed lines -- the
+   surface #2067 deferred to "its own PR" (see the pjRich header). `pjProse` is
+   the fence-FREE prose renderer pjBody hands each non-code segment: the same
+   per-line block set as pjRich (heading, quote, list, rule) as inline spans,
+   inline via `pjRichSpans(line, names)` so citation chips survive alongside
+   emphasis, and lines joined with `<br>` so paragraph breaks show without
+   `.msg-b` needing `pre-wrap`. Fenced blocks stay pjBody's job (its figure /
+   codeb / codesrc rendering is richer than pjRich's and must not regress), so
+   no fence branch lives here. */
+function pjProse(text, names) {
+  const src = String(text == null ? '' : text).split('\n');
+  /* Drop empty lines at the two ENDS only (never interior blank lines, which
+     are the paragraph breaks this renderer exists to show). This absorbs the
+     single boundary `\n` a fence split leaves on the prose either side of a
+     code block, and the trailing `\n` an agent's message often carries, so
+     neither becomes a stray leading/trailing <br>. Interior `\n\n` is kept. */
+  while (src.length && src[0] === '') src.shift();
+  while (src.length && src[src.length - 1] === '') src.pop();
+  const out = [];
+  for (let i = 0; i < src.length; i += 1) {
+    const line = src[i];
+    if (/^[ \t]*(-{3,}|\*{3,}|_{3,})[ \t]*$/.test(line)) { out.push('<span class="mdhr"></span>'); continue; }
+    let m = /^[ \t]*#{1,6}[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdh">' + pjRichSpans(m[1], names) + '</span>'); continue; }
+    /* NO markdown blockquote in the room, on purpose. The room already has a
+       DISTINCT, server-supplied quote (`m.quotes` -> <blockquote class="quoteb">),
+       and web.quoteb asserts a bare leading `>` with no tag stays literal text
+       so the two never collide. (The pjRich row surfaces, which have no
+       server-quote concept, do style `>` as `.mdq`; this renderer deliberately
+       does not.) `>` therefore falls through to inline text below. */
+    m = /^[ \t]*[-+*][ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli">' + pjRichSpans(m[1], names) + '</span>'); continue; }
+    m = /^[ \t]*(\d+)\.[ \t]+(.*)$/.exec(line);
+    if (m) { out.push('<span class="mdli mdlin" data-n="' + esc(m[1]) + '.">' + pjRichSpans(m[2], names) + '</span>'); continue; }
+    out.push(pjRichSpans(line, names));
+  }
+  return out.join('<br>');
+}
 function pjBody(text, names) {
   const raw = String(text == null ? '' : text);
   /* The capture keeps each fence line's infostring; the old pattern ate it.
@@ -30665,11 +30708,11 @@ function pjBody(text, names) {
      [prose, openInfo, code, closeInfo, prose, ...]. Any other count means an
      unclosed fence, and an uncertain reading stays the flat paragraph. */
   const parts = raw.split(/^```([^\n]*)$/m);
-  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjLinkPaths(raw, names);
+  if (parts.length < 5 || (parts.length - 1) % 4 !== 0) return pjProse(raw, names);
   let out = '';
   for (let i = 0; i < parts.length; i += 1) {
     const at = i % 4;
-    if (at === 0) { out += pjLinkPaths(parts[i], names); continue; }
+    if (at === 0) { out += pjProse(parts[i], names); continue; }
     if (at === 1) {
       const label = String(parts[i] || '').trim();
       /* Path-shaped: no whitespace (a save-as attribute is not an origin),
@@ -30759,39 +30802,65 @@ function pjInline(text) {
    call would split `**bold text**` across whitespace and leak the markers --
    which is a careful refactor of the most-shared render path and gets its own
    PR. Flagged on #2067. */
-function pjRichSpans(seg) {
+function pjRichSpans(seg, names) {
   /* Inline treatments for a single line's text, in an order chosen so no pass
      can corrupt an earlier pass's output:
        1. pull inline code out to a held placeholder (its body is never
           markdown-parsed or linkified),
        2. escape everything else (every tag below is one we emit),
        3. resolve [text](url) to its text (the url is dropped before autolink),
-       4. autolink bare URLs BY WHITESPACE TOKEN and hold the built anchor, so a
-          URL is atomic: an underscore inside it is never italicised, emphasis
-          markers around it are never eaten into the href, and a placeholder
-          adjacent to it is never swallowed into an attribute,
+       4. autolink bare URLs -- and, when a `names` set is supplied, turn a cited
+          project file into a "Show me" chip -- BY WHITESPACE TOKEN, holding the
+          built anchor/chip, so each is atomic: an underscore inside it is never
+          italicised, emphasis markers around it are never eaten in, and a
+          placeholder adjacent to it is never swallowed into an attribute,
        5. emphasis / strike (placeholders carry no * _ ~, so they are inert here
           yet CAN be wrapped, e.g. **see <url>** -> bold containing the link),
-       6. restore the held code + links.
+       6. restore the held code + links + chips.
      The held-placeholder sentinel is U+FFFC (OBJECT REPLACEMENT CHARACTER): it
      survives esc() untouched, never reaches the DOM (restored in step 6), and
-     any stray copy in agent text is stripped up front so it cannot collide. */
+     any stray copy in agent text is stripped up front so it cannot collide.
+
+     `names` (optional) is the project's document-name Set: the room thread
+     passes it (PJ_DOC_NAMES) so it keeps the "Show me" citation chips it always
+     had while gaining markdown; the two pjRich row surfaces (.dm-b,
+     .pj-msg-text) call with no names, so their output is byte-identical to
+     before. */
   const HOLD = [];
   const hold = (html) => { HOLD.push(html); return '￼' + (HOLD.length - 1) + '￼'; };
   let s = String(seg == null ? '' : seg).replace(/￼/g, '');
   s = s.replace(/`([^`\n]+)`/g, (mm, code) => hold('<code class="mdc">' + esc(code) + '</code>'));
   s = esc(s);
   s = s.replace(/\[([^\]\n]+)\]\([^)\n]+\)/g, '$1');
-  /* A URL is a whole whitespace-delimited token. Trailing sentence punctuation
-     and trailing emphasis stars (`**url**`) are peeled off; a trailing
-     underscore is kept, because URLs use it. A token whose URL body still holds
-     a placeholder sentinel is left unlinked rather than built into an attribute. */
+  /* A URL (or, with `names`, a cited file) is a whole whitespace-delimited
+     token. Trailing sentence punctuation and trailing emphasis stars
+     (`**url**`) are peeled off; a trailing underscore is kept, because URLs use
+     it. A token whose URL body still holds a placeholder sentinel is left
+     unlinked rather than built into an attribute. */
+  const hasNames = !!(names && names.size);
   s = s.split(/(\s+)/).map((tok) => {
     if (!tok || /^\s+$/.test(tok)) return tok;
     const mm = /^(.*?)([.,;:!?)\]*~]*)$/.exec(tok);
     const core = mm[1];
-    if (!/^https?:\/\/[^\s￼]+$/.test(core)) return tok;
-    return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
+    if (/^https?:\/\/[^\s￼]+$/.test(core)) {
+      return hold('<a class="xlink" href="' + core + '" target="_blank" rel="noreferrer noopener">' + core + '</a>') + mm[2];
+    }
+    /* A cited project file -> a "Show me" chip (#355), same rule as pjLinkPaths
+       (last path segment, no `..`), only when a `names` set is supplied. Held
+       like the URL so the chip is atomic and inert through the emphasis pass --
+       `**notes.md**` bolds the chip rather than leaking a marker. `core` is
+       already esc()'d at step 2, so it is used as-is (never double-escaped); a
+       name carrying an escaped char simply falls through to plain text, which
+       is the safe direction. */
+    if (hasNames && core && !core.includes('..')) {
+      const base = core.split('/').pop();
+      if (names.has(base)) {
+        return hold('<span class="ref">' + core
+          + '<button class="refgo" type="button" data-ref="' + base
+          + '" aria-label="Show me ' + base + '">Show me</button></span>') + mm[2];
+      }
+    }
+    return tok;
   }).join('');
   s = s.replace(/\*\*([^\n*]+)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/__([^\n_]+)__/g, '<strong>$1</strong>');

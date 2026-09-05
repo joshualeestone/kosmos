@@ -9196,8 +9196,11 @@ test('a URL inside a message that also cites a file gets both treatments', () =>
    =========================================================================== */
 
 function bodyFn() {
+  // #2239: pjBody now hands each prose segment to pjProse (rich prose), which
+  // in turn calls pjRichSpans; both are lifted in so the extracted pjBody runs.
   return pageFunction('pjBody', pageFnSource('esc') + '\n'
-    + pageFnSource('pjInline') + '\n' + pageFnSource('pjLinkPaths') + '\n');
+    + pageFnSource('pjInline') + '\n' + pageFnSource('pjLinkPaths') + '\n'
+    + pageFnSource('pjRichSpans') + '\n' + pageFnSource('pjProse') + '\n');
 }
 
 test('a closed fence becomes a block and its contents are escaped, not linked', () => {
