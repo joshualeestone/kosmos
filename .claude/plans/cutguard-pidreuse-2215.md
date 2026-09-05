@@ -15,10 +15,10 @@ whose `kill -0` FAILED. Markers accumulate in `~/.cache/kosmos-run-markers/` and
 false-positive once its PID is reused.
 
 ## The fix (card's preferred option 1 -- command match, mirroring the name arm)
-- `kosmos_mark_run`: record the marking process's command (`ps -o command= -p $$`) as line 2 of the
+- `kosmos_mark_run`: record the marking process's command (`ps -ww -o command= -p $$`) as line 2 of the
   marker, alongside the cookie on line 1 (line 1 unchanged, so the self-exclusion read is unaffected).
 - `_kosmos_marker_other_live`: after `kill -0` succeeds, require the live PID's current
-  `ps -o command= -p <pid>` to equal the recorded command. A mismatch (recycled PID), OR a marker with
+  `ps -ww -o command= -p <pid>` to equal the recorded command. A mismatch (recycled PID), OR a marker with
   no recorded command (written before this fix), is treated as stale and unlinked. This also clears
   the accumulated latent markers the old check could never remove.
 
