@@ -369,7 +369,16 @@ function removeAccount(dir, usedBy) {
   if (path.dirname(clean) !== home || !(base === '.codex' || base.startsWith('.codex-'))) {
     return { ok: false, removed: false, because: 'that is not an OpenAI account on this computer' };
   }
-  if (base === '.codex') {
+  /* 🛑 ENV-AWARE, NOT A BASENAME CHECK (#2264 review). The default is where
+     `defaultDir()` points, and CODEX_HOME / AGENT_WORKFORCE_CODEX_HOME move it,
+     so `base === '.codex'` is wrong in BOTH directions: it would DELETE the real
+     default when it is a moved `.codex-<label>` (irreversible loss of the home
+     other codex agents resolve to), and over-refuse a stale `.codex` that is no
+     longer the default. forgetAccount's `wasDefault` uses exactly this
+     comparison. This is defence in depth on an unauthenticated local endpoint
+     that DELETES a directory, so it must hold regardless of the UI's own
+     (env-aware) hiding of the button on the default row. */
+  if (clean === path.resolve(defaultDir())) {
     return { ok: false, removed: false, because: 'the default account cannot be deleted; disconnect it instead' };
   }
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);

@@ -79,3 +79,28 @@ test('#2264: a path outside home is refused, and an already-gone account is a qu
   assert.equal(got.removed, false);
   assert.match(got.because, /already gone/);
 });
+
+test('#2264: the ENV-MOVED default is refused too, not just the literal .codex', () => {
+  /* The real default follows AGENT_WORKFORCE_CODEX_HOME. A basename check
+     (base === '.codex') would MISS a moved `.codex-<label>` default and
+     irreversibly delete the home other codex agents resolve to. Red-capable:
+     with the old basename guard this deleted `.codex-work`. */
+  const moved = nodePath.join(SANDBOX, '.codex-work');
+  fs.mkdirSync(moved, { recursive: true });
+  fs.writeFileSync(nodePath.join(moved, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-worktesttesttesttest' }));
+  const prev = process.env.AGENT_WORKFORCE_CODEX_HOME;
+  process.env.AGENT_WORKFORCE_CODEX_HOME = moved;
+  try {
+    assert.ok(openai.list().some((a) => a.dir === moved && a.isDefault),
+      'with the env moved, .codex-work must be the default (or the arm is vacuous)');
+    const got = openai.removeAccount(moved, []);
+    assert.equal(got.ok, false, 'the env-moved default must be refused');
+    assert.equal(got.removed, false);
+    assert.match(got.because, /default account cannot be deleted/);
+    assert.ok(fs.existsSync(moved), 'the env-moved default must survive the refusal');
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+    else process.env.AGENT_WORKFORCE_CODEX_HOME = prev;
+  }
+});
