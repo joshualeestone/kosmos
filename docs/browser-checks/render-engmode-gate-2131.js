@@ -53,14 +53,17 @@ const VIS = `(id) => { const el = document.getElementById(id); if (!el) return '
 const firstViewportVis = `() => { const e = document.querySelector('.pj-viewport'); if (!e) return 'absent'; const cs = getComputedStyle(e); const r = e.getBoundingClientRect(); return (!e.hidden && cs.display !== 'none' && r.height > 0) ? 'VISIBLE' : 'hidden'; }`;
 
 (async () => {
-  fleet.install([
-    fleet.agent('worky', { state: 'working', displayName: 'Worky' }),
-    fleet.agent('asky', { state: 'needs_you', displayName: 'Asky' }),
-  ]);
-  const server = await srv.start(0);
-  const BASE = 'http://127.0.0.1:' + server.address().port;
-  const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
+  // Acquire INSIDE the try so the finally cleans up even if install/start/launch throws
+  // (otherwise a throw there leaks the mkdtemp roots and the fleet seam mutation).
+  let server, browser;
   try {
+    fleet.install([
+      fleet.agent('worky', { state: 'working', displayName: 'Worky' }),
+      fleet.agent('asky', { state: 'needs_you', displayName: 'Asky' }),
+    ]);
+    server = await srv.start(0);
+    const BASE = 'http://127.0.0.1:' + server.address().port;
+    browser = await chromium.launch({ headless: process.env.HEADED === '0' });
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     const errs = [];
     page.on('pageerror', (e) => errs.push(e.message));
@@ -103,16 +106,15 @@ const firstViewportVis = `() => { const e = document.querySelector('.pj-viewport
     chk((await viewportVis()) === 'VISIBLE', 'CONTROL: the raw terminal (.pj-viewport) IS VISIBLE with Engineering mode ON (so the OFF arm means something)');
     chk((await visId('pj-thread')) === 'VISIBLE', 'CONTROL: the one-to-one terminal box (#pj-thread) IS VISIBLE with Engineering mode ON');
 
-    // --- ARM 3: the detail/conversation terminal is HIDDEN in Off ------------------
+    // Back to Off for the safety arm. (A DETAIL-view #d-window arm is deliberately
+    // omitted: it needs a LIVE captured pane screen to ever render, which this
+    // fleet-only harness does not provide, so a "hidden in Off" assertion on it would
+    // pass whether or not the gate works - vacuous. The gate is PAGE-WIDE (ENG_ON), so
+    // the project arms above with a real ON control prove the mechanism the detail view
+    // shares, and the safety arm below is a real detail-view assertion.)
     await setEng(false);
-    await page.click('[data-tab="agents"]').catch(() => {});
-    await page.waitForSelector('[data-agent="worky"]', { timeout: 8000 });
-    await page.click('[data-agent="worky"]');
-    await page.waitForSelector('#panel-detail:not([hidden])');
-    await page.waitForTimeout(400);
-    chk((await visId('d-window')) === 'hidden', 'DETAIL: the conversation-view raw terminal (#d-window) is HIDDEN with Engineering mode OFF');
 
-    // --- ARM 4: SAFETY - an ASKING agent keeps its question terminal visible in Off -
+    // --- ARM 3: SAFETY - an ASKING agent keeps its question terminal visible in Off -
     // The fix must NEVER hide this: it is how a waiting agent gets answered.
     // openDetail directly (the card can resolve to two nodes and sit under the open
     // detail panel; the real navigation entry point is openDetail either way).
@@ -125,10 +127,10 @@ const firstViewportVis = `() => { const e = document.querySelector('.pj-viewport
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
 
     // Population floor: a gutted run that asserts nothing must not read green.
-    if (ran < 9) { console.log('\nrender-engmode-gate-2131: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+    if (ran < 8) { console.log('\nrender-engmode-gate-2131: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   } finally {
-    await browser.close();
-    server.close();
+    if (browser) await browser.close();
+    if (server) server.close();
     fleet.restore();
     for (const d of ROOTS) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
   }
