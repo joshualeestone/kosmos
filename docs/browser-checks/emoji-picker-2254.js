@@ -108,7 +108,20 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
       afterInsert.value === 'hi ' + first, JSON.stringify(afterInsert.value) + ' first=' + first);
     say('the panel stays open after a pick (add several in a row)', afterInsert.stillOpen === true);
 
-    // Arm 5: Escape closes the panel and clears aria-expanded.
+    // Arm 5 (a11y): a KEYBOARD user can pick. Focus an emoji button and press
+    // Enter must insert it - mousedown-only insertion left this unreachable while
+    // the aria markup advertised access. Reds if the handler is mousedown-only.
+    const kbGlyph = await p.evaluate(() => {
+      const b = document.querySelectorAll('#pj-emoji button[data-emoji]')[3];
+      b.focus();
+      return b.dataset.emoji;
+    });
+    await p.keyboard.press('Enter');
+    const afterKb = await p.evaluate(() => document.getElementById('pj-post').value);
+    say('a keyboard pick (focus an emoji button + Enter) inserts the emoji',
+      afterKb === 'hi ' + first + kbGlyph, JSON.stringify(afterKb) + ' kb=' + kbGlyph);
+
+    // Arm 6: Escape closes the panel and clears aria-expanded.
     await p.keyboard.press('Escape');
     await p.waitForFunction(() => document.getElementById('pj-emoji').hidden, null, { timeout: 5000 }).catch(() => {});
     const closed = await p.evaluate(() => ({

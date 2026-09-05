@@ -8981,7 +8981,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              curated set; search / categories / skin tones are deferred (a real
              v1 of Discord's UX, not the whole of it). Paired with #2067, which
              RENDERS emoji in dialogue; this is the INPUT side. -->
-        <div class="emojipanel" id="pj-emoji" role="dialog" aria-label="Pick an emoji" hidden></div>
+        <div class="emojipanel" id="pj-emoji" role="group" aria-label="Pick an emoji" hidden></div>
         <!-- #142: a symbol is not a verb, and the bold @ rendered as a smudge
              that read as a zero. The key is named, the bold is off the glyph. -->
         <p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it. Type @ and a name to ask one agent directly.</p>
@@ -32420,15 +32420,23 @@ function pjEmojiInsert(glyph) {
 }
 
 document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(); });
-document.getElementById('pj-emoji').addEventListener('mousedown', (e) => {
+/* CLICK, not mousedown, so the picker is KEYBOARD-OPERABLE: a focused emoji button
+   fires 'click' on Enter/Space, whereas a mousedown-only handler left keyboard
+   users able to open the panel but unable to pick (an a11y gap the aria markup
+   otherwise advertised). For a mouse user, mousedown moves focus to the button and
+   blurs #pj-post, but its selectionStart is preserved and pjEmojiInsert's
+   input.focus() returns focus, so the glyph still lands at the caret; the
+   document mousedown-outside-close excludes #pj-emoji, so the panel stays open
+   either way (several picks in a row, Discord's behaviour). No double-insert: only
+   'click' fires the insert, once per mouse-click and once per keyboard activation. */
+document.getElementById('pj-emoji').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-emoji]');
   if (!b) return;
-  e.preventDefault();
   pjEmojiInsert(b.dataset.emoji);
-  /* Panel stays open so several can be added in a row (Discord's behaviour). */
 });
-/* Close on Escape or a click outside the button+panel. Both listeners early-return
-   while the panel is hidden, so they cost nothing in the common case. */
+/* Close on Escape (fires regardless of panel state; pjEmojiClose is a cheap no-op
+   when already hidden) or a mousedown outside the button+panel (that listener
+   early-returns while the panel is hidden). */
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pjEmojiClose(); });
 document.addEventListener('mousedown', (e) => {
   const panel = document.getElementById('pj-emoji');
