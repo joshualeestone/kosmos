@@ -1775,3 +1775,47 @@ around it says. That is what turns "verified" from a claim into a result.
 ⚠️ **OPEN: iteration 21's report was truncated in delivery after finding 3.** I have asked for the
 remainder. This entry covers only what I have verified; the round is NOT closed and there may be
 further findings, including its merge verdict.
+
+### Iteration 21, remainder: two CONVENTIONs, both mine, plus an independent mutation re-proof
+
+The truncated tail arrived. Verdict was **ready to merge, no BLOCKER**; all findings documentation-side.
+
+**CONVENTION 1, and it is my own added line.** `engine/connect.js:1099` cited *"AUTH_FRIENDLY_MESSAGE
+in `engine/status.js` (#1884), pinned in `engine/status.test.js`."* The NAME greps to **zero** in the
+test file (control: `grep -c assert engine/status.test.js` = 638, so file and instrument are live).
+The constant is not exported, and the strings are pinned BEHAVIOURALLY. The substance was right and
+the pointer was a dead end. Now cites a grep that reproduces (1 hit, bogus control 0) and says the
+name is unexported, so the next reader is not sent hunting for a symbol that is not there.
+
+**CONVENTION 2 lands on the commit I made two hours earlier.** `engine/connect.test.js:601` still
+read *"self-defeating, since THIS ARM DELETES THE SEAM"* three lines below my own new sentence saying
+the two variables "were both called 'the seam' here and that collision is the whole reason this row
+was misread." ⇒ **The fix asserted the label was the defect and then left the label in place one line
+down.** The arm deletes `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` (`:653`), so it now says THAT VARIABLE.
+
+**A judgement call, documented rather than silently taken.** The sweep found a third bare "the seam"
+at `:621`, also mine. **I left it.** At `:601` two different variables were both called "the seam"
+inside one docblock, which is genuine overloading; at `:621` the referent
+(`process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`) is named explicitly on the line directly above, so
+only one candidate is in scope. **What would change my mind:** a reader arriving at `:621` without
+reading `:620`, or a future edit that puts a second variable in scope there.
+
+**Independent mutation re-proof, which is the part I did not ask for and value most.** The reviewer
+re-ran all four mutations itself rather than taking the PR body's word, with baselines before and
+after (54/54 and 40/40, exit 0 both), leaving the worktree pristine:
+
+| # | mutation | result |
+|---|---|---|
+| A | route -> `configDir: known.dir` (pre-fix) | default arm RED, route control green |
+| B | drop the `-u` push | launch arm RED, launch control green |
+| C | push `-u` unconditionally | LABELLED control RED, default arm green |
+| D | `configDir: null` for all accounts | LABELLED route control RED |
+
+⭐ **The pairing is the point, and it is worth stating because a positive-only suite looks identical:**
+A and B prove each production edit is guarded by an assertion that reddens on the pre-fix shape; C and
+D prove those guards are not vacuous, because they redden on the OVER-BROAD fix (strip the variable
+for everyone) that would otherwise satisfy A and B. **Four arms, and the two halves fail in opposite
+directions.**
+
+🛑 **THE LOOP IS NOT CONVERGED.** A verdict of "ready to merge" is not the convergence criterion; a
+round that surfaces NO new issues is, and this round surfaced five. Iteration 22 follows.
