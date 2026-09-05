@@ -116,10 +116,14 @@ function scrub(text) {
   return out;
 }
 
-/** Parse `generated_at` out of a report's frontmatter header, or null. */
+/** Parse `generated_at` out of a report's frontmatter header, or null. The
+ *  field is the LAST line of the header, so match it WITHIN the `---`...`---`
+ *  block rather than expecting more header after it (which never comes). */
 function generatedAt(rawReport) {
   if (typeof rawReport !== 'string') return null;
-  const m = rawReport.match(/^---\n[\s\S]*?\ngenerated_at:\s*([^\n]+)\n[\s\S]*?\n---/);
+  const fm = rawReport.match(/^---\n([\s\S]*?)\n---\n/);
+  if (!fm) return null;
+  const m = fm[1].match(/(?:^|\n)generated_at:\s*([^\n]+)/);
   return m ? m[1].trim() : null;
 }
 

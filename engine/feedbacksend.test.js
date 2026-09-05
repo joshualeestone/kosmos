@@ -76,9 +76,13 @@ test('payload matches the #2246 collect contract exactly, with a scrubbed body',
 });
 
 test('generated_at is taken from the report frontmatter, not recomputed', () => {
-  feedback.write('body', { date: '2026-09-04' });
-  const raw = feedback.read('2026-09-04');
-  const stamped = raw.match(/\ngenerated_at:\s*([^\n]+)\n/)[1].trim();
+  // Write the report file directly with a DISTINCTIVE PAST timestamp, so a
+  // fallback to new Date() would differ by years, not a 1ms race that can pass
+  // by luck. This is what makes the test a real guard on generatedAt().
+  const stamped = '2020-01-02T03:04:05.678Z';
+  fs.mkdirSync(feedback.dir(), { recursive: true });
+  fs.writeFileSync(feedback.pathFor('2026-09-04'),
+    `---\ndate: 2026-09-04\ninstall: test\ngenerated_at: ${stamped}\n---\nbody\n`);
   assert.equal(feedbacksend.payload('2026-09-04').generated_at, stamped);
 });
 
