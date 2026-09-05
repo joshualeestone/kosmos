@@ -233,8 +233,11 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   console.log('\n3. Back, and Skip, and Escape');
   {
     const { ctx, page } = await fresh(browser);
-    await page.click('#fr-next');
-    await page.click('#fr-next');
+    // #2163: Success -> the pre-flight interstitial -> Welcome -> Model is three
+    // clicks now (the interstitial sits between Success and Welcome).
+    await page.click('#fr-next');   // Success -> interstitial
+    await page.click('#fr-next');   // interstitial -> Welcome
+    await page.click('#fr-next');   // Welcome -> Model
     // ⚠️ NO BACK anywhere (Josh, 2026-08-17): the flow only moves forward.
     ok((await page.locator('#fr-back').count()) === 0, 'no Back button exists on any step');
     ok(await page.locator('#fr-title').textContent() === 'Choose a model.', 'Continue advanced exactly one step');
@@ -334,8 +337,8 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     const { ctx, page } = await fresh(browser, {
       route: ['**/api/machine', (r) => r.abort()],
     });
-    // The machine step is 4 now: Success -> Welcome -> Model -> here.
-    await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
+    // The machine step is 4 now: Success -> interstitial (#2163) -> Welcome -> Model -> here (four clicks).
+    await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
     await page.waitForTimeout(800);
     const text = await page.locator('#fr-checks').textContent();
     ok(/could not check/i.test(text), 'it says it could not look: ' + text.slice(0, 60));
@@ -550,8 +553,8 @@ async function waitAboutYouLeft(page, timeout = 5000) {
       const { ctx, page } = await fresh(browser, {
         route: ['**/api/machine', (r) => r.fulfill({ json: body })],
       });
-      // The machine step is 4 now.
-      await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
+      // The machine step is 4 now: Success -> interstitial (#2163) -> Welcome -> Model -> here (four clicks).
+      await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
       await page.waitForTimeout(700);
       const text = (await page.locator('#fr-checks').textContent()).trim();
       ok(text.length > 0, `a ${what} body still says something (${text.slice(0, 40)})`);
