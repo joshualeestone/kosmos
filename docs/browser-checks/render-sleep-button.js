@@ -97,9 +97,13 @@ const settingsRunning = () => {
        driving to the wrong step and asking a true question about it.
        📌 `click-first-run.js` already carries "The machine step is 4 now" and
        clicks three times. That fact existed in the tree the whole week. */
-    await p.click('#fr-next');   // 1 -> 2, Welcome
-    await p.click('#fr-next');   // 2 -> 3, Model
-    await p.click('#fr-next');   // 3 -> 4, This computer: the machine checks
+    // #2163: the pre-flight expectations interstitial now sits between the Success
+    // screen and Welcome (outside the numbered count), so reaching the machine step
+    // (This computer) is FOUR clicks, not three.
+    await p.click('#fr-next');   // Success -> interstitial (#2163)
+    await p.click('#fr-next');   // interstitial -> Welcome
+    await p.click('#fr-next');   // Welcome -> Model
+    await p.click('#fr-next');   // Model -> This computer: the machine checks
     await p.waitForSelector('.fr-check', { timeout: 20000 });
     await p.waitForSelector('.fr-sleepbtn', { state: 'visible', timeout: 20000 });
     const label = (await p.locator('.fr-sleepbtn').textContent()).trim();

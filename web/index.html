@@ -34151,6 +34151,12 @@ function frActions(primary, alt) {
 // button. Its Continue enters the numbered flow at Welcome (frGo(2)), and frGo
 // hides this interstitial on the way in. Not deep-linkable and not counted -- a
 // reload returns to Success, which is the correct forward-only behaviour.
+// 📌 It deliberately does NOT set FR_STEP or bump FR_RETURN_GEN (unlike frGo):
+// FR_STEP stays 1 (the connect/recheck guards all key on `=== 3` and correctly
+// no-op), and a late frPaintReturn async repaint lands in the now-hidden fr-pane-1
+// and is re-guarded when the interstitial's Continue calls frGo(2) (which bumps the
+// generation). So leaving the return screen via the interstitial relies on that
+// frGo(2) to advance the generation, and that is safe here.
 function frShowExplainer() {
   for (let i = 1; i <= FR_STEPS; i += 1) {
     document.getElementById('fr-pane-' + i).hidden = true;
