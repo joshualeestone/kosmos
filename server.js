@@ -9047,6 +9047,17 @@ if (require.main === module) {
        reconcileReport, which outranks this. Platform-agnostic, unit-tested with
        injected inputs. */
     require('./engine/status').setPaneCapture(require('./engine/win32capture').make());
+  } else {
+    /* #1078: on the Mac, wire the created-never-run roster source. An agent Kosmos
+       created but has never run has a launchd job + worker dir but no tmux pane and
+       no live beat, so the board could not see it and the empty state told a person
+       holding unrun agents to "create your first". The source enumerates the plists
+       Kosmos wrote and hands `snapshot()` the never-run agents to add, deduped
+       against the live pane/beat rosters. Plist enumeration is a launchd (Mac)
+       concept, hence the `!== 'win32'` gate; the win32 never-run analog (a
+       win32sessions-record source) is a separate follow-up. Platform-agnostic
+       logic, unit-tested with injected inputs. */
+    require('./engine/status').setCreatedSource(require('./engine/createdroster').make());
   }
   /* 🛑 PINNED TO $HOME, NOT AT IMPORT, ONLY WHEN THIS IS THE REAL BOARD
      PROCESS (#923). Nothing anywhere in this file or engine/ ever calls

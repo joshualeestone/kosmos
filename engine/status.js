@@ -923,6 +923,18 @@ let paneSource = null;
 
 function setPaneSource(fn) { paneSource = typeof fn === 'function' ? fn : null; }
 
+/* #1078: the created-never-run roster source. Same seam shape and same reason as
+   `setPaneSource` above: an agent Kosmos created but has NEVER RUN has a launchd
+   job + worker dir but no pane and no live beat, so neither the tmux source nor
+   `panelessKeys` (which requires a live beat) sees it, and the board's empty state
+   told a person holding unrun agents to "create your first". A source hands
+   `snapshot()` the safeKey'd names of those agents (see engine/createdroster.js);
+   default null makes the whole change additive -- `snapshot()` is byte-identical
+   until a caller wires it, and every existing test sees no created cards. */
+let createdSource = null;
+
+function setCreatedSource(fn) { createdSource = typeof fn === 'function' ? fn : null; }
+
 function listPanes() {
   const out = paneSource ? paneSource() : tmuxPanes();
   /**
@@ -4591,17 +4603,31 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
  * `store.safeKey(sessionName)`, so that is the only spelling this store knows.
  * For every name that survives safeKey unchanged the two are the same string.
  */
-function panelessCard(key, nowMs) {
+/* The reconcile default for a beat-known paneless agent (win32/remote): it holds a
+   token so it MAY speak, but has said nothing yet on this board. */
+const PANELESS_DEFAULT = { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'it has no window on this computer to read, and it has not said anything yet' };
+/* #1078: the reconcile default for a Kosmos-created-but-never-run agent. STOPPED,
+   not UNKNOWN: we KNOW it exists (a launchd job we wrote) and KNOW it is not running
+   (no pane, no beat), which is exactly classify()'s own STOPPED/STRUCTURED reading
+   ("Claude is not running for this one"), not the "we could not read it" of UNKNOWN.
+   Routed through reconcileReport like every paneless card, so a truly never-run
+   agent shows STOPPED while one that ran-then-stopped-and-went-cold (plist present,
+   pane gone, beat stale) correctly surfaces its last decayed report instead. */
+const NEVER_RUN_DEFAULT = { state: STATE.STOPPED, confidence: CONFIDENCE.STRUCTURED, because: 'it was created on this computer and has not been started yet' };
+
+function panelessCard(key, nowMs, defaultStatus) {
   const identity = readIdentity(key);
   /* The agent's own account, reconciled against a scrape that could not
-     happen. Passing UNKNOWN/NONE rather than skipping `reconcileReport` is
+     happen. Passing a default rather than skipping `reconcileReport` is
      deliberate: the report rules -- a stale `working` decaying, `blocked` and
      `needs_you` never decaying -- are the same rules for an agent with no
      screen, and copying them here is how two readings of one report start to
-     disagree. */
+     disagree. The default is the "nothing said yet" verdict for THIS card kind:
+     PANELESS_DEFAULT (UNKNOWN) for a beat-known agent, NEVER_RUN_DEFAULT
+     (STOPPED) for a created-never-run agent (#1078). */
   const status = reconcileReport(
     selfreport.read(key),
-    { state: STATE.UNKNOWN, confidence: CONFIDENCE.NONE, because: 'it has no window on this computer to read, and it has not said anything yet' },
+    defaultStatus || PANELESS_DEFAULT,
     nowMs);
   /* #2146 for a PANELESS agent (the case this whole role exists for). No pane, so
      the ONLY active-while-waiting signal is the report heartbeat leg -- a beat
@@ -5144,6 +5170,10 @@ function snapshot() {
     try { paneKeys.add(store.safeKey(a.sessionName)); } catch { /* a name we cannot key cannot collide */ }
   }
   const nowMs = Date.now();
+  /* The keys already on the board (pane cards + the paneless-beat cards pushed
+     just below). Both the panelessKeys path and the created source dedup against
+     this set, so a live pane / beat always wins over a created-never-run row. */
+  const boardKeys = new Set(paneKeys);
   for (const key of panelessKeys(paneKeys)) {
     /* 🛑 ONE BAD KEY MUST NOT COST THE WHOLE BOARD, and this is structure
        rather than an argument. Every read inside `panelessCard` is throw-safe
@@ -5152,7 +5182,23 @@ function snapshot() {
        claim of this change, and an argument that holds today is not the same
        as a shape that cannot fail. Losing a paneless row costs a row that did
        not exist last week; letting it throw costs every Mac agent their card. */
-    try { agents.push(panelessCard(key, nowMs)); } catch { /* that one agent is not listable */ }
+    try { agents.push(panelessCard(key, nowMs)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
+  }
+
+  /* #1078: Kosmos agents created but NEVER RUN -- a launchd job + worker dir on
+     disk, no pane, no live beat, so invisible to both sources above (panelessKeys
+     requires a live beat). Additive and off by default (createdSource is null
+     until server wires it), so `snapshot()` is byte-identical for every existing
+     test. Deduped against boardKeys so a live pane/beat for the same agent wins;
+     rendered STOPPED via NEVER_RUN_DEFAULT ("created, not started yet"). Same
+     one-bad-key-must-not-cost-the-board discipline as the loop above. */
+  if (createdSource) {
+    let createdKeys = [];
+    try { createdKeys = createdSource(boardKeys) || []; } catch { createdKeys = []; }
+    for (const key of createdKeys) {
+      if (boardKeys.has(key)) continue;   // belt-and-braces: the source excludes these, re-checked here
+      try { agents.push(panelessCard(key, nowMs, NEVER_RUN_DEFAULT)); boardKeys.add(key); } catch { /* that one agent is not listable */ }
+    }
   }
 
   agents.sort((a, b) => a.name.localeCompare(b.name));
@@ -5317,7 +5363,7 @@ module.exports = {
      which would report a different moment from the one that failed. */
   lastLookProblem,
   isAgentPane, isAgentSession, isFleetSession, parsePanes, onePanePerSession,
-  setPaneSource, setPaneCapture, tmuxSaidNoServer, shDetail,
+  setPaneSource, setPaneCapture, setCreatedSource, tmuxSaidNoServer, shDetail,
   /* #188's third verb: one state from two witnesses. Exported so the suite
      can pin every precedence rule without standing up a fleet. */
   reconcileReport, REPORT_WORKING_DECAY_MS, liveAuthForAuthFailed, codexLiveAuthFor,
