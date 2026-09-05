@@ -65,11 +65,14 @@ test('only SessionStart-started is loud; an unknown event maps to nothing', () =
   assert.equal(hook.reportFor({}), null);
 });
 
-test('resolvePort: KOSMOS_PORT wins; a real uid derives; win32 (uid -1) falls to the default', () => {
+test('resolvePort: KOSMOS_PORT wins; the uid fallback mirrors install/kosmos exactly; win32 (uid -1) -> default', () => {
   assert.equal(hook.resolvePort({ KOSMOS_PORT: '17777' }, 1000), 17777);
+  // Mirrors the CLI's `id -u` branch: uid 501 -> the primary port, every other
+  // real uid -> the per-uid offset. Measured against install/kosmos, not assumed.
+  assert.equal(hook.resolvePort({}, 501), hook.DEFAULT_PORT, 'the primary account (uid 501) maps to the primary port, as the CLI does');
   assert.equal(hook.resolvePort({}, 1000), hook.DEFAULT_PORT + 1 + (1000 % 3999));
+  assert.equal(hook.resolvePort({}, 0), hook.DEFAULT_PORT + 1 + (0 % 3999), 'uid 0 is NOT special-cased by the CLI (only 501 is)');
   assert.equal(hook.resolvePort({}, -1), hook.DEFAULT_PORT, 'win32 uid -1 must not produce a negative-modulus port');
-  assert.equal(hook.resolvePort({}, 0), hook.DEFAULT_PORT, 'root maps to the primary port');
   assert.equal(hook.resolvePort({ KOSMOS_PORT: 'junk' }, 1000), hook.DEFAULT_PORT + 1 + (1000 % 3999), 'a junk port is ignored');
 });
 

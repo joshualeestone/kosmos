@@ -141,15 +141,19 @@ function buildBody(report, fromPane) {
   };
 }
 
-/** The board port: the installer bakes KOSMOS_PORT into the win32 launcher, so
- *  it is normally set; the uid derivation mirrors install/kosmos for the rare
- *  unset case (win32 uid is -1, which is neither 0 nor a real account, so it
- *  falls to the plain default rather than a negative modulus). */
+/** The board port. The installer bakes KOSMOS_PORT into the win32 launcher, so
+ *  it is normally set and returned directly. The uid fallback replicates
+ *  install/kosmos EXACTLY (measured against its `id -u` branch), so a reuse
+ *  off-win32 stays in step with the CLI: uid 501 (the primary account) -> the
+ *  primary port, every other real uid -> a per-uid offset. A platform with no
+ *  uid (win32 is -1) has no account to derive from and takes the primary port.
+ *  In the actual win32 deployment this fallback is never taken -- uid is -1 and
+ *  KOSMOS_PORT is baked -- so it is a documented default, not the hot path. */
 function resolvePort(env, uid) {
   const raw = env && env.KOSMOS_PORT;
   if (raw != null && /^\d+$/.test(String(raw))) return Number(raw);
-  if (typeof uid === 'number' && Number.isInteger(uid) && uid > 0) {
-    return DEFAULT_PORT + 1 + (uid % 3999);
+  if (typeof uid === 'number' && Number.isInteger(uid) && uid >= 0) {
+    return uid === 501 ? DEFAULT_PORT : (DEFAULT_PORT + 1 + (uid % 3999));
   }
   return DEFAULT_PORT;
 }
@@ -311,9 +315,18 @@ module.exports = {
    require() in a test never triggers a network send. stdin is the event JSON. */
 if (require.main === module) {
   let input = '';
+  let started = false;
+  // Run main AT MOST ONCE: stdin `end` is the normal path; the unref'd timer is
+  // a backstop for a stdin that never ends. A run-once flag keeps the two from
+  // both firing regardless of how DEFAULT_TIMEOUT_MS and the 10s guard compare
+  // (so a later timeout bump cannot resurrect a double send).
+  const run = () => {
+    if (started) return;
+    started = true;
+    main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0));
+  };
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (d) => { input += d; });
-  process.stdin.on('end', () => { main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0)); });
-  // If stdin never ends (no pipe), do not hang the agent: a short guard exits 0.
-  setTimeout(() => { main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0)); }, 10000).unref();
+  process.stdin.on('end', run);
+  setTimeout(run, 10000).unref();
 }
