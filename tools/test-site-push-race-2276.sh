@@ -243,6 +243,10 @@ U1="$(node "$RE" "$T/ub.html" "$T/uo.html" "$VER")"; RC=$?
 [ "$RC" = 0 ] && printf '%s' "$U1" | grep -q 'id="v9-9-9"' && printf '%s' "$U1" | grep -q 'id="v9-9-8"' && ok "U: re-insert adds our entry and keeps the base entry" || bad "U: re-insert output wrong ($RC)"
 # our entry above the base one
 printf '%s' "$U1" | awk '/id="v9-9-9"/{a=NR} /id="v9-9-8"/{b=NR} END{exit !(a&&b&&a<b)}' && ok "U: re-insert places our entry on top" || bad "U: re-insert ordering wrong"
+# a blank line separates our re-inserted entry from the next (matches the page +
+# insert-release-entry.js; entries must not abut). RED-CAPABLE: a single '\n' fails.
+printf '%s' "$U1" > "$T/u1.html"
+python3 -c "s=open('$T/u1.html').read(); j=s.index('</article>', s.index('id=\"v9-9-9\"'))+len('</article>'); import sys; sys.exit(0 if s[j:].startswith('\n\n    <article') else 1)" && ok "U: a blank line separates the re-inserted entry from the next" || bad "U: entries abut (no blank line)"
 # idempotence: a base that already carries v9-9-9 is refused
 our_versions > "$T/ubdup.html"
 node "$RE" "$T/ubdup.html" "$T/uo.html" "$VER" >/dev/null 2>&1; [ "$?" != 0 ] && ok "U: re-insert refuses a version already on the fresh page (idempotence)" || bad "U: re-insert rewrote an existing version"

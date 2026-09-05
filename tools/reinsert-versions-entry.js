@@ -81,4 +81,7 @@ if (anchor < 0) {
 const commentAt = base.lastIndexOf('    <!--', anchor);
 const at = (commentAt > 0 && anchor - commentAt < 2000) ? commentAt : anchor;
 
-process.stdout.write(base.slice(0, at) + entry + '\n' + base.slice(at));
+// Two newlines: our extracted entry ends at `</article>` with no trailing newline,
+// and the page (and insert-release-entry.js's output) keeps a blank line between
+// entries. `\n\n` reproduces that so re-inserted entries do not abut the next one.
+process.stdout.write(base.slice(0, at) + entry + '\n\n' + base.slice(at));
