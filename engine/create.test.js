@@ -3637,6 +3637,66 @@ test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a
   }
 });
 
+test('#2245: a provider switch MOVES the brief to the file the new runner boots from, both directions', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = mkTemp('codex-home-2245sw-');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  // Signed in, or the switch TO openai is refused (#1211), and then nothing
+  // moves and this test would pass for the wrong reason.
+  fs.writeFileSync(nodePath.join(codexHome, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest2245SW' }), 'utf8');
+  try {
+    // --- claude-born, switched to openai: CLAUDE.md must MOVE to AGENTS.md ---
+    const a = 'brief-mover-a';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: a, role: 'pm' }).outcome,
+      create.OUTCOME.CREATED);
+    const aDir = create.workerDir(a);
+    const bornClaude = fs.readFileSync(nodePath.join(aDir, 'CLAUDE.md'), 'utf8');
+    assert.match(bornClaude, /Where the files you make go/, 'the born claude brief lacked the doctrine to begin with');
+
+    const swA = create.setProvider(a, 'openai', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swA.outcome, create.OUTCOME.CREATED, swA.because);
+    assert.ok(fs.existsSync(nodePath.join(aDir, 'AGENTS.md')),
+      'codex agent has no AGENTS.md after the switch -- it boots with no brief (the #2245 switch regression)');
+    assert.ok(!fs.existsSync(nodePath.join(aDir, 'CLAUDE.md')),
+      'the old CLAUDE.md was left behind as an orphan after switching to codex');
+    // MOVED, not regenerated: the exact bytes the agent had are what it keeps,
+    // so any per-project block already in the brief survives the switch.
+    assert.equal(fs.readFileSync(nodePath.join(aDir, 'AGENTS.md'), 'utf8'), bornClaude,
+      'the brief was regenerated rather than moved, so a per-project block already in it would be lost');
+    // And the resolvers now agree with the file on disk (no split-brain).
+    assert.ok(require('./instructions').fileFor(a).endsWith('AGENTS.md'));
+
+    // --- and back: openai -> anthropic must MOVE AGENTS.md to CLAUDE.md ---
+    const backA = create.setProvider(a, 'anthropic', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(backA.outcome, create.OUTCOME.CREATED, backA.because);
+    assert.ok(fs.existsSync(nodePath.join(aDir, 'CLAUDE.md')),
+      'claude agent has no CLAUDE.md after switching back -- the codex->claude brief-loss regression #2245 closes');
+    assert.ok(!fs.existsSync(nodePath.join(aDir, 'AGENTS.md')),
+      'the AGENTS.md was left behind as an orphan after switching back to claude');
+    assert.ok(require('./instructions').fileFor(a).endsWith('CLAUDE.md'));
+
+    // --- codex-born, switched to anthropic: AGENTS.md must MOVE to CLAUDE.md ---
+    // This is the cleaner statement of the regression: before #2245 a codex
+    // agent's brief was in CLAUDE.md, so a switch to claude found it; now it is
+    // in AGENTS.md, so without the move the switched claude agent boots empty.
+    const b = 'brief-mover-b';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: b, role: 'pm', provider: 'openai' }).outcome,
+      create.OUTCOME.CREATED);
+    const bDir = create.workerDir(b);
+    const bornCodex = fs.readFileSync(nodePath.join(bDir, 'AGENTS.md'), 'utf8');
+    const swB = create.setProvider(b, 'anthropic', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swB.outcome, create.OUTCOME.CREATED, swB.because);
+    assert.ok(fs.existsSync(nodePath.join(bDir, 'CLAUDE.md')), 'the codex-born brief did not move to CLAUDE.md on the switch to claude');
+    assert.ok(!fs.existsSync(nodePath.join(bDir, 'AGENTS.md')), 'the codex-born AGENTS.md was orphaned on the switch to claude');
+    assert.equal(fs.readFileSync(nodePath.join(bDir, 'CLAUDE.md'), 'utf8'), bornCodex,
+      'the codex-born brief was regenerated rather than moved on the switch');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  }
+});
+
 test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {
   recorder();
   create.setDryRun(false);

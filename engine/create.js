@@ -1173,6 +1173,27 @@ function setProvider(name, provider, opts) {
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
   }
+  /* #2245: the brief FILENAME is runner-aware (codex boots AGENTS.md, claude
+     boots CLAUDE.md), so a runner CHANGE must MOVE the brief to the file the
+     new runner reads. Without this the switch strands the doctrine + project
+     block in the old runner's file and the agent boots with no brief: the
+     codex->claude direction is a regression this closes (before #2245 the
+     brief was always in CLAUDE.md, so a switch to claude still found it; now it
+     lives in AGENTS.md), and claude->codex was already broken. A same-directory
+     rename is atomic, removes the orphan, and creates the file the new runner
+     boots from in one step. Runs whenever the plist write above ran (no
+     DRY_RUN gate, matching it), so the brief and the launch truth stay
+     consistent. Best-effort like the profile write below: the plist is already
+     correct, and a later instructions refresh recreates the brief under the
+     resolved name if this rename ever fails. `job.runner === runner` was
+     refused above, so the two filenames always differ here; the guard stays for
+     when the runner set grows. */
+  const oldBrief = path.join(workerDir(clean), briefFilename(job.runner));
+  const newBrief = path.join(workerDir(clean), briefFilename(runner));
+  if (oldBrief !== newBrief) {
+    try { if (fs.existsSync(oldBrief)) fs.renameSync(oldBrief, newBrief); }
+    catch { /* plist is the launch truth; a later instructions refresh heals the brief */ }
+  }
   try { store.writeProfile(clean, { provider }); }
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
   return {

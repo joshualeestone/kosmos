@@ -3766,7 +3766,8 @@ function readIdentity(sessionName) {
   /* #2245: runner-aware, matching instructions.fileFor -- a codex agent's brief
      is AGENTS.md, a claude agent's is CLAUDE.md, by the recorded runner. Reading
      the hardcoded CLAUDE.md here would miss a codex agent's real brief. */
-  const file = path.join(require('./create').workerDir(sessionName), require('./create').briefFilename((require('./create').readJob(sessionName) || {}).runner));
+  const create = require('./create');
+  const file = path.join(create.workerDir(sessionName), create.briefFilename((create.readJob(sessionName) || {}).runner));
 
   // ⚠️ Through the SHARED reader, not a local `readFileSync`.
   //

@@ -49,23 +49,42 @@ doctrine and NONE in CLAUDE.md; a claude agent's in CLAUDE.md and none in
 AGENTS.md; both resolvers (`instructionFile`, `instructions.fileFor`) agree.
 272 instructions/status/discover tests and 150 create tests green.
 
+`engine/create.test.js` "#2245: a provider switch MOVES the brief to the file the
+new runner boots from, both directions": a claude-born agent switched to openai
+moves CLAUDE.md -> AGENTS.md (and back on the reverse switch), a codex-born agent
+switched to claude moves AGENTS.md -> CLAUDE.md, the old file is gone each time,
+and the bytes are asserted IDENTICAL (moved, not regenerated, so a per-project
+block already in the brief survives). Verified red-capable (disabling the rename
+fails the test).
+
 ## Coordination
 
 Split agreed with PigeonPete (the doctrine/block owner): he retracted his
 blockBody duplicate (the doctrine is the single source); this runner-aware writer
-routes both the doctrine and the block to AGENTS.md verbatim. He is reviewing the
-instructions.js diff for the safeKey guard + verbatim reuse.
+routes both the doctrine and the block to AGENTS.md verbatim. He reviewed
+`fd6c0b47` and APPROVED (safeKey + containment intact, no path injection via
+runner, verbatim reuse, write/read agree). His two non-blocking notes are
+handled: the readJob-per-poll cost is a small local plist read behind the
+existing (larger) instruction-file read, and the switch-migration follow-up is
+addressed below.
 
-## Weakest premise / known follow-up (out of scope)
+## Provider-switch brief migration (blind-review WARNING, FIXED here)
 
-A provider SWITCH (`setProvider`) changes the runner but does NOT migrate an
-existing brief between CLAUDE.md and AGENTS.md -- a switched-to-codex agent's old
-CLAUDE.md brief would be orphaned and its AGENTS.md (if any) would need a re-tell
-to gain the block, and `tellAgent` will not create one. #2245 is the create-time
-gap (Kosmos-created codex agents), which this closes; the switch-migration case is
-flagged as a separate follow-up rather than expanded into here.
+A provider SWITCH (`setProvider`) rewrites the plist runner but used NOT to move
+the brief file, which #2245 turned into a one-directional REGRESSION: before
+#2245 a codex-born brief lived in CLAUDE.md, so a switch to claude still found
+it; after #2245 it lives in AGENTS.md, so a switch to claude booted an empty
+brief (and claude->codex was already broken the same way). Shipping a regression
+under "scoped out" is wrong, so this is fixed in-card: `setProvider` now moves
+the brief from the old runner's filename to the new one (a same-directory,
+atomic rename that also removes the orphan) whenever the runner changes, using
+the same `briefFilename` mapping. Best-effort, matching the sibling profile
+write: the plist is the launch truth and a later instructions refresh recreates
+the brief if the rename ever fails.
 
-### Second residual (blind-review WARNING, deferred with a code read)
+## Weakest premise / known follow-up (out of scope): the name-regime residual
+
+A blind-review WARNING deferred here with a code read.
 
 `fileFor` resolves the DIRECTORY via `store.safeKey(agent)` (broad acceptance)
 but the RUNNER via `create.readJob(agent)`, which validates the name with

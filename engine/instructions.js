@@ -136,8 +136,9 @@ function fileFor(agent) {
      agent without a job. Only the filename changes; the containment guard below
      is unchanged, so a codex agent's block lands in the file it actually reads
      without loosening the path check. */
-  const fname = require('./create').briefFilename((require('./create').readJob(agent) || {}).runner);
-  const file = path.join(require('./create').workerDir(key), fname);
+  const create = require('./create');
+  const fname = create.briefFilename((create.readJob(agent) || {}).runner);
+  const file = path.join(create.workerDir(key), fname);
 
   // Belt to safeKey's braces, and NOT load-bearing today: safeKey already
   // strips separators, so this cannot currently fail and removing it leaves the
@@ -150,7 +151,7 @@ function fileFor(agent) {
      which is the same guarantee against a name that tries to build its own path.
      Declared untested for the same reason it always was: `safeKey` strips
      separators, so this cannot currently fail. */
-  const dir = require('./create').workerDir(key);
+  const dir = create.workerDir(key);
   if (!file.startsWith(dir + path.sep)) return null;
   return file;
 }
