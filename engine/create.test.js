@@ -3598,6 +3598,45 @@ test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto,
   }
 });
 
+test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a claude agent from CLAUDE.md', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = mkTemp('codex-home-2245-');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  const instructions = require('./instructions');
+  try {
+    // A codex/OpenAI agent's brief is written to AGENTS.md -- the file codex
+    // actually boots from -- not CLAUDE.md, which it never reads (#2245: before
+    // this, a codex agent got neither the doctrine nor its project folder path).
+    const oa = create.createAgent({ ...BINS, codexBin: CODEX_BIN, role: 'pm', provider: 'openai', name: 'oa-brief' });
+    assert.equal(oa.outcome, create.OUTCOME.CREATED, oa.because);
+    const oaDir = create.workerDir('oa-brief');
+    assert.ok(fs.existsSync(nodePath.join(oaDir, 'AGENTS.md')), 'a codex agent got no AGENTS.md to boot from');
+    assert.ok(!fs.existsSync(nodePath.join(oaDir, 'CLAUDE.md')), 'a codex agent must not get its brief in CLAUDE.md (it never reads it)');
+    // The "where your files go" doctrine reached the file the agent actually reads.
+    assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Where the files you make go/,
+      'the doctrine did not reach the codex brief -- the whole #2245 point');
+    // The runner->filename mapping and both resolvers agree.
+    assert.equal(create.briefFilename('codex'), 'AGENTS.md');
+    assert.equal(create.briefFilename('claude'), 'CLAUDE.md');
+    assert.ok(create.instructionFile('oa-brief').endsWith('AGENTS.md'), 'instructionFile did not resolve AGENTS.md from the recorded codex runner');
+    // fileFor is what the re-tell/refresh path (projects block, doctrine heal)
+    // uses, so this is what carries the per-project block to the codex agent.
+    assert.ok(instructions.fileFor('oa-brief').endsWith('AGENTS.md'), 'instructions.fileFor did not route a codex agent to AGENTS.md');
+
+    // A claude agent is unchanged: brief in CLAUDE.md, no AGENTS.md.
+    const cl = create.createAgent({ ...BINS, role: 'pm', name: 'cl-brief' });
+    assert.equal(cl.outcome, create.OUTCOME.CREATED, cl.because);
+    const clDir = create.workerDir('cl-brief');
+    assert.ok(fs.existsSync(nodePath.join(clDir, 'CLAUDE.md')), 'a claude agent lost its CLAUDE.md');
+    assert.ok(!fs.existsSync(nodePath.join(clDir, 'AGENTS.md')), 'a claude agent must not get an AGENTS.md');
+    assert.ok(create.instructionFile('cl-brief').endsWith('CLAUDE.md'), 'a claude agent must still resolve CLAUDE.md');
+    assert.ok(instructions.fileFor('cl-brief').endsWith('CLAUDE.md'), 'fileFor must still route a claude agent to CLAUDE.md');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  }
+});
+
 test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {
   recorder();
   create.setDryRun(false);

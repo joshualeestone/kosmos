@@ -126,7 +126,14 @@ function fileFor(agent) {
      ordinary one is unchanged. `safeKey` still sanitises the name first: the
      folder may now come from a record, and the NAME must still never be able to
      build a path of its own. */
-  const file = path.join(require('./create').workerDir(key), FILENAME);
+  /* #2245: the brief FILENAME is runner-aware -- a codex agent boots from
+     AGENTS.md, a claude agent from CLAUDE.md -- chosen from the RECORDED runner
+     (readJob's plist arg, never a live pane), defaulting to CLAUDE.md for any
+     agent without a job. Only the filename changes; the containment guard below
+     is unchanged, so a codex agent's block lands in the file it actually reads
+     without loosening the path check. */
+  const fname = require('./create').briefFilename((require('./create').readJob(agent) || {}).runner);
+  const file = path.join(require('./create').workerDir(key), fname);
 
   // Belt to safeKey's braces, and NOT load-bearing today: safeKey already
   // strips separators, so this cannot currently fail and removing it leaves the

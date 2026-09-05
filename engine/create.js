@@ -602,7 +602,24 @@ function jobMissing(name) {
     return Boolean(e && e.code === 'ENOENT');
   }
 }
-function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
+/* #2245: the brief file an agent boots from depends on its RUNNER -- a codex
+   (OpenAI) agent boots from AGENTS.md (engine/discover.js reads it as the codex
+   analogue of CLAUDE.md), a claude agent from CLAUDE.md. This is the ONE mapping
+   from runner to brief filename; instructions.fileFor and the birth write below
+   both go through it, so the doctrine and the per-project block land in the file
+   the agent actually reads. Before this, every brief write assumed CLAUDE.md, so
+   a codex agent got neither the "where your files go" doctrine nor its project
+   folder path -- kosmos#2245. Pure. */
+function briefFilename(runner) { return runner === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'; }
+/* The absolute brief path for an agent. `runner` is passed at birth (the plist
+   is not written yet, so the runner is not readable back). Post-birth callers
+   omit it and the RECORDED runner is read from the plist (readJob, never a live
+   pane), defaulting to claude/CLAUDE.md when there is no job -- the pre-#2245
+   behaviour for every claude agent, unchanged. */
+function instructionFile(name, runner) {
+  const r = runner || ((readJob(name) || {}).runner) || 'claude';
+  return path.join(workerDir(name), briefFilename(r));
+}
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
 function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
 function plistPath(name) { return path.join(agentsDir(), `${serviceLabel(name)}.plist`); }
@@ -3145,7 +3162,10 @@ function createAgentInner(opts) {
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
-    fs.writeFileSync(instructionFile(name), text, 'utf8');
+    // #2245: pass the in-scope runner -- the plist is not yet written, so the
+    // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by
+    // the runner we are creating with, not by reading it back.
+    fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
   });
 
   /**
@@ -3580,6 +3600,7 @@ module.exports = {
      resolver returns rather than only against the real $HOME. */
   homeDir,
   instructionFile,
+  briefFilename,
   plistPath,
   plannedModelArg,
   forgetCodexFolder,
