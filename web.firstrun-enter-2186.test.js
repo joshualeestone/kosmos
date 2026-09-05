@@ -111,6 +111,25 @@ test('#2186: focus in a contentEditable -> Enter does not submit', () => {
   assert.equal(doc.next.clicks, 0);
 });
 
+test('#2186: focus in a SEARCH input -> Enter does not submit (the #fr-foundsearch regression)', () => {
+  // The "Your agents" ending shows Continue enabled AND a live search box; Enter
+  // in that box must not bubble to Continue and eject the person via frFinish.
+  const doc = stubDoc();
+  handlerWith(doc)(ev({ target: { tagName: 'INPUT', type: 'search', isContentEditable: false } }));
+  assert.equal(doc.next.clicks, 0);
+});
+
+test('#2186: focus in a TEXT input -> Enter DOES submit (carve-out is scoped, not blanket INPUT)', () => {
+  // The contrast to the search arm: About-you's name/does text inputs must still
+  // advance on Enter. Proves the search carve-out did not become a blanket
+  // "skip all inputs", which would break the very step the feature is for.
+  const doc = stubDoc();
+  const e = ev({ target: { tagName: 'INPUT', type: 'text', isContentEditable: false } });
+  handlerWith(doc)(e);
+  assert.equal(doc.next.clicks, 1);
+  assert.equal(e.prevented, 1);
+});
+
 test('#2186: focus on a BUTTON -> handler defers to native activation (no double)', () => {
   const doc = stubDoc();
   handlerWith(doc)(ev({ target: { tagName: 'BUTTON', isContentEditable: false } }));

@@ -35256,7 +35256,13 @@ function frPaintConnect(st) {
       // Same in-flight guard as the button: a second Enter after the first
       // code was typed earns a 409 that stomps the "Code sent." receipt.
       const go = document.getElementById('fr-conn-code-go');
-      if (e.key === 'Enter' && !(go && go.disabled)) frConnSubmitCode();
+      // #2186: this field has its own Enter gesture, so stop the keystroke here
+      // rather than letting it bubble to the wizard-wide frEnterSubmit -- parity
+      // with fr-openai-key. It is safe today only because the connect phase hides
+      // #fr-next (frActions(null, {Cancel})); this makes it safe even if a future
+      // phase shows Continue during code entry, so Enter can never both submit the
+      // code AND click Continue.
+      if (e.key === 'Enter') { e.stopPropagation(); if (!(go && go.disabled)) frConnSubmitCode(); }
     };
     frConnPaintUrl(st && st.url);
     frActions(null, { label: 'Cancel', go: frConnCancel });
@@ -35804,6 +35810,14 @@ function frEnterSubmit(e) {
     const tag = t.tagName;
     if (tag === 'TEXTAREA' || tag === 'BUTTON' || tag === 'A' || tag === 'SELECT') return;
     if (t.isContentEditable) return;
+    // 🛑 A SEARCH FIELD IS A TYPE-AND-FILTER FIELD, NOT A FILL-AND-CONTINUE ONE.
+    // The "Your agents" ending (#fr-fleet) shows Continue enabled AND carries a
+    // live search box (#fr-foundsearch, type=search) whose only handler is an
+    // `input` filter -- so Enter there has no field action and would bubble here
+    // and fire frFinish, ejecting the person mid-adoption. Before #2186 Enter in
+    // that box did nothing; keep it that way. A blanket INPUT carve-out is wrong
+    // (About-you's text inputs DO want Enter=Continue), so this is scoped to search.
+    if (tag === 'INPUT' && String(t.type).toLowerCase() === 'search') return;
   }
   if (document.getElementById('firstrun').hidden) return;
   const next = document.getElementById('fr-next');
