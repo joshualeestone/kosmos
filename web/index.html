@@ -20299,7 +20299,14 @@ async function paintConnLive() {
        and thinking for your agents" for one that Settings > Accounts, one
        tab over, correctly says is not. No per-provider branch needed any
        more: every row's own connection.state decides. */
-    const list = all.filter((a) => a.connection && a.connection.state === 'connected');
+    /* #1959: count OBSERVED-usable logins via acctUsableLogin (badge working or
+       signed_in_unverified), not raw state === 'connected'. The change vs before
+       is that a `rejected` account no longer counts here -- today it does, and
+       this box would claim it is "thinking for your agents" while Settings > Accounts
+       one tab over correctly shows it as needing renewal (the #874 defect on this
+       surface). Unverified logins still count, so this never falsely says
+       "nothing connected" when logins exist. */
+    const list = all.filter((a) => acctUsableLogin(a));
     el.textContent = '';
     if (!list.length) {
       // ⚠️ "NOTHING IS CONNECTED YET" IS A CLAIM, and it must be true, not
@@ -20311,7 +20318,7 @@ async function paintConnLive() {
       // this same diff enforces everywhere else (checkLive(), the
       // Settings > Accounts badge). Said honestly here too, now for
       // either provider.
-      const anyUnknown = all.some((a) => a.connection && a.connection.state === 'unknown');
+      const anyUnknown = all.some((a) => acctUnknownLive(a));
       el.textContent = anyUnknown
         ? 'We could not check your accounts just now.'
         : 'Nothing is connected yet.';
@@ -24623,6 +24630,35 @@ function paintReportsTo(a) {
      flag to protect it -- the guard IS the protection. */
   if (sel.innerHTML !== html) sel.innerHTML = html;
 }
+/* #1959: read the OBSERVED-liveness badge (engine/observed.js, overlaid onto
+   /api/accounts Claude rows as connection.badge by the /api/accounts route)
+   rather than the raw connection.state === 'connected' ("a credential exists"),
+   so every surface speaks the one badge vocabulary #1921 gave the Settings badge.
+   #1921 scoped its fix to paintAccounts(); these helpers extend it to the other
+   listLive() consumers (the board summary, the move/disconnect eligibility) that
+   still read raw .state. Each helper falls back to the legacy state ternary for a
+   row WITHOUT a badge -- an OpenAI row (the server overlays badge onto Claude rows
+   only) or a new-page/old-server skew -- exactly as paintAccounts() does.
+   Function declarations (hoisted), so paintConnLive() above can call them too. */
+function acctUsableLogin(a) {
+  // A login that WORKS or will verify itself on the next call. Excludes
+  // `rejected` (credential exists but a real call was rejected -- needs
+  // renewing; the #874 case that used to read "connected") and signed_out /
+  // unchecked. This is the honest replacement for raw state === 'connected'.
+  const c = a && a.connection;
+  if (!c) return false;
+  if (c.badge) return c.badge === 'working' || c.badge === 'signed_in_unverified';
+  return c.state === 'connected';
+}
+function acctUnknownLive(a) {
+  // We could not tell (a live check we could not read). NOT "not connected" --
+  // the unknown-must-never-render-as-none rule, same as checkLive() and the
+  // Settings badge.
+  const c = a && a.connection;
+  if (!c) return false;
+  if (c.badge) return c.badge === 'unchecked';
+  return c.state === 'unknown';
+}
 let ACCOUNTS = [];
 /* 🛑 A FAILED READ AND AN EMPTY LIST ARE DIFFERENT FACTS AND THE FETCH USED TO
    COLLAPSE THEM. `res.ok ? res.json() : null` then `|| []` made a 500 arrive as "you
@@ -24790,8 +24826,18 @@ async function paintAccountPicker(a) {
      agent's account against the live list to know, and whether a signed-in
      target is on offer. Fails to no-prompt if the dir matches no row. */
   const acctLive = acct && ACCOUNTS.find((x) => x.dir === acct.dir);
-  const signedOut = !!(acctLive && acctLive.connection && acctLive.connection.state !== 'connected');
-  const signedInTarget = movable.some((x) => x.connection && x.connection.state === 'connected' && (!acct || x.dir !== acct.dir));
+  /* #1959: decide from the OBSERVED-liveness badge (acctUsableLogin), not raw
+     state === 'connected'. signedOut is now true for a `rejected` current account
+     too -- a credential that exists but was rejected on a real call is not usable,
+     so the move UI (the way onto a working account) must appear, which is exactly
+     the #874 / #1492 case that used to sit silently "connected". A
+     signed_in_unverified account is NOT signed out (a login exists). The
+     `acctLive.connection` guard is kept so a row with no connection info stays
+     "not signed out" (no false move prompt), as before. signedInTarget offers any
+     other movable account with a usable login (working or will-verify) as a
+     destination -- requiring a verified `working` target would refuse a valid one. */
+  const signedOut = !!(acctLive && acctLive.connection && !acctUsableLogin(acctLive));
+  const signedInTarget = movable.some((x) => acctUsableLogin(x) && (!acct || x.dir !== acct.dir));
   /* Josh, 2026-08-23 19:56: the dropdown shows the account it is on (the
      email), not a Move-to placeholder; picking a DIFFERENT one is what
      arms Move. The current account is the empty-value option, so Move
