@@ -29,8 +29,9 @@ const { chromium } = require('playwright');
 const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:17461';
 // #2037 PR-C1: feedback-toggle (the daily-report send switch, in Settings >
 // Automation) carries the SAME 200/403 privacy treatment as the tell/notify
-// opt-outs, and defaults OFF in C1 (the on-flip is PR-C2). It is painted by the
-// same boot-time refresh block, so it reads by id from any Settings view.
+// opt-outs, and defaults ON (Josh: "baked in day one"), so it reads ON in the
+// 200 control below (see the DEFAULT_ON map). It is painted by the same
+// boot-time refresh block, so it reads by id from any Settings view.
 const IDS = ['tell-toggle', 'notify-toggle', 'feedback-toggle'];
 const MSG = { 'tell-toggle': 'tell-msg', 'notify-toggle': 'notify-msg', 'feedback-toggle': 'feedback-msg' };
 

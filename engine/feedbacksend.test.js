@@ -1,10 +1,11 @@
 'use strict';
 /**
  * The TRANSMIT half of the daily product-feedback loop (kosmos#2037): the
- * separate, gated send layer over engine/feedback.js. Sending is off by default
- * (the switch); the local write is always on (feedback.js, tested there). What
- * leaves the machine is scrubbed of home paths and matches the #2246 collect
- * contract exactly. Sandboxed data root before the require.
+ * separate, gated send layer over engine/feedback.js. Sending is ON by default
+ * (Josh: "baked in day one"), with the Settings switch as the opt-out; the local
+ * write is always on (feedback.js, tested there). What leaves the machine is
+ * scrubbed of home paths and matches the #2246 collect contract exactly.
+ * Sandboxed data root before the require.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');

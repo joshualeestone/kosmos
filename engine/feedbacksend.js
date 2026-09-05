@@ -16,11 +16,14 @@
  * payload() below is the single source of that shape; a test pins the keys so
  * the two sides cannot drift.
  *
- * 🛑 OFF BY DEFAULT, FOR NOW. Josh ruled #2037 default-checked-on, but a
- * default-on phone-home with no off-switch is the exact harm #2020 documents.
- * The default flips ON in the same change that ships the Settings/setup control
- * (#2013: a default and its control are ONE decision). Until that control
- * exists, read() fails to OFF and nothing leaves the machine.
+ * 🛑 ON BY DEFAULT. Josh ruled #2037 default-checked-on ("baked in day one",
+ * 2026-09-05), and the default flips ON in the SAME change that ships the
+ * Settings > Automation opt-out switch and the board send trigger (#2013: a
+ * default and its control are ONE decision, landed together). So a never-asked
+ * machine SENDS its scrubbed daily report by default; the person opts OUT in
+ * Settings. The install-time disclosure surface (a switch on the install flow's
+ * Screen 6) is the immediate fast-follow (PR-C2). A present-but-UNREADABLE file
+ * still fails to OFF, the safe direction for a body leaving the machine.
  *
  * 🔑 WHAT LEAVES IS SCRUBBED. feedback.js keeps home paths / project / agent
  * names on disk on purpose (useful to the user's own agent). The SEND path is
@@ -229,9 +232,14 @@ function maybeSend(date) {
  */
 function sendDailyOnce(date) {
   try {
+    // Same guard maybeSend applies, but EARLIER so a test run does not even
+    // record a `sent` marker for a send that the underTest guard will block.
+    // Only when nothing has been injected: a test with its own sender is
+    // exercising the real path and must be allowed to mark + send.
+    if (!sender && underTest()) return;
     const d = date || feedback.today();
     const st = read();                    // one read for both gates, atomic within the tick
-    if (!st.on) return;                   // opt-in gate (default OFF in C1)
+    if (!st.on) return;                   // opt-in gate (default ON; the person opts out in Settings)
     if (st.sent === d) return;            // already sent today
     if (feedback.read(d) == null) return; // no report for that day, nothing to mark or send
     // Mark first, and only send if the mark PERSISTED. If the setting-file write

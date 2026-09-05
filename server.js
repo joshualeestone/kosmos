@@ -3506,7 +3506,8 @@ const server = http.createServer((req, res) => {
   /* The daily product-feedback SEND opt-in (#2037 PR-C1). Mirrors ping-setting:
      GET returns the switch state, PUT flips it. The send layer (scrub + the
      #2246 contract) is engine/feedbacksend.js; the board sweep fires it. Default
-     is OFF (the default-ON flip + install disclosure are PR-C2). */
+     is ON (Josh: "baked in day one"); the person opts out here. The install-time
+     disclosure surface is the fast-follow (PR-C2). */
   if (pathname === '/api/feedback-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
     try { const r = feedbacksend.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
     catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
@@ -9133,10 +9134,11 @@ function start(port = PORT) {
       /* #2037 PR-C1: the daily product-feedback send sweep. The long-lived board
          owns the trigger because the short-lived `kosmos feedback` CLI cannot
          fire-and-forget a send (it exits). sendDailyOnce is opt-in-gated (default
-         OFF) and dedups per day via a `sent` marker, so the exact cadence is not
-         critical; hourly keeps it cheap. Sibling to the sweeps above: its own
-         timer, unref'd so it never holds the process open, best-effort. It sends
-         nothing when off and nothing under test (feedbacksend's underTest guard). */
+         ON, opt out in Settings) and dedups per day via a `sent` marker, so the
+         exact cadence is not critical; hourly keeps it cheap. Sibling to the
+         sweeps above: its own timer, unref'd so it never holds the process open,
+         best-effort. It sends nothing when the person has opted out, and nothing
+         under test (feedbacksend's underTest guard). */
       const feedbackSweep = setInterval(() => {
         try { feedbacksend.sendDailyOnce(feedback.today()); } catch { /* best-effort, like the sweeps above */ }
       }, Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) > 0 ? Number(process.env.AGENT_WORKFORCE_FEEDBACK_SWEEP_MS) : 60 * 60 * 1000); // the env is the test seam only

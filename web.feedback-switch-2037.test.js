@@ -9,8 +9,10 @@
  * wired to /api/feedback-setting, and uses the PRIVACY could-not-read treatment
  * (a privacy switch that reads a false Off is the exact failure to avoid).
  *
- * Ships OFF by default in C1; the default-ON flip + the install-time disclosure
- * checkbox are PR-C2, so a test here pins the default OFF at the engine.
+ * Ships ON by default (Josh: "baked in day one"), so a test here pins the
+ * engine default ON (and the unreadable/corrupt path still OFF). The
+ * install-time disclosure surface (install-flow Screen 6) is the fast-follow
+ * (PR-C2); the Settings switch is the disclosure/opt-out for now.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
