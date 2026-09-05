@@ -89,8 +89,29 @@ function dataRootFor(platform, home, env) {
     /* ROAMING, not Local: this is a person's own configuration and it should
        follow them to another machine on a domain. `APPDATA` is set on every
        supported Windows, and the fallback is its documented location rather
-       than a guess. */
-    root = p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), APP);
+       than a guess.
+
+       🛑 BUT AN EXPLICIT `AGENT_WORKFORCE_HOME` BEATS THE AMBIENT `APPDATA`, AND
+       WITHOUT THIS LINE THE ISOLATION SEAM IS INERT ON WINDOWS. `root()` passes
+       `AGENT_WORKFORCE_HOME || os.homedir()` as `home`, and #1780's whole claim --
+       stated in root()'s comment as "one var (HOME) isolates BOTH this store and
+       the workers root" -- depends on `home` deciding. It does on the Mac branch
+       below, which joins `home` directly. Here `e.APPDATA` came FIRST, and APPDATA
+       is set on every real Windows box, so the override was read and then thrown
+       away: a harness that redirected AGENT_WORKFORCE_HOME and believed it was
+       sandboxed was writing to the operator's real %APPDATA%\AgentWorkforce.
+
+       MEASURED on Windows 2026-09-05 by engine/firstrun-isolation-1780.test.js,
+       which asserts exactly this and could not previously run here at all -- its
+       own safety guard refused, because os.homedir() reads %USERPROFILE% rather
+       than $HOME on win32. Turning that arm on is what exposed this.
+
+       ⚠️ ORDER IS THE WHOLE FIX. AGENT_WORKFORCE_DATA still wins above (an explicit
+       data root beats an explicit home), and with no override APPDATA still wins
+       over the derived path, so nothing changes for a normal Windows install. */
+    root = e.AGENT_WORKFORCE_HOME
+      ? p.join(home, 'AppData', 'Roaming', APP)
+      : p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), APP);
   } else {
     root = p.join(home, 'Library', 'Application Support', APP);
   }
