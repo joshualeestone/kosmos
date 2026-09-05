@@ -26,3 +26,13 @@ documented idle-only, and a loud fail ("is the box idle?") beats a silent count-
   It cannot be run on this shared box (the decoy would trip other agents' cut guards), which is exactly
   why it is opt-in and why the seam test carries the validation here.
 - No source change (test-only).
+
+
+## iter1 review disposition (converged)
+No BLOCKER/WARNING/CONVENTION. 5 STRENGTHs: rc keying correct + $? reflects the function return (not
+the redirect); rc=2 is moot by construction (the guard returns only 0/1 - "could not tell" is mapped
+to return 1 at cut-guard.sh:297 - and the real-path arm uses the pgrep 0/1 path anyway); the seam arms
+run in the DEFAULT path and are red-capable; no silent-pass risk in the real-path pair (a background
+run makes mine==1 -> loud fail, never a false pass; the dropped delta only removes the ability to RUN
+on a non-idle box, never converts a fail to a pass). One NIT (the has-check in the first arm slightly
+duplicates the next arm) - harmless, adds specificity, not actionable. Converged on iter1.
