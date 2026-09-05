@@ -2948,7 +2948,7 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const drive = (agents, counts) => {
     const el = () => ({ textContent: '', hidden: undefined });
     const els = {
-      'st-agents': el(), 'st-working': el(), 'st-idle': el(),
+      'st-agents': el(), 'st-working': el(), 'st-working-tile': el(), 'st-idle': el(),
       'st-attn': el(), 'st-attn-tile': el(),
       'st-attn-noproj': el(), 'st-attn-noproj-tile': el(),
       'st-off': el(), 'st-off-tile': el(),
@@ -2998,6 +2998,23 @@ test('the stats tiles count the real fleet, and the alert tile hides at zero', (
   const known = drive(knownFleet, { total: 4, needsYou: 1, notRunning: 0 });
   assert.equal(known['st-working'].textContent, '2', 'a fully-known fleet must not wear the floor mark');
   assert.equal(known['st-idle'].textContent, '1', 'a fully-known fleet must not wear the floor mark');
+  /* #2157: the Working tile (chip + its .act animation) hides at a KNOWN zero and
+     only there. Nonzero keeps it shown; a floored count keeps it shown too, because
+     hiding would claim "none working" on a read that cannot stand behind it. */
+  assert.equal(live['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown (the floored-ZERO path is the zeroFloor fixture below)');
+  assert.equal(known['st-working-tile'].hidden, false, 'a nonzero working count keeps the tile shown');
+  const zeroKnown = drive(
+    [{ state: 'idle' }, { state: 'idle' }, { state: 'needs_you' }],
+    { total: 3, needsYou: 1, notRunning: 0 });
+  assert.equal(zeroKnown['st-working-tile'].hidden, true,
+    'a KNOWN zero working (no unknowns, no unreadable lines) hides the Working tile');
+  const zeroFloor = drive(
+    [{ state: 'idle' }, { state: 'unknown' }],
+    { total: 2, needsYou: 0, notRunning: 0 });
+  assert.equal(zeroFloor['st-working-tile'].hidden, false,
+    'zero working WITH an unknown is a floor, so the tile stays shown -- hiding would claim none working');
+  assert.equal(zeroFloor['st-working'].textContent, '0+',
+    'and the floored zero renders as 0+, not hidden');
   assert.equal(live['st-attn'].textContent, '1', 'the needs-you tile lost its count');
   assert.equal(live['st-attn-tile'].hidden, false, 'a nonzero needs-you must show the alert tile');
   /* #653 (Josh, 2026-08-24): the Not-running tile is gone. The painter must
@@ -3066,6 +3083,10 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     orgmap: el(''),
     orgnote: { textContent: '', hidden: false, innerHTML: '' },
     'st-agents': el('14'), 'st-working': el('9'), 'st-idle': el('4'), 'st-attn': el('1'),
+    /* #2157: seeded HIDDEN (as a prior known-zero tick would have left it), so the
+       failed poll must bring the Working tile BACK showing "?", not leave it hidden
+       claiming none are working -- the same rule as the not-running tile below. */
+    'st-working-tile': { textContent: '', hidden: true, innerHTML: '' },
     'st-attn-tile': { textContent: '', hidden: false, innerHTML: '' },
     /* #1898: the no-project drill-down, seeded with a last-success count and
        SHOWN, so the failed poll must blank it to `?` and hide it like its parent. */
@@ -3124,6 +3145,8 @@ test('a failed poll blanks the stats tiles instead of asserting the last fleet i
     'the alert tile must hide on a blind poll: red is reserved for a known alarm');
   assert.equal(els['st-attn-noproj-tile'].hidden, true,
     '#1898: the no-project drill-down must hide on a blind poll too, for the same reason as its parent');
+  assert.equal(els['st-working-tile'].hidden, false,
+    '#2157: the Working tile (seeded hidden, as a prior known-zero tick left it) must come BACK on a blind poll showing "?", unlike the alert tile -- hiding it would claim none are working on the one poll that knows nothing');
   // (#734) There is no summary slot any more, so nothing here can assert last-tick counts beside the failure card.
   assert.equal(els.orgmap.innerHTML, '',
     'the org view still draws the last fleet it saw beside "we cannot see them"');
