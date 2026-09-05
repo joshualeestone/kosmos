@@ -7811,6 +7811,31 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            icon legitimately lands in /Applications, ~/Applications, or
            nowhere, and a screen claiming a location nobody checked is the
            defect this codebase is built against. -->
+      <!-- #2163 (Josh, 2026-09-04, 0.6.28 fresh-install test): a pre-flight
+           expectations screen. Josh: "a screen that comes before basically
+           everything else that says: you're going to get warned by these sorts of
+           things because you're setting your agent up to help you run the computer."
+           🔑 AN INTERSTITIAL, DELIBERATELY OUTSIDE THE NUMBERED STEP COUNT, exactly
+           like the Success screen (step 1) is. It is NOT an fr-pane-N, so frGo's
+           numbered loop never touches it -- `frShowExplainer` shows it (from the
+           Success screen's button) and frGo hides it on entering any numbered step.
+           This was chosen over a numbered pane precisely to avoid renumbering the
+           whole 1..7 flow (+ its 7 browser-checks) for a copy screen, AND because
+           the two natural fold-hosts (Success, Welcome) are both Josh-RULED
+           scope-locked surfaces that must not carry this content.
+           ⚠️ SCOPE: this is for the LEGITIMATE, UNAVOIDABLE prompts (Accessibility,
+           background-activity notices). The prompts we CAN suppress -- the app
+           disk-scan Documents access -- STAY suppressed (#2148/#2125 slice 1); this
+           screen never excuses a prompt we could have avoided. -->
+      <div class="fr-pane" id="fr-pane-intro" hidden>
+        <p>You&rsquo;re setting up agents to work on this computer for you. As you
+           go, macOS will ask your permission for a few things: letting an agent
+           reach a folder, work in your other apps, or keep running in the
+           background.</p>
+        <p>That is expected, and it is how you stay in control: each prompt is
+           macOS asking whether to let your agents do the very thing you are setting
+           them up to do. Allow them and your agents can get to work.</p>
+      </div>
       <div class="fr-pane" id="fr-pane-1" hidden>
         <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
              like step 4's #fr-checks: a region inserted and populated in one
@@ -34120,6 +34145,39 @@ function frActions(primary, alt) {
   }
 }
 
+// #2163: show the pre-flight expectations interstitial. It stands OUTSIDE the
+// numbered step count (exactly like the Success screen, step 1): no segment, the
+// "Kosmos setup" spoken label, and it is reached ONLY from the Success screen's
+// button. Its Continue enters the numbered flow at Welcome (frGo(2)), and frGo
+// hides this interstitial on the way in. Not deep-linkable and not counted -- a
+// reload returns to Success, which is the correct forward-only behaviour.
+// 📌 It deliberately does NOT set FR_STEP or bump FR_RETURN_GEN (unlike frGo):
+// FR_STEP stays 1 (the connect/recheck guards all key on `=== 3` and correctly
+// no-op), and a late frPaintReturn async repaint lands in the now-hidden fr-pane-1
+// and is re-guarded when the interstitial's Continue calls frGo(2) (which bumps the
+// generation). So leaving the return screen via the interstitial relies on that
+// frGo(2) to advance the generation, and that is safe here.
+function frShowExplainer() {
+  for (let i = 1; i <= FR_STEPS; i += 1) {
+    document.getElementById('fr-pane-' + i).hidden = true;
+  }
+  document.getElementById('fr-pane-intro').hidden = false;
+  document.getElementById('fr-eyebrow').textContent = 'What to expect';
+  document.getElementById('fr-title').textContent = 'A quick heads-up before we begin.';
+  document.getElementById('fr-step').textContent = 'Kosmos setup';
+  document.getElementById('fr-segs').innerHTML = '';
+  document.getElementById('fr-forgot').innerHTML = '';
+  FR_FORGOT = false;
+  frActions({ label: 'Continue', go: () => frGo(2) });
+  // #2163: focus the new screen's title, exactly as frGo does on every numbered
+  // step. #fr-title carries tabindex="-1" for this (WCAG 2.1 SC 4.1.3, the
+  // project floor): without it, "Set up Kosmos" moves a sighted user to a new
+  // screen but announces NOTHING to a screen-reader user -- the exact defect the
+  // focus line exists to prevent, which an interstitial that only rewrote the
+  // title text would reintroduce for the one new screen.
+  document.getElementById('fr-title').focus();
+}
+
 function frGo(step) {
   /**
    * ⚠️ CLAMPED TO A WHOLE STEP THAT EXISTS, because `?fr-step=` is a deep link
@@ -34160,6 +34218,10 @@ function frGo(step) {
   for (let i = 1; i <= FR_STEPS; i += 1) {
     document.getElementById('fr-pane-' + i).hidden = (i !== step);
   }
+  // #2163: the pre-flight expectations interstitial is OUTSIDE the numbered loop
+  // above, so entering any numbered step must hide it explicitly (it is only ever
+  // shown by frShowExplainer, from the Success screen's button).
+  document.getElementById('fr-pane-intro').hidden = true;
   // Spoken counts match the drawn segments: the intro stands outside the
   // count (no segments), and Welcome..agents are six.
   document.getElementById('fr-step').textContent =
@@ -34180,7 +34242,10 @@ function frGo(step) {
     document.getElementById('fr-title').textContent = 'Kosmos is now installed on this computer.';
     // The machine look paints the Applications-folder row; the actions are
     // this branch's (the fork moved back to the endings with the spec).
-    frActions({ label: 'Set up Kosmos', go: () => frGo(2) });
+    // #2163: the Success screen leads into the pre-flight expectations
+    // interstitial (frShowExplainer), which then continues into the numbered
+    // flow (frGo(2), Welcome). "Set up Kosmos" is unchanged as the label.
+    frActions({ label: 'Set up Kosmos', go: () => frShowExplainer() });
     frPaintReturn();
   } else if (step === 2) {
     document.getElementById('fr-title').textContent = 'Create and manage AI agents that work for you.';

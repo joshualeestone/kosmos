@@ -47,16 +47,23 @@ async function stepForAnchor(page, anchorSel) {
 }
 
 /**
- * The wizard's total step count, read from the STATIC panes in the DOM
+ * The wizard's total NUMBERED step count, read from the STATIC panes in the DOM
  * (the fr-pane-N divs shipped in index.html). This is deliberately a DIFFERENT
  * source from the crumb ("Step N of M") and the progress segments, which frGo()
  * builds dynamically from the app's own FR_STEPS constant -- so a check can
  * assert the dynamic count against this static one and catch a build where the
  * two disagree, instead of pinning a literal that goes stale on the next
  * insertion.
+ *
+ * 🔑 COUNTS ONLY fr-pane-<number>, MATCHING THE DOC ABOVE (#2163). The
+ * pre-flight expectations interstitial (fr-pane-intro) carries the `.fr-pane`
+ * class for its styling but is deliberately OUTSIDE the numbered step count
+ * (like the Success screen conceptually is), so it must not inflate this. A bare
+ * `.fr-pane` count included it and broke the segments==(panes-1) cross-check.
  */
 async function paneCount(page) {
-  return page.$$eval('.fr-pane', (panes) => panes.length);
+  return page.$$eval('.fr-pane', (panes) =>
+    panes.filter((p) => /^fr-pane-\d+$/.test(p.id || '')).length);
 }
 
 /**
