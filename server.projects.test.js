@@ -2538,6 +2538,14 @@ test('#2239: a multi-paragraph post stays ONE line per row in the text view, tho
       'the text row is not one flattened line');
     assert.ok(!/\n\s*A (first|second) paragraph/.test(text),
       'a paragraph spilled onto its own gutterless line in the text view');
+    // A break adjacent to an indented continuation must not leave a double
+    // space in the flattened row (\s+ collapse, not \n+).
+    const posted2 = await post(`/api/project/${project.id}/room`,
+      { text: 'alpha\n  bravo charlie is a long enough line to survive' });
+    assert.equal(posted2.status, 200, posted2.body);
+    const text2 = (await req(`/api/project/${project.id}/room?as=text`)).body;
+    assert.match(text2, /operator -> zeta: alpha bravo charlie/, 'the row did not flatten cleanly');
+    assert.ok(!/alpha {2,}bravo/.test(text2), 'the flatten left a double space where a break met indentation');
   });
 });
 
