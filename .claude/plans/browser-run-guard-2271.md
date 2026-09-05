@@ -28,3 +28,18 @@ worse than full isolation (a SKIP loses coverage every busy run; isolation keeps
   mechanism); empty dir -> rc=0 (pass, the fix). The two new test arms encode both directions.
 - Keeps the guard's real job provable: the "refuses while a page layer is live" and the
   KOSMOS_BC_REALPATH arms are untouched; a real concurrent page layer still refuses.
+
+
+## iter1 review disposition (converged)
+Blind reviewer: no BLOCKER; 5 STRENGTHs (marker-dir isolation reaches every arm; no pre-existing arm
+weakened; the new marker arm is a faithful #2215 marker keyed on a token unique to the marker path;
+red-capable by construction - the empty-dir arm is the equivalent negative control of the marker arm;
+the guard's real purpose stays provable). One WARNING was PRE-EXISTING and OUT OF SCOPE, one NIT
+matched an existing pattern - zero NEW actionable findings against this change, so converged on iter1.
+
+Pre-existing finding to route separately (NOT introduced here, NOT fixed here to keep this PR focused):
+the opt-in KOSMOS_BC_REALPATH arm's `live_count` helper (test-browser-run-guard.sh ~111-115,151)
+parses a refusal token (" live; first: " / "Mac (<n> live;") that the guard's CURRENT message
+(cut-guard.sh:301) no longer emits, so under KOSMOS_BC_REALPATH=1 the delta assertion would fail. It
+is in untouched code and only runs in the opt-in REALPATH path (skipped by default, never in the cut),
+so it does not block this change or affect a cut. Worth its own card.
