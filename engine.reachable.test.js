@@ -46,6 +46,7 @@ const EXCUSED = {
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',
   currentChildPid: 'test seam: reads the tunnel supervisor child pid to assert its lifetime deterministically',
   setRelay: 'engine/remote.js: dormant until the Kosmos-team Settings surface wires the self-host relay field; validated here so garbage is refused at set time. Its siblings (setOn, status, ...) escape this sweep only because their names collide with words in other files; setRelay is unique, so it is named here rather than passing by luck.',
+  maybeSend: 'engine/feedbacksend.js #2037 transmit: the gated feedback-report send seam, shipped first (default OFF) so the collector (#2246) has the exact payload contract to build against. Dormant until the #2037 UI slice (PR-C) wires the trigger (a board-side send, not the short-lived CLI which cannot fire-and-forget) + the Settings/setup opt-in + the default-ON flip -- a default and its control land together (#2013). Named here because "maybeSend" is unique to this file; the /api/feedback POST route has no caller today, so wiring the seam there would be cosmetic, the exact orphan-one-level-up this guard catches.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
 };
