@@ -39,8 +39,8 @@
  *
  * STATED LIMIT (do not oversell this): the ratchet only covers Windows-hostility
  * that takes one of the ENUMERATED syntactic shapes below. The known corpus fits
- * the four families; a subtler assumption (\r\n vs \n in a file the Windows side
- * parses, a case-insensitive-FS assumption, a POSIX-only child process) would
+ * the enumerated families; a subtler assumption (\r\n vs \n in a file the Windows
+ * side parses, a case-insensitive-FS assumption, a POSIX-only child process) would
  * slip through. This reduces the surface; it does not close it. See
  * docs/windows-source-coupling-1732.md.
  *
@@ -197,9 +197,23 @@ const FAMILIES = [
   {
     name: 'env-home',
     // process.env.HOME is undefined on Windows (it is USERPROFILE there);
-    // os.homedir() is portable. Catches dot and bracket access; a destructure
-    // (const {HOME} = process.env) is not caught -- documented in the doc's limits.
+    // os.homedir() is portable. Catches dot and bracket access. The DESTRUCTURE
+    // spelling (const {HOME} = process.env) is caught by the sibling family
+    // `env-home-destructure` below (#1732 follow-up: closing a documented gap).
     re: /process\.env(?:\.HOME\b|\[\s*(['"])HOME\1\s*\])/,
+  },
+  {
+    name: 'env-home-destructure',
+    // The destructure spelling of the env-home coupling: `const {HOME} = process.env`
+    // (also let/var, and HOME among other keys). Off Windows HOME is set so it reads
+    // fine; on Windows it is undefined (USERPROFILE is the var), so a HOME pulled out
+    // this way and used as a path root fails invisibly, exactly like the dot/bracket
+    // form. Left uncaught by the env-home regex and documented as a gap in
+    // docs/windows-source-coupling-1732.md; closed here because it has a low-noise
+    // signature (destructuring HOME out of process.env is almost never benign -- the
+    // reason to extract it is to use it as a path). `\bHOME\b` is word-bounded so
+    // HOMEBREW / HOME_DIR do not match. os.homedir() is the portable form.
+    re: /(?:const|let|var)\s*\{[^}]*\bHOME\b[^}]*\}\s*=\s*process\.env\b/,
   },
   {
     name: 'fs-const-platform-flag',

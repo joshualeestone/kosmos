@@ -55,13 +55,20 @@ Do **not** reach for a hardcoded separator/root at all:
 | a hardcoded `'\n'` written to a file the Windows side re-parses | `os.EOL`, or normalize on read |
 
 This table is remediation **advice**. It is NOT the same as what the ratchet
-auto-scans: four families are scanned - `path-delimiter-literal`,
-`fs-root-literal`, `env-home`, and `fs-const-platform-flag` (an `fs.constants`
-open flag that is undefined on win32 - `O_NOFOLLOW`/`O_SYMLINK`/`O_NONBLOCK` and
-the rest of the win32-undefined set; the always-defined flags are deliberately
-not matched). Manual `a + '/' + b` concat and hardcoded `'\n'` EOL are advice
-here but not scanned (concat is dominated by legitimate URL building; EOL has no
-low-noise syntactic signature). Use the portable form anyway.
+auto-scans: five families are scanned - `path-delimiter-literal`,
+`fs-root-literal`, `env-home`, `env-home-destructure`, and
+`fs-const-platform-flag` (an `fs.constants` open flag that is undefined on
+win32 - `O_NOFOLLOW`/`O_SYMLINK`/`O_NONBLOCK` and the rest of the win32-undefined
+set; the always-defined flags are deliberately not matched). `env-home-destructure`
+was added as a #1732 follow-up to close the documented destructure gap
+(`const {HOME} = process.env`); it has a low-noise signature because extracting
+HOME from `process.env` is almost never benign. Manual `a + '/' + b` concat and
+hardcoded `'\n'` EOL are advice here but not scanned (concat is dominated by
+legitimate URL building; EOL has no low-noise syntactic signature - and a sweep
+for the file-read `readFileSync(...).split('\n')` shape found its one product-source
+site, `codexsession.js`, already `\r`-safe because its lines are consumed only by
+`trim()` and `JSON.parse`, both of which tolerate a trailing `\r`). Use the
+portable form anyway.
 
 ## The ratchet: `engine/windows-coupling-audit-1732.test.js`
 
@@ -83,7 +90,8 @@ an in-file `INVENTORY` with a disposition + one-line reason, and:
 
 Every arm is perturbation-proven: reverting the github.js fix reds the coupling
 arm **and** the github pin; a synthetic new `.split(':')` or `fs.constants.O_SYMLINK`
-reds the coupling arm; neutralizing a classified site reds the stale arm;
+reds the coupling arm; a synthetic `const {HOME} = process.env` reds the
+`env-home-destructure` arm; neutralizing a classified site reds the stale arm;
 dropping securewrite's `(NOFOLLOW || 0)` guard reds the #1776 pin; the unmodified
 tree is green.
 
@@ -120,9 +128,24 @@ inventory row clears each.
 
 The family regexes catch the common spellings (a split/join on a quoted `:`/`;`
 with optional whitespace or a limit arg; `process.env.HOME` by dot or bracket
-access) but not every spelling: a **destructure** (`const {HOME} = process.env`)
-and a separator held in a **variable** are not matched. These are part of the
-enumerated-shapes floor above, not separate promises.
+access, and now the `const {HOME} = process.env` **destructure** via the
+`env-home-destructure` family). A separator held in a **variable** is still not
+matched - a variable can hold anything, so a regex for it is nearly all
+false-red; it stays part of the enumerated-shapes floor, not a separate promise.
+
+**Completeness sweep (#1732 follow-up).** The product-source scope was swept for
+every named-but-unscanned shape, to record what "find all instances" actually
+turned up: the HOME **destructure** (now a family, no product instance today);
+**bare-command spawn** and **executable-extension** (`node`/`gh`/`git`/`claude`
+by bare name) - none; **hardcoded POSIX bin paths** - only `remove.js` /
+`connect.js` / `update.js` calling `tmux` / `launchctl` / `/bin/sh`, which are
+macOS-only MECHANISMS the Windows agent replaces entirely (the #570/#2042
+lifecycle lane), not the portable-constant class; **EOL** - the one file-read
+`readFileSync(...).split('\n')` site (`codexsession.js`) is already `\r`-safe.
+So no new *fixable* instance existed in the unscanned shapes; the class was
+reduced by one documented spelling (the destructure), not closed - an unknown
+shape with no syntactic signature still slips through, which is why #1732 also
+records why a real Windows test instrument is the eventual answer.
 
 **The corpus is a FLOOR, not a ceiling. Grow it.** Every future Windows bug that
 is found should add its shape to the `FAMILIES` list (and, if it is a real fix,
