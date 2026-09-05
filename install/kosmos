@@ -1105,7 +1105,7 @@ cmd_feedback() {
   # install (missing runtime) refuse in the CLI's own voice rather than letting a
   # raw "node: No such file" surface, matching cmd_adopt's runtime guard.
   case "$sub" in
-    write|show|list)
+    write|show|list|triage)
       if [ ! -f "$NODE" ] || [ ! -x "$NODE" ] || [ ! -d "$KOSMOS_HOME/app" ]; then
         say "Kosmos cannot find its own runtime, so it cannot save or read a report."
         exit 2
@@ -1145,14 +1145,85 @@ cmd_feedback() {
       ' "$KOSMOS_HOME/app"
       exit $?
       ;;
+    triage)
+      # The RECEIVE side (#2246): read the local feedback reports and print a
+      # ranked DRAFT digest for a human to review. It NEVER opens a card and
+      # changes nothing -- the digest is input to a review step, not an action.
+      # Options: --since YYYY-MM-DD (only reports on/after that day),
+      #          --dir PATH (read reports from a directory instead of the store,
+      #                      e.g. reports collected from testers),
+      #          --cards FILE|- (open-card titles, one per line, to flag likely
+      #                      duplicates; use - to read them from stdin, e.g.
+      #                      `gh issue list --json title -q '.[].title' | ...`).
+      local t_since="" t_dir="" t_cards=""
+      while [ $# -gt 0 ]; do
+        case "$1" in
+          --since) t_since="${2:-}"; shift 2 || { say "--since needs a YYYY-MM-DD"; exit 2; } ;;
+          --dir)   t_dir="${2:-}"; shift 2 || { say "--dir needs a path"; exit 2; } ;;
+          --cards) t_cards="${2:-}"; shift 2 || { say "--cards needs a file or -"; exit 2; } ;;
+          *) say "Unknown option: kosmos feedback triage $1"; exit 2 ;;
+        esac
+      done
+      local t_cardlist=""
+      if [ -n "$t_cards" ]; then
+        if [ "$t_cards" = "-" ]; then t_cardlist="$(cat)"; else t_cardlist="$(cat "$t_cards" 2>/dev/null)" || { say "could not read cards file: $t_cards"; exit 2; }; fi
+      fi
+      KOSMOS_TRIAGE_SINCE="$t_since" KOSMOS_TRIAGE_DIR="$t_dir" KOSMOS_TRIAGE_CARDS="$t_cardlist" "$NODE" -e '
+        const app = process.argv[1];
+        const fb = require(app + "/engine/feedback");
+        const tri = require(app + "/engine/feedback-triage");
+        const nfs = require("node:fs");
+        const npath = require("node:path");
+        const since = process.env.KOSMOS_TRIAGE_SINCE || "";
+        if (since && !fb.isDateKey(since)) { console.error("--since must be YYYY-MM-DD"); process.exit(2); }
+        const dir = process.env.KOSMOS_TRIAGE_DIR || "";
+        const reports = [];
+        if (dir) {
+          let names = [];
+          try { names = nfs.readdirSync(dir); } catch (e) { console.error("cannot read --dir: " + dir); process.exit(2); }
+          for (const n of names.filter((x) => /\.md$/.test(x)).sort()) {
+            // Guard the per-file read: a subdirectory named x.md or a
+            // permission-denied file would otherwise throw a raw node trace and
+            // bypass the CLI refusing in its own voice. Skip it with a note.
+            let raw;
+            try { raw = nfs.readFileSync(npath.join(dir, n), "utf8"); }
+            catch (e) { console.error("skipping unreadable report: " + n); continue; }
+            const body = fb.stripFrontmatter(raw);
+            // A non-date filename has no day, so it gets a null date rather than
+            // a bogus label; under --since it is skipped, since a since-filter
+            // can only include reports it can confirm are on or after the day.
+            const date = /^\d{4}-\d{2}-\d{2}\.md$/.test(n) ? n.slice(0, -3) : null;
+            if (since && (date === null || date < since)) continue;
+            reports.push({ date, body });
+          }
+        } else {
+          for (const d of fb.list()) {
+            if (since && d < since) continue;
+            reports.push({ date: d, body: fb.readBody(d) });
+          }
+        }
+        const openCards = (process.env.KOSMOS_TRIAGE_CARDS || "").split("\n").map((s) => s.trim()).filter(Boolean);
+        const result = tri.triage(reports, { openCards });
+        const dates = reports.map((r) => r.date).filter(Boolean).sort();
+        // "no reports found" only when there really are none. With reports that
+        // have no dated filename (a --dir of undated notes) say so, rather than
+        // heading a digest of real items with "no reports found".
+        const range = reports.length === 0 ? "no reports found"
+          : dates.length ? (dates[0] + " .. " + dates[dates.length - 1])
+          : reports.length + " report(s), no dated filenames";
+        process.stdout.write(tri.renderDigest(result, { range }) + "\n");
+      ' "$KOSMOS_HOME/app"
+      exit $?
+      ;;
     ""|help|-h|--help)
       say "Usage: kosmos feedback write [text]      (or pipe the report in on stdin)"
       say "       kosmos feedback show [YYYY-MM-DD]  (defaults to today)"
       say "       kosmos feedback list"
+      say "       kosmos feedback triage [--since YYYY-MM-DD] [--dir PATH] [--cards FILE|-]"
       exit 2
       ;;
     *)
-      say "Unknown: kosmos feedback $sub. Try: write | show | list"
+      say "Unknown: kosmos feedback $sub. Try: write | show | list | triage"
       exit 2
       ;;
   esac

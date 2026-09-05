@@ -113,16 +113,31 @@ function read(date) {
   }
 }
 
+/** Strip a leading `---\n...\n---\n` frontmatter header if present; otherwise
+ *  return the input unchanged. The header regex consumes the header's own
+ *  trailing newline, so the remainder is returned faithfully (no leading-blank-
+ *  line stripping, which would silently drop a body the author meant to begin
+ *  with blank lines). Exported so a second reader of these files (the #2246
+ *  triage `--dir` path) strips the SAME way rather than re-implementing the
+ *  regex and drifting from this one if the header format ever changes.
+ *
+ *  KNOWN EDGE: a body that OPENS with a `---` thematic break plus another `---`
+ *  further down (e.g. `---\nHeading\n---\nbody`) is indistinguishable from
+ *  frontmatter by this regex, so that opening block is stripped. Harmless for the
+ *  store path (feedback.js always writes generated frontmatter first). For the
+ *  triage `--dir` path over arbitrary tester notes it could clip a leading rule;
+ *  low-risk and accepted rather than heuristically guessing YAML-vs-Markdown. */
+function stripFrontmatter(raw) {
+  const s = String(raw == null ? '' : raw);
+  const m = s.match(/^---\n[\s\S]*?\n---\n?/);
+  return m ? s.slice(m[0].length) : s;
+}
+
 /** Just the body (frontmatter stripped), or null when there is no report. */
 function readBody(date) {
   const raw = read(date);
   if (raw == null) return null;
-  // Strip a leading `---\n...\n---\n` header if present; otherwise the whole
-  // file. The header regex consumes the header's own trailing newline, so the
-  // remainder is returned faithfully (no leading-blank-line stripping, which
-  // would silently drop a body the author meant to begin with blank lines).
-  const m = raw.match(/^---\n[\s\S]*?\n---\n?/);
-  return m ? raw.slice(m[0].length) : raw;
+  return stripFrontmatter(raw);
 }
 
 /** True when a report exists for the day. */
@@ -143,4 +158,4 @@ function list() {
     .reverse();
 }
 
-module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, has, list };
+module.exports = { dir, dateKey, isDateKey, today, pathFor, write, read, readBody, stripFrontmatter, has, list };
