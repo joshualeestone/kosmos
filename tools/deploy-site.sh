@@ -248,6 +248,7 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/pkg-inputs.sh"
 # #1667: served-verify helpers (negative control + content-type tell) for the post-deploy checks.
+[ -f "$REPO/tools/lib/served-verify.sh" ] || { echo "deploy-site: $REPO/tools/lib/served-verify.sh is missing -- refusing (the post-deploy served-verify cannot run)"; exit 1; }
 . "$REPO/tools/lib/served-verify.sh"
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }

@@ -32,7 +32,7 @@
 served_verify_host_discriminates() {
   _svhd_host=$1
   _svhd_url="${_svhd_host}/dist/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
-  _svhd_code=$(curl -sSL -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$_svhd_url") || {
+  _svhd_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$_svhd_url") || {
     echo "served-verify: negative-control probe to ${_svhd_url} failed at the transport layer" >&2
     return 2
   }
@@ -52,7 +52,7 @@ served_verify_host_discriminates() {
 served_verify_asset_ok() {
   _svao_url=$1
   _svao_label=$2
-  _svao_hdr=$(curl -sSL -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url") || {
+  _svao_hdr=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url") || {
     echo "served-verify: could not reach ${_svao_url} (${_svao_label}) -- transport error" >&2
     return 2
   }
@@ -62,7 +62,16 @@ served_verify_asset_ok() {
     echo "served-verify: ${_svao_label} is NOT served (${_svao_code}) -- ${_svao_url}" >&2
     return 1
   fi
-  case "$_svao_ct" in
+  # #1667 tell: a real asset carries a content-type, and it is never an html page. Media types are
+  # case-insensitive (RFC 2045), so lowercase before matching -- a server sending Text/HTML must not
+  # slip through (the fleet's most-repeated false-zero class). An EMPTY content-type is also refused:
+  # a 200 with no content-type cannot be confirmed to be a real asset.
+  _svao_ct_lc=$(printf '%s' "$_svao_ct" | tr 'A-Z' 'a-z')
+  case "$_svao_ct_lc" in
+    '')
+      echo "served-verify: ${_svao_label} returned 200 but with NO content-type -- cannot confirm it is a real asset, not a page (#1667) -- ${_svao_url}" >&2
+      return 1
+      ;;
     *text/html*)
       echo "served-verify: ${_svao_label} returned 200 but its content-type is '${_svao_ct}' (expected a non-html asset) -- an html page wearing a success code (#1667) -- ${_svao_url}" >&2
       return 1

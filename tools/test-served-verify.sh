@@ -42,6 +42,13 @@ class H(http.server.BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _send_noct(self, code, body):
+        # a 200 with NO Content-Type header (send_response sends no Content-Type of its own)
+        self.send_response(code)
+        self.send_header('Content-Length', str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def do_GET(self):
         p = self.path.split('?', 1)[0]
         if p.startswith('/blind/'):
@@ -54,6 +61,11 @@ class H(http.server.BaseHTTPRequestHandler):
                 self._send(200, 'application/octet-stream', b'REALBYTES')
             elif rest == '/dist/htmlpage.bin':
                 self._send(200, 'text/html; charset=utf-8', b'<html>oops, a page not an asset</html>')
+            elif rest == '/dist/htmlcaps.bin':
+                # mixed-case media type: must still be caught (media types are case-insensitive)
+                self._send(200, 'Text/HTML; charset=utf-8', b'<html>mixed-case content-type</html>')
+            elif rest == '/dist/nocontenttype.bin':
+                self._send_noct(200, b'bytes served with no content-type at all')
             elif rest == '/setup':
                 self._send(200, 'text/plain; charset=utf-8', b'#!/bin/sh\necho setup\n')
             else:
@@ -112,6 +124,14 @@ check_rc "$rc" 0 "a 200 text/plain /setup passes (text/plain is a real asset, no
 # RED-CAPABLE: a 200 carrying text/html where an asset is expected. If this returns 0 the tell is dead.
 served_verify_asset_ok "$SOUND/dist/htmlpage.bin" "an html page at an asset path" >/dev/null 2>&1; rc=$?
 check_rc "$rc" 1 "CATCHES a 200 wearing text/html (a page not an asset)"
+
+# RED-CAPABLE: a 200 carrying MIXED-CASE Text/HTML must still be caught (media types are case-insensitive).
+served_verify_asset_ok "$SOUND/dist/htmlcaps.bin" "a 200 wearing mixed-case Text/HTML" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 1 "CATCHES a 200 wearing MIXED-CASE Text/HTML (case-insensitive, the fleet's most-repeated false-zero)"
+
+# RED-CAPABLE: a 200 with NO content-type cannot be confirmed a real asset.
+served_verify_asset_ok "$SOUND/dist/nocontenttype.bin" "a 200 with no content-type" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 1 "CATCHES a 200 with NO content-type (cannot confirm it is an asset, not a page)"
 
 served_verify_asset_ok "$SOUND/dist/does-not-exist.bin" "a missing asset" >/dev/null 2>&1; rc=$?
 check_rc "$rc" 1 "a 404 asset is caught (not served)"
