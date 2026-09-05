@@ -678,6 +678,58 @@ const OPENAI_CHAT_FAMILIES = [
 // that fails to start is the failure this card exists to prevent.
 const OPENAI_NON_CHAT = ['audio', 'realtime', 'transcribe', 'tts', 'search', 'image', 'embedding', 'moderation', 'whisper', 'dall-e', 'instruct'];
 
+/* #2140 (Josh, 0.6.35 feedback item 9): sort the OpenAI picker most-powerful-first.
+   Josh's order runs by GPT VERSION descending (5.6 > 5.5 > 5.4 > ...), then by
+   TIER within a version (Terra > Soul > Luna, Pro > plain > Nano > Mini).
+
+   THE ACTUAL BUG (measured, not assumed): a newer tier the account returns, e.g.
+   `gpt-5.6-terra`, ALREADY matched the fixed `gpt-5` prefix, so it was a
+   recognised chat model at gpt-5's rank (0) -- NOT dropped, NOT marked, NOT last.
+   The defect was ORDER: gpt-5.6-terra, gpt-5.5-pro, gpt-5.4-* all tied at rank 0
+   and fell to the `id.localeCompare` tiebreak, so `gpt-5.4-*` could sort ABOVE
+   `gpt-5.6-*` alphabetically. (Only a MAJOR bump like gpt-6 was truly 'unknown'
+   and ranked last.) So this fix is an ORDER-ONLY override, applied in
+   chatModelsFromList: a gpt id NEWER than the top fixed family gets a rank that
+   sorts it above every fixed family, by version then tier. It does NOT change
+   the model's CLASS -- a recognised gpt-5.<x> stays recognised (no marker), and
+   an unrecognised higher major (gpt-6) stays 'unknown' (keeps its
+   "compatibility not verified" marker and can never be the pre-selected default),
+   it just sorts first. Forward-compatible: gpt-6 sorts above gpt-5.6 with no code
+   change; gpt-5 and below fall through to their fixed ranks (no regression).
+
+   ⚠️ ID-FORMAT ASSUMPTION, the one thing that could make this a no-op: the parse
+   reads `gpt-<major>[.<minor>]`, OpenAI's shape (gpt-4o, gpt-4.1, gpt-5). The raw
+   /v1/models ids for the 5.6/5.5/5.4 tiers are a live per-account fetch and are
+   NOT in this repo, so this is built and tested against that shape; a non-gpt id
+   would miss the parse and fall back to its class's rank (safe, not a wrong
+   order) until the regex learns the shape. */
+const OPENAI_TOP_KNOWN_VERSION = 5; // the highest fixed family prefix (gpt-5)
+function openaiTierScore(low) {
+  // Josh's within-version order, higher score = more capable = sorts earlier.
+  if (low.includes('terra')) return 9;
+  if (low.includes('soul')) return 8;
+  if (low.includes('luna')) return 7;
+  if (low.includes('pro')) return 6;
+  if (low.includes('nano')) return 4;
+  if (low.includes('mini')) return 3;
+  return 5; // a plain version with no tier word sits between pro and nano
+}
+/* The rank for a gpt id NEWER than the top known family, or null if it is not
+   such an id. Negative so it sorts ABOVE every fixed family (min fixed rank 0);
+   higher version and higher tier => more negative => earlier. `major*1000 +
+   minor*10` leaves room for a two-digit minor (gpt-5.10 > gpt-5.6) and the tier
+   score. Pure. */
+function openaiHighTierRank(low) {
+  const m = low.match(/gpt-?(\d+)(?:\.(\d+))?/);
+  if (!m) return null;
+  const major = parseInt(m[1], 10);
+  const minor = m[2] ? parseInt(m[2], 10) : 0;
+  // Only NEWER than the top fixed family (gpt-5): a higher major, or gpt-5.<minor>
+  // for minor > 0. gpt-5 itself and everything below fall through unchanged.
+  if (!(major > OPENAI_TOP_KNOWN_VERSION || (major === OPENAI_TOP_KNOWN_VERSION && minor > 0))) return null;
+  return -((major * 1000 + minor * 10) + openaiTierScore(low));
+}
+
 /* #2140 (Astra): the /v1/models filter has THREE outcomes, not two, and the
    third is the point of this slice. An id is one of:
      - 'chat'    a recognised chat family -> offer it normally.
@@ -738,10 +790,18 @@ function chatModelsFromList(data) {
     .filter(Boolean)
     .map((id) => {
       const c = openaiModelClass(id);
-      if (c.kind === 'chat') return { id, rank: c.fam.rank, why: c.fam.why, unverified: false };
-      // #2140: an unknown id is OFFERED (ranked last, marked) rather than dropped.
-      if (c.kind === 'unknown') return { id, rank: OPENAI_UNKNOWN_RANK, why: OPENAI_UNVERIFIED_WHY, unverified: true };
-      return null; // nonchat -> dropped (#1026), never offered
+      if (c.kind === 'nonchat') return null; // dropped (#1026), never offered
+      /* #2140 item 9: a gpt id NEWER than the top fixed family (gpt-5) sorts to
+         the TOP by version then tier. This is an ORDER override only -- it does
+         NOT change the class: a recognised gpt-5.<x> (already chat via the gpt-5
+         prefix) keeps its recognised status and family why; an unrecognised
+         higher major (gpt-6) stays 'unknown', keeping its unverified marker and
+         never-default status, it just sorts first. */
+      const hi = openaiHighTierRank(String(id).toLowerCase());
+      if (c.kind === 'chat') return { id, rank: hi != null ? hi : c.fam.rank, why: c.fam.why, unverified: false };
+      // unknown: still OFFERED and still marked unverified; ranked at top only if
+      // it parses as a newer version, else last (the #2217 behaviour).
+      return { id, rank: hi != null ? hi : OPENAI_UNKNOWN_RANK, why: OPENAI_UNVERIFIED_WHY, unverified: true };
     })
     .filter(Boolean);
   /* #2191: collapse dated snapshots to one representative per base, so the
