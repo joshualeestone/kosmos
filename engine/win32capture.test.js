@@ -1,0 +1,225 @@
+'use strict';
+/**
+ * #570: the win32 live-STATE source (the `capture-pane` analog). win32capture
+ * joins the ownership record (recorded-name <-> sessionId) with `claude agents
+ * --json` (sessionId <-> status) to answer a pane's live status, and classify()'s
+ * win32 arm maps that token to a STATE. These tests drive the join directly AND
+ * run it end-to-end through the REAL status.js (parsePanes -> classify ->
+ * reconcileReport via snapshot), so what the capture produces is exactly what the
+ * board reads.
+ *
+ *   node --test engine/win32capture.test.js
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+// Sandbox data root BEFORE requiring anything that reads the store, so neither
+// the real ownership record nor real self-reports leak into these tests.
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'win32capture-570-'));
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+
+const status = require('./status');
+const win32capture = require('./win32capture');
+const win32roster = require('./win32roster');
+
+// A live `claude agents --json` row (interactive). NOTE the live `name` is the
+// cwd-derived one Claude picks, DELIBERATELY different from the recorded Kosmos
+// name, to prove the join goes through the sessionId and not the name.
+const live = (sessionId, status, name) =>
+  ({ pid: 1, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId, name, status });
+
+// The ownership record shape win32sessions.read() returns: sessionId -> {name,...}.
+const recordOf = (map) => ({ read: () => map });
+
+test('#570 capture joins recorded-name -> sessionId -> live status (NOT by live name)', () => {
+  const cap = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'raph-cwdname')],
+    record: recordOf({ 'sid-1': { name: 'raph-9a', runner: 'claude' } }),
+  });
+  // target is `${session}:${pane}` and win32roster emits session = RECORDED name.
+  assert.equal(cap('raph-9a:0.0'), 'busy',
+    'status found by joining the recorded name through the sessionId to the live row');
+  // The live cwd-name is NOT how the board addresses it, so it must not resolve.
+  assert.equal(cap('raph-cwdname:0.0'), null,
+    'the live cwd-derived name is not the recorded name and must not join');
+});
+
+test('#570 the join keys on flat(name) and rejects invisible names, matching what the roster emits', () => {
+  // A recorded name carrying a tab: the roster emits the FLATTENED session name
+  // (win32roster.flat -> single space), so the capture must key on the same
+  // flattened value or the join silently misses.
+  const cap = win32capture.make({
+    run: () => [live('sid-tab', 'busy', 'x'), live('sid-blank', 'idle', 'y')],
+    record: recordOf({
+      'sid-tab': { name: 'has\ttab', runner: 'claude' },
+      'sid-blank': { name: '   ', runner: 'claude' },   // invisible: roster emits no row
+    }),
+  });
+  assert.equal(cap('has tab:0.0'), 'busy', 'looked up by the FLATTENED name the roster emits');
+  assert.equal(cap('has\ttab:0.0'), null, 'the raw unflattened name is not how the roster addresses it');
+  assert.equal(cap('   :0.0'), null, 'an invisible name is rejected (validName), never keyed as a blank');
+});
+
+test('#570 empty recorded name falls back to the LIVE name, matching what the roster emits', () => {
+  // A hand-corrupted store (record() enforces validName, so this is not reachable
+  // normally): the recorded name is empty. The roster emits the row by the LIVE
+  // name (flat(rec.name || a.name)); the capture must key on the same live name or
+  // that pane reads UNKNOWN forever. This proves the key set EQUALS the roster's
+  // emitted set, not merely a subset.
+  const cap = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'live-name-x')],
+    record: recordOf({ 'sid-1': { name: '', runner: 'claude' } }),
+  });
+  assert.equal(cap('live-name-x:0.0'), 'busy', 'resolved by the live name the roster falls back to');
+});
+
+test('#570 parity for a non-string live name: roster emits it AND capture resolves it (end to end)', () => {
+  // A hand-corrupted/edge fixture: recorded name empty, live name a truthy
+  // non-string. The roster resolves flat(rec.name || a.name) = flat(12345) =
+  // "12345" and emits a row; the capture must key on the SAME value or that row
+  // reads UNKNOWN forever. This is the a.name half of the byte-identical parity.
+  const agents = [{ pid: 1, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-n', name: 12345, status: 'busy' }];
+  const record = { 'sid-n': { name: '', runner: 'claude' } };
+  const rec = { read: () => record };
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === '12345');
+    assert.ok(a, 'the roster emits the row by the coerced live name');
+    assert.equal(a.state, status.STATE.WORKING, 'and the capture resolves its status by the SAME name (parity holds)');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
+test('#570 an UNRECOGNISED status token yields UNKNOWN, never a guessed state (end to end)', () => {
+  // The path most likely to surface if `claude agents --json` gains new status
+  // values beyond busy/idle: the capture returns the token, and classify's win32
+  // arm maps anything that is not busy/idle to UNKNOWN rather than a guess.
+  const agents = [live('sid-1', 'compacting', 'x')];
+  const record = { 'sid-1': { name: 'novel-1', runner: 'claude' } };
+  const rec = { read: () => record };
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === 'novel-1');
+    assert.ok(a, 'the session is on the board');
+    assert.equal(a.state, status.STATE.UNKNOWN, 'an unrecognised status token -> UNKNOWN, not a guessed working/idle');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
+test('#570 an UNRECORDED live session has no capture (fail-closed parity with the roster)', () => {
+  const cap = win32capture.make({
+    run: () => [live('sid-op', 'busy', 'agent1-d2')],   // operator's own, not recorded
+    record: recordOf({}),
+  });
+  assert.equal(cap('agent1-d2:0.0'), null, 'an unrecorded session yields no status');
+});
+
+test('#570 a THROWING run() or record.read() degrades to null, never propagates (never-throw contract)', () => {
+  // A paneCapture must return null on failure, not throw -- a thrown exception would
+  // propagate out of snapshot() and blank the whole board's tick. Production's
+  // run/record swallow to null/{}, but the injected seam must be defended too.
+  const throwRun = win32capture.make({
+    run: () => { throw new Error('agents --json blew up'); },
+    record: recordOf({ 'sid-1': { name: 'a' } }),
+  });
+  assert.doesNotThrow(() => throwRun('a:0.0'), 'a throwing run() must not propagate');
+  assert.equal(throwRun('a:0.0'), null, 'a throwing run() -> null -> UNKNOWN');
+
+  const throwRecord = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'x')],
+    record: { read: () => { throw new Error('record read blew up'); } },
+  });
+  assert.doesNotThrow(() => throwRecord('a:0.0'), 'a throwing record.read() must not propagate');
+  assert.equal(throwRecord('a:0.0'), null, 'a throwing record.read() -> null -> UNKNOWN');
+
+  // now() is an injected callable too -- a throwing clock must degrade, not propagate.
+  const throwNow = win32capture.make({
+    run: () => [live('sid-1', 'busy', 'a')],
+    record: recordOf({ 'sid-1': { name: 'a' } }),
+    now: () => { throw new Error('clock blew up'); },
+  });
+  assert.doesNotThrow(() => throwNow('a:0.0'), 'a throwing now() must not propagate');
+  assert.equal(throwNow('a:0.0'), null, 'a throwing now() -> null -> UNKNOWN');
+});
+
+test('#570 a FAILED live read refuses with null, never a state', () => {
+  const cap = win32capture.make({
+    run: () => null,   // claude agents --json unreadable
+    record: recordOf({ 'sid-1': { name: 'raph-9a' } }),
+  });
+  assert.equal(cap('raph-9a:0.0'), null, 'a failed read is null (classify -> UNKNOWN), not a guessed idle');
+});
+
+test('#570 one read per TTL window: per-pane calls in a tick share a single agents --json read', () => {
+  let reads = 0;
+  let clock = 1000;
+  const cap = win32capture.make({
+    run: () => { reads++; return [live('sid-1', 'busy', 'x'), live('sid-2', 'idle', 'y')]; },
+    record: recordOf({ 'sid-1': { name: 'a' }, 'sid-2': { name: 'b' } }),
+    now: () => clock,
+    ttlMs: 1500,
+  });
+  cap('a:0.0'); cap('b:0.0'); cap('a:0.0');
+  assert.equal(reads, 1, 'three per-pane calls in one tick = one read');
+  clock += 2000;   // past the TTL
+  cap('a:0.0');
+  assert.equal(reads, 2, 'a call past the TTL re-reads');
+});
+
+test('#570 END TO END: a win32 pane classifies working/idle through REAL snapshot (no self-report -> scrape stands)', () => {
+  const agents = [
+    live('sid-work', 'busy', 'work-cwd'),
+    live('sid-idle', 'idle', 'idle-cwd'),
+    live('sid-op', 'busy', 'agent1-d2'),   // operator's own, unrecorded -> invisible
+  ];
+  const record = {
+    'sid-work': { name: 'worker-7', runner: 'claude' },
+    'sid-idle': { name: 'idler-3', runner: 'claude' },
+  };
+  // Wire BOTH seams from the SAME fixtures, exactly as server.js wires them on win32.
+  // Both take the same injected record so the roster's fail-closed filter and the
+  // capture's join agree by construction (in production both read the one real store).
+  const rec = { read: () => record };
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec }));
+  try {
+    const board = status.snapshot();
+    const work = board.agents.find((a) => a.sessionName === 'worker-7');
+    const idle = board.agents.find((a) => a.sessionName === 'idler-3');
+    const op = board.agents.find((a) => a.sessionName === 'agent1-d2');
+    assert.ok(work, 'the recorded busy session is on the board');
+    assert.equal(work.state, status.STATE.WORKING, 'busy -> working, through the real classify + reconcileReport');
+    assert.ok(idle, 'the recorded idle session is on the board');
+    assert.equal(idle.state, status.STATE.IDLE, 'idle -> idle');
+    assert.equal(op, undefined, 'the unrecorded operator session never reaches the board (roster fail-closed)');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
+test('#570 END TO END: a win32 pane whose live read fails reads UNKNOWN, not stopped/idle', () => {
+  const agents = [live('sid-1', 'busy', 'x')];
+  const record = { 'sid-1': { name: 'lonely-1', runner: 'claude' } };
+  const rec = { read: () => record };
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));   // roster sees it (live+recorded)
+  status.setPaneCapture(win32capture.make({ run: () => null, record: rec }));    // capture read FAILS
+  try {
+    const board = status.snapshot();
+    const a = board.agents.find((x) => x.sessionName === 'lonely-1');
+    assert.ok(a, 'the session is still on the board (the roster read succeeded)');
+    assert.equal(a.state, status.STATE.UNKNOWN, 'a failed state read is UNKNOWN, never a confident idle/stopped');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
