@@ -3448,12 +3448,16 @@ fi
 # setup.sh is the single funnel both paths share; a second write in update.js would be
 # redundant and could diverge. (Flagged to Mona Lisa, the read-side author.)
 #
-# store.ROOT mirrors engine/store.js dataRootFor for this macOS-only installer: an
-# AGENT_WORKFORCE_DATA override (the sandbox the tests seed), else Application Support.
+# store.ROOT mirrors engine/store.js dataRootFor (via its root() caller, store.js:158) for
+# this macOS-only installer: an AGENT_WORKFORCE_DATA override (the sandbox the tests seed),
+# else AGENT_WORKFORCE_HOME (the general engine home seam, #1780), else $HOME. The
+# AGENT_WORKFORCE_HOME arm is load-bearing: root() reads AGENT_WORKFORCE_HOME||os.homedir(),
+# so a bare $HOME here would write under a different root than the board reads when that seam
+# is set (DATA unset), and the badge would silently never light.
 if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then
   _wf_data_root="$AGENT_WORKFORCE_DATA/AgentWorkforce"
 else
-  _wf_data_root="$HOME/Library/Application Support/AgentWorkforce"
+  _wf_data_root="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support/AgentWorkforce"
 fi
 if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
 if mkdir -p "$_wf_data_root" 2>/dev/null; then
