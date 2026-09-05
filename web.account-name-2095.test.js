@@ -99,6 +99,17 @@ test('#2095 CONTROL: two accounts typed the SAME name are counted ambiguous and 
   assert.equal(qa, 'main', 'the original account reads (main)');
 });
 
+test('#2095: the Settings add-a-provider "Added" toast leads with the entered name', () => {
+  // Source-pinned (the OpenAI add is inside an async fetch handler, the same reason
+  // web.connect-success-1656.test.js pins its wiring): the confirmation must prefer
+  // the human-chosen name over the key last-4, matching the list it repaints.
+  const at = PAGE.indexOf("getElementById('acct-openai-go').addEventListener");
+  assert.notEqual(at, -1, 'the OpenAI add handler is gone from the page');
+  const handler = PAGE.slice(at, at + 1600);
+  assert.match(handler, /msg\.textContent = 'Added' \+ \(enteredLabel \?/,
+    'the Added toast no longer leads with the entered name (it went back to key-only)');
+});
+
 test('#2095 CONTROL: a UNIQUE name gets no qualifier (no noise on the common case)', () => {
   const list = [
     { provider: 'openai', keyTail: 'AAAA', name: 'work',     dir: '/x/.codex-a', isDefault: true },

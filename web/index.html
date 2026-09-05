@@ -14378,6 +14378,13 @@ let ACCT_PICKER_EPOCH = 0;
    finding-8/9 semantics and its own 'key ending' spelling, but the name portion
    is now this one function everywhere. */
 function acctChosenName(a) {
+  /* Deliberately NOT provider-gated: it answers "what did the user type as a name",
+     and a name is a name whoever carries it. Today only OpenAI accounts get one
+     (`readName` is OpenAI-only, so a.name is absent for Claude), which is why
+     acctHasChosenName -- the SECONDARY-key-detail gate, which needs a keyTail --
+     does gate on openai. If a Claude account ever grew a name, acctPrimaryName would
+     rightly show it as the primary label and acctHasChosenName would still be false
+     (no keyTail to demote), which is the correct behaviour, not a bug. */
   return a && typeof a.name === 'string' ? a.name.trim() : '';
 }
 function acctPrimaryName(a) {
@@ -15828,7 +15835,8 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     keyField.value = '';
     labelField.value = '';
     const a = out && out.account;
-    msg.textContent = 'Added' + (a && a.keyTail ? ': API key ending ' + a.keyTail : '') + '.';
+    // #2095: lead with the entered name (matching the list + the 15833 toast); key last-4 fallback.
+    msg.textContent = 'Added' + (enteredLabel ? ': ' + enteredLabel : (a && a.keyTail ? ': API key ending ' + a.keyTail : '')) + '.';
     await paintAccounts();
     acctShowSuccess(enteredLabel || (a && a.keyTail ? 'your OpenAI account (key ending ' + a.keyTail + ')' : 'your OpenAI account'));
   } catch (err) {

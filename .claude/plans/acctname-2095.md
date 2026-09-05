@@ -64,9 +64,11 @@ drift-risk of leaving one surface on the old chain worse than the widening.
   (#612 gate).
 - Full frontend suite `web.*.test.js`: 1071/1071.
 
-## Not in scope (deferred, follow-up warranted)
-- The post-connect add-confirmation messages ("Added: API key ending X", web/index.html ~15831 and
-  the first-run ~36335) still show the key, not the name. This is a different surface (a transient
-  toast, not the persistent account display the card names). The first-run site does not have the
-  entered name in scope, and a half-fix (only the one site that does) would make the two toasts
-  disagree with each other. Left for a follow-up card.
+## Post-connect confirmation toasts
+- The Settings add-a-provider "Added" toast (web/index.html ~15831) now leads with the entered
+  name when one was typed (falling back to the key last-4), matching the account list it repaints
+  and the success toast beside it. Three review passes flagged the name/key inconsistency here and
+  the entered name is in scope one line away, so it earned the fix.
+- The FIRST-RUN "Added" toast (~36354) still shows the key: it is a separate flow where the entered
+  name is not in scope, so surfacing it there means threading the name through first-run paint code,
+  beyond this card's two named surfaces. Left for a follow-up card.
