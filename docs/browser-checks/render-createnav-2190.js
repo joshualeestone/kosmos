@@ -6,7 +6,7 @@
 // Hermetic: loads web/index.html over file://, boots no server. It drives the
 // REAL create-go handler by stubbing fetch for /api/roles (so a role is picked
 // and validation passes) and /api/agents (so we control the outcome), then
-// asserts the SCREEN state after the click — the navigation, which is the card's
+// asserts the SCREEN state after the click, the navigation, which is the card's
 // core. The K-loader animation's visual quality is deliberately NOT asserted here
 // (it is Josh's in-app review); we only assert the loader was started as state.
 const nodePath = require('node:path');
