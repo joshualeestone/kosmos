@@ -34343,6 +34343,13 @@ function frGo(step) {
     // not-trusted reading and re-enables the instant the user turns it on -- so a
     // browser (uncheckable) and any read failure fail SAFE (Continue stays live).
     document.getElementById('fr-title').textContent = 'Let your agents work in your other apps.';
+    // The gate is soft-open at entry BY DESIGN: frActions paints Continue enabled, and
+    // frPollA11y (async) only disables it once the first reading resolves as a positive
+    // not-trusted. So a not-trusted user can click Continue in the ~fetch-latency window
+    // before the first poll lands. That is the correct trade for a FAIL-SAFE gate -- the
+    // gate is soft-open at entry, never soft-closed (it never blocks on an unmeasured or
+    // unreadable state), and never false-blocks; a hard-close-at-entry would strand a
+    // browser tester and an unreadable machine. The 1.5s poll re-checks continuously.
     frActions({ label: 'Continue', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(6); } });
     frA11yStop();
     const a11yGen = ++FR_A11Y_GEN;

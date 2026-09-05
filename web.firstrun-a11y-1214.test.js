@@ -47,9 +47,12 @@ test('kosmos#1214/#1940/#2125: the first-run Accessibility pane offers the butto
   // when fr-next is not disabled; frPollA11y disables it on a POSITIVE not-trusted
   // reading and re-enables it the instant the user grants -- a browser (uncheckable)
   // and any read failure fail SAFE, so Continue stays live. Assert the GATED mechanism.
-  assert.match(SCRIPT, /step === 5[\s\S]{0,1400}frActions\(\{ label: 'Continue', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(6\); \} \}\)/,
+  // Slice the step-5 branch and match within it -- robust to comment growth, unlike a
+  // fixed-distance `step === 5[\s\S]{0,N}` window (which a later comment can push past).
+  const step5 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 5) {'), SCRIPT.indexOf('} else if (step === 6) {'));
+  assert.match(step5, /frActions\(\{ label: 'Continue', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(6\); \} \}\)/,
     'the Accessibility step Continue is GATED -- proceeds to step 6 only when not disabled by the check (#2125 supersedes offer-not-require)');
-  assert.match(SCRIPT, /step === 5[\s\S]{0,1400}frPollA11y\(/,
+  assert.match(step5, /frPollA11y\(/,
     'step 5 starts the Accessibility gate poll (frPollA11y), which drives the disabled state');
   assert.doesNotMatch(OFFER, /This one is optional/,
     '#1940: the redundant in-pane optional line is gone');

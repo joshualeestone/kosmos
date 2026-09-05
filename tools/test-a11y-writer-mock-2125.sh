@@ -111,6 +111,31 @@ AGENT_WORKFORCE_DATA="$d4" KOSMOS_AXCHECK_FORCE_TRUSTED=maybe "$BIN" --kosmos-ap
 check "a non-0/1 mock value falls through to a real, checkable reading" "checkable" \
   "$(engine_verdict "$d4" | cut -d/ -f1)"
 
+# --- the REAL under-tmux execution path (the runtime spawn shape, not a direct call) -
+# startA11yTrustChecks spawns the hatch UNDER a private tmux server (-L kosmos-axcheck)
+# so macOS attributes the AX read to tmux. That execution path -- the command-string
+# quoting, the private socket, and (the testable half) env propagation into the new
+# session -- is otherwise exercised by NO test; every check above invokes the binary
+# DIRECTLY. A private -L socket is a FRESH tmux server, so it inherits the parent
+# environment: AGENT_WORKFORCE_DATA reaches the hatch and it resolves the SAME store the
+# board reads (measured -- a tmux-not-propagating regression would red the store-path
+# check below). The ATTRIBUTION half (does under-tmux report tmux's trust or the app's?)
+# is NOT what this tests -- that needs a fresh install and is the deferred #2125 gate.
+if command -v tmux >/dev/null 2>&1; then
+  d5="$tmp/data-tmux"
+  sock="kosmos-axcheck-mocktest.$$"
+  AGENT_WORKFORCE_DATA="$d5" KOSMOS_AXCHECK_FORCE_TRUSTED=0 \
+    tmux -L "$sock" new-session -d "'$BIN' --kosmos-app-axcheck"
+  # the hatch is detached; poll briefly for its write, then tear down the private server.
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -f "$d5/AgentWorkforce/a11y-status.json" ] && break; sleep 0.3; done
+  tmux -L "$sock" kill-server >/dev/null 2>&1
+  check "the under-tmux spawn wrote the reading to the store the engine reads" yes \
+    "$([ -f "$d5/AgentWorkforce/a11y-status.json" ] && echo yes || echo no)"
+  check "the under-tmux (mock=0) reading gates: engine reads checkable/false" "checkable/false" "$(engine_verdict "$d5")"
+else
+  echo "SKIP  the under-tmux spawn arm (no tmux on this host; direct-invocation checks above still cover the writer)"
+fi
+
 # --- a population floor, so a gutted test cannot pass vacuously (Mona Lisa's lesson) -
 if [ "$ran" -lt 10 ]; then echo "a11y-writer-mock: only $ran checks ran, so this proved nothing"; exit 1; fi
 

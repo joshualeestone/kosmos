@@ -57,7 +57,6 @@ test('axTrustReading has the test-only mock seam AND falls through to the real c
 });
 
 test('writeA11yStatus emits EXACTLY the shape a11ystatus.js parses (boolean trusted + parseable at)', () => {
-  const fn = SRC.slice(SRC.indexOf('func writeA11yStatus('), SRC.indexOf('func a11yStatusURL()') > SRC.indexOf('func writeA11yStatus(') ? SRC.length : SRC.indexOf('func writeA11yStatus(') + 1400);
   // a11ystatus.js requires `typeof rec.trusted === 'boolean'` and a Date.parse-able
   // `rec.at`; anything else is read as checkable:false. Pin the exact JSON template.
   assert.ok(SRC.includes('"{\\"trusted\\":\\(trusted),\\"at\\":\\"\\(at)\\"}'),
