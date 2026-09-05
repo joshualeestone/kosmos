@@ -30,6 +30,16 @@ test('#2140 note: a 401 says the key was rejected + reconnect, never no-models/u
   assert.doesNotMatch(n, /could not reach|no model/i, 'a rejected key must not read as unreachable or no-models');
 });
 
+test('#2140 note: a scope-restricted 401 says the key works but cannot list, never "reconnect"', () => {
+  // The refinement: a 401 that is NOT invalid_api_key is a permissions answer,
+  // so the account works for running the agent and must not be told to reconnect.
+  const n = note("this account's key cannot list models, though the key itself works (401)");
+  assert.match(n, /cannot list models/i);
+  assert.match(n, /still works|works for running/i);
+  assert.doesNotMatch(n, /[Rr]econnect/, 'a scope-restricted 401 must not tell a working account to reconnect');
+  assert.doesNotMatch(n, /rejected/i, 'a scope-restricted 401 is not a rejected key');
+});
+
 test('#2140 note: a 403 names the denied operation, never "no models"', () => {
   const n = note("this account's key is not allowed to list models (403)");
   assert.match(n, /not allowed to list models/i);

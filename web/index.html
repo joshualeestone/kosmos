@@ -25757,6 +25757,13 @@ function openaiNoModelsNote(because) {
   if (/rejected by OpenAI \(401\)/i.test(b)) {
     return 'OpenAI rejected this account\'s API key, so we cannot list its models. Reconnect this account to choose a model.';
   }
+  // #2140 refinement: a scope-restricted 401 is NOT a bad key. The account works
+  // for running the agent; it just cannot enumerate models, so it uses OpenAI's
+  // default rather than being told to reconnect (matched before the 403 branch;
+  // the strings are distinct so order is not load-bearing, only readable).
+  if (/cannot list models, though the key itself works/i.test(b)) {
+    return 'This account\'s key cannot list models here (OpenAI answered 401 for a permissions reason, not a bad key), so it will use OpenAI\'s default. It still works for running the agent.';
+  }
   if (/not allowed to list models \(403\)/i.test(b)) {
     return 'This account\'s key is not allowed to list models (its OpenAI project or role denies it), so it will use OpenAI\'s default. Fix the key\'s permissions to choose a specific model.';
   }
