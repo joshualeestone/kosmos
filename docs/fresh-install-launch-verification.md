@@ -50,36 +50,57 @@ empty Projects tab. That was every tester with an existing fleet.
    new agent is **on** it (it adopts the home first-run seeded, it does not grow a
    second).
 
-**How to check it without the full wizard (served API, agent-runnable):** the seed
-is a server behavior, so it can be checked against the served board's API directly
-rather than only by eye.
+**How to check it. The primary check is the board UI**, above: complete first run
+and look at the Projects tab. That path has no auth to fight and no store to
+resolve, and it is what a tester actually sees. Do that first.
 
-🛑 **The store must have NEVER seeded the welcome project, and `rm first-run.json`
-alone does NOT give you that.** The seed fires only when BOTH the store holds no
-projects AND a once-EVER flag `seeded-project.json` is absent (the flag is what
-lets "never had one" differ from "the person deleted it"). Re-arming the wizard
-removes `first-run.json`; it does **not** remove `seeded-project.json`. So a store
-that was onboarded once, then had its welcome project deleted, has an empty
-Projects list but a PRESENT flag - completing first run there seeds nothing and
-the after-count reads 0. That is correct product behavior, and a verifier who
-read it as a regression would file a **false FAIL**. Use a store that has never
-seeded: a full destructive wipe (`rm -rf` the store, per clean-machine-retest.md)
-or a genuinely new account. Both clear the flag with the rest of the store.
+**The store must have NEVER seeded the welcome project, whichever way you check.**
+The seed fires only when BOTH the store holds no projects AND a once-EVER flag
+`seeded-project.json` is absent (the flag is what lets "never had one" differ from
+"the person deleted it"). Re-arming the wizard removes `first-run.json`; it does
+**not** remove `seeded-project.json`. So a store that was onboarded once, then had
+its welcome project deleted, has an empty Projects list but a PRESENT flag -
+completing first run there seeds nothing and the count stays 0. That is correct
+product behavior, and a verifier who read it as a regression would file a **false
+FAIL**. Use a store that has never seeded: a full destructive wipe (`rm -rf` the
+store, per clean-machine-retest.md) or a genuinely new account. Both clear the
+flag with the rest of the store.
+
+**The served-API form (agent-runnable, but auth-gated - read this or get a false
+FAIL).** A served board is not a sandbox, so it **enforces the board token**: every
+`/api/*` request without a valid `x-kosmos-board-token` header returns **403**,
+*before* route dispatch and *before* the cross-site check. A bare `curl` therefore
+403s, and `grep -c 'Getting started'` reads **0** off the 403 body - so all three
+commands below would "pass" the before and "fail" the after and manufacture a
+bogus #2279 regression. Two consequences the recipe has to respect:
+
+- **The token goes OFF argv.** argv leaks it cross-account (kosmos#1970); the CLI's
+  own `kosmos_curl` writes it to a mode-600 file and passes `curl -H @file`. Do the
+  same - never `-H "x-kosmos-board-token: $tok"` on the command line. The token is
+  the board's `board.token` file inside the served account's store.
+- **The address is per-account.** Resolve it from the CLI (`kosmos status` prints
+  the board URL); do not assume `16180` - the wrong port lands you on a different
+  account's board. (The origin/cross-site guard is a *separate* gate; passing it
+  is necessary but not sufficient - the token gate refuses first.)
 
 ```
-# On a NEVER-SEEDED store (full wipe / new account), first run not yet completed:
-# GET projects BEFORE -> expect no "Getting started"
-curl -s "$BOARD/api/projects" | grep -c 'Getting started'      # expect 0
-# complete first run
-curl -s -X POST "$BOARD/api/first-run/complete" -H "origin: $BOARD"
-# GET projects AFTER -> expect exactly one "Getting started"
-curl -s "$BOARD/api/projects" | grep -c 'Getting started'      # expect 1
+# Served, never-seeded store. STORE = that account's Application Support/AgentWorkforce;
+# BOARD = its URL from `kosmos status` (NOT an assumed port).
+hdr="$(mktemp)"; chmod 600 "$hdr"
+printf 'x-kosmos-board-token: %s\n' "$(cat "$STORE/board.token")" > "$hdr"
+curl -s -H @"$hdr" "$BOARD/api/projects" | grep -c 'Getting started'          # BEFORE: 0
+curl -s -X POST -H @"$hdr" "$BOARD/api/first-run/complete"                    # complete
+curl -s -H @"$hdr" "$BOARD/api/projects" | grep -c 'Getting started'          # AFTER: 1
+rm -f "$hdr"
 ```
+
+If you see 0 after, before calling it a regression: confirm the requests were
+authenticated (a 403 body also greps to 0) - `curl -s -o /dev/null -w '%{http_code}'
+-H @"$hdr" "$BOARD/api/projects"` must be 200, not 403.
 
 ⚠️ **Do NOT run the wipe/complete form against a store you care about** - it
 destroys real data and seeds a real project. Run it against a throwaway store /
-a test account, per clean-machine-retest.md. `$BOARD` is the served board's own
-per-account address (see the CLI, do not assume 16180).
+a test account, per clean-machine-retest.md.
 
 **Weakest premise, named:** the server seed is unit- and route-tested (see
 `server.projects.test.js` `#2279` tests), so this scenario's job is to confirm the
