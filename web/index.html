@@ -4155,6 +4155,26 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .mention button .key { font: var(--text-caption) var(--font-mono, ui-monospace, monospace); color: var(--k-ink-2); }
 .mention button.on, .mention button:hover { background: var(--k-bg); }
 .mention .none { padding: 7px 10px; color: var(--k-ink-2); font: var(--text-callout) var(--font-ui); }
+/* #2254: emoji picker. The button matches .attachbtn (same composer-affordance
+   shape, glyph instead of an svg); the panel matches .mention's positioning
+   (absolute, above the composer, off the same positioned .composer ancestor) but
+   lays its glyphs out as a scrollable grid. */
+.emojibtn { flex: 0 0 auto; display: grid; place-items: center; width: 34px; height: 34px;
+  border: 0; border-radius: 8px; background: none; color: var(--k-ink-2); cursor: pointer;
+  font-size: 18px; line-height: 1; }
+.emojibtn:hover { background: rgba(20,22,26,.07); }
+.emojibtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.emojibtn[aria-expanded="true"] { background: rgba(20,22,26,.07); }
+.emojipanel { position: absolute; right: 12px; bottom: calc(100% - 6px); z-index: 5;
+  width: 18rem; max-height: 15rem; overflow-y: auto;
+  background: var(--k-surface); border: 0.5px solid var(--separator); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.10); padding: 8px;
+  display: grid; grid-template-columns: repeat(8, 1fr); gap: 2px; }
+.emojipanel[hidden] { display: none; }
+.emojipanel button { border: 0; background: none; cursor: pointer; border-radius: 7px;
+  padding: 4px 0; font-size: 20px; line-height: 1.2; }
+.emojipanel button:hover { background: var(--k-bg); }
+.emojipanel button:focus-visible { background: var(--k-bg); outline: 2px solid var(--k-ink); outline-offset: -2px; }
 /* ⚠️ THE PACK'S COMPOSER (FROZEN-2026-08-19:494-556), ported onto this file's
    tokens. The shape is the point: the controls live INSIDE a bordered box with
    the field, rather than sitting beside it as siblings. Josh, 2026-08-19:
@@ -8939,6 +8959,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
+                    <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-haspopup="true" aria-expanded="false" aria-controls="pj-emoji">&#128512;</button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
@@ -8952,6 +8973,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              matcher expects, and opens only on the matcher's own left
              boundary, so it never opens inside an email address. -->
         <div class="mention" id="pj-mention" role="listbox" aria-label="Agents on this project" hidden></div>
+        <!-- #2254: the emoji picker. Josh: "add a card so that the user could add
+             emojis to their input." A button in the composer opens this panel; a
+             click inserts the glyph at the cursor in #pj-post through the same
+             insert-then-dispatch-input path the @ picker uses, so the draft save
+             and the auto-grow both fire. The grid is populated once by JS from a
+             curated set; search / categories / skin tones are deferred (a real
+             v1 of Discord's UX, not the whole of it). Paired with #2067, which
+             RENDERS emoji in dialogue; this is the INPUT side. -->
+        <div class="emojipanel" id="pj-emoji" role="dialog" aria-label="Pick an emoji" hidden></div>
         <!-- #142: a symbol is not a verb, and the bold @ rendered as a smudge
              that read as a zero. The key is named, the bold is off the glyph. -->
         <p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it. Type @ and a name to ask one agent directly.</p>
@@ -32319,6 +32349,92 @@ document.getElementById('pj-mention').addEventListener('mousedown', (e) => {
   e.preventDefault();
   const i = [...b.parentNode.querySelectorAll('button[data-key]')].indexOf(b);
   mentionPick(i);
+});
+
+/* ---- #2254: the emoji picker ------------------------------------------------
+   Josh: "add a card so that the user could add emojis to their input." A curated
+   set (v1 of Discord's UX; search / categories / skin tones / recently-used are
+   deferred, and the agent-detail composer is a follow-up). The grid is built once,
+   lazily, on first open. A pick inserts the glyph at the cursor in #pj-post and
+   dispatches 'input', so the draft save and the auto-grow (both bound to 'input',
+   above) fire exactly as they do for a typed character. Insertion is on mousedown
+   with preventDefault, the same reason mentionPick is: it keeps the textarea's
+   focus and selection instead of the button stealing them. */
+const PJ_EMOJI = [
+  '😀','😄','😁','😅','😂','🙂','😉','😊','😍','😘','😎','🤔','😐','😴','😇','🤗',
+  '🙃','😢','😭','😤','😠','😳','🤯','😱','🥳','🤩','😏','🙄','😬','🤨','😮','😲',
+  '👍','👎','👏','🙌','🙏','👌','🤝','💪','👀','🫡','🤙','✌️','🫶','👋','🤞','🤦',
+  '❤️','🧡','💛','💚','💙','💜','🖤','💯','🔥','✨','⭐','🎉','🚀','✅','❌','⚠️',
+  '💡','📌','📝','🐛','🔧','🔒','⏳','📈','☕','🎯','🧠','🍕','🐢','🎈','📎','🗂️',
+];
+let PJ_EMOJI_BUILT = false;
+
+function pjEmojiBuild() {
+  if (PJ_EMOJI_BUILT) return;
+  const panel = document.getElementById('pj-emoji');
+  if (!panel) return;
+  const frag = document.createDocumentFragment();
+  for (const glyph of PJ_EMOJI) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = glyph;
+    b.setAttribute('aria-label', glyph);
+    b.dataset.emoji = glyph;
+    frag.appendChild(b);
+  }
+  panel.appendChild(frag);
+  PJ_EMOJI_BUILT = true;
+}
+
+function pjEmojiOpen() {
+  pjEmojiBuild();
+  const panel = document.getElementById('pj-emoji');
+  const btn = document.getElementById('pj-emoji-btn');
+  if (!panel || !btn) return;
+  panel.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+
+function pjEmojiClose() {
+  const panel = document.getElementById('pj-emoji');
+  const btn = document.getElementById('pj-emoji-btn');
+  if (panel) panel.hidden = true;
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function pjEmojiToggle() {
+  const panel = document.getElementById('pj-emoji');
+  if (panel && panel.hidden) pjEmojiOpen(); else pjEmojiClose();
+}
+
+function pjEmojiInsert(glyph) {
+  const input = document.getElementById('pj-post');
+  if (!input) return;
+  const start = typeof input.selectionStart === 'number' ? input.selectionStart : input.value.length;
+  const end = typeof input.selectionEnd === 'number' ? input.selectionEnd : input.value.length;
+  input.value = input.value.slice(0, start) + glyph + input.value.slice(end);
+  const caret = start + glyph.length;
+  input.setSelectionRange(caret, caret);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.focus();
+}
+
+document.getElementById('pj-emoji-btn').addEventListener('click', (e) => { e.preventDefault(); pjEmojiToggle(); });
+document.getElementById('pj-emoji').addEventListener('mousedown', (e) => {
+  const b = e.target.closest('button[data-emoji]');
+  if (!b) return;
+  e.preventDefault();
+  pjEmojiInsert(b.dataset.emoji);
+  /* Panel stays open so several can be added in a row (Discord's behaviour). */
+});
+/* Close on Escape or a click outside the button+panel. Both listeners early-return
+   while the panel is hidden, so they cost nothing in the common case. */
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') pjEmojiClose(); });
+document.addEventListener('mousedown', (e) => {
+  const panel = document.getElementById('pj-emoji');
+  if (!panel || panel.hidden) return;
+  if (e.target.closest('#pj-emoji') || e.target.closest('#pj-emoji-btn')) return;
+  pjEmojiClose();
 });
 
 /* ---- adding a document (#358) -----------------------------------------------
