@@ -1784,9 +1784,32 @@ function plistFor(name, claudeBin, tmuxBin, modelArg, configDir, runner) {
  * exists reported "Everything it needs to run is installed" for a path creation
  * was always going to reject two screens later. That is the same drift the
  * extraction below exists to end, one rule further along.
+ *
+ * 🛑 THE BACKSLASH IS POSIX-ONLY, AND IT USED TO REFUSE ALL OF WINDOWS (#570).
+ * Every absolute Windows path contains backslashes, so this rule answered TRUE
+ * for every path that can exist there -- measured on the Windows box against all
+ * three arms of the bin loop below (the runner, tmux, and the agents folder), so
+ * creation could not pass it by any route. The same rule runs in
+ * machine.installedCheck, which therefore told a Windows user "Kosmos cannot
+ * start agents on this computer" and to reinstall "to a folder with no quotes,
+ * backslashes or line breaks in its name" -- advice that names a thing Windows
+ * does not have. It was not the tmux gap and not the roster: agent creation on
+ * win32 was blocked by a character class.
+ * ⚠️ NARROWED, NOT DROPPED. A quote, a newline, a carriage return, a `$` and a
+ * backtick stay refused on EVERY platform; only the backslash becomes
+ * POSIX-only, because on win32 it is the path separator rather than anything a
+ * path is worse for carrying. The docblock above already records that the
+ * original shell-interpolation reason is gone (these reach the plist as separate
+ * XML elements and the supervisor as argv) and that the rule is kept because a
+ * path carrying "a quote or a newline" is one nothing good comes of passing
+ * anywhere -- a sentence that argues for the quote and the newline, and never
+ * for the separator of the platform it locked out.
+ * ⚠️ PLATFORM-INJECTED for the same reason `ownerOnlyModeIsEnforced` is: both
+ * branches have to be assertable from a Mac, and the win32 branch being
+ * unassertable from the machine the suite runs on is exactly how this survived.
  */
-function unusablePath(bin) {
-  return /['"\n\r\\$`]/.test(String(bin));
+function unusablePath(bin, platform = process.platform) {
+  return (platform === 'win32' ? /['"\n\r$`]/ : /['"\n\r\\$`]/).test(String(bin));
 }
 
 /**
