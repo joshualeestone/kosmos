@@ -37696,11 +37696,13 @@ function frPaintFleet() {
        before this screen is deliberately TCC-free (#2125), so it never looked in
        Documents/Downloads/Desktop -- exactly where a person who was sent or
        downloaded an agent file keeps it. Rather than reverse #2125 and bombard
-       every install with macOS permission prompts, offer a CONTEXTUAL one-click
-       (the `frForkActions` create-branch link below) that opens the import panel
-       and fires the on-demand scan of those folders, where the permission prompt
-       is expected because the person just asked. This line tells them the option
-       exists; the link does it. */
+       every install with macOS permission prompts, offer a CONTEXTUAL one-click:
+       the `.fr-lookimport` link in the copy below (NOT a fork button -- Josh's
+       ruling keeps this ending at the single "Giddy Up", so frForkActions is
+       unchanged). Its click is handled by the #fr-fleet delegated listener,
+       which opens the import panel and fires the on-demand scan of those folders,
+       where the permission prompt is expected because the person just asked. This
+       line tells them the option exists; the link does it. */
     box.innerHTML = '<p>Let\u2019s get started.</p>'
       + '<p class="fr-foundnote">Already have an agent file on this computer? '
       + '<button type="button" class="fr-lookimport">Look in my Documents and Downloads</button> '
