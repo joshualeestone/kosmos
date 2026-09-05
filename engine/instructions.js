@@ -54,6 +54,10 @@ const workerfile = require('./workerfile');
    with create.workersDir() under a HOME-only sandbox. AGENT_WORKFORCE_WORKERS still wins. */
 function rootDir() { return process.env.AGENT_WORKFORCE_WORKERS || path.join(process.env.AGENT_WORKFORCE_HOME || os.homedir(), 'work', 'workers'); }
 
+// The claude/default brief name. Since #2245 this no longer drives `fileFor`
+// (which chooses per-runner via `create.briefFilename`); it survives as the
+// export and the traversal-test anchors, both of which resolve the claude
+// default. Not the single source of the brief filename any more.
 const FILENAME = 'CLAUDE.md';
 
 /**
@@ -126,7 +130,15 @@ function fileFor(agent) {
      ordinary one is unchanged. `safeKey` still sanitises the name first: the
      folder may now come from a record, and the NAME must still never be able to
      build a path of its own. */
-  const file = path.join(require('./create').workerDir(key), FILENAME);
+  /* #2245: the brief FILENAME is runner-aware -- a codex agent boots from
+     AGENTS.md, a claude agent from CLAUDE.md -- chosen from the RECORDED runner
+     (readJob's plist arg, never a live pane), defaulting to CLAUDE.md for any
+     agent without a job. Only the filename changes; the containment guard below
+     is unchanged, so a codex agent's block lands in the file it actually reads
+     without loosening the path check. */
+  const create = require('./create');
+  const fname = create.briefFilename((create.readJob(agent) || {}).runner);
+  const file = path.join(create.workerDir(key), fname);
 
   // Belt to safeKey's braces, and NOT load-bearing today: safeKey already
   // strips separators, so this cannot currently fail and removing it leaves the
@@ -139,7 +151,7 @@ function fileFor(agent) {
      which is the same guarantee against a name that tries to build its own path.
      Declared untested for the same reason it always was: `safeKey` strips
      separators, so this cannot currently fail. */
-  const dir = require('./create').workerDir(key);
+  const dir = create.workerDir(key);
   if (!file.startsWith(dir + path.sep)) return null;
   return file;
 }

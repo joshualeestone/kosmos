@@ -3763,7 +3763,11 @@ function readIdentity(sessionName) {
      exists to support, while the instructions route found it.
      ⚠️ Required lazily: `create` requires `store`, and requiring it at the top
      of this file makes a cycle. */
-  const file = path.join(require('./create').workerDir(sessionName), 'CLAUDE.md');
+  /* #2245: runner-aware, matching instructions.fileFor -- a codex agent's brief
+     is AGENTS.md, a claude agent's is CLAUDE.md, by the recorded runner. Reading
+     the hardcoded CLAUDE.md here would miss a codex agent's real brief. */
+  const create = require('./create');
+  const file = path.join(create.workerDir(sessionName), create.briefFilename((create.readJob(sessionName) || {}).runner));
 
   // ⚠️ Through the SHARED reader, not a local `readFileSync`.
   //

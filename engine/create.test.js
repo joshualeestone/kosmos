@@ -3686,6 +3686,140 @@ test('#2140: an OpenAI agent can be CREATED on a chosen model, empty means auto,
   }
 });
 
+test('#2245: a codex agent boots its brief from AGENTS.md (with the doctrine), a claude agent from CLAUDE.md', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = mkTemp('codex-home-2245-');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  const instructions = require('./instructions');
+  try {
+    // A codex/OpenAI agent's brief is written to AGENTS.md -- the file codex
+    // actually boots from -- not CLAUDE.md, which it never reads (#2245: before
+    // this, a codex agent got neither the doctrine nor its project folder path).
+    const oa = create.createAgent({ ...BINS, codexBin: CODEX_BIN, role: 'pm', provider: 'openai', name: 'oa-brief' });
+    assert.equal(oa.outcome, create.OUTCOME.CREATED, oa.because);
+    const oaDir = create.workerDir('oa-brief');
+    assert.ok(fs.existsSync(nodePath.join(oaDir, 'AGENTS.md')), 'a codex agent got no AGENTS.md to boot from');
+    assert.ok(!fs.existsSync(nodePath.join(oaDir, 'CLAUDE.md')), 'a codex agent must not get its brief in CLAUDE.md (it never reads it)');
+    // The "where your files go" doctrine reached the file the agent actually reads.
+    assert.match(fs.readFileSync(nodePath.join(oaDir, 'AGENTS.md'), 'utf8'), /Where the files you make go/,
+      'the doctrine did not reach the codex brief -- the whole #2245 point');
+    // The runner->filename mapping and both resolvers agree.
+    assert.equal(create.briefFilename('codex'), 'AGENTS.md');
+    assert.equal(create.briefFilename('claude'), 'CLAUDE.md');
+    assert.ok(create.instructionFile('oa-brief').endsWith('AGENTS.md'), 'instructionFile did not resolve AGENTS.md from the recorded codex runner');
+    // fileFor is what the re-tell/refresh path (projects block, doctrine heal)
+    // uses, so this is what carries the per-project block to the codex agent.
+    assert.ok(instructions.fileFor('oa-brief').endsWith('AGENTS.md'), 'instructions.fileFor did not route a codex agent to AGENTS.md');
+
+    // A claude agent is unchanged: brief in CLAUDE.md, no AGENTS.md.
+    const cl = create.createAgent({ ...BINS, role: 'pm', name: 'cl-brief' });
+    assert.equal(cl.outcome, create.OUTCOME.CREATED, cl.because);
+    const clDir = create.workerDir('cl-brief');
+    assert.ok(fs.existsSync(nodePath.join(clDir, 'CLAUDE.md')), 'a claude agent lost its CLAUDE.md');
+    assert.ok(!fs.existsSync(nodePath.join(clDir, 'AGENTS.md')), 'a claude agent must not get an AGENTS.md');
+    assert.ok(create.instructionFile('cl-brief').endsWith('CLAUDE.md'), 'a claude agent must still resolve CLAUDE.md');
+    assert.ok(instructions.fileFor('cl-brief').endsWith('CLAUDE.md'), 'fileFor must still route a claude agent to CLAUDE.md');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  }
+});
+
+test('#2245: a provider switch MOVES the brief to the file the new runner boots from, both directions', () => {
+  recorder();
+  create.setDryRun(false);
+  const codexHome = mkTemp('codex-home-2245sw-');
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  // Signed in, or the switch TO openai is refused (#1211), and then nothing
+  // moves and this test would pass for the wrong reason.
+  fs.writeFileSync(nodePath.join(codexHome, 'auth.json'),
+    JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-testtesttesttest2245SW' }), 'utf8');
+  try {
+    // --- claude-born, switched to openai: CLAUDE.md must MOVE to AGENTS.md ---
+    const a = 'brief-mover-a';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: a, role: 'pm' }).outcome,
+      create.OUTCOME.CREATED);
+    const aDir = create.workerDir(a);
+    const bornClaude = fs.readFileSync(nodePath.join(aDir, 'CLAUDE.md'), 'utf8');
+    assert.match(bornClaude, /Where the files you make go/, 'the born claude brief lacked the doctrine to begin with');
+
+    const swA = create.setProvider(a, 'openai', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swA.outcome, create.OUTCOME.CREATED, swA.because);
+    assert.ok(fs.existsSync(nodePath.join(aDir, 'AGENTS.md')),
+      'codex agent has no AGENTS.md after the switch -- it boots with no brief (the #2245 switch regression)');
+    assert.ok(!fs.existsSync(nodePath.join(aDir, 'CLAUDE.md')),
+      'the old CLAUDE.md was left behind as an orphan after switching to codex');
+    // MOVED, not regenerated: the exact bytes the agent had are what it keeps,
+    // so any per-project block already in the brief survives the switch.
+    assert.equal(fs.readFileSync(nodePath.join(aDir, 'AGENTS.md'), 'utf8'), bornClaude,
+      'the brief was regenerated rather than moved, so a per-project block already in it would be lost');
+    // And the resolvers now agree with the file on disk (no split-brain).
+    assert.ok(require('./instructions').fileFor(a).endsWith('AGENTS.md'));
+
+    // --- and back: openai -> anthropic must MOVE AGENTS.md to CLAUDE.md ---
+    const backA = create.setProvider(a, 'anthropic', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(backA.outcome, create.OUTCOME.CREATED, backA.because);
+    assert.ok(fs.existsSync(nodePath.join(aDir, 'CLAUDE.md')),
+      'claude agent has no CLAUDE.md after switching back -- the codex->claude brief-loss regression #2245 closes');
+    assert.ok(!fs.existsSync(nodePath.join(aDir, 'AGENTS.md')),
+      'the AGENTS.md was left behind as an orphan after switching back to claude');
+    assert.ok(require('./instructions').fileFor(a).endsWith('CLAUDE.md'));
+
+    // --- codex-born, switched to anthropic: AGENTS.md must MOVE to CLAUDE.md ---
+    // This is the cleaner statement of the regression: before #2245 a codex
+    // agent's brief was in CLAUDE.md, so a switch to claude found it; now it is
+    // in AGENTS.md, so without the move the switched claude agent boots empty.
+    const b = 'brief-mover-b';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: b, role: 'pm', provider: 'openai' }).outcome,
+      create.OUTCOME.CREATED);
+    const bDir = create.workerDir(b);
+    const bornCodex = fs.readFileSync(nodePath.join(bDir, 'AGENTS.md'), 'utf8');
+    const swB = create.setProvider(b, 'anthropic', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swB.outcome, create.OUTCOME.CREATED, swB.because);
+    assert.ok(fs.existsSync(nodePath.join(bDir, 'CLAUDE.md')), 'the codex-born brief did not move to CLAUDE.md on the switch to claude');
+    assert.ok(!fs.existsSync(nodePath.join(bDir, 'AGENTS.md')), 'the codex-born AGENTS.md was orphaned on the switch to claude');
+    assert.equal(fs.readFileSync(nodePath.join(bDir, 'CLAUDE.md'), 'utf8'), bornCodex,
+      'the codex-born brief was regenerated rather than moved on the switch');
+
+    // --- no-clobber: a folder that already holds BOTH briefs must lose neither
+    // A connected agent lives in the person's own folder, which can hold both
+    // CLAUDE.md and AGENTS.md. The switch must NOT overwrite the destination:
+    // if it exists, the new runner already has a brief and the old file is the
+    // user's to keep. Overwriting would be silent data loss.
+    const c = 'brief-mover-c';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: c, role: 'pm' }).outcome,
+      create.OUTCOME.CREATED);
+    const cDir = create.workerDir(c);
+    const USER_AGENTS = 'USER OWN AGENTS BRIEF - do not clobber';
+    fs.writeFileSync(nodePath.join(cDir, 'AGENTS.md'), USER_AGENTS, 'utf8');
+    const bornClaudeC = fs.readFileSync(nodePath.join(cDir, 'CLAUDE.md'), 'utf8');
+    const swC = create.setProvider(c, 'openai', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swC.outcome, create.OUTCOME.CREATED, swC.because);
+    assert.equal(fs.readFileSync(nodePath.join(cDir, 'AGENTS.md'), 'utf8'), USER_AGENTS,
+      'the switch overwrote the user\'s existing AGENTS.md -- silent data loss');
+    assert.equal(fs.readFileSync(nodePath.join(cDir, 'CLAUDE.md'), 'utf8'), bornClaudeC,
+      'the untouched CLAUDE.md should remain the user\'s file, not be moved onto an existing destination');
+
+    // The same no-clobber, the OTHER direction: a codex-born folder that also
+    // holds a user CLAUDE.md, switched to claude, must not lose the AGENTS.md.
+    const d = 'brief-mover-d';
+    assert.equal(create.createAgent({ ...BINS, codexBin: CODEX_BIN, name: d, role: 'pm', provider: 'openai' }).outcome,
+      create.OUTCOME.CREATED);
+    const dDir = create.workerDir(d);
+    const USER_CLAUDE = 'USER OWN CLAUDE BRIEF - do not clobber';
+    fs.writeFileSync(nodePath.join(dDir, 'CLAUDE.md'), USER_CLAUDE, 'utf8');
+    const bornCodexD = fs.readFileSync(nodePath.join(dDir, 'AGENTS.md'), 'utf8');
+    const swD = create.setProvider(d, 'anthropic', { ...BINS, codexBin: CODEX_BIN });
+    assert.equal(swD.outcome, create.OUTCOME.CREATED, swD.because);
+    assert.equal(fs.readFileSync(nodePath.join(dDir, 'CLAUDE.md'), 'utf8'), USER_CLAUDE,
+      'the switch overwrote the user\'s existing CLAUDE.md -- silent data loss (reverse direction)');
+    assert.equal(fs.readFileSync(nodePath.join(dDir, 'AGENTS.md'), 'utf8'), bornCodexD,
+      'the untouched AGENTS.md should remain the user\'s file, not be moved onto an existing destination');
+  } finally {
+    delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+  }
+});
+
 test('#246: the switch rewrites only the launch, both directions, and drops what cannot cross', () => {
   recorder();
   create.setDryRun(false);

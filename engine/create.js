@@ -602,7 +602,24 @@ function jobMissing(name) {
     return Boolean(e && e.code === 'ENOENT');
   }
 }
-function instructionFile(name) { return path.join(workerDir(name), 'CLAUDE.md'); }
+/* #2245: the brief file an agent boots from depends on its RUNNER -- a codex
+   (OpenAI) agent boots from AGENTS.md (engine/discover.js reads it as the codex
+   analogue of CLAUDE.md), a claude agent from CLAUDE.md. This is the ONE mapping
+   from runner to brief filename; instructions.fileFor and the birth write below
+   both go through it, so the doctrine and the per-project block land in the file
+   the agent actually reads. Before this, every brief write assumed CLAUDE.md, so
+   a codex agent got neither the "where your files go" doctrine nor its project
+   folder path -- kosmos#2245. Pure. */
+function briefFilename(runner) { return runner === 'codex' ? 'AGENTS.md' : 'CLAUDE.md'; }
+/* The absolute brief path for an agent. `runner` is passed at birth (the plist
+   is not written yet, so the runner is not readable back). Post-birth callers
+   omit it and the RECORDED runner is read from the plist (readJob, never a live
+   pane), defaulting to claude/CLAUDE.md when there is no job -- the pre-#2245
+   behaviour for every claude agent, unchanged. */
+function instructionFile(name, runner) {
+  const r = runner || ((readJob(name) || {}).runner) || 'claude';
+  return path.join(workerDir(name), briefFilename(r));
+}
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
 function serviceLabel(name) { return `com.kosmos.agent.${name}`; }
 function plistPath(name) { return path.join(agentsDir(), `${serviceLabel(name)}.plist`); }
@@ -1155,6 +1172,40 @@ function setProvider(name, provider, opts) {
           ? openaiAccount.dir : null, runner), 'utf8');
   } catch {
     return { outcome: OUTCOME.REFUSED, because: `we could not write ${spoken}'s startup file, so nothing changed.` };
+  }
+  /* #2245: the brief FILENAME is runner-aware (codex boots AGENTS.md, claude
+     boots CLAUDE.md), so a runner CHANGE must MOVE the brief to the file the
+     new runner reads. Without this the switch strands the doctrine + project
+     block in the old runner's file and the agent boots with no brief: the
+     codex->claude direction is a regression this closes (before #2245 the
+     brief was always in CLAUDE.md, so a switch to claude still found it; now it
+     lives in AGENTS.md), and claude->codex was already broken. A same-directory
+     rename is atomic, removes the orphan, and creates the file the new runner
+     boots from in one step. Runs whenever the plist write above ran (no
+     DRY_RUN gate, matching it), so the brief and the launch truth stay
+     consistent. Best-effort, like the sibling profile write below, and the
+     residual is stated honestly rather than waved away: a same-directory rename
+     of a source that exists effectively cannot fail, and the plist (the launch
+     truth) is already correct, so the only window is a near-impossible one in
+     which the brief is left under the old runner's filename. Do NOT read the
+     swallow as "a refresh will recreate it": nothing on the switch path
+     re-creates the brief, so the guarantee is that the failure is
+     near-impossible, not that it self-heals. `job.runner === runner` was
+     refused above, so the two filenames always differ here; the guard stays for
+     when the runner set grows.
+     🛑 NEVER CLOBBER AN EXISTING DESTINATION. `renameSync` overwrites, and a
+     CONNECTED agent lives in the person's OWN folder, which can legitimately
+     hold BOTH CLAUDE.md and AGENTS.md (discover.js `connect()` handles "a
+     person who has both"). Overwriting the destination would destroy a file
+     the user wrote, with no backup. So move ONLY when the destination does not
+     already exist: if it does, the new runner already has a brief to read, and
+     the old file is the user's to keep. A Kosmos-CREATED agent only ever has
+     one brief, so this guard never changes its behaviour. */
+  const oldBrief = path.join(workerDir(clean), briefFilename(job.runner));
+  const newBrief = path.join(workerDir(clean), briefFilename(runner));
+  if (oldBrief !== newBrief && fs.existsSync(oldBrief) && !fs.existsSync(newBrief)) {
+    try { fs.renameSync(oldBrief, newBrief); }
+    catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
   try { store.writeProfile(clean, { provider }); }
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
@@ -3160,7 +3211,10 @@ function createAgentInner(opts) {
         }
       } catch { /* the sync after the session is up still does it, the old way */ }
     }
-    fs.writeFileSync(instructionFile(name), text, 'utf8');
+    // #2245: pass the in-scope runner -- the plist is not yet written, so the
+    // birth brief must be routed to AGENTS.md (codex) or CLAUDE.md (claude) by
+    // the runner we are creating with, not by reading it back.
+    fs.writeFileSync(instructionFile(name, runner), text, 'utf8');
   });
 
   /**
@@ -3595,6 +3649,7 @@ module.exports = {
      resolver returns rather than only against the real $HOME. */
   homeDir,
   instructionFile,
+  briefFilename,
   plistPath,
   plannedModelArg,
   forgetCodexFolder,
