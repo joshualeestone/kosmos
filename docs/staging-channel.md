@@ -60,8 +60,73 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
    issue separately, or hold for a ruling), never a hard auto-hold. So you cannot promote from a
    machine that cannot test either class.
-5. **Deploy the promoted pointer** (the next `tools/deploy-site.sh --publish` carries it).
-6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back. No rebuild.
+5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
+   LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
+   prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
+   -- it is a site-COPY tool whose committed-vs-live pointer guard REFUSES a pointer-move once the
+   pointer is COMMITTED ("a site-copy deploy must not move the installer pointer"); before the commit
+   it instead git-archives the OLD committed pointer and silently ignores the promote. Either way it
+   does not publish a promote. Until the guarded `--promote` mode
+   lands (**#2195**), deploy the pointer with `release.sh`'s proven step-8 machinery by hand. A
+   promote is POINTER-ONLY: the versioned artifacts are already served from the staging cut.
+
+   Two hazards this runbook must guard, because `site_deploy_export` does not. (1) It returns 0 even
+   when `$S/dist` is MISSING the gitignored artifacts (the versioned-tarball glob yields none, a
+   missing pkg PROCEEDS), so a "successful" export can ship a correct pointer over 404'ing downloads
+   -- the #1669 shape. `deploy-site.sh` guards each artifact in its step 3; this runbook must too.
+   (2) It CARRIES from the working tree and does NOT fetch (fetching is deploy-site.sh's addition),
+   so every artifact (`kosmos-<V>-arm64.tar.gz`, the `kosmos-arm64.tar.gz` alias `promote-channel.sh`
+   refreshed, `tmux-arm64`, the `Kosmos.pkg` triple, and each `.sha256`) MUST already be in `$S/dist`
+   from the staging cut. Run under **bash** (the libs are `#!/bin/bash`, unsafe to source into zsh),
+   gate the deploy on the push landing (else prod moves ahead of `origin` and a later fresh-checkout
+   deploy reverts the promote), and gate it on every artifact being present in the export:
+   ```sh
+   bash <<'DEPLOY'
+   set -eu
+   S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
+   git -C "$S" diff --quiet -- dist/latest.json || git -C "$S" commit -- dist/latest.json -m "promote <V> to prod"   # skip commit on a re-run where it is already committed
+   git -C "$S" push origin HEAD:refs/heads/main   # a failed push must NOT proceed to a deploy (set -e stops here)
+   . "$R/tools/lib/site-deploy.sh"; . "$R/tools/lib/pkg-inputs.sh"
+   EXPORT=$(mktemp -d); trap 'rm -rf "$EXPORT"' EXIT   # removed on ANY exit: success, a guard, or a failed deploy
+   site_deploy_export "$S" "$EXPORT" "$(git -C "$S" rev-parse HEAD)" || { echo "export failed"; exit 1; }
+   # the .vercelignore guard, as release.sh step 8 runs it (a missing/bad one lets Vercel drop dist/*.pkg):
+   set +e; drop=$(pkg_upload_filter_excludes "$EXPORT/.vercelignore"); rc=$?; set -e
+   [ "$rc" = 0 ] || { echo ".vercelignore missing (rc=1) or unevaluable (rc=$rc)"; exit 1; }
+   [ -z "$drop" ] || { echo ".vercelignore would drop: $drop"; exit 1; }
+   # the #1669 guard site_deploy_export omits: every critical gitignored artifact + sidecar must be present.
+   ART=$(sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p' "$EXPORT/dist/latest.json")
+   [ -n "$ART" ] || { echo "export latest.json names no artifact"; exit 1; }
+   for f in "$ART" Kosmos.pkg tmux-arm64.tar.gz kosmos-arm64.tar.gz "$ART.sha256" Kosmos.pkg.sha256 tmux-arm64.tar.gz.sha256 kosmos-arm64.tar.gz.sha256; do
+     [ -f "$EXPORT/dist/$f" ] || { echo "export dropped $f (#1669); $S/dist is incomplete"; exit 1; }
+   done
+   ( cd "$EXPORT" && vercel deploy --prod --yes )   # set -e + the EXIT trap: a failed deploy exits non-zero and cleans up
+   DEPLOY
+   ```
+   Replace `<V>` with the version being promoted (the heredoc is single-quoted, so it will not
+   expand a variable). The per-artifact loop guards only the GITIGNORED set; tracked artifacts
+   (`latest.json`, the Windows zip) ship via `git archive` and cannot be dropped by an incomplete
+   `dist/`. If `$S/dist` IS incomplete (promoting from a machine that did not run the staging cut),
+   the right fix is to run this promote-deploy ON the machine that ran the staging cut, where the
+   artifacts are present and were sha-verified at cut time -- repopulating a foreign checkout by hand
+   skips that verification, and `deploy-site.sh` cannot repopulate it here (its committed-vs-live
+   guard refuses this exact state). #2195's tool will fetch + sha-verify each artifact like
+   `deploy-site.sh` does.
+   Then **verify SERVED prod BY CONTENT** from outside, cache-busted (a stale edge reads the old
+   version right after a deploy). Check the pointer AND every served gitignored artifact by sha
+   (a rendered page with dead download buttons is the #1669 shape deploy-site.sh section 6 guards),
+   plus `/setup`:
+   ```sh
+   HOST=https://installkosmos.com; S=$HOME/work/chaoskosmos-site; V=0.6.xx   # set V to the promoted version
+   curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json"   # must name <V>; control: "still <old V>" = did NOT flip
+   for f in "kosmos-$V-arm64.tar.gz" kosmos-arm64.tar.gz tmux-arm64.tar.gz Kosmos.pkg; do
+     s=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$f" | shasum -a 256 | awk '{print $1}')
+     [ "$s" = "$(shasum -a 256 "$S/dist/$f" | awk '{print $1}')" ] && echo "OK  served $f == deployed" || echo "MISMATCH served $f"
+   done
+   curl -fsS -o /dev/null -w 'setup: %{http_code}\n' "$HOST/setup"   # expect 200
+   ```
+   (First run for 0.6.30, 2026-09-04; the vercel project aliases chaoskosmos.com + installkosmos.com.)
+6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
+   step 5. No rebuild.
 
 ## The default is PROD, on purpose (the invariant)
 
