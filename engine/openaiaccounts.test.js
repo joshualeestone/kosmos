@@ -907,7 +907,7 @@ test('#2140 item 9: gpt tiers newer than gpt-5 sort to the top in Josh\'s versio
   assert.deepEqual(args, [
     'gpt-5.6-terra', 'gpt-5.6-soul', 'gpt-5.6-luna',   // 5.6 tier, Terra>Soul>Luna
     'gpt-5.5-pro', 'gpt-5.5',                           // 5.5 tier, Pro>plain
-    'gpt-5.4-pro', 'gpt-5.4-nano', 'gpt-5.4-mini',      // 5.4 tier, Pro>Nano>Mini
+    'gpt-5.4-pro', 'gpt-5.4-mini', 'gpt-5.4-nano',      // 5.4 tier, Pro>Mini>Nano (#2263: mini outranks nano)
     'gpt-5',                                            // then the fixed families, unchanged
     'gpt-4o', 'gpt-4',
   ], 'the OpenAI picker is not in Josh\'s most-powerful-first version-then-tier order');

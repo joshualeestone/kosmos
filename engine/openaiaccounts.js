@@ -710,9 +710,12 @@ function openaiTierScore(low) {
   if (low.includes('soul')) return 8;
   if (low.includes('luna')) return 7;
   if (low.includes('pro')) return 6;
-  if (low.includes('nano')) return 4;
-  if (low.includes('mini')) return 3;
-  return 5; // a plain version with no tier word sits between pro and nano
+  // mini is more capable than nano: OpenAI's nano is the smallest tier and mini
+  // sits above it (gpt-4.1 > gpt-4.1-mini > gpt-4.1-nano). #2263: these were
+  // reversed, so the picker ranked nano above mini.
+  if (low.includes('mini')) return 4;
+  if (low.includes('nano')) return 3;
+  return 5; // a plain version with no tier word sits between pro and mini
 }
 /* The rank for a gpt id NEWER than the top known family, or null if it is not
    such an id. Negative so it sorts ABOVE every fixed family (min fixed rank 0);
