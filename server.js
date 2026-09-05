@@ -2463,8 +2463,12 @@ const server = http.createServer((req, res) => {
       .then((buf) => {
         let body;
         try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        let base;
+        // A base error is a SERVER condition (broken login env), not a bad request:
+        // 500, and never leak the internal dataRootFor message through worldCreateReason.
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
         let world;
-        try { world = worlds.createWorld(worldBase(), body.name); }
+        try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
         sendJson(res, 200, { ok: true, world });
       })
