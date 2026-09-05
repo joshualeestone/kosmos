@@ -818,7 +818,19 @@ async function accountModels(dir) {
   // note the user sees names what actually happened -- a rejected key is not an
   // unreachable OpenAI, and a permission denial is not "no models".
   if (r.status === 401) {
-    return { ok: false, models: [], because: 'this account\'s API key was rejected by OpenAI (401)' };
+    /* #2140 refinement: split the 401 the SAME way checkLive() (#1315) and
+       addWithKeyLive() already do -- only OpenAI's own `invalid_api_key` code is
+       a positive rejection of the key itself. Any other 401 (or a bodyless one)
+       is a permissions/scope answer: a project key restricted from listing
+       models 401s HERE while running inference fine, so telling that account to
+       "reconnect" overstates a working key as broken. The scope case joins the
+       403 shape -- the account WORKS, it just cannot enumerate models, so it
+       uses OpenAI's default rather than being told the key is bad. */
+    const code = r.body && r.body.error && typeof r.body.error.code === 'string' ? r.body.error.code : null;
+    if (code === 'invalid_api_key') {
+      return { ok: false, models: [], because: 'this account\'s API key was rejected by OpenAI (401)' };
+    }
+    return { ok: false, models: [], because: 'this account\'s key cannot list models, though the key itself works (401)' };
   }
   if (r.status === 403) {
     // Name the denied OPERATION, never "no models": /v1/models needs api.model.read

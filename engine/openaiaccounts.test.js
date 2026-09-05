@@ -158,6 +158,21 @@ test('#2140 accountModels: a 401 is a distinct "key rejected", never no-models/u
   assert.ok(!JSON.stringify(out).includes('sk-proj'), 'the answer must never carry the key');
 });
 
+test('#2140 accountModels: a 401 WITHOUT invalid_api_key is a scope answer (works, cannot list), never "reconnect"', async () => {
+  /* #1315's asymmetry applied to model-listing: only OpenAI's own
+     `invalid_api_key` is a positive rejection of the key. A scope-restricted
+     project key 401s on /v1/models while running inference fine, so it must NOT
+     be told to reconnect -- the account works, it just cannot enumerate models. */
+  const scoped = await errModels(async () => ({ status: 401, body: { error: { code: 'insufficient_permissions' } } }));
+  assert.equal(scoped.ok, false);
+  assert.match(scoped.because, /cannot list models, though the key itself works \(401\)/);
+  assert.doesNotMatch(scoped.because, /rejected by OpenAI/i, 'a scope-restricted 401 must not read as a rejected key');
+  // A bodyless 401 (no error code at all) is the same scope answer, not a rejection.
+  const bodyless = await errModels(async () => ({ status: 401, body: null }));
+  assert.match(bodyless.because, /cannot list models, though the key itself works \(401\)/);
+  assert.doesNotMatch(bodyless.because, /rejected by OpenAI/i);
+});
+
 test('#2140 accountModels: a 403 names the denied operation, never "no models"', async () => {
   const out = await errModels(async () => ({ status: 403, body: { error: { code: 'insufficient_permissions' } } }));
   assert.equal(out.ok, false);
