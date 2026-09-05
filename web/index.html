@@ -27584,7 +27584,21 @@ document.getElementById('create-go').addEventListener('click', async () => {
   document.getElementById('made-retry').hidden = true;
   document.getElementById('made-ticks').innerHTML = '';
   if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish();
-  MADE_MARK = startKLoader(document.getElementById('made-mark'));
+  const myMark = startKLoader(document.getElementById('made-mark'));
+  MADE_MARK = myMark;
+  /* #2190: drop THIS attempt's loader, but only while it is still the current
+     one. The walk-away returns and the error paths below all call this. Keying on
+     `MADE_MARK === myMark` is load-bearing: if the person left and started a NEW
+     create, that click's finish-before-start already finished this loader and
+     reassigned MADE_MARK to its own, so an unconditional finish here would stop
+     the NEW attempt's animation. On a plain walk-away (no new create) MADE_MARK is
+     still myMark and this stops the loop that would otherwise draw the hidden
+     canvas forever. */
+  const dropMyLoader = () => {
+    if (MADE_MARK !== myMark) return;
+    if (myMark && myMark.finish) myMark.finish();
+    MADE_MARK = null;
+  };
   /**
    * ⚠️ The token is taken BEFORE the request, not inside the watch.
    *
@@ -27681,14 +27695,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // token, and made the creation that actually succeeded return early -- the
     // person then reads "there is already an agent called X" about an agent
     // this flow had just made for them.
-    if (attempt !== WATCH) return;
+    if (attempt !== WATCH) { dropMyLoader(); return; }
     CREATING = false;
     document.getElementById('create-go').disabled = false;
     // The request itself did not complete, so we do not know what happened on
     // the other side — which is not the same as nothing having happened.
     // #2190: we advanced to the progress screen on click, so route BACK to the
     // create screen (stopping the loader) before showing this beside the field.
-    if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish(); MADE_MARK = null;
+    dropMyLoader();
     cstep('name');
     msg.textContent = 'We could not reach the board to make it, so we cannot tell you whether anything was created. (' + err.message + ')';
     return;
@@ -27697,7 +27711,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
   // Same ownership rule as the error path above: a superseded answer must not
   // touch a control the current attempt is using. `openCreate` resets both, so
   // walking away never leaves the button stuck.
-  if (attempt !== WATCH) return;   // they walked away while it was in flight
+  if (attempt !== WATCH) { dropMyLoader(); return; }   // they walked away while it was in flight
   CREATING = false;
   document.getElementById('create-go').disabled = false;
 
@@ -27705,7 +27719,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
   // caused it rather than on a screen that has moved on. #2190: route back to
   // the create screen (stopping the loader) so the message lands beside the field.
   if (result && result.outcome === 'refused') {
-    if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish(); MADE_MARK = null;
+    dropMyLoader();
     cstep('name');
     msg.textContent = result.because || 'that name will not work';
     return;
@@ -27725,7 +27739,7 @@ document.getElementById('create-go').addEventListener('click', async () => {
   if (!res.ok || !result || (result.outcome !== 'created' && result.outcome !== 'partial')) {
     // #2190: route back to the create screen (stopping the loader) so this lands
     // beside the field, not on the progress screen we advanced to on click.
-    if (MADE_MARK && MADE_MARK.finish) MADE_MARK.finish(); MADE_MARK = null;
+    dropMyLoader();
     cstep('name');
     msg.textContent = (result && (result.error || result.because))
       || 'we could not make it, and we cannot tell you why';

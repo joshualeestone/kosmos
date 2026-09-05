@@ -43,15 +43,22 @@ async function driveCreate(page, agentsOutcome) {
     await loadRoles();                       // sets ROLES/OWN_ROLE and pickMode('pm') -> PICKED
     document.getElementById('create-name').value = 'tester';   // the agent name (made-head reads this)
     document.getElementById('create-label').value = 'does things'; // what it does (validation reads this)
-    document.getElementById('create-go').click();
-    // The handler is async and the stubbed fetch resolves instantly. It advances
-    // to the progress screen ON CLICK for BOTH outcomes, so we cannot break on
-    // "made shown" (that is the intermediate state); wait a fixed settle window
-    // for the fetch to resolve and the handler to reach its FINAL screen, then read.
     const shown = (id) => { const e = document.getElementById(id); return e && !e.hidden; };
+    document.getElementById('create-go').click();
+    // The click handler runs synchronously up to its first `await fetch(...)`, so
+    // right here the nav block has executed but the POST has NOT resolved. This is
+    // the DURING-POST state and the actual #2190 discriminator: the new code has
+    // already advanced to the progress screen, whereas the old code was still on
+    // the create screen showing 'Making it…' inline. Capturing it makes this a
+    // control against the old behavior (a full revert fails duringPostMadeShown),
+    // not only a surgical perturbation.
+    const duringPostMadeShown = shown('cstep-made');
+    const duringPostNameShown = shown('cstep-name');
+    // Then let the fetch resolve and the handler reach its FINAL screen.
     await new Promise((r) => setTimeout(r, 500));
     window.fetch = realFetch;
     return {
+      duringPostMadeShown, duringPostNameShown,
       madeShown: shown('cstep-made'),
       nameShown: shown('cstep-name'),
       createMsg: (document.getElementById('create-msg').textContent || '').trim(),
@@ -78,6 +85,8 @@ async function driveCreate(page, agentsOutcome) {
   await p1.close();
   if (created.error) problems.push('scenario-created: ' + created.error);
   else {
+    if (!created.duringPostMadeShown) problems.push('created: the progress screen was NOT shown immediately on click (advanced only after the POST resolved, or shows inline "Making it" instead) - the #2190 behavior is missing');
+    if (created.duringPostNameShown) problems.push('created: still on the create screen immediately after click (did not advance on click)');
     if (!created.madeShown) problems.push('created: the progress (made) screen was not shown after Create');
     if (created.nameShown) problems.push('created: the create screen is still shown (did not advance)');
     if (!/tester/.test(created.madeHead)) problems.push('created: made-head does not name the agent: "' + created.madeHead + '"');
@@ -91,6 +100,7 @@ async function driveCreate(page, agentsOutcome) {
   await p2.close();
   if (refused.error) problems.push('scenario-refused: ' + refused.error);
   else {
+    if (!refused.duringPostMadeShown) problems.push('refused: the progress screen was NOT shown immediately on click - the #2190 advance-on-click behavior is missing');
     if (!refused.nameShown) problems.push('refused: did not route back to the create screen');
     if (refused.madeShown) problems.push('refused: still on the progress screen (should have routed back)');
     if (!/that name will not work/.test(refused.createMsg)) problems.push('refused: the message is not beside the field: "' + refused.createMsg + '"');
