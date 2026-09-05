@@ -74,6 +74,24 @@ HTTP request per deploy.
   `vercel deploy --prod`, so a false refusal triggers investigation, never state corruption, and the
   message names the #1667 shape so the cause is obvious. The coupling is recorded here so it is known.
 
+- iter3 (converged, no BLOCKER/WARNING/CONVENTION requiring change):
+  - WARNING (the asset check is a denylist - rejects text/html + empty - not a per-asset allowlist):
+    DEFERRED. The denylist directly implements the card's stated tell ("a 200 with text/html where
+    you expected a tarball is a failure wearing a success code") and catches the actual #1667 threat
+    (an SSO or 404 html page). A per-asset allowlist would have to hardcode Vercel's exact
+    content-type for the .zip (application/zip vs octet-stream vs x-zip-compressed), trading a real
+    false-fail risk for a non-#1667 hypothetical; the git-archive-deterministic bytes and the
+    negative control are defense in depth. The shared function also serves a text asset (/setup is
+    text/plain), so a blanket "reject text/*" is not available without a per-asset parameter.
+  - NIT (the negative control probes only /dist, not root): accepted - the reviewer confirmed no live
+    hole, because each asset's own content-type tell guards it independently (an SSO text/html at
+    /setup is caught by served_verify_asset_ok regardless of the host-level control).
+  - NIT (the "negative control OK" line prints to stdout while refusals go to stderr): accepted -
+    cosmetic; no caller captures the lib's stdout, and deploy-site.sh prints its own progress to
+    stdout too.
+  - CONVENTION (the deferred prod-alias coupling): the reviewer agreed with the iter2 disposition; it
+    is the same coupling already documented above, not a new finding.
+
 ## Routing (the non-release instruments, to their owners)
 - Installer reachable() accepts 206 (dead "could not reach" message) -> Ice Cream Kitty (installer).
 - Deployment-URL checks read blind (302 for subject and control) -> Angel/Renet.
