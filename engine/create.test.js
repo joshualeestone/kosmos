@@ -3463,6 +3463,94 @@ test('a refused creation records no id, because nothing was born', () => {
   assert.equal(last.id, null);
 });
 
+test('#1279: an agent-created agent records createdBy + purpose; a plain create records null (provenance)', () => {
+  recorder();
+  create.setDryRun(false);
+  /* Agent-created: the creator and stated purpose land on the birth record, so
+     the receipt answers "who made this and what for" -- Baron's drift guard. */
+  create.createAgent({ ...BINS, name: 'team-member', role: 'pm', createdBy: 'ProjectManagerPete', purpose: 'ship the installer' });
+  let last = create.createdLog().slice(-1)[0];
+  assert.equal(last.createdBy, 'ProjectManagerPete');
+  assert.equal(last.purpose, 'ship the installer');
+  /* A plain operator create carries neither, so every pre-#1279 record and every
+     hand-create stays byte-identical: createdBy and purpose are null, not absent
+     keys guessed at read time. */
+  create.createAgent({ ...BINS, name: 'plain-agent', role: 'pm' });
+  last = create.createdLog().slice(-1)[0];
+  assert.equal(last.createdBy, null, 'a plain create invented a creator');
+  assert.equal(last.purpose, null, 'a plain create invented a purpose');
+  /* A refusal still records the provenance it was ASKED for -- the receipt is
+     "who tried to make what, and what happened", so a refused team member is
+     traceable to the creator that asked for it. */
+  create.createAgent({ name: '###', role: 'pm', createdBy: 'ProjectManagerPete', purpose: 'ship the installer' });
+  last = create.createdLog().slice(-1)[0];
+  assert.equal(last.outcome, create.OUTCOME.REFUSED);
+  assert.equal(last.createdBy, 'ProjectManagerPete', 'a refused member lost the creator that asked for it');
+  assert.equal(last.purpose, 'ship the installer');
+});
+
+test('#1279 INTEGRATION: team.createTeam against the REAL createAgent reads back real ids and stamps provenance', () => {
+  const team = require('./team');
+  recorder();
+  create.setDryRun(false);
+  const r = team.createTeam({
+    creator: 'ProjectManagerPete',
+    purpose: 'ship the Windows installer',
+    members: [
+      { ...BINS, name: 'team-eng', role: 'pm' },
+      { ...BINS, name: 'team-qa', role: 'writer' },
+    ],
+  });
+  assert.equal(r.outcome, 'created');
+  assert.equal(r.created.length, 2);
+  /* THE POINT THE BLIND REVIEW CAUGHT: create.createAgent returns NO id, so the
+     team must read it back from the profile. Prove it does, against the real
+     function -- each created entry's id is the REAL minted profile id, not null. */
+  for (const c of r.created) {
+    const real = store.readProfile(c.name).id;
+    assert.match(String(real), /^[0-9a-f]{12}$/, 'the profile was not minted');
+    assert.equal(c.id, real, 'createTeam did not read back the real id (it would be null off the create return)');
+  }
+  /* ...and provenance really landed on each birth record through the team seam. */
+  const births = create.createdLog().slice(-2);
+  for (const b of births) {
+    assert.equal(b.createdBy, 'ProjectManagerPete');
+    assert.equal(b.purpose, 'ship the Windows installer');
+  }
+});
+
+test('#1279: under DRY_RUN a created team member has id null on BOTH team and create (they agree)', () => {
+  const team = require('./team');
+  recorder();
+  create.setDryRun(true);
+  try {
+    /* A fresh slug: DRY_RUN creates it (returns created) but writes no profile, so
+       team's read-back and create's birth record both answer null. This is the
+       reachable form of "the two cannot disagree" -- a DRY_RUN create only reports
+       created for a slug with no prior profile (else the name-taken guard refuses
+       it), so there is never a stale id for team to surface. */
+    const r = team.createTeam({ creator: 'PM', purpose: 'x', members: [{ ...BINS, name: 'dry-fresh', role: 'pm' }] });
+    assert.equal(r.outcome, 'created', 'a DRY_RUN create of a fresh slug should report created');
+    assert.equal(r.created[0].id, null, 'team surfaced an id for an agent DRY_RUN did not mint');
+    assert.equal(create.createdLog().slice(-1)[0].id, null, 'create recorded an id under DRY_RUN');
+  } finally {
+    create.setDryRun(false);
+  }
+});
+
+test('#1279: a member whose slug already exists is refused by name-taken, so team never reads a stale id', () => {
+  const team = require('./team');
+  recorder();
+  create.setDryRun(false);
+  /* The guard that makes the DRY_RUN reasoning hold: a slug with a profile cannot
+     be re-created, so team reaches the id read-back ONLY for a genuinely new slug. */
+  create.createAgent({ ...BINS, name: 'already-here', role: 'pm' });
+  const r = team.createTeam({ creator: 'PM', purpose: 'x', members: [{ ...BINS, name: 'already-here', role: 'pm' }] });
+  assert.equal(r.outcome, 'refused');
+  assert.equal(r.created.length, 0, 'a duplicate slug reached the created branch');
+  assert.equal(r.refused.length, 1);
+});
+
 test('an existing agent is backfilled on first write, and a restored profile is a different agent (#170)', () => {
   const name = 'old-timer';
   const file = nodePath.join(store.PROFILES, store.safeKey(name) + '.json');

@@ -2343,6 +2343,21 @@ function createAgent(opts) {
     model: String((opts && opts.model) || '').slice(0, 120),
     /* #245: the provider as asked for, same posture as role and model. */
     provider: String((opts && opts.provider) || 'anthropic').slice(0, 40),
+    /* #1279: creation PROVENANCE, so the record answers "who made this agent
+       and what for", not only "what is it". `createdBy` is the CREATOR -- the
+       agent (or "operator") that asked for this one, which a PM agent building a
+       team supplies via engine/team.js. `purpose` is the stated reason the team
+       exists. Both are drift-prevention (Baron's #1279 design note: agent-created
+       agents make roster drift the default outcome unless creation records WHY an
+       agent exists). NULL when absent -- a directly operator-created agent omits
+       them, so it stays FUNCTIONALLY unchanged: the two keys are present as null
+       rather than gone, and the only birth-log consumer (register.js) reads only
+       outcome/name/at, so nothing keys on their absence. (Records already ON DISK
+       from before this are untouched; a new plain create's line simply carries
+       the two null keys.) Same sanitize-and-slice posture as role/model above;
+       recorded, never a gate. */
+    createdBy: (opts && opts.createdBy) ? String(opts.createdBy).slice(0, 120) : null,
+    purpose: (opts && opts.purpose) ? String(opts.purpose).slice(0, 300) : null,
     outcome: (out && out.outcome) || 'unknown',
     because: (out && out.because) ? String(out.because).slice(0, 300) : null,
     /* #170: the same id the profile carries, on the creation line, so "was
