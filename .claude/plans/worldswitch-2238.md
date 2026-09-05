@@ -6,12 +6,12 @@ kosmos#2238 (PRIORITY, Josh #3 structural): "create a Kosmos works but you can't
 ## Investigation (origin/main = the shipped 6.35 Josh has)
 - The switcher UI (`worldswRender`, web/index.html ~15631) builds rows **read-only**: the comment says "row selection is deferred to slice 2b, so the only wired action here is New Kosmos." No click handler on `.worldsw-row`; the UI calls GET /api/worlds and POST /api/worlds (create) but **NEVER POST /api/worlds/active** (the switch). Confirmed: no branch wires `/api/worlds/active` from the UI; no open PR. -> **That is Josh's bug: selecting a world does nothing because the rows are inert.**
 - POST /api/worlds/active (my #2212) records `activeWorldId` + returns `restartRequired: true`, but deliberately does NOT repoint the running board. server.js:24: a world's data-root env is applied ONCE at board start(), before engine modules freeze `store.ROOT`. So the running board keeps serving the world it booted with until it **restarts**.
-- The installed board is a launchd KeepAlive job (`com.kosmos.board[.<hash>]`, install/setup.sh ~1284). `launchctl stop`/`kickstart -k` on a KeepAlive job respawns it (restart-local-board.sh relies on exactly this), and on respawn start() applies the now-active world's roots.
+- CORRECTED (blind review, verified): the installed board is NOT a launchd KeepAlive job. install/setup.sh sets the login plist to RunAtLoad with NO KeepAlive, and install/kosmos `cmd_start` daemonises via `nohup node app &` then exits, so launchd does not own the running board process. See Slice B for what this means for the restart mechanism (the reason the auto-restart is deferred). (restart-local-board.sh restarts the separate DEV board, a hand-written KeepAlive plist -- a different shape.)
 
 ## Design - two slices
 
 ### Slice A (this branch): wire the switch UI + honest post-switch status
-- The switcher is a **menu**; each non-active row is an actionable `menuitem` (keyboard-operable). Clicking it calls POST /api/worlds/active {id}. (ARIA: role=menu/menuitem, not role=list with a button child, which a blind review flagged as invalid list structure.)
+- The switcher is a **menu**; each non-active row is a native <button> (keyboard-operable, no ARIA menu contract). Clicking it calls POST /api/worlds/active {id}. (ARIA: native <button> rows in a role=group container - no menu/list child-role or arrow-key contract to implement (two blind reviews flagged first role=list+button, then role=menu-without-keyboard-contract).)
 - On 200 {ok, world, restartRequired}: mark the new row active (aria-current), update the promoted header name, and show an honest status banner: "Switched to <name>. Its projects and agents load the next time the Kosmos board restarts (run \"kosmos restart\", or restart your Mac)." No auto-restart button (see Slice B).
 - Classify failures by the endpoint's contract: 404 (no such world -> refresh the list), 409 (another op in progress -> try again), 400/500 (honest error copy). Never innerHTML a world name (textContent only, matching the existing rows).
 
@@ -34,7 +34,7 @@ silently no-ops (strictly worse than honest guidance). The removed endpoint/labe
 mechanism; they are gone from this branch (server.js is unchanged vs origin/main).
 
 ## What ships on this branch (Slice A only)
-- The switcher rows are actionable menuitems that POST /api/worlds/active {id}; the active marker +
+- The switcher rows are actionable native <button>s that POST /api/worlds/active {id}; the active marker +
   promoted name move; an honest status banner names the world and says it loads after a board restart
   (`run "kosmos restart", or restart your Mac`). No server change.
 

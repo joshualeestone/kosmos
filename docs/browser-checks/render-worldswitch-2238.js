@@ -77,8 +77,10 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const before = {
       rowCount: rows.length,
       activeName: (document.getElementById('worldsw-name').textContent || '').trim(),
-      // the non-active row (Side Project) must be an actionable menuitem
-      sideIsActionable: rows.some((el) => el.getAttribute('role') === 'menuitem' && el.getAttribute('tabindex') === '0' && /Side Project/.test(el.textContent || '')),
+      // the non-active row (Side Project) must be an actionable native <button>;
+      // the active row (Home) must NOT be a button (a non-interactive div).
+      sideIsActionable: rows.some((el) => el.tagName === 'BUTTON' && /Side Project/.test(el.textContent || '')),
+      activeNotButton: rows.some((el) => el.getAttribute('aria-current') === 'true' && el.tagName !== 'BUTTON' && /Home/.test(el.textContent || '')),
       bannerHiddenInitially: document.getElementById('worldsw-restart').hidden,
     };
 
@@ -103,7 +105,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (r.error) problems.push(r.error);
   if (!r.error) {
     if (r.before.rowCount !== 2) problems.push('expected 2 world rows, got ' + r.before.rowCount);
-    if (!r.before.sideIsActionable) problems.push('the non-active row is not an actionable menuitem (role=menuitem, tabindex=0) -- this is the #2238 read-only-rows bug');
+    if (!r.before.sideIsActionable) problems.push('the non-active row is not an actionable native <button> -- this is the #2238 read-only-rows bug');
+    if (!r.before.activeNotButton) problems.push('the active row should be a non-interactive element (aria-current, not a button)');
     if (r.before.bannerHiddenInitially !== true) problems.push('the status banner should be hidden before any switch');
     if (r.before.activeName !== 'Home') problems.push('expected the active name "Home" initially, got "' + r.before.activeName + '"');
     // The load-bearing assertions: the switch is actually POSTed and the marker moves.

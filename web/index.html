@@ -1206,12 +1206,12 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
-/* #2238: a non-active menuitem is a switch control. The active row (aria-current) is
-   inert, so it keeps the default cursor and no hover. */
-.worldsw-row[role="menuitem"]:not([aria-current="true"]) { cursor: pointer; }
-.worldsw-row[role="menuitem"]:not([aria-current="true"]):hover { background: var(--k-sunk); }
-.worldsw-row[role="menuitem"]:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
-.worldsw-row[aria-current="true"] { cursor: default; }
+/* #2238: a non-active row is a native <button> switch control. Reset the button
+   chrome (border/background/text-align/width) so it matches the div rows; the base
+   .worldsw-row rule already supplies display/font/color. The active row is a div. */
+button.worldsw-row { border: 0; background: none; text-align: left; width: 100%; cursor: pointer; }
+button.worldsw-row:hover { background: var(--k-sunk); }
+button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 /* #2238: the honest post-switch status banner. A world's roots load only on board
    boot, so switching needs a board restart; this banner says so (no auto-restart). */
 .worldsw-restart { margin-top: 4px; padding: 8px;
@@ -6181,15 +6181,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <span class="worldsw-name" id="worldsw-name">Kosmos</span>
         <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
       </button>
-      <!-- #2238: the rows are now ACTIONABLE. This is a MENU: each non-active row is a
-           menuitem that switches the active Kosmos (POST /api/worlds/active); the active
-           row is a menuitem marked aria-current and inert. A world's data-root is applied
-           at board boot, so switching loads the new world only after a board restart --
-           on a successful switch the honest status banner below says so. New Kosmos still
-           creates. (Menu semantics, not role=list, so an actionable menuitem is valid;
-           #1704 slice-3 flagged the list-vs-menu choice for exactly this slice.) -->
+      <!-- #2238: the rows are now ACTIONABLE. Each non-active row is a native <button>
+           that switches the active Kosmos (POST /api/worlds/active); the active row is a
+           non-interactive div marked aria-current. Native buttons are keyboard-operable
+           (Tab + Enter/Space) with no ARIA menu/list child-role or arrow-key contract to
+           implement -- so the container is a labelled role=group, not a menu. A world's
+           data-root is applied at board boot, so switching loads the new world only after
+           a board restart; the honest status banner below says so. New Kosmos still creates. -->
       <div class="worldsw-menu" id="worldsw-menu" hidden>
-        <div class="worldsw-list" id="worldsw-list" role="menu" aria-label="Your Kosmoses"></div>
+        <div class="worldsw-list" id="worldsw-list" role="group" aria-label="Your Kosmoses"></div>
         <!-- Shown after a switch: an HONEST status. A world's roots load only on board
              boot, so switching needs a board restart; this says how (no auto-restart --
              the installed board is a detached process, see worldswSwitch). role=status so
@@ -15663,26 +15663,21 @@ function worldswRender(data) {
   nameEl.textContent = activeName;
   document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your Kosmoses. Current: ' + activeName);
   /* #2238: rows are built from textContent, never innerHTML, so a world name is
-     never interpreted as markup. A NON-active row is a switch control (role=button,
-     keyboard-operable); the active row is inert (aria-current, listitem). */
+     never interpreted as markup. A NON-active row is a native <button> (keyboard-
+     operable via Tab + Enter/Space, no ARIA menu contract needed); the active row is a
+     non-interactive <div> marked aria-current. */
   list.textContent = '';
   for (const w of data.worlds) {
     const isActive = w.id === activeId;
-    const row = document.createElement('div');
-    row.className = 'worldsw-row';
     const wname = w.name || 'Kosmos';
-    row.setAttribute('role', 'menuitem');
+    const row = document.createElement(isActive ? 'div' : 'button');
+    row.className = 'worldsw-row';
     if (isActive) {
       row.setAttribute('aria-current', 'true');
-      row.setAttribute('tabindex', '-1');
     } else {
-      row.setAttribute('tabindex', '0');
+      row.type = 'button';
       row.setAttribute('aria-label', 'Switch to ' + wname);
-      const go = () => worldswSwitch(w.id, wname);
-      row.addEventListener('click', go);
-      row.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
-      });
+      row.addEventListener('click', () => worldswSwitch(w.id, wname));
     }
     const check = document.createElement('span');
     check.className = 'worldsw-check';
@@ -15716,6 +15711,9 @@ async function worldswSwitch(id, name) {
   if (WORLDSW_SWITCHING) return;
   const banner = document.getElementById('worldsw-restart');
   const bmsg = document.getElementById('worldsw-restart-msg');
+  // role=status announces a mutation only while the region is IN the a11y tree, so
+  // UNHIDE first, then set the text (setting text on a hidden region can go unspoken).
+  const say = (t) => { banner.hidden = false; bmsg.textContent = t; };
   WORLDSW_SWITCHING = true;
   try {
     let res;
@@ -15726,24 +15724,25 @@ async function worldswSwitch(id, name) {
         body: JSON.stringify({ id }),
       });
     } catch {
-      bmsg.textContent = 'Could not reach Kosmos to switch. Try again.';
-      banner.hidden = false;
+      say('Could not reach Kosmos to switch. Try again.');
       return;
     }
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const because = body && body.because;
-      if (res.status === 404) { await worldsFetch().catch(() => {}); bmsg.textContent = because || 'That Kosmos is no longer here; the list has been refreshed.'; }
-      else if (res.status === 409) { bmsg.textContent = because || 'Another Kosmos operation is in progress. Try again in a moment.'; }
-      else { bmsg.textContent = because || 'Could not switch to that Kosmos.'; }
-      banner.hidden = false;
+      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); }
+      else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
+      else { say(because || 'Could not switch to that Kosmos.'); }
       return;
     }
     // Success: the active world is recorded. Mark it (list + header), and be honest that
-    // its projects and agents load only after the board restarts.
+    // its projects and agents load only after the board restarts. The refetch rebuilds
+    // the rows (dropping the clicked button), so move focus to the switcher trigger --
+    // which now shows the new active name -- rather than letting it fall to <body>.
     await worldsFetch().catch(() => {});
-    bmsg.textContent = 'Switched to ' + name + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).';
-    banner.hidden = false;
+    say('Switched to ' + name + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).');
+    const btn = document.getElementById('worldsw-btn');
+    if (btn) btn.focus();
   } finally {
     WORLDSW_SWITCHING = false;
   }
@@ -15753,6 +15752,10 @@ function worldswClose() {
   if (!menu || menu.hidden) return;
   menu.hidden = true;
   document.getElementById('worldsw-btn').setAttribute('aria-expanded', 'false');
+  // #2238: clear the post-switch status so a reopen never shows a stale (and possibly
+  // now-false, if the board was since restarted) "Switched to X" line.
+  const banner = document.getElementById('worldsw-restart');
+  if (banner) { banner.hidden = true; document.getElementById('worldsw-restart-msg').textContent = ''; }
 }
 function worldswOpen() {
   const menu = document.getElementById('worldsw-menu');
