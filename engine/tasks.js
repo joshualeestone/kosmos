@@ -224,15 +224,26 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
   // part-added with the later events on that same part. Computed inside the
   // callback (nextPartId needs the live parts), read after a successful write.
   let newPartId = null;
+  // #992: adding an OPEN part to an already-complete task (all prior parts
+  // closed, derived progressOf().closed true) un-completes it -- a real
+  // task-level reopen, on the same derived transition setPartClosed/setClosed
+  // record. A new part is always open, so addPart can only reopen, never
+  // complete; that is why there is no `closed` counterpart here.
+  let taskReopened = false;
   const task = writeParts(projectId, n, (parts, t, p) => {
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the part cannot be given to it');
     }
     newPartId = nextPartId(parts);
-    return parts.concat([{ id: newPartId, who: whoKey, sentence: said, closedAt: null,
+    const next = parts.concat([{ id: newPartId, who: whoKey, sentence: said, closedAt: null,
       addedVia: viaOf(made), createdAt: new Date().toISOString() }]);
+    if (progressOf({ ...t, parts }).closed && !progressOf({ ...t, parts: next }).closed) {
+      taskReopened = true;
+    }
+    return next;
   });
   taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
+  if (taskReopened) taskchat.record(projectId, Number(n), { kind: 'reopened' });
   return { ok: true, task };
 }
 

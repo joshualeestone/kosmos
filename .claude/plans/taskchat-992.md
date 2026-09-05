@@ -80,6 +80,16 @@ holds), whoSeen on `created` (folds into the follow-up provenance pass #2/#3, no
 piecemeal), and C1 control chars (correct by design -- only U+000A splits JSONL,
 display-escaping is the renderer's job, matching messages.js).
 
+## Challenge-loop resume iteration 2 (2026-09-05): apply the derived model uniformly
+The fresh review found the iter-1 fix was not applied to addPart: adding an OPEN
+part to an already-complete task (all prior parts closed) un-completes it -- a real
+task-level reopen (progressOf().closed true -> false) that recorded only part-added.
+Fixed: addPart now records `reopened` on that derived transition too (a new part is
+always open, so addPart can only reopen, never complete). Also tightened read() to
+require `at` be a parseable date (Number.isFinite(Date.parse)), parity with
+engine/messages.js rowShaped -- drops a foreign/torn append carrying a non-date `at`.
+Two new tests. Surrogate-slice NIT remains deferred (as above).
+
 ## Deliberate follow-ups (scoped, NOT in this PR)
 1. **Task-Settings reveal button + route** -- the project half already exists
    (POST /api/chats/reveal opens store.ROOT/chats). A sibling

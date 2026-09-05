@@ -163,7 +163,14 @@ function read(projectId, number) {
     } catch {
       continue;
     }
-    if (obj && typeof obj === 'object' && typeof obj.at === 'string' && typeof obj.kind === 'string') {
+    // #992: `at` must be a string AND a parseable date -- parity with
+    // engine/messages.js's rowShaped, the sibling this module models itself on.
+    // record() always stamps a valid ISO `at`, so this only bites a foreign or
+    // torn append carrying a non-date `at`, which read() should drop rather than
+    // surface as a bad timestamp.
+    if (obj && typeof obj === 'object'
+        && typeof obj.at === 'string' && Number.isFinite(Date.parse(obj.at))
+        && typeof obj.kind === 'string') {
       out.push(obj);
     }
   }

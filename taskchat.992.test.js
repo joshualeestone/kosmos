@@ -302,6 +302,29 @@ test('#992 a refused addPart records nothing (agent not on the project)', () => 
   assert.deepEqual(taskchat.read(p.id, made.number).map((r) => r.kind), ['created']);
 });
 
+test('#992 adding a part to a completed task reopens it: records a task-level `reopened`', () => {
+  // The uniform-model gap iter-2 closed: addPart must apply the same derived
+  // transition as setPartClosed/setClosed. A new part is always open, so this
+  // can only un-complete (never complete) -- hence only the reopened case.
+  const p = freshProject(['ada', 'bo']);
+  const made = tasks.create(p.id, { sentence: 'x', who: 'ada', made: { via: 'screen' } });
+  const proj = projects.readAll().find((x) => x.id === p.id);
+  const partId = tasks.partsOf(tasks.byNumber(proj, made.number))[0].id;
+  tasks.setPartClosed(p.id, made.number, partId, new Date().toISOString()); // completes it
+  assert.equal(taskchat.read(p.id, made.number).filter((r) => r.kind === 'closed').length, 1,
+    'closing the only part completed the task');
+  tasks.addPart(p.id, made.number, { sentence: 'more work', who: 'bo', made: { via: 'screen' } });
+  assert.deepEqual(taskchat.read(p.id, made.number).map((r) => r.kind).slice(-2),
+    ['part-added', 'reopened'], 'the part-added is followed by the task reopened it caused');
+});
+
+test('#992 read() skips a row whose `at` is not a parseable date (foreign/torn append)', () => {
+  const p = 'proj-atcheck', n = 8;
+  taskchat.record(p, n, { kind: 'created' });
+  fs.appendFileSync(taskchat.taskChatFile(p, n), JSON.stringify({ at: 'not-a-date', kind: 'closed' }) + '\n');
+  assert.deepEqual(taskchat.read(p, n).map((r) => r.kind), ['created'], 'the non-date `at` row is dropped');
+});
+
 test('#992 a failed transcript append never breaks the task: tasks.create still returns the task', () => {
   // #992 (iter-6 nit): the caller-side half of the best-effort promise. record()
   // swallows its own failure and returns false; this proves the task write that
