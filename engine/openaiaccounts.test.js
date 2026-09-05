@@ -840,10 +840,13 @@ test('#2140 openaiModelClass: chat vs denylisted-nonchat vs unknown, with contro
   // Denylist wins even inside a known family (checked first).
   assert.equal(openai.openaiModelClass('gpt-4o-audio-preview').kind, 'nonchat', 'a non-chat variant of a chat family is nonchat, not unknown');
   assert.equal(openai.openaiModelClass('text-embedding-3-large').kind, 'nonchat', 'an embedding model is nonchat');
-  // #2140 item 9: a gpt version NEWER than the top fixed family (gpt-5) is now a
-  // recognised, top-ranked chat model, not 'unknown'. A non-gpt unrecognised id
-  // (no version to parse) stays 'unknown' and is offered as such.
-  assert.equal(openai.openaiModelClass('gpt-6').kind, 'chat', 'a gpt version newer than gpt-5 is a recognised (top-ranked) chat model, #2140 item 9');
+  // A gpt-5 SUBTIER already matches the gpt-5 prefix, so it is recognised chat
+  // (this is what #2140 item 9 reorders -- the tiers were tied at gpt-5's rank).
+  assert.equal(openai.openaiModelClass('gpt-5.6-terra').kind, 'chat', 'a gpt-5 subtier is recognised chat via the gpt-5 prefix');
+  // A newer MAJOR (gpt-6) and a non-gpt id are both still 'unknown' -- item 9
+  // only reorders them (top for gpt-6, last for a non-version id), never
+  // reclassifies them, so they keep their unverified marker.
+  assert.equal(openai.openaiModelClass('gpt-6').kind, 'unknown', 'an unrecognised newer MAJOR is still unknown (reordered, not reclassified)');
   assert.equal(openai.openaiModelClass('o5').kind, 'unknown', 'a non-gpt unrecognised id is still unknown (offered)');
   // CONTROL: a denylist term inside an otherwise-unknown family still wins -> nonchat.
   assert.equal(openai.openaiModelClass('o5-audio').kind, 'nonchat', 'a denylisted variant of an unknown family is nonchat, never offered');
@@ -926,8 +929,19 @@ test('#2140 item 9 CONTROL: gpt-5 and the GPT-4s keep their existing order (no r
 });
 
 test('#2140 item 9: forward-compatible -- a future gpt-6 sorts above the gpt-5.6 tier', () => {
-  const args = openai.chatModelsFromList([{ id: 'gpt-5.6-terra' }, { id: 'gpt-6' }, { id: 'gpt-5' }]).map((r) => r.arg);
+  const rows = openai.chatModelsFromList([{ id: 'gpt-5.6-terra' }, { id: 'gpt-6' }, { id: 'gpt-5' }]);
+  const args = rows.map((r) => r.arg);
   assert.deepEqual(args, ['gpt-6', 'gpt-5.6-terra', 'gpt-5'], 'a higher version must sort first with no code change');
+  // WARNING-2 guard: gpt-6 is an unrecognised MAJOR, so item 9 REORDERS it to the
+  // top but does NOT reclassify it -- it stays unverified (keeps the marker) and
+  // is therefore never the pre-selected default (a fail-to-start model must not
+  // be the default). gpt-5.6-terra, recognised via the gpt-5 prefix, is verified.
+  const six = rows.find((r) => r.arg === 'gpt-6');
+  assert.ok(six.unverified, 'an unrecognised newer major sorts first but stays unverified (never the default)');
+  assert.match(six.label, /compatibility not verified/i, 'and keeps the marker so the person chooses it knowingly');
+  const terra = rows.find((r) => r.arg === 'gpt-5.6-terra');
+  assert.ok(!terra.unverified, 'a gpt-5 subtier is recognised (verified), not marked');
+  assert.ok(!six.default, 'the unverified top-sorted model is not the default');
 });
 
 test('#2140 item 9 CONTROL: a non-chat variant of a newer tier is still dropped, and a non-gpt unknown is still unverified-last', () => {
