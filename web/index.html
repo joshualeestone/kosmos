@@ -5868,6 +5868,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    in the connected state), NOT :not(:empty), because #fr-openai-msg also carries
    the not-connected dead-reason line, which must stay a plain hint, not a gold
    success box. */
+/* #2241: the plain-hint spacing (was an inline margin on the div, which beat the
+   .fr-connbox rule and left the connected box's top margin 2px off Claude's #fr-sub;
+   moved here so the .fr-connbox rule below matches #fr-sub exactly for the box). */
+#firstrun #fr-openai-msg { margin: -4px 0 10px; }
 #firstrun #fr-openai-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
 /* ⚠️ `.fr-body p.fr-confirm-t`, NOT `.fr-confirm-t`. At (1,1,0) it lost every
@@ -7857,7 +7861,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <!-- #2241: a DIV (was a p) so the connected state can hold the .fr-check gold
              check-row block, the same shape Claude's #fr-sub uses; stays a plain dhint
              line for the not-yet-connected / dead-reason states. -->
-        <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite" style="margin:-4px 0 10px;"></div>
+        <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite"></div>
         <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
              reorder moved it past the wrong closing tag, so the list showed five
              rows instead of six: Gemini vanished until somebody pressed Connect on
