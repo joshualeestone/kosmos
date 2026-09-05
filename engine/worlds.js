@@ -1,0 +1,201 @@
+'use strict';
+/*
+ * #1704: multiple Kosmos "worlds" on one install. A world is a self-contained
+ * workspace with its own store data, projects, and workers. Today there is
+ * exactly one, implicit, living at the legacy roots (store.dataRootFor,
+ * projectsRoot, workersDir). This module adds a REGISTRY + create + switch-active,
+ * and computes the per-world AGENT_WORKFORCE_* env overrides that the existing
+ * per-call root functions already read -- so a world switch needs no edits to the
+ * ~8 modules that resolve roots.
+ *
+ * 🛑 THE RELEASE GATE: an existing single-Kosmos install MUST survive untouched.
+ * This is guaranteed structurally, not by care:
+ *   - An install with NO worlds.json is the single DEFAULT world (readRegistry
+ *     synthesizes it). Existing installs have no registry, so they are the default.
+ *   - The default world sets NO env overrides (envOverridesFor returns {}), so
+ *     every root resolves EXACTLY as today. No data is ever moved, renamed, or
+ *     re-indexed -- the one dangerous operation is simply never performed.
+ * A malformed or unreadable registry FAILS SAFE to the default world, so a broken
+ * file can never lock an install out of its own data.
+ *
+ * SCOPE (v1, this module): the DATA layer -- the registry and the store/projects/
+ * workers roots. The agent-process layer (launchd services, AGENT_WORKFORCE_LAUNCH)
+ * is a shared system resource that a switch must stop-and-relaunch; that lifecycle
+ * rides the board restart on switch (a later slice), so this module does NOT
+ * override AGENT_WORKFORCE_LAUNCH -- named-world agents are out of v1 scope and
+ * the default world (the only one that runs agents in v1) keeps the legacy path.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const store = require('./store'); // dataRootFor, safeKey
+
+const DEFAULT_ID = 'default';
+const DEFAULT_NAME = 'Kosmos';
+const REGISTRY_FILE = 'worlds.json';
+const WORLDS_SUBDIR = 'worlds';
+
+/*
+ * The base store root, resolved from the ORIGINAL env. The registry and every
+ * named world hang off this, so it MUST be captured before applyActiveWorldEnv
+ * sets any AGENT_WORKFORCE_DATA override (otherwise the base would move with the
+ * active world). Callers at board startup capture it once, up front.
+ */
+function baseRoot(env, platform, home) {
+  const e = env || process.env;
+  return store.dataRootFor(
+    platform || process.platform,
+    home || e.AGENT_WORKFORCE_HOME || os.homedir(),
+    e
+  );
+}
+
+function registryPath(base) { return path.join(base, REGISTRY_FILE); }
+
+/* The implicit default world -- what an install with no registry IS. `base:null`
+   is the signal for "legacy roots, no override": the migration state where the
+   default world reads the existing data in place and nothing moves. */
+function defaultWorld() {
+  return { id: DEFAULT_ID, name: DEFAULT_NAME, createdAt: null, base: null };
+}
+
+function synthDefaultRegistry() {
+  return { version: 1, activeWorldId: DEFAULT_ID, worlds: [defaultWorld()] };
+}
+
+/*
+ * Read the registry, or synthesize the single-default registry when absent or
+ * unusable. Every failure path returns the default so an install is never locked
+ * out of its data. Also self-heals two invariants a hand-edited or partial file
+ * could violate: the default world must always be present (dropping it would
+ * orphan the legacy data), and activeWorldId must name a world that exists.
+ */
+function readRegistry(base) {
+  let raw;
+  try { raw = fs.readFileSync(registryPath(base), 'utf8'); }
+  catch { return synthDefaultRegistry(); }
+  let obj;
+  try { obj = JSON.parse(raw); } catch { return synthDefaultRegistry(); }
+  if (!obj || typeof obj !== 'object' || !Array.isArray(obj.worlds) || obj.worlds.length === 0) {
+    return synthDefaultRegistry();
+  }
+  // Keep only well-formed entries; the default must survive.
+  const worlds = obj.worlds.filter((w) => w && typeof w.id === 'string' && w.id);
+  if (!worlds.some((w) => w.id === DEFAULT_ID)) worlds.unshift(defaultWorld());
+  let activeWorldId = typeof obj.activeWorldId === 'string' ? obj.activeWorldId : DEFAULT_ID;
+  if (!worlds.some((w) => w.id === activeWorldId)) activeWorldId = DEFAULT_ID;
+  return { version: obj.version === 1 ? 1 : 1, activeWorldId, worlds };
+}
+
+/* Atomic publish: write to a temp in the same dir, then rename over the target,
+   so a concurrent reader sees the old file or the new one, never a partial. */
+function writeRegistry(base, reg) {
+  fs.mkdirSync(base, { recursive: true });
+  const tmp = path.join(base, `.${REGISTRY_FILE}.${process.pid}.tmp`);
+  fs.writeFileSync(tmp, JSON.stringify(reg, null, 2) + '\n');
+  fs.renameSync(tmp, registryPath(base));
+}
+
+function listWorlds(base) { return readRegistry(base).worlds; }
+
+function activeWorld(base) {
+  const reg = readRegistry(base);
+  return reg.worlds.find((w) => w.id === reg.activeWorldId) || defaultWorld();
+}
+
+/* The on-disk base of a world's subtrees. null (no override) for the default
+   world -- its data lives at the legacy roots. Named worlds nest under
+   <base>/worlds/<id>/. */
+function worldBaseDir(base, world) {
+  if (!world || world.id === DEFAULT_ID) return null;
+  return path.join(base, WORLDS_SUBDIR, world.id);
+}
+
+/*
+ * The AGENT_WORKFORCE_* env overrides for a world. EMPTY for the default world
+ * (the migration guarantee -- legacy roots, untouched). For a named world, the
+ * three data roots point under its base, matching each root function's own
+ * semantics: AGENT_WORKFORCE_DATA has `AgentWorkforce` appended by dataRootFor,
+ * while AGENT_WORKFORCE_PROJECTS / _WORKERS are used verbatim.
+ * AGENT_WORKFORCE_LAUNCH is deliberately NOT overridden (see SCOPE above).
+ */
+function envOverridesFor(base, world) {
+  const dir = worldBaseDir(base, world);
+  if (!dir) return {};
+  return {
+    AGENT_WORKFORCE_DATA: dir, // dataRootFor appends AgentWorkforce -> <dir>/AgentWorkforce
+    AGENT_WORKFORCE_PROJECTS: path.join(dir, 'projects'),
+    AGENT_WORKFORCE_WORKERS: path.join(dir, 'workers'),
+  };
+}
+
+/*
+ * Create a new world. The name is sanitized into an id with store.safeKey (the
+ * same untrusted-name posture the store and create.js use, so a name can never
+ * traverse out of its base). Refuses a duplicate id or a collision with an
+ * existing name. Makes the world's subtrees, appends to the registry, persists.
+ * Does NOT switch to it -- switching is an explicit, separate act. Returns the
+ * new world entry.
+ */
+function createWorld(base, name) {
+  const id = store.safeKey(name); // throws on an empty/invalid name
+  if (id === DEFAULT_ID) throw new Error(`world id "${DEFAULT_ID}" is reserved`);
+  const reg = readRegistry(base);
+  if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
+  const dir = path.join(base, WORLDS_SUBDIR, id);
+  // Make the world's subtrees up front so a switch never lands on a missing dir.
+  fs.mkdirSync(path.join(dir, 'AgentWorkforce'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
+  const world = { id, name: String(name), createdAt: new Date().toISOString(), base: path.join(WORLDS_SUBDIR, id) };
+  reg.worlds.push(world);
+  writeRegistry(base, reg);
+  return world;
+}
+
+/*
+ * Set the active world. Validates the id names a real world (refusing an unknown
+ * id rather than silently defaulting -- an unknown id here is a caller bug, not a
+ * broken file). Persists the pointer. Does NOT itself re-resolve roots or move
+ * processes: the caller (board) applies the new world's env and restarts, because
+ * open state (conversations, watchers, agent processes) belongs to the old world.
+ */
+function setActiveWorld(base, id) {
+  const reg = readRegistry(base);
+  if (!reg.worlds.some((w) => w.id === id)) throw new Error(`no such world "${id}"`);
+  reg.activeWorldId = id;
+  writeRegistry(base, reg);
+  return activeWorld(base);
+}
+
+/*
+ * At board startup: mutate `env` in place so the active world's roots resolve for
+ * the rest of the process. A no-op for the default world (no overrides). Returns
+ * the applied overrides (empty for default) so a caller can log what it did.
+ * MUST be called before any module resolves a root (roots are per-call, #1443, so
+ * "before the first read" is enough; the board calls this at the very top of
+ * start()). `base` is the pre-override base the caller captured up front.
+ */
+function applyActiveWorldEnv(env, base) {
+  const e = env || process.env;
+  const overrides = envOverridesFor(base, activeWorld(base));
+  for (const k of Object.keys(overrides)) e[k] = overrides[k];
+  return overrides;
+}
+
+module.exports = {
+  DEFAULT_ID,
+  baseRoot,
+  registryPath,
+  defaultWorld,
+  readRegistry,
+  writeRegistry,
+  listWorlds,
+  activeWorld,
+  worldBaseDir,
+  envOverridesFor,
+  createWorld,
+  setActiveWorld,
+  applyActiveWorldEnv,
+};
