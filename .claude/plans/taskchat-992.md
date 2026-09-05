@@ -112,6 +112,13 @@ would introduce an unmatched new pattern. (b) the surrogate-slice NIT (as above)
    -- record its text as an `assigned` event field.
 3. **A pointer to the agent's external Claude/Codex session** for the task, so the
    reveal can also reach the working transcript Kosmos does not own.
+4. **A retention valve on close/reopen** (challenge iter-4 note): setClosed
+   (close/reopen) and setPartClosed are not behind the parts valve that meters
+   addPart/assignPart, so a process toggling a task closed/open in a loop would
+   append two lines per cycle to that one task's file. Pre-existing scope (the
+   close/reopen route is unvalved regardless of #992) and it does not break the
+   O(1)-append retention claim; noted here if that route is ever exposed to
+   unmetered process callers.
 
 ## Weakest premise
 That "record the text that goes into a task" is well-served by the lifecycle events
