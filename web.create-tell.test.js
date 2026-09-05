@@ -1,22 +1,18 @@
 'use strict';
 
 /**
- * 🪦 THE CREATED-PING CHECKBOX IS GONE, AND THIS FILE IS ITS MARKER.
+ * ✅ THE CREATED-PING CHECKBOX IS BACK, AND THIS FILE ASSERTS IT.
  *
- * It used to hold seven tests about `createTellPaint` and the three states of
- * the create-screen checkbox. Josh removed the setting on 2026-08-26, item 3:
- * "the 'Let the Kosmos team know when you create an agent' - they both need to
- * be removed." Both surfaces went: the Settings row first, then this one.
+ * It held seven tests, then became a tombstone when Josh removed the control on
+ * 2026-08-26, and is restored now that he reversed that on 2026-09-05 (via
+ * Splinter: "we need that back in for sure", "I've never said flip it off",
+ * #2020/#2013). The file named after the control asserts the control: its
+ * markup, its painter, and the create request reading it again.
  *
- * ⭐ THE FILE IS KEPT RATHER THAN DELETED so that anyone who puts the control
- * back gets a red from the file named after it, instead of a green suite and a
- * silent send. Deleting it would leave the strongest signal about this decision
- * in a commit message nobody reads.
- *
- * The real guarantee now lives in engine/ping.test.js, which asserts the
- * control's ABSENCE and that the send defaults OFF together, because absence
- * alone is only half: a removed control over a default-on send is worse than
- * what he complained about and cannot be fixed by the person.
+ * The coupling guarantee (control present AND send default ON, together) lives
+ * in engine/ping.test.js. This file covers the create-page surface itself: that
+ * the checkbox, its painter, and the checkbox read are all present, so a partial
+ * restore that forgets one of them goes red in the file named after the control.
  */
 const test = require('node:test');
 const assert = require('node:assert/strict');
@@ -51,26 +47,29 @@ function codeOnly(src) {
 }
 const PAGE = codeOnly(RAW);
 
-test('the create-screen ping control, and its painter, are gone', () => {
-  for (const gone of ['id="create-tell"', 'id="create-tell-wrap"', 'id="create-tell-note"',
+test('the create-screen ping control, and its painter, are present', () => {
+  for (const present of ['id="create-tell"', 'id="create-tell-wrap"', 'id="create-tell-note"',
     'function createTellPaint', 'refreshCreateTell']) {
-    assert.equal(PAGE.includes(gone), false,
-      gone + ' is back. If that is deliberate, engine/ping.js must stop defaulting the send ON in the same change.');
+    assert.ok(PAGE.includes(present),
+      present + ' is missing. Restoring this control means all of its pieces: the markup, the painter, and the read.');
   }
 });
 
-test('the create screen itself is still there, so the absences above mean something', () => {
+test('the create screen itself is still there, so the presences above mean something', () => {
   assert.match(PAGE, /id="create-go"/);
   assert.match(PAGE, /id="create-instr"/);
 });
 
-test('and the create request no longer reads a control that does not exist', () => {
-  /* The submit builder did `getElementById('create-tell').checked`. With the
-     box gone that is a throw on the last click of the flow every new person
-     walks, which is the worst place in the product to put one. */
-  assert.doesNotMatch(PAGE, /getElementById\('create-tell'\)/);
-  assert.match(PAGE, /b\.tellKosmos = false;/,
-    'the create request stopped saying false explicitly, so the server default (true) takes over');
+test('and the create request reads the control, only sending false when it is unticked', () => {
+  /* The submit builder reads `getElementById('create-tell').checked` and sends
+     tellKosmos:false only when the box is unticked - the server defaults the
+     field to true, so a ticked box (or an older client) sends. The read must be
+     GUARDED by the checked test: an unconditional `b.tellKosmos = false` would
+     silence the ping for everyone regardless of the box. */
+  assert.match(PAGE, /getElementById\('create-tell'\)\.checked/,
+    'the create request no longer reads the checkbox');
+  assert.match(PAGE, /if \(!document\.getElementById\('create-tell'\)\.checked\) b\.tellKosmos = false;/,
+    'tellKosmos:false is not guarded by the unticked box, so it fires unconditionally');
 });
 
 test('CONTROL: the stripper removes prose and keeps code', () => {

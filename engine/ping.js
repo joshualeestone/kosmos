@@ -64,14 +64,15 @@ const endpoint = () => process.env.AGENT_WORKFORCE_PING_URL || DEFAULT_ENDPOINT;
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    /* 🛑 OFF, as of 2026-08-26. This returned `on: true` because "nobody has
-       been asked yet" and there was a control to ask them with. Josh removed
-       both surfaces of that control (item 3), and this file's own note in
-       web/index.html set the condition for that: "removing every control while
-       the send stays on is not a tidy-up, it is a removed opt-out. If this box
-       ever goes too, turn the default off in the same change." This is that
-       change. A machine that has never been asked now sends nothing. */
-    if (err && err.code === 'ENOENT') return { on: false, installId: null, ok: true };
+    /* ON for a never-asked machine, restored 2026-09-05 (#2020/#2013, Josh via
+       Splinter: "we need that back in for sure", "I've never said flip it off").
+       The 08-26 change turned this OFF because both control surfaces had been
+       removed and a default-on send with no control is a removed opt-out. Josh
+       reversed that: the create-page checkbox AND the Settings switch are both
+       back (a control to ask them with), so absent = "nobody has been asked
+       yet" = on again. The send is event-only (nothing about the agent), which
+       is why the default-on is low-privacy. */
+    if (err && err.code === 'ENOENT') return { on: true, installId: null, ok: true };
     return { on: false, installId: null, ok: false };
   }
   let parsed;
