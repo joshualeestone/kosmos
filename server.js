@@ -2985,29 +2985,20 @@ const server = http.createServer((req, res) => {
            the seed is rolled back below and the flag is never written. */
         const projectsToJoin = Array.isArray(wantProjects) ? wantProjects.slice() : [];
         let home = null;
-        const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
+        // #2279: whether WE seeded the home here (roll it back / write the flag
+        // on this agent's outcome) or merely joined a welcome home that first-run
+        // completion already seeded (leave the flag and the project alone).
+        let homeCreated = false;
+        /* #2279: the welcome home now lives behind projects.homeForFirstAgent,
+           the ONE definition of the shape + once-ever gate shared by this route,
+           the connect route, and first-run completion (kosmos#253: the shape was
+           a second copy inline here and in connect; a third at first-run would
+           have drifted). Still made BEFORE the agent, so its id rides `projects`
+           into creation and the block is composed at birth (#732). */
         try {
-          if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
-            home = projects.create({
-              name: 'Getting started',
-              agents: [],
-              roster: safeRoster(),
-              /* kosmos#1005: the removability sentence is NOT here any more, and it
-                 was not moved -- the room note below already said it, better
-                 ("Delete this project whenever you like, it is only here to show
-                 you around"). This was a second copy of one fact.
-                 🔑 Why it had to go from THIS side specifically: the project
-                 description now sits behind a closed disclosure on the title, so
-                 a sentence living only here is invisible to a new person, who is
-                 exactly who it was written for. The room note is in the
-                 conversation, is not collapsible, and is the first thing read. */
-              description: 'Kosmos made this so your first agent has somewhere to work with you. '
-                + 'Post below and everyone on it answers here.',
-              made: { via: 'kosmos' },
-            });
-            projectsToJoin.push(home.id);
-          }
-        } catch { home = null; /* a first screen a person fills themselves is the fallback, not a failure */ }
+          const h = projects.homeForFirstAgent({ roster: safeRoster() });
+          if (h) { home = h.home; homeCreated = h.created; projectsToJoin.push(home.id); }
+        } catch { home = null; homeCreated = false; /* a first screen a person fills themselves is the fallback, not a failure */ }
         const result = create.createAgent({
           name: body.name, role: body.role,
           label: body.label, instructions: body.instructions, model: body.model,
@@ -3070,7 +3061,10 @@ const server = http.createServer((req, res) => {
         // on purpose: a task claimed FOR an agent is an assignment nobody
         // made), and the once-ever flag. A failed creation rolls the seed back
         // instead, so a store never carries a memberless home nobody made.
-        if (home) {
+        // #2279: only when WE seeded it here (homeCreated). A welcome home that
+        // first-run already seeded and furnished is left untouched -- the agent
+        // simply joined it above -- so we neither re-furnish it nor roll it back.
+        if (home && homeCreated) {
           if (result.outcome === create.OUTCOME.CREATED) {
             try {
               messages.roomNote(home.id,
@@ -3082,7 +3076,7 @@ const server = http.createServer((req, res) => {
               tasksEngine.create(home.id, { sentence: 'Give ' + (result.shown || result.name) + ' something small to do' }, null);
               tasksEngine.create(home.id, { sentence: 'Put your next agent on this project too' }, null);
             } catch { /* tasks are furniture the person can also make; the project stands without them */ }
-            try { fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), project: home.id }) + '\n', 'utf8'); } catch { /* next first agent seeds again; harmless */ }
+            try { projects.markWelcomeSeeded({ project: home.id }); } catch { /* next first agent seeds again; harmless */ }
           } else {
             try { projects.remove(home.id); } catch { /* best effort; the store's own guards cover the rest */ }
           }
@@ -4731,20 +4725,18 @@ const server = http.createServer((req, res) => {
            and give somebody two. */
         const projectsToJoin = [];
         let home = null;
-        const seededFlag = path.join(require('./engine/store').ROOT, 'seeded-project.json');
+        // #2279: as in the create route -- homeCreated tells a home WE seeded
+        // here (flag/roll-back on the import's outcome) from one first-run
+        // already seeded and we merely join.
+        let homeCreated = false;
+        /* #2279: the shared seed lives in projects.homeForFirstAgent now, so the
+           importer and the creator cannot drift on the shape, and first-run
+           completion seeds through the same once-EVER flag -- two flags would let
+           an importer and a creator each seed a home and give somebody two. */
         try {
-          if (!fs.existsSync(seededFlag) && projects.readAll().length === 0) {
-            home = projects.create({
-              name: 'Getting started',
-              agents: [],
-              roster: safeRoster(),
-              description: 'Kosmos made this so your first agent has somewhere to work with you. '
-                + 'Post below and everyone on it answers here.',
-              made: { via: 'kosmos' },
-            });
-            projectsToJoin.push(home.id);
-          }
-        } catch { home = null; /* a first screen a person fills themselves is the fallback, not a failure */ }
+          const h = projects.homeForFirstAgent({ roster: safeRoster() });
+          if (h) { home = h.home; homeCreated = h.created; projectsToJoin.push(home.id); }
+        } catch { home = null; homeCreated = false; /* a first screen a person fills themselves is the fallback, not a failure */ }
 
         let out;
         /* 🔑 THE NAME THE PERSON TYPED (#1531, Josh's ruling 2(a)). A folder with no
@@ -4775,10 +4767,10 @@ const server = http.createServer((req, res) => {
            otherwise a refused import leaves a Getting started project with nobody
            on it, and the NEXT person to make an agent gets no home because the
            store is no longer empty. */
-        if (!out.ok && home) {
+        if (!out.ok && home && homeCreated) {
           try { projects.remove(home.id); } catch { /* nothing better to do */ }
-        } else if (out.ok && home) {
-          try { fs.writeFileSync(seededFlag, JSON.stringify({ at: new Date().toISOString(), via: 'import' })); }
+        } else if (out.ok && home && homeCreated) {
+          try { projects.markWelcomeSeeded({ via: 'import' }); }
           catch { /* the emptiness check still guards the common case */ }
         }
         sendJson(res, out.ok ? 200 : 400, out);
@@ -4980,6 +4972,29 @@ const server = http.createServer((req, res) => {
     catch (err) {
       sendJson(res, 500, { error: 'we could not remember that you have set this up', detail: String(err && err.message || err) });
       return;
+    }
+    /* #2279: seed the welcome home HERE, on first-run completion, so it is on
+       the board the moment onboarding ends -- regardless of whether the person
+       ever creates an agent THROUGH Kosmos. This is the case the create/connect
+       seeds could never reach: a fresh install whose agents are ALREADY on the
+       board (adopted from tmux), so nothing is created through Kosmos and the
+       welcome project never appeared. Every external tester is that person.
+       Same once-EVER flag as the two agent-path seeds, so nobody gets two, and
+       the first agent later created/connected still lands in this home via
+       projects.homeForFirstAgent. Best-effort: the welcome project is a nicety,
+       and first-run completion has already succeeded -- a seed failure must not
+       turn a done onboarding into an error. */
+    if (ok) {
+      try {
+        const welcome = projects.seedWelcomeHome({ roster: safeRoster() });
+        if (welcome) {
+          try {
+            messages.roomNote(welcome.id,
+              'This is where you talk to everyone on a project at once. Whatever you write here, every agent on the project gets. Delete this project whenever you like, it is only here to show you around.');
+          } catch { /* the note is furniture; the project stands without it */ }
+          projects.markWelcomeSeeded({ project: welcome.id, via: 'first-run' });
+        }
+      } catch { /* the welcome project is a nicety; onboarding still completed */ }
     }
     /**
      * ⚠️ Reports whether it STUCK, read back, rather than whether the write

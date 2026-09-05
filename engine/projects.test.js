@@ -2299,3 +2299,76 @@ test('a membership change that moves is recorded with how it arrived; a repeat r
   assert.equal(projects.processMemberChanges().count, before);
   assert.equal(projects.memberValve().refused, false);
 });
+
+// #2279: the welcome-home seed, its once-EVER flag, and the shared
+// homeForFirstAgent helper the create/connect routes and first-run completion
+// all call. The seed shape lived inline in two routes; this suite pins the ONE
+// definition they now share so a future edit cannot regress it silently.
+function seedFlag() { return path.join(store.ROOT, 'seeded-project.json'); }
+function resetSeed() { reset(); try { fs.rmSync(seedFlag()); } catch { /* not written yet */ } }
+
+test('#2279 seedWelcomeHome makes the Getting started home on a fresh store', () => {
+  resetSeed();
+  const h = projects.seedWelcomeHome({ roster: [] });
+  assert.ok(h, 'a fresh store seeds a home');
+  assert.equal(h.name, projects.WELCOME_NAME);
+  assert.equal(h.made.via, 'kosmos');
+  assert.equal(projects.readAll().length, 1);
+});
+
+test('#2279 seedWelcomeHome is once-EVER: the flag stops a second seed', () => {
+  resetSeed();
+  const h = projects.seedWelcomeHome({ roster: [] });
+  projects.markWelcomeSeeded({ project: h.id });
+  assert.equal(projects.welcomeSeeded(), true);
+  // A second call, even after the person deletes the project, does not re-seed.
+  projects.remove(h.id);
+  assert.equal(projects.readAll().length, 0);
+  assert.equal(projects.seedWelcomeHome({ roster: [] }), null,
+    'the flag, not the emptiness, is what stops the re-seed');
+});
+
+test('#2279 seedWelcomeHome refuses when the store already holds a project', () => {
+  resetSeed();
+  const other = projects.create({ name: 'Real work', folder: folder('real-2279') });
+  assert.ok(other.id);
+  assert.equal(projects.seedWelcomeHome({ roster: [] }), null,
+    'a non-empty store is not a first impression to seed over');
+});
+
+test('#2279 homeForFirstAgent seeds on a fresh store (the create/connect path)', () => {
+  resetSeed();
+  const h = projects.homeForFirstAgent({ roster: [] });
+  assert.ok(h);
+  assert.equal(h.created, true, 'a fresh store means WE made it');
+  assert.equal(h.home.name, projects.WELCOME_NAME);
+});
+
+test('#2279 homeForFirstAgent adopts a welcome home first-run already seeded', () => {
+  resetSeed();
+  // Simulate first-run completion having seeded + flagged an empty welcome home.
+  const seeded = projects.seedWelcomeHome({ roster: [] });
+  projects.markWelcomeSeeded({ project: seeded.id, via: 'first-run' });
+  const h = projects.homeForFirstAgent({ roster: [] });
+  assert.ok(h, 'the first agent still gets a home');
+  assert.equal(h.created, false, 'adopted, not re-made: caller must not roll it back');
+  assert.equal(h.home.id, seeded.id);
+});
+
+test('#2279 homeForFirstAgent does not adopt a welcome home that already has an agent', () => {
+  resetSeed();
+  const seeded = projects.seedWelcomeHome({ roster: [] });
+  projects.markWelcomeSeeded({ project: seeded.id, via: 'first-run' });
+  projects.addAgent(seeded.id, 'first-one');
+  assert.equal(projects.homeForFirstAgent({ roster: [] }), null,
+    'a home someone is already on is not a first agent home to hand out again');
+});
+
+test('#2279 homeForFirstAgent does not adopt when a non-welcome project is the only one', () => {
+  resetSeed();
+  // Flag set (welcome was seeded then removed), and an unrelated project remains.
+  projects.markWelcomeSeeded({ project: 'gone', via: 'first-run' });
+  projects.create({ name: 'Only real', folder: folder('only-real-2279') });
+  assert.equal(projects.homeForFirstAgent({ roster: [] }), null,
+    'the single project is not the empty welcome home');
+});
