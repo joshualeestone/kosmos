@@ -1183,16 +1183,21 @@ function setProvider(name, provider, opts) {
      rename is atomic, removes the orphan, and creates the file the new runner
      boots from in one step. Runs whenever the plist write above ran (no
      DRY_RUN gate, matching it), so the brief and the launch truth stay
-     consistent. Best-effort like the profile write below: the plist is already
-     correct, and a later instructions refresh recreates the brief under the
-     resolved name if this rename ever fails. `job.runner === runner` was
+     consistent. Best-effort, like the sibling profile write below, and the
+     residual is stated honestly rather than waved away: a same-directory rename
+     of a source that exists effectively cannot fail, and the plist (the launch
+     truth) is already correct, so the only window is a near-impossible one in
+     which the brief is left under the old runner's filename. Do NOT read the
+     swallow as "a refresh will recreate it": nothing on the switch path
+     re-creates the brief, so the guarantee is that the failure is
+     near-impossible, not that it self-heals. `job.runner === runner` was
      refused above, so the two filenames always differ here; the guard stays for
      when the runner set grows. */
   const oldBrief = path.join(workerDir(clean), briefFilename(job.runner));
   const newBrief = path.join(workerDir(clean), briefFilename(runner));
   if (oldBrief !== newBrief) {
     try { if (fs.existsSync(oldBrief)) fs.renameSync(oldBrief, newBrief); }
-    catch { /* plist is the launch truth; a later instructions refresh heals the brief */ }
+    catch { /* plist is the launch truth; a same-dir rename of an existing source effectively cannot fail */ }
   }
   try { store.writeProfile(clean, { provider }); }
   catch { /* the plist is the launch truth; the profile record catches up on the next write */ }
