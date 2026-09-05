@@ -1636,8 +1636,87 @@ function sweepUnanswered(roster, now) {
   return { ok: true, nudged };
 }
 
+/* #2255: Discord-style emoji REACTIONS on room posts. A reaction is mutable
+   (toggle on/off), but the message log is append-only, so a reaction is a
+   `kind:'reaction'` EVENT ({of: postId, emoji, from|operator, op:'add'|'remove'})
+   and the current state is REPLAYED from those events -- the same shape #185's
+   `unanswered` and #460's quotes use, so nothing here mutates a stored post. */
+
+/* A reaction emoji: short, an actual emoji (not ASCII), and carrying no
+   whitespace, control byte, or HTML-dangerous character. Kept deliberately
+   permissive on the emoji side (skin-tone and ZWJ sequences pass under the byte
+   cap) and strict on the danger side; the renderer still esc()'s it, so this is
+   defence in depth, not the only guard. Returns the trimmed emoji or null. */
+function normalizeReactionEmoji(raw) {
+  const s = String(raw == null ? '' : raw).trim();
+  if (!s) return null;
+  if (Buffer.byteLength(s, 'utf8') > 32) return null;
+  // No whitespace, no control byte (\u0000-\u001f, \u007f), no HTML-dangerous
+  // character; and it MUST carry a non-ASCII (emoji) codepoint.
+  if (/[\s\u0000-\u001f\u007f<>&"'`]/.test(s)) return null;
+  if (!/[^\u0000-\u007f]/.test(s)) return null;
+  return s;
+}
+
+/* The current reactions on post `of`, replayed from the reaction events in
+   `rows`: for each (emoji, reactor) the LAST op wins, and an emoji with at
+   least one live reactor becomes one pill. Insertion order follows the log, so
+   the first emoji reacted-with shows first (Discord's order). `youReactor` (the
+   name the caller counts as "you") marks the pill the viewer already pressed. */
+function reactionsFor(of, rows, youReactor) {
+  const postId = String(of == null ? '' : of);
+  const order = [];
+  const byEmoji = new Map(); // emoji -> Map(reactor -> 'add'|'remove')
+  for (const m of rows) {
+    if (!m || m.kind !== 'reaction' || String(m.of) !== postId) continue;
+    const emoji = typeof m.emoji === 'string' ? m.emoji : null;
+    if (!emoji) continue;
+    const reactor = m.operator === true ? 'you' : (typeof m.from === 'string' && m.from ? m.from : null);
+    if (!reactor) continue;
+    if (!byEmoji.has(emoji)) { byEmoji.set(emoji, new Map()); order.push(emoji); }
+    byEmoji.get(emoji).set(reactor, m.op === 'remove' ? 'remove' : 'add');
+  }
+  const you = youReactor == null ? null : String(youReactor);
+  const out = [];
+  for (const emoji of order) {
+    const reactors = byEmoji.get(emoji);
+    const who = [...reactors.entries()].filter(([, op]) => op === 'add').map(([r]) => r);
+    if (!who.length) continue;
+    out.push({ emoji, count: who.length, who, mine: you != null && who.includes(you) });
+  }
+  return out;
+}
+
+/* Toggle one reactor's reaction on a post. Discord's click semantics: if the
+   reactor already has this emoji on this post it is REMOVED, otherwise ADDED.
+   The post must exist in the named project (a reaction to nothing is refused,
+   never silently stored). `operator:true` reacts as "you"; an agent reacts as
+   its own name. Returns {ok, op, emoji, of} or {ok:false, because}. */
+function react({ project, of, emoji, from, operator }) {
+  const projectId = String(project == null ? '' : project).trim();
+  const postId = String(of == null ? '' : of).trim();
+  const e = normalizeReactionEmoji(emoji);
+  if (!projectId) return { ok: false, because: 'we could not tell which project this post is in' };
+  if (!postId) return { ok: false, because: 'we could not tell which post to react to' };
+  if (!e) return { ok: false, because: 'that is not an emoji we can react with' };
+  const reactor = operator === true ? 'you' : String(from == null ? '' : from).trim();
+  if (reactor !== 'you' && !reactor) return { ok: false, because: 'we could not tell who is reacting' };
+  const rec = record();
+  const rows = rec.rows;
+  const post = rows.find((m) => m && m.kind === 'post' && m.project === projectId && String(m.id) === postId);
+  if (!post) return { ok: false, because: 'there is no post by that id in this room' };
+  const cur = reactionsFor(postId, rows).find((r) => r.emoji === e);
+  const has = !!(cur && cur.who.includes(reactor));
+  const op = has ? 'remove' : 'add';
+  appendLog({ kind: 'reaction', project: projectId, of: postId, emoji: e, op,
+    at: new Date().toISOString(),
+    ...(operator === true ? { operator: true } : { from: reactor }) });
+  return { ok: true, op, emoji: e, of: postId };
+}
+
 module.exports = {
   quotedSegments, quoteWorthy, QUOTE_MIN_CHARS, QUOTE_MIN_WORDS,
+  react, reactionsFor, normalizeReactionEmoji,
   operatorDirect, operatorNowLabel, validTimeZone, roomClock,
   START, END, blockBody,
   LOG,
