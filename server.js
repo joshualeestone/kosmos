@@ -21,6 +21,14 @@ const http = require('node:http');
 const { pipeline } = require('node:stream');
 const fs = require('node:fs');
 const path = require('node:path');
+/* #1704 slice 2b: apply the ACTIVE world's data-root env BEFORE any engine module
+   is required below. ~26 engine modules freeze store.ROOT at REQUIRE time, so 2a's
+   apply-inside-start() was too late for them (a named-world boot would leave those
+   modules serving the DEFAULT world = cross-world data bleed). Read-only + fail-open;
+   a no-op for the default world (every install today). MUST stay ahead of the first
+   `require('./engine/...')` -- server.worldenv-order.test.js guards that. Returns the
+   pre-override registry base the /api/worlds routes use (null on a broken env). */
+const worldRegistryBase = require('./engine/worldenv').bootstrapWorldEnv(process.env);
 // `STATE` travels with them: the thread route compares a member's state, and a
 // literal there is a comparison that silently stops matching the day the engine
 // renames one.
@@ -213,13 +221,14 @@ function engineFreshness() {
 }
 const store = require('./engine/store');
 const worlds = require('./engine/worlds'); // #1704: the multiple-Kosmos registry
-/* #1704: the registry base, CAPTURED at start() from the ORIGINAL env before
-   applyActiveWorldEnv can set an AGENT_WORKFORCE_DATA override -- otherwise a
-   request-time baseRoot(process.env) would resolve to the active named world's data
-   root, not the world-independent registry location. null until start() runs (and
-   on a broken env, where the /api/worlds routes fall back to the live baseRoot,
-   which is correct then because no override was set). */
-let worldRegistryBase = null;
+/* #1704: the registry base is CAPTURED at the top of this file (engine/worldenv.js),
+   from the ORIGINAL env BEFORE applyActiveWorldEnv sets any AGENT_WORKFORCE_DATA
+   override -- otherwise a request-time baseRoot(process.env) would resolve to the
+   active named world's data root, not the world-independent registry location. It is
+   captured at require (not start()) because the ~26 modules that freeze store.ROOT do
+   so at require, so the override must land first. null on a broken env, where the
+   /api/worlds routes fall back to the live baseRoot -- correct then because no
+   override was set. `worldRegistryBase` is declared at the top of the file. */
 function worldBase() { return worldRegistryBase || worlds.baseRoot(process.env); }
 /* #1704: translate engine.worlds errors into something a person creating a Kosmos
    can read. store.safeKey (reused for the world id) throws "invalid agent name",
@@ -8768,19 +8777,13 @@ const server = http.createServer((req, res) => {
  * is how the tests get a port without colliding with a board someone is using.
  */
 function start(port = PORT) {
-  /* #1704: set the active world's data roots BEFORE the boot resolves any root.
-     Roots are per-call (#1443), so before the first read suffices; this is the
-     earliest point in start(), ahead of the ensureToken() at onListening. A NO-OP
-     for the default world -- an install with no worlds.json, which is every install
-     until slice 2b's switch API lets a named world become active -- so existing
-     installs are byte-for-byte unaffected. Fail-open: worlds.readRegistry already
-     fails safe, and this catch covers baseRoot throwing on a broken login env, so a
-     broken registry can never stop the board booting (it boots as the default). */
-  try {
-    worldRegistryBase = worlds.baseRoot(process.env); // capture BEFORE the override
-    const applied = worlds.applyActiveWorldEnv(process.env, worldRegistryBase);
-    if (Object.keys(applied).length) console.log('#1704: booting into a named world; data roots:', applied);
-  } catch (_e) { worldRegistryBase = null; /* legacy env -> boots as the default world, unchanged */ }
+  /* #1704 slice 2b: the active world's data-root env is applied at the TOP of this
+     file (engine/worldenv.js), before any engine module is required -- NOT here.
+     start() runs after every top-level require, which is too late for the ~26 modules
+     that freeze store.ROOT at require time (2a applied it here and those modules kept
+     the default root; see engine/worldenv.js). `worldRegistryBase` is set by that
+     top-of-file bootstrap. A no-op for the default world, so existing installs are
+     byte-for-byte unaffected. */
   return new Promise((resolve, reject) => {
     // Without this, a bind failure -- EADDRINUSE when a board is already
     // running on 4317, which is the common case -- is an unhandled 'error'
