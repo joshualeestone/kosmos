@@ -608,3 +608,104 @@ two constraints it must satisfy are already written down and unverified here:
 
 Constraint 2 has a sharp edge for whoever tests this: running the experiment
 *from an agent session* is exactly the condition that makes it silently fail.
+
+---
+
+# THE WRITE SIDE, RUN FOR REAL (2026-09-05)
+
+`win32create.js` defers the interactive spawn to "Windows-runtime plumbing built
+and measured on a real box, not here." It has now been run on a real box, against
+a **sandboxed store** (the real ownership record was never created — verified
+absent afterwards).
+
+## The chain is green, end to end
+
+```
+live sessions            : 2      (the operator's own, and the spawned agent)
+our prepared id recorded : true
+roster rows emitted      : 1
+classified as OURS       : 1
+  session                : winlive-probe
+  claim                  : winlive-probe
+  isAgentSession         : true
+token resolves           : true -> winlive-probe
+instance matches mint    : true
+```
+
+`prepareSession` → spawn with the pinned `--session-id` → the id comes back from
+`claude agents --json` **unchanged** → the real `win32roster` emits it → and the
+token minted for it resolves to the same agent.
+
+Three things that were assumptions are now measurements:
+
+- **The id pin round-trips on Windows.** `win32create.js` says this was measured
+  *on this Mac*. It holds here: `PINNED ID ROUND-TRIPPED: True`.
+- **The record is load-bearing, demonstrated.** Claude named the live session
+  `joshu-d1` (derived from `cwd`). The roster emitted **`winlive-probe`** — the
+  recorded Kosmos name. Without the record the board would file the agent under a
+  directory name.
+- **Fail-closed holds with a real competitor present.** Two live sessions, one
+  recorded: exactly one row emitted. The operator's own session stayed invisible.
+
+`abandon()` was then exercised live: `recorded=true tokenResolves=true` →
+`recorded=false tokenResolves=false`. The credential does not outlive the session.
+
+---
+
+## 🛑 PORT BLOCKER FOUND: the workspace trust dialog
+
+**A freshly spawned Windows agent hangs at a trust prompt and never registers, and
+the board cannot tell that apart from "no agents yet."**
+
+The sequence, measured:
+
+1. The spawn **must be interactive** — `--bg` ignores `--session-id`, which is the
+   constraint `win32create.js` already documents.
+2. Interactive Claude shows the **workspace trust dialog** when the project has
+   `hasTrustDialogAccepted: false`. `claude --help` states the rule outright:
+   *"The workspace trust dialog is skipped when Claude is run in non-interactive
+   mode (via -p, or when stdout is not a TTY)."* So the one mode that pins the id
+   is the one mode that gets the prompt.
+3. A session blocked there writes its early `~/.claude/sessions/<pid>.<hash>.key`
+   and **never writes `~/.claude/sessions/<pid>.json`** — the record that carries
+   `sessionId`, `kind`, `name`, `status`. That json is what `claude agents --json`
+   reports.
+4. So the session never appears, `win32roster` (fail-closed) emits nothing, and
+   the board shows an empty fleet. **No error, no diagnostic, indefinitely.**
+
+Proven by construction: two probes sat idle for 120s each and never registered
+(command line verified correct, child-session markers verified stripped, process
+alive at ~1s CPU). A human accepted the dialog; the session registered within
+seconds and the whole chain above went green. The same `--session-id` under
+`--print` worked all along, because `-p` skips the dialog — which is exactly how
+this hides from any non-interactive test.
+
+⇒ **The win32 launch path must ensure workspace trust BEFORE spawning**, or the
+first agent a Windows user creates will hang invisibly. Filed as its own card.
+
+### Two edges for whoever implements it
+
+- **`hasTrustDialogAccepted` was still `false` after acceptance** when read back
+  (the probe was killed rather than shut down gracefully; `lastGracefulShutdown`
+  is a sibling field). So the flag may persist only on clean exit — which would
+  mean a killed agent re-prompts on its next launch. **Unverified, flagged.**
+- **The `.claude.json` `projects` key is spelled with FORWARD SLASHES on Windows**
+  — `C:/Users/joshu`, not `C:\Users\joshu`. Anything that writes that entry with
+  `path.join` will write a key that never matches. This is the same defect class
+  as findings 1–4 above, and I hit it myself reading the file: a backslash lookup
+  returned "no project entry" and I briefly believed it. Fifth instance in a day,
+  and the first one where the wrong answer was *plausible* rather than obviously
+  broken.
+
+### Also learned: two hypotheses that were wrong
+
+Recorded because the wrong ones cost the time and someone will form them again:
+
+- *"Registration happens at session start, so this costs no inference."* No —
+  probe 1 started correctly and never registered.
+- *"Registration requires a turn."* Also no — probe 2 did a full turn and still
+  never registered.
+
+Neither was the mechanism. The blocker was a modal dialog, invisible to every
+programmatic check, and the only thing that found it was putting the window on a
+screen where a person could read it.
