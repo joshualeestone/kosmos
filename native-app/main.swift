@@ -38,6 +38,7 @@
 
 import Cocoa
 import WebKit
+import ApplicationServices  // #2125 slice 3: AXIsProcessTrusted / AXIsProcessTrustedWithOptions
 
 // MARK: - Install-time configuration
 //
@@ -309,6 +310,78 @@ func boardTokenValue() -> String? {
     return tok.isEmpty ? nil : tok
 }
 
+// MARK: - #2125 slice 3: the native Accessibility trust writer
+//
+// Accessibility trust is a TCC fact the Node engine CANNOT read (#1344); only a
+// native AXIsProcessTrusted call can. engine/a11ystatus.js reads the verdict this
+// writes, at store.ROOT/a11y-status.json, and gates the first-run Continue button on
+// a POSITIVE checkable:true+trusted:false (fail-safe in every other state). This is
+// the writing side of that seam.
+
+// 🔑 THE PATH MUST MATCH engine/store.js's ROOT, or the writer and reader miss each
+// other silently (the two-copies-of-one-fact defect). Resolved the SAME way
+// boardTokenValue() / relaunchHandoffURL() resolve their dir -- AGENT_WORKFORCE_DATA
+// override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
+// app-support dir -- plus the shared "AgentWorkforce/" subpath. A cross-language seam
+// is INHERENTLY two copies (Swift here, JS there), so the guard is not code-sharing
+// (impossible across languages) but a test that the two agree: a11ystatus.test.js
+// pins the reader path, and the native-writer test pins THIS one against store.ROOT.
+func a11yStatusURL() -> URL? {
+    let env = ProcessInfo.processInfo.environment
+    let base: URL
+    if let dataOverride = env["AGENT_WORKFORCE_DATA"], !dataOverride.isEmpty {
+        base = URL(fileURLWithPath: dataOverride)
+    } else if let homeOverride = env["AGENT_WORKFORCE_HOME"], !homeOverride.isEmpty {
+        base = URL(fileURLWithPath: homeOverride).appendingPathComponent("Library/Application Support")
+    } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        base = dir
+    } else {
+        return nil
+    }
+    return base.appendingPathComponent("AgentWorkforce/a11y-status.json")
+}
+
+// The Accessibility trust reading. AXIsProcessTrusted() is the real source; the
+// KOSMOS_AXCHECK_FORCE_TRUSTED env override exists ONLY for testing, because a dev
+// box with Accessibility already granted returns true unconditionally, so the gating
+// (trusted:false) path cannot otherwise be exercised locally (measured 2026-09-04).
+// "1"/"true" force trusted, "0"/"false" force not-trusted; any other value -- and its
+// absence -- falls through to the real call. The shipped app never sets it.
+func axTrustReading() -> Bool {
+    if let forced = ProcessInfo.processInfo.environment["KOSMOS_AXCHECK_FORCE_TRUSTED"] {
+        let v = forced.lowercased()
+        if v == "1" || v == "true" { return true }
+        if v == "0" || v == "false" { return false }
+    }
+    return AXIsProcessTrusted()
+}
+
+// Write {"trusted":<bool>,"at":<ISO8601>} where a11ystatus.js reads it. The `at`
+// timestamp is load-bearing: the reader treats a verdict older than its
+// STALE_AFTER_MS as "cannot check" (fail-safe), so a fresh timestamp on every write
+// is what keeps the gate live while the first-run screen polls. Returns false (never
+// throws) on a write failure so the caller's exit code reflects it. Hand-built JSON
+// so the shape is exactly what a11ystatus.js parses -- a boolean `trusted` and a
+// Date.parse-able `at` -- with no encoder surprises; a Swift Bool interpolates as the
+// bare `true`/`false` JSON literals.
+func writeA11yStatus(trusted: Bool) -> Bool {
+    guard let url = a11yStatusURL() else {
+        logLine("axcheck: could not resolve the a11y-status path")
+        return false
+    }
+    let at = ISO8601DateFormatter().string(from: Date())
+    let json = "{\"trusted\":\(trusted),\"at\":\"\(at)\"}\n"
+    do {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try json.write(to: url, atomically: true, encoding: .utf8)
+        return true
+    } catch {
+        logLine("axcheck: could not write a11y-status (\(error.localizedDescription))")
+        return false
+    }
+}
+
 // MARK: - #2124 single-instance handoff
 //
 // A fresh install ran MULTIPLE Kosmos instances: the installer launches a copy,
@@ -499,6 +572,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // -- an abandoned start leaks its blocked drain thread and an orphan
     // child per attempt. Main-thread only, like every flag above.
     private var inFlightStart: (generation: Int, process: Process)?
+    // #2125 slice 3: the repeating Accessibility-refresh timer (held so it survives)
+    // and the one-shot guard for the launch-time Accessibility prompt.
+    private var a11yTimer: Timer?
+    private var a11yPromptFired = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
@@ -540,6 +617,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         buildWindow()
         loadBoard()
         NSApp.activate(ignoringOtherApps: true)
+        // #2125 slice 3: keep the native Accessibility verdict fresh for the first-run
+        // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
+        // and non-fatal -- if it cannot run, the gate stays fail-safe (Continue enabled).
+        startA11yTrustChecks()
         // #965 test seam, same testing-only contract as KOSMOS_APP_TEST_HOME:
         // fire reloadBoard() once after N seconds, so a harness can drive the
         // reload decision path end to end without Accessibility permission for
@@ -556,6 +637,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
                 // value should see WHY nothing fired.
                 logLine("KOSMOS_APP_TEST_RELOAD_AFTER=\(after): rejected (not a non-negative number of seconds)")
             }
+        }
+    }
+
+    // MARK: #2125 slice 3 -- keeping the native Accessibility verdict fresh
+    //
+    // The engine cannot read Accessibility trust (#1344); the native app does it via
+    // AXIsProcessTrusted and writes the verdict where engine/a11ystatus.js reads it,
+    // and the first-run Continue gate consumes it (fail-safe: it only ever BLOCKS on a
+    // positive checkable:true+trusted:false). For that verdict to reflect TMUX's trust
+    // -- the responsible process that owns the folder-TCC grant, and the process the
+    // copy already tells the user to grant ("Turn on Tmux in Accessibility") -- the AX
+    // read must run UNDER tmux, not as the kosmos-app (whose own trust is a false
+    // reading). So the hatches are spawned under the bundled tmux.
+    //
+    // 🛑 The attribution (does an under-tmux re-exec report tmux's trust or the app's?)
+    // is the LOAD-BEARING UNKNOWN of #2125 and is UNVERIFIED on a dev box. It is the
+    // deferred fresh-install gate flagged on #2125; until it is verified, this keeps a
+    // reading flowing but the FRONTEND gate stays fail-safe, so a wrong reading cannot
+    // strand anyone in prod (prod ships the gate only after that verify passes).
+    private func startA11yTrustChecks() {
+        // The bundled tmux lives under the resolved install home, the same home
+        // startBoard uses. resolveInstall is a pure, synchronous function; a failure
+        // to resolve is non-fatal -- the gate is fail-safe, so no reading just means
+        // Continue stays enabled.
+        guard let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome else {
+            logLine("a11y: could not resolve the install home; skipping Accessibility checks (gate stays fail-safe)")
+            return
+        }
+        // One prompt per launch, and only when we are not already trusted, so Tmux
+        // appears in the Accessibility list -- otherwise the Open-Accessibility button
+        // opens a list with nothing to enable (Josh's bug #2). The prompt itself is
+        // system-managed and non-blocking.
+        if !a11yPromptFired && !currentlyTrusted() {
+            a11yPromptFired = true
+            spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axprompt")
+        }
+        // Refresh now, then on a repeating timer well inside a11ystatus's staleness
+        // window (5 min) so the first-run screen always polls a fresh verdict.
+        spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
+        a11yTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
+        }
+    }
+
+    // The current on-file verdict, read synchronously to decide the one-shot prompt.
+    // Absent / unreadable / not-trusted all count as "not trusted" -- the prompt is
+    // only skipped on a POSITIVE trusted reading, so a missing file still prompts.
+    private func currentlyTrusted() -> Bool {
+        guard let url = a11yStatusURL(),
+              let data = try? Data(contentsOf: url),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let t = obj["trusted"] as? Bool else { return false }
+        return t
+    }
+
+    // Spawn a native hatch UNDER the bundled tmux via a PRIVATE tmux server socket
+    // (-L kosmos-axcheck), so this never touches the user's own tmux sessions. The
+    // hatch runs detached, writes its verdict (axcheck) or triggers the system prompt
+    // (axprompt), and exits; the private server winds down with its last session.
+    // Not waited on: the hatch is detached and blocking the main thread on it would
+    // beachball launch -- the reading lands within a moment and the poll picks it up
+    // (fail-safe until it does).
+    private func spawnAxHatchUnderTmux(kosmosHome: String, hatch: String) {
+        guard let exe = Bundle.main.executableURL?.path else {
+            logLine("a11y: no executable path; cannot spawn \(hatch)")
+            return
+        }
+        let tmux = kosmosHome + "/bin/tmux"
+        guard FileManager.default.isExecutableFile(atPath: tmux) else {
+            logLine("a11y: no bundled tmux at \(tmux); skipping \(hatch) (gate stays fail-safe)")
+            return
+        }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: tmux)
+        // Single-quote the executable path so a space in the bundle path cannot split
+        // the command tmux hands to /bin/sh; an app-bundle path carries no single quote.
+        p.arguments = ["-L", "kosmos-axcheck", "new-session", "-d", "'\(exe)' \(hatch)"]
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()
+        } catch {
+            logLine("a11y: could not spawn tmux for \(hatch): \(error.localizedDescription)")
         }
     }
 
@@ -2551,6 +2715,35 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
     if !sawUnknownLogRow { print("\nstale-check: the COULD NOT COMPARE log row is gone, and it is the row that keeps a three-state verdict from being logged as two"); exit(1) }
     print(bad == 0 ? "\nstale-check: all good, \(ran) checks" : "\nstale-check: \(bad) FAILED")
     exit(bad == 0 ? 0 : 1)
+}
+
+// #2125 slice 3: the native Accessibility writer's two hatches, same
+// exit-before-app.run() shape as the selftests above.
+//
+// --kosmos-app-axcheck: read AXIsProcessTrusted() (or the KOSMOS_AXCHECK_FORCE_TRUSTED
+// mock) and write the verdict where engine/a11ystatus.js reads it. Spawned UNDER the
+// bundled tmux (see applicationDidFinishLaunching) so macOS attributes the AX read to
+// tmux -- the responsible process that owns the folder-TCC grant -- not to the
+// kosmos-app, whose own trust would be a FALSE reading.
+//
+// 🛑 THE ATTRIBUTION IS THE LOAD-BEARING UNKNOWN (#2125). Whether an under-tmux re-exec
+// reports TMUX's trust or the APP's is UNVERIFIED on a dev box (Accessibility granted
+// broadly -> AXIsProcessTrusted true either way, so it cannot be discriminated here).
+// It MUST be verified on a fresh macOS install -- that granting Tmux flips this to
+// trusted and unblocks Continue -- BEFORE this gates for real. See the deferred
+// verification gate flagged on #2125. The FORCE-mock exercises the trusted:false
+// path's downstream (writer -> engine -> gate) without needing that fresh install.
+if CommandLine.arguments.contains("--kosmos-app-axcheck") {
+    exit(writeA11yStatus(trusted: axTrustReading()) ? 0 : 1)
+}
+// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds the
+// responsible process to the Accessibility list -- so the Open-Accessibility button
+// then "gives something to enable" (Josh's bug #2). Fired once (under tmux) when the
+// last reading is not-trusted/absent, so it is Tmux that lands in the list.
+if CommandLine.arguments.contains("--kosmos-app-axprompt") {
+    let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
+    _ = AXIsProcessTrustedWithOptions(opts)
+    exit(0)
 }
 
 let app = NSApplication.shared

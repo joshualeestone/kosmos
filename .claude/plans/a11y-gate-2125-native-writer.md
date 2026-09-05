@@ -72,3 +72,38 @@ Have `--kosmos-app-axcheck` write `trusted:true` UNLESS it can POSITIVELY establ
 tmux specifically -- i.e. bias the native writer toward the fail-safe (never emit a gating
 not-trusted unless confident). That trades "gate may not engage" (safe, matches today) for "never
 false-block". Decide with the fresh-install measurement in hand.
+
+## BUILT 2026-09-04 (Renet Tilley, per Splinter's split of build-now vs deferred-verify)
+
+Splinter corrected a premise: 0.6.30 does NOT carry #2125 (it is frozen at a4336bae); the
+"#2129 fresh-install batch" and "the #2125 native-writer fresh-install verify" are DIFFERENT
+builds. So building the writer is UNBLOCKED now, and the fresh-install attribution verify is a
+SEPARATE deferred gate keyed to the next staging cut that carries #2125.
+
+What shipped in this branch:
+- `native-app/main.swift`: `import ApplicationServices`; `a11yStatusURL()` (mirrors
+  boardTokenValue()'s base resolution + "AgentWorkforce/a11y-status.json", matching store.ROOT);
+  `axTrustReading()` (real AXIsProcessTrusted, plus a TEST-ONLY `KOSMOS_AXCHECK_FORCE_TRUSTED`
+  mock seam because a granted dev box always returns true); `writeA11yStatus()` (the exact
+  `{"trusted":<bool>,"at":<ISO8601>}` a11ystatus.js parses). Hatches `--kosmos-app-axcheck`
+  (write the verdict) and `--kosmos-app-axprompt` (system prompt + add Tmux to the list). Runtime
+  wiring `startA11yTrustChecks()` spawns the axcheck UNDER the bundled tmux (private `-L
+  kosmos-axcheck` socket) on launch + a 60s Timer (inside the 5-min staleness window), and fires
+  axprompt ONCE when not-trusted/absent.
+- Tests: `native-app.a11y-writer-2125.test.js` (fast source-wiring guard, CI); the writer/reader
+  path-agreement is pinned against engine/a11ystatus.js. `tools/test-a11y-writer-mock-2125.sh`
+  (swiftc-guarded) compiles the binary and drives the FALSE-BLOCK path end to end with the trust
+  value mocked: writer -> a11y-status.json -> engine read -> gate verdict, for both trust states
+  plus the absent fail-safe control and a path-agreement check. `build-kosmos-bundle.sh` gained an
+  axcheck (both mocked states) + axprompt smoke on the signed binary.
+
+Why the mock, not the mitigation: Splinter asked for the actual false-block PATH built and
+verified (by mocking), so the writer emits the REAL reading; the mitigation (bias to trusted) is
+held as the known fix IF the deferred verify shows wrong attribution.
+
+## 🛑 DEFERRED GATE (flagged on #2125) -- verify BEFORE #2125 promotes to prod
+The load-bearing unknown above is UNVERIFIED. On the next STAGING cut that CARRIES #2125, before
+it promotes to prod, verify on a FRESH macOS install that granting **Tmux** (not the app) in
+Accessibility flips the reading to trusted and UNBLOCKS Continue -- and that an ungranted Tmux
+leaves it blocked with the pane's guidance. Prod stays protected until that passes. If the
+attribution reads the app instead, apply the mitigation option above (bias to trusted).

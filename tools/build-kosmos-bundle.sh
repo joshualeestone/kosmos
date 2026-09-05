@@ -275,6 +275,23 @@ handoff=true otherRunning=true -> defer=false'
 _instance_table_stderr="$(mktemp "${TMPDIR:-/tmp}/instance-table-stderr.XXXXXXXXXX")"
 _instance_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-instance-selftest 2>"$_instance_table_stderr")" || { echo "the native app's --kosmos-app-instance-selftest failed to run or hung (a drifted hatch flag falls through to app.run()); its stderr:" >&2; cat "$_instance_table_stderr" >&2; exit 1; }
 [ "$_instance_table_actual" = "$_instance_table_expected" ] || { printf '%s\n' "the native app's #2124 single-instance decision table drifted (both arms: dedup fires on a duplicate launch, EXCLUDED on the #2094 relaunch handoff)." "EXPECTED:" "$_instance_table_expected" "ACTUAL:" "$_instance_table_actual" >&2; exit 1; }
+# #2125 slice 3: the native Accessibility WRITER, both hatches, on the signed binary.
+# --kosmos-app-axcheck writes the verdict engine/a11ystatus.js reads and gates the
+# first-run Continue on. A build machine's REAL AXIsProcessTrusted is environment-
+# dependent (the gating trusted:false state is unreachable on a granted box), so the
+# trust value is MOCKED here to prove BOTH written states land where the engine reads
+# (store.ROOT/a11y-status.json, resolved via AGENT_WORKFORCE_DATA). A drifted hatch
+# flag falls through to app.run() and HANGS headless -- the alarm turns that into a
+# fail, same as every hatch above. Writes to a throwaway data dir, never the real one.
+_ax_data="$(mktemp -d "${TMPDIR:-/tmp}/ax-smoke.XXXXXXXXXX")"
+AGENT_WORKFORCE_DATA="$_ax_data" KOSMOS_AXCHECK_FORCE_TRUSTED=0 perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-axcheck >/dev/null 2>&1 || { echo "the native app's --kosmos-app-axcheck failed to run or hung (a drifted hatch flag falls through to app.run())" >&2; exit 1; }
+grep -q '"trusted":false' "$_ax_data/AgentWorkforce/a11y-status.json" 2>/dev/null || { echo "the native app's --kosmos-app-axcheck (mock not-trusted) did not write trusted:false where the engine reads it (store.ROOT/a11y-status.json) -- the writer and reader would miss each other" >&2; exit 1; }
+AGENT_WORKFORCE_DATA="$_ax_data" KOSMOS_AXCHECK_FORCE_TRUSTED=1 perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-axcheck >/dev/null 2>&1 || { echo "the native app's --kosmos-app-axcheck (mock trusted) failed to run or hung" >&2; exit 1; }
+grep -q '"trusted":true' "$_ax_data/AgentWorkforce/a11y-status.json" 2>/dev/null || { echo "the native app's --kosmos-app-axcheck (mock trusted) did not write trusted:true" >&2; exit 1; }
+# --kosmos-app-axprompt shows the system Accessibility prompt (non-blocking) and adds
+# Tmux to the list; prove it loads and exits cleanly under hardened runtime.
+perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-axprompt >/dev/null 2>&1 || { echo "the native app's --kosmos-app-axprompt failed to run or hung" >&2; exit 1; }
+rm -rf "$_ax_data"
 # The MENU BAR (#994), diffed against its expected table, for the same reason
 # the Reload table above is: it is machine-checked at build time instead of by
 # a headed walk.
