@@ -63,8 +63,10 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
 5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
    LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
    prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
-   -- it is a site-COPY tool whose committed-vs-live pointer guard REFUSES a pointer-move by design
-   ("a site-copy deploy must not move the installer pointer"). Until the guarded `--promote` mode
+   -- it is a site-COPY tool whose committed-vs-live pointer guard REFUSES a pointer-move once the
+   pointer is COMMITTED ("a site-copy deploy must not move the installer pointer"); before the commit
+   it instead git-archives the OLD committed pointer and silently ignores the promote. Either way it
+   does not publish a promote. Until the guarded `--promote` mode
    lands (**#2195**), deploy the pointer with `release.sh`'s proven step-8 machinery by hand. A
    promote is POINTER-ONLY: the versioned artifacts are already served from the staging cut.
 
@@ -110,11 +112,19 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    skips that verification, and `deploy-site.sh` cannot repopulate it here (its committed-vs-live
    guard refuses this exact state). #2195's tool will fetch + sha-verify each artifact like
    `deploy-site.sh` does.
-   Then **verify SERVED prod BY CONTENT** from outside, CACHE-BUSTED (a stale edge copy can read the
-   old version right after a deploy, as deploy-site.sh's own fetches guard against): `curl -H
-   'Cache-Control: no-cache' "$HOST/dist/latest.json"` names `<V>`, and the DOWNLOADED tarball from
-   `curl -H 'Cache-Control: no-cache' "$HOST/dist/kosmos-<V>-arm64.tar.gz"` sha-matches the pointer.
-   The control that returns the dangerous answer is "still `<old V>`" -- confirm it actually flipped.
+   Then **verify SERVED prod BY CONTENT** from outside, cache-busted (a stale edge reads the old
+   version right after a deploy). Check the pointer AND every served gitignored artifact by sha
+   (a rendered page with dead download buttons is the #1669 shape deploy-site.sh section 6 guards),
+   plus `/setup`:
+   ```sh
+   HOST=https://installkosmos.com; S=$HOME/work/chaoskosmos-site; V=<V>   # the promoted version
+   curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json"   # must name <V>; control: "still <old V>" = did NOT flip
+   for f in "kosmos-$V-arm64.tar.gz" kosmos-arm64.tar.gz tmux-arm64.tar.gz Kosmos.pkg; do
+     s=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/$f" | shasum -a 256 | awk '{print $1}')
+     [ "$s" = "$(shasum -a 256 "$S/dist/$f" | awk '{print $1}')" ] && echo "OK  served $f == deployed" || echo "MISMATCH served $f"
+   done
+   curl -fsS -o /dev/null -w 'setup: %{http_code}\n' "$HOST/setup"   # expect 200
+   ```
    (First run for 0.6.30, 2026-09-04; the vercel project aliases chaoskosmos.com + installkosmos.com.)
 6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
    step 5. No rebuild.
