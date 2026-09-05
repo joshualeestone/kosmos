@@ -33,14 +33,31 @@
  * It drives the page's OWN painters, so a change to what they write cannot pass
  * here while breaking on screen.
  *
- * Run: see the README in this directory.
- *   NODE_PATH="$PW/node_modules" node docs/browser-checks/render-firstrun-connect-box-2187.js http://127.0.0.1:PORT
+ * ⚠️ HERMETIC: loads web/index.html over file://, boots no server. Everything it
+ * drives is client-side (frPaintSubscription / frPaintConnect read FR + the DOM,
+ * never the network) and everything it asserts is computed style, so no /api and
+ * no board is needed. This is why it can sit in the browser-checks.sh `for n in`
+ * loop, whose members all self-boot or load file:// -- the loop passes no URL and
+ * starts no board. An earlier version navigated http://127.0.0.1:4399 and would
+ * have gone RED there (refused connection); it only ever passed against a board
+ * a human had started by hand.
+ *
+ * Run:
+ *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-firstrun-connect-box-2187.js
+ *   (HEADED by default; HEADED=0 on a console-less machine, as run_one sets it.)
  */
 'use strict';
 
-const playwright = require('playwright');
+const nodePath = require('node:path');
 
-const BASE = process.argv[2] || 'http://127.0.0.1:4399';
+let playwright;
+try { playwright = require('playwright'); }
+catch {
+  console.log('render-firstrun-connect-box-2187: playwright is not on NODE_PATH - SKIPPED, not passed.');
+  process.exit(0);
+}
+
+const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 const ENGINES = ['chromium', 'webkit'];
 
 const results = [];
@@ -69,10 +86,10 @@ function isGold(rgb) {
 
 (async () => {
   for (const engine of ENGINES) {
-    const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' || !process.env.HEADED });
+    const browser = await playwright[engine].launch({ headless: process.env.HEADED === '0' });
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
     const page = await ctx.newPage();
-    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await page.goto('file://' + PAGE);
 
     const pre = await page.evaluate(() => {
       const host = document.getElementById('fr-sub');

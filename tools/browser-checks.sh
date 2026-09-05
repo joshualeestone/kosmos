@@ -1132,11 +1132,14 @@ fi
 # Kosmos that appears in the list on refetch) against its OWN throwaway registry.
 # Proven RED against the pre-#1704 page: the switcher markup is absent, so arm 1's
 # "#worldsw not hidden" wait times out and the run exits 1.
-# render-firstrun-connect-box-2187 joins the same way (#2187, the Claude connect
-# output on step 3 sits in a light-gold box): it navigates the default board,
-# unhides the first-run chain, and drives the page's OWN frPaintSubscription()
-# (connected) and frPaintConnect() (installing) into #fr-sub, then reads computed
-# style. Both the "... is connected" checkrow and the "Setting Claude up..." setup
+# render-firstrun-connect-box-2187 (#2187, the Claude connect output on step 3
+# sits in a light-gold box) is HERMETIC like the file:// members of this loop
+# (e.g. render-firstrun-model-continue-2134): it loads web/index.html over
+# file://, boots no server, and takes no URL -- everything it drives is
+# client-side (frPaintSubscription/frPaintConnect read FR + the DOM) and
+# everything it asserts is computed style, so no /api is needed. It unhides the
+# first-run chain, drives those painters into #fr-sub, and reads computed style:
+# both the "... is connected" checkrow and the "Setting Claude up..." setup
 # notification land in a gold-wash box; the empty control (an empty #fr-sub is
 # display:none) is the discriminator that reds if the :empty guard is dropped. The
 # checkrow's real size is asserted first, so no style arm is vacuous.
