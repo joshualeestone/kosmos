@@ -78,14 +78,20 @@ function chk(ok, label, extra) {
     await page.click('#worldsw-new');
     await page.waitForSelector('#world-add-modal:not([hidden])', { timeout: 4000 });
     chk(await page.locator('#world-add-go').isDisabled(), 'Create is disabled with an empty name');
-    // The modal declares aria-modal, so focus is trapped: it opens on the name
-    // field and Tab keeps it inside (Create is filtered out while disabled, so it
-    // cycles name <-> Cancel). Guards the #world-add-modal focus-trap entry.
+    // The modal declares aria-modal, so it opens focused on the name field.
     chk(await page.evaluate(() => document.getElementById('world-add-modal').contains(document.activeElement)),
       'the create modal opens with focus inside it');
+    // Test the focus trap at its BOUNDARY, where it earns its keep: focus the LAST
+    // enabled control (Cancel, since Create is disabled on the empty name), then
+    // Tab must WRAP back to the name field. Without the #world-add-modal focus-trap
+    // entry, Tab here escapes the modal to a header control -- so this arm reds if
+    // the trap entry is removed (a single Tab from the name field would not, since
+    // name -> Cancel is inside the modal with or without the trap).
+    await page.focus('#world-add-cancel');
     await page.keyboard.press('Tab');
-    chk(await page.evaluate(() => document.getElementById('world-add-modal').contains(document.activeElement)),
-      'Tab keeps focus inside the create modal (the focus trap)');
+    chk(await page.evaluate(() => document.activeElement && document.activeElement.id === 'world-add-name'),
+      'Tab off the last control wraps back into the modal (the focus trap)',
+      await page.evaluate(() => (document.activeElement && document.activeElement.id) || '<none>'));
     await page.fill('#world-add-name', 'Client work');
     chk(!(await page.locator('#world-add-go').isDisabled()), 'Create enables once a name is typed');
 
