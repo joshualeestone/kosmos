@@ -76,6 +76,26 @@ test('#570 empty recorded name falls back to the LIVE name, matching what the ro
   assert.equal(cap('live-name-x:0.0'), 'busy', 'resolved by the live name the roster falls back to');
 });
 
+test('#570 parity for a non-string live name: roster emits it AND capture resolves it (end to end)', () => {
+  // A hand-corrupted/edge fixture: recorded name empty, live name a truthy
+  // non-string. The roster resolves flat(rec.name || a.name) = flat(12345) =
+  // "12345" and emits a row; the capture must key on the SAME value or that row
+  // reads UNKNOWN forever. This is the a.name half of the byte-identical parity.
+  const agents = [{ pid: 1, cwd: '/w', kind: 'interactive', startedAt: 1, sessionId: 'sid-n', name: 12345, status: 'busy' }];
+  const record = { 'sid-n': { name: '', runner: 'claude' } };
+  const rec = { read: () => record };
+  status.setPaneSource(win32roster.make({ run: () => agents, record: rec }));
+  status.setPaneCapture(win32capture.make({ run: () => agents, record: rec }));
+  try {
+    const a = status.snapshot().agents.find((x) => x.sessionName === '12345');
+    assert.ok(a, 'the roster emits the row by the coerced live name');
+    assert.equal(a.state, status.STATE.WORKING, 'and the capture resolves its status by the SAME name (parity holds)');
+  } finally {
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+  }
+});
+
 test('#570 an UNRECOGNISED status token yields UNKNOWN, never a guessed state (end to end)', () => {
   // The path most likely to surface if `claude agents --json` gains new status
   // values beyond busy/idle: the capture returns the token, and classify's win32

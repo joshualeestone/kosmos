@@ -109,7 +109,13 @@ function make(opts) {
       for (const a of agents) {
         if (a && typeof a === 'object' && typeof a.sessionId === 'string') {
           liveStatus.set(a.sessionId, a.status);
-          liveName.set(a.sessionId, typeof a.name === 'string' ? a.name : '');
+          // Store a.name RAW (no typeof guard), exactly as win32roster reads it in
+          // `flat(rec.name || a.name || '')`. flat() does the String() coercion, so
+          // a truthy non-string live name resolves the SAME in both seams; a
+          // typeof-'' guard here would make the capture skip a row the roster still
+          // emits by that name -> a permanent UNKNOWN. This completes the byte-
+          // identical parity for the a.name half of the fallback, not just rec.name.
+          liveName.set(a.sessionId, a.name);
         }
       }
       // recorded-name -> live status, joined on the UUID. Re-validate the record
