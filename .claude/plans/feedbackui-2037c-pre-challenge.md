@@ -2,11 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: feedbackui-2037c
-diff_hash: 384ff21e50e4f4eac3a11c1f09b617ab40f397cd890debc487ca4a6864b6d60f
+diff_hash: 8ab657aad9bcb2bf99584492cc8f8417e7cf7583c18c9088715b21edbb9d2c15
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-05T23:02:24Z
-iterations: 5
+timestamp: 2026-09-05T23:21:50Z
+iterations: 6
 converged: true
 ---
 
@@ -39,6 +39,12 @@ converged: true
 #### Iteration 5
 - [WARNING] x2 privacy/consent-before-disclosure --> DEDUP of the operator-confirmed privacy decision (Josh "baked in day one"; Splinter sequencing PR-C2 before testers).
 - [NIT] stale maybeSend reachability excuse ("dormant until PR-C wires the trigger") --> FIXED (1df8ed40): removed it; the guard now protects maybeSend by real transitive reachability.
+- **Converged** — zero new actionable findings after dedup.
+
+#### Iteration 6 (post-rebase re-verification)
+Rebased onto latest main (advanced ~11 commits, incl. #2296 which added a `setTransport` excuse adjacent to maybeSend in engine.reachable.test.js). Resolved the one trivial conflict (kept setTransport, kept the maybeSend removal). Full suite re-run green on the integrated HEAD; a fresh blind agent confirmed clean rebase integration (reachability guard passes for maybeSend/sendDailyOnce/markSent; setTransport coexists), no BLOCKERs.
+- [WARNING] privacy/consent (default-ON before install disclosure; scrub keeps project/agent names; copy does not say so) --> DEDUP of the operator-confirmed privacy decision; the project-name sub-point surfaced to Splinter/Josh for the PR-C2 disclosure copy.
+- [NIT] "before the future Daily report" comment now stale --> FIXED (57bf8a32).
 - **Converged** — zero new actionable findings after dedup.
 
 ### Final Ledger
