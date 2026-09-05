@@ -6291,6 +6291,43 @@ const server = http.createServer((req, res) => {
         { error: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+
+  /* #2255: an AGENT reacts to a room post. The agent surface, mirroring
+     /api/post: the sender is read from `from_pane` (never trusted from the body)
+     and can never mint operator authority -- that flag is only ever set by the
+     operator's own /api/project/:id/room/:postId/react route. `react()` toggles
+     the emoji as this agent (its session name), and refuses a bad emoji or a
+     post that does not exist. */
+  if (pathname === '/api/react' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const roster = safeRoster();
+        if (roster === null) { sendJson(res, 200, { ok: false, because: 'we could not check which agents are running' }); return; }
+        let found = null;
+        try { found = projects.get(String(body.project == null ? '' : body.project).trim(), roster); } catch { found = null; }
+        if (!found) { sendJson(res, 200, { ok: false, because: 'there is no project by that name' }); return; }
+        const sender = messages.resolveSender(body.from_pane, roster);
+        if (!sender.ok) { sendJson(res, 200, { ok: false, because: sender.because }); return; }
+        // #2255: the project's members, same derivation as /api/post -- react()
+        // refuses an agent that is not on the project (room isolation).
+        const members = (found.agents || []).map((a) => a.sessionName);
+        const out = messages.react({ project: found.id, of: body.of, emoji: body.emoji, from: sender.card.sessionName, members });
+        // #2255: 200 for a refusal too, matching /api/post and this route's own
+        // pre-react refusals above -- a react refusal is a room-state answer the
+        // caller reads off `ok`, not an HTTP-level error.
+        sendJson(res, 200, out);
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   /* The `/api/agent/:name/conversation` route is gone with the box that
      read it (Josh, 2026-08-23 12:38). It merged every project thread and the
      agent-to-agent record into one tail for the agent page; a room's
@@ -7827,12 +7864,21 @@ const server = http.createServer((req, res) => {
           : m.kind === 'note'
           ? { kind: 'note', text: m.text || null, at: m.at }
           : m.kind === 'post'
-          ? { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
-              text: m.text, at: m.at, outcomes: m.outcomes || {},
-              // #460: the only thing a renderer may style as quoted.
-              ...(Array.isArray(m.quotes) && m.quotes.length ? { quotes: m.quotes } : {}),
-              ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
-              ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}) }
+          ? (() => {
+              /* #2255: the post's reactions, replayed from the reaction events in
+                 the same log. The board viewer is the operator, so `you` is the
+                 reactor whose own pills get marked (`mine`). Only attached when
+                 there is at least one live reaction, so a post with none carries
+                 no field (byte-identical to before for the common case). */
+              const reactions = messages.reactionsFor(m.id, rec.rows, 'you');
+              return { kind: 'post', id: m.id, from: m.from, to: m.to, operator: m.operator === true,
+                text: m.text, at: m.at, outcomes: m.outcomes || {},
+                // #460: the only thing a renderer may style as quoted.
+                ...(Array.isArray(m.quotes) && m.quotes.length ? { quotes: m.quotes } : {}),
+                ...(m.attachment && typeof m.attachment === 'object' ? { attachment: m.attachment } : {}),
+                ...(Array.isArray(m.attachments) ? { attachments: m.attachments } : {}),
+                ...(reactions.length ? { reactions } : {}) };
+            })()
           : { kind: 'valve', project: m.project, because: m.because || null, at: m.at }));
       rows.sort((a2, b2) => String(a2.at || '').localeCompare(String(b2.at || '')));
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
@@ -7935,6 +7981,43 @@ const server = http.createServer((req, res) => {
           attachment: fields.attachment || null, attachments: fields.attachments || null, trailer: attachments.wireNote(files.recs),
         }, roster, members);
         sendJson(res, 200, { delivery });
+      })
+      .catch((err) => sendJson(res, (err && err.status) || 400,
+        { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /* #2255: the operator TOGGLES an emoji reaction on a room post. Its own POST
+     route (a react LAUNCHES nothing, but it writes, so it inherits the same
+     operator-surface + cross-site posture as the room post above; agents react
+     through their own CLI path, never this route). Toggle semantics live in the
+     engine: react() adds the emoji if the operator has not reacted with it, else
+     removes it. The response carries the post's fresh reaction list so the page
+     can repaint one row without a full room re-fetch. */
+  const roomReact = pathname.match(/^\/api\/project\/([^/]+)\/room\/([^/]+)\/react$/);
+  if (roomReact && req.method === 'POST') {
+    const id = decodeSegment(roomReact[1]);
+    const postId = decodeSegment(roomReact[2]);
+    if (id === null || postId === null) { sendJson(res, 400, { error: 'that is not something we can read' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}'); } catch {
+          const bad = new Error('that request is not something we can read'); bad.status = 400; throw bad;
+        }
+        if (!body || typeof body !== 'object') {
+          const bad = new Error('that request is not the shape we expect'); bad.status = 400; throw bad;
+        }
+        const roster = safeRoster();
+        let found = null;
+        try { found = projects.get(id, roster || []); } catch { found = null; }
+        if (!found) { sendJson(res, 404, { ok: false, because: 'there is no project by that name' }); return; }
+        const out = messages.react({ project: found.id, of: postId, emoji: body.emoji, operator: true });
+        if (!out.ok) { sendJson(res, 400, out); return; }
+        /* The fresh reactions for this post, from the operator's viewpoint. */
+        let reactions = [];
+        try { reactions = messages.reactionsFor(postId, messages.record().rows, 'you'); } catch { reactions = []; }
+        sendJson(res, 200, { ok: true, op: out.op, emoji: out.emoji, of: out.of, reactions });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
