@@ -128,10 +128,12 @@ inventory row clears each.
 
 The family regexes catch the common spellings (a split/join on a quoted `:`/`;`
 with optional whitespace or a limit arg; `process.env.HOME` by dot or bracket
-access, and now the `const {HOME} = process.env` **destructure** via the
-`env-home-destructure` family). A separator held in a **variable** is still not
-matched - a variable can hold anything, so a regex for it is nearly all
-false-red; it stays part of the enumerated-shapes floor, not a separate promise.
+access, and now the single-line `const {HOME} = process.env` **destructure** via
+the `env-home-destructure` family). Two spellings stay uncaught, part of the
+enumerated-shapes floor rather than separate promises: a destructure that spans
+**multiple lines** (the scanner is line-by-line, like every family here), and a
+separator held in a **variable** (a variable can hold anything, so a regex for
+it is nearly all false-red).
 
 **Completeness sweep (#1732 follow-up).** The product-source scope was swept for
 every named-but-unscanned shape, to record what "find all instances" actually

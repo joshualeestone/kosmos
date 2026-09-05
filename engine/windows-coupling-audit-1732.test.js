@@ -212,7 +212,9 @@ const FAMILIES = [
     // docs/windows-source-coupling-1732.md; closed here because it has a low-noise
     // signature (destructuring HOME out of process.env is almost never benign -- the
     // reason to extract it is to use it as a path). `\bHOME\b` is word-bounded so
-    // HOMEBREW / HOME_DIR do not match. os.homedir() is the portable form.
+    // HOMEBREW / HOME_DIR do not match. os.homedir() is the portable form. Single-line
+    // only: the scanner is line-by-line (see stripComments), so a destructure spanning
+    // multiple lines is not caught -- same enumerated-shapes floor as every family here.
     re: /(?:const|let|var)\s*\{[^}]*\bHOME\b[^}]*\}\s*=\s*process\.env\b/,
   },
   {
