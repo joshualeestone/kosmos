@@ -667,7 +667,38 @@ function isAgentSession(pane) {
   // deliberately excludes to avoid matching an unrelated numeric-named process,
   // and the legacy names were rejected, which silently removed this feature for
   // any agent on an npm install.
-  return isClaudeCommand(pane.command);
+  //
+  // ⚠️ AND CODEX, keyed on the COMMAND, not on `pane.runner` (#2192). A
+  // Kosmos-created OpenAI agent runs the managed native codex binary (a Mach-O
+  // executable), so its pane fronts as `codex`, which this Claude-only check
+  // returned false for, so the runner came online but the board could not see
+  // it: the "nothing is running under that name yet" gold box, and a pane that
+  // renders but cannot be typed into. A node-fronting codex (the homebrew npm
+  // launcher) already passed via `node` above, which is why the dev box never
+  // showed this and a fresh install does.
+  //
+  // ⚠️ `pane.command`, deliberately NOT `pane.runner === 'codex'`. This is the
+  // LIVE-PROCESS tier (see the three-tier header): a running agent shows the
+  // agent process in its command. `@kosmos_runner` is a session marker that
+  // SURVIVES a crash back to a shell, so keying on it here would report a crashed
+  // codex agent as running, the exact "too loose" hazard the header guards. The
+  // crash case stays `isFleetSession` (restartable, via its NAME arm) and
+  // `isAgentSession` false, the same running-vs-crashed split the Claude path
+  // has. `codex`/`codex.exe` matches only two literal names (see
+  // `isCodexCommand`), so this reintroduces no `node`-style dev-server hazard in
+  // THIS tier.
+  //
+  // ⚠️ Scope of the parallel, stated precisely: it is the running-vs-crashed
+  // split in `isAgentSession`/`rank`, NOT fleet-membership INFERENCE.
+  // `isFleetSession`'s process arm deliberately gets no codex fallback: it
+  // infers membership for an UNNAMED pane from a native-Claude version string
+  // because nothing else on a machine fronts as one, whereas a bare `codex` is
+  // ambiguous the way `node` is (a person can run the codex CLI by hand), so an
+  // unclaimed `codex` pane must NOT be claimed as ours. A Kosmos codex agent is
+  // recognised by its `@kosmos_agent` claim (the name arm), which is why keying
+  // membership on the command is unnecessary here and would be the looser,
+  // wrong direction.
+  return isClaudeCommand(pane.command) || isCodexCommand(pane.command);
 }
 
 /**
@@ -1186,7 +1217,14 @@ function rank(pane) {
     // below every pane that carries it, whatever either is running.
     const byClaimOnly = /-discord$/.test(String(pane.session || '')) ? 0 : RANK_CLAIM_ONLY;
 
-    if (isUnambiguousClaude(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly;
+    // ⚠️ `codex`/`codex.exe` belongs UP HERE with the version string too
+    // (#2192): a running native codex agent is unambiguous exactly as `claude`
+    // is, so it must outrank a crashed-shell sibling in its own session. Left
+    // out, a native codex pane fell to RANK_NAMED_LEGACY (2) and LOST the tie to
+    // a shell at RANK_NAMED_CRASHED (1), the identical `zsh` + `claude` bug the
+    // comment above measured, reproduced for codex. Reuses the one
+    // `isCodexCommand` source rather than a private copy.
+    if (isUnambiguousClaude(pane && pane.command) || isCodexCommand(pane && pane.command)) return RANK_NAMED_RUNNING + byClaimOnly;
     // `isAgentSession` accepts these too, but they are weaker: `node` is what a
     // dev server looks like, and inside our own session it must not outrank the
     // pane that is unambiguously Claude.
