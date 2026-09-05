@@ -7801,7 +7801,15 @@ const server = http.createServer((req, res) => {
           if (m.kind === 'refused') return [when + '  [kosmos] ' + m.from + ' tried to post here and Kosmos stopped it: ' + (m.because || 'no reason recorded')];
           if (m.kind === 'note') return [when + '  [kosmos] ' + String(m.text || '')];
           const who = m.operator ? 'operator' : m.from;
-          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + String(m.text || '');
+          /* #2239: the store now keeps paragraph breaks in a post's text (for
+             the HTML room to render), but this CLI arm's contract is one line
+             per row (#314) -- a continuation line would carry no `when who ->`
+             gutter and read as a separate, unattributed row. Collapse every
+             whitespace run (newlines included) to a single space for the text
+             view only, matching cleanMessage, so a break adjacent to indentation
+             cannot leave a double space. */
+          const flatText = String(m.text || '').replace(/\s+/g, ' ');
+          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];

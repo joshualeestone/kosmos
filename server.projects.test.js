@@ -2515,6 +2515,40 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
   });
 });
 
+test('#2239: a multi-paragraph post stays ONE line per row in the text view, though the store keeps its breaks', async () => {
+  /* The store now persists paragraph breaks (storeText) so the HTML room can
+     render them; the `kosmos room` text arm's contract is still one line per
+     row (#314), or a continuation line reads as a separate, unattributed row.
+     Assert both halves from the SERVER: the JSON keeps the newline (the render
+     surface needs it), the text arm flattens it. */
+  reset();
+  await withThread(fleet.agent('zeta', { state: 'idle' }), [], async ({ project }) => {
+    const posted = await post(`/api/project/${project.id}/room`,
+      { text: 'Heading\n\nA first paragraph.\n\nA second paragraph.' });
+    assert.equal(posted.status, 200, posted.body);
+    // JSON keeps the paragraph breaks for the HTML renderer.
+    const asJson = await req(`/api/project/${project.id}/room`);
+    const rows = JSON.parse(asJson.body).rows.filter((r) => r.kind === 'post');
+    assert.ok(rows.length >= 1, 'the post did not land');
+    assert.match(rows[rows.length - 1].text, /Heading\n\nA first paragraph\.\n\nA second paragraph\./,
+      'the store dropped the paragraph breaks the HTML room needs');
+    // The text arm flattens: one row line, no bare continuation line.
+    const text = (await req(`/api/project/${project.id}/room?as=text`)).body;
+    assert.match(text, /\d\d:\d\d  operator -> zeta: Heading A first paragraph\. A second paragraph\./,
+      'the text row is not one flattened line');
+    assert.ok(!/\n\s*A (first|second) paragraph/.test(text),
+      'a paragraph spilled onto its own gutterless line in the text view');
+    // A break adjacent to an indented continuation must not leave a double
+    // space in the flattened row (\s+ collapse, not \n+).
+    const posted2 = await post(`/api/project/${project.id}/room`,
+      { text: 'alpha\n  bravo charlie is a long enough line to survive' });
+    assert.equal(posted2.status, 200, posted2.body);
+    const text2 = (await req(`/api/project/${project.id}/room?as=text`)).body;
+    assert.match(text2, /operator -> zeta: alpha bravo charlie/, 'the row did not flatten cleanly');
+    assert.ok(!/alpha {2,}bravo/.test(text2), 'the flatten left a double space where a break met indentation');
+  });
+});
+
 test('#1895: the room text view renders a broadcast as "the room" in the operator zone, through the SERVER not a copy', async () => {
   /* ⚠️ WHY THIS EXISTS ALONGSIDE room-clock-1895.test.js. That suite proved
      roomClock in isolation and REPLICATED server.js's line composition into a

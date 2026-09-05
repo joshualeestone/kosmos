@@ -411,7 +411,10 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 44 after kosmos#2190 added render-createnav-2190.js, whose per-problem
      `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more SHAPE-1
      finding-emit site, confirmed quotable (same shape). */
-  const EXPECTED_SITES = 44;
+  /* 45 after kosmos#2239 added render-richtext-room-2239.js, whose `bad()` helper
+     prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
+     site, confirmed quotable (a `FAIL ` prefix the gate quotes). */
+  const EXPECTED_SITES = 45;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '

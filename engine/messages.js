@@ -873,8 +873,12 @@ function quoteWorthy(text) {
 /**
  * The segments of `text` that are verbatim another author's earlier post in
  * this room, each with the row it quotes. Empty when nothing qualifies.
- * `text` must already be cleaned (one line, whitespace collapsed), which is
- * what sendPost hands in; earlier rows are cleaned the same way when read.
+ * `text` is the STORED post text (#2239: storeText form, paragraph breaks
+ * kept), because the offsets returned here index the very string the room
+ * slices to draw a blockquote. Earlier rows are normalised with cleanMessage
+ * for the MATCH (a one-line comparison), so a requote is found when its quoted
+ * span sits on one line; a span reflowed across a newline is simply not tagged,
+ * the safe direction (#460: an ambiguous quote resolves to no styling).
  */
 function quotedSegments(text, from, projectId, rows) {
   const body = String(text == null ? '' : text);
@@ -1169,6 +1173,15 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   const id = 'm' + (rec.parsed.reduce((n, m) => Math.max(n, m && m.id ? Number(String(m.id).slice(1)) || 0 : 0), 0) + 1);
 
   const cleaned = chat.cleanMessage(text);
+  /* #2239: the STORED text keeps paragraph breaks (storeText: horizontal runs
+     collapsed, but blank lines and single newlines preserved), so the room
+     thread can render an agent's headings, lists and paragraph structure
+     instead of one flattened line. This mirrors what #1927 did for the direct
+     thread's store. `cleaned` stays the one-line form used for everything the
+     room does NOT render: the delivered pane envelope (an agent reads a line),
+     @mention detection, the spill-length decision and validation. The two are
+     allowed to differ -- the pane gets a line, the UI record keeps the shape. */
+  const stored = chat.storeText(text);
   let body = cleaned;
   if (cleaned.length > SPILL_AT) {
     const spillFile = path.join(SPILL_DIR, id + '.txt');
@@ -1295,9 +1308,14 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   }
 
   // #460: what in this post is another author's earlier words, decided once
-  // here against the record as it stood, and persisted; never re-derived.
-  const quotes = quotedSegments(cleaned, from, projectId, log);
-  appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: cleaned, at, outcomes,
+  // here against the record as it stored, and persisted; never re-derived.
+  // #2239: computed against `stored` (the SAME string that is persisted and
+  // rendered) so the char offsets it returns index the text the room slices.
+  // A requote whose whitespace was reflowed across a newline simply is not
+  // tagged -- fewer matches, never a false one, which is exactly #460's law
+  // that an ambiguous quote resolves to no styling.
+  const quotes = quotedSegments(stored, from, projectId, log);
+  appendLog({ kind: 'post', id, project: projectId, from, to: recipients, text: stored, at, outcomes,
     ...(quotes.length ? { quotes } : {}),
     /* #185: the tokenizer's verdict, persisted at the one moment it runs.
        The unanswered state keys on WHO WAS ASKED, and re-deriving that at
