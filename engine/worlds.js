@@ -35,6 +35,9 @@ const DEFAULT_ID = 'default';
 const DEFAULT_NAME = 'Kosmos';
 const REGISTRY_FILE = 'worlds.json';
 const WORLDS_SUBDIR = 'worlds';
+/* The character class store.safeKey produces. A world id must match this to be a
+   safe path component; readRegistry enforces it on the READ path (see below). */
+const CLEAN_ID = /^[a-z0-9_-]+$/;
 
 /*
  * The base store root, resolved from the ORIGINAL env. The registry and every
@@ -80,8 +83,14 @@ function readRegistry(base) {
   if (!obj || typeof obj !== 'object' || !Array.isArray(obj.worlds) || obj.worlds.length === 0) {
     return synthDefaultRegistry();
   }
-  // Keep only well-formed entries; the default must survive.
-  const worlds = obj.worlds.filter((w) => w && typeof w.id === 'string' && w.id);
+  // Keep only entries whose id is a clean safeKey id. This is a TRAVERSAL GUARD on
+  // the READ path: safeKey runs on the WRITE path (createWorld), but a hand-edited
+  // or corrupt worlds.json carrying an id like "../../evil" must not be trusted --
+  // it would otherwise flow through worldBaseDir into path.join(base,'worlds',id)
+  // and escape the store into AGENT_WORKFORCE_DATA/PROJECTS/WORKERS. Dropping a
+  // malformed entry orphans its dir (files on disk, no data loss); honoring a
+  // traversal is the worse failure. The default must still survive (re-added below).
+  const worlds = obj.worlds.filter((w) => w && typeof w.id === 'string' && CLEAN_ID.test(w.id));
   if (!worlds.some((w) => w.id === DEFAULT_ID)) worlds.unshift(defaultWorld());
   let activeWorldId = typeof obj.activeWorldId === 'string' ? obj.activeWorldId : DEFAULT_ID;
   if (!worlds.some((w) => w.id === activeWorldId)) activeWorldId = DEFAULT_ID;
@@ -108,9 +117,12 @@ function activeWorld(base) {
 /* The on-disk base of a world's subtrees. null (no override) for the default
    world -- its data lives at the legacy roots. Named worlds nest under
    <base>/worlds/<id>/. Resolution is BY ID, deliberately: a world's location is
-   derived from its safeKey id, never read from the stored `base` field (which is
+   derived from its id, never read from the stored `base` field (which is
    informational only, see createWorld), so a hand-edited `base` cannot relocate a
-   world or open a traversal out of <base>/worlds. */
+   world. Path safety rests on the ID being a clean safeKey id -- guaranteed on the
+   write path (createWorld) AND re-enforced on the read path (readRegistry's
+   CLEAN_ID filter), so a traversing id from a hand-edited registry is dropped
+   before it ever reaches this join. */
 function worldBaseDir(base, world) {
   if (!world || world.id === DEFAULT_ID) return null;
   return path.join(base, WORLDS_SUBDIR, world.id);
@@ -137,8 +149,9 @@ function envOverridesFor(base, world) {
 /*
  * Create a new world. The name is sanitized into an id with store.safeKey (the
  * same untrusted-name posture the store and create.js use, so a name can never
- * traverse out of its base). Refuses a duplicate id or a collision with an
- * existing name. Makes the world's subtrees, appends to the registry, persists.
+ * traverse out of its base). Refuses a duplicate id (which also catches two names
+ * that map to the same safeKey id, e.g. "Acme" and "acme"). Makes the world's
+ * subtrees, appends to the registry, persists.
  * Does NOT switch to it -- switching is an explicit, separate act. Returns the
  * new world entry.
  */

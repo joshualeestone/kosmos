@@ -42,6 +42,17 @@ test('RELEASE GATE: the default world sets NO env overrides, so roots resolve ex
   assert.equal(afterSwitch, legacy, 'store root is the legacy path, unchanged by the default world');
 });
 
+test('RELEASE GATE (file present): a persisted registry still applies NO overrides for the default', () => {
+  const base = sandbox();
+  worlds.createWorld(base, 'Acme'); // writes worlds.json with the default entry (base:null) to disk
+  assert.ok(fs.existsSync(path.join(base, 'worlds.json')), 'registry now on disk');
+  const env = { HOME: '/Users/x', AGENT_WORKFORCE_HOME: '/Users/x' };
+  const before = JSON.stringify(env);
+  const applied = worlds.applyActiveWorldEnv(env, base); // active is still default
+  assert.deepEqual(applied, {}, 'default applies no overrides even with a persisted registry');
+  assert.equal(JSON.stringify(env), before, 'env unchanged with the file present (the file-present half of the gate)');
+});
+
 test('envOverridesFor is empty for the default world and populated for a named world', () => {
   const base = sandbox();
   assert.deepEqual(worlds.envOverridesFor(base, worlds.defaultWorld()), {});
@@ -126,6 +137,22 @@ test('a registry missing the default world re-adds it, and an unknown active poi
   const reg = worlds.readRegistry(base);
   assert.ok(reg.worlds.some((w) => w.id === worlds.DEFAULT_ID), 'default re-added (legacy data never orphaned)');
   assert.equal(reg.activeWorldId, worlds.DEFAULT_ID, 'unknown active pointer reset to default');
+});
+
+test('CONTROL: a traversing id in a hand-edited registry is DROPPED on read, never honored', () => {
+  const base = sandbox();
+  fs.writeFileSync(path.join(base, 'worlds.json'), JSON.stringify({
+    version: 1, activeWorldId: 'default',
+    worlds: [{ id: '../../evil', name: 'evil', createdAt: null, base: 'worlds/../../evil' }],
+  }));
+  const reg = worlds.readRegistry(base);
+  assert.ok(!reg.worlds.some((w) => w.id === '../../evil'), 'the traversing id is dropped, not trusted');
+  assert.ok(reg.worlds.some((w) => w.id === worlds.DEFAULT_ID), 'default re-added');
+  // No surviving world resolves to a path outside <base>/worlds.
+  for (const w of reg.worlds) {
+    const dir = worlds.worldBaseDir(base, w);
+    if (dir) assert.ok(dir.startsWith(path.join(base, 'worlds') + path.sep), `${w.id} stays under base/worlds`);
+  }
 });
 
 test('writeRegistry is atomic (round-trips through a rename)', () => {
