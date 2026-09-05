@@ -405,7 +405,10 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 42 after kosmos#2095 added render-account-name-2095.js, whose per-problem
      `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
      finding-emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  const EXPECTED_SITES = 42;
+  /* 43 after kosmos#1926 added render-talk-anchor-1926.js, whose per-problem
+     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
+     finding-emit site, confirmed quotable (same shape as render-account-name-2095). */
+  const EXPECTED_SITES = 43;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -493,7 +496,10 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   /* 24 after kosmos#2095 added render-account-name-2095.js, whose launch-failure
      `console.error('FAIL  render-account-name-2095: could not start a browser' ...)` is one
      catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921). */
-  const EXPECTED_CATCH_SITES = 24;
+  /* 25 after kosmos#1926 added render-talk-anchor-1926.js, whose launch-failure
+     `console.error('FAIL  render-talk-anchor-1926: could not start a browser' ...)` is one
+     catch/launch emit site, confirmed quotable (same shape as render-account-name-2095). */
+  const EXPECTED_CATCH_SITES = 25;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
