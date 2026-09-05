@@ -1178,6 +1178,34 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 /* An empty slot is a flex item and would spend one trailing gap. */
 #utoast-slot:empty, #unote-slot:empty, #uabort-slot:empty, #unews-slot:empty, #uoffline-slot:empty { display: none; }
 .klink { border: 0; background: none; padding: 0; cursor: pointer; display: block; line-height: 0; }
+/* #1704 slice-3: the multiple-Kosmos switcher beside the K mark. A disclosure
+   button showing the active world's name, opening a menu of the person's worlds
+   + "New Kosmos". Same control radius and separator as the header pills. */
+.worldsw { position: relative; display: inline-flex; }
+.worldsw-btn { display: inline-flex; align-items: center; gap: 5px; max-width: 220px;
+  border: 0.5px solid var(--separator); background: none; border-radius: var(--radius-control);
+  padding: 4px 8px; cursor: pointer; font: 600 var(--text-callout) var(--font-ui); color: var(--k-ink); }
+.worldsw-btn:hover { background: var(--k-side); }
+.worldsw-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.worldsw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worldsw-chev { flex: none; color: var(--k-ink-2); transition: transform .12s ease; }
+.worldsw-btn[aria-expanded="true"] .worldsw-chev { transform: rotate(180deg); }
+.worldsw-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 40;
+  min-width: 224px; max-width: 320px; padding: 6px; background: var(--bg-elevated);
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
+.worldsw-list { display: flex; flex-direction: column; }
+.worldsw-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px;
+  font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
+.worldsw-check { flex: none; width: 13px; height: 13px; color: var(--gold); visibility: hidden; }
+.worldsw-row[aria-current="true"] .worldsw-check { visibility: visible; }
+.worldsw-row[aria-current="true"] { font-weight: 600; }
+.worldsw-rowname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.worldsw-new { display: flex; align-items: center; gap: 7px; width: 100%; margin-top: 4px; padding: 9px 8px 5px;
+  border: 0; border-top: 0.5px solid var(--separator); background: none; cursor: pointer;
+  font: var(--text-callout) var(--font-ui); color: var(--k-ink); text-align: left; border-radius: 0 0 7px 7px; }
+.worldsw-new:hover { color: var(--gold-edge); }
+.worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
+.worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
 /* 🔑 8px BECAUSE THE ELEMENT ALREADY CHOSE 8px, not because somebody picked a
    number: `.klink:focus-visible` below sets that radius, and an outline follows
    the element's radius, so until now a rounded focus ring drew around a square
@@ -2555,7 +2583,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      explained it. */
   html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; margin: 0; }
   html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
-  html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
+  html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .worldsw, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
   html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
   /* The rails on a deeper ground than the conversation, and their rows flat
@@ -6108,6 +6136,30 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <!-- The pack draws no title text beside the mark; the h1 survives
          visually hidden as the a11y name and the removal-focus fallback. -->
     <h1 class="vh" tabindex="-1">Kosmos</h1>
+    <!-- #1704 slice-3: the multiple-Kosmos switcher. The active world's name is
+         promoted to a VISIBLE control beside the K mark (the mark stays the home
+         affordance), opening a menu of the person's Kosmoses + "New Kosmos".
+         Populated from GET /api/worlds; the active world is marked. SWITCHING
+         between worlds is slice 2b (the active-flip endpoint), so the rows here
+         are read-only for now and only "New Kosmos" acts; when 2b lands, a row
+         click wires to the switch. Hidden until the worlds load so a single-world
+         install does not flash an empty control. -->
+    <div class="worldsw" id="worldsw" hidden>
+      <button class="worldsw-btn" id="worldsw-btn" type="button" aria-expanded="false" aria-controls="worldsw-menu">
+        <span class="worldsw-name" id="worldsw-name">Kosmos</span>
+        <svg class="worldsw-chev" viewBox="0 0 12 12" width="11" height="11" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M2.8 4.4L6 7.6l3.2-3.2"/></svg>
+      </button>
+      <!-- The rows are a read-only LIST (not a menu) while switching is deferred to
+           slice 2b: they show which Kosmoses exist and mark the active one, but do
+           not act. The one real action, New Kosmos, is a native button. When 2b makes
+           the rows actionable, this becomes a menu with roving focus. -->
+      <div class="worldsw-menu" id="worldsw-menu" hidden>
+        <div class="worldsw-list" id="worldsw-list" role="list" aria-label="Your Kosmoses"></div>
+        <button class="worldsw-new" id="worldsw-new" type="button">
+          <span class="worldsw-plus" aria-hidden="true">+</span> New Kosmos
+        </button>
+      </div>
+    </div>
     <!-- ⚠️ THE UPDATE NOTICE SITS BESIDE THE MARK, Josh 2026-08-17: "make
          that appear to the right of the icon in the upper left corner...
          so that it is right in line with everything else." It used to be
@@ -7246,6 +7298,25 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn uprime" id="nt-go" type="button" disabled>Create task</button>
     </div>
     <div class="fmsg" id="nt-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+<!-- #1704 slice-3: create a new Kosmos. POST /api/worlds { name } creates the
+     world (it does NOT switch to it -- that is slice 2b), so on success this
+     closes and refetches the switcher list; the new Kosmos appears there. The
+     "jump into the new empty Kosmos" wires in when 2b's active-flip lands. -->
+<div class="rm-back" id="world-add-modal" hidden>
+  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="world-add-t" aria-describedby="world-add-in">
+    <h2 class="rm-title" id="world-add-t">New Kosmos</h2>
+    <p class="rm-small" id="world-add-in">Agents, projects, files, and settings stay separate from your other Kosmoses.</p>
+    <div class="field">
+      <label class="flabel tk-lab" for="world-add-name">Name</label>
+      <input class="tk-inp" id="world-add-name" type="text" maxlength="60" placeholder="e.g. Client work" autocomplete="off">
+    </div>
+    <div class="rm-acts" style="margin-top: var(--space-6);">
+      <button class="btn" id="world-add-cancel" type="button">Cancel</button>
+      <button class="btn uprime" id="world-add-go" type="button" disabled>Create Kosmos</button>
+    </div>
+    <div class="fmsg" id="world-add-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
 <div class="rm-back" id="mem-modal" hidden>
@@ -15424,6 +15495,145 @@ function openAcctReauth(dir, email) {
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
 }
+/* #1704 slice-3: the multiple-Kosmos switcher (list + create). Lists worlds from
+   GET /api/worlds and creates them via POST /api/worlds. Switching between worlds
+   (the active-flip) is slice 2b; until it lands the rows are read-only and only
+   "New Kosmos" acts. The switcher stays hidden on a board that has no /api/worlds
+   route (pre-2a), so it degrades to today's header cleanly. */
+async function worldsFetch() {
+  let data;
+  try {
+    const res = await fetch('/api/worlds', { cache: 'no-store' });
+    if (!res.ok) return;
+    data = await res.json();
+  } catch { return; }
+  if (!data || !Array.isArray(data.worlds) || data.worlds.length === 0) return;
+  worldswRender(data);
+}
+function worldswRender(data) {
+  const sw = document.getElementById('worldsw');
+  const nameEl = document.getElementById('worldsw-name');
+  const list = document.getElementById('worldsw-list');
+  if (!sw || !nameEl || !list) return;
+  // The world used for the promoted name is the SAME one marked below (activeId),
+  // so a stale activeWorldId cannot make the name and the marked row disagree.
+  const active = data.worlds.find((w) => w.id === data.activeWorldId) || data.worlds[0];
+  const activeId = active ? active.id : null;
+  const activeName = (active && active.name) || 'Kosmos';
+  nameEl.textContent = activeName;
+  // The label does not say "choose"/"switch": row selection is deferred to slice 2b,
+  // so the only wired action here is New Kosmos.
+  document.getElementById('worldsw-btn').setAttribute('aria-label', 'Your Kosmoses. Current: ' + activeName);
+  /* Rows are built from textContent, never innerHTML, so a world name is never
+     interpreted as markup. Read-only until slice 2b wires the switch. */
+  list.textContent = '';
+  for (const w of data.worlds) {
+    const row = document.createElement('div');
+    row.className = 'worldsw-row';
+    row.setAttribute('role', 'listitem');
+    if (w.id === activeId) row.setAttribute('aria-current', 'true');
+    const check = document.createElement('span');
+    check.className = 'worldsw-check';
+    check.setAttribute('aria-hidden', 'true');
+    check.textContent = '✓';
+    const nm = document.createElement('span');
+    nm.className = 'worldsw-rowname';
+    nm.textContent = w.name || 'Kosmos';
+    row.append(check, nm);
+    list.appendChild(row);
+  }
+  sw.hidden = false;
+}
+function worldswClose() {
+  const menu = document.getElementById('worldsw-menu');
+  if (!menu || menu.hidden) return;
+  menu.hidden = true;
+  document.getElementById('worldsw-btn').setAttribute('aria-expanded', 'false');
+}
+function worldswOpen() {
+  const menu = document.getElementById('worldsw-menu');
+  const btn = document.getElementById('worldsw-btn');
+  if (!menu || !btn || !menu.hidden) return;
+  menu.hidden = false;
+  btn.setAttribute('aria-expanded', 'true');
+}
+function worldswToggle() {
+  const menu = document.getElementById('worldsw-menu');
+  if (!menu) return;
+  if (menu.hidden) worldswOpen();
+  else worldswClose();
+}
+function worldAddOpen() {
+  worldswClose();
+  const input = document.getElementById('world-add-name');
+  input.value = '';
+  document.getElementById('world-add-go').disabled = true;
+  document.getElementById('world-add-msg').textContent = '';
+  document.getElementById('world-add-modal').hidden = false;
+  input.focus();
+}
+function worldAddClose() {
+  document.getElementById('world-add-modal').hidden = true;
+  document.getElementById('worldsw-btn').focus();
+}
+async function worldAddSubmit() {
+  const input = document.getElementById('world-add-name');
+  const go = document.getElementById('world-add-go');
+  const msg = document.getElementById('world-add-msg');
+  const name = input.value.trim();
+  if (!name) { msg.textContent = 'Give your Kosmos a name.'; input.focus(); return; }
+  go.disabled = true;
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/worlds', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      msg.textContent = (body && (body.because || body.error)) || 'Could not create the Kosmos. Try a different name.';
+      go.disabled = false;
+      return;
+    }
+    worldAddClose();
+    await worldsFetch().catch(() => {});
+    // Every create in Kosmos gives visible feedback and lands the item in a visible
+    // list (see New project / New task). Switching is deferred to slice 2b, so the
+    // active header name does not change on create; open the menu so the person sees
+    // the new Kosmos take its place in the list instead of the modal just vanishing.
+    worldswOpen();
+  } catch {
+    msg.textContent = 'Could not reach Kosmos. Try again.';
+    go.disabled = false;
+  }
+}
+(function wireWorldsw() {
+  const btn = document.getElementById('worldsw-btn');
+  if (!btn) return;
+  btn.addEventListener('click', (e) => { e.stopPropagation(); worldswToggle(); });
+  document.getElementById('worldsw-new').addEventListener('click', worldAddOpen);
+  document.getElementById('world-add-cancel').addEventListener('click', worldAddClose);
+  document.getElementById('world-add-go').addEventListener('click', worldAddSubmit);
+  const input = document.getElementById('world-add-name');
+  input.addEventListener('input', () => { document.getElementById('world-add-go').disabled = !input.value.trim(); });
+  input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && input.value.trim() && !document.getElementById('world-add-go').disabled) { e.preventDefault(); worldAddSubmit(); } });
+  // Backdrop click closes the create modal, matching the other .rm-back modals.
+  document.getElementById('world-add-modal').addEventListener('click', (e) => { if (e.target.id === 'world-add-modal') worldAddClose(); });
+  // Outside-click closes the menu.
+  document.addEventListener('click', (e) => {
+    const menu = document.getElementById('worldsw-menu');
+    if (menu && !menu.hidden && !(e.target.closest && e.target.closest('#worldsw'))) worldswClose();
+  });
+  // Escape closes the create modal first, then the menu.
+  document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Escape') return;
+    if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
+    const menu = document.getElementById('worldsw-menu');
+    if (menu && !menu.hidden) { worldswClose(); btn.focus(); }
+  });
+  worldsFetch().catch(() => {});
+})();
 /* kosmos#1656: switch the add-a-provider modal into a success state. acctShowSuccess
    hides the sign-in controls (subtitle, provider field, both flows, the plain Close
    row) and shows the reused green check + the account it connected to + a way out.
@@ -29256,6 +29466,11 @@ document.addEventListener('keydown', (e) => {
        fold's summary is a REAL tab stop and is listed, or shift-Tab from
        it would leak backwards off the dialog. */
     ['doc-modal', ['doc-fold-sum', 'doc-keep', 'doc-go'], 'doc-keep'],
+    /* #1704 slice-3: the create-a-Kosmos dialog. It declares aria-modal, so it
+       gets the real trap (name field, Cancel, Create). Create is filtered out
+       while it is disabled on an empty name, so Tab cycles name<->Cancel until a
+       name is typed, then includes Create. */
+    ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
