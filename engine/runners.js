@@ -245,14 +245,43 @@ function isRunnable(p) {
   return false;
 }
 
-function runnableExactly(p) {
+/**
+ * On win32 executability is the EXTENSION, not a mode bit: the loader launches a
+ * file only if its suffix is in PATHEXT (.COM/.EXE/.BAT/.CMD/...). #2183's
+ * pathextCandidates already encodes this; this is the same list, asked as a
+ * yes/no about a specific path. Uses `path.win32.extname` so the answer is
+ * correct when the platform is REASONED ABOUT from a POSIX host (the
+ * pathextCandidates lesson), and matches case-insensitively because Windows
+ * does. Empty extension -> not runnable (the #2270 case: a plain `claude`).
+ */
+function hasExecutableExt(p, env = process.env) {
+  const ext = path.win32.extname(String(p)).toUpperCase();
+  if (!ext) return false;
+  const exts = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+    .split(';').map((e) => e.trim().toUpperCase()).filter(Boolean);
+  return exts.includes(ext);
+}
+
+/* `platform`/`env` are injectable (default the host's) so the win32 branch is
+   testable from the POSIX box CI runs on -- the same seam pathextCandidates
+   carries. NOT threaded through `isRunnable`, which is used as an Array
+   callback (element, index, array) and must stay single-argument (see
+   engine.runnable-not-directory.test.js). isRunnable calls this with the host
+   platform, which is correct on the machine it actually runs on. */
+function runnableExactly(p, platform = process.platform, env = process.env) {
   try {
     const st = fs.statSync(p); // follows symlinks, which is the point
     if (!st.isFile()) return false;
-    // X_OK, not `mode & 0o111`: the mode bits answer "can SOMEBODY execute
-    // this", and a root-owned 0o700 binary passes that while failing at
-    // launch for us. accessSync asks the only question that matters -- can
-    // THIS process run it.
+    /* 🛑 X_OK IS A NO-OP ON WIN32 (#2270). Node documents an X_OK access check
+       as behaving like F_OK on Windows, and chmod there only toggles the
+       read-only bit, so BOTH halves of the POSIX check are inert: a plain,
+       extensionless `claude` reads as runnable and Kosmos reports a runner it
+       cannot launch. On win32 the real question is the extension, ask THAT. */
+    if (platform === 'win32') return hasExecutableExt(p, env);
+    // POSIX: X_OK, not `mode & 0o111`: the mode bits answer "can SOMEBODY
+    // execute this", and a root-owned 0o700 binary passes that while failing at
+    // launch for us. accessSync asks the only question that matters -- can THIS
+    // process run it.
     //
     // 📌 The count of who calls this is held by the sweep in
     // engine.runnable-not-directory.test.js, not by a census in this comment.
@@ -1107,4 +1136,4 @@ function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 /* pathextCandidates is exported for the SAME reason create.unusablePath is: its
    win32 branch cannot be asserted from the Mac the suite runs on unless the
    platform is injectable from a test. */
-module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, pathextCandidates, resetForTests };
+module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, pathextCandidates, runnableExactly, resetForTests };

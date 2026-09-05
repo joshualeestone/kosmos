@@ -103,6 +103,7 @@ const ALLOW = [
   { file: 'projects.js', snippet: ".split(':').join('-')", count: 1, why: 'filename sanitiser: replace chars illegal in a filename (incl. : on Windows) with -, cross-platform by intent' },
   { file: 'projects.js', snippet: ".split(':').join('')", count: 1, why: 'filename sanitiser: the emptiness-check mirror of the line above' },
   { file: 'runners.js', snippet: ".split(';').map((e) => e.trim())", count: 1, why: 'PATHEXT is a Windows executable-extension list (.COM;.EXE;..), always ;-separated on Windows regardless of the host OS -- NOT path.delimiter (which is : on POSIX); this reasons about win32 executable resolution (#2183)' },
+  { file: 'runners.js', snippet: ".split(';').map((e) => e.trim().toUpperCase())", count: 1, why: 'the SAME PATHEXT list in hasExecutableExt (#2270): membership test for a path\'s extension, uppercased for the case-insensitive match Windows does. Always ;-separated on Windows, NOT path.delimiter -- same reasoning as the pathextCandidates entry above' },
 ];
 
 function scanEngineSeparatorHits() {
