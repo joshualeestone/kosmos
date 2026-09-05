@@ -2456,7 +2456,7 @@ const server = http.createServer((req, res) => {
     return;
   }
   /* #1704: the multiple-Kosmos registry. GET lists the worlds + the active one;
-     POST creates one (does NOT switch to it -- switch is slice 2b's /api/worlds/active).
+     POST creates one (does NOT switch to it -- switch is POST /api/worlds/active, below).
      worldBase() is the registry base captured at start() before any world override,
      so these operate on the registry regardless of which world is active. */
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
@@ -2481,6 +2481,62 @@ const server = http.createServer((req, res) => {
         try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
         sendJson(res, 200, { ok: true, world });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  /* #1704 slice 2b-ii: switch the active world. This records activeWorldId in the
+     registry (worlds.setActiveWorld) and reports restartRequired. It deliberately
+     does NOT stop-and-relaunch the board: a world's env overrides (the data /
+     projects / workers roots) are applied ONCE at board startup by
+     worlds.applyActiveWorldEnv, so a running board keeps serving the PREVIOUS
+     world's roots until it restarts. That stop-and-relaunch lifecycle -- and the
+     per-world launchd agents that ride it -- is the next slice; this route is the
+     registry switch plus the honest restartRequired signal the switcher UI needs,
+     with no board self-restart merged (which would be a fleet-affecting action on
+     a shared box). worldBase() is the pre-override registry base captured at
+     start(), so the switch operates on the registry regardless of which world is
+     active. */
+  if (pathname === '/api/worlds/active' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { throw new Error('we could not read that request'); }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        // A missing id is a MALFORMED request (400); a well-formed id that names no
+        // world is NOT-FOUND (404). They are different failures and the switcher UI
+        // acts on them differently (fix the request vs refresh the world list).
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to switch to (an id)' }); return; }
+        let base;
+        // A base error is a SERVER condition (broken login env), not a bad request:
+        // 500, and never leak the internal dataRootFor message.
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.setActiveWorld(base, id); }
+        catch (e) {
+          // Classify by the engine's typed error CODE, never its message text --
+          // the message is person-facing and free to change; the code is the
+          // contract (see worlds.js). ENOWORLD: the id names no world (not-found).
+          const code = e && e.code;
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          // EWORLDLOCK: another registry write holds the lock -- transient, so
+          // surface it as retryable (409) with the "try again" copy rather than
+          // swallowing it into a generic 500. NOTE the sibling POST /api/worlds
+          // create route returns 400 for this same lock (its catch funnels every
+          // createWorld error through worldCreateReason, which passes the message
+          // but keeps the 400): 400 for a transient lock is a pre-existing wart
+          // there, not the model to copy. 409 is the correct classification;
+          // aligning the sibling is a follow-up.
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
+          sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
+        }
+        // restartRequired: conservatively always true. A world's roots are applied
+        // ONCE at board startup, and this route does not track which world the
+        // RUNNING board booted with, so it cannot tell a no-op switch (the
+        // already-served world) from a real one. A redundant restart reloads the
+        // same world and is harmless, so it over-signals rather than tracking
+        // boot-world state here; a precise restartRequired is a follow-up.
+        sendJson(res, 200, { ok: true, world, restartRequired: true });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

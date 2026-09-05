@@ -173,6 +173,14 @@ function envOverridesFor(base, world) {
  * Node's single thread already serializes them inside one process.
  */
 const REGISTRY_LOCK_STALE_MS = 10000;
+/* The retryable "someone else holds the registry lock" error. Typed with a code
+   so a caller can classify it as a transient/retry condition WITHOUT matching the
+   message text (which is a person-facing string free to change). */
+function worldLockBusyError() {
+  const err = new Error('another Kosmos operation is in progress, try again in a moment');
+  err.code = 'EWORLDLOCK';
+  return err;
+}
 function withRegistryLock(base, fn) {
   fs.mkdirSync(base, { recursive: true });
   const lockDir = path.join(base, `.${REGISTRY_FILE}.lock`);
@@ -186,7 +194,7 @@ function withRegistryLock(base, fn) {
       let stale = false;
       try { stale = Date.now() - fs.statSync(lockDir).mtimeMs > REGISTRY_LOCK_STALE_MS; }
       catch (_e) { stale = true; } // the holder vanished between EEXIST and stat
-      if (!stale) throw new Error('another Kosmos operation is in progress, try again in a moment');
+      if (!stale) throw worldLockBusyError();
       try { fs.rmdirSync(lockDir); } catch (_e) { /* someone else broke it first */ }
       /* Break-and-acquire. If this mkdir throws EEXIST (another board re-took the
          broken lock first), the outer catch turns it into the retryable error.
@@ -202,7 +210,7 @@ function withRegistryLock(base, fn) {
     }
     return fn();
   } catch (e) {
-    if (e && e.code === 'EEXIST') throw new Error('another Kosmos operation is in progress, try again in a moment');
+    if (e && e.code === 'EEXIST') throw worldLockBusyError();
     throw e;
   } finally {
     if (held) { try { fs.rmdirSync(lockDir); } catch (_e) { /* best effort */ } }
@@ -239,7 +247,14 @@ function createWorld(base, name) {
 function setActiveWorld(base, id) {
   return withRegistryLock(base, () => {
     const reg = readRegistry(base);
-    if (!reg.worlds.some((w) => w.id === id)) throw new Error(`no such world "${id}"`);
+    if (!reg.worlds.some((w) => w.id === id)) {
+      // Typed so a caller (e.g. the /api/worlds/active route) can classify this
+      // as not-found WITHOUT matching on the message text -- the message is for a
+      // person and is free to change; the code is the contract.
+      const err = new Error(`no such world "${id}"`);
+      err.code = 'ENOWORLD';
+      throw err;
+    }
     reg.activeWorldId = id;
     writeRegistry(base, reg);
     return activeWorld(base);
