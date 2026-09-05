@@ -278,6 +278,8 @@ const INVENTORY = [
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 2, contains: ".toLowerCase().split(';')[0].trim()", disposition: 'benign-mime', why: 'content-type parse (two identical sites, lines 312 & 340)' },
   // --- benign cookie ';' parsing (#1946 board-auth) ---
   { file: 'engine/boardauth.js', family: 'path-delimiter-literal', count: 1, contains: "String(raw).split(';')", disposition: 'benign-cookie', why: 'Cookie header parse (#1946); ; is the RFC 6265 cookie-pair separator, identical on every platform' },
+  // --- the ';' that IS the Windows separator (#570 PATHEXT) ---
+  { file: 'engine/runners.js', family: 'path-delimiter-literal', count: 1, contains: ".split(';').map((e) => e.trim()).filter(Boolean)", disposition: 'win32-only-branch', why: "PATHEXT parse inside pathextCandidates' win32 arm; ';' is the separator Windows itself uses for PATHEXT, so the literal is CORRECT here rather than tolerated -- and the arm is unreachable off win32 (platform-injected, both branches asserted from macOS in runners.pathext-win32-570.test.js)" },
   // --- benign non-path ':' (IPv6 hextets in the SSRF guard) ---
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "hex.split(':').filter(Boolean)", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },
   { file: 'engine/unfurl.js', family: 'path-delimiter-literal', count: 1, contains: "const parts = low.split(':')", disposition: 'benign-nonpath', why: 'IPv6 hextet parse; : is the v6 separator' },

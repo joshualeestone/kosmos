@@ -397,7 +397,13 @@ const KNOWN_WEAK_CALLS = [
   // warning remains in installedCheck, exactly as connect.js and devicedoor.js
   // keep one. Its runnability is still exercised by the behavioural arm below.
   { file: 'engine/machine.js', call: 'accessSync(bin, X_OK', fn: 'installedCheck' },
-  { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK', fn: 'isRunnable' },
+  /* #570: the call did not change, its ENCLOSING FUNCTION did. isRunnable now
+     walks the win32 PATHEXT candidates and asks this one question about each,
+     so the assertion moved down into runnableExactly. Same single definition of
+     "runnable" (isFile + X_OK), applied to more than one candidate name -- the
+     #133 trap is not widened by looking in another place for the file, only by
+     lowering the bar for what counts as one. */
+  { file: 'engine/runners.js', call: 'accessSync(p, fs.constants.X_OK', fn: 'runnableExactly' },
 ];
 
 test('the set of lines matching the weak call is exactly what we audited', () => {

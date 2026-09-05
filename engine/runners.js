@@ -183,12 +183,69 @@ function managedRoot() {
 }
 
 /**
+ * The names win32 will actually launch for a path written WITHOUT a suffix.
+ *
+ * 🛑 WHY THIS EXISTS (#570). Claude's canonical rung is `<home>/.local/bin/claude`
+ * -- no `.exe`, because the vendor's POSIX install has none. On Windows the file
+ * on disk is `claude.exe`, so `statSync` on the canonical string throws and
+ * `isRunnable` said FALSE for a runner that is present and demonstrably
+ * launchable. Measured on the Windows box: `resolveBin('claude').present` read
+ * false while `spawnSync` ON THAT EXACT STRING ran Claude and printed its
+ * version -- because win32 appends a PATHEXT suffix when it resolves an image,
+ * for an absolute path and not only for a bare PATH name. So the SPAWN was never
+ * broken; the presence GATE in front of it was, and creation refused with "we
+ * could not find Claude Code on this computer" while Claude Code sat right there.
+ * ⚠️ A FALSE NEGATIVE, WHICH IS THE SAFE DIRECTION AND STILL WRONG. It refused a
+ * good machine rather than vouching for a bad one, which is why it never showed
+ * up as a crash -- it showed up as Windows simply never being able to make an
+ * agent.
+ * ⚠️ THE SUFFIX IS ONLY EVER ADDED, NEVER SUBSTITUTED, and only when the path
+ * carries no extension of its own: an operator who points
+ * AGENT_WORKFORCE_CLAUDE_BIN at a specific file gets that file's answer, not a
+ * sibling's.
+ */
+function pathextCandidates(p, platform = process.platform, env = process.env) {
+  if (platform !== 'win32') return [p];
+  /* 🛑 path.win32.extname, NOT path.extname -- this function committed, inside
+     itself, the very bug it exists to fix. Bare `path.extname` is the HOST's
+     flavour: on a Mac it is the POSIX one, which does not treat a backslash as a
+     separator, so it reads `C:\Users\a\.local\bin\claude` as a single basename
+     and returns ".local\bin\claude". Non-empty, so the win32 branch concluded the
+     path already carried a suffix and offered no candidates -- correct on
+     Windows, inert everywhere else, and therefore invisible to me while every
+     measurement I ran was on Windows. CI on the Mac caught it, which is the
+     machine whose blind spot the injected platform exists to remove.
+     ⇒ The path FLAVOUR must be chosen by the platform being REASONED ABOUT,
+     never by the one doing the reasoning. */
+  if (path.win32.extname(p)) return [p];
+  /* The machine's own list, because it is the list the loader will use; the
+     literal is the documented Windows default for the case where the variable
+     is missing from a stripped environment. */
+  const exts = String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD')
+    .split(';').map((e) => e.trim()).filter(Boolean);
+  return [p, ...exts.map((e) => p + e)];
+}
+
+/**
  * Present means RUNNABLE: a plain file with an exec bit. A directory or a
  * stripped file at a runner path reading as present is the exact
  * folder-sails-through trap setup.sh's check_claude_code documents from
  * #133 -- status would vouch for a runner that cannot start an agent.
+ *
+ * ⚠️ #570: on win32 the SUFFIXED names are tried too (see pathextCandidates),
+ * because that is what the platform will actually launch. Every candidate still
+ * has to clear the SAME isFile + X_OK assertions -- the #133 trap is not widened
+ * by looking in one more place for the file, only by lowering the bar for what
+ * counts as one, which this does not do.
  */
 function isRunnable(p) {
+  for (const candidate of pathextCandidates(p)) {
+    if (runnableExactly(candidate)) return true;
+  }
+  return false;
+}
+
+function runnableExactly(p) {
   try {
     const st = fs.statSync(p); // follows symlinks, which is the point
     if (!st.isFile()) return false;
@@ -1047,4 +1104,7 @@ function installVendor(provider, m, o, existing) {
 /** Test-only: forget every job receipt (the same shape connect.js ships). */
 function resetForTests() { for (const k of Object.keys(jobs)) delete jobs[k]; }
 
-module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, resetForTests };
+/* pathextCandidates is exported for the SAME reason create.unusablePath is: its
+   win32 branch cannot be asserted from the Mac the suite runs on unless the
+   platform is injectable from a test. */
+module.exports = { MANIFEST, managedRoot, resolveBin, homeDir, status, install, download, isRunnable, pathextCandidates, resetForTests };

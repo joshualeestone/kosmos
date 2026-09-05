@@ -378,9 +378,26 @@ function installedCheck(opts) {
     // ENOENT for absent and EACCES for unreadable, the two cases isRunnable
     // below cannot tell apart (it collapses both to false). Runnability itself
     // is asked once, by runners.isRunnable, further down.
-    try {
-      fs.statSync(bin);
-    } catch (err) {
+    /* 🛑 #570: CLASSIFY THE NAME WIN32 WILL ACTUALLY LAUNCH. Claude's canonical
+       rung carries no suffix (`...\bin\claude`) while the file on a Windows box
+       is `claude.exe`, so statting the bare string threw ENOENT and this screen
+       reported Claude Code ABSENT on a machine where it was installed and
+       runnable. runners.pathextCandidates is the SAME list isRunnable consults
+       below, so the classifier and the runnability check can never disagree
+       about which file they are discussing -- the one-definition rule this block
+       already follows for "is it runnable", applied to "is it there". On POSIX
+       the list is exactly [bin] and this is a no-op.
+       ⚠️ A NON-ENOENT ERROR STILL WINS. "We could not look" (EACCES on an
+       unreadable parent) must not be flattened into "absent" just because some
+       other candidate was cleanly missing, which is the distinction the two
+       probes below exist to preserve. */
+    let statErr = null;
+    for (const candidate of runners.pathextCandidates(bin)) {
+      try { fs.statSync(candidate); statErr = null; break; }
+      catch (err) { if (!statErr || (err && err.code !== 'ENOENT')) statErr = err; }
+    }
+    if (statErr) {
+      const err = statErr;
       if (err && err.code === 'ENOENT') { present[key] = false; if (required) missing.push({ label, bin }); continue; }
       /**
        * ⚠️ RECORDED, NOT RETURNED. Returning here threw away whatever the OTHER
