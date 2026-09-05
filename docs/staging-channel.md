@@ -60,8 +60,30 @@ same: flip the pointer back. (Model A, confirmed 2026-09-04. Not a second host /
    which arm failed -- a routed decision (ship the Claude fix + gating now and chase the codex
    issue separately, or hold for a ruling), never a hard auto-hold. So you cannot promote from a
    machine that cannot test either class.
-5. **Deploy the promoted pointer** (the next `tools/deploy-site.sh --publish` carries it).
-6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back. No rebuild.
+5. **Deploy the promoted pointer to prod.** `promote-channel.sh` only rewrites `latest.json` in the
+   LOCAL site checkout ("the next site deploy publishes the prod pointer. No rebuild happened.");
+   prod keeps SERVING the old version until a deploy. **`deploy-site.sh --publish` does NOT do this**
+   -- it is a site-COPY tool whose committed-vs-live pointer guard REFUSES a pointer-move by design
+   ("a site-copy deploy must never move the installer pointer"). Until the guarded `--promote` mode
+   lands (**#2195**), deploy the pointer with `release.sh`'s proven step-8 machinery by hand. A
+   promote is POINTER-ONLY: the versioned artifacts are already served from the staging cut.
+   ```sh
+   S=$HOME/work/chaoskosmos-site; R=$HOME/work/agent-workforce
+   git -C "$S" commit dist/latest.json -m "promote <V> to prod" && git -C "$S" push origin HEAD:refs/heads/main
+   cd "$R"; . tools/lib/site-deploy.sh; . tools/lib/pkg-inputs.sh
+   EXPORT=$(mktemp -d); site_deploy_export "$S" "$EXPORT" "$(git -C "$S" rev-parse HEAD)"
+   # verify the export carried latest.json=<V>, kosmos-<V>-arm64.tar.gz, the kosmos-arm64.tar.gz
+   # alias, tmux-arm64, Kosmos.pkg, and the .kosmos-release-export marker. The artifacts MUST
+   # already be in $S/dist: site_deploy_export CARRIES from the working tree, it does NOT fetch
+   # (that is deploy-site.sh's addition). promote-channel.sh already refreshed the local alias.
+   ( cd "$EXPORT" && vercel deploy --prod --yes ); rm -rf "$EXPORT"
+   ```
+   Then **verify SERVED prod BY CONTENT** from outside: `curl $HOST/dist/latest.json` names `<V>`,
+   and the DOWNLOADED `kosmos-<V>-arm64.tar.gz` sha matches the pointer. The control that returns the
+   dangerous answer is "still `<old V>`" -- confirm it actually flipped. (First run for 0.6.30,
+   2026-09-04; the vercel project aliases chaoskosmos.com + installkosmos.com.)
+6. **Rollback** = promote a prior staging pointer, or flip `latest.json` back, then re-deploy per
+   step 5. No rebuild.
 
 ## The default is PROD, on purpose (the invariant)
 
