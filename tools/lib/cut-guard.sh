@@ -131,16 +131,26 @@ kosmos_mark_run() {
   # never see a marker without also seeing the cookie that excludes it -- a partial
   # success must not strand a marker that self-refuses.
   export "KOSMOS_RUN_COOKIE_$uc=$cookie"
-  printf '%s\n' "$cookie" > "$dir/$type.$$" 2>/dev/null || return 0
+  # #2215: record THIS process's command alongside the cookie, so the liveness
+  # reader can tell a still-live marking run from a RECYCLED pid. A marker file
+  # outlives the process that wrote it, and the OS reuses pids, so `kill -0 <pid>`
+  # alone reports an unrelated live process (a recycled pid landing on a system
+  # daemon) as the marking run -- the 6.32 cut aborted on exactly that. Line 1 is
+  # the cookie (its VALUE unchanged; the read just moves to line 1) for the
+  # self-exclusion compare; line 2 is the command the
+  # reader re-checks the live pid against.
+  printf '%s\n%s\n' "$cookie" "$(ps -ww -o command= -p "$$" 2>/dev/null)" > "$dir/$type.$$" 2>/dev/null || return 0
   return 0
 }
 
 # _kosmos_marker_other_live <type>  — echo a one-line description of a LIVE run of
-# <type> that is NOT this caller's own (by cookie), or nothing. Unlinks stale
-# (dead-pid) markers as it goes. Read-only w.r.t. live runs; only removes markers
-# whose owning pid is gone.
+# <type> that is NOT this caller's own (by cookie), or nothing. Unlinks markers it
+# can prove are not a live marking run as it goes: a dead pid, a pid whose command
+# no longer matches the one recorded at mark time (a recycled pid, #2215), or a
+# pre-#2215 marker with no recorded command. Read-only w.r.t. a run it CAN verify
+# is live (pid alive AND command matches).
 _kosmos_marker_other_live() {
-  local type="${1:-}" dir uc self f pid cookie
+  local type="${1:-}" dir uc self f pid cookie stored_cmd live_cmd
   [ -n "$type" ] || return 0
   dir="$(_kosmos_marker_dir)"
   [ -d "$dir" ] || return 0
@@ -154,7 +164,23 @@ _kosmos_marker_other_live() {
       rm -f "$f" 2>/dev/null                        # stale: the marking run is gone
       continue
     fi
-    cookie="$(cat "$f" 2>/dev/null)"
+    # #2215: a live pid is NOT proof the marking run is alive. The OS reuses pids,
+    # so kill -0 can succeed against an unrelated process that inherited a dead
+    # run's pid (a recycled pid on a system daemon aborted the 6.32 cut). Require
+    # the live pid's command to still match the one the marking run recorded
+    # (line 2). A mismatch (recycled pid), OR a marker with no recorded command
+    # (written before #2215), is treated as stale and unlinked -- which also
+    # clears the accumulation of latent false-positive markers the old kill-0-only
+    # check could never remove. A genuine foreign run is still caught by the pgrep
+    # NAME arm each guard OR's with this one, so unlinking an unverifiable marker
+    # loses no real detection.
+    stored_cmd="$(sed -n '2p' "$f" 2>/dev/null)"
+    live_cmd="$(ps -ww -o command= -p "$pid" 2>/dev/null)"
+    if [ -z "$stored_cmd" ] || [ "$stored_cmd" != "$live_cmd" ]; then
+      rm -f "$f" 2>/dev/null
+      continue
+    fi
+    cookie="$(sed -n '1p' "$f" 2>/dev/null)"
     { [ -n "$self" ] && [ "$cookie" = "$self" ]; } && continue   # my own run
     printf 'a marked %s run (pid %s)\n' "$type" "$pid"
     return 0

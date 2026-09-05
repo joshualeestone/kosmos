@@ -200,7 +200,7 @@ fi
 # --- dir and probe-quiet (the NAME arm clean), so ONLY the marker arm can fire --
 # --- proving it works independently of the pgrep detection.
 # A live foreign-cookie marker refuses even when the name arm is clean.
-M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n' > "$M1/cut.$p1"
+M1="$T/m1"; mkdir -p "$M1"; ( sleep 30 ) & p1=$!; printf 'FOREIGN\n%s\n' "$(ps -ww -o command= -p "$p1" 2>/dev/null)" > "$M1/cut.$p1"
 out="$(KOSMOS_RUN_MARKER_DIR="$M1" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -ne 0 ] && pass "#1796 a live marked cut (foreign cookie) refuses with the name arm clean" \
   || fail "#1796 marked cut did not refuse (rc=$rc, $out)"
@@ -208,7 +208,7 @@ has "$out" "pid $p1" && pass "#1796 and it names the marked run's pid" || fail "
 kill "$p1" 2>/dev/null; wait "$p1" 2>/dev/null
 
 # The caller's OWN marker (matching cookie) is excluded -- the self-refuse outage.
-M2="$T/m2"; mkdir -p "$M2"; ( sleep 30 ) & p2=$!; printf 'MINE\n' > "$M2/cut.$p2"
+M2="$T/m2"; mkdir -p "$M2"; ( sleep 30 ) & p2=$!; printf 'MINE\n%s\n' "$(ps -ww -o command= -p "$p2" 2>/dev/null)" > "$M2/cut.$p2"
 out="$(KOSMOS_RUN_MARKER_DIR="$M2" KOSMOS_RUN_COOKIE_CUT=MINE KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#1796 the caller's OWN marker (matching cookie) is not a reason to refuse" \
   || fail "#1796 own marker refused itself (rc=$rc, $out)"
@@ -226,6 +226,29 @@ M4="$T/m4"; mkdir -p "$M4"
 out="$(KOSMOS_RUN_MARKER_DIR="$M4" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
 [ "$rc" -eq 0 ] && pass "#1796 no marker (working on the script, not running it) does not refuse" \
   || fail "#1796 empty marker dir refused (rc=$rc, $out)"
+
+# #2215: a live pid whose recorded command does NOT match the live process is a
+# RECYCLED pid, not the marking run -- treated stale and unlinked, so the guard does
+# not false-refuse. The pid is genuinely alive (kill -0 succeeds), so ONLY the
+# command mismatch prevents the refuse: the old kill-0-only check refused here, which
+# is exactly the false-positive that aborted the 6.32 cut against a system daemon.
+MR="$T/mr"; mkdir -p "$MR"; ( sleep 30 ) & pR=$!; printf 'FOREIGN\nnot-the-command-that-marked-this recycled pid\n' > "$MR/cut.$pR"
+out="$(KOSMOS_RUN_MARKER_DIR="$MR" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#2215 a live pid whose command does not match (recycled pid) does not refuse" \
+  || fail "#2215 a recycled-pid marker false-refused (rc=$rc, $out)"
+[ ! -e "$MR/cut.$pR" ] && pass "#2215 and the recycled-pid marker was cleaned" || fail "#2215 recycled-pid marker not cleaned"
+kill "$pR" 2>/dev/null; wait "$pR" 2>/dev/null
+
+# #2215: a pre-fix marker (cookie only, no recorded command) on a live pid cannot be
+# verified, so it is treated stale and unlinked rather than trusted -- clearing the
+# accumulation the old kill-0-only check could never remove. A genuine foreign run is
+# still caught by the name arm each guard OR's with this one.
+MC="$T/mc"; mkdir -p "$MC"; ( sleep 30 ) & pC=$!; printf 'FOREIGN\n' > "$MC/cut.$pC"
+out="$(KOSMOS_RUN_MARKER_DIR="$MC" KOSMOS_CUT_PROBE="$T/probe-quiet" kosmos_refuse_if_cut_live "a cut" 2>&1)"; rc=$?
+[ "$rc" -eq 0 ] && pass "#2215 a command-less (pre-fix) marker on a live pid does not refuse" \
+  || fail "#2215 a command-less marker false-refused (rc=$rc, $out)"
+[ ! -e "$MC/cut.$pC" ] && pass "#2215 and the command-less marker was cleaned" || fail "#2215 command-less marker not cleaned"
+kill "$pC" 2>/dev/null; wait "$pC" 2>/dev/null
 
 # 🛑 THE RELEASE-OUTAGE PATH: a run that marks ITSELF and then checks its own type
 # must NOT refuse itself. If kosmos_mark_run's exported cookie did not reach the
