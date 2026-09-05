@@ -17,7 +17,7 @@ converged: true
 **Total findings:** 6 (1 BLOCKER, 1 WARNING, 1 CONVENTION, 3 NITs)
 **Fixed:** 4 | **Deferred:** 3 (1 CONVENTION + 2 NITs) | **Asked:** 0
 
-**Note on the re-run.** The branch was rebased onto origin/main (which had advanced) to resolve a conflict on `tools/browser-checks.sh` — the recurring `for n in` check-list line, union-resolved to keep both `render-worlds-switcher-1704` (origin/main) and `render-firstrun-connect-box-2187` (this branch). The rebase changed the merge-base, invalidating the prior proof's diff_hash, so the loop was re-run. My 4-file feature diff is byte-unchanged from the pre-rebase converged state; the post-rebase blind review found zero NEW findings (only the already-deferred plan-file CONVENTION and the two already-deferred NITs), and validation passed clean (hash c6c23851a796). The hermetic browser-check passes 10/10 on the rebased tree and is proven RED (8/10 box arms) against the pre-fix page.
+**Note on the re-run.** The branch was rebased onto origin/main (which had advanced) to resolve a conflict on `tools/browser-checks.sh` - the recurring `for n in` check-list line, union-resolved to keep both `render-worlds-switcher-1704` (origin/main) and `render-firstrun-connect-box-2187` (this branch). The rebase changed the merge-base, invalidating the prior proof's diff_hash, so the loop was re-run. My 4-file feature diff is byte-unchanged from the pre-rebase converged state; the post-rebase blind review found zero NEW findings (only the already-deferred plan-file CONVENTION and the two already-deferred NITs), and validation passed clean (hash c6c23851a796). The hermetic browser-check passes 10/10 on the rebased tree and is proven RED (8/10 box arms) against the pre-fix page.
 
 ### Per-Iteration Breakdown
 
@@ -26,22 +26,22 @@ Clean baseline. One `test-cut-guard.sh` failure under contention (0.6.31 release
 
 #### Iteration 2 (pre-rebase, blind review 1)
 **New findings:** 1 CONVENTION, 3 NITs
-- [CONVENTION] .claude/plans/ — No plan file --> DEFERRED (single-CSS-rule night-shift build; documented on card + commit + check docblock)
+- [CONVENTION] .claude/plans/ - No plan file --> DEFERRED (single-CSS-rule night-shift build; documented on card + commit + check docblock)
 - [NIT] check comment: isGold tolerance rationale inaccurate --> FIXED (7bc19c53)
 - [NIT] check header: overclaimed forced-light coverage --> FIXED (7bc19c53)
 - [NIT] web/index.html: gold literal could drift from .fr-confirm --> DEFERRED (by design, cross-referenced in comment)
 
 #### Iteration 3 (pre-rebase, blind review 2)
 **New findings:** 1 BLOCKER, 1 WARNING, 1 NIT (+ dup CONVENTION)
-- [BLOCKER] render-firstrun-connect-box-2187.js — check expected an external board (http://127.0.0.1:4399) the `for n in` loop never starts; would have gone RED in the gate, only passed against a hand-started board --> FIXED (cc2b1247): converted to hermetic file:// load (drives client-side painters only, reads computed style, no /api). Verified 10/10 hermetic + RED (8/10) against pre-fix.
-- [WARNING] browser-checks.sh + README.md — wiring prose described the self-booting shape the check did not have --> FIXED (cc2b1247)
-- [NIT] web/index.html — box wraps every connect phase incl. `stuck`/error --> DEFERRED (intentional/consistent; gold IS the pack's attention treatment; error rows keep their own red glyph)
+- [BLOCKER] render-firstrun-connect-box-2187.js - check expected an external board (http://127.0.0.1:4399) the `for n in` loop never starts; would have gone RED in the gate, only passed against a hand-started board --> FIXED (cc2b1247): converted to hermetic file:// load (drives client-side painters only, reads computed style, no /api). Verified 10/10 hermetic + RED (8/10) against pre-fix.
+- [WARNING] browser-checks.sh + README.md - wiring prose described the self-booting shape the check did not have --> FIXED (cc2b1247)
+- [NIT] web/index.html - box wraps every connect phase incl. `stuck`/error --> DEFERRED (intentional/consistent; gold IS the pack's attention treatment; error rows keep their own red glyph)
 
 #### Iteration 4 (pre-rebase, blind review 3)
-**New findings:** 0. Converged — 5 STRENGTHs.
+**New findings:** 0. Converged - 5 STRENGTHs.
 
 #### Iteration 5 (post-rebase re-run: 6.0 baseline + blind review)
-6.0 validation passed clean (hash c6c23851a796). Blind review found **0 NEW findings** — only the already-deferred plan-file CONVENTION and the two already-deferred NITs (box-every-phase, hardcoded-literal drift). Confirmed the browser-checks.sh rebase union is intact (both checks present exactly once) and the hermetic-wiring BLOCKER stays resolved. Re-converged.
+6.0 validation passed clean (hash c6c23851a796). Blind review found **0 NEW findings** - only the already-deferred plan-file CONVENTION and the two already-deferred NITs (box-every-phase, hardcoded-literal drift). Confirmed the browser-checks.sh rebase union is intact (both checks present exactly once) and the hermetic-wiring BLOCKER stays resolved. Re-converged.
 
 ### Final Ledger
 
@@ -56,8 +56,8 @@ Clean baseline. One `test-cut-guard.sh` failure under contention (0.6.31 release
 | 7 | 3 | NIT | web/index.html | box wraps every connect phase incl. error state | DEFERRED | Intentional, consistent, documented |
 
 ### NITs (non-blocking, across all iterations)
-- Gold literal drift risk vs .fr-confirm (iter 2) — deferred, matches sibling by design
-- Box wraps every connect phase incl. `stuck` (iter 3) — deferred, intentional/consistent
+- Gold literal drift risk vs .fr-confirm (iter 2) - deferred, matches sibling by design
+- Box wraps every connect phase incl. `stuck` (iter 3) - deferred, intentional/consistent
 
 ### Strengths (across all iterations)
 - CSS minimal and cascade-safe: `:not(:empty)`/`:empty` mutually exclusive at `(0,2,1)`, no competing `#fr-sub` rule; `#fr-sub-msg` error sibling untouched; action buttons in the sticky footer
