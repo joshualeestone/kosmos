@@ -682,14 +682,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     // The current on-file verdict, read synchronously to decide the one-shot prompt.
-    // Absent / unreadable / not-trusted all count as "not trusted" -- the prompt is
-    // only skipped on a POSITIVE trusted reading, so a missing file still prompts.
+    // Absent / unreadable / not-trusted / STALE all count as "not trusted" -- the
+    // prompt is only skipped on a POSITIVE and FRESH trusted reading, so a missing
+    // file, or a days-old trusted:true from a prior run whose state is now unknown,
+    // still prompts. The 300s freshness bound mirrors a11ystatus.STALE_AFTER_MS (5
+    // min): past it the engine treats the reading as uncheckable anyway, so trusting
+    // it here to suppress the prompt would trust data the reader has already
+    // discarded. Erring toward prompting is safe (an extra prompt is benign; a
+    // skipped one when actually not-trusted is not).
     private func currentlyTrusted() -> Bool {
         guard let url = a11yStatusURL(),
               let data = try? Data(contentsOf: url),
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let t = obj["trusted"] as? Bool else { return false }
-        return t
+              let t = obj["trusted"] as? Bool, t,
+              let at = obj["at"] as? String,
+              let when = ISO8601DateFormatter().date(from: at),
+              Date().timeIntervalSince(when) <= 300
+        else { return false }
+        return true
     }
 
     // Spawn a native hatch UNDER the bundled tmux via a PRIVATE tmux server socket

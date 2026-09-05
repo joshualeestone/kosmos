@@ -101,3 +101,15 @@ test('the one-shot prompt only fires when NOT already trusted (no repeated promp
   assert.match(fn, /!a11yPromptFired\s*&&\s*!currentlyTrusted\(\)/,
     'the prompt is not guarded by both the one-shot flag AND a not-trusted reading; an already-trusted user would be prompted, or it would prompt every launch');
 });
+
+test('currentlyTrusted requires a FRESH trusted reading (a stale trusted:true does not suppress the prompt)', () => {
+  const fn = SRC.slice(SRC.indexOf('func currentlyTrusted()'), SRC.indexOf('func spawnAxHatchUnderTmux('));
+  // Must gate on trusted === true AND a fresh timestamp, mirroring a11ystatus.STALE_AFTER_MS
+  // (300s). Without the freshness bound a days-old trusted:true from a prior run would
+  // suppress the launch prompt even when the current state is unknown -- and the engine
+  // already treats a reading that old as uncheckable, so trusting it here would trust
+  // data the reader has discarded.
+  assert.match(fn, /as\?\s*Bool,\s*t,/, 'currentlyTrusted does not require trusted === true (the `t,` guard)');
+  assert.match(fn, /ISO8601DateFormatter\(\)\.date\(from: at\)/, 'currentlyTrusted does not parse the reading timestamp for a staleness check');
+  assert.match(fn, /timeIntervalSince\(when\)\s*<=\s*300/, 'currentlyTrusted does not bound the reading freshness to 300s (a11ystatus.STALE_AFTER_MS); a stale trusted:true would suppress the prompt');
+});
