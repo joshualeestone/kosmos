@@ -15553,6 +15553,7 @@ function worldswClose() {
 function worldswToggle() {
   const menu = document.getElementById('worldsw-menu');
   const btn = document.getElementById('worldsw-btn');
+  if (!menu || !btn) return;
   if (menu.hidden) { menu.hidden = false; btn.setAttribute('aria-expanded', 'true'); }
   else worldswClose();
 }
@@ -15585,12 +15586,12 @@ async function worldAddSubmit() {
     });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      msg.textContent = (body && body.error) || 'Could not create the Kosmos. Try a different name.';
+      msg.textContent = (body && (body.because || body.error)) || 'Could not create the Kosmos. Try a different name.';
       go.disabled = false;
       return;
     }
     worldAddClose();
-    await worldsFetch(); // the new Kosmos now appears in the switcher list
+    await worldsFetch().catch(() => {}); // the new Kosmos now appears in the switcher list
   } catch {
     msg.textContent = 'Could not reach Kosmos. Try again.';
     go.disabled = false;

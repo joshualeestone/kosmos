@@ -111,6 +111,23 @@ function chk(ok, label, extra) {
     const names = await page.locator('#worldsw-list .worldsw-rowname').allTextContents();
     chk(appeared && names.includes('Client work'), 'the new Kosmos appears in the switcher list (the real POST + refetch)', JSON.stringify(names));
 
+    // ── Error path: a DUPLICATE name is refused and the modal shows the SERVER's
+    //    own reason (the `because` field), not the generic fallback. Guards the
+    //    error-field contract -- the server returns { ok:false, because } on 400,
+    //    so a UI reading only `body.error` would silently drop the real message. ─
+    await page.click('#worldsw-new');
+    await page.waitForSelector('#world-add-modal:not([hidden])', { timeout: 4000 });
+    await page.fill('#world-add-name', 'Client work'); // already exists
+    await page.click('#world-add-go');
+    await page.waitForFunction(() => (document.getElementById('world-add-msg').textContent || '').length > 0, null, { timeout: 6000 }).catch(() => {});
+    const errMsg = await page.locator('#world-add-msg').textContent();
+    chk(!(await page.evaluate(() => document.getElementById('world-add-modal').hidden)),
+      'a duplicate name keeps the create modal open (create refused)');
+    chk(/already exists/i.test(errMsg || ''),
+      'the modal shows the server reason (because), not the generic fallback', JSON.stringify(errMsg));
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.getElementById('world-add-modal').hidden, null, { timeout: 4000 });
+
     // ── Arm 5: the switcher is hidden in the consolidated view. ──────────────
     await page.click('.headright .laypick [data-layout-switch="consolidated"]');
     await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
