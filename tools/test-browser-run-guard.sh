@@ -13,6 +13,13 @@ set -u
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/lib/cut-guard.sh"
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# #2271: isolate every guard call below from the SHARED machine's real run-markers. The guard checks
+# the marker dir (via _kosmos_marker_dir) IN ADDITION to KOSMOS_BC_PROBE, so on a busy box a foreign
+# browser-checks run's marker leaked PAST the process probe and RED this test inside the cut's step-3
+# run (measured on the 0.6.36 cut, twice: pids 53967 and 36115). Point the marker dir at an empty
+# temp dir so the probe seam fully controls what "live" means; the marker input gets its own
+# controlled arm below, so isolating it here does not lose marker-detection coverage.
+export KOSMOS_RUN_MARKER_DIR="$T/markers"; mkdir -p "$T/markers"
 fails=0
 pass() { echo "PASS  $1"; }
 fail() { echo "FAIL  $1"; fails=$((fails+1)); }
@@ -33,6 +40,23 @@ if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "passes silently when no other ru
 
 out="$(KOSMOS_BC_PROBE="$T/probe-dead" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
 if [ "$rc" -eq 1 ] && has "$out" "could not tell"; then pass "a probe that cannot answer is a refusal, not a pass"; else fail "unanswerable probe (rc=$rc, out=$out)"; fi
+
+# #2271: the MARKER input (the one that leaked in from the real box). It is checked IN ADDITION to the
+# process probe, so isolating the marker dir above must not have disabled it. A live marked browser run
+# in the CONTROLLED marker dir must refuse even with a QUIET process probe. Red-capable: remove the
+# marker file and the same call passes (the very next arm).
+sleep 30 & mpid=$!
+{ printf 'test-cookie-2271\n'; ps -ww -o command= -p "$mpid"; } > "$T/markers/browser.$mpid"
+out="$(KOSMOS_BC_PROBE="$T/probe-quiet" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
+if [ "$rc" -eq 1 ] && has "$out" "marked"; then pass "a live marker refuses even under a quiet process probe (#2271)"; else fail "marker not detected (rc=$rc, out=$out)"; fi
+rm -f "$T/markers/browser.$mpid"; kill "$mpid" 2>/dev/null; wait "$mpid" 2>/dev/null
+
+# #2271: with the marker gone AND a quiet process probe, the guard passes -- on ANY box, because the
+# marker dir is the isolated temp dir, not the shared machine's. THIS is the arm that RED the cut
+# before the isolation above (a foreign marker was present in the real dir); it now passes regardless
+# of what else is running on the Mac.
+out="$(KOSMOS_BC_PROBE="$T/probe-quiet" kosmos_refuse_if_browser_run_live "a page layer" 2>&1)"; rc=$?
+if [ "$rc" -eq 0 ] && [ -z "$out" ]; then pass "quiet probe + isolated empty marker dir -> passes on ANY box (#2271 cut-red fix)"; else fail "should pass with nothing live (rc=$rc, out=$out)"; fi
 
 # ⚠️ SELF-EXCLUSION. browser-checks.sh IS a `bash tools/browser-checks.sh`, so
 # without this the gate refuses EVERY page-layer run on a Mac with no other
