@@ -1143,7 +1143,17 @@ fi
 # notification land in a gold-wash box; the empty control (an empty #fr-sub is
 # display:none) is the discriminator that reds if the :empty guard is dropped. The
 # checkrow's real size is asserted first, so no style arm is vacuous.
-for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-a11y-gate-2125 render-engmode-gate-2131 render-preflight-2163 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-subprojects-1994 render-worlds-switcher-1704; do
+# render-observed-consumers-1959 is HERMETIC (loads web/index.html over file://, boots no server):
+# it extends the #1921 observed-liveness badge into the OTHER /api/accounts-fed consumers. Four
+# arms -- the shared helper matrix (acctUsableLogin/acctUnknownLive/acctOfferableTarget across every
+# badge + the badge-less fallback), the paintConnLive summary via a fetch stub (counts usable logins,
+# EXCLUDES rejected -- the #874 defect), the paintAccountPicker eligibility via a seeded ACCOUNTS
+# global (a rejected current account is signed out and offers the working target; a working one is
+# the control), and the fillCreateAccounts create picker via a seeded CREATE_ACCOUNTS global (a
+# rejected account is excluded as a run target, an unchecked one stays offered+labelled). Proven RED
+# on the pre-fix page by observed behavior ("3 accounts connected", no move prompt for a rejected
+# account, rejected offered at create); no server, so it sits in this no-URL loop.
+for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-observed-consumers-1959 render-head-row render-room-scroll render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-a11y-gate-2125 render-engmode-gate-2131 render-preflight-2163 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-subprojects-1994 render-worlds-switcher-1704; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture

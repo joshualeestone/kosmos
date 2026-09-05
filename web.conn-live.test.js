@@ -43,8 +43,14 @@ test('#881/#960: the count is filtered on a real live check, not raw row presenc
      carry a real connection field too), so the provider-specific OR
      short-circuit is gone -- this test's own regex was updated with it. */
   const fn = PAGE.slice(PAGE.indexOf('async function paintConnLive'), PAGE.indexOf('async function paintPolicy'));
-  assert.match(fn, /a\.connection && a\.connection\.state === 'connected'/,
-    'the connected-count filter no longer checks connection.state -- every present row may be counted again regardless of whether it actually works');
+  /* #1959: the filter now reads the OBSERVED-liveness badge via acctUsableLogin
+     (badge working or signed_in_unverified) instead of the raw
+     `connection.state === 'connected'`, so a rejected credential (#874) is no
+     longer counted as "connected and thinking". The intent this asserts is
+     unchanged -- the count must be filtered on liveness, not raw row presence --
+     only the mechanism moved to the shared helper. */
+  assert.match(fn, /acctUsableLogin\(/,
+    'the connected-count filter no longer checks observed liveness (acctUsableLogin) -- every present row may be counted again regardless of whether it actually works');
   assert.doesNotMatch(fn, /a\.provider !== 'anthropic'/,
     'a provider-specific bypass is back in the connected-count filter -- #960 regressed');
   // ⚠️ THE ASYMMETRY, applied to a zero count specifically: a zero count
@@ -54,5 +60,5 @@ test('#881/#960: the count is filtered on a real live check, not raw row presenc
   // claim this whole card (#881) exists to eliminate, on a second
   // surface this same diff introduced.
   assert.match(fn, /anyUnknown/, 'the unknown-vs-none distinction for a zero count is gone');
-  assert.match(fn, /a\.connection\.state === 'unknown'/, 'the anyUnknown check no longer reads connection.state');
+  assert.match(fn, /acctUnknownLive\(/, 'the anyUnknown check no longer reads observed liveness (acctUnknownLive)');
 });

@@ -86,6 +86,14 @@ test('#2097(2) (source+exec): the account row is HIDDEN at <2 accounts, SHOWN at
     const accountQualifiers = () => new Map();
     // eslint-disable-next-line no-unused-vars
     const esc = (s) => String(s);
+    /* #1959: fillCreateAccounts now decides via the shared observed-liveness
+       helpers; slice the REAL ones from the page (not a stub) so this eval scope
+       has them and cannot drift from the source. */
+    const grab = (sig) => { const s = PAGE.indexOf(sig); return PAGE.slice(s, PAGE.indexOf('\n}', s) + 2); };
+    // eslint-disable-next-line no-eval, no-unused-vars
+    const acctOfferableTarget = eval('(' + grab('function acctOfferableTarget(') + ')');
+    // eslint-disable-next-line no-eval, no-unused-vars
+    const acctUnknownLive = eval('(' + grab('function acctUnknownLive(') + ')');
     // eslint-disable-next-line no-eval
     eval('(' + fn + ')')();
     return arow.hidden;

@@ -35,6 +35,11 @@ function grab(sig) {
 function runFillCreate(accounts, providerValue) {
   const escSrc = grab('function esc(');
   const qualSrc = grab('function accountQualifiers(');
+  // #1959: fillCreateAccounts now decides via the shared observed-liveness helpers
+  // (acctOfferableTarget for the offer filter, acctUnknownLive in labelOf), so the
+  // eval scope must include them or the function throws ReferenceError.
+  const offerSrc = grab('function acctOfferableTarget(');
+  const unkSrc = grab('function acctUnknownLive(');
   const fillSrc = grab('function fillCreateAccounts(');
   const asel = { innerHTML: '' };
   const provider = { value: providerValue || 'anthropic' };
@@ -45,6 +50,8 @@ function runFillCreate(accounts, providerValue) {
   const factory = new Function('document', 'accounts', `
     ${escSrc}
     ${qualSrc}
+    ${offerSrc}
+    ${unkSrc}
     let CREATE_ACCOUNTS = accounts;
     ${fillSrc}
     fillCreateAccounts();
