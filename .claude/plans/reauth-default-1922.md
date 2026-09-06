@@ -971,7 +971,10 @@ I measured with `git diff --numstat origin/main` -- **TWO dots** -- which compar
 current tip of main. Main has moved **12 commits** since my merge-base and **those commits touch
 `server.js`, which my branch also touches**, so the two-dot form folded another lane's changes into
 my count and read 30 for `server.js` instead of 27. The three-dot form
-(`origin/main...HEAD`, merge-base) gives **70 + 27 = 97**.
+(`origin/main...HEAD`, merge-base) was the right one to use. ⚠️ **The figure that used to be quoted
+here reproduced at NO commit and has been deleted** (at the sha this section names it gives a
+different second term, and at HEAD it is different again). Run
+`git diff --numstat origin/main...HEAD -- engine/connect.js server.js`.
 
 ⭐ **So the entry written to correct an inflated number was itself inflated, by three lines, via the
 diff base rather than via the description.** ⇒ **A number is only as good as its BASE, and on a
@@ -1843,8 +1846,9 @@ Verdict: **ready to merge, no BLOCKER, no WARNING, three CONVENTIONs.** All conf
 `git diff origin/main...HEAD -- engine/connect.test.js | grep -c 1560` = 0.
 🛑 **CORRECTED at iteration 23, and the error was in the EVIDENCE LINE of the attribution fix
 itself.** This paragraph first recorded that command WITHOUT its pathspec, as
-`git diff origin/main...HEAD | grep -c 1560`, which prints **20** (4 in source, all `#1560` comments;
-control `grep -c 1922` = 27, so the pipeline is live). ⇒ **I ran a scoped command and wrote down an
+`git diff origin/main...HEAD | grep -c 1560`, which is NON-ZERO (run it; the source-only hits are
+all `#1560` comments, not a test arm: `git diff origin/main...HEAD -- engine/connect.js server.js |
+grep -c 1560`). ⇒ **I ran a scoped command and wrote down an
 unscoped one.** The conclusion held; the evidence as recorded was false, and it was the evidence for a
 fix about false evidence. It is a pre-existing ENGINE arm, while the
 paragraph's subject is the route. Substance stands; the attribution sent a reviewer hunting the diff
@@ -1885,14 +1889,11 @@ the artifact it edited.** Every one confirmed with a control before fixing.
 
 🛑 **THE BLOCKER IS THE SIGNATURE DEFECT ONE LEVEL DEEPER.** Iteration 22 caught the PR body crediting
 this branch with a pre-existing test. My fix for that recorded its evidence as
-`git diff origin/main...HEAD | grep -c 1560` = 0. **That command printed 20** at `f9134fc9`, the
-commit under review when it was measured (control there: `grep -c 1922` = 27, so the pipeline was
-live). 🛑 **Both figures are PINNED TO THAT COMMIT deliberately, and iteration 24 explains why: on
-at `4969d638` they read 26 and 30, because the commit that RECORDED the correction added six lines
-containing those very tokens.** Writing the number changed the number. 🛑 **AND IT HAPPENED AGAIN
-IMMEDIATELY: this very sentence said "on HEAD" and was stale on arrival. At `7701fa07` the pair reads
-28 and 30, because the commit carrying this paragraph added two more `1560` tokens.** Every figure
-here is now pinned to an immutable commit, which is the only form that survives being written down. What I actually RAN was scoped to `-- engine/connect.test.js`, which
+`git diff origin/main...HEAD | grep -c 1560` = 0. **That command was non-zero when measured, and its
+value has changed with every commit since**, because this plan is inside the diff being counted and
+each edit adds or removes lines containing the token. 🛑 **THE NUMBERS THAT USED TO SIT HERE HAVE BEEN
+DELETED, per the falsifiable prediction recorded at iteration 25 and falsified at iteration 26.**
+Run the command; do not read a figure. What I actually RAN was scoped to `-- engine/connect.test.js`, which
 does return 0. ⇒ **I ran a scoped command and wrote down an unscoped one.**
 
 ⭐ **Name the error precisely, because "be careful" does not catch it: THE RECORDED COMMAND WAS NOT
@@ -1951,10 +1952,10 @@ self-consistent at one moment: after the final commit's validation, with no comm
 run silently returns the branch to unvalidated, with a green run still sitting in the log.**
 
 **The WARNING is the same thing one level in, and it is the sharpest instance this branch has
-produced.** My iteration-23 entry recorded `grep -c 1560` = 20 with control `grep -c 1922` = 27.
-At `4969d638` those read **26 and 30** (at `7701fa07`, 28 and 30: the pinning commit moved it
-again). Nothing was mismeasured: at `f9134fc9` they return exactly 20 and 27. **The commit that WROTE the correction added six lines containing those tokens, so the act of
-recording the number changed the number.** ⇒ A self-referential count in a document that is itself
+produced.** My iteration-23 entry recorded a value for `grep -c 1560` with `grep -c 1922` as control.
+Nothing was mismeasured at the time. **The commit that WROTE the correction added lines containing
+those tokens, so the act of recording the number changed the number**, and it changed again at every
+subsequent commit. ⇒ A self-referential count in a document that is itself
 inside the diff it counts can never be stable. **Both figures are now pinned to the commit at which
 they were measured**, which is the only form that stays true.
 
@@ -1984,8 +1985,7 @@ Iteration 24's entry says *"both figures are now pinned to the commit at which t
 which is the only form that stays true"*, applies that correctly to the 20/27 pair, **and in the same
 two sentences leaves 26/30 written as "on HEAD".** Measured: at `7701fa07` the pair reads **28 and
 30**, because the commit carrying that very paragraph added two more `1560` tokens. It was stale on
-arrival. (Control: `grep -c ZZZNOTATOKEN` on the same pipeline = 0; the `f9134fc9` pins still
-reproduce at 20 and 27, so the instrument discriminates.)
+arrival. (Control: `grep -c ZZZNOTATOKEN` on the same pipeline = 0, so the instrument discriminates.)
 
 ⭐ **Three occurrences, each inside the fix for the last one. The lesson is not "pin figures", which I
 had already written down. It is that A REMEDY STATED IN A DOCUMENT IS NOT APPLIED BY BEING STATED,
@@ -2019,3 +2019,55 @@ ternary reds `server.connect.test.js` with `actual: …/.claude, expected: null`
 gives 53 pass / 1 fail). Baselines 54/54, 40/40, 9/9. Worktree left pristine.
 
 🛑 **NOT CONVERGED. Sixth consecutive round in which the fix commit carried the next defect.**
+
+### Iteration 26, 2026-09-05 23:25: the prediction was FALSIFIED, so the numbers are deleted, not pinned again
+
+Verdict: **NOT converged. 1 BLOCKER, 2 WARNINGs.** ⭐ **The BLOCKER is the falsification of this
+plan's own written prediction, which is exactly what that prediction was for.**
+
+Iteration 25 recorded: *"every count in this plan is anchored to an immutable sha... If iteration 26
+finds another stale self-referential figure, this remedy is wrong and the numbers should be deleted
+rather than pinned."* **It found one.** A FOURTH occurrence of the same pair sat unanchored at the
+EARLIEST of the four sites, which is the one a reader reaches first. I pinned the two later
+restatements and missed the original. (Control: the three pins DID reproduce exactly, so the
+mechanism worked and was under-applied.)
+
+✅ **THE PRE-COMMITMENT IS HONOURED: every self-referential figure in this plan is now DELETED**, at
+all five sites, replaced by the command and the phenomenon. Two `= 0` claims survive deliberately: one
+is SCOPED to `-- engine/connect.test.js`, a file this plan is not part of, so it is stable (verified 0,
+with `grep -c 1922` on the same scoped diff returning 6 as the control that it can be non-zero); the
+other is a verbatim quotation of the retracted claim.
+
+🛑 **AND THERE IS A STRONGER REASON TO DELETE THAN THE ONE THE REVIEW GAVE, MEASURED HERE:
+PINNING TO A SHA NEVER IMMUNISED THESE FIGURES AT ALL.** `origin/main...<sha>` is a THREE-DOT diff,
+resolved against `merge-base(origin/main, <sha>)`, and **a rebase moves that base**:
+
+```
+merge-base(origin/main, f9134fc9)  = 5da3103e81e5    <- post-rebase commit
+merge-base(origin/main, 63c4f389)  = 36154ccdd2a0    <- pre-rebase commit
+```
+
+⇒ **A figure "pinned" to a pre-rebase sha silently re-bases with it.** This branch is 121 commits
+behind and still owes a rebase, so every pin I added would have gone stale the moment I did it.
+**The remedy was doomed however completely I had applied it**, which the under-application concealed.
+
+**WARNING: a breakdown that was wrong when written, not stale.** The same line claimed the source
+hits were "4 in source". Measured **3**, at HEAD and at `f9134fc9`, by line count and by occurrence
+count alike. ⇒ **It reproduced at no commit under either interpretation, and it was the breakdown
+justifying the headline figure.** Deleted with the rest; the surviving claim is that the source hits
+are all `#1560` COMMENTS rather than a test arm, which is verifiable by reading them (three comment
+lines, confirmed).
+
+**WARNING: `70 + 27 = 97` reproduced at no commit either.** At HEAD `--numstat` gives 92 + 47 = 139;
+at the sha that same section names it gives 70 + 32. The `70` reproduces, the `27` does not. Deleted
+and replaced with the command.
+
+**Independently confirmed clean, with controls:** all four mutation arms red (revert ternary 39/1
+`actual: …/.claude, expected: null`; force null 37/3; drop `-u` 53/1; `-u` unconditional 53/1);
+baselines 40/40 and 54/54; iteration 25's new no-production-setter command returns empty with the
+unfiltered form returning 17 and a live negative control; the PR-body validation commands agree at
+the current hash with `status: clean`. The reviewer also reported that its own bare-prefix grep method
+gave 13 where the plan's prefixed method gives 12, **and said the plan's was correct** rather than
+filing its own as a finding.
+
+🛑 **NOT CONVERGED. Seventh consecutive round in which the fix commit carried the next defect.**
