@@ -1029,11 +1029,13 @@ cmd_react() {
     exit 1
   fi
   # The route answers 200 even for a refusal (a room-state answer read off `ok`),
-  # and 400 {"error":...} only for an unreadable request. The globs are ANCHORED
-  # on the leading keys: the success shape is `{"ok":true,"op":...}` in that key
-  # order and a refusal is `{"ok":false,...}`, so a `because` string inside a
-  # refusal can never carry `"ok":true` and flip the verdict (the same anchored
-  # form cmd_post uses on its delivery states).
+  # and 400 {"error":...} only for an unreadable request. The verdict globs are
+  # anchored on the leading keys -- success is `{"ok":true,"op":add|remove...}`
+  # and a refusal is `{"ok":false,...}`, in that key order (the add/remove tests
+  # pin it against real bodies). This is a clean key-order split for readability,
+  # not a defence against a `because` injection: sendJson JSON-encodes the body,
+  # so a `because` string's own quotes are escaped (`\"ok\":true`) and could not
+  # have matched the success arm even unanchored. Same form cmd_post uses.
   case "$body" in
     '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
