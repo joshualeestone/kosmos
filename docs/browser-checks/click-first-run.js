@@ -137,21 +137,25 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     console.log('   ...clicking through every step, in the pack\'s order');
     ok(/Get Started/.test(await page.locator('#fr-next').textContent()), 'the Welcome primary is Get Started');
 
-    // Walk to the Success screen (step 7) by content and prove the LIVE
-    // app-location route paints there (the reveal + the ruled Dock line).
-    await advanceToAnchor(page, '#fr-return');
-    ok((await activeHead(page)) === 'Kosmos is now installed and configured.', 'reached the Success screen (S7)');
-    await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
-    const successText = await page.locator('#fr-return').textContent();
-    /* 🔑 THE DOCK LINE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
+    // Walk to the Success screen (step 7) by content. #12 (0.6.39): it is now a
+    // FIXED STATIC screen -- no app-location look, no reveal button, no machine
+    // dependency. Assert the ruled copy and the ABSENCE of the removed subsystem.
+    await advanceToAnchor(page, '#fr-success');
+    ok((await activeHead(page)) === 'Kosmos is installed and configured.', 'reached the Success screen (S7)');
+    const successText = await page.locator('#fr-pane-7').textContent();
+    /* 🔑 THE DOCK GUIDANCE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
        render-first-run asserts it ABSENT on the fleet ending; this asserts it
        PRESENT here, and the pair is what stops it drifting or vanishing. */
-    ok(/Kosmos is already in your Dock, the strip of icons/.test(successText),
-      'the Success screen says the icon is already in the Dock (it auto-opened)');
-    ok(/Drag its icon to the far left/.test(successText),
-      'the Dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
-    ok(!/Checking where the Kosmos icon is/.test(successText), 'the live answer replaced the checking placeholder');
-    ok(!/right now/.test(successText), 'and it is the route\'s answer, not the could-not-ask fallback');
+    ok(/you will see Kosmos in your dock\./.test(successText),
+      'the Success screen tells the person they will see Kosmos in their dock');
+    ok(/Drag the Kosmos icon to the far left so it stays there and is easy to find later\./.test(successText),
+      'the dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
+    // The removed reveal subsystem must not be on the Success screen.
+    ok((await page.locator('#fr-s7-showwhere').count()) === 0, 'no static Show-me-where button');
+    ok((await page.locator('#fr-reveal').count()) === 0, 'no injected reveal button');
+    ok(!/Checking where the Kosmos icon is/.test(successText), 'no app-location check row');
+    // The real Kosmos app icon is in the dock illustration, not a gold placeholder.
+    ok((await page.locator('#fr-pane-7 img.fc-k').count()) >= 1, 'the real Kosmos app icon renders in the dock tile');
 
     // On to About-you (step 8), reached by content. The gate IS the design (no
     // skip): Continue WAITS on the two required answers.
@@ -482,15 +486,24 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   // POST fires, and that a refusal is SPOKEN in the pane's own message line, not
   // swallowed. The endpoints are mocked so no real System Settings opens.
   {
-    // S2 "Allow Access" -> /api/open-file-access-settings.
+    // #1: S2 "Allow Access" FIRES the native prompt (/api/file-access-prompt), and
+    // only falls back to open-file-access-settings when the trigger is unavailable.
     const { ctx, page } = await fresh(browser);
-    let s2posts = 0;
-    await page.route('**/api/open-file-access-settings', (r) => { s2posts += 1; r.fulfill({ json: { ok: true } }); });
+    let promptPosts = 0; let settingsPosts = 0;
+    await page.route('**/api/file-access-prompt', (r) => { promptPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-file-access-settings', (r) => { settingsPosts += 1; r.fulfill({ json: { ok: true } }); });
     await advanceToAnchor(page, '.s2-allow');
     await page.click('.s2-allow');
     await page.waitForTimeout(250);
-    ok(s2posts === 1, `S2 "Allow Access" POSTs open-file-access-settings (saw ${s2posts})`);
-    // A 409 must speak in the pane's own line, not fail silently.
+    ok(promptPosts === 1, `#1: S2 "Allow Access" fires the native file-access-prompt (saw ${promptPosts})`);
+    ok(settingsPosts === 0, `#1: a fired prompt does NOT also open Settings (saw ${settingsPosts} settings POSTs)`);
+    // Trigger unavailable ({ok:false}) -> fall back to opening Settings.
+    await page.unroute('**/api/file-access-prompt');
+    await page.route('**/api/file-access-prompt', (r) => r.fulfill({ json: { ok: false, because: 'no native mechanism' } }));
+    await page.click('.s2-allow');
+    await page.waitForTimeout(250);
+    ok(settingsPosts === 1, `#1: when the native trigger is unavailable, S2 falls back to open-file-access-settings (saw ${settingsPosts})`);
+    // A fallback failure (409) must speak in the pane's own line, not fail silently.
     await page.unroute('**/api/open-file-access-settings');
     await page.route('**/api/open-file-access-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
     await page.click('.s2-allow');
@@ -498,26 +511,29 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
       () => /could not open/i.test((document.getElementById('fr-s2-msg') || {}).textContent || ''),
       null, { timeout: 3000 }).catch(() => {});
     ok(/could not open/i.test(await page.locator('#fr-s2-msg').textContent()),
-      'a refused S2 "Allow Access" is spoken in #fr-s2-msg, not swallowed');
+      'a refused S2 fallback is spoken in #fr-s2-msg, not swallowed');
     await ctx.close();
   }
   {
-    // S3 "Turn On": the sleep row opens Energy, the tmux row opens Accessibility.
+    // #1: S3 tmux "Turn On" FIRES the native a11y prompt (/api/a11y-prompt); the
+    // sleep row is programmatic and opens Energy settings (no trigger).
     const { ctx, page } = await fresh(browser);
-    let sleepPosts = 0; let tmuxPosts = 0;
+    let sleepPosts = 0; let a11yPromptPosts = 0; let a11ySettingsPosts = 0;
     await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
-    await page.route('**/api/open-accessibility-settings', (r) => { tmuxPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/a11y-prompt', (r) => { a11yPromptPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-accessibility-settings', (r) => { a11ySettingsPosts += 1; r.fulfill({ json: { ok: true } }); });
     await advanceToAnchor(page, '.s3-gate-row');
     await page.click('[data-gate="sleep"] .s3-on');
     await page.waitForTimeout(150);
     await page.click('[data-gate="tmux"] .s3-on');
     await page.waitForTimeout(250);
-    ok(sleepPosts === 1, `S3 sleep "Turn On" POSTs open-sleep-settings (saw ${sleepPosts})`);
-    ok(tmuxPosts === 1, `S3 tmux "Turn On" POSTs open-accessibility-settings (saw ${tmuxPosts})`);
-    // A 409 on an S3 "Turn On" must SPEAK in #fr-s3-msg, the same not-swallowed
-    // contract S2 has. The S3 failure branch is a structurally separate path with
-    // its own message id, so a dropped or mistyped #fr-s3-msg would pass the
-    // POST-fires assertions above while the identical S2 defect goes red.
+    ok(sleepPosts === 1, `S3 sleep "Turn On" POSTs open-sleep-settings (no prompt; saw ${sleepPosts})`);
+    ok(a11yPromptPosts === 1, `#1: S3 tmux "Turn On" fires the native a11y-prompt (saw ${a11yPromptPosts})`);
+    ok(a11ySettingsPosts === 0, `#1: a fired a11y prompt does NOT also open Settings (saw ${a11ySettingsPosts})`);
+    // A 409 on the tmux FALLBACK (native trigger unavailable) must SPEAK in
+    // #fr-s3-msg, the same not-swallowed contract S2 has.
+    await page.unroute('**/api/a11y-prompt');
+    await page.route('**/api/a11y-prompt', (r) => r.fulfill({ json: { ok: false, because: 'no native mechanism' } }));
     await page.unroute('**/api/open-accessibility-settings');
     await page.route('**/api/open-accessibility-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
     await page.click('[data-gate="tmux"] .s3-on');

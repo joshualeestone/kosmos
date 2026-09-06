@@ -5995,14 +5995,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
-#firstrun .fr-revealrow { margin: 18px 0 22px; }
-#firstrun .fr-sleepbtn, #firstrun #fr-reveal {
+/* #12 (0.6.39): .fr-revealrow and the #fr-reveal button styling were removed
+   with the Success screen's reveal subsystem; .fr-sleepbtn (still used by the
+   sleep-settings row) keeps this styling. */
+#firstrun .fr-sleepbtn {
   background: transparent; border: 1px solid var(--gold-deep); color: #14161a;
   border-radius: 10px; padding: calc(.45em - 1px) 1em; cursor: pointer;
   font: 600 .875rem/1.6 var(--font-ui); transition: background .12s ease;
 }
-#firstrun .fr-sleepbtn:hover, #firstrun #fr-reveal:hover { background: rgba(198,154,50,.14); }
-#firstrun .fr-sleepbtn:focus-visible, #firstrun #fr-reveal:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+#firstrun .fr-sleepbtn:hover { background: rgba(198,154,50,.14); }
+#firstrun .fr-sleepbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 #firstrun .fr-progress { background: var(--k-rule); }
 /* 🔑 THE STATUS LINE MATCHES THE LINE ABOVE IT (#1205, Josh: "too big ...
    match the size of the line above it"). Measured: `.fr-confirm-t` is
@@ -7883,12 +7885,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
         .s3-body{padding:12px 14px}
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
-        .s3-mtxt{font:600 .75rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
-        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.6875rem}
+        .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
+        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.625rem}
         .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
         .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
         .s3-step-cap{font:600 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.1em;text-transform:uppercase;color:var(--k-ink-3,#8a857c);margin:2px 0 6px}
         .s3-step-cap .s3-standin{color:var(--attn,#b3261e)}
+        /* #9 (0.6.39): the two numbered steps read gigantic + over-spaced. The
+           shared eyebrow/headline/intro are left alone (S4 uses the same and Josh
+           liked it); this brings down the STEP text and tightens the vertical
+           rhythm so the two steps sit comfortably without dominating. Scoped to
+           #fr-pane-3 so no other screen moves. Mona confirms the exact scale on
+           review. */
+        #fr-pane-3 .s3-gate-lbl{font-size:.75rem}
+        #fr-pane-3 .s3-win{margin:0 0 5px}
+        #fr-pane-3 .s3-gate-row{padding:8px 12px;margin:0 0 12px}
+        #fr-pane-3 .s3-step-cap{margin:0 0 4px}
+        #fr-pane-3 .s3-body{padding:10px 12px}
         /* gate rows (same contract as S2): red "Needs Activated" -> data-granted -> green "Activated" */
         .s3-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px;margin:0 0 10px}
@@ -7948,12 +7961,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              notification, reproduced (a real framed screenshot can swap in if preferred).
              ============================================================ -->
         <style>
-        .s4-notif{max-width:340px;margin:2px 0 0;display:flex;gap:11px;align-items:flex-start;
-          background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 14px;
+        /* #10 (0.6.39): wider + shorter so the body sits on ~2 lines, not a tall
+           narrow block (max-width 340 -> 460); a larger gear so it reads as the
+           macOS gear, not a bullet (30 -> 38px, glyph 16 -> 22). */
+        .s4-notif{max-width:460px;margin:2px 0 0;display:flex;gap:12px;align-items:flex-start;
+          background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 16px;
           box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
-        .s4-gear{width:30px;height:30px;border-radius:7px;flex:none;display:grid;place-items:center;font-size:16px;
+        .s4-gear{width:38px;height:38px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:22px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
-        .s4-nt{font:700 .75rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
+        .s4-nt{font:700 .8125rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
         .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
         .s4-x{margin-left:auto;color:#8a8a86;font-size:.9rem;flex:none;line-height:1}
         </style>
@@ -8176,17 +8192,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
-      <!-- S6 Self improving (new). Switches fr-s6-feedback / fr-s6-createping = Angel wires behavior. -->
+      <!-- S6 Self improving. One switch: fr-s6-feedback (Angel wires behavior). -->
       <div class="fr-pane" id="fr-pane-6" hidden>
         <!-- ============================================================
-             SCREEN 6 - SELF IMPROVING   (new screen)
+             SCREEN 6 - SELF IMPROVING
              Primary button (shell param): "Next".  Gate: none.  Dynamic: the switch state.
              CSS namespace: s6-*   Copy is Josh's, verbatim.
-             SPLIT NOTE: Angel owns the two switches' BEHAVIOR (both default-ON): the daily
-             feedback report (#2037, already landed as PR-C1) and the create-agent ping (#2020).
-             This snippet is the VISUAL: eyebrow + headline + the two switch ROWS with the exact
-             copy. Angel wires the switch controls into these rows (ids fr-s6-feedback /
-             fr-s6-createping so her toggle handlers bind; fr- prefix = a wiring surface).
+             #11 (0.6.39): reduced to ONE switch, the daily feedback report (#2037,
+             default-ON, the install-time opt-OUT). The create-agent ping switch
+             (#2020) was removed from this screen per Josh; that feature's control
+             lives on the Create-an-Agent screen and its backend is unchanged.
+             Angel wires the switch control (id fr-s6-feedback; fr- prefix = a
+             wiring surface).
              ============================================================ -->
         <style>
         .s6-switch-row{display:flex;align-items:flex-start;gap:12px;
@@ -8199,37 +8216,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </style>
 
         <p class="fc-eyebrow">Self improving</p>
-        <h2>Help make Kosmos work better for everyone</h2>
+        <h2>Help make Kosmos better</h2>
 
+        <!-- #11 (0.6.39): Josh removed the second switch ("Let Kosmos know when you
+             create an agent") from this screen; it does not belong here. Only the
+             feedback switch remains, default on, its label the new body copy. The
+             create-agent-ping feature itself is unchanged (its control lives on the
+             Create-an-Agent screen, #2020); only its duplicate here is gone, and its
+             frPing wiring was removed from the script to match. -->
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-feedback-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-feedback-lbl">Have an agent send a daily report with any bugs or improvement suggestions.</span>
-        </div>
-        <div class="s6-switch-row">
-          <span class="s6-sw" id="fr-s6-createping" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-createping-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-createping-lbl">Let Kosmos know when you create an agent.</span>
+          <span class="s6-lbl" id="fr-s6-feedback-lbl">Send daily diagnostic information, bug reports, and improvement recommendations.</span>
         </div>
       </div>
 
-      <!-- S7 Success (reuse old fr-pane-1 #fr-return region). Mona S7 prepended; fr-s7-showwhere wired to reveal. -->
+      <!-- S7 Success. Copy is Josh's, verbatim (kosmos #12, 0.6.39). This is now a
+           STATIC screen: the app-location reveal subsystem (frPaintReturn, the two
+           "Show me where it is" affordances, the #fr-return live regions and the
+           machine-check row) was removed here per Josh's fresh-install finding. The
+           Settings screen keeps its own separate reveal (#set-reveal). The dock
+           illustration stays, with the REAL Kosmos app icon (img.fc-k) in the tile
+           rather than the old gold "K" placeholder. -->
       <div class="fr-pane" id="fr-pane-7" hidden>
-        <!-- ============================================================
-             SCREEN 7 - SUCCESS   (spec screen A, edited)
-             Primary button (shell param): "Next".  Gate: none.
-             CSS namespace: s7-*   Copy is Josh's, verbatim.
-             WIRED CONTROL: "Show me where it is" reuses the existing app feature (appLocation /
-             the Settings "Show me where it is" handler). id="fr-s7-showwhere" = Renet/app binds it.
-             Graphic: the annotated dock, Josh's confirmed design (Kosmos mark on the right, a short
-             arrow sweeping it left). Works in light + dark.
-             REAL MARK: the gold "K" square is a stand-in ONLY for the standalone preview. For the
-             build, drop the app's existing Kosmos mark into the .s7-app.s7-k tile: it is the
-             <img class="fc-k"> PNG data URI already in web/index.html (the first-run card head,
-             ~line 7609). Reuse that exact asset rather than the "K" placeholder.
-             ============================================================ -->
         <style>
-        .s7-showwhere{display:inline-flex;align-items:center;border-radius:8px;padding:8px 14px;margin:0 0 12px;
-          font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
-          background:var(--k-surface,#fff);color:var(--k-ink-2,#4a4f57);border:1px solid var(--k-rule,#e3e1dc)}
         .s7-dock-wrap{position:relative;padding:34px 10px 8px;margin:8px auto 0;max-width:440px}
         .s7-dock{display:flex;gap:12px;align-items:flex-end;justify-content:center;border-radius:20px;padding:11px 16px;
           background:rgba(180,178,173,.28);border:1px solid rgba(160,158,152,.42);
@@ -8237,16 +8246,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         .s7-app{width:40px;height:40px;border-radius:10px;background:linear-gradient(160deg,#d5d3ce,#a9a7a2);
           box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.12)}
         .s7-divider{width:1px;align-self:stretch;margin:4px 3px;background:rgba(120,118,112,.4)}
-        .s7-app.s7-k{background:linear-gradient(155deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920));
-          box-shadow:0 3px 10px rgba(184,137,32,.45),inset 0 1px 0 rgba(255,255,255,.35);display:grid;place-items:center;position:relative;z-index:2}
-        .s7-app.s7-k span{font:800 1.35rem var(--font-ui,-apple-system,sans-serif);color:#3a2c06;line-height:1}
+        /* #12 (0.6.39): a neutral drop shadow (was a gold-tinted glow + inset
+           highlight designed for the old gold-K placeholder; behind the real app
+           icon that left a gold halo). Keeps the featured-icon presence, no tint. */
+        .s7-app.s7-k{background:transparent;
+          box-shadow:0 3px 10px rgba(0,0,0,.28);display:grid;place-items:center;position:relative;z-index:2}
+        .s7-app.s7-k .fc-k{width:40px;height:40px;flex:0 0 40px;border-radius:10px;display:block}
         .s7-arrow{position:absolute;top:0;left:14%;right:10%;height:34px;pointer-events:none}
-        .s7-cap{display:block;text-align:center;font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#4a4f57);margin-top:12px}
-        .s7-cap b{color:var(--gold-deep,#b88920)}
         /* install-flow-9screen: only the system (prefers-color-scheme) dark rules
            live here; the forced :root[data-theme="dark"] twins are GENERATED by
            tools/sync-forced-theme.js (web.theme.test.js guards the pair against
-           the two-copy drift), so Mona's hand-written forced twins were removed to
+           the two-copy drift), so hand-written forced twins were removed to
            avoid a second copy. Run `node tools/sync-forced-theme.js` after editing
            any dark rule here. */
         @media (prefers-color-scheme:dark){
@@ -8258,12 +8268,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </style>
 
         <p class="fc-eyebrow">Success</p>
-        <h2>Kosmos is now installed and configured.</h2>
-        <p>You can find Kosmos in your applications folder.</p>
-        <button class="s7-showwhere" id="fr-s7-showwhere" type="button">Show me where it is</button>
-        <p>It is already in the right of your dock, but move it to the left so it stays there permanently.</p>
+        <h2>Kosmos is installed and configured.</h2>
+        <p>Kosmos is now in your applications folder, and you will see Kosmos in your dock.</p>
+        <p>Drag the Kosmos icon to the far left so it stays there and is easy to find later.</p>
 
-        <div class="s7-dock-wrap">
+        <div class="s7-dock-wrap" id="fr-success">
           <svg class="s7-arrow" viewBox="0 0 300 34" fill="none" aria-hidden="true">
             <path d="M232 26 C 190 2, 90 2, 40 20" stroke-width="2.4" stroke-linecap="round" fill="none"/>
             <path d="M40 20 l 12 -8 M40 20 l 11 7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -8271,46 +8280,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <div class="s7-dock" aria-hidden="true">
             <span class="s7-app"></span><span class="s7-app"></span><span class="s7-app"></span>
             <span class="s7-divider"></span>
-            <span class="s7-app"></span><span class="s7-app s7-k"><span>K</span></span>
+            <span class="s7-app"></span><span class="s7-app s7-k"><img class="fc-k" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAGAAAABgCAIAAABt+uBvAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAARGVYSWZNTQAqAAAACAABh2kABAAAAAEAAAAaAAAAAAADoAEAAwAAAAEAAQAAoAIABAAAAAEAAABgoAMABAAAAAEAAABgAAAAAKkzX04AAAJNaVRYdFhNTDpjb20uYWRvYmUueG1wAAAAAAA8eDp4bXBtZXRhIHhtbG5zOng9ImFkb2JlOm5zOm1ldGEvIiB4OnhtcHRrPSJYTVAgQ29yZSA2LjAuMCI+CiAgIDxyZGY6UkRGIHhtbG5zOnJkZj0iaHR0cDovL3d3dy53My5vcmcvMTk5OS8wMi8yMi1yZGYtc3ludGF4LW5zIyI+CiAgICAgIDxyZGY6RGVzY3JpcHRpb24gcmRmOmFib3V0PSIiCiAgICAgICAgICAgIHhtbG5zOmV4aWY9Imh0dHA6Ly9ucy5hZG9iZS5jb20vZXhpZi8xLjAvIgogICAgICAgICAgICB4bWxuczp4bXA9Imh0dHA6Ly9ucy5hZG9iZS5jb20veGFwLzEuMC8iPgogICAgICAgICA8ZXhpZjpQaXhlbFlEaW1lbnNpb24+NTEyPC9leGlmOlBpeGVsWURpbWVuc2lvbj4KICAgICAgICAgPGV4aWY6UGl4ZWxYRGltZW5zaW9uPjUxMjwvZXhpZjpQaXhlbFhEaW1lbnNpb24+CiAgICAgICAgIDxleGlmOkNvbG9yU3BhY2U+MTwvZXhpZjpDb2xvclNwYWNlPgogICAgICAgICA8eG1wOkNyZWF0b3JUb29sPkFkb2JlIFBob3Rvc2hvcCAyNi41IChNYWNpbnRvc2gpPC94bXA6Q3JlYXRvclRvb2w+CiAgICAgIDwvcmRmOkRlc2NyaXB0aW9uPgogICA8L3JkZjpSREY+CjwveDp4bXBtZXRhPgqxv+ulAAAZgUlEQVR4Ae1bB5RU5b2/vU1v23tjl96bCIIoaBQjalDB2DXGHBOfJea8nBg1T5KnieahYI+oiAk2RFBUREVQAZFdyu6ysJUtszt97txe3n8WJcawzC4z6Hnv7D2j3L3fd7/y+/79/79oYL0PGb4GRgAbuGm4JYnAMEAp6GAYoGGAUiCQonmYgoYBSoFAiuZhChoGKAUCKZqHKWgYoBQIpGgepqBhgFIgkKJ5mIKGAUqBQIrmYQr6YQAyU0z7f6c5cxRk6oipJTduKAjgA/+HC56YRvLmdF0wU/9hGKqpi/33pqlLpiFnasIMAWTqGJODW6tMQ2Uqf2k/cyNV8BNYKMaVoJQrCVbyp2Zo0WZy/zAaQI/RCErB4IRrElO0FMUoBMWZwsup7AWZOhgiA4s2DZS022e8hlmKYjuv5ypvRykniltMLWGbtEpPHEnU/Yat+pXcuV7uWJvcQ1qXgeJW28QnFP9mxf+hfcY6ACu++0bb5GcwS0l8p2yainXyU0BKka1z9WgtgpFpzZapiKJumLomGboqJ0J8xyZdicbb3tSpfAAOs5SjrllUzkIyearpyaZ+hjUQCrFWm2SOSbhx5zjcPkozKMG/XYk1S9FmVYobuqyLAU1JICiaJjrwOpqRoL2mabp9jq6rZmibZhIGmYPJHbS91DllZaLtdaH1Ra78Jj34CSHuw/BTPlITt5Qbsl8Vwxo3ATOiBt9EV9zBZE3j9/2nED5ioCxLqqaJqsxI1BBorYWi8PQBwu++wpLmKKahUO5p3rNeZ92j1O7XXeN+Zy9fisR2OkbdweWfh5kSIvd4pv6ZdlYrnW+gKBDRkA8WxBmdt8gxE7i4FF72nrnWUnKZFtnjGPkfbPZM2jXOCO9gnJW45scx1JS7cSNCkUQmCAghAPI0AQI+1ZS4JvZqYjdGZ1urboUBNf98Q02gGIGg2DHtBgxomCaWRGdIMya5Ev7TdIAW03UTtY9GCQ5+GFd2TMTAyPbR9zKFPw69N8EQ2lnmGJGiaTL0MVjQvje9aQOEyIomalbMFClcY6vuIuyV/IEHVDGI2MYiiUOYHlRRH2YmOErF8SGiA6oKJRFTFSVdJcsQtQcnrc7xD+pSb6zud5h9NJt/YaLlBcqST7nG652rcRTMiyFNkWL3oMXSE5zJ8U2SYm2j7yJsZfz++6KNKwyTYrAIzWShFq+pt+Omx1Fxm9q71QhtRZDB600TSMA65kHSPTW2+0aLt5zMvUhsfRHsHeBWUytQbHlM4Tls8SIC4aMHHpJ7t7EcgyTFTvo7+idqGWAxkEGkd4a95rbkqErAaavAaG/ow9n28fcxxUsV/xb+wHLHyNtEzhUPvG8OQe8CPjSZfS5hLcNsE2yj7sFtFYyzQgnuYjxjklPln2ctXYLbKonyZUrLSrBNMZBwmQQnuaHBn2ey94kvlJCiR8S+L0lrYfzoh0y2RnA5miKoUpjSRFWKJHp38pvORsQWGqMGSf1gC8Jcui52bV2GcqV63/uY9yyOdCV6PufbXse9cw0tEWvbJIm8pXRZovl5U5dxIk0L68Sbw+9cwp64ZShPNTnGh45Ejrwqd22inKPYrJkYzoUOrjJwd/zw3yhrvq3yOhwnjPj+wQkIHSXB1GST3JS/iLKX66HP5XgHQrii9SvUaG2sc0eseS2mdEqhunDTWiO+j6JO2XpIsU/CTJ9jdclWusw+aYUmdIW2X+UecztGuQk2SxU6PSNvkJwFKOmgfTOQksV9m7cZUhd4AydbFNjlOOeatR40YOizq7yTHgR/wgx+yJVcxZVejiX2KQG3e9Y6XewOf7rYkAOMiWEYjiR5K9Pc1b9KAklbzRuGgTCF4EOQ1hJQ5PHW9daSS/mOzYmuj5C6v4DstOQvoLzTpOA+VYriUA2QYkbQ5YbMdwKOUry798v7wcsTA3sVDRMlWWx/i/NNxRkvRtqTZrrSh2H9XJtizJOdyMnb0O7X3CfvkbI16TvqHFV0tS4c1brf0DBn0g8QmiyOAg1zq+E9JkoT7pl6bD+LBQlyYF4wddPQUBTVdETjxlKOkbp/g2KwlHsSxn8lJ7plWWEZAiXdtnF/lPzb9a615GnjrOO7BgpKOxxhaIyzis2aEmvcSVuy889ar/KdoS+uy56zlnSO6dtyLkI4bWN/rwZ38bV3gkUzgBiCeEC+fewflNAuofXvOfNeISyFiSPPEdZyOnuO1PVOaMeyrGkrMJKVA7udlVfwFBPtXpOBxR9HYoAbkEGDVCwDDABWBwDkHusou9iM7hKPdpO2Soywoiguhg6Cf6QIvZ6JtzGukfATmh41EkcQ9ASq09RV2jOTKbyE9ExPdLwDQQuYz8BsCOlKTkw44MZSegUY0An/biXepsWbwZNIf/ED7uqbBrRrXf8Kvvn7FP41EWAxmim+Tg99qoZ369xYDGfQ+C5ZIwyUo80AU3CRY9Sdon+72PAgiYMoPcGRwCCqaeOq79Gi+4XmZ4mshWzu2eH9fwFxw+bOl7vfRcUmzHcuSliEjrcMzEqiAseA/DnBUKewhZO8AhSkn6R5ME0QXrCXXuWadK+p8r1bFpK5C+2V14qta+RQrbXq54lDKyItb+m4l6SBrDATGcAVAOWFIpxvPJ4zDaweR/VPmaxZRnSXrkq0o8QIWxHD4qhaBvLODG6BSBMGXilqnBa99a97zoglbZCOaqAaBGdwa4Wz6mrCWoKVXEE4x3K5Z0FQQg59WXDWKvBp+8R6uW8rCmHAf79MBKcY2lGBAgMSFto5kuRyuKwzrKWXgV2uZE/q+/RKa8ECeC+xz2YiEOuB4NJpJx+Y7gTi4N8Xn+IJRgf2rZAUXONb+NaNOpnrqrkldPBx/uhmruAjpXsDpkVD9c/ibJ4QbsC/K4Bgo2Ab6GD1KHxny8bzk94/39C2ZSluHaGFvyzKms3QXrDUpXhn88bzYCWk2EMQJ7WkUix3aM1AQelqMVDMhtAaa/kHlzWFoFmC9SajHLpIcV7GUYHECrRwV1/dwyrfxTEmTmL/OqMJFjPB5mvxQ7S9OHvqCpDuwc+uQ7hClMvSegMt715E2Efq4Z0MTirRPbA5lMnAmgcPUiYsaYhHEEjWlN+yufP80mF3zQ04k+0ZdZMhh9m8c0RnQaJtXfH0pwNf/EJoWW0ioJ6+JTp01TV5BVd8eWjnLYYqcNkzYekgnp2j7sAtxd2J/ShbxBUtCe06gGn814Gerx3Sbw0y+O0OvSfYQZlIbKCY/8v7COd64ehHyP5VtpLFwX2PQxjQhXDRxjWm0pvo3a0mjqLYMTP6mOwASlKAvXSTBm2tI2ysYwPWsBos8uCR9YpBk/ZqMbjPNXIe55sQpzhd+waRr0XP9yGAAE+07RXr0GH97humYYiiqGkmzVrA3tURG47EYAcaYiHRBDhL4CjQhM5yx8Vz0uGi3VOkUG1CkCnfPDO2E1FDqHuuyreiiYMG4QbzktTaYUgdtTBolCS/J0S+szf89ksGtv2/03eAP0HE4kxWzpkvUDSlR/flzHwsa/ydRmSna8TVuTP+gkptJOPIn/M8jqpqZC+IGBjG0ERHzR2eGc8ATKgh5s952l7yYy5ndvbk+1zll8k9m/POfDpnygNqYIfGH4YXCQI8rm8oaIBlnKbHmbCkwZEmHJTvDAg+gIa2gs9N2hjfDEvhIsY9hsmZK4f3cblz1FhDonXNMd8SJLMQPsyEDyUCdWzWDILxIowX54pgk2AZQj5H11TD0MFrJXCANCkEvgej+YQQoy0vp5vVANJXVFUlSlCtl0AEIvtCwlbFH3madIzi8hbwR57T5V7MPgmCQQzOo6YGFAfehmxYEMtoLbyLtOTlzFglhA6Eml7JGnOrFKyNN60CtkJwK2X0MBSgk8yE/FAXTA+WdFo/w5BY75Syha8XzFqFYYSpRhBDwBBFix6w+CZ6am7CEZVzVdhyZ4HDxRVc4Jn6GMHmFc55vuqi9/Km3k9zHsY9gnWUGXwj8BHF+QhMtdi8jtwpJMWAod9v66e1wnQ2CDZFkoDTuUxdp9zjGPcoylqIErbcSb8BPd0R/kQVe1nPKFHtZVzVhXOegjxE22vvWUqvsRQtSnRvpz0TwfhmfFOFnk9pWzHYTazFacubrvEd8TrdN/ZOW+X1nZvnyH070s5Wp7M5BG1ew6U1AEgHU1dMO1v8UzXepPZsIFyTIQWq+d82dUE2nCiqkwTmqLlTTbSKzc+i1hrIUvCtL3N551kLfxRtel4Ofk64phuSH1XaddSJICqNxGAQ0jNTan+BMMGrSPcI09kgUFC6zipMj+oxoWerKfewjgrv5D+I4YZoz3raWUWROUrgM0Q3oq3rCdqO027fxN+StipcD+CWIpxgwUTinKWW0h/JgZ1ydyvJ2VGIJJpgky9PBPYJKm+CL5SJFZ4yRhnwxcDes/hmFJy/XfR/Em16wVZ4Lvz4hoc84++3Fi9uWZcP4dGiCz9CCTZYu9xRfjmsNXvKgxCKBycDUzsJNttecbWpxjremZM3700Up7o+XsZln4HTnlgdpAyVjNQgnDpAmfCJcSnhj3duE3o/CzZvQKyPKfFmiff31P4VP/yWIoYJk5Lj7QTrCx/9BLON5LzjuvY8YsmZac2eFmreYM2ba9VlMdQgJkJCqB5CYvHe2gPrpppqmDIkFAdbH5TYD2MlJpmj6cUMpJNkWTUtYynWrQS2S6ICWQYO0syQkNYQzkIlqz4sEyC2b4htudP+W4l3+ff8HjQ9xuZjSjuCsfbKG6W+L9TQZ9AdnHua1EyMoe1VqFDfT0HgoIAZ9MNIIvy2i9OdGEKurGd8+QVbfKN+hpqip+pyMGeEjtddFUt9o2+Wej6A4E7pwo3W7IkEjuVM/p01ZzLf9IQ9/4yKH72LKD0ExZacvcaaNQ6kVfH8fzAWn+z/GPJFRees5zs2OEbc6hr9a779TUSXfhA6yoAlnazZ4ApBAANBks4JOO2iHJU6wjDZsy35C3t3/9rEWGilrEWx7h1k/UtS5IAmRwyVl+NtkH3VpYjCd0HtE5jjXPYMXewJo0i0/QNZvZ0PHrKUuUzMokNWOcllPwCjoY2r0/XFwLWSVcI76WFIFvbsvpf1jMMIJtGyGmXynRXXaJHPIR/Nld0IaWS+/W3cWk5Zc5H4Lk1VJZWkCBUFIY+4UVMgUBW1VJtKD4VEINpvUrmQrdZMhrLXoOI+HBz+r0NXgNX3hxRQULoBM1M33JVLHYXzIq2bcByrWLDWNLXD6z5yVF6bNfFe2H7HliX5s5ar/NEOqbn0/A8ILrdv9z19tX/iwFE3TVfNzyxFl/i/uF2JNuRMugvsJv/2m/PPeMRZee3Rj64wVLno3PVd266JHlqdc8bjpKWw6+MrwcL63jDKQGYVdIxrxPWcZyTjKOZb1sS7t4NMVcQIRjqSWgCjFFkINq3ThG4EgodcLjzELWXgfYKCMnTTkn+evWB+rGm0Gm1kPaPB6oRYvJwIKEJAkwUp0tB74Fm+dy/MgrFFOFdqIKD7gdm+JyJC659PN76razqTf0nR7CeCTS937fglhL5AQ1Fo3CRdrppfSuGDfPurmmzAhigWt5ZdA9U94YP/Q+hHIU4EAOlkEeEYqwa2QP2VYtgAUhKNKVD2jLlIMwRvyRLCgOuKIZKMQdqHxnm833tNht9OP69lIr4LtEBaQO5wnjGMNTd3+p8hOXF066W0d6a79PyQFpJQM2vsMtpR1Ve7PNTwrAECHDCkksFpFEN1sVWOtdLJJJdZOO1eyjGic+ulnoK5jqobQnXLbYULIYDr3/kr1jPBV3RZuOEpU9Zzpj8CaTT/rruTxeOnmZLAkk53BigEcxTOxymrvWAu6C974bk44wEmclUuteVMoVh7vHGle8R1XPascOMTnAFbgpwW8NnX5h9F4v0Z9iRcpLWYtleYJu4ou9RVdrEc2svlzaftZT077/aMvcdeshjHjFDDM64RN8H7gQMr1Fgj5Nrg/vRd6IHn0mUxQzcQS41n9B1icG+4fiXtnQZnLnRCGcY0V/XNsbY3E21vILQPp7MR8SAEwAbaDBiSksYBaZFmBGHymOy5QucmiJlhOIWpvWzOHMAlULdcidTbKm8G2S+0riZwcCQHHHCgiYb0HLRYus4qHKEcrQ82/V1PtGCoQVu8OKT6cMzU+GjHFr7jHYjsWAoWhZvf0IST5UJBnkAAG5KCGI5CihUhORRRvVVLcNIWaXwS4mq0tcBeuCAY2R9r34hT4NaqQISn+wItlu4UYJ04cqeVX7RZ7P2i+Z3zys95EbzTVrUr/4zHSFtJqGE255vCeMZ6KpccfmN8v4YecEYi6buDlLaWnL0anNXA/jHe0b+A3gSOu6uvo5019twpfNurpQs30a6axr+XqfHW08xhGamTRhEh3Nhd96QU/EoWYx1fPEBw+VF/XZYSx3VFiHUT1jAkw+REr6b310mnOhLQ7p17HgV3P9b+kWvEtSBl4sEms3lj9pjiaPt7Qszf27gWRJUiBCFnmfRkT+eF/3xRujycdCQJu6YTsfa3EYOHWnIEoxI9n/KBemvW9EDjy517H8cob+/+J9XIwcHUSYO4Dnd8Gml/P+Gv1TSZc9WEj7zaU/dUT8M/AvVPkyQGcinQ+BKqhUHdH3P1AanThBJ+y4XpjmxoSP6MhwpnLqdYhxI5WL14h6v4HNSQHPmzHUXzHQVzQAyVznnU6hsVbnwG/JKU8wHPlsx5vGT2X6OH/5Y38S5rzlTOValE9sMgWrzeXXZx+blrbNkTIk0v+cbf4am+ge/eClWuKYc9tQ6ZCJghSLh9K+WZHm7/UJFiUrSFthXC1yVw76xYwvd+JUUOd9etUqKHIJODD0JnAtPE/V/qCAVfEAWPvAm1Ir0NL+O0AwJJJJcrRttVMSRGjhjwVULpEkvWlJ6vHtTleFKbnQb7Gq19+tSQ/edbQOQifLCiIpChIUjEoPJx2gc5QuiBcRW62EHiCsoUqjx8RYGA9ZvySg4oQpwWgf6KTiBUgZFohZFxa43O14MiNHAfqvZRUCfjmgjMq/jfA+mOkVzSbkwyfMoZhtAB/1naLAazkSRbNvcJi7tET7SXznvakTdT8m+BpE3JWSspAncUzB1xwXocyg+6Ph2k0gFCg2pPsCfLzl5dMutPQve72WNuLZn9KDjDQs8Oi7uKtecRBFG+8FVX8YJ4+1tQJFl+/vtQABtr25iRKPtxCDPBYvAVDsk6ihbEMNIiBlwl58PoID7Evr2QclZiTVLkkKYKmgLflA72OkZo4JRAdhVkNrhxjuILKGuevXBhX91fR1z4NuRbm99fynlGw4hgENCusZAjSMakcA5RIYw92IlS9kO/ejJlnxQdYDGqhqioA0rwIAtYeOZKMHM7d9wGn/2pKJTOiShUcJBZKFjDycrMIVxQgC1pFILbUSVgyZ3lrroqcHClGqp1Vd+A4nTvvifc1deTjDdQ9yBkrB0V10rh/WpgG9TiZFD1Z4CCYBuce0T25OVK/Ej3V4+IkSYheFATAow921NwgeDfIYbq4SMNjLIjWmxIZwt0RGKKqQegIMuRO93mGxNjXPBldbh1kyb20RZX/riboezK4OtAM7gKzxJYWyj8mQlFJZm7MgGQjnhH3uKpuBhWRVnyPFUQ0JLqnt9QMONhd9UyKJJv+eDKET/eJgRrD29cALn5IWEExXZQDwIKy1d9BeebKBSdDRntMT9tCTY83/Xlf1mzJkDEg7SWuiqWeKp+giA/Ebs2SqEDg5R0g4ERwh2D6ZaiT6B5o730Uily5OjeZ1E6FwqfJCEBYTLQKWBAS0I8EW4Wwy3g1iaFyxBnhO6GYR764BZL7pzIoecwU+jcuxIS1kK4ff/6xeCjBeuf9dXwztLF8Z7dYqwrWRsBqmwQ6jLFrvqbM0BBSYqAT2mFAFhD0Y4PwSnXxE6QSy3b7g60fZ7wb4OyRPhWR070gMUNlSCDWdZ3+gCsCf9Ovq+W42yaKHbsvB81eAhI8l1bXBWXc84iXYlBZUSs+3NVCLuLZ0NlcqL3i4xY1xkACCJ7pbMfYj1jLe4KTI8Uz35E4Y8efKWG9c0omfcw3/OZEjvsq1oMe060vy727Tn5xz7fgebYn7BVhsaqFm0mWW/HjrtL578gBGqb3lqQN/Hn+dP/CHXYGMERjCN39NXhg4+WLXhDk0OwgGSFW9pXBgCCsGm4/WPGNSrWszsROgzfjingl6oa666mbfkoOvPwwZccZYelaKsQaTmmv09l2aYZansfPnJAcBvBeOCbc5QgQq2bad/svvoXDE0pwO2hw6+J8d6mrbeZmqjr2mCs9pQrQfc8kbJPig5JZQxFchBX5ltMOUzYSg01ShohhLDaSq+UwvWQlUZIK2T+GFI7ycc+J58GZhH67WSCxLnc+WqiHUnUw3dBsowkgyTA0gbkak2GTsawgeJYiOpmwhrKAECwOEgxKyoCJwZKB2wiWBlEUWH1kph8SNEgZZMPkyopjUXDICCwwWwEUGBYur8iFDyS/gBu0jUB8oTY/jG1k85E3z6qDLAYDAdneOwY4R6WfuwCgw0YAq7kWr95+HXbKf3zNXsCCjDaN37p8aL748ybKWiOrTEzAA2038yu9fgsp2nY4+N/+yZD1sK3h/z/dT8MUIrzHAZoGKAUCKRoHqagYYBSIJCieZiChgFKgUCK5mEKGgYoBQIpmocpaBigFAikaB6moGGAUiCQonmYglIA9L95K7fxBm386QAAAABJRU5ErkJggg==" alt="" width="40" height="40"></span>
           </div>
-          <span class="s7-cap">Drag <b>Kosmos</b> to the left of the dock so it stays</span>
         </div>
-                <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
-                     like step 4's #fr-checks: a region inserted and populated in one
-                     innerHTML write is the documented way to get no announcement.
-                     The write that matters (the engine answer arriving) lands in a
-                     region that long predates it; the initial placeholder joins the
-                     tree with the pane, the same shape as step 4's "Looking...". -->
-                <div id="fr-return">
-                  <div id="fr-return-intro"></div>
-                  <div id="fr-return-row" role="status" aria-live="polite"></div>
-                  <!-- A live region: the reveal button's failure sentences land here
-                       (frRevealSay), and a screen-reader user who fired that click
-                       would otherwise never hear the refusal -- the same SC 4.1.3 call
-                       as the check row above.
-                       🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
-                       below. This region is CLEARED and REWRITTEN by frRevealSay, so
-                       static copy parked in it would vanish on the first failed
-                       reveal click and be announced as a status change on every
-                       repaint. The line below is static markup for that reason. -->
-                  <div id="fr-return-msg" role="status" aria-live="polite"></div>
-                  <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
-                       reveal button, at Josh's ruling of 2026-08-27 16:08 after he
-                       did a full wipe and screenshotted this screen: "somebody
-                       elected to take the message out of this."
-                       ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
-                       two written rulings: step 1 answers "did the install work", and
-                       the Dock line is about RETURNING, so it went to the last step.
-                       HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
-                       at the ending, and the two statements are coherent together:
-                       on Success, not at the last step.
-                       📌 The id here is deliberately NOT the one this region used to
-                       carry. That retired id is asserted absent by server.test.js as
-                       a stale-id guard, and the assertion greps the raw markup, so
-                       even naming it in a comment would fail the check. Same line,
-                       different anchor, and this note cannot spell the old one. -->
-                  <p id="fr-return-keep" class="dhint">Kosmos is already in your Dock, the strip of icons along the edge of your screen. Drag its icon to the far left so it stays handy.</p>
-                </div>
       </div>
 
       <!-- S8 About you (reuse old fr-pane-6 #fr-you). Mona S8 head prepended. -->
@@ -35650,13 +35622,13 @@ const FR_STEPS = 9;
 // "next step" reads read from. Success (the return/dock/reveal screen) is now
 // step 7; About-you is step 8. The ordered frGo if/else-if ladder is literal
 // 1..9.
-const FR_STEP_RETURN = 7;
 const FR_STEP_YOU = 8;
-// ⚠️ The About-you step's generation, same contract as FR_RETURN_GEN: a
-// continuation captured under one generation must do NOTHING once the
-// generation moves -- a bare step-number check cannot tell "still here"
-// from "left and came back", and the stale save advancing a fresh entry
-// mid-typing is exactly the class the return step already solved.
+// ⚠️ The About-you step's generation: a continuation captured under one
+// generation must do NOTHING once the generation moves -- a bare step-number
+// check cannot tell "still here" from "left and came back", and the stale save
+// advancing a fresh entry mid-typing is exactly the class this solves. (The
+// success screen carried the same pattern via FR_RETURN_GEN until #12 (0.6.39)
+// made it a static screen with no async paint to retire.)
 let FR_YOU_GEN = 0;
 /* install-flow-9screen: the permission-gate poll. Replaces the old single-gate
    Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
@@ -35819,12 +35791,10 @@ function frGo(step) {
   if (!Number.isFinite(step) || step < 1) step = 1;
   if (step > FR_STEPS) step = FR_STEPS;
 
-  // ⚠️ Leaving the Success (return) step retires its async machine look: an
-  // answer landing after the person moved on must not repaint a pane they are no
-  // longer on. AFTER the clamps, so the bump and the paint branch agree about
+  // ⚠️ Leaving the About-you step retires its async work: its save and prefill
+  // both settle async, and a stale settlement must not repaint a pane the
+  // person left. AFTER the clamps, so the bump and the paint branch agree about
   // what `step` is, against the named constant rather than a bare number.
-  if (step !== FR_STEP_RETURN) FR_RETURN_GEN += 1;
-  // Same guard for the About-you step: its save and prefill both settle async.
   if (step !== FR_STEP_YOU) FR_YOU_GEN += 1;
   // install-flow-9screen: leaving a gated screen (S2 Access, S3 Automation)
   // stops the permission-gate poll and invalidates any in-flight one (frGateStop
@@ -35874,13 +35844,15 @@ function frGo(step) {
     frPaintOpenai();
     frConnResume();
   } else if (step === 6) {
-    // S6 Self improving (Angel wires the two switches' behavior).
+    // S6 Self improving: one consent switch (the daily feedback report). #11
+    // (0.6.39) removed the create-agent-ping switch from this screen.
     frActions({ label: 'Next', go: () => frGo(7) });
-    frRefreshFeedback(); frRefreshPing();   // PR-C2 (#2037 + #2020): paint persisted/default-ON state on show
+    frRefreshFeedback();   // #2037: paint persisted/default-ON state on show
   } else if (step === 7) {
-    // S7 Success: the app-location look + reveal + dock line (frPaintReturn).
+    // S7 Success: a static screen (#12, 0.6.39). The app-location reveal
+    // subsystem was removed; the pane is fixed markup, so there is nothing to
+    // paint here beyond wiring the single primary onward to step 8.
     frActions({ label: 'Next', go: () => frGo(8) });
-    frPaintReturn();
   } else if (step === 8) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
@@ -35892,13 +35864,15 @@ function frGo(step) {
   frFocusActiveHead(pane);
 }
 
-/* PR-C2 (#2037 + #2020): behavior for install-flow Screen 6's two consent
-   switches. Renet's markup is static spans (#fr-s6-feedback / #fr-s6-createping,
-   role=switch, aria-checked, default-ON) present from first paint. Same backends
-   as the Settings switches (/api/feedback-setting, /api/ping-setting); both
-   default ON, so these are the install-time opt-OUT. Bound once at top level
-   because the spans exist before this script runs. A could-not-read leaves the
-   markup at its default-ON position, never painting a false Off. */
+/* #2037: behavior for install-flow Screen 6's consent switch (the daily feedback
+   report). Static span (#fr-s6-feedback, role=switch, aria-checked, default-ON)
+   present from first paint. Same backend as the Settings switch
+   (/api/feedback-setting); default ON, so this is the install-time opt-OUT. Bound
+   once at top level because the span exists before this script runs. A
+   could-not-read leaves the markup at its default-ON position, never a false Off.
+   #11 (0.6.39): the create-agent-ping switch was removed from this screen (it
+   belongs on the Create-an-Agent screen, #2020); its /api/ping-setting backend is
+   unchanged, only the install-flow control and wiring are gone. */
 function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
 function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
 
@@ -35906,7 +35880,7 @@ function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'
 // purpose: a user's toggle must supersede an in-flight on-show refresh, and a
 // later refresh must supersede a stale toggle response -- one counter, latest
 // action wins either way. FR_FB_SAVING blocks a second toggle while a PUT is in
-// flight. (frRefreshPing/frPingToggle mirror this with FR_PING_*.)
+// flight.
 let FR_FB_EPOCH = 0, FR_FB_SAVING = false;
 async function frRefreshFeedback() {
   const el = document.getElementById('fr-s6-feedback'); if (!el) return;
@@ -35933,34 +35907,8 @@ async function frFeedbackToggle() {
   finally { FR_FB_SAVING = false; }
 }
 
-let FR_PING_EPOCH = 0, FR_PING_SAVING = false;
-async function frRefreshPing() {
-  const el = document.getElementById('fr-s6-createping'); if (!el) return;
-  const mine = ++FR_PING_EPOCH;
-  try {
-    const res = await fetch('/api/ping-setting');
-    if (!res.ok) return;
-    const r = await res.json();
-    if (mine === FR_PING_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
-  } catch { /* leave the default */ }
-}
-async function frPingToggle() {
-  const el = document.getElementById('fr-s6-createping'); if (!el || FR_PING_SAVING) return;
-  FR_PING_SAVING = true; const mine = ++FR_PING_EPOCH;
-  const next = !frSwOn(el);
-  frSwSet(el, next);
-  try {
-    const res = await fetch('/api/ping-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== FR_PING_EPOCH) return;
-    if (!res.ok) { frSwSet(el, !next); return; }
-    if (typeof body.on === 'boolean') frSwSet(el, body.on);
-  } catch { if (mine === FR_PING_EPOCH) frSwSet(el, !next); }
-  finally { FR_PING_SAVING = false; }
-}
-
-// Static spans -> bind once at top level. Click AND Space/Enter (role=switch is
-// keyboard-operable). The spans exist before this script runs (markup ~line 8149).
+// Static span -> bind once at top level. Click AND Space/Enter (role=switch is
+// keyboard-operable). The span exists before this script runs.
 (function bindS6Switches() {
   const wire = (id, fn) => {
     const el = document.getElementById(id); if (!el) return;
@@ -35968,7 +35916,6 @@ async function frPingToggle() {
     el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fn(); } });
   };
   wire('fr-s6-feedback', frFeedbackToggle);
-  wire('fr-s6-createping', frPingToggle);
 })();
 
 /* --------------------------------------------------------------------------
@@ -36069,7 +36016,7 @@ async function frPaintYou() {
       // COME BACK while the save was in flight. The record is saved either
       // way; advancing a step, or writing into a pane, that belongs to a
       // newer generation is the answer-landing-after-they-moved-on shape
-      // FR_RETURN_GEN exists for, and a step-number check cannot see the
+      // FR_YOU_GEN exists for, and a step-number check cannot see the
       // came-back case.
       if (entry !== FR_YOU_GEN) return;
       if (!res.ok) {
@@ -36191,32 +36138,51 @@ function frCheckRow(c, opts) {
     + '</div></div>';
 }
 
-/* install-flow-9screen: S2 Access's "Allow Access" button, delegated on the pane.
-   It opens System Settings -> Privacy -> Files & Folders (POST
-   /api/open-file-access-settings; the engine derives the URL). It cannot GRANT the
-   access (TCC), so the gate poll -- not this click -- flips the pill to granted and
-   unlocks Next. Only a failure speaks, in #fr-s2-msg; the Settings window itself is
-   the success feedback (same rule as S3's Turn-On buttons). */
+/* #1 (Josh 0.6.39): the grant buttons must FIRE the real macOS prompt, not open
+   System Settings. Josh's fresh-account test never got the "Terminal would like to
+   access your files" dialogs on the permission screens; they only appeared later at
+   Import. So a grant click now POSTs Kitty's native trigger, which fires the actual
+   prompt (fire-and-forget: the dialog appears, the user hits Allow, the gate poll
+   below detects the grant and unlocks Next). It falls back to opening System
+   Settings ONLY when the native trigger is unavailable ({ok:false}, e.g. a browser,
+   or before the endpoint has shipped) -- the old behaviour, so nothing regresses
+   during the native rollout. sleep is not a prompt category (pmset, programmatic),
+   so it keeps opening Settings and passes no trigger. */
+async function frFirePermission(triggerUrl, fallbackUrl, msg) {
+  if (msg) msg.textContent = '';
+  if (triggerUrl) {
+    try {
+      const res = await fetch(triggerUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+      const body = await res.json().catch(() => null);
+      // Prompt fired: the gate poll takes it from here. Nothing else to do.
+      if (res.ok && body && body.ok === true) return;
+      // {ok:false} or a non-ok status: the native mechanism is unavailable; fall
+      // back to opening Settings so the person is never left with a dead button.
+    } catch { /* endpoint missing / network error -> fall back */ }
+  }
+  // A category with no Settings fallback (a hypothetical trigger-only gate) simply
+  // stops after the trigger rather than fetching a null URL. Today S2 and S3-tmux
+  // always pass a fallback and S3-sleep is fallback-only, so this only hardens a
+  // future caller.
+  if (!fallbackUrl) return;
+  try {
+    const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    }
+  } catch {
+    if (msg) msg.textContent = 'we could not open System Settings';
+  }
+}
+
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   const b = e.target.closest('.s2-allow');
   if (!b) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
-  try {
-    const res = await fetch('/api/open-file-access-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }
+  finally { b.disabled = false; }
 });
 
 /* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
@@ -36234,26 +36200,19 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  const url = gate === 'sleep' ? '/api/open-sleep-settings'
+  /* #1: tmux fires the native Accessibility PROMPT (Kitty's /api/a11y-prompt, which
+     also injects tmux into the Accessibility list so it appears and is grantable -
+     the gap Josh hit, screenshot 9.51.30). sleep is programmatic (pmset), not a
+     prompt category, so it opens Settings and passes no trigger. Both fall back to
+     opening Settings when the native trigger is unavailable. */
+  const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
+  const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
     : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
-  if (!url) return;
+  if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;
-  try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission(trigger, fallback, msg); }
+  finally { b.disabled = false; }
 });
 
 // install-flow-9screen: frPaintMachine + the standalone machine-check screen
@@ -36913,44 +36872,10 @@ function frConnPaintProgress(progress) {
   }
 }
 
-/* The Success screen's reveal, delegated (the row repaints wholesale).
-   Failure lands in ONE message line with the route's sentence -- replaced,
-   never stacked, so repeated failed clicks do not pile paragraphs. */
-function frRevealSay(html) {
-  const dock = document.getElementById('fr-return-msg');
-  let m = dock.querySelector('.fr-msg');
-  // Clearing REMOVES the node: an empty paragraph parked in a live region
-  // is one more thing for the next reader (human or machine) to reason
-  // about, and nothing needs it kept.
-  if (!html) { if (m) m.remove(); return; }
-  // No role on the child: the dock itself is the live region, and a status
-  // inside a status double-announces on some screen readers.
-  if (!m) { dock.insertAdjacentHTML('afterbegin', '<p class="fr-msg"></p>'); m = dock.querySelector('.fr-msg'); }
-  m.innerHTML = html;
-}
-// install-flow-9screen: the reveal handler now lives on the Success screen
-// (fr-pane-7) and fires for BOTH the app-location "Show me where it is" button
-// frPaintReturn paints (#fr-reveal) and Mona's static S7 button (#fr-s7-showwhere).
-document.getElementById('fr-pane-7').addEventListener('click', async (e) => {
-  const b = e.target.closest('#fr-reveal, #fr-s7-showwhere');
-  if (!b) return;
-  b.disabled = true;
-  try {
-    const res = await fetch('/api/reveal-app', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      frRevealSay(esc((body && body.error) || 'we could not show it'));
-    } else {
-      // A failure sentence from an earlier click must not keep standing
-      // (and re-announcing) over a reveal that just worked.
-      frRevealSay('');
-    }
-  } catch {
-    frRevealSay('we could not show it');
-  } finally {
-    b.disabled = false;
-  }
-});
+// #12 (0.6.39): the Success screen's reveal subsystem (frRevealSay + the
+// fr-pane-7 "Show me where it is" click handler that fired for #fr-reveal and
+// #fr-s7-showwhere) was removed. The screen is now static. The Settings screen
+// keeps its own separate reveal (#set-reveal, wired below with #set-reveal-msg).
 
 /**
  * Will pressing Connect on Claude actually DOWNLOAD something?
@@ -38323,17 +38248,12 @@ function frPaintFleet() {
   /* 🛑 THE DOCK LINE IS GONE FROM THIS ENDING, at Josh's direct ruling
      2026-08-27: "I still don't want the ending of the install to talk about
      putting it in the dock."
-     ⚠️ HIS STATED REASON DOES NOT HOLD OF THE BUILD, and that is recorded
-     rather than repeated: he said "we already told them that on the very
-     very very first step". The Dock line now also sits on the SUCCESS screen (#fr-return-keep), moved there by his 16:08 ruling in the same change that removed it from here; Settings has a separate copy of its own. The
-     installer mentions the Dock only in code comments about icon caching.
-     ⇒ The line is NOT gone from first-run: it moved to the Success screen,
-     under the reveal button (see #fr-return-keep), at his 16:08 ruling. An
-     earlier version of this comment said first-run carried no Dock guidance
-     at all, which was true of the intermediate state and is false now.
-     server.test.js and render-first-run.js assert its ABSENCE here, and
-     click-first-run.js asserts its PRESENCE on Success, so it cannot drift
-     back to this step or fall out of the flow unnoticed. */
+     ⇒ The Dock guidance lives on the Success screen (fr-pane-7), which #12
+     (0.6.39) rewrote into fixed static markup carrying Josh's verbatim copy
+     ("...you will see Kosmos in your dock" and "Drag the Kosmos icon to the far
+     left..."). render-first-run.js and server.test.js assert this ending has NO
+     dock line, and click-first-run.js asserts the Success screen has one, so it
+     cannot drift back to this step or fall out of the flow unnoticed. */
 
   const count = FR && FR.fleetCount;
 
@@ -38614,100 +38534,15 @@ function frForkActions() {
 }
 
 /* --------------------------------------------------------------------------
-   Step 1 - getting back (the return content, rendered on the orientation step, FR_STEP_RETURN)
+   Step 7 - Success (static screen)
+   --------------------------------------------------------------------------
+   #12 (0.6.39): this screen was a live app-location look (frPaintReturn) with a
+   "Show me where it is" reveal and a machine-check row. Josh's fresh-install
+   test found it duplicated and screwy, so it is now FIXED STATIC MARKUP in
+   fr-pane-7 with the real Kosmos icon in the dock illustration. frPaintReturn,
+   FR_RETURN_GEN and FR_MACHINE_LOOK were removed with it. The Settings screen
+   keeps its own separate app-location reveal (#set-reveal / /api/reveal-app).
    -------------------------------------------------------------------------- */
-
-/**
- * ⚠️ IT LOOKS AGAIN, on entry, rather than reusing step 2's snapshot: a
- * person can sit in this wizard for minutes, and the one question this step
- * answers ("where is the icon RIGHT NOW") deserves an answer at least as
- * fresh as the step. A failed look renders the could-not-ask copy, which
- * is the honest state, never an empty row.
- *
- * ⚠️ The Dock instruction is DRAG, and must never be "simplified" to
- * right-click, Keep in Dock. That advice would not work: Kosmos.app's
- * executable is a script that opens the browser and exits 0, and with
- * LSUIElement false the tile flashes into the Dock and is gone before
- * anyone can right-click it. "Keep in Dock" is unreachable, not merely
- * unreliable (orientation spec, two installer lines cited; independently
- * confirmed by Splinter 2026-08-14).
- */
-/* Entry generation: the pane belongs to its newest entry, and LEAVING the
-   step (frGo to any other step, frClose) retires it. Because the look is
-   SHARED while in flight, two live entries always paint the same answer --
-   the guard's job is the answer or failure that lands after the person has
-   moved on, which must not repaint a pane they are no longer on. Both the
-   success and the failure copies of the guard are tested by leave-then-
-   settle scenarios that red on deletion. */
-let FR_RETURN_GEN = 0;
-/* The machine look is SHARED while in flight: the route shells out twice
-   with 5s timeouts on the server's event loop (its own header says it was
-   split out of /api/first-run for exactly that cost), and repainting the
-   step used to re-fire it as fast as a person could click (the wizard had
-   Back then; any repaint racing a slow answer costs the same, so the share
-   stays). The promise resolves to the PARSED body so every awaiter can
-   read it (a Response body can be consumed once). */
-let FR_MACHINE_LOOK = null;
-async function frPaintReturn() {
-  const gen = ++FR_RETURN_GEN;
-  // The Success screen's frame (spec screen 1): the check row and the dock
-  // line ARE the body; no separate intro paragraph is drawn in the pack
-  // (the container is cleared below so a repaint cannot stack).
-  const introEl = document.getElementById('fr-return-intro');
-  const rowEl = document.getElementById('fr-return-row');
-  const msgEl = document.getElementById('fr-return-msg');
-  introEl.innerHTML = '';
-  // ⚠️ Painted BEFORE the fetch as CHECKING -- a look in progress, which is
-  // what is true at that moment, and a LOCAL state the wire cannot claim.
-  rowEl.innerHTML = frCheckRow({ state: 'checking', title: 'Checking where the Kosmos icon is', detail: 'One moment.' }, { allowLocal: true });
-  // Cleared, not painted: a stale refusal from a previous visit must not
-  // survive a repaint of the row it was about.
-  msgEl.innerHTML = '';
-  try {
-    if (!FR_MACHINE_LOOK) {
-      FR_MACHINE_LOOK = fetch('/api/machine', { cache: 'no-store' })
-        .then((res) => {
-          // ok checked BEFORE parsing: a non-JSON error body used to throw
-          // out of json() first, leaving the status check a dead line.
-          if (!res.ok) throw new Error('machine check failed');
-          return res.json();
-        })
-        .finally(() => { FR_MACHINE_LOOK = null; });
-    }
-    const body = await FR_MACHINE_LOOK;
-    if (gen !== FR_RETURN_GEN) return;
-    // Its OWN field, deliberately not one of `checks` -- see engine/machine.js:
-    // folded into the rows, step 2 counted it and the fleet screen captioned it as a
-    // reason an agent may not run, which it is not.
-    const found = body.appLocation;
-    // ⚠️ Having something to SAY is part of the shape: {state:'ok'} with no
-    // title rendered a confident tick over a blank box, above a dock
-    // pointing at a folder the screen never named. Every sibling screen
-    // guards its payload for content; this one now does too.
-    if (!found || !found.state || !found.title || !found.detail) throw new Error('no app-location answer');
-    // The pack's Show-me button rides the FOUND row only: reliability-or-no-
-    // button, the sleep row's rule. The engine re-derives the location on
-    // click; a look that has gone stale refuses with its own sentence.
-    rowEl.innerHTML = frCheckRow(found)
-      + (found.state === 'ok'
-        ? '<div class="fr-revealrow"><button type="button" id="fr-reveal">Show me where it is</button></div>'
-        : '');
-    /* The message line clears with the row it belongs to: a refusal from a
-       previous look must not sit under a fresh answer. */
-    msgEl.innerHTML = '';
-  } catch {
-    if (gen !== FR_RETURN_GEN) return;
-    // We could not ASK -- a different fact from the engine's own could-not-
-    // check, and worded differently on purpose: the harness tells the fetched
-    // answer, the placeholder, and this fallback apart by their words.
-    rowEl.innerHTML = frCheckRow({
-      state: 'unknown',
-      title: 'We could not check where the Kosmos icon is right now',
-      detail: 'Nothing is wrong. ' + frFindAppHint(),   // #2086: macOS-only Spotlight wording off macOS
-    });
-    msgEl.innerHTML = '';
-  }
-}
 
 /* --------------------------------------------------------------------------
    Opening, finishing, and getting out
@@ -38860,9 +38695,9 @@ function frOpen() {
 }
 
 function frClose() {
+  // Retire any in-flight About-you settlement on the way out (Skip, Escape, the
+  // fork buttons). The Success screen no longer has an async look to retire (#12).
   FR_YOU_GEN += 1;
-  // Same retirement on the way out (Skip, Escape, the fork buttons).
-  FR_RETURN_GEN += 1;
   document.getElementById('firstrun').hidden = true;
   document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();
@@ -39016,34 +38851,14 @@ function revealBoot() {
   if (c) c.hidden = true;
 }
 
-/* Platform-aware first-run copy (kosmos#2086). The board UI had no platform
-   awareness and showed a Windows user macOS-only instructions (Spotlight, the
-   Dock) on the first-run screen, before the agents pane. macOS keeps its
-   wording; every other platform gets platform-NEUTRAL wording. Neutral, not
-   Windows-specific (Start menu / taskbar), on purpose: the Windows-specific
-   behaviour and the machine's own app-location logic are the #570 Windows
-   umbrella's; this only stops the macOS-only instruction from showing off
-   macOS. The server mirror is engine/machine.js findAppHint, which drives the
-   app-location row's detail (the Spotlight text a Windows user normally hits). */
-function frIsMac() {
-  try {
-    const d = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
-    if (/mac/i.test(d)) return true;
-    if (/win/i.test(d)) return false;
-    return /Mac|Macintosh/i.test(navigator.userAgent || '');
-  } catch { return true; }   // no navigator: keep the historical mac wording
-}
-function frFindAppHint() {
-  return frIsMac()
-    ? 'Type Kosmos into Spotlight, the magnifying glass at the top right of your screen, and it will find it.'
-    : 'Open Kosmos the way you normally open apps on this computer, and it will start.';
-}
-function frApplyPlatformCopy() {
-  if (frIsMac()) return;   // macOS keeps the static Spotlight/Dock wording in the markup
-  const keep = document.getElementById('fr-return-keep');
-  if (keep) keep.innerHTML = '<b>Keep it one click away.</b> Pin Kosmos wherever you '
-    + 'keep the apps you use most, so it is one click away.';
-}
+/* #12 (0.6.39): the platform-aware first-run copy (kosmos#2086: frIsMac,
+   frFindAppHint, frApplyPlatformCopy) was removed. It existed only to rewrite
+   the Success screen's #fr-return-keep line on non-macOS and to word the
+   frPaintReturn could-not-look fallback. Both of those are gone now that the
+   Success screen is fixed static markup carrying Josh's verbatim copy, so the
+   whole cluster (and its firstRunBoot call) went with them. The server side
+   (engine/machine.js findAppHint, which drives the app-location row detail on
+   the Settings screen) is unchanged. */
 
 async function firstRunBoot(force, step) {
   try {
@@ -39060,7 +38875,6 @@ async function firstRunBoot(force, step) {
     if (!state || typeof state !== 'object') return;
     if (state.done && !force) return;
     FR = state;
-    frApplyPlatformCopy();   // #2086: gate the macOS-only first-run copy before any screen paints
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
     // land on a step whose buttons were never wired.
