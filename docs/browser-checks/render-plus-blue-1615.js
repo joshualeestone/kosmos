@@ -23,7 +23,6 @@
  * ⚠️ HEADED by default; HEADED=0 on a console-less machine. Asserts computed DOM.
  */
 
-const ENGINES = ['chromium'];
 const nodePath = require('node:path');
 
 let chromium;
