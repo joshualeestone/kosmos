@@ -54,18 +54,20 @@ test('install-flow-9screen: the gate poll reads /api/a11y-status for the tmux gr
     'the sleep gate reads /api/sleep-status and grants only on prevented:true');
 });
 
-test('install-flow-9screen: S3 Turn On reuses the SAME open-settings actions (tmux -> Accessibility, sleep -> Energy)', () => {
-  // The S3 delegated handler routes the tmux "Turn On" to the accessibility
-  // settings endpoint (the same one the Settings button uses) and the sleep one to
-  // the sleep settings endpoint -- reusing the existing mechanisms rather than a new
-  // one. It opens the setting; it cannot grant it (TCC), which is why the gate poll,
-  // not this click, unlocks Next.
+test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back to open-settings', () => {
+  // #1 (Josh 0.6.39): the tmux "Turn On" must fire the real Accessibility PROMPT via
+  // Kitty's /api/a11y-prompt trigger (which also injects tmux into the list so it is
+  // grantable), not merely open Settings. It falls back to open-accessibility-settings
+  // when the native trigger is unavailable. sleep is programmatic (pmset), not a prompt,
+  // so it keeps opening Energy settings (no trigger).
   const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-3').addEventListener"),
     PAGE.indexOf("getElementById('fr-pane-3').addEventListener") + 1200);
+  assert.match(handler, /\/api\/a11y-prompt/,
+    'the tmux Turn On fires the native a11y-prompt trigger (#1)');
   assert.match(handler, /\/api\/open-accessibility-settings/,
-    'the tmux Turn On POSTs the same open-accessibility-settings endpoint');
+    'the tmux Turn On falls back to open-accessibility-settings');
   assert.match(handler, /\/api\/open-sleep-settings/,
-    'the sleep Turn On POSTs the open-sleep-settings endpoint');
+    'the sleep Turn On POSTs the open-sleep-settings endpoint (no prompt, programmatic)');
   // And the Settings accessibility button still exists and uses the same endpoint
   // (the source of truth).
   assert.match(PAGE, /getElementById\('set-a11y-open'\)[\s\S]{0,400}\/api\/open-accessibility-settings/,
