@@ -284,3 +284,54 @@ test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-
     fs.rmSync(tmpBlock, { recursive: true, force: true });
   }
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+   #2037 (revision): scrub redacts this install's identifying names as a
+   BACKSTOP to the author prompt's own rule. Agent names, project names and the
+   OS account name are word-bounded, case-insensitive, longest-first, and
+   guarded by a minimum length + a stoplist for the product's own name.
+   ───────────────────────────────────────────────────────────────────────── */
+const store = require('./store');
+const projects = require('./projects');
+
+test('#2037 scrub redacts agent, project and account names, keeping the product name', () => {
+  // agent: both the display name and its on-disk key are identifying
+  store.writeProfile('quibblebot', { displayName: 'Zorptastic', dir: '/tmp/x' });
+  // projects: a real project name is redacted; the product name is NOT (subject)
+  projects.writeAll([{ id: 'k', name: 'Kosmos' }, { id: 'flim', name: 'Flimwaddle' }]);
+  const user = os.userInfo().username;
+
+  const body = [
+    'Zorptastic could not reach quibblebot.',
+    'The Flimwaddle export failed, but Kosmos itself stayed up.',
+    'account ' + user + ' hit it.',
+  ].join('\n');
+  const out = feedbacksend.scrub(body);
+  assert.ok(!out.includes('Zorptastic'), 'agent display name must be redacted');
+  assert.ok(!/\bquibblebot\b/.test(out), 'agent on-disk key must be redacted');
+  assert.ok(!out.includes('Flimwaddle'), 'a project name must be redacted');
+  assert.ok(out.includes('[redacted]'), 'the redaction placeholder is present');
+  assert.ok(out.includes('Kosmos'), 'the product name is the subject, never redacted');
+  assert.ok(user.length < 4 || !new RegExp('\\b' + user.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b').test(out),
+    'the OS account name must be redacted (it is a "user name" a path arm never catches)');
+});
+
+test('#2037 scrub does not redact a name below the minimum length (guards common words)', () => {
+  store.writeProfile('zzz', { displayName: 'Zap' }); // 3-char key, 3-char display name
+  // Neither 'zzz' nor 'Zap' is long enough to redact without gutting common words.
+  assert.equal(feedbacksend.scrub('Zap zzz stay'), 'Zap zzz stay');
+});
+
+test('#2037 scrub is word-bounded: a longer word that merely contains a name is untouched', () => {
+  projects.writeAll([{ id: 'flim', name: 'Flimwaddle' }]);
+  // 'Flimwaddler' contains 'Flimwaddle' but has no word boundary after it.
+  assert.equal(feedbacksend.scrub('the Flimwaddler tool broke'), 'the Flimwaddler tool broke');
+});
+
+test('#2037 scrub is fail-soft: an unreadable projects file never throws and still scrubs paths', () => {
+  fs.writeFileSync(projects.file(), 'not valid json', 'utf8'); // projects.readAll throws UNREADABLE
+  const out = feedbacksend.scrub('/Users/joe/x and Snorfblat');
+  assert.equal(out, '~/x and Snorfblat',
+    'the path arm still runs, an unenumerable project name is left alone, and nothing throws');
+  fs.writeFileSync(projects.file(), '[]', 'utf8'); // reset the shared sandbox
+});
