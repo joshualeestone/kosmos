@@ -187,6 +187,40 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## 2026-09-05: THE SUITE THAT RUNS IS NOT THE SUITE YOU RAN
+
+Rebased again (**147 behind** after one idle day, now 0), pushed at `1330825a`,
+and ran the FULL suite for the first time since the parameter collision.
+**`SUITE_EXIT=1`, one failure in 4826.**
+
+`chat.waitingnote-provider-2107.test.js` lives at the **repo root**, not under
+`engine/`. My three per-file runs (`status`, `chat`, `status.observed-1921`) could
+never see it. There are **297 root-level `*.test.js` files**; exactly one reads
+the symbols this branch touches, and it is the one that went red.
+
+⭐ **"I ran the three files I edited" was never the same claim as "the suite
+passes", and for two days I let the first stand in for the second.** The count is
+the point: three of three hundred.
+
+### The red was the HARNESS, and asking which came first is what saved the time
+
+The test asserted:
+
+    /waitingNote\(paneState, outcome, allowed\.card\.runner\)/
+
+That trailing `\)` makes it assert the call **ENDS at the third argument**, while
+its stated intent, in its own name, is that the runner is **PRESENT**. #1889's
+fourth parameter broke a pattern describing a line that no longer exists. **The
+product was correct**: `engine/chat.js:847` passes `allowed.card.runner`.
+
+✅ Relaxed to `allowed\.card\.runner\b`, and **re-verified it can still fail**:
+removing the runner argument reds it (3/4), restoring returns 4/4.
+
+📌 This is the `an-anchored-pattern-matches-the-line-you-imagined` class, and it
+is the second time on this branch: a pattern right about its TARGET and wrong
+about the LINE the target sits in. It is also the second time a defect of mine
+landed in a file I did not know existed, which is the same lesson twice.
+
 ## 2026-09-04 REBASE: A POSITIONAL API COLLIDED SILENTLY
 
 The branch went **121 behind** overnight and all four of its files changed
