@@ -35,11 +35,13 @@ const messages = require('./messages');
    text view rendered this as "19:50", which is what the bug looked like. */
 const AT = '2026-09-02T19:50:17.326Z';
 
-/** The line server.js composes for a post, byte for byte (server.js ~6959). */
+/** The line server.js composes for a post, byte for byte (the ?as=text room
+    renderer). #2255 added the `[id]` prefix so an agent can react to a post by
+    id; this mirror carries it too, or it stops being byte-for-byte. */
 function postLine(m, zone) {
   const when = messages.roomClock(m.at, zone);
   const who = m.operator ? 'operator' : m.from;
-  return when + '  ' + who + ' -> '
+  return when + '  [' + m.id + '] ' + who + ' -> '
     + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room')
     + ': ' + String(m.text || '');
 }
@@ -75,20 +77,20 @@ test('a room post names the room instead of nobody', () => {
      test took the join branch and produced the empty string -- the one case
      the words "the room" were written for was the one case that could not
      reach them. */
-  const line = postLine({ at: AT, from: 'splinter2', to: [], text: 'hello' }, 'America/Chicago');
-  assert.equal(line, '14:50  splinter2 -> the room: hello');
+  const line = postLine({ at: AT, id: 'm1', from: 'splinter2', to: [], text: 'hello' }, 'America/Chicago');
+  assert.equal(line, '14:50  [m1] splinter2 -> the room: hello');
   assert.ok(!line.includes(' -> :'), 'the arrow must never point at nothing');
 });
 
 test('an addressed message still names its recipients', () => {
-  const one = postLine({ at: AT, from: 'you', to: ['splinter2'], operator: true, text: 'Hola' }, 'America/Chicago');
-  assert.equal(one, '14:50  operator -> splinter2: Hola');
+  const one = postLine({ at: AT, id: 'm2', from: 'you', to: ['splinter2'], operator: true, text: 'Hola' }, 'America/Chicago');
+  assert.equal(one, '14:50  [m2] operator -> splinter2: Hola');
 
-  const many = postLine({ at: AT, from: 'splinter2', to: ['a', 'b'], text: 'hi' }, 'America/Chicago');
-  assert.equal(many, '14:50  splinter2 -> a, b: hi');
+  const many = postLine({ at: AT, id: 'm3', from: 'splinter2', to: ['a', 'b'], text: 'hi' }, 'America/Chicago');
+  assert.equal(many, '14:50  [m3] splinter2 -> a, b: hi');
 });
 
 test('a missing or malformed `to` still falls back to the room', () => {
-  assert.match(postLine({ at: AT, from: 'x', text: 'y' }, null), / -> the room: y$/);
-  assert.match(postLine({ at: AT, from: 'x', to: null, text: 'y' }, null), / -> the room: y$/);
+  assert.match(postLine({ at: AT, id: 'm4', from: 'x', text: 'y' }, null), / -> the room: y$/);
+  assert.match(postLine({ at: AT, id: 'm5', from: 'x', to: null, text: 'y' }, null), / -> the room: y$/);
 });
