@@ -1164,10 +1164,32 @@ a valid measurement; here the bytes changed** -- main edited `server.js`, which 
 load. So the clean run at `7ea8aea49648` measured a different artifact and is retired, not merely
 re-parented.
 
-📌 **Commit shas cited in the iteration sections above (`594c0605`, `7aed4b7d`, `62dc5f78`,
-`3e23cc1a`, `0ff1b467`, `fc1ed387`) are all pre-rebase and no longer resolve to ancestors of HEAD.**
-They are left in place deliberately: the correction is to the COLUMN, not to the rows, and deleting
-them would destroy the record of what was found when. **What they name is still findable by message.**
+📌 **DOCUMENT-WIDE, NOT SECTION-SCOPED: many commit shas cited ANYWHERE in this plan are pre-rebase
+and reachable from NO ref.** They no longer resolve to ancestors of HEAD, so a reader on a fresh clone
+cannot check them; they are left in place deliberately, because deleting them would destroy the record
+of what was found when, and **what they name is still findable by commit message.**
+
+🛑 **THIS NOTE USED TO SAY "the iteration sections ABOVE" AND LIST SIX SHAS. That scope was the defect,
+not a detail:** iteration 33 found four unlabelled orphans below it, iteration 34 found a twelfth, and
+each fix labelled only the site just found. ⇒ **A caveat with a scope is itself a claim about
+coverage, and a per-site fix to a scoping defect reproduces the defect.**
+
+✅ **The check, so nobody has to trust this paragraph** (it prints every unreachable sha in the file;
+the PR body contains none at all):
+
+```
+grep -oE '\b[0-9a-f]{8,40}\b' .claude/plans/reauth-default-1922.md | sort -u | while read t; do
+  git cat-file -t "$t" >/dev/null 2>&1 || continue
+  [ -z "$(git branch -a --contains "$t" 2>/dev/null)" ] && echo "unreachable: $t"
+done
+```
+
+🛑 **NO COUNT IS QUOTED HERE, DELIBERATELY, AND THE REASON IS A DEFECT I COMMITTED IN THIS VERY
+PARAGRAPH.** I first wrote "measured at this commit: 12 unreachable". Running the command above
+returned **9**: my own edit had deleted three shas that existed nowhere but the sentence I was
+replacing. **The count changed because recording it changed the document it counts.** ⇒ Run the
+command. For the PR body, `grep -cE '[0-9a-f]{8,40}'` returns zero, so nothing that leaves the repo
+depends on an unreachable object.
 
 ✅ **DISCHARGED at 03:38:51Z.** Full validation on the rebased head: **exit 0, ran rather than
 skipped** (`validation-log: running validation sequence`, the #1961 check), hash `07356482aa9d`
@@ -2488,3 +2510,45 @@ newest row matching the current diff hash at `status: clean`.
 **but the branch states that explicitly in three places rather than implying coverage**, and both
 halves are guarded. The missing `-pre-challenge.md` proof file is expected mid-loop and must land
 before `gh pr create`.
+
+### Iteration 34, 2026-09-06 02:00: the class fix, and the class biting once more inside it
+
+Verdict: **MERGE. One LOW, plan-file only.** Production code, all four arms, the tmux table and both
+FLOOR figures verified correct by a fourth independent reviewer.
+
+**LOW: a twelfth unreachable sha, unlabelled.** `git branch -a --contains 09e1c921` returns empty
+(control: the same command names the branch for `148ff31a`). Its figures are sound (`34 / 11 / 32`
+reproduced at that sha, `44 / 12 / 41` at HEAD, bogus-var control 0); only the label was missing.
+
+⭐ **THE REVIEWER DID WHAT I ASKED AND IT CHANGED THE FIX: it classified EVERY hex token in BOTH
+documents rather than reporting the one it noticed.** Eleven were labelled, one was not, and the PR
+body contains **zero shas**, so nothing published depends on an unreachable object. **A sweep turns an
+instance into a class, and the class is what determined the remedy.**
+
+✅ **So the fix is NOT another per-site label.** The disclaimer was scoped to "the iteration sections
+ABOVE"; iteration 33 labelled four orphans below it, iteration 34 found a twelfth, **and each of those
+fixes labelled only the site just found.** ⇒ **A per-site fix to a SCOPING defect reproduces the
+defect.** The note is now document-wide and carries a runnable check that lists every unreachable sha,
+so a reader need not trust the paragraph at all.
+
+🛑 **AND THE SELF-REFERENTIAL COUNT BIT ONE MORE TIME, INSIDE THE FIX FOR THE SCOPING DEFECT.** I wrote
+"measured at this commit: 12 unreachable" beside that check. **Running the check returned 9**, because
+my own edit had deleted three shas that existed nowhere but the sentence I was replacing. **Recording
+the count changed the document being counted.** Caught by running the command I had just shipped and
+comparing it to the number beside it, which is the whole discipline in one action. The number is
+deleted; the command stands.
+
+⇒ **Fifth occurrence of that class, and the standing remedy held: do not state a count of anything
+inside this document. Only the command.**
+
+**Independently verified by this reviewer, with live controls:** `configDir: null` equivalent to
+omission at `connect.js:911`; `known.isDefault` a real boolean; **all four arms mutation-proven each
+for its own reason, paired controls staying green**, plus the silent operand-first attack reddening at
+the grammar walk; suites 54 + 40 with 0 fail, `#1560` 3/3 and `#1580` 9/9; **the tmux table re-run
+independently, with the warm control returning the SEEDED value, so the discrimination genuinely
+holds**; the floors at `>=11` and `>=25` with a bogus-alternation control of 0; and the validation
+log's newest row matching the current diff hash at `status: clean`.
+
+**Set aside by the reviewer, and I agree:** the `-u` also changes the plain first sign-in, and the
+route-ternary-to-launch-argv composition is uncovered. **Both are disclosed in the PR body in the
+right words**; neither is a defect.
