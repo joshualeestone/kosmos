@@ -520,7 +520,14 @@ cmd_agents() {
   # tmux says "no server running on <socket>" or "error connecting to
   # <socket> (No such file or directory)" for a genuinely absent server; any
   # other refusal is blindness, and is said as blindness.
-  _ls="$("$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>&1)"; _rc=$?
+  # #2321: `|| _rc=$?`, NOT a bare `_ls=$(...); _rc=$?`. Under /bin/bash 3.2 and
+  # `set -euo pipefail` a failing command substitution in a bare assignment aborts
+  # the whole process at that line -- and `list-sessions` exits NON-ZERO exactly
+  # when there is no server, which is the case the branches below exist to narrate.
+  # The bare form aborted `kosmos agents` silently (empty output, exit 1) at the
+  # "find your agents" moment, killing the #728 "None"/"Could not see" messages.
+  local _ls _rc=0
+  _ls="$("$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>&1)" || _rc=$?
   if [ "$_rc" -eq 0 ]; then
     printf '%s\n' "$_ls"
     return 0
