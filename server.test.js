@@ -289,6 +289,11 @@ test('#1704 2b-ii: POST /api/worlds/active switches the active world and reports
     assert.equal(body.ok, true);
     assert.equal(body.world.id, targetId, 'the response reports the now-active world');
     assert.equal(body.restartRequired, true, 'the switch takes effect on the next board start, so restartRequired is honest');
+    /* #2238: restarting is FALSE here, and it MUST be: the test process is not the
+       com.kosmos.board launchd job (pid mismatch in canSelfRestart), so the route
+       neither reports a self-restart nor fires one. This is the fail-safe guard AND
+       what keeps the suite from stopping the operator's real dev board mid-test. */
+    assert.equal(body.restarting, false, 'a non-board process never self-restarts (fail-safe)');
 
     // The registry now reports the switch (GET reads it fresh) even though the
     // running board still serves the previous world's roots until it restarts.
@@ -5034,41 +5039,44 @@ test('the machine route always answers, with renderable checks and never an erro
     'present is keyed on display labels again, so a copy edit renames a wire field');
 });
 
-test('leaving the return step really retires its pane (the bumps exist in production code)', () => {
-  // The leave scenarios move the counter through t5.leave(), so they pin
-  // the GUARD; these pins hold the TRIGGERS -- round 7 deleted both
-  // production bumps and the suite stayed green, which silently restores
-  // the round-6 state (a guard no production path ever moves).
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(raw, /if \(step > FR_STEPS\) step = FR_STEPS;[\s\S]{0,600}?if \(step !== FR_STEP_RETURN\) FR_RETURN_GEN \+= 1;/,
-    'frGo no longer bumps the return generation AFTER both clamps (a text-only pin could not see the placement, and the round-7 record claimed a position the code did not have)');
-  const closeFn = raw.slice(raw.indexOf('function frClose'), raw.indexOf('function frClose') + 400);
-  assert.match(closeFn, /FR_RETURN_GEN \+= 1;/,
-    'frClose no longer bumps the return generation on the way out');
-});
-
-test('the return-step live region is static markup with its announcement attributes', () => {
-  // The unit harness's DOM stub auto-creates any id, so without this pin
-  // the region (and both its ARIA attributes) could be deleted from the
-  // page while every return-step test stayed green -- and the announcement,
-  // the whole reason the region was restructured, would silently stop.
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(raw, /<div id="fr-return-row" role="status" aria-live="polite"><\/div>/,
-    'the return-step live region must exist in the STATIC markup, before anything fills it');
-  assert.match(raw, /<div id="fr-return-msg" role="status" aria-live="polite"><\/div>/,
-    'the reveal button\u2019s refusal must land in a live region, or a screen-reader user never hears it');
-  /* ⚠️ AND THE DOCK LINE IS NOT ON THIS STEP ANY MORE. It moved to the last
-     step on 2026-08-22: you drag something to your Dock because you expect to
-     want it again, and before a person has used the app they do not know that
-     yet. Pinned in the static markup because the id it used to live under was
-     RENAMED in the same change, so a revert that restored the old paint would
-     find no element and fail silently rather than loudly. */
-  /* 🛑 INVERTED 2026-08-27 ON JOSH'S RULING, not deleted. The line this
-     element carried is gone from the ending, and a deleted assertion would
-     let it return unnoticed; an inverted one refuses it. */
+test('the Success screen is static markup with the verbatim copy and no reveal subsystem (#12, 0.6.39)', () => {
+  // #12 (0.6.39): the app-location reveal subsystem was removed from the Success
+  // screen (fr-pane-7). The unit harness DOM stub auto-creates any id, so a unit
+  // test alone cannot see a markup regression; these read the raw markup.
+  const raw = fs.readFileSync(nodePath.join(__dirname, "web", "index.html"), "utf8");
+  const pane = raw.slice(raw.indexOf('id="fr-pane-7"'), raw.indexOf('id="fr-pane-8"'));
+  assert.ok(pane.length > 0 && pane.indexOf('id="fr-pane-8"') === -1, "could not isolate the fr-pane-7 markup");
+  // The verbatim copy from Josh, exactly.
+  assert.match(pane, /<h2>Kosmos is installed and configured\.<\/h2>/,
+    "the Success headline is not the verbatim copy");
+  assert.match(pane, /Kosmos is now in your applications folder, and you will see Kosmos in your dock\./,
+    "the body paragraph is not the verbatim copy");
+  assert.match(pane, /Drag the Kosmos icon to the far left so it stays there and is easy to find later\./,
+    "the drag paragraph is not the verbatim copy");
+  // The REAL app icon is in the dock tile, not the gold "K" placeholder.
+  assert.match(pane, /<span class="s7-app s7-k"><img class="fc-k"/,
+    "the dock tile does not carry the real fc-k app icon");
+  assert.ok(!/<span class="s7-app s7-k"><span>K<\/span>/.test(pane),
+    "the gold K placeholder tile came back");
+  // The reveal subsystem must be gone from the whole page: the two Show-me-where
+  // affordances, the injected #fr-return live regions, and the painter + state.
+  for (const gone of ["fr-s7-showwhere", "fr-return-intro", "fr-return-row", "fr-return-msg", "fr-return-keep"]) {
+    assert.ok(!new RegExp('id="' + gone + '"').test(raw) && !new RegExp('getElementById\\([\x27"]' + gone + '[\x27"]\\)').test(raw),
+      "the reveal region left " + gone + " behind");
+  }
+  for (const gone of ["frPaintReturn", "frRevealSay", "FR_MACHINE_LOOK", "FR_RETURN_GEN", "FR_STEP_RETURN"]) {
+    assert.ok(!new RegExp("function " + gone + "\\b").test(raw) && !new RegExp("\\b(?:let|const|var)\\s+" + gone + "\\b").test(raw),
+      "the reveal machinery left " + gone + " defined");
+  }
+  // The injected reveal button id is gone as a live selector (a CSS mention or a
+  // prose comment is allowed; a live element or handler is not).
+  assert.ok(!/id="fr-reveal"/.test(raw) && !/getElementById\(['"]fr-reveal['"]\)/.test(raw),
+    "the injected fr-reveal button came back");
+  // Stale-id guards kept: neither the renamed dock region nor the last-step dock
+  // id may ever appear (a revert that restored an old paint would fail loudly).
+  assert.ok(!/fr-return-dock/.test(raw), "the renamed region left a stale id behind");
   assert.ok(!/<div id="fr-fleet-dock">/.test(raw),
-    'the Dock line came back to the last step, which Josh ruled out on 2026-08-27');
-  assert.ok(!/fr-return-dock/.test(raw), 'the renamed region left a stale id behind');
+    "the Dock line came back to the last step, which Josh ruled out on 2026-08-27");
 });
 
 test('the degraded machine answer publishes the ENGINE\u2019S could-not-look row', () => {
@@ -5329,8 +5337,6 @@ function firstRunHarness(name, state, opts = {}) {
     const esc = ${realEsc.toString()};
     ${tables}
     const frCheckRow = ${realRow.toString()};
-    ${pageFnSource('frIsMac')}
-    ${pageFnSource('frFindAppHint')}
     const __els = {};
     const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
     let FR = ${JSON.stringify(state.FR)};
@@ -5493,10 +5499,10 @@ test('the way back is on the last step, on every ending a person can get', () =>
   /* 🛑 THIS LOOP USED TO REQUIRE THE DOCK LINE ON EVERY ENDING. Josh ruled it
      off the ending on 2026-08-27: "I still don't want the ending of the
      install to talk about putting it in the dock."
-     ⚠️ HIS REASON DOES NOT HOLD OF THE BUILD and is recorded rather than
-     repeated: he said it is already on the first step. It is not. The Dock line now also sits on the SUCCESS screen (#fr-return-keep), moved there by his 16:08 ruling in the same change that removed it from here; Settings has a separate copy of its own. So this
-     asserts ABSENCE on all three endings, which is what the ruling means,
-     and says nothing about where else the app may mention the Dock. */
+     The dock guidance lives on the Success screen (fr-pane-7), which #12
+     (0.6.39) rewrote into fixed static markup. So this asserts ABSENCE on all
+     three fleet endings, which is what the ruling means, and says nothing about
+     where else the app may mention the Dock. */
   for (const [name, FR] of Object.entries(endings)) {
     const got = firstRunHarness('frPaintFleet', { FR });
     assert.equal(got.els['fr-fleet-dock'], undefined,
@@ -5607,186 +5613,6 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
     assert.equal(got.actions.alt, 'Create an agent',
       `payload ${JSON.stringify(FR)} lost the neutral second door`);
   }
-});
-
-test('the return step paints a look in progress, then the engine answer, and could-not-ask on failure', async () => {
-  // The Success screen's ruled dock line (first-run spec, pack copy) names
-  // no folder, so ONE sentence is true in every app-location state -- the
-  // per-state variants died with the redesign, and every case asserts the
-  // same ruled line.
-  const cases = [
-    [{ key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it from there.' },
-      /Kosmos is already in your Dock, the strip of icons/],
-    [{ key: 'app-location', state: 'attention', title: 'We could not find the Kosmos icon', detail: 'Not the same as it not being there.' },
-      /Kosmos is already in your Dock, the strip of icons/],
-    [{ key: 'app-location', state: 'unknown', title: 'We could not check where the Kosmos icon is', detail: 'Nothing is wrong.' },
-      /Kosmos is already in your Dock, the strip of icons/],
-  ];
-  const PRELUDE_VARS = `
-    let FR_RETURN_GEN = 0;
-    let FR_MACHINE_LOOK = null;
-  `;
-  for (const [row, dockRe] of cases) {
-    const h = firstRunHarness('frPaintReturn', { FR: {} }, {
-      prelude: PRELUDE_VARS + `
-        const fetch = async () => ({ ok: true, json: async () => ({ appLocation: ${JSON.stringify(row)} }) });
-      `,
-    });
-    // The pre-paint is a look IN PROGRESS -- not the completed "could not
-    // check" it used to claim before any look had happened, and not
-    // byte-identical to the engine's real unknown row. Asserted on the ROW
-    // itself: the region is static markup now and the placeholder is written
-    // straight into it, so this stub really is overwritten by the upgrade
-    // (the old wrapper-level assertion could not fail).
-    assert.match(h.els['fr-return-row'].innerHTML, /fr-check checking/);
-    assert.match(h.els['fr-return-row'].innerHTML, /Checking where the Kosmos icon is/);
-    await h.done;
-    assert.match(h.els['fr-return-row'].innerHTML, new RegExp(row.title));
-    assert.match(h.els['fr-return-row'].innerHTML, new RegExp('fr-check ' + row.state));
-    assert.ok(!new RegExp(dockRe.source).test(h.els['fr-return-msg'].innerHTML),
-      'the way-back line came back to the first step, where a person has no motive for it yet');
-    assert.ok(!/Checking where the Kosmos icon is/.test(h.els['fr-return-row'].innerHTML),
-      'the placeholder survived the fetch');
-  }
-
-  // Could not ASK: its own wording ("right now"), distinct from the engine's
-  // own could-not-check row -- and the DOCK moves with the row, so a
-  // folder-pointing instruction cannot outlive the answer that named it.
-  const broken = firstRunHarness('frPaintReturn', { FR: {} }, {
-    prelude: PRELUDE_VARS + `
-      const fetch = async () => { throw new Error('down'); };
-    `,
-  });
-  await broken.done;
-  assert.match(broken.els['fr-return-row'].innerHTML, /could not check where the Kosmos icon is right now/);
-  assert.match(broken.els['fr-return-row'].innerHTML, /fr-check unknown/);
-  assert.ok(!/Kosmos is already in your Dock, the strip of icons/.test(broken.els['fr-return-msg'].innerHTML),
-    'the way-back line came back to the first step on the failure path');
-
-  // A payload WITHOUT the appLocation field (an old server, a shape drift)
-  // lands on could-not-ask too, never on the placeholder forever.
-  const shapeless = firstRunHarness('frPaintReturn', { FR: {} }, {
-    prelude: PRELUDE_VARS + `
-      const fetch = async () => ({ ok: true, json: async () => ({ checks: [] }) });
-    `,
-  });
-  await shapeless.done;
-  assert.match(shapeless.els['fr-return-row'].innerHTML, /right now/);
-
-  // An answer with nothing to SAY is not an answer: {state:'ok'} with no
-  // title rendered a confident tick over a blank box, above a dock pointing
-  // at a folder the screen never named.
-  const blank = firstRunHarness('frPaintReturn', { FR: {} }, {
-    prelude: PRELUDE_VARS + `
-      const fetch = async () => ({ ok: true, json: async () => ({ appLocation: { key: 'app-location', state: 'ok' } }) });
-    `,
-  });
-  await blank.done;
-  assert.match(blank.els['fr-return-row'].innerHTML, /right now/,
-    'a contentless ok payload rendered as a confident blank tick');
-  assert.ok(!/out of that folder/.test(blank.els['fr-return-msg'].innerHTML),
-    'the dock pointed at a folder no row named');
-
-  // A wire row claiming the LOCAL state renders as unknown, never as a
-  // permanent look-in-progress.
-  for (const sneaky of [
-    { key: 'app-location', state: 'checking', title: 'sneaky', detail: 'x' },
-    // The row claiming local-ness ITSELF: trust is the caller's argument,
-    // never a field the wire can set.
-    { key: 'app-location', state: 'checking', local: true, title: 'sneakier', detail: 'x' },
-  ]) {
-    const wireChecking = firstRunHarness('frPaintReturn', { FR: {} }, {
-      prelude: PRELUDE_VARS + `
-        const fetch = async () => ({ ok: true, json: async () => ({ appLocation: ${JSON.stringify(sneaky)} }) });
-      `,
-    });
-    await wireChecking.done;
-    assert.match(wireChecking.els['fr-return-row'].innerHTML, /fr-check unknown/,
-      `a wire state of "checking" (${JSON.stringify(sneaky)}) must fall back to unknown`);
-  }
-});
-
-test('the return step: entries share one in-flight look, and a stale look cannot repaint a newer entry', async () => {
-  // One module state, two overlapping entries, a fetch we resolve by hand.
-  const realEsc = pageFunction('esc');
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const tables = ['FR_SAY', 'FR_GLYPH', 'FR_SAY_LOCAL', 'FR_GLYPH_LOCAL'].map((n) => {
-    const m = script.match(new RegExp('const ' + n + ' = \\{[^}]*\\};'));
-    assert.ok(m, n + ' vanished from the page');
-    return m[0];
-  }).join('\n');
-  const realRow = pageFunction('frCheckRow', 'const esc = ' + realEsc.toString() + ';\n' + tables);
-  const prelude = `
-    const esc = ${realEsc.toString()};
-    ${tables}
-    const frCheckRow = ${realRow.toString()};
-    ${pageFnSource('frIsMac')}
-    ${pageFnSource('frFindAppHint')}
-    const __els = {};
-    const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
-    let FR_RETURN_GEN = 0;
-    let FR_MACHINE_LOOK = null;
-    let __calls = 0; let __resolve = null;
-    const fetch = () => { __calls += 1; return new Promise((res) => { __resolve = res; }); };
-    globalThis.__t5 = { els: __els, calls: () => __calls, resolve: (v) => __resolve(v), leave: () => { FR_RETURN_GEN += 1; } };
-  `;
-  const fn = pageFunction('frPaintReturn', prelude);
-  const t5 = globalThis.__t5;
-  const e1 = fn();
-  const e2 = fn();
-  assert.equal(t5.calls(), 1,
-    'the second entry re-fired the route instead of joining the in-flight look');
-  t5.resolve({ ok: true, json: async () => ({ appLocation: { key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it.' } }) });
-  await e1; await e2;
-  // The NEWEST entry's paint is what stands; the stale continuation returned
-  // without touching the pane (both write the same answer here, so the
-  // observable pin is: the answer landed exactly, and the dock matches it).
-  assert.match(t5.els['fr-return-row'].innerHTML, /You will find it in your Applications folder/);
-
-  // Second scenario: entries 3 and 4 SHARE one look (asserted by call
-  // count), the shared look fails, and both continuations paint the same
-  // could-not-ask -- what this proves is the failure path repaints the dock
-  // alongside the row, and that a settled look really cleared for a fresh
-  // entry. (It deliberately does NOT prove the generation guard: shared
-  // looks mean live entries always paint identical content. The guard's
-  // one reachable job is tested in the LEAVE scenario below.)
-  const e3 = fn();
-  assert.equal(t5.calls(), 2, 'the settled look was not cleared for the next entry');
-  const e4 = fn();
-  assert.equal(t5.calls(), 2, 'entry 4 should join entry 3\u2019s in-flight look');
-  t5.resolve({ ok: false });
-  await e3; await e4;
-  assert.match(t5.els['fr-return-row'].innerHTML, /right now/,
-    'the failure path did not paint could-not-ask');
-
-
-  // ⚠️ THE GUARD'S JOB, and the scenarios that red when the guard lines are
-  // deleted (round 5 proved the shared-look scenarios above pass without
-  // them): the person LEAVES the return step while the look is in flight, and the
-  // late settlement must not repaint the pane. In production the bump IS
-  // performed by frGo(step !== FR_STEP_RETURN) and frClose (round 6 made the premise
-  // real); here t5.leave() performs the same mutation those perform.
-  // Success copy of the guard:
-  const e5 = fn();
-  assert.equal(t5.calls(), 3);
-  const before = t5.els['fr-return-row'].innerHTML; // this entry's placeholder
-  t5.leave();
-  t5.resolve({ ok: true, json: async () => ({ appLocation: { key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it.' } }) });
-  await e5;
-  assert.equal(t5.els['fr-return-row'].innerHTML, before,
-    'a look resolving after the person left the step repainted the pane');
-  // Failure copy of the guard (the catch's own gen check, which the
-  // shared-look failure scenario cannot exercise):
-  const e6 = fn();
-  assert.equal(t5.calls(), 4);
-  const before6 = t5.els['fr-return-row'].innerHTML;
-  t5.leave();
-  t5.resolve({ ok: false });
-  await e6;
-  assert.equal(t5.els['fr-return-row'].innerHTML, before6,
-    'a look FAILING after the person left the step repainted the pane');
-
 });
 
 test('the fork step does not promise a working agent over a check screen that disagreed', () => {

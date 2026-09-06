@@ -81,7 +81,9 @@ test('the mode is gated on width and on the two tabs it merges; Settings stays a
   assert.match(SCRIPT, /const CONSOLIDATED_MIN_WIDTH = 960;/, 'the floor moved or lost its name');
   assert.match(SCRIPT, /const CONSOLIDATED_FOLD_WIDTH = 1280;/, 'the auto-fold width moved or lost its name');
   assert.match(SCRIPT, /window\.innerWidth >= CONSOLIDATED_MIN_WIDTH/);
-  const st = SCRIPT.slice(SCRIPT.indexOf('function showTab('), SCRIPT.indexOf('function showTab(') + 4000);
+  // Window bumped 4000 -> 4600: #1615 grew showTab with two syncPlusChrome() calls
+  // + their comments (Plus blue-skin teardown) ahead of the `const cons` line.
+  const st = SCRIPT.slice(SCRIPT.indexOf('function showTab('), SCRIPT.indexOf('function showTab(') + 4600);
   assert.match(st, /const cons = layoutConsolidated\(\) && \(tab === 'agents' \|\| tab === 'projects'\)/);
   assert.match(st, /document\.body\.classList\.toggle\('consolidated', cons\)/);
   assert.match(PAGE, /@media \(min-width: 960px\) \{\s*html\[data-layout="consolidated"\] body\.consolidated \{ display: grid/);

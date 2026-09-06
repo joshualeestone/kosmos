@@ -157,13 +157,20 @@ test('a connected provider row goes green with a check, and does not read as dis
   const css = PAGE.slice(PAGE.indexOf('.connect-b.is-connected'), PAGE.indexOf('.connect-b.is-connected') + 200);
   assert.match(css, /background: #1f7a4d/, 'the connected fill is gone or changed; white-on-#1f7a4d was measured at 5.32:1 and clears the 4.5 text floor');
   assert.match(css, /color: #ffffff/, 'the connected label is no longer white, so the measured 5.32:1 no longer applies');
-  /* ⚠️ Anchored on the SPECIFIC element. A first draft anchored on
-     `const connectBtn = document.getElementById` and matched frPaintOpenai's
-     identically-named local first -- the same wrong-anchor failure this suite
-     has now hit three times. */
-  const at = CODE.indexOf("const connectBtn = document.getElementById('fr-llm-connect')");
-  assert.ok(at > 0, 'the Claude connect button block moved; this test is measuring nothing');
-  const block = CODE.slice(at, at + 600);
+  /* ⚠️ Anchored on the PAINT BLOCK, not a positional char-slice from an
+     fr-llm-connect getElementById. The old anchor did CODE.indexOf(<that lookup>)
+     + slice(at, at+600), and it failed the fourth time on 2026-09-06: #2340 (the
+     Connect fix) added a SECOND `const connectBtn = getElementById('fr-llm-connect')`
+     -- the click handler -- BEFORE the paint block, so indexOf grabbed that new
+     block and its +600 slice never reached the paint block's toggle (root cause:
+     Angel). Widening 600 would keep the exact fragility (the next insert breaks it
+     silently); binding to `const done = sub.state === 'connected'` -- the line the
+     paint block computes the state on, right above the toggle -- fixes the class:
+     the assertion is scoped to the block that owns BOTH `done` and the toggle, so
+     it stays tied to the same `done` the label uses, wherever that block moves. */
+  const paintAt = CODE.indexOf("const done = sub.state === 'connected'");
+  assert.ok(paintAt > 0, 'the connect PAINT block (const done = sub.state...) moved; this test is measuring nothing');
+  const block = CODE.slice(paintAt, paintAt + 400);
   assert.match(block, /classList\.toggle\('is-connected', done\)/, 'the green is no longer tied to the same `done` the label is, so the two can disagree');
   assert.ok(!/frMarkProviderConnected/.test(CODE), 'a second mechanism for the connected row is back; frPaintSubscription owns this');
 

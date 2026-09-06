@@ -46,6 +46,17 @@
 
 const worlds = require('./worlds');
 
+/* #2238: the world the LIVE board actually BOOTED into, captured at bootstrap and
+   never changed for the life of the process. This is deliberately NOT a live
+   registry read: POST /api/worlds/active writes the new activeWorldId into the
+   registry the INSTANT it is called, but a running board keeps serving the world
+   whose env was applied HERE at boot until it restarts. A world-switch reconnect
+   poll must see the OLD id until the board has actually rebooted onto the new one;
+   echoing the registry pointer would flip to the new id during the restart window
+   and false-succeed the poll before the switch took effect. So /api/status reports
+   THIS value, not worlds.activeWorld(base).id. */
+let bootedWorldId = null;
+
 /*
  * Capture the pre-override registry base from the ORIGINAL env, then apply the
  * active world's overrides in place. Returns the base (the world-INDEPENDENT
@@ -56,6 +67,10 @@ const worlds = require('./worlds');
 function bootstrapWorldEnv(env = process.env) {
   try {
     const base = worlds.baseRoot(env); // MUST be captured before the override moves it
+    // #2238: capture the booted world id at the SAME registry state applyActiveWorldEnv
+    // reads, BEFORE any later setActiveWorld flips the pointer. applyActiveWorldEnv
+    // itself reads activeWorld(base) to build the overrides, so this is consistent.
+    bootedWorldId = worlds.activeWorld(base).id;
     const applied = worlds.applyActiveWorldEnv(env, base);
     if (Object.keys(applied).length) {
       // Diagnostic -> stderr, so it never pollutes anything parsing stdout.
@@ -63,8 +78,17 @@ function bootstrapWorldEnv(env = process.env) {
     }
     return base;
   } catch (_e) {
-    return null; // legacy / broken env -> default world, unchanged
+    // legacy / broken env -> the board boots as the DEFAULT world, so that is the
+    // world it booted into (fail-open, matching the base=null return).
+    bootedWorldId = worlds.DEFAULT_ID;
+    return null;
   }
 }
 
-module.exports = { bootstrapWorldEnv };
+/* #2238: the world the running board booted into (captured above at boot, never a
+   live registry re-read). null only if bootstrapWorldEnv was never called (e.g. a
+   unit test that requires this module without booting) -- callers treat null as
+   "unknown", not as the default. */
+function bootedWorld() { return bootedWorldId; }
+
+module.exports = { bootstrapWorldEnv, bootedWorld };

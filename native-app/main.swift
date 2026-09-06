@@ -326,6 +326,32 @@ func boardTokenValue() -> String? {
 // is INHERENTLY two copies (Swift here, JS there), so the guard is not code-sharing
 // (impossible across languages) but a test that the two agree: a11ystatus.test.js
 // pins the reader path, and the native-writer test pins THIS one against store.ROOT.
+// One resolution of the shared store dir (engine/store.js's ROOT), so every file
+// the native app and engine pass between them -- file-access-status.json and the
+// prompt-request files -- lands in the SAME place: a new shared file names itself here
+// rather than re-implementing (and risk mis-copying) the resolution. AGENT_WORKFORCE_DATA
+// override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
+// app-support dir -- plus the shared "AgentWorkforce/" subpath. Mirrors engine/store.js;
+// the seam is cross-language so the guard is a test that the two agree, not code-sharing.
+//
+// a11yStatusURL predates this helper and keeps its OWN inline copy of the same
+// resolution: its #2125 writer test pins that inline body, so it is a grandfathered
+// exception, not a pattern to copy. New code uses storeFileURL.
+func storeFileURL(_ name: String) -> URL? {
+    let env = ProcessInfo.processInfo.environment
+    let base: URL
+    if let dataOverride = env["AGENT_WORKFORCE_DATA"], !dataOverride.isEmpty {
+        base = URL(fileURLWithPath: dataOverride)
+    } else if let homeOverride = env["AGENT_WORKFORCE_HOME"], !homeOverride.isEmpty {
+        base = URL(fileURLWithPath: homeOverride).appendingPathComponent("Library/Application Support")
+    } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        base = dir
+    } else {
+        return nil
+    }
+    return base.appendingPathComponent("AgentWorkforce/\(name)")
+}
+
 func a11yStatusURL() -> URL? {
     let env = ProcessInfo.processInfo.environment
     let base: URL
@@ -378,6 +404,90 @@ func writeA11yStatus(trusted: Bool) -> Bool {
         return true
     } catch {
         logLine("axcheck: could not write a11y-status (\(error.localizedDescription))")
+        return false
+    }
+}
+
+func fileAccessStatusURL() -> URL? {
+    storeFileURL("file-access-status.json")
+}
+
+// The file-access reading (#1/#2189, kosmos#2336's sibling seam). "Does the process
+// macOS holds responsible for agent file access -- tmux, this hatch's parent -- hold
+// the folder grants Screen 2 asks for?" We answer by ATTEMPTING to enumerate the
+// protected folders; the attempt is also what makes macOS show the "would like to
+// access" prompt on the first undecided access, so one operation both triggers the
+// prompt and reads the verdict. Granted only if EVERY probed folder enumerates.
+//
+// 🛑 THE SAME LOAD-BEARING UNKNOWN AS THE a11y WRITER, and it must not promote to
+// prod until the deferred fresh-install verify measures it. On a dev box the terminal
+// already holds Full Disk Access, so contentsOfDirectory SUCCEEDS whether or not tmux
+// itself holds the grant -- the DENIED arm (a real EPERM on a fresh install) cannot be
+// observed here, so "granted:true on this Mac" is not evidence the fresh-install path
+// works. The honest reading is emitted unconditionally (no bias default) precisely so
+// Josh's fresh-account test CAN verify it. The KOSMOS_FILEACCESS_FORCE_GRANTED override
+// exists ONLY for tests, to exercise the granted:false downstream (writer -> engine ->
+// gate) without a fresh install. The shipped app never sets it.
+//
+// 🛑 A SECOND UNKNOWN FOR THE SAME VERIFY: TIMING/REFRESH. This assumes the enumerate
+// BLOCKS until the user answers the TCC prompt (the usual behaviour for file-APIs, and
+// unlike AXIsProcessTrustedWithOptions, which returns immediately). If it blocks, the
+// one probe captures the grant and writes the true verdict. If instead it returns
+// immediately while the prompt is async, this writes granted:false at probe time and
+// there is NO periodic file-access refresh to correct it later -- unlike a11y, whose
+// 60s axcheck timer catches an eventual grant. A re-click recovers (macOS remembers the
+// answer, so the second probe reads the settled verdict without re-prompting), but the
+// pill would stay red until then. The refresh is deliberately absent: the file-access
+// probe IS the prompt, so running it periodically/at-launch would reintroduce the
+// fresh-install prompt burst that permflood-2125 (#2125 slice 1) fixed. The correct
+// hardening, IF the verify shows the call is async, is a bounded POST-CLICK re-probe
+// (never launch-time) with the measured timing -- deferred until the verify says it is
+// needed, because building it now needs that same fresh-Mac measurement.
+func fileAccessReading() -> Bool {
+    if let forced = ProcessInfo.processInfo.environment["KOSMOS_FILEACCESS_FORCE_GRANTED"] {
+        let v = forced.lowercased()
+        if v == "1" || v == "true" { return true }
+        if v == "0" || v == "false" { return false }
+    }
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
+    // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
+    // and measures ITS grant -- they are three separate TCC services.
+    var allGranted = true
+    for folder in ["Documents", "Downloads", "Desktop"] {
+        let dir = home.appendingPathComponent(folder)
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        } catch {
+            // Not granted (or unreadable). Record it but KEEP PROBING the rest: each
+            // enumerate is what fires that folder's prompt, so a single grant-button
+            // click must attempt all three or the user sees only the first folder's
+            // prompt and has to click again for each remaining one -- the opposite of
+            // Josh's #1 ("fire the prompts one after another to hit Allow"). An early
+            // return here would surface exactly one of three prompts per click.
+            allGranted = false
+        }
+    }
+    return allGranted
+}
+
+// Write {"granted":<bool>,"at":<ISO8601>} where fileaccessstatus.js reads it. Same
+// shape and staleness contract as writeA11yStatus: a fresh `at` keeps the Screen 2
+// gate live while the first-run screen polls.
+func writeFileAccessStatus(granted: Bool) -> Bool {
+    guard let url = fileAccessStatusURL() else {
+        logLine("fileaccess: could not resolve the file-access-status path")
+        return false
+    }
+    let at = ISO8601DateFormatter().string(from: Date())
+    let json = "{\"granted\":\(granted),\"at\":\"\(at)\"}\n"
+    do {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try json.write(to: url, atomically: true, encoding: .utf8)
+        return true
+    } catch {
+        logLine("fileaccess: could not write file-access-status (\(error.localizedDescription))")
         return false
     }
 }
@@ -576,6 +686,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // and the one-shot guard for the launch-time Accessibility prompt.
     private var a11yTimer: Timer?
     private var a11yPromptFired = false
+    // #1 / #2189: the watcher that turns a webview grant-button POST into a real,
+    // under-tmux macOS prompt (see startPromptRequestWatcher).
+    private var promptRequestTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
@@ -621,6 +734,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
         // and non-fatal -- if it cannot run, the gate stays fail-safe (Continue enabled).
         startA11yTrustChecks()
+        // #1 / #2189: notice a webview grant-button's prompt request and fire the real
+        // macOS prompt under tmux on demand. Best-effort, non-fatal.
+        startPromptRequestWatcher()
         // #965 test seam, same testing-only contract as KOSMOS_APP_TEST_HOME:
         // fire reloadBoard() once after N seconds, so a harness can drive the
         // reload decision path end to end without Accessibility permission for
@@ -726,6 +842,102 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // Not waited on: the hatch is detached and blocking the main thread on it would
     // beachball launch -- the reading lands within a moment and the poll picks it up
     // (fail-safe until it does).
+    // MARK: On-demand permission prompts (#1 / #2189)
+    //
+    // The permission screens' grant buttons must fire the REAL macOS prompts on demand,
+    // not just open Settings (Josh's 0.6.39 #1: "clicking the grant button ... didn't
+    // actually ask for the correct permission"). The webview button POSTs to the engine
+    // (server.js), which drops a request file in the shared store dir; this watcher --
+    // running in the APP, the process that can spawn under the bundled tmux -- notices it
+    // and fires the matching hatch under tmux, so the prompt is attributed to tmux (the
+    // responsible process, exactly as the launch-time axprompt is). Firing through the app
+    // rather than letting the engine spawn tmux keeps the spawn tree IDENTICAL to the
+    // proven launch path, adding no new attribution assumption to the #2125 seam.
+    private func startPromptRequestWatcher() {
+        checkPromptRequests()
+        // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
+        // enough (a fileExists on two paths) to run continuously.
+        promptRequestTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.checkPromptRequests()
+        }
+    }
+
+    private func checkPromptRequests() {
+        // Steady state is cheap: only a fileExists per request name. Resolve the install
+        // (config load + disk path resolution) ONLY when a request is actually pending,
+        // rather than every 1.5s tick for the app's whole idle lifetime.
+        let names = ["a11y-prompt-request", "file-access-prompt-request"]
+        let pending = names.contains { name in
+            guard let u = storeFileURL(name) else { return false }
+            return FileManager.default.fileExists(atPath: u.path)
+        }
+        guard pending else { return }
+        // kosmosHome carries the bundled tmux; a failure to resolve means we cannot spawn
+        // under tmux, so there is nothing to do (the button's Settings fallback covers it).
+        guard let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome else { return }
+        consumeRequest(named: "a11y-prompt-request") { [weak self] in
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axprompt")
+            // Refresh the verdict now. Accessibility is granted asynchronously (the user
+            // toggles tmux in System Settings), so this does NOT flip the pill by itself
+            // -- it just keeps the reading fresh; the 60s timer or a later re-request
+            // captures the eventual grant. (Contrast the file-access hatch, where the TCC
+            // prompt is synchronous and the one hatch can capture the grant.)
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
+        }
+        consumeRequest(named: "file-access-prompt-request") { [weak self] in
+            // One hatch both fires the Files-and-Folders prompt and writes the verdict
+            // (see fileAccessReading / --kosmos-app-fileaccessprompt).
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-fileaccessprompt")
+        }
+    }
+
+    // If a fresh request file is present, consume it (delete) and fire the hatch. A
+    // request older than 30s is dropped unfired (it is from a previous run), and the
+    // hatch fires only if the delete actually succeeded, so a failed delete cannot
+    // re-fire the prompt every tick.
+    private func consumeRequest(named name: String, fire: () -> Void) {
+        guard let url = storeFileURL(name),
+              FileManager.default.fileExists(atPath: url.path) else { return }
+        // Drop a request older than 30s rather than fire it. Such a request reflects a
+        // click from a PREVIOUS run: the app was up when the engine wrote it (so
+        // nativePresent passed), then quit before this watcher's next tick consumed it,
+        // and the file persisted to this launch. Firing a TCC prompt the user did not
+        // just ask for is surprising -- and unlike the live case there is no button
+        // click to explain it. 30s comfortably covers the POST -> 1.5s-tick latency of a
+        // real click. (a11y has a launch-time axprompt anyway; this matters most for the
+        // file-access request, which has no launch equivalent.)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let mtime = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mtime) > 30 {
+            // Log by what actually happened: an unconditional "dropped" would lie when
+            // the delete failed (the file survives and the next tick retries).
+            do {
+                try FileManager.default.removeItem(at: url)
+                logLine("prompt-request: dropped stale \(name) (older than 30s)")
+            } catch {
+                logLine("prompt-request: could not drop stale \(name) (\(error.localizedDescription)); will retry next tick")
+            }
+            return
+        }
+        // Delete before firing, and fire ONLY if the delete succeeded. The delete is
+        // the consume: a hatch that takes a moment cannot be launched twice by
+        // successive ticks -- but that guarantee holds only when the file is actually
+        // gone. A best-effort `try?` that failed while still firing would leave the
+        // request on disk and re-fire a real TCC prompt every 1.5s until the staleness
+        // guard drops it (prompt spam). So on a delete failure we log and bail; the next
+        // tick retries the delete, and staleness is the backstop. (A transient SPAWN
+        // failure still loses the one request, but the gate poll never flips, so a
+        // re-click re-requests it -- recovery without a double-prompt.)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            logLine("prompt-request: could not consume \(name) (\(error.localizedDescription)); not firing to avoid a re-fire loop")
+            return
+        }
+        logLine("prompt-request: consumed \(name); firing under tmux")
+        fire()
+    }
+
     private func spawnAxHatchUnderTmux(kosmosHome: String, hatch: String) {
         guard let exe = Bundle.main.executableURL?.path else {
             logLine("a11y: no executable path; cannot spawn \(hatch)")
@@ -2771,6 +2983,16 @@ if CommandLine.arguments.contains("--kosmos-app-axprompt") {
     let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     _ = AXIsProcessTrustedWithOptions(opts)
     exit(0)
+}
+// --kosmos-app-fileaccessprompt: attempt to enumerate the protected folders, which
+// fires the Files-and-Folders prompt for tmux (this hatch's responsible process) on
+// the first undecided access, and write the resulting grant verdict where
+// fileaccessstatus.js reads it. Spawned UNDER the bundled tmux (see the prompt-request
+// watcher) so the grant is attributed to tmux -- the same responsible process the a11y
+// seam and the running agents use -- not to the kosmos-app. One hatch does both the
+// prompt and the verdict, exactly as attempting the access does both in macOS.
+if CommandLine.arguments.contains("--kosmos-app-fileaccessprompt") {
+    exit(writeFileAccessStatus(granted: fileAccessReading()) ? 0 : 1)
 }
 
 let app = NSApplication.shared

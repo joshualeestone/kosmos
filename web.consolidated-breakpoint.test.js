@@ -41,7 +41,13 @@ test('a click always writes an explicit value now, never removes the key', () =>
 });
 
 test('resizing within the still-consolidated range re-reads the fold state, not just the tabs-vs-consolidated boundary', () => {
-  const resize = SCRIPT.slice(SCRIPT.indexOf("window.addEventListener('resize'"), SCRIPT.indexOf("window.addEventListener('resize'") + 500);
+  /* Anchored on the LAYOUT resize handler specifically (its arrow form), not the
+     first resize listener in the file: #1615's Plus blue-skin added an earlier
+     `window.addEventListener('resize', function () {...}` for its canvases, and a
+     bare "first resize listener" slice captured that one instead — a sibling
+     shadowing the guard. The layout handler is the only arrow-form resize
+     listener; refit (#...) is registered by a named reference. */
+  const resize = SCRIPT.slice(SCRIPT.indexOf("window.addEventListener('resize', () =>"), SCRIPT.indexOf("window.addEventListener('resize', () =>") + 500);
   assert.match(resize, /else if \(document\.body\.classList\.contains\('consolidated'\)\) railFoldsApply\(\);/,
     'crossing the fold width without crossing the min width no longer re-applies the fold state, so resizing inside 960-1280 would leave the rails stuck at whatever they rendered on load');
 });

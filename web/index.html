@@ -1191,9 +1191,17 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    button showing the active world's name, opening a menu of the person's worlds
    + "New Kosmos". Same control radius and separator as the header pills. */
 .worldsw { position: relative; display: inline-flex; }
-.worldsw-btn { display: inline-flex; align-items: center; gap: 5px; max-width: 220px;
+/* #2350 (Josh, 2026-09-06): the switcher control is the same HEIGHT as the light/dark
+   switcher (.themepick) on the header icon row, so the two read as a matched set. The
+   theme control renders 32px (its 30px segment + the 0.5px control border, which rounds
+   to 1px each side); this control shares the same 0.5px border and radius-control, so an
+   explicit 32px height (border-box) lands it at the same rendered height. Vertical padding
+   is dropped (the height + align-items:center centers the text); horizontal padding stays.
+   render-worldsw-height-2350.js pins the two heights equal so a future change to either
+   re-surfaces here rather than drifting. */
+.worldsw-btn { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; height: 32px;
   border: 0.5px solid var(--separator); background: none; border-radius: var(--radius-control);
-  padding: 4px 8px; cursor: pointer; font: 600 var(--text-callout) var(--font-ui); color: var(--k-ink); }
+  padding: 0 8px; cursor: pointer; font: 600 var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .worldsw-btn:hover { background: var(--k-side); }
 .worldsw-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .worldsw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -5857,19 +5865,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 }
 #firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
-/* #1652: the inline "Look in my Documents and Downloads" find-agents link in the
-   create-ending copy. An in-sentence, detection-EXTENDING action (it runs the
-   on-demand /api/scan-import of the TCC folders the #2125 auto-scan skips), so it
-   is a button styled as an underlined link -- the same quiet treatment as
-   #fr-alt.is-link -- sitting on the baseline of the note it lives in, NEVER a
-   second button competing with the single Giddy Up (Mona's ruling, 2026-09-06). */
-#firstrun .fr-lookimport {
-  background: transparent; border: 0; padding: 0; margin: 0;
-  font: inherit; color: var(--k-ink); cursor: pointer;
-  text-decoration: underline; text-underline-offset: 3px;
-}
-#firstrun .fr-lookimport:hover { color: var(--k-ink-2); }
-#firstrun .fr-lookimport:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; border-radius: 3px; }
+/* #1652/#5: the .fr-lookimport find-agents link CSS was removed with the link
+   itself (Josh's 0.6.39 ruling; see the frPaintFleet create arm). */
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
 #firstrun .fr-body h2:focus-visible { outline: none; }
@@ -6006,14 +6003,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
-#firstrun .fr-revealrow { margin: 18px 0 22px; }
-#firstrun .fr-sleepbtn, #firstrun #fr-reveal {
+/* #12 (0.6.39): .fr-revealrow and the #fr-reveal button styling were removed
+   with the Success screen's reveal subsystem; .fr-sleepbtn (still used by the
+   sleep-settings row) keeps this styling. */
+#firstrun .fr-sleepbtn {
   background: transparent; border: 1px solid var(--gold-deep); color: #14161a;
   border-radius: 10px; padding: calc(.45em - 1px) 1em; cursor: pointer;
   font: 600 .875rem/1.6 var(--font-ui); transition: background .12s ease;
 }
-#firstrun .fr-sleepbtn:hover, #firstrun #fr-reveal:hover { background: rgba(198,154,50,.14); }
-#firstrun .fr-sleepbtn:focus-visible, #firstrun #fr-reveal:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+#firstrun .fr-sleepbtn:hover { background: rgba(198,154,50,.14); }
+#firstrun .fr-sleepbtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
 #firstrun .fr-progress { background: var(--k-rule); }
 /* 🔑 THE STATUS LINE MATCHES THE LINE ABOVE IT (#1205, Josh: "too big ...
    match the size of the line above it"). Measured: `.fr-confirm-t` is
@@ -6236,6 +6235,78 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   animation: boot-spin 0.8s linear infinite; }
 @keyframes boot-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { #boot-cover .boot-spin { animation: none; } }
+
+/* ================= Kosmos Plus — whole-app blue reskin (#1615) =================
+   Mona Lisa's decision (2026-09-06): while the Kosmos Plus tab is on screen the
+   WHOLE app takes the "first step" blue ground (nav + sidebar + content), for a
+   premium feel unlike anywhere else in the app. Scoped to `body.plus-active`,
+   toggled by syncPlusChrome() on section/tab change — and torn down on leave, so
+   neither the blue nor the two canvases ever bleed onto another screen.
+   Source of the look: kosmos-relay/deploy/www/kosmosplus/design/first-step.html.
+
+   🔑 WHY body-LEVEL TOKEN OVERRIDE, NOT :root. Setting the palette on
+   body.plus-active recolours body's own `background:var(--k-bg)` AND every
+   descendant that reads a token, by INHERITANCE (nearest ancestor wins). That
+   beats the theme cascade — :root, the dark `:root:not([data-theme="light"])`,
+   and a pasted custom theme applied on the root element — WITHOUT a specificity
+   fight, because those set the token ON the root and this sets it ON body, which
+   is closer to the content. Works in light, dark and custom themes alike. Both
+   token systems the app runs (--k-* and --label/--bg) are overridden. --gold is
+   left untouched: it is brand, and it is the mock's own accent. */
+body.plus-active {
+  /* --k-* system */
+  --k-bg: #070c16; --k-surface: #132140; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
+  --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
+  --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
+  --k-optline: #5f7099;
+  /* --label/--bg system */
+  --bg: #070c16; --bg-elevated: #132140; --bg-sunken: #0b1428;
+  --label: #E6EBF7; --label-2: #9fb0d0; --label-3: #8fa0c4;
+  --separator: #22345a;
+}
+/* The section is the positioning context for the ambient star field, which sits
+   behind everything else in the pane. Every direct child is lifted above it. */
+#s-sec-plus { position: relative; }
+#plus-stars { position: absolute; inset: 0; width: 100%; height: 100%;
+  display: block; z-index: 0; pointer-events: none; }
+#s-sec-plus > *:not(#plus-stars) { position: relative; z-index: 1; }
+/* state 1 (HOME) — the immersive marketing view, where most of the visual lands */
+#plus-mark { display: block; width: min(560px, 82%); height: auto; margin: 6px 0 4px; }
+.plus-hero-h { font-size: 26px; font-weight: 650; letter-spacing: -.01em;
+  margin: 10px 0 8px; color: var(--k-ink); }
+.plus-lede { color: var(--k-ink-2); margin: 0 0 24px; max-width: 52ch; }
+.plus-val { list-style: none; margin: 0 0 24px; padding: 0; display: grid;
+  grid-template-columns: 1fr 1fr; gap: 16px 26px; max-width: 660px; }
+.plus-val li { display: flex; gap: 12px; align-items: flex-start; }
+.plus-val .d, .plus-privacy .d { width: 30px; height: 30px; border-radius: 8px;
+  flex: none; background: rgba(65,113,227,.16); display: grid; place-items: center;
+  color: #8fb0f4; margin-top: 1px; }
+.plus-val b, .plus-privacy b { font-weight: 600; display: block; color: var(--k-ink); }
+.plus-val span, .plus-privacy span { color: var(--k-ink-2); font-size: .9rem; }
+.plus-privacy { display: flex; gap: 12px; align-items: flex-start;
+  background: rgba(120,150,200,.06); border: 1px solid var(--k-rule);
+  border-radius: 12px; padding: 14px 16px; margin: 0 0 20px; max-width: 660px; }
+.plus-note { color: var(--k-ink-2); max-width: 60ch; margin: 0 0 18px; }
+.plus-note b { color: var(--k-ink); }
+/* The light stop is #3a68d8, one notch darker than first-step's #4171E3: white
+   13px text over the mock's lightest corner computes ~4.47:1, a hair under AA,
+   and this clears 4.5:1 unambiguously across the whole gradient. Visually
+   indistinguishable; the accent still reads as the royal-blue brand button. */
+a.plus-btn { display: inline-block; background: linear-gradient(150deg,#3a68d8,#2f57c4);
+  color: #fff; border: 0; border-radius: 11px; padding: 11px 22px; font-weight: 650;
+  text-decoration: none; box-shadow: 0 6px 22px rgba(65,113,227,.4); }
+a.plus-btn:hover { filter: brightness(1.06); }
+a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
+   whole app is already blue via the token override above; this frames the two
+   working states as the mock's card. Their wired ids are untouched. */
+body.plus-active #plus-state2, body.plus-active #plus-flow {
+  background: linear-gradient(160deg,#1b2c50,#0f1d38); border: 1px solid #2a3f6b;
+  border-radius: 16px; padding: 22px 24px; max-width: 620px;
+  box-shadow: 0 20px 60px rgba(0,0,0,.4); }
+@media (max-width: 640px) { .plus-val { grid-template-columns: 1fr; } }
+/* The canvases honour prefers-reduced-motion in JS (a single static frame, no
+   rAF loop); this makes that intent visible to a source reader too. */
 </style>
 <!-- ⚠️ THE id HERE IS LOAD-BEARING, NOT DECORATION. Every page test in this
      repo lifts the app's source with a regex for an ATTRIBUTE-LESS script tag,
@@ -7810,19 +7881,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              ============================================================ -->
         <style>
         /* S2 macOS permission-dialog reproduction + the file-access gate row */
-        .s2-dlg-fan{display:flex;gap:0;max-width:100%;overflow-x:auto;padding:2px 0 6px;margin:2px 0 14px}
-        .s2-dlg{flex:none;width:186px;text-align:center;border-radius:14px;padding:15px 16px;
-          background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;
-          box-shadow:0 8px 22px rgba(0,0,0,.16);transform:scale(.86);transform-origin:top center;margin-left:-30px}
-        .s2-dlg:first-child{margin-left:0}
-        .s2-fold{width:44px;height:34px;margin:2px auto 10px;border-radius:6px;position:relative;
+        /* #8 (Josh 0.6.39, screen 9.50.20): ONE compact macOS-style prompt preview
+           instead of the old three-card stacked fan. Reads as a single real
+           "Terminal would like to access files" dialog with the Allow button ringed,
+           so the person recognizes the one prompt they will see and knows to click
+           Allow. Illustrative only (aria-hidden); the functional grant is the
+           .s2-gate-row below, untouched. */
+        .s2-dlg-fan{display:flex;justify-content:center;margin:2px 0 16px}
+        .s2-dlg{width:320px;max-width:100%;text-align:left;border-radius:12px;padding:16px 18px 14px;
+          background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
+        .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px}
+        .s2-fold{flex:none;width:34px;height:34px;border-radius:7px;position:relative;
           background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
-        .s2-fold::before{content:"";position:absolute;top:-5px;left:6px;width:18px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
-        .s2-fold .s2-hand{position:absolute;right:-4px;bottom:-4px;font-size:15px}
-        .s2-say{font:600 .75rem/1.35 var(--font-ui,-apple-system,sans-serif);margin:0 0 12px;color:#1c1b19}
-        .s2-btns{display:flex;gap:8px;justify-content:center}
-        .s2-db{font:600 .6875rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:6px;padding:4px 12px;background:#f6f6f4;color:#1c1b19}
-        .s2-db.s2-hl{background:#e9e8e5}
+        .s2-fold::before{content:"";position:absolute;top:-5px;left:5px;width:16px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
+        .s2-fold .s2-hand{position:absolute;right:-4px;bottom:-4px;font-size:14px}
+        .s2-say{font:600 .8125rem/1.4 var(--font-ui,-apple-system,sans-serif);margin:0;color:#1c1b19}
+        .s2-btns{display:flex;gap:9px;justify-content:flex-end}
+        .s2-db{font:600 .75rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:7px;padding:5px 15px;background:#f6f6f4;color:#1c1b19}
+        /* Allow = the macOS blue "suggested" default button, called out with a gold ring.
+           #0a64fa is the deeper system-accent blue (white label ~4.98:1, clears AA); the
+           lighter #3f92f0 folder icon above intentionally differs, as the real dialog's
+           app icon and default button do. */
+        .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
+        .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px}
@@ -7844,15 +7925,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         <p>When prompted, click Allow.</p>
 
         <div class="s2-dlg-fan" aria-hidden="true">
-          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-            <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
-          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-            <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
-          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-            <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+          <div class="s2-dlg">
+            <div class="s2-dlg-head">
+              <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+              <p class="s2-say">"Terminal" would like to access files in your folders.</p>
+            </div>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div>
+          </div>
         </div>
 
         <!-- GATE ROW: Renet's poll sets data-granted on this div when file access is confirmed. -->
@@ -7894,12 +7973,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
         .s3-body{padding:12px 14px}
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
-        .s3-mtxt{font:600 .75rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
-        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.6875rem}
+        .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
+        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.625rem}
         .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
         .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
         .s3-step-cap{font:600 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.1em;text-transform:uppercase;color:var(--k-ink-3,#8a857c);margin:2px 0 6px}
         .s3-step-cap .s3-standin{color:var(--attn,#b3261e)}
+        /* #9 (0.6.39): the two numbered steps read gigantic + over-spaced. The
+           shared eyebrow/headline/intro are left alone (S4 uses the same and Josh
+           liked it); this brings down the STEP text and tightens the vertical
+           rhythm so the two steps sit comfortably without dominating. Scoped to
+           #fr-pane-3 so no other screen moves. Mona confirms the exact scale on
+           review. */
+        #fr-pane-3 .s3-gate-lbl{font-size:.75rem}
+        #fr-pane-3 .s3-win{margin:0 0 5px}
+        #fr-pane-3 .s3-gate-row{padding:8px 12px;margin:0 0 12px}
+        #fr-pane-3 .s3-step-cap{margin:0 0 4px}
+        #fr-pane-3 .s3-body{padding:10px 12px}
         /* gate rows (same contract as S2): red "Needs Activated" -> data-granted -> green "Activated" */
         .s3-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px;margin:0 0 10px}
@@ -7959,12 +8049,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              notification, reproduced (a real framed screenshot can swap in if preferred).
              ============================================================ -->
         <style>
-        .s4-notif{max-width:340px;margin:2px 0 0;display:flex;gap:11px;align-items:flex-start;
-          background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 14px;
+        /* #10 (0.6.39): wider + shorter so the body sits on ~2 lines, not a tall
+           narrow block (max-width 340 -> 460); a larger gear so it reads as the
+           macOS gear, not a bullet (30 -> 38px, glyph 16 -> 22). */
+        .s4-notif{max-width:460px;margin:2px 0 0;display:flex;gap:12px;align-items:flex-start;
+          background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 16px;
           box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
-        .s4-gear{width:30px;height:30px;border-radius:7px;flex:none;display:grid;place-items:center;font-size:16px;
+        .s4-gear{width:38px;height:38px;border-radius:8px;flex:none;display:grid;place-items:center;font-size:22px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
-        .s4-nt{font:700 .75rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
+        .s4-nt{font:700 .8125rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
         .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
         .s4-x{margin-left:auto;color:#8a8a86;font-size:.9rem;flex:none;line-height:1}
         </style>
@@ -8187,17 +8280,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
-      <!-- S6 Self improving (new). Switches fr-s6-feedback / fr-s6-createping = Angel wires behavior. -->
+      <!-- S6 Self improving. One switch: fr-s6-feedback (Angel wires behavior). -->
       <div class="fr-pane" id="fr-pane-6" hidden>
         <!-- ============================================================
-             SCREEN 6 - SELF IMPROVING   (new screen)
+             SCREEN 6 - SELF IMPROVING
              Primary button (shell param): "Next".  Gate: none.  Dynamic: the switch state.
              CSS namespace: s6-*   Copy is Josh's, verbatim.
-             SPLIT NOTE: Angel owns the two switches' BEHAVIOR (both default-ON): the daily
-             feedback report (#2037, already landed as PR-C1) and the create-agent ping (#2020).
-             This snippet is the VISUAL: eyebrow + headline + the two switch ROWS with the exact
-             copy. Angel wires the switch controls into these rows (ids fr-s6-feedback /
-             fr-s6-createping so her toggle handlers bind; fr- prefix = a wiring surface).
+             #11 (0.6.39): reduced to ONE switch, the daily feedback report (#2037,
+             default-ON, the install-time opt-OUT). The create-agent ping switch
+             (#2020) was removed from this screen per Josh; that feature's control
+             lives on the Create-an-Agent screen and its backend is unchanged.
+             Angel wires the switch control (id fr-s6-feedback; fr- prefix = a
+             wiring surface).
              ============================================================ -->
         <style>
         .s6-switch-row{display:flex;align-items:flex-start;gap:12px;
@@ -8210,37 +8304,29 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </style>
 
         <p class="fc-eyebrow">Self improving</p>
-        <h2>Help make Kosmos work better for everyone</h2>
+        <h2>Help make Kosmos better</h2>
 
+        <!-- #11 (0.6.39): Josh removed the second switch ("Let Kosmos know when you
+             create an agent") from this screen; it does not belong here. Only the
+             feedback switch remains, default on, its label the new body copy. The
+             create-agent-ping feature itself is unchanged (its control lives on the
+             Create-an-Agent screen, #2020); only its duplicate here is gone, and its
+             frPing wiring was removed from the script to match. -->
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-feedback-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-feedback-lbl">Have an agent send a daily report with any bugs or improvement suggestions.</span>
-        </div>
-        <div class="s6-switch-row">
-          <span class="s6-sw" id="fr-s6-createping" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-createping-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-createping-lbl">Let Kosmos know when you create an agent.</span>
+          <span class="s6-lbl" id="fr-s6-feedback-lbl">Send daily diagnostic information, bug reports, and improvement recommendations.</span>
         </div>
       </div>
 
-      <!-- S7 Success (reuse old fr-pane-1 #fr-return region). Mona S7 prepended; fr-s7-showwhere wired to reveal. -->
+      <!-- S7 Success. Copy is Josh's, verbatim (kosmos #12, 0.6.39). This is now a
+           STATIC screen: the app-location reveal subsystem (frPaintReturn, the two
+           "Show me where it is" affordances, the #fr-return live regions and the
+           machine-check row) was removed here per Josh's fresh-install finding. The
+           Settings screen keeps its own separate reveal (#set-reveal). The dock
+           illustration stays, with the REAL Kosmos app icon (img.fc-k) in the tile
+           rather than the old gold "K" placeholder. -->
       <div class="fr-pane" id="fr-pane-7" hidden>
-        <!-- ============================================================
-             SCREEN 7 - SUCCESS   (spec screen A, edited)
-             Primary button (shell param): "Next".  Gate: none.
-             CSS namespace: s7-*   Copy is Josh's, verbatim.
-             WIRED CONTROL: "Show me where it is" reuses the existing app feature (appLocation /
-             the Settings "Show me where it is" handler). id="fr-s7-showwhere" = Renet/app binds it.
-             Graphic: the annotated dock, Josh's confirmed design (Kosmos mark on the right, a short
-             arrow sweeping it left). Works in light + dark.
-             REAL MARK: the gold "K" square is a stand-in ONLY for the standalone preview. For the
-             build, drop the app's existing Kosmos mark into the .s7-app.s7-k tile: it is the
-             <img class="fc-k"> PNG data URI already in web/index.html (the first-run card head,
-             ~line 7609). Reuse that exact asset rather than the "K" placeholder.
-             ============================================================ -->
         <style>
-        .s7-showwhere{display:inline-flex;align-items:center;border-radius:8px;padding:8px 14px;margin:0 0 12px;
-          font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
-          background:var(--k-surface,#fff);color:var(--k-ink-2,#4a4f57);border:1px solid var(--k-rule,#e3e1dc)}
         .s7-dock-wrap{position:relative;padding:34px 10px 8px;margin:8px auto 0;max-width:440px}
         .s7-dock{display:flex;gap:12px;align-items:flex-end;justify-content:center;border-radius:20px;padding:11px 16px;
           background:rgba(180,178,173,.28);border:1px solid rgba(160,158,152,.42);
@@ -8248,16 +8334,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         .s7-app{width:40px;height:40px;border-radius:10px;background:linear-gradient(160deg,#d5d3ce,#a9a7a2);
           box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.12)}
         .s7-divider{width:1px;align-self:stretch;margin:4px 3px;background:rgba(120,118,112,.4)}
-        .s7-app.s7-k{background:linear-gradient(155deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920));
-          box-shadow:0 3px 10px rgba(184,137,32,.45),inset 0 1px 0 rgba(255,255,255,.35);display:grid;place-items:center;position:relative;z-index:2}
-        .s7-app.s7-k span{font:800 1.35rem var(--font-ui,-apple-system,sans-serif);color:#3a2c06;line-height:1}
+        /* #12 (0.6.39): a neutral drop shadow (was a gold-tinted glow + inset
+           highlight designed for the old gold-K placeholder; behind the real app
+           icon that left a gold halo). Keeps the featured-icon presence, no tint. */
+        .s7-app.s7-k{background:transparent;
+          box-shadow:0 3px 10px rgba(0,0,0,.28);display:grid;place-items:center;position:relative;z-index:2}
+        .s7-app.s7-k .fc-k{width:40px;height:40px;flex:0 0 40px;border-radius:10px;display:block}
         .s7-arrow{position:absolute;top:0;left:14%;right:10%;height:34px;pointer-events:none}
-        .s7-cap{display:block;text-align:center;font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#4a4f57);margin-top:12px}
-        .s7-cap b{color:var(--gold-deep,#b88920)}
         /* install-flow-9screen: only the system (prefers-color-scheme) dark rules
            live here; the forced :root[data-theme="dark"] twins are GENERATED by
            tools/sync-forced-theme.js (web.theme.test.js guards the pair against
-           the two-copy drift), so Mona's hand-written forced twins were removed to
+           the two-copy drift), so hand-written forced twins were removed to
            avoid a second copy. Run `node tools/sync-forced-theme.js` after editing
            any dark rule here. */
         @media (prefers-color-scheme:dark){
@@ -8269,12 +8356,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </style>
 
         <p class="fc-eyebrow">Success</p>
-        <h2>Kosmos is now installed and configured.</h2>
-        <p>You can find Kosmos in your applications folder.</p>
-        <button class="s7-showwhere" id="fr-s7-showwhere" type="button">Show me where it is</button>
-        <p>It is already in the right of your dock, but move it to the left so it stays there permanently.</p>
+        <h2>Kosmos is installed and configured.</h2>
+        <p>Kosmos is now in your applications folder, and you will see Kosmos in your dock.</p>
+        <p>Drag the Kosmos icon to the far left so it stays there and is easy to find later.</p>
 
-        <div class="s7-dock-wrap">
+        <div class="s7-dock-wrap" id="fr-success">
           <svg class="s7-arrow" viewBox="0 0 300 34" fill="none" aria-hidden="true">
             <path d="M232 26 C 190 2, 90 2, 40 20" stroke-width="2.4" stroke-linecap="round" fill="none"/>
             <path d="M40 20 l 12 -8 M40 20 l 11 7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
@@ -8282,46 +8368,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
           <div class="s7-dock" aria-hidden="true">
             <span class="s7-app"></span><span class="s7-app"></span><span class="s7-app"></span>
             <span class="s7-divider"></span>
-            <span class="s7-app"></span><span class="s7-app s7-k"><span>K</span></span>
+            <span class="s7-app"></span><span class="s7-app s7-k"><img class="fc-k" src="data:image/png;base64,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" alt="" width="40" height="40"></span>
           </div>
-          <span class="s7-cap">Drag <b>Kosmos</b> to the left of the dock so it stays</span>
         </div>
-                <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
-                     like step 4's #fr-checks: a region inserted and populated in one
-                     innerHTML write is the documented way to get no announcement.
-                     The write that matters (the engine answer arriving) lands in a
-                     region that long predates it; the initial placeholder joins the
-                     tree with the pane, the same shape as step 4's "Looking...". -->
-                <div id="fr-return">
-                  <div id="fr-return-intro"></div>
-                  <div id="fr-return-row" role="status" aria-live="polite"></div>
-                  <!-- A live region: the reveal button's failure sentences land here
-                       (frRevealSay), and a screen-reader user who fired that click
-                       would otherwise never hear the refusal -- the same SC 4.1.3 call
-                       as the check row above.
-                       🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
-                       below. This region is CLEARED and REWRITTEN by frRevealSay, so
-                       static copy parked in it would vanish on the first failed
-                       reveal click and be announced as a status change on every
-                       repaint. The line below is static markup for that reason. -->
-                  <div id="fr-return-msg" role="status" aria-live="polite"></div>
-                  <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
-                       reveal button, at Josh's ruling of 2026-08-27 16:08 after he
-                       did a full wipe and screenshotted this screen: "somebody
-                       elected to take the message out of this."
-                       ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
-                       two written rulings: step 1 answers "did the install work", and
-                       the Dock line is about RETURNING, so it went to the last step.
-                       HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
-                       at the ending, and the two statements are coherent together:
-                       on Success, not at the last step.
-                       📌 The id here is deliberately NOT the one this region used to
-                       carry. That retired id is asserted absent by server.test.js as
-                       a stale-id guard, and the assertion greps the raw markup, so
-                       even naming it in a comment would fail the check. Same line,
-                       different anchor, and this note cannot spell the old one. -->
-                  <p id="fr-return-keep" class="dhint">Kosmos is already in your Dock, the strip of icons along the edge of your screen. Drag its icon to the far left so it stays handy.</p>
-                </div>
       </div>
 
       <!-- S8 About you (reuse old fr-pane-6 #fr-you). Mona S8 head prepended. -->
@@ -10685,6 +10734,14 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     <h2>Kosmos Plus</h2>
     <p class="fhint">Use your Kosmos from anywhere.</p>
 
+    <!-- #1615 blue reskin: the ambient star field behind the whole pane. It sits
+         OUTSIDE #plus-state1 on purpose (web.plus-tab.test.js scopes its
+         no-controls check to the state-1 slice; a canvas is not a control, but
+         the field belongs to the section, not to state 1). Mounted and TORN DOWN
+         by syncPlusChrome() on tab enter/leave so it never burns CPU off-screen.
+         Decorative -> aria-hidden. -->
+    <canvas id="plus-stars" aria-hidden="true"></canvas>
+
     <!-- #1615, design/plus-flow.html section 5: this pane is THREE states, not one.
          Today's single state described a signup that does not happen here, which is
          kosmos#1115's finding restated as a design decision.
@@ -10715,12 +10772,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          platform assumption a shipped guard exists to keep out. Raised on kosmos#1615 so
          the mock can be corrected rather than this drifting from it silently. -->
     <div id="plus-state1">
-      <h3>Reach this computer from anywhere</h3>
-      <p>Plus connects this computer to your phone and your other computers:
-      open your board from anywhere, get a notification when an agent
-      posts or needs you, and everything you have stays on this computer. The
-      connection is end-to-end encrypted, and the service cannot read
-      what passes through it.</p>
+      <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
+           over 1.5s (or a single static frame under prefers-reduced-motion), by
+           the plusMark engine in the app script. Decorative -> aria-hidden; the
+           heading below carries the accessible name. -->
+      <canvas id="plus-mark" aria-hidden="true"></canvas>
+      <h3 class="plus-hero-h">Your Kosmos, wherever you are</h3>
+      <p class="plus-lede">Access your agents and projects from your phone or any
+      computer, even while you're away from this computer. Get notified when work
+      finishes or an agent needs you.</p>
+      <ul class="plus-val">
+        <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c2.6 3 2.6 15 0 18M12 3c-2.6 3-2.6 15 0 18"/></svg></span><div><b>Access Kosmos anywhere</b><span>Open your board from another computer, tablet, phone, or other web-enabled device.</span></div></li>
+        <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="7" y="2.5" width="10" height="19" rx="2.2"/><path d="M10.5 18.5h3"/></svg></span><div><b>Kosmos on your phone</b><span>Use the native iOS and Android apps to check in and keep work moving wherever you are.</span></div></li>
+        <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 8a6 6 0 10-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10.3 21a1.9 1.9 0 003.4 0"/></svg></span><div><b>Know when you're needed</b><span>Get notified when an agent finishes, hits a blocker, or asks a question.</span></div></li>
+        <li><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.7-5 5.5-5s5.5 2 5.5 5"/><path d="M18.5 8.5v5M16 11h5"/></svg></span><div><b>Work with others</b><span>Invite people and their agents into selected projects. Remove access at any time.</span></div></li>
+      </ul>
+      <div class="plus-privacy"><span class="d" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="4.5" y="10.5" width="15" height="10" rx="2"/><path d="M8 10.5V7a4 4 0 018 0v3.5"/></svg></span><div><b>Private by design</b><span>Your work stays on this computer. Connections are end-to-end encrypted, and every new device requires approval.</span></div></div>
       <!-- #476, #567: the door is the trust sentence and it is BUILT, so
            it is said as a fact. "Nothing to install" left this paragraph
            on 2026-08-24: the installer ships no connector yet, and the
@@ -10750,7 +10817,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            KOSMOS_SITE at paint time and this markup carries none. The guard
            still passes UNCHANGED, which is the point: the rule did not move to
            accommodate the feature. -->
-      <p><a id="plus-site-link" href="#" target="_blank" rel="noreferrer noopener"
+      <p><a id="plus-site-link" class="plus-btn" href="#" target="_blank" rel="noreferrer noopener"
       >See Kosmos+</a></p>
     </div>
 
@@ -11269,6 +11336,88 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 
 <script>
 'use strict';
+
+/* ================= #1615 Kosmos Plus blue-skin canvases =================
+   Behaviour ported verbatim from kosmos-relay/.../design/first-step.html: two
+   canvas fields for the immersive blue Plus tab -- #plus-stars (ambient drift)
+   and #plus-mark (the Kosmos wordmark resolving from scattered dots over 1.5s).
+   Both honour prefers-reduced-motion (one static frame, no rAF loop).
+   syncPlusChrome() toggles body.plus-active and mounts / tears these down on
+   Plus enter/leave, keyed on the SAME predicate as the #743 status tick and
+   web.plus-tab.test.js: URL_TAB==='settings' && SETTINGS_SEC==='plus'. So the
+   blue and the canvases never paint behind another screen. All state is var (no
+   TDZ) and every function is a declaration (hoisted), so settingsGo/showTab can
+   call syncPlusChrome regardless of source order; it is defined here, above the
+   rest of the script, so its assignments run before boot's showTab(BOOT_TAB). */
+/* Guarded so the top-level executes cleanly under the repo's headless page-eval
+   tests (web.post-receipt / web.quoteb eval this whole script in a Node scope
+   with no window/matchMedia); identical to the bare form in a real browser. */
+/* A 2x FLOOR, not the raw device ratio (verbatim from first-step.html): the
+   wordmark and star field stay crisp on a 1x display, at the cost of a larger
+   backing store there. Bounded — the canvases exist only while Plus is on screen
+   and are torn down on leave, so nothing pays this off-screen. */
+var PLUS_DPR = Math.max(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+var plusReduce = (typeof matchMedia === 'function') && matchMedia('(prefers-reduced-motion: reduce)').matches;
+var plusMarkCv = null, plusMarkRaf = null, plusScene = null, plusMD = null, plusMountRaf = null;
+var plusStarsCv = null, plusStarsCtx = null, plusStarsRaf = null, plusParts = [], plusSW = 0, plusSH = 0;
+var plusMounted = false;
+function plusMarkData() { return { DOTS: [[189.7, 5.07, 2.87, "#c69a32"], [197.71, 4.18, 3.54, "#e3b341"], [326.0, 5.57, 3.23, "#d8b65a"], [332.92, 5.8, 2.58, "#d6a62e"], [636.56, 5.36, 2.08, "#d8b65a"], [644.36, 5.58, 2.88, "#d8b65a"], [780.28, 4.56, 2.91, "#c69a32"], [5.25, 12.84, 3.23, "#d8b65a"], [12.96, 12.18, 2.75, "#d8b65a"], [21.11, 13.52, 3.1, "#c69a32"], [29.34, 12.34, 3.18, "#d6a62e"], [85.21, 12.33, 2.76, "#d8b65a"], [93.08, 12.42, 2.83, "#c69a32"], [100.86, 13.01, 3.52, "#b88920"], [109.47, 12.42, 3.61, "#d8b65a"], [164.24, 13.89, 2.22, "#c69a32"], [173.79, 13.33, 3.47, "#d6a62e"], [180.75, 13.87, 2.39, "#d8b65a"], [189.37, 13.98, 3.17, "#b88920"], [197.02, 12.53, 2.33, "#b88920"], [204.57, 12.34, 2.8, "#d6a62e"], [212.48, 13.49, 3.42, "#e3b341"], [220.93, 12.91, 3.61, "#d8b65a"], [301.58, 12.72, 3.4, "#e3b341"], [308.97, 13.83, 3.36, "#b88920"], [317.88, 12.51, 3.64, "#d6a62e"], [325.75, 12.47, 2.5, "#d8b65a"], [332.81, 12.9, 3.55, "#d8b65a"], [340.8, 13.3, 2.5, "#b88920"], [348.33, 12.29, 2.84, "#d6a62e"], [356.37, 12.37, 2.66, "#b88920"], [364.78, 13.89, 3.14, "#c69a32"], [412.25, 13.37, 2.46, "#e3b341"], [420.49, 13.08, 2.73, "#c69a32"], [428.45, 12.42, 2.76, "#b88920"], [437.01, 13.9, 3.43, "#d8b65a"], [524.91, 13.81, 2.84, "#b88920"], [533.5, 12.89, 3.45, "#b88920"], [541.16, 12.96, 3.46, "#e3b341"], [549.95, 13.54, 2.73, "#d6a62e"], [612.29, 12.4, 2.7, "#d6a62e"], [621.01, 12.58, 3.55, "#d6a62e"], [629.91, 13.17, 3.49, "#b88920"], [637.15, 12.93, 2.81, "#d6a62e"], [645.95, 13.64, 2.88, "#c69a32"], [653.46, 12.31, 2.74, "#d8b65a"], [661.46, 12.43, 3.05, "#d8b65a"], [668.97, 14.1, 3.59, "#d8b65a"], [677.79, 12.59, 2.64, "#e3b341"], [749.99, 12.53, 2.46, "#c69a32"], [757.71, 12.55, 3.43, "#d8b65a"], [765.2, 12.82, 3.02, "#d8b65a"], [772.53, 13.48, 2.36, "#e3b341"], [780.58, 13.89, 2.84, "#e3b341"], [789.46, 12.41, 3.34, "#d6a62e"], [797.12, 12.84, 2.72, "#b88920"], [804.72, 14.08, 2.23, "#d6a62e"], [812.68, 13.51, 2.23, "#d8b65a"], [5.18, 21.96, 2.99, "#e3b341"], [12.91, 21.94, 2.99, "#c69a32"], [20.75, 21.73, 2.57, "#b88920"], [29.74, 20.75, 2.74, "#b88920"], [77.78, 21.85, 3.47, "#b88920"], [84.8, 21.57, 3.67, "#b88920"], [93.23, 21.11, 2.79, "#b88920"], [100.88, 21.14, 3.02, "#b88920"], [109.19, 21.52, 2.4, "#d8b65a"], [150.04, 20.65, 2.35, "#b88920"], [157.44, 21.83, 2.62, "#d6a62e"], [165.76, 21.36, 2.49, "#d8b65a"], [173.36, 21.06, 3.44, "#c69a32"], [181.63, 20.73, 2.88, "#c69a32"], [189.23, 20.77, 2.31, "#c69a32"], [197.48, 21.81, 2.3, "#e3b341"], [204.92, 21.75, 2.62, "#d6a62e"], [212.32, 20.76, 3.03, "#d6a62e"], [220.41, 21.14, 2.15, "#c69a32"], [229.97, 21.95, 3.06, "#b88920"], [237.62, 21.12, 3.6, "#d8b65a"], [292.94, 21.23, 3.25, "#e3b341"], [301.34, 21.78, 3.42, "#d8b65a"], [309.48, 21.9, 2.63, "#d8b65a"], [316.42, 20.19, 2.58, "#e3b341"], [325.8, 22.06, 3.67, "#d8b65a"], [332.86, 21.86, 2.45, "#b88920"], [340.44, 22.05, 2.21, "#d6a62e"], [349.45, 21.72, 2.87, "#b88920"], [356.64, 20.4, 2.93, "#b88920"], [365.74, 21.32, 2.32, "#c69a32"], [373.63, 21.23, 2.79, "#c69a32"], [412.81, 21.92, 2.5, "#b88920"], [421.72, 20.65, 2.11, "#e3b341"], [428.37, 21.61, 2.25, "#d8b65a"], [436.49, 21.95, 3.45, "#d6a62e"], [444.65, 20.32, 2.86, "#d6a62e"], [517.99, 20.96, 3.6, "#e3b341"], [525.53, 20.2, 2.48, "#c69a32"], [533.57, 21.21, 3.51, "#c69a32"], [540.46, 21.47, 2.62, "#e3b341"], [549.39, 21.09, 2.33, "#d8b65a"], [597.63, 20.66, 2.7, "#d6a62e"], [605.31, 20.2, 2.25, "#d8b65a"], [614.0, 21.04, 2.31, "#b88920"], [620.75, 20.86, 3.42, "#d6a62e"], [629.0, 20.76, 2.88, "#e3b341"], [637.37, 21.12, 3.19, "#b88920"], [646.08, 20.91, 2.29, "#b88920"], [653.7, 20.35, 2.32, "#e3b341"], [661.79, 20.98, 2.66, "#d8b65a"], [668.19, 20.67, 2.34, "#b88920"], [676.43, 21.48, 2.78, "#c69a32"], [685.06, 21.13, 2.83, "#d8b65a"], [740.88, 21.1, 2.55, "#c69a32"], [748.96, 20.9, 2.74, "#d8b65a"], [756.74, 21.74, 3.34, "#c69a32"], [764.52, 21.69, 3.59, "#d8b65a"], [773.12, 20.95, 2.77, "#e3b341"], [780.2, 21.62, 3.5, "#d8b65a"], [788.75, 21.02, 3.62, "#d8b65a"], [797.35, 21.27, 2.51, "#c69a32"], [804.19, 20.54, 2.81, "#d6a62e"], [813.16, 20.8, 3.38, "#d8b65a"], [821.58, 20.64, 3.36, "#b88920"], [5.38, 28.42, 2.52, "#c69a32"], [13.18, 28.8, 2.16, "#b88920"], [21.33, 28.32, 3.16, "#d8b65a"], [28.65, 29.47, 2.28, "#b88920"], [76.24, 28.9, 2.92, "#d6a62e"], [84.76, 29.88, 2.46, "#b88920"], [93.04, 28.93, 2.24, "#c69a32"], [100.6, 29.71, 3.3, "#c69a32"], [141.85, 28.86, 2.29, "#d6a62e"], [148.53, 28.42, 2.7, "#e3b341"], [156.63, 28.49, 2.59, "#d6a62e"], [164.47, 29.24, 3.22, "#c69a32"], [173.16, 30.05, 2.36, "#e3b341"], [180.44, 28.99, 3.06, "#d8b65a"], [189.63, 29.16, 3.0, "#c69a32"], [196.98, 29.4, 3.46, "#c69a32"], [204.22, 29.35, 3.03, "#c69a32"], [213.46, 30.05, 3.29, "#e3b341"], [221.4, 30.07, 2.54, "#d8b65a"], [228.24, 28.57, 2.94, "#b88920"], [236.58, 29.65, 2.23, "#d6a62e"], [244.85, 28.26, 3.27, "#e3b341"], [285.52, 29.47, 3.5, "#c69a32"], [292.48, 28.86, 3.63, "#c69a32"], [300.29, 29.37, 2.99, "#b88920"], [309.87, 30.03, 3.09, "#d6a62e"], [317.35, 28.67, 3.31, "#c69a32"], [325.95, 29.09, 2.25, "#d8b65a"], [332.62, 29.86, 2.96, "#e3b341"], [341.93, 28.7, 2.75, "#d8b65a"], [349.19, 28.3, 3.34, "#c69a32"], [357.37, 28.52, 2.29, "#c69a32"], [365.55, 28.81, 3.66, "#e3b341"], [373.84, 29.1, 2.55, "#d8b65a"], [380.6, 28.18, 3.0, "#e3b341"], [412.33, 29.0, 2.67, "#c69a32"], [421.85, 28.81, 2.11, "#e3b341"], [428.6, 28.8, 3.45, "#d6a62e"], [436.63, 28.19, 2.48, "#d8b65a"], [444.96, 28.23, 3.02, "#d6a62e"], [517.91, 29.47, 2.81, "#c69a32"], [525.88, 28.36, 2.84, "#d8b65a"], [532.81, 28.97, 2.67, "#d8b65a"], [540.9, 28.62, 3.41, "#d6a62e"], [548.38, 29.41, 2.82, "#d8b65a"], [589.65, 28.63, 2.84, "#e3b341"], [597.07, 29.5, 3.29, "#e3b341"], [604.85, 29.86, 2.36, "#d6a62e"], [613.12, 29.19, 3.67, "#d6a62e"], [620.65, 28.51, 2.59, "#b88920"], [629.52, 28.2, 2.11, "#c69a32"], [636.76, 29.02, 3.48, "#c69a32"], [644.22, 29.44, 3.0, "#e3b341"], [652.71, 28.77, 2.74, "#e3b341"], [661.05, 29.61, 3.35, "#b88920"], [669.1, 28.39, 2.92, "#b88920"], [676.48, 29.23, 3.33, "#d8b65a"], [684.48, 29.09, 3.1, "#b88920"], [692.97, 29.64, 3.59, "#d8b65a"], [733.55, 29.7, 2.69, "#c69a32"], [741.32, 29.6, 2.5, "#d8b65a"], [749.29, 29.92, 3.66, "#b88920"], [757.07, 28.84, 3.25, "#e3b341"], [764.57, 29.57, 2.99, "#c69a32"], [772.34, 29.17, 2.9, "#d8b65a"], [781.54, 30.07, 2.83, "#d8b65a"], [788.95, 29.96, 2.94, "#b88920"], [796.77, 28.59, 2.62, "#d6a62e"], [805.68, 28.77, 3.08, "#e3b341"], [812.92, 28.74, 3.27, "#d8b65a"], [821.64, 29.73, 2.31, "#d8b65a"], [829.02, 29.17, 2.16, "#c69a32"], [5.5, 37.17, 2.97, "#e3b341"], [13.51, 37.75, 2.46, "#b88920"], [21.51, 37.03, 2.7, "#c69a32"], [29.5, 37.48, 3.34, "#d8b65a"], [69.61, 36.72, 2.44, "#d6a62e"], [77.14, 36.82, 3.1, "#c69a32"], [84.61, 37.49, 2.77, "#b88920"], [92.52, 37.51, 3.42, "#d6a62e"], [141.45, 36.33, 2.65, "#c69a32"], [148.98, 36.68, 2.89, "#e3b341"], [156.31, 37.42, 2.23, "#d8b65a"], [165.16, 37.49, 3.3, "#c69a32"], [220.26, 37.09, 3.11, "#d6a62e"], [229.64, 36.78, 2.38, "#b88920"], [237.61, 37.58, 2.64, "#d8b65a"], [244.74, 37.32, 2.62, "#c69a32"], [284.49, 37.03, 2.8, "#d6a62e"], [292.77, 36.67, 2.97, "#d6a62e"], [300.71, 36.73, 2.4, "#d8b65a"], [309.81, 36.34, 3.68, "#c69a32"], [357.62, 36.93, 2.49, "#c69a32"], [365.1, 36.9, 3.05, "#e3b341"], [373.72, 36.28, 2.6, "#e3b341"], [381.63, 37.48, 3.1, "#e3b341"], [413.56, 37.99, 2.83, "#b88920"], [421.49, 36.51, 3.02, "#c69a32"], [428.27, 36.61, 2.4, "#e3b341"], [437.6, 37.3, 2.8, "#d8b65a"], [444.97, 36.45, 2.25, "#b88920"], [517.3, 37.89, 3.51, "#c69a32"], [525.91, 37.93, 3.61, "#c69a32"], [533.86, 37.48, 3.5, "#d6a62e"], [541.75, 37.99, 3.41, "#e3b341"], [548.94, 37.87, 2.1, "#b88920"], [589.65, 36.79, 2.19, "#b88920"], [596.29, 37.68, 2.88, "#d8b65a"], [605.38, 36.74, 2.4, "#e3b341"], [613.97, 38.08, 3.54, "#b88920"], [621.69, 37.17, 2.65, "#d6a62e"], [669.87, 37.89, 2.75, "#c69a32"], [677.27, 37.11, 3.23, "#d6a62e"], [685.77, 37.52, 2.85, "#c69a32"], [692.92, 37.41, 2.85, "#b88920"], [701.33, 37.7, 3.65, "#d6a62e"], [733.07, 36.95, 3.4, "#d8b65a"], [740.83, 36.44, 3.5, "#d8b65a"], [749.65, 36.76, 2.76, "#c69a32"], [757.51, 38.0, 3.18, "#d8b65a"], [804.5, 36.31, 2.72, "#b88920"], [812.34, 36.87, 3.37, "#b88920"], [820.89, 37.16, 2.94, "#b88920"], [828.93, 36.42, 2.99, "#d8b65a"], [5.66, 45.12, 3.15, "#c69a32"], [12.44, 44.63, 2.71, "#b88920"], [21.2, 45.26, 2.24, "#d8b65a"], [28.61, 45.22, 3.44, "#d6a62e"], [60.69, 45.47, 2.37, "#d6a62e"], [68.99, 45.03, 2.12, "#c69a32"], [76.68, 45.59, 3.63, "#d8b65a"], [85.55, 45.54, 2.47, "#b88920"], [132.72, 44.48, 3.62, "#d6a62e"], [140.89, 44.76, 3.55, "#e3b341"], [148.31, 45.97, 3.27, "#c69a32"], [157.8, 45.07, 2.11, "#d8b65a"], [229.66, 45.79, 3.16, "#b88920"], [237.35, 44.19, 3.08, "#c69a32"], [245.24, 44.95, 2.81, "#d8b65a"], [252.2, 45.78, 3.56, "#d8b65a"], [285.73, 45.94, 2.34, "#b88920"], [293.84, 45.87, 3.65, "#d8b65a"], [301.67, 45.47, 3.15, "#e3b341"], [356.5, 44.27, 2.34, "#b88920"], [364.22, 45.93, 3.53, "#c69a32"], [372.53, 44.32, 2.97, "#d8b65a"], [381.22, 44.49, 3.21, "#e3b341"], [413.17, 44.24, 3.28, "#c69a32"], [420.67, 44.78, 2.32, "#d6a62e"], [429.52, 45.56, 2.45, "#e3b341"], [437.07, 44.71, 3.21, "#d8b65a"], [444.31, 44.66, 3.35, "#d6a62e"], [453.3, 45.66, 2.26, "#d8b65a"], [508.96, 44.6, 2.42, "#c69a32"], [516.56, 44.53, 2.39, "#e3b341"], [525.56, 44.39, 2.87, "#d6a62e"], [534.06, 45.56, 2.75, "#e3b341"], [540.67, 44.41, 2.35, "#c69a32"], [548.34, 44.51, 3.14, "#d6a62e"], [581.48, 44.22, 2.29, "#e3b341"], [589.6, 46.08, 3.23, "#e3b341"], [597.6, 45.31, 3.13, "#b88920"], [605.09, 44.19, 2.66, "#e3b341"], [613.99, 45.03, 3.09, "#e3b341"], [677.47, 45.45, 3.28, "#d6a62e"], [685.7, 44.31, 2.44, "#d8b65a"], [693.6, 45.99, 3.29, "#d8b65a"], [700.4, 45.8, 3.21, "#b88920"], [732.76, 45.36, 3.42, "#d6a62e"], [741.24, 45.86, 3.0, "#e3b341"], [749.25, 44.71, 3.28, "#d6a62e"], [813.13, 45.03, 2.69, "#d8b65a"], [820.79, 44.82, 3.62, "#b88920"], [830.08, 46.07, 2.4, "#d6a62e"], [6.06, 53.97, 2.7, "#b88920"], [13.3, 52.21, 3.25, "#c69a32"], [20.42, 53.37, 2.82, "#d6a62e"], [28.64, 53.3, 2.88, "#b88920"], [52.2, 53.34, 3.62, "#d6a62e"], [61.61, 52.56, 2.35, "#b88920"], [69.78, 52.9, 2.28, "#d6a62e"], [77.5, 53.75, 2.66, "#d8b65a"], [133.82, 52.29, 2.44, "#c69a32"], [140.46, 52.57, 3.31, "#b88920"], [149.35, 53.81, 2.45, "#c69a32"], [157.5, 52.74, 3.19, "#c69a32"], [229.67, 53.52, 3.5, "#c69a32"], [237.97, 54.04, 2.86, "#e3b341"], [244.55, 52.59, 3.21, "#d6a62e"], [252.25, 52.81, 2.19, "#d6a62e"], [284.48, 52.88, 3.47, "#d8b65a"], [294.07, 52.76, 3.34, "#d8b65a"], [301.48, 53.64, 3.59, "#e3b341"], [309.99, 52.31, 2.08, "#d6a62e"], [412.77, 52.58, 3.39, "#d6a62e"], [420.61, 52.35, 2.24, "#b88920"], [428.65, 53.4, 2.1, "#d6a62e"], [437.22, 53.12, 2.94, "#d8b65a"], [446.01, 52.19, 2.51, "#c69a32"], [452.27, 53.75, 2.54, "#d6a62e"], [508.89, 52.99, 2.87, "#c69a32"], [517.17, 53.13, 3.22, "#e3b341"], [525.38, 52.62, 3.25, "#d8b65a"], [532.37, 52.28, 2.62, "#e3b341"], [540.48, 53.29, 2.86, "#c69a32"], [549.97, 52.29, 3.2, "#d6a62e"], [581.23, 53.8, 2.48, "#e3b341"], [588.39, 53.59, 3.18, "#d6a62e"], [597.22, 52.96, 2.48, "#b88920"], [604.56, 53.01, 3.24, "#c69a32"], [676.2, 53.35, 3.25, "#d8b65a"], [685.53, 52.96, 3.54, "#b88920"], [693.87, 52.58, 2.64, "#e3b341"], [701.74, 52.79, 2.11, "#d8b65a"], [733.42, 53.79, 3.53, "#d8b65a"], [741.46, 53.12, 3.33, "#b88920"], [749.87, 53.28, 2.4, "#d6a62e"], [757.28, 53.39, 2.6, "#d6a62e"], [5.13, 61.62, 2.65, "#c69a32"], [13.92, 61.91, 3.66, "#c69a32"], [21.86, 60.83, 2.87, "#c69a32"], [29.08, 61.8, 3.22, "#d8b65a"], [45.99, 60.35, 2.45, "#d6a62e"], [52.47, 61.08, 2.39, "#b88920"], [61.08, 60.71, 3.05, "#c69a32"], [68.56, 62.05, 2.81, "#b88920"], [133.95, 60.31, 3.1, "#b88920"], [140.57, 61.71, 2.39, "#d6a62e"], [148.3, 60.84, 2.32, "#e3b341"], [157.66, 60.24, 2.78, "#d8b65a"], [229.36, 61.58, 2.42, "#c69a32"], [237.86, 60.75, 3.47, "#c69a32"], [245.38, 61.37, 2.68, "#d6a62e"], [253.53, 61.63, 2.47, "#b88920"], [285.78, 60.53, 2.72, "#c69a32"], [294.1, 61.77, 2.67, "#b88920"], [300.28, 61.84, 2.77, "#b88920"], [310.09, 60.46, 2.71, "#b88920"], [317.26, 60.35, 3.04, "#d6a62e"], [412.29, 61.49, 2.37, "#c69a32"], [421.43, 61.83, 3.64, "#e3b341"], [429.3, 60.75, 3.36, "#d8b65a"], [436.68, 61.09, 2.18, "#c69a32"], [444.29, 60.85, 2.48, "#b88920"], [453.99, 60.34, 2.11, "#e3b341"], [462.03, 61.64, 3.39, "#d8b65a"], [500.93, 61.71, 2.36, "#d6a62e"], [509.26, 61.0, 2.22, "#d8b65a"], [517.32, 61.86, 2.31, "#b88920"], [525.91, 62.07, 3.67, "#b88920"], [532.24, 62.05, 2.33, "#b88920"], [540.31, 60.23, 3.0, "#b88920"], [548.6, 61.26, 2.37, "#d8b65a"], [580.92, 60.78, 2.87, "#b88920"], [588.29, 61.48, 2.22, "#d6a62e"], [598.04, 61.86, 2.99, "#e3b341"], [604.41, 60.26, 3.29, "#c69a32"], [686.0, 60.97, 2.57, "#b88920"], [693.35, 61.23, 2.37, "#b88920"], [700.29, 61.73, 2.55, "#d6a62e"], [709.68, 61.26, 2.77, "#b88920"], [733.2, 62.0, 3.39, "#d8b65a"], [740.91, 62.09, 2.34, "#c69a32"], [749.06, 61.41, 3.65, "#d6a62e"], [757.9, 61.92, 2.3, "#d8b65a"], [764.91, 61.74, 3.67, "#d6a62e"], [5.27, 69.72, 3.67, "#d6a62e"], [13.94, 69.0, 2.29, "#b88920"], [21.5, 68.22, 3.49, "#c69a32"], [28.39, 68.85, 2.29, "#c69a32"], [36.89, 69.05, 3.21, "#c69a32"], [44.25, 69.11, 2.58, "#e3b341"], [54.02, 69.5, 3.12, "#d8b65a"], [61.11, 68.76, 2.18, "#c69a32"], [68.67, 69.0, 3.07, "#b88920"], [132.56, 69.78, 2.7, "#e3b341"], [140.81, 68.95, 2.88, "#c69a32"], [149.99, 69.03, 2.33, "#d8b65a"], [237.39, 68.49, 3.32, "#e3b341"], [245.18, 68.6, 3.44, "#d6a62e"], [253.0, 69.36, 2.35, "#b88920"], [260.36, 69.1, 2.21, "#e3b341"], [285.69, 69.37, 3.12, "#d8b65a"], [293.15, 68.35, 2.55, "#d8b65a"], [301.18, 68.84, 2.79, "#d6a62e"], [308.38, 68.99, 3.51, "#b88920"], [317.73, 68.92, 2.09, "#c69a32"], [325.05, 70.02, 2.4, "#d6a62e"], [332.3, 68.81, 2.58, "#d8b65a"], [340.47, 68.9, 2.88, "#e3b341"], [348.39, 68.32, 3.17, "#e3b341"], [412.46, 69.88, 2.13, "#b88920"], [421.55, 69.95, 2.3, "#d8b65a"], [428.54, 69.1, 2.64, "#e3b341"], [445.78, 68.39, 2.19, "#c69a32"], [453.53, 69.49, 2.3, "#e3b341"], [461.97, 70.08, 3.34, "#b88920"], [500.43, 69.26, 2.49, "#d6a62e"], [508.77, 69.87, 3.51, "#c69a32"], [517.99, 69.26, 2.85, "#b88920"], [533.85, 68.77, 2.64, "#b88920"], [540.96, 68.28, 3.07, "#e3b341"], [549.75, 69.19, 2.38, "#d8b65a"], [580.9, 69.89, 2.59, "#d8b65a"], [589.89, 68.88, 3.09, "#d6a62e"], [596.38, 68.56, 3.08, "#b88920"], [604.55, 69.8, 3.28, "#d8b65a"], [685.69, 69.67, 2.99, "#c69a32"], [693.77, 69.13, 3.15, "#b88920"], [700.95, 69.54, 3.24, "#d8b65a"], [708.8, 68.87, 2.17, "#b88920"], [733.66, 69.49, 2.74, "#d6a62e"], [741.63, 68.59, 2.18, "#c69a32"], [748.47, 68.74, 3.1, "#d6a62e"], [757.54, 68.45, 3.4, "#e3b341"], [765.78, 69.7, 2.4, "#d6a62e"], [772.56, 68.79, 2.21, "#d8b65a"], [781.66, 69.49, 2.68, "#d6a62e"], [790.05, 69.76, 3.51, "#d8b65a"], [797.02, 68.78, 2.75, "#d8b65a"], [804.7, 68.89, 2.5, "#b88920"], [5.91, 77.73, 2.35, "#b88920"], [13.14, 77.64, 2.55, "#c69a32"], [20.45, 76.67, 3.58, "#e3b341"], [29.25, 77.58, 3.21, "#e3b341"], [37.74, 76.46, 3.56, "#b88920"], [44.64, 77.59, 2.9, "#c69a32"], [52.34, 77.41, 2.32, "#b88920"], [61.85, 77.82, 3.48, "#e3b341"], [68.19, 77.8, 3.19, "#d6a62e"], [133.95, 76.29, 2.24, "#c69a32"], [141.92, 77.41, 3.31, "#d6a62e"], [148.46, 77.84, 3.58, "#d6a62e"], [236.75, 76.26, 2.28, "#d8b65a"], [245.76, 76.81, 2.37, "#d8b65a"], [252.87, 76.43, 2.39, "#b88920"], [261.33, 77.15, 2.22, "#e3b341"], [292.67, 76.87, 3.44, "#d8b65a"], [301.25, 76.97, 3.07, "#c69a32"], [308.25, 76.25, 3.22, "#d6a62e"], [317.02, 78.05, 2.85, "#d8b65a"], [324.98, 77.85, 3.54, "#b88920"], [333.54, 77.82, 3.09, "#b88920"], [340.74, 77.3, 2.17, "#d6a62e"], [349.39, 76.32, 2.63, "#d8b65a"], [356.29, 76.64, 2.67, "#b88920"], [365.15, 77.47, 2.09, "#d8b65a"], [373.18, 78.05, 2.21, "#d6a62e"], [413.24, 76.98, 3.33, "#d6a62e"], [420.46, 76.82, 2.22, "#d8b65a"], [428.49, 77.32, 3.27, "#b88920"], [445.48, 76.88, 3.56, "#d8b65a"], [453.11, 76.53, 2.58, "#e3b341"], [461.3, 77.89, 2.72, "#c69a32"], [501.23, 77.27, 3.41, "#c69a32"], [508.99, 77.25, 2.21, "#d8b65a"], [517.63, 77.82, 2.5, "#d6a62e"], [532.43, 77.18, 2.73, "#b88920"], [540.37, 77.84, 2.14, "#c69a32"], [548.9, 76.52, 2.88, "#e3b341"], [580.49, 77.86, 2.15, "#b88920"], [588.85, 76.97, 3.27, "#e3b341"], [597.03, 76.85, 3.44, "#b88920"], [684.68, 76.62, 2.69, "#d8b65a"], [692.93, 76.54, 3.38, "#b88920"], [700.51, 77.36, 2.36, "#d8b65a"], [709.4, 76.7, 2.31, "#e3b341"], [740.29, 77.52, 2.31, "#e3b341"], [748.68, 77.22, 3.38, "#b88920"], [757.33, 77.36, 2.71, "#e3b341"], [765.26, 77.38, 2.25, "#d6a62e"], [772.54, 77.16, 3.48, "#e3b341"], [781.34, 76.73, 2.08, "#b88920"], [789.52, 77.55, 3.39, "#c69a32"], [797.43, 76.56, 2.62, "#d6a62e"], [804.49, 77.12, 3.44, "#b88920"], [813.66, 77.39, 3.48, "#b88920"], [821.47, 77.01, 2.51, "#b88920"], [4.23, 84.64, 3.56, "#c69a32"], [13.62, 85.84, 2.7, "#d6a62e"], [21.78, 85.84, 3.18, "#c69a32"], [28.62, 84.41, 3.46, "#c69a32"], [36.21, 84.31, 3.06, "#b88920"], [44.67, 85.16, 2.63, "#d6a62e"], [53.03, 84.8, 3.63, "#d6a62e"], [60.91, 84.25, 3.53, "#c69a32"], [69.61, 84.23, 2.67, "#e3b341"], [78.1, 85.57, 2.83, "#b88920"], [132.98, 85.46, 2.15, "#d8b65a"], [141.07, 85.69, 2.59, "#e3b341"], [148.52, 84.61, 2.29, "#e3b341"], [237.98, 85.55, 2.29, "#d6a62e"], [245.19, 85.48, 2.61, "#c69a32"], [253.29, 85.52, 2.75, "#c69a32"], [261.14, 84.2, 3.41, "#b88920"], [308.97, 84.4, 2.28, "#e3b341"], [317.85, 84.54, 3.35, "#b88920"], [324.19, 86.09, 2.95, "#e3b341"], [332.65, 84.91, 3.19, "#e3b341"], [341.07, 85.07, 3.16, "#d6a62e"], [349.86, 84.63, 3.15, "#d8b65a"], [356.4, 84.52, 3.15, "#c69a32"], [364.39, 85.05, 3.44, "#c69a32"], [372.19, 85.37, 2.6, "#d8b65a"], [380.56, 85.22, 3.65, "#b88920"], [412.43, 84.54, 2.49, "#e3b341"], [420.87, 84.51, 3.63, "#d8b65a"], [430.08, 84.72, 2.78, "#b88920"], [453.8, 84.5, 3.47, "#b88920"], [461.2, 85.19, 2.32, "#d8b65a"], [469.91, 84.71, 2.87, "#c69a32"], [494.02, 86.02, 3.14, "#e3b341"], [501.29, 85.26, 2.54, "#b88920"], [508.38, 85.34, 3.26, "#e3b341"], [533.46, 84.51, 3.1, "#d8b65a"], [540.46, 85.99, 3.28, "#d6a62e"], [549.94, 84.29, 3.39, "#d8b65a"], [581.36, 85.74, 2.98, "#d6a62e"], [588.37, 84.55, 2.3, "#d6a62e"], [597.61, 85.99, 2.92, "#e3b341"], [604.25, 84.21, 2.82, "#d6a62e"], [684.37, 85.52, 3.2, "#d6a62e"], [693.63, 84.65, 3.28, "#d8b65a"], [701.69, 85.93, 3.46, "#d8b65a"], [710.02, 84.41, 2.68, "#d8b65a"], [757.92, 84.71, 2.88, "#b88920"], [764.62, 86.0, 3.19, "#c69a32"], [772.76, 85.27, 2.27, "#d6a62e"], [780.88, 85.51, 2.38, "#d6a62e"], [788.78, 85.17, 2.41, "#d6a62e"], [797.39, 85.0, 2.54, "#c69a32"], [806.05, 85.67, 2.64, "#d6a62e"], [812.37, 84.64, 2.47, "#b88920"], [822.03, 84.39, 2.73, "#b88920"], [829.71, 85.71, 3.54, "#c69a32"], [5.14, 93.4, 2.2, "#d6a62e"], [13.26, 92.54, 2.49, "#c69a32"], [20.18, 93.09, 2.42, "#e3b341"], [29.72, 92.58, 3.15, "#d6a62e"], [36.52, 93.91, 3.01, "#c69a32"], [53.24, 93.46, 2.96, "#b88920"], [61.85, 94.09, 2.32, "#d8b65a"], [69.49, 93.6, 2.41, "#d8b65a"], [77.76, 93.2, 3.0, "#d8b65a"], [85.22, 94.09, 3.52, "#e3b341"], [133.92, 93.0, 2.57, "#d6a62e"], [140.58, 92.3, 3.26, "#d6a62e"], [148.47, 93.56, 2.77, "#d6a62e"], [156.7, 93.71, 3.24, "#b88920"], [237.59, 93.32, 2.34, "#b88920"], [245.99, 93.58, 3.3, "#c69a32"], [253.65, 93.35, 3.67, "#e3b341"], [348.33, 92.7, 2.23, "#e3b341"], [358.05, 92.31, 2.83, "#c69a32"], [365.88, 93.84, 2.65, "#e3b341"], [372.4, 92.94, 2.42, "#c69a32"], [381.58, 93.2, 2.76, "#d8b65a"], [412.76, 92.88, 2.67, "#d6a62e"], [421.54, 92.66, 3.38, "#b88920"], [429.0, 94.06, 2.8, "#d8b65a"], [452.8, 93.14, 2.94, "#c69a32"], [461.69, 92.2, 3.05, "#d8b65a"], [469.12, 93.88, 2.75, "#d6a62e"], [493.15, 92.88, 2.77, "#d6a62e"], [500.9, 93.82, 2.89, "#d6a62e"], [509.82, 93.88, 3.6, "#c69a32"], [533.8, 92.73, 2.83, "#d8b65a"], [541.14, 92.46, 3.16, "#d8b65a"], [549.91, 93.55, 2.74, "#e3b341"], [581.49, 92.57, 2.37, "#b88920"], [589.06, 93.34, 2.16, "#d6a62e"], [597.59, 93.16, 2.4, "#d8b65a"], [605.73, 92.82, 2.08, "#d8b65a"], [685.01, 93.45, 2.18, "#d6a62e"], [693.08, 93.72, 2.37, "#c69a32"], [700.71, 93.64, 2.93, "#d8b65a"], [709.29, 92.91, 3.65, "#e3b341"], [796.34, 93.65, 3.22, "#b88920"], [804.77, 93.95, 2.5, "#b88920"], [813.39, 93.95, 2.74, "#d8b65a"], [821.68, 92.86, 2.98, "#e3b341"], [829.8, 93.48, 2.64, "#b88920"], [5.99, 101.54, 3.22, "#e3b341"], [13.41, 102.06, 2.46, "#e3b341"], [20.36, 100.39, 3.53, "#b88920"], [28.93, 100.22, 2.68, "#e3b341"], [36.47, 100.95, 3.27, "#b88920"], [60.91, 101.03, 3.16, "#c69a32"], [68.74, 100.41, 3.52, "#e3b341"], [76.93, 101.47, 3.57, "#e3b341"], [85.34, 100.25, 3.34, "#b88920"], [133.94, 101.6, 2.15, "#e3b341"], [142.0, 100.24, 2.41, "#b88920"], [149.96, 101.78, 3.45, "#b88920"], [157.34, 101.62, 2.81, "#e3b341"], [229.81, 101.46, 2.66, "#d8b65a"], [237.2, 101.24, 2.84, "#c69a32"], [245.47, 101.56, 2.74, "#c69a32"], [252.23, 101.63, 2.24, "#b88920"], [358.06, 101.93, 2.32, "#d6a62e"], [364.27, 101.11, 2.38, "#e3b341"], [373.22, 100.75, 2.61, "#d8b65a"], [380.73, 100.45, 3.59, "#d8b65a"], [414.08, 101.92, 2.94, "#b88920"], [421.95, 100.5, 2.68, "#d6a62e"], [428.72, 100.47, 2.69, "#c69a32"], [453.46, 101.82, 2.49, "#d8b65a"], [462.07, 100.62, 2.81, "#b88920"], [469.45, 100.21, 3.33, "#d6a62e"], [476.29, 101.12, 2.13, "#e3b341"], [485.05, 101.15, 2.31, "#b88920"], [492.56, 100.87, 3.56, "#c69a32"], [501.23, 100.95, 3.65, "#b88920"], [509.67, 100.39, 3.06, "#e3b341"], [533.51, 101.18, 3.15, "#c69a32"], [540.22, 100.9, 2.82, "#d6a62e"], [549.39, 100.25, 3.37, "#b88920"], [581.02, 101.51, 2.92, "#c69a32"], [590.08, 101.86, 2.99, "#d8b65a"], [598.05, 101.46, 2.19, "#d6a62e"], [604.26, 101.24, 2.53, "#c69a32"], [676.96, 101.82, 2.13, "#e3b341"], [685.31, 100.94, 2.42, "#d8b65a"], [692.84, 100.42, 3.56, "#d8b65a"], [701.95, 100.82, 2.87, "#b88920"], [813.31, 101.28, 3.64, "#e3b341"], [820.35, 101.54, 2.44, "#d8b65a"], [830.05, 101.67, 3.67, "#d8b65a"], [838.07, 100.76, 3.56, "#d6a62e"], [5.56, 109.05, 3.65, "#d6a62e"], [13.27, 110.03, 2.81, "#d6a62e"], [21.31, 109.96, 2.83, "#e3b341"], [28.7, 108.49, 2.89, "#e3b341"], [60.84, 108.88, 2.88, "#b88920"], [68.45, 108.42, 3.32, "#d6a62e"], [77.26, 108.24, 3.1, "#e3b341"], [84.74, 109.07, 3.52, "#c69a32"], [92.71, 109.04, 3.34, "#e3b341"], [133.52, 109.54, 3.36, "#d8b65a"], [141.45, 108.45, 3.63, "#b88920"], [148.76, 108.42, 2.97, "#b88920"], [157.08, 109.8, 3.68, "#b88920"], [229.69, 109.69, 2.58, "#d6a62e"], [236.49, 108.48, 3.47, "#d6a62e"], [244.97, 108.47, 3.36, "#c69a32"], [253.7, 109.16, 2.51, "#d8b65a"], [276.19, 109.66, 3.19, "#d6a62e"], [285.53, 108.73, 3.44, "#c69a32"], [293.23, 109.77, 3.07, "#d8b65a"], [301.42, 108.79, 3.54, "#c69a32"], [364.74, 108.58, 3.04, "#b88920"], [373.66, 109.01, 3.4, "#b88920"], [380.89, 108.42, 3.49, "#d8b65a"], [413.06, 108.81, 2.09, "#c69a32"], [421.71, 108.38, 2.32, "#b88920"], [430.0, 108.88, 3.65, "#e3b341"], [461.43, 109.93, 3.5, "#c69a32"], [468.3, 109.88, 3.43, "#c69a32"], [476.6, 109.02, 3.14, "#b88920"], [485.65, 109.3, 2.79, "#d8b65a"], [493.83, 109.31, 3.44, "#c69a32"], [500.55, 109.33, 3.36, "#d8b65a"], [534.04, 108.37, 2.45, "#b88920"], [540.41, 108.76, 2.65, "#d8b65a"], [548.89, 109.38, 2.14, "#b88920"], [580.53, 108.25, 2.63, "#e3b341"], [588.41, 109.94, 3.26, "#c69a32"], [596.64, 108.4, 2.32, "#c69a32"], [604.9, 109.94, 3.47, "#d8b65a"], [676.71, 109.47, 2.8, "#b88920"], [684.69, 109.2, 2.17, "#e3b341"], [693.59, 109.88, 3.25, "#c69a32"], [701.77, 108.62, 2.87, "#d6a62e"], [725.34, 108.2, 3.03, "#c69a32"], [733.51, 108.9, 2.69, "#c69a32"], [741.64, 108.56, 3.21, "#b88920"], [749.54, 108.74, 3.66, "#d6a62e"], [813.25, 109.29, 2.93, "#e3b341"], [821.31, 108.34, 2.82, "#d6a62e"], [828.46, 108.93, 3.06, "#b88920"], [836.8, 109.91, 2.71, "#d6a62e"], [4.39, 117.37, 2.76, "#d6a62e"], [12.83, 118.03, 2.66, "#c69a32"], [20.93, 116.3, 3.16, "#b88920"], [28.75, 117.83, 3.03, "#d6a62e"], [68.31, 117.7, 3.34, "#b88920"], [77.18, 117.65, 3.6, "#b88920"], [86.08, 117.81, 2.39, "#b88920"], [92.28, 117.99, 3.52, "#d6a62e"], [101.81, 117.66, 2.82, "#d6a62e"], [141.32, 116.39, 2.97, "#d8b65a"], [149.17, 116.58, 2.21, "#d6a62e"], [156.54, 117.43, 2.23, "#d8b65a"], [165.65, 116.92, 2.95, "#d8b65a"], [222.07, 117.18, 2.99, "#b88920"], [229.4, 117.58, 2.52, "#d6a62e"], [237.89, 117.59, 3.17, "#b88920"], [245.71, 117.5, 3.51, "#c69a32"], [252.72, 116.62, 2.22, "#d6a62e"], [276.44, 116.78, 2.35, "#d8b65a"], [284.58, 117.34, 2.52, "#d8b65a"], [293.64, 116.26, 2.68, "#d6a62e"], [301.29, 118.05, 3.66, "#d8b65a"], [356.75, 117.42, 2.89, "#e3b341"], [365.56, 117.32, 2.45, "#e3b341"], [372.54, 117.27, 3.31, "#e3b341"], [381.27, 117.19, 2.4, "#d6a62e"], [413.77, 116.44, 3.39, "#c69a32"], [420.78, 117.23, 2.99, "#d6a62e"], [428.21, 117.84, 2.47, "#d6a62e"], [460.82, 118.01, 3.37, "#c69a32"], [468.69, 116.92, 2.75, "#d8b65a"], [477.29, 117.24, 2.46, "#e3b341"], [484.23, 116.36, 3.55, "#b88920"], [493.31, 117.67, 2.18, "#c69a32"], [501.53, 117.23, 2.31, "#d8b65a"], [532.97, 116.66, 3.6, "#d6a62e"], [540.35, 116.81, 2.7, "#c69a32"], [549.39, 116.28, 3.16, "#d6a62e"], [589.12, 118.09, 2.76, "#c69a32"], [597.94, 116.62, 3.59, "#c69a32"], [605.43, 116.66, 2.89, "#b88920"], [612.89, 116.83, 2.58, "#e3b341"], [669.46, 116.33, 2.64, "#b88920"], [677.88, 117.52, 2.83, "#e3b341"], [684.89, 116.2, 3.61, "#b88920"], [692.54, 117.39, 3.23, "#d8b65a"], [700.45, 117.84, 2.7, "#c69a32"], [725.71, 118.02, 2.27, "#c69a32"], [733.58, 116.66, 2.62, "#d6a62e"], [740.7, 117.28, 3.59, "#e3b341"], [750.1, 116.29, 3.33, "#e3b341"], [812.65, 117.48, 2.67, "#e3b341"], [821.24, 117.97, 2.19, "#c69a32"], [829.64, 116.96, 2.65, "#c69a32"], [5.52, 125.9, 2.66, "#c69a32"], [13.51, 124.63, 3.35, "#b88920"], [21.92, 124.65, 2.82, "#b88920"], [29.35, 125.96, 3.33, "#c69a32"], [76.88, 124.63, 2.27, "#b88920"], [85.69, 124.93, 3.34, "#d8b65a"], [92.26, 125.74, 2.47, "#e3b341"], [100.4, 125.74, 3.59, "#b88920"], [140.98, 124.6, 2.14, "#d8b65a"], [148.42, 124.96, 3.2, "#c69a32"], [156.44, 125.35, 2.55, "#d8b65a"], [165.92, 125.93, 2.23, "#c69a32"], [172.91, 125.73, 3.24, "#d8b65a"], [180.99, 125.99, 3.51, "#c69a32"], [205.26, 125.67, 2.27, "#c69a32"], [212.33, 124.77, 3.05, "#e3b341"], [220.46, 125.62, 2.4, "#c69a32"], [228.87, 125.92, 2.51, "#d8b65a"], [237.18, 124.87, 2.63, "#c69a32"], [244.7, 124.47, 2.42, "#c69a32"], [285.24, 124.44, 2.92, "#e3b341"], [294.04, 124.53, 3.3, "#d6a62e"], [301.35, 125.19, 2.95, "#d6a62e"], [308.59, 125.04, 2.17, "#d8b65a"], [317.48, 125.48, 2.17, "#d8b65a"], [350.05, 124.84, 2.81, "#b88920"], [357.8, 124.68, 2.52, "#b88920"], [364.52, 125.36, 3.62, "#b88920"], [374.01, 126.04, 2.52, "#d8b65a"], [381.79, 124.51, 2.45, "#c69a32"], [413.83, 124.99, 2.88, "#e3b341"], [420.37, 125.8, 2.47, "#d8b65a"], [429.74, 124.65, 3.47, "#b88920"], [469.53, 125.4, 2.14, "#d6a62e"], [476.75, 124.7, 3.13, "#e3b341"], [484.94, 124.69, 2.87, "#c69a32"], [492.54, 125.54, 2.56, "#c69a32"], [533.67, 124.27, 3.5, "#b88920"], [541.42, 124.95, 2.25, "#b88920"], [548.87, 125.21, 3.06, "#e3b341"], [589.41, 124.82, 3.53, "#d6a62e"], [596.55, 124.46, 2.73, "#b88920"], [604.49, 124.82, 3.02, "#c69a32"], [612.48, 124.71, 3.26, "#d6a62e"], [621.49, 124.4, 3.46, "#b88920"], [629.81, 124.9, 2.14, "#d8b65a"], [653.06, 124.48, 3.28, "#d6a62e"], [661.84, 125.69, 2.31, "#d8b65a"], [670.02, 124.56, 2.85, "#e3b341"], [677.75, 125.17, 2.69, "#e3b341"], [684.77, 124.19, 2.65, "#d6a62e"], [692.58, 124.87, 2.97, "#d8b65a"], [733.71, 124.71, 2.71, "#d8b65a"], [741.58, 125.68, 2.08, "#e3b341"], [748.25, 125.59, 2.47, "#b88920"], [757.54, 124.51, 3.58, "#b88920"], [764.86, 124.98, 3.36, "#d8b65a"], [796.69, 125.88, 3.31, "#e3b341"], [805.63, 124.7, 3.21, "#d8b65a"], [813.63, 124.44, 3.47, "#c69a32"], [820.2, 125.57, 3.59, "#c69a32"], [828.54, 125.79, 2.28, "#d6a62e"], [5.26, 133.69, 3.1, "#e3b341"], [12.95, 133.07, 2.89, "#c69a32"], [21.91, 132.66, 3.63, "#b88920"], [28.35, 132.48, 2.73, "#d8b65a"], [77.24, 132.38, 2.53, "#d6a62e"], [85.34, 132.54, 3.51, "#c69a32"], [92.25, 132.28, 3.67, "#b88920"], [100.28, 133.27, 3.3, "#c69a32"], [108.89, 132.49, 2.55, "#d6a62e"], [148.42, 133.95, 2.3, "#d8b65a"], [157.72, 133.02, 2.72, "#d6a62e"], [164.77, 132.33, 2.29, "#e3b341"], [173.11, 133.36, 2.85, "#d6a62e"], [180.2, 133.12, 3.32, "#b88920"], [188.89, 132.25, 2.62, "#d8b65a"], [197.78, 132.62, 2.88, "#d8b65a"], [204.27, 132.98, 3.37, "#d6a62e"], [212.6, 132.62, 2.16, "#d6a62e"], [221.43, 132.73, 2.12, "#b88920"], [229.45, 133.25, 3.29, "#b88920"], [236.55, 133.92, 3.58, "#d8b65a"], [285.75, 132.25, 2.65, "#d6a62e"], [292.81, 133.39, 3.62, "#d6a62e"], [300.62, 132.89, 2.29, "#b88920"], [308.49, 132.32, 2.93, "#d8b65a"], [317.15, 132.59, 3.16, "#b88920"], [325.03, 133.67, 2.38, "#d6a62e"], [332.73, 133.99, 3.37, "#d8b65a"], [340.36, 133.71, 2.19, "#c69a32"], [348.19, 133.68, 3.29, "#c69a32"], [356.58, 133.63, 2.87, "#d8b65a"], [364.88, 132.3, 3.4, "#e3b341"], [372.7, 132.3, 2.5, "#d6a62e"], [412.2, 132.87, 2.65, "#b88920"], [420.45, 132.34, 3.05, "#d8b65a"], [429.39, 132.19, 2.59, "#b88920"], [469.55, 132.34, 2.91, "#d6a62e"], [477.91, 132.22, 3.13, "#b88920"], [484.34, 133.19, 3.41, "#c69a32"], [494.07, 132.46, 3.46, "#d8b65a"], [533.44, 134.09, 3.33, "#b88920"], [541.79, 133.51, 2.53, "#d6a62e"], [548.94, 133.01, 2.9, "#e3b341"], [596.93, 132.85, 3.01, "#b88920"], [605.02, 133.77, 3.5, "#b88920"], [613.8, 134.01, 2.12, "#d8b65a"], [621.07, 133.41, 3.2, "#b88920"], [629.63, 133.33, 2.44, "#d6a62e"], [637.32, 132.43, 3.52, "#c69a32"], [645.28, 132.25, 2.83, "#c69a32"], [652.49, 133.28, 3.37, "#d8b65a"], [661.6, 133.43, 2.26, "#d6a62e"], [668.82, 132.69, 2.14, "#e3b341"], [676.25, 132.69, 3.38, "#d8b65a"], [684.65, 132.28, 3.47, "#b88920"], [732.54, 133.61, 3.67, "#b88920"], [741.0, 132.69, 3.16, "#e3b341"], [748.64, 132.2, 2.83, "#d8b65a"], [757.56, 133.78, 2.11, "#c69a32"], [765.71, 133.61, 2.13, "#d6a62e"], [773.8, 133.53, 3.49, "#d6a62e"], [780.18, 134.09, 2.26, "#b88920"], [790.1, 132.94, 3.46, "#e3b341"], [797.21, 133.73, 2.33, "#d6a62e"], [805.76, 133.51, 2.89, "#d6a62e"], [812.28, 133.17, 2.31, "#d6a62e"], [820.93, 132.55, 3.62, "#d6a62e"], [828.64, 133.03, 3.58, "#b88920"], [4.69, 140.99, 3.46, "#b88920"], [13.11, 141.24, 3.03, "#c69a32"], [20.55, 140.5, 3.04, "#d6a62e"], [28.45, 140.45, 2.16, "#d8b65a"], [85.82, 140.61, 2.78, "#d8b65a"], [93.05, 141.03, 3.41, "#d6a62e"], [100.34, 141.09, 3.12, "#d6a62e"], [108.3, 141.27, 2.48, "#e3b341"], [117.25, 142.05, 2.41, "#e3b341"], [157.11, 141.79, 2.76, "#d8b65a"], [166.09, 142.04, 3.64, "#d6a62e"], [172.31, 140.3, 2.29, "#d6a62e"], [180.84, 141.14, 3.41, "#d6a62e"], [188.5, 141.28, 3.59, "#e3b341"], [196.61, 141.24, 3.34, "#e3b341"], [204.63, 142.08, 3.01, "#c69a32"], [213.73, 141.55, 3.63, "#d8b65a"], [220.25, 141.78, 3.53, "#b88920"], [230.05, 141.37, 2.24, "#b88920"], [292.8, 141.72, 3.46, "#e3b341"], [300.61, 140.37, 3.09, "#e3b341"], [309.85, 140.49, 2.71, "#e3b341"], [317.34, 140.7, 2.95, "#d6a62e"], [325.46, 140.26, 2.34, "#e3b341"], [332.38, 140.88, 3.66, "#e3b341"], [340.53, 141.61, 2.34, "#d8b65a"], [349.35, 140.71, 2.46, "#b88920"], [356.72, 141.01, 3.34, "#c69a32"], [364.42, 140.96, 3.57, "#d8b65a"], [413.47, 141.19, 3.25, "#d6a62e"], [422.04, 141.63, 2.51, "#b88920"], [428.3, 141.7, 2.89, "#b88920"], [469.28, 140.85, 3.1, "#d8b65a"], [477.03, 141.16, 2.19, "#d8b65a"], [485.49, 141.65, 2.54, "#c69a32"], [493.63, 142.02, 3.3, "#c69a32"], [533.48, 140.26, 3.54, "#d6a62e"], [541.79, 140.32, 3.27, "#e3b341"], [550.02, 142.04, 2.39, "#b88920"], [605.5, 140.99, 2.34, "#e3b341"], [612.8, 141.71, 2.49, "#b88920"], [621.68, 141.71, 3.09, "#e3b341"], [629.15, 141.51, 2.72, "#d8b65a"], [636.81, 141.39, 3.6, "#d6a62e"], [646.05, 142.04, 3.17, "#d8b65a"], [653.22, 141.28, 2.75, "#e3b341"], [662.04, 141.4, 3.43, "#b88920"], [669.25, 141.97, 2.95, "#d8b65a"], [677.45, 141.07, 3.66, "#b88920"], [748.69, 141.26, 2.17, "#b88920"], [757.02, 141.66, 2.84, "#d6a62e"], [764.69, 141.11, 3.28, "#e3b341"], [773.4, 141.24, 3.55, "#d6a62e"], [780.84, 140.34, 2.67, "#b88920"], [789.5, 141.25, 3.68, "#d6a62e"], [797.58, 140.49, 3.03, "#d8b65a"], [805.11, 141.21, 3.42, "#d6a62e"], [812.65, 140.36, 2.72, "#c69a32"], [181.57, 149.71, 2.09, "#d6a62e"], [189.21, 148.2, 2.63, "#d8b65a"], [196.45, 148.54, 3.12, "#e3b341"], [205.57, 149.45, 3.07, "#d6a62e"], [316.27, 148.2, 2.31, "#e3b341"], [324.76, 149.26, 2.96, "#c69a32"], [332.57, 149.19, 2.73, "#b88920"], [341.3, 148.2, 3.03, "#d6a62e"], [348.35, 148.28, 2.45, "#b88920"], [629.51, 148.63, 2.83, "#e3b341"], [636.32, 149.66, 2.7, "#d8b65a"], [645.32, 149.98, 2.88, "#e3b341"], [652.49, 148.78, 3.1, "#c69a32"], [662.1, 148.95, 2.51, "#e3b341"], [765.11, 149.31, 3.58, "#c69a32"], [773.23, 149.59, 2.75, "#b88920"], [780.84, 148.35, 3.46, "#c69a32"], [788.88, 149.68, 3.1, "#d6a62e"], [796.46, 149.31, 2.28, "#e3b341"], [854.52, 66.36, 2.44, "#4171E3"], [854.33, 74.49, 2.11, "#4171E3"], [854.54, 81.7, 3.12, "#4171E3"], [854.24, 90.63, 3.0, "#4171E3"], [861.9, 66.23, 3.08, "#4171E3"], [862.07, 74.16, 2.49, "#4171E3"], [862.19, 81.68, 3.03, "#4171E3"], [862.5, 89.9, 2.74, "#4171E3"], [869.97, 66.67, 2.4, "#4171E3"], [869.6, 74.32, 3.36, "#41C2E3"], [870.31, 82.66, 3.66, "#1C4CBE"], [870.18, 89.65, 2.68, "#4171E3"], [877.78, 66.23, 2.21, "#4171E3"], [877.6, 74.5, 2.47, "#4171E3"], [878.34, 82.42, 3.08, "#4171E3"], [878.23, 90.46, 2.57, "#4171E3"], [886.46, 66.51, 3.5, "#4171E3"], [886.25, 74.15, 3.25, "#41C2E3"], [885.66, 82.66, 2.4, "#1C4CBE"], [886.17, 89.71, 3.0, "#4171E3"], [894.65, 66.21, 2.57, "#4171E3"], [894.82, 74.28, 3.42, "#1C4CBE"], [894.5, 81.81, 2.34, "#4171E3"], [893.88, 89.7, 2.42, "#4171E3"], [902.01, 66.44, 2.21, "#4171E3"], [901.78, 74.13, 2.44, "#4171E3"], [902.0, 81.8, 2.86, "#1C4CBE"], [902.77, 90.28, 2.71, "#41C2E3"], [910.89, 9.79, 2.71, "#4171E3"], [910.21, 18.17, 3.05, "#4171E3"], [910.83, 25.44, 2.65, "#4171E3"], [910.85, 33.87, 2.1, "#4171E3"], [910.26, 41.4, 2.63, "#4171E3"], [909.79, 49.61, 2.35, "#4171E3"], [910.12, 58.26, 3.15, "#4171E3"], [910.28, 65.62, 3.35, "#4171E3"], [910.19, 74.49, 3.39, "#1C4CBE"], [909.86, 81.95, 2.58, "#4171E3"], [910.26, 90.77, 3.15, "#4171E3"], [910.49, 97.92, 2.98, "#4171E3"], [910.45, 105.85, 3.56, "#4171E3"], [910.82, 113.98, 2.41, "#4171E3"], [910.74, 122.75, 3.26, "#4171E3"], [909.92, 130.09, 2.13, "#4171E3"], [909.9, 138.7, 2.08, "#4171E3"], [910.47, 146.1, 2.19, "#4171E3"], [918.13, 9.21, 3.2, "#4171E3"], [918.44, 17.28, 2.74, "#41C2E3"], [918.08, 25.78, 3.26, "#1C4CBE"], [918.79, 34.46, 2.9, "#1C4CBE"], [917.93, 41.98, 3.15, "#41C2E3"], [918.35, 49.92, 3.5, "#41C2E3"], [917.86, 57.98, 2.51, "#1C4CBE"], [918.77, 65.54, 2.58, "#1C4CBE"], [918.76, 74.46, 2.7, "#41C2E3"], [918.81, 82.54, 2.94, "#41C2E3"], [917.95, 89.64, 2.1, "#1C4CBE"], [918.4, 98.77, 3.0, "#4171E3"], [918.7, 106.81, 2.52, "#1C4CBE"], [918.9, 114.12, 3.19, "#1C4CBE"], [917.97, 122.0, 2.65, "#4171E3"], [918.85, 130.23, 2.46, "#4171E3"], [917.8, 138.75, 2.8, "#1C4CBE"], [918.27, 147.06, 2.14, "#41C2E3"], [926.04, 9.91, 2.4, "#4171E3"], [926.27, 18.38, 2.27, "#41C2E3"], [925.86, 25.33, 2.37, "#4171E3"], [926.49, 34.19, 2.45, "#1C4CBE"], [927.01, 41.75, 2.45, "#1C4CBE"], [926.99, 50.16, 2.87, "#4171E3"], [925.93, 57.71, 3.19, "#1C4CBE"], [926.45, 66.57, 2.37, "#4171E3"], [926.74, 74.41, 3.39, "#1C4CBE"], [926.52, 81.83, 2.89, "#41C2E3"], [926.07, 89.95, 2.39, "#41C2E3"], [925.95, 97.82, 3.05, "#41C2E3"], [926.34, 106.58, 3.2, "#1C4CBE"], [925.92, 114.55, 3.07, "#4171E3"], [926.67, 121.84, 2.39, "#41C2E3"], [926.7, 130.17, 2.45, "#4171E3"], [926.16, 138.44, 3.21, "#4171E3"], [925.95, 146.54, 3.63, "#4171E3"], [934.02, 9.98, 3.39, "#4171E3"], [933.97, 17.61, 2.66, "#41C2E3"], [933.97, 25.79, 3.6, "#41C2E3"], [934.2, 34.47, 2.53, "#4171E3"], [934.02, 41.39, 3.54, "#4171E3"], [935.05, 50.05, 2.19, "#4171E3"], [934.28, 57.63, 2.21, "#4171E3"], [934.92, 66.6, 2.46, "#1C4CBE"], [934.18, 74.53, 3.53, "#1C4CBE"], [934.1, 82.6, 3.64, "#4171E3"], [933.95, 90.32, 3.3, "#41C2E3"], [934.52, 98.57, 2.17, "#4171E3"], [935.04, 106.34, 2.65, "#4171E3"], [934.94, 114.52, 3.6, "#4171E3"], [934.7, 122.79, 3.38, "#4171E3"], [934.37, 130.61, 3.33, "#4171E3"], [934.81, 138.56, 2.68, "#4171E3"], [934.97, 145.96, 2.15, "#4171E3"], [942.04, 66.51, 3.54, "#4171E3"], [942.33, 74.31, 3.48, "#4171E3"], [942.98, 81.97, 2.82, "#1C4CBE"], [942.8, 90.06, 2.64, "#4171E3"], [950.75, 66.12, 2.48, "#4171E3"], [950.05, 73.81, 2.22, "#4171E3"], [950.7, 82.23, 3.43, "#4171E3"], [950.36, 90.02, 3.4, "#4171E3"], [958.19, 66.01, 2.31, "#41C2E3"], [958.18, 74.26, 3.46, "#4171E3"], [958.92, 81.56, 2.25, "#4171E3"], [958.93, 89.93, 2.99, "#4171E3"], [966.71, 65.97, 2.95, "#4171E3"], [966.74, 74.17, 2.3, "#1C4CBE"], [966.9, 82.62, 3.33, "#41C2E3"], [966.56, 90.32, 2.36, "#4171E3"], [974.66, 66.18, 3.54, "#4171E3"], [974.48, 74.23, 2.24, "#4171E3"], [974.32, 82.73, 3.1, "#4171E3"], [974.83, 89.98, 2.67, "#4171E3"], [982.85, 66.21, 2.76, "#4171E3"], [982.38, 74.57, 3.19, "#41C2E3"], [983.3, 82.15, 2.93, "#1C4CBE"], [982.92, 90.62, 3.3, "#4171E3"], [991.12, 65.52, 3.11, "#4171E3"], [990.53, 74.2, 2.31, "#4171E3"], [990.95, 82.49, 2.84, "#4171E3"], [991.04, 90.26, 3.12, "#4171E3"]], VBW: 996.75, VBH: 156.28 }; }
+function plusMd() { return plusMD || (plusMD = plusMarkData()); }
+function plusEaseOut(t) { return 1 - Math.pow(1 - t, 3); }
+function plusMarkFit() { var w = plusMarkCv.clientWidth || 480; plusMarkCv.width = w * PLUS_DPR; plusMarkCv.height = w * (plusMd().VBH / plusMd().VBW) * PLUS_DPR; return w; }
+function plusMarkBuild() { var w = plusMarkFit(), s = w / plusMd().VBW;
+  plusScene = plusMd().DOTS.map(function (d) { var ang = Math.random() * 6.283, rad = 60 + Math.random() * 260;
+    return { x: d[0] * s, y: d[1] * s, r: d[2] * s, c: d[3], ox: Math.cos(ang) * rad, oy: Math.sin(ang) * rad, dl: Math.random() * 0.55 }; }); }
+function plusMarkDraw(t) { var ctx = plusMarkCv.getContext('2d'); ctx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
+  ctx.clearRect(0, 0, plusMarkCv.width, plusMarkCv.height);
+  for (var i = 0; i < plusScene.length; i++) { var d = plusScene[i];
+    var p = t === null ? 1 : Math.max(0, Math.min(1, (t - d.dl) / 0.7)); if (p <= 0) continue;
+    var e = plusEaseOut(p); ctx.globalAlpha = Math.min(1, p * 1.4);
+    ctx.beginPath(); ctx.arc(d.x + d.ox * (1 - e), d.y + d.oy * (1 - e), d.r * Math.min(1, p * 1.1), 0, 7); ctx.fillStyle = d.c; ctx.fill(); }
+  ctx.globalAlpha = 1; }
+function plusMarkRun() { cancelAnimationFrame(plusMarkRaf); plusMarkBuild(); var t0 = performance.now(), D = 1.5;
+  (function f(now) { var t = (now - t0) / 1000; plusMarkDraw(t / D >= 1 ? null : t / D); if (t / D < 1) plusMarkRaf = requestAnimationFrame(f); })(performance.now()); }
+function plusStarsInit() { var p = plusStarsCv.parentElement; plusSW = p.clientWidth; plusSH = p.clientHeight;
+  plusStarsCv.width = plusSW * PLUS_DPR; plusStarsCv.height = plusSH * PLUS_DPR; plusStarsCtx.setTransform(PLUS_DPR, 0, 0, PLUS_DPR, 0, 0);
+  var rnd = function (a, b) { return a + Math.random() * (b - a); }, N = Math.min(150, Math.round(plusSW * plusSH / 7000));
+  plusParts = []; for (var i = 0; i < N; i++) plusParts.push({ x: rnd(0, plusSW), y: rnd(0, plusSH), r: rnd(0.8, 2.5),
+    vx: rnd(-0.14, 0.14), vy: rnd(-0.11, 0.11), a: rnd(0.12, 0.34), ph: rnd(0, 6.28),
+    c: Math.random() < 0.32 ? '#41C2E3' : '#4171E3' }); }
+function plusStarsDraw(t) { plusStarsCtx.clearRect(0, 0, plusSW, plusSH);
+  for (var i = 0; i < plusParts.length; i++) { var q = plusParts[i]; q.x += q.vx; q.y += q.vy;
+    if (q.x < -4) q.x = plusSW + 4; else if (q.x > plusSW + 4) q.x = -4;
+    if (q.y < -4) q.y = plusSH + 4; else if (q.y > plusSH + 4) q.y = -4;
+    var tw = 0.72 + 0.28 * Math.sin(t * 0.0013 + q.ph);
+    plusStarsCtx.globalAlpha = q.a * tw; plusStarsCtx.beginPath(); plusStarsCtx.arc(q.x, q.y, q.r, 0, 7); plusStarsCtx.fillStyle = q.c; plusStarsCtx.fill(); }
+  plusStarsCtx.globalAlpha = 1; }
+function plusStarsLoop(now) { plusStarsDraw(now); plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+function plusStarsStart() { cancelAnimationFrame(plusStarsRaf); plusStarsInit(); if (plusReduce) plusStarsDraw(0); else plusStarsRaf = requestAnimationFrame(plusStarsLoop); }
+function plusPaintStatic() { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); }
+function plusMount() {
+  plusMarkCv = document.getElementById('plus-mark');
+  plusStarsCv = document.getElementById('plus-stars');
+  if (!plusMarkCv || !plusStarsCv) return;
+  plusStarsCtx = plusStarsCv.getContext('2d');
+  plusMounted = true;
+  /* Defer one frame so the just-unhidden section reports real layout dims. The
+     handle is stored so plusTeardown can cancel a still-pending mount — otherwise
+     a rapid enter->leave->enter could let an orphaned callback fire and start a
+     redundant loop (the plusMounted guard covers enter->leave, not this race). */
+  plusMountRaf = requestAnimationFrame(function () { plusMountRaf = null; if (!plusMounted) return;
+    if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkRun(); } });
+}
+function plusTeardown() { plusMounted = false; cancelAnimationFrame(plusMountRaf); cancelAnimationFrame(plusMarkRaf); cancelAnimationFrame(plusStarsRaf); plusMountRaf = null; plusMarkRaf = null; plusStarsRaf = null; }
+function syncPlusChrome() {
+  if (typeof document === 'undefined' || !document.body) return;
+  var active = (typeof URL_TAB !== 'undefined' && URL_TAB === 'settings')
+    && (typeof SETTINGS_SEC !== 'undefined' && SETTINGS_SEC === 'plus');
+  document.body.classList.toggle('plus-active', active);
+  if (active) { if (!plusMounted) plusMount(); }
+  else if (plusMounted) plusTeardown();
+}
+if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); } } });
+/* ================= end #1615 Plus canvases ================= */
+
 
 /* ---- appearance: follow this Mac, or override it (#40) ------------------
    The head script has already applied any stored choice; this paints the
@@ -14244,7 +14393,9 @@ function showTab(tab) {
     t.classList.toggle('on', on);
     t.setAttribute('aria-selected', String(on));
   });
-  if (!btn && !BUTTONLESS.includes(tab)) return;
+  // #1615: sync on this early-return path too (symmetric with openDetail), so a
+  // future buttonless tab cannot strand body.plus-active + the canvas rAFs.
+  if (!btn && !BUTTONLESS.includes(tab)) { syncPlusChrome(); return; }
   syncUrl();
   const agents = tab === 'agents';
   // Tab first (boardbar is the tab's one honest witness), then the computed
@@ -14294,6 +14445,11 @@ function showTab(tab) {
     SURVIVAL_HELD = false;
   } else { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
+  /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
+     the Settings section is not Plus); re-blue + re-mount on return. The Settings
+     section persists across tab switches, so this must run on every tab change,
+     not only on a section change. */
+  syncPlusChrome();
   /* #520: in the consolidated view the Agents and Projects tabs are one
      screen: the board's list is the left rail and the projects panel is
      the rest. Settings and the others stay whole pages. */
@@ -16193,22 +16349,38 @@ function worldswRender(data) {
   }
   sw.hidden = false;
 }
-/* #2238: switch the active Kosmos. The registry flip is POST /api/worlds/active
-   (#2212). This slice makes SELECTION work -- on 0.6.35 the rows were read-only, so a
-   created world could not be selected at all. On success it marks the new active world
-   (list + promoted name) and shows an HONEST banner that its projects and agents load
-   after the board restarts.
-   WHY NOT auto-restart here: a world's data-root is applied only at board boot, and the
-   installed board is a DETACHED process the app does not own (install/setup.sh: the
-   login job is RunAtLoad with NO KeepAlive, and `kosmos start` daemonises via nohup and
-   exits). Restarting it in-app therefore needs a detached `kosmos restart` helper
-   (stop-by-pid, wait for the port to free, start) plus a boot-token reconnect -- which
-   is fleet-sensitive and only verifiable by a live board restart on a real install, not
-   on the shared box. That auto-restart is the #2238 follow-up; shipping a "Restart now"
-   button that silently no-ops (the old launchctl-kickstart path re-ran `kosmos start`,
-   which sees the healthy port and does nothing) would be worse than honest guidance.
-   Failures are classified by the endpoint contract (404 no-such-world, 409 busy, else). */
+/* #2238: switch the active Kosmos. POST /api/worlds/active flips the registry and,
+   when the board can SAFELY self-restart, restarts it onto the new world (#2346:
+   engine/boardrestart's conservative com.kosmos.board KeepAlive guard, which never
+   stops a board that would not relaunch). The response is FINAL about which path
+   happened, so the UI keys on it rather than guessing:
+     - restartRequired:false -> a no-op switch to the world the board already booted
+       into; nothing to restart, so just say it is already active.
+     - restarting:true       -> the board is self-restarting NOW. Show "Switching...",
+       wait for it to come back on the new world (worldswReconnect), reload on the
+       confirmed flip.
+     - restarting:false (with a real restartRequired) -> a from-source / unmanaged
+       board that will NOT self-restart safely; show the honest manual-restart banner.
+   This replaces the earlier always-manual banner (the auto-restart was the deferred
+   #2238 follow-up, now landed via #2346). Failures are classified by the endpoint
+   contract (404 no-such-world, 409 busy, else). */
 let WORLDSW_SWITCHING = false;
+// The reconnect poll cadence. `let` (not const) so a browser check can lower them and
+// exercise the flip deterministically without waiting real seconds.
+let WORLDSW_RECONNECT_INTERVAL_MS = 2000;
+let WORLDSW_RECONNECT_TIMEOUT_MS = 150000;
+// After this long with no reboot, the reconnect banner offers the manual restart as an
+// escape hatch (a silently-no-op'd self-restart would otherwise show a bare spinner for
+// the whole ceiling). `let` so a browser check can lower it.
+let WORLDSW_RECONNECT_SLOW_MS = 20000;
+// True only while worldswReconnect is polling. worldswClose reads it: the status banner
+// lives inside the switcher menu, so closing the menu would hide the reconnect guidance;
+// while a reconnect is in flight we keep the menu open so that guidance stays visible.
+let WORLDSW_RECONNECTING = false;
+// The switcher trigger button now shows the active world's name; several paths restore
+// focus to it after worldsFetch rebuilds (and drops) the clicked row. Shared so
+// worldswReconnect's timeout path does not re-implement it.
+function worldswFocusTrigger() { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); }
 async function worldswSwitch(id, name) {
   if (WORLDSW_SWITCHING) return;
   const banner = document.getElementById('worldsw-restart');
@@ -16229,34 +16401,129 @@ async function worldswSwitch(id, name) {
       say('Could not reach Kosmos to switch. Try again.');
       return;
     }
-    const focusTrigger = () => { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); };
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const because = body && body.because;
       // 404 refetches, which rebuilds the rows and can drop the clicked button (the
       // world was deleted), so restore focus to the trigger as the success path does.
-      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); focusTrigger(); }
+      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); worldswFocusTrigger(); }
       else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
       else { say(because || 'Could not switch to that Kosmos.'); }
       return;
     }
-    // Success: the active world is recorded. Prefer the server-returned world.name over
-    // the row's captured name (they agree in practice, but the server is authoritative if
-    // a concurrent rename happened). Mark it (list + header), be honest that its projects
-    // and agents load only after the board restarts, and move focus to the switcher
-    // trigger (which now shows the new active name) since the refetch drops the button.
+    // Success: the active world is recorded. Prefer the server-returned world (the
+    // server is authoritative if a concurrent rename happened) for both the id the
+    // reconnect polls on and the name shown.
     const okBody = await res.json().catch(() => null);
-    const switchedName = (okBody && okBody.world && okBody.world.name) || name;
+    const world = okBody && okBody.world;
+    // The server judged the no-op against the CANONICAL world.id (not the raw request
+    // id), and /api/status.activeWorldId reports that same canonical id, so the poll
+    // keys on world.id too.
+    const switchedId = (world && world.id) || id;
+    const switchedName = (world && world.name) || name;
+    // restarting is FINAL (server contract): true = the board is self-restarting now.
+    const restarting = !!(okBody && okBody.restarting);
+    // restartRequired defaults true; only an explicit false means a no-op switch to the
+    // world the running board already booted into.
+    const noop = !!okBody && okBody.restartRequired === false;
+
+    // Mark the new active world (list + promoted name) before branching on the outcome.
     await worldsFetch().catch(() => {});
-    say('Switched to ' + switchedName + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).');
-    focusTrigger();
+
+    // Check restarting BEFORE noop. The valid server contract makes these mutually
+    // exclusive (restarting:true implies !isNoop implies restartRequired:true), so the
+    // order is invisible for any contract-valid response -- but a defensive board that
+    // ever sent restarting:true with restartRequired:false must still reconnect (the
+    // board IS restarting), never be mistaken for an already-active no-op.
+    if (restarting) {
+      // The board is restarting itself onto the new world; wait for it to come back
+      // and reload. The WORLDSW_SWITCHING guard is held across the whole poll (this is
+      // awaited before the finally), so a second switch cannot race the restart.
+      // worldsFetch above rebuilt the rows and dropped the clicked button, so move
+      // focus to the switcher trigger (now showing the new name) before the poll, or
+      // keyboard focus would sit on <body> for the whole ~150s reconnect.
+      worldswFocusTrigger();
+      await worldswReconnect(switchedId, switchedName, say);
+      return;
+    }
+    if (noop) {
+      say(switchedName + ' is already your active Kosmos.');
+      worldswFocusTrigger();
+      return;
+    }
+    // A board that will not self-restart safely (from source / unmanaged): honest
+    // guidance, no auto-reconnect (a poll would wait out the full timeout for a
+    // restart that is never coming).
+    say('Switched to ' + switchedName + '. Restart Kosmos to finish switching (run "kosmos restart", or restart your Mac); its projects and agents load when the board comes back.');
+    worldswFocusTrigger();
   } finally {
     WORLDSW_SWITCHING = false;
   }
 }
+
+/* #2238: the board reported it is self-restarting (restarting:true) onto the new world.
+   Wait for it to come back, then reload so the app loads that world. Mirrors the update
+   flow's reconnect (see the #553 spinner poll above): poll GET /api/status every ~2s,
+   treat a THROWN fetch (connection refused while launchd relaunches the board) as "still
+   restarting" and keep polling, and key on activeWorldId -- the world the LIVE board
+   BOOTED into (engine/worldenv.bootedWorld, NOT the registry pointer that flipped the
+   instant the switch POSTed), so the poll cannot false-succeed before the board actually
+   reboots onto the new world. On the confirmed flip, reload. A ~150s ceiling falls back
+   to the manual banner rather than polling forever.
+   SLOW GUIDANCE: the board self-restart is fire-and-forget, so if the server's
+   post-response selfRestart() no-ops (it re-checks canSelfRestart and may abort), the
+   board never reboots and nothing flips -- without a mid-poll signal the user would
+   watch a bare "Switching..." for the full ceiling. So once the poll has run past
+   WORLDSW_RECONNECT_SLOW_MS with no flip, update the banner ONCE to offer the manual
+   restart as an escape hatch while still polling (mirrors the #553 update flow's "slow"
+   verdict). The reload-on-flip behaviour is unchanged. */
+async function worldswReconnect(switchedId, switchedName, say) {
+  // WORLDSW_RECONNECTING keeps the switcher menu (and this banner, which lives inside it)
+  // open across the poll -- see worldswClose. Cleared in finally so a menu close, or a
+  // second switch, is possible again the moment the poll ends (success reload or timeout).
+  WORLDSW_RECONNECTING = true;
+  try {
+    say('Switching to ' + switchedName + '…');
+    const start = Date.now();
+    const deadline = start + WORLDSW_RECONNECT_TIMEOUT_MS;
+    let slowShown = false;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, WORLDSW_RECONNECT_INTERVAL_MS));
+      let booted = null;
+      try {
+        const s = await fetch('/api/status', { cache: 'no-store' });
+        if (s.ok) { const body = await s.json().catch(() => null); booted = body && body.activeWorldId; }
+      } catch { /* the board dropped the connection mid-restart; that is expected, keep polling */ }
+      if (booted != null && booted === switchedId) {
+        say('Switched to ' + switchedName + '. Reloading…');
+        worldswReload();
+        return;
+      }
+      if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
+        slowShown = true;
+        say('Still switching to ' + switchedName + '… this is taking longer than usual. If Kosmos does not come back on its own, restart it (run "kosmos restart", or restart your Mac).');
+      }
+    }
+    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, restart Kosmos (run "kosmos restart", or restart your Mac).');
+    worldswFocusTrigger();
+  } finally {
+    WORLDSW_RECONNECTING = false;
+  }
+}
+// Indirected through a named function so a browser check can observe the reload without
+// actually navigating the test page.
+function worldswReload() { location.reload(); }
 function worldswClose() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu || menu.hidden) return;
+  // #2238: while a reconnect poll is in flight, keep the menu (and the status banner it
+  // contains) open. The banner is nested inside the menu, so closing it would hide the
+  // "Switching..."/slow/timeout guidance the reconnect exists to show -- and outside-click,
+  // Escape, and the focused trigger button all route here, so this is highly reachable
+  // exactly in the slow/stuck case where the user is most likely to click away and most
+  // needs the manual-restart guidance. The poll's own end (reload or ~150s timeout) is what
+  // resolves it; the menu is closable again the instant WORLDSW_RECONNECTING clears.
+  if (WORLDSW_RECONNECTING) return;
   menu.hidden = true;
   document.getElementById('worldsw-btn').setAttribute('aria-expanded', 'false');
   // #2238: clear the post-switch status so a reopen never shows a stale (and possibly
@@ -20085,6 +20352,12 @@ function openDetail(sessionName, section) {
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   URL_TAB = 'detail';
+  /* #1615: openDetail is the THIRD writer of URL_TAB (after showTab and, via it,
+     settingsGo). Jumping straight to the agent detail from the Plus tab must
+     un-blue and tear the Plus canvases down too, or body.plus-active + both rAF
+     loops would survive behind the detail view. Latent today (no reachable caller
+     from inside Plus), guarded now so a future one cannot reintroduce the leak. */
+  syncPlusChrome();
   syncUrl();
   /* ⚠️ THE SECTION IS CHOSEN ON OPEN AND NEVER BY THE POLL. A caller that
      knows where the person is going (the stale mark on the card would be the
@@ -20668,6 +20941,10 @@ function settingsGo(section, opts) {
      this section stays the one on screen -- gated there, not here, so a
      hidden Plus section still costs nobody a fetch. */
   if (section === 'plus') paintPlus();
+  /* #1615: blue-skin the whole app while Plus is on screen and mount its two
+     canvases; teardown + un-blue for every other section. syncPlusChrome reads
+     the true state itself, so it is a safe no-op elsewhere. */
+  syncPlusChrome();
   /* apply=true: if the one boot-time fetch failed, arriving here
      heals it; applyStyle removes before re-adding, so a repaint of an
      already-applied style is a no-op on screen. */
@@ -27506,18 +27783,14 @@ function openCreate(initialMode) {
    (for the first-run import link); binding it directly would hand the click Event
    in as that arg. */
 document.getElementById('new-agent').addEventListener('click', () => openCreate());
-/* #1652: the first-run "look in my Documents and Downloads" find-agents link, in
-   frPaintFleet's create arm. DELEGATED on #fr-fleet so the create arm never
-   touches the node itself (frPaintFleet renders into a stub DOM in the node
-   tests, where a per-render querySelector would throw). An arrow wraps
-   openCreate('import') so the click Event is not passed as the mode. frFinish
-   leaves first-run, then openCreate('import') opens the create panel straight on
-   the import mode (threaded through loadRoles' async pickMode), which runs
-   populateFoundImports() -> the on-demand /api/scan-import of the TCC folders the
-   #2125 auto scan skips. */
-document.getElementById('fr-fleet').addEventListener('click', (e) => {
-  if (e.target.closest('.fr-lookimport')) frFinish(() => openCreate('import'));
-});
+/* #1652/#5: the first-run find-agents "look in my Documents and Downloads" link and
+   its delegated #fr-fleet handler were REMOVED on Josh's 0.6.39 ruling (see the
+   frPaintFleet create arm). Agents in Documents/Downloads are reached by the
+   permission-granted full scan loading them onto screen 9 (now wired in
+   frScanAgents: the import scan runs when file-access is granted, and the folder
+   candidates render via frPaintScan), not a link that jumped to create. openCreate
+   still takes an optional initialMode, which the import panel uses; nothing now
+   calls it with 'import' from first-run. */
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
@@ -35667,13 +35940,13 @@ const FR_STEPS = 9;
 // "next step" reads read from. Success (the return/dock/reveal screen) is now
 // step 7; About-you is step 8. The ordered frGo if/else-if ladder is literal
 // 1..9.
-const FR_STEP_RETURN = 7;
 const FR_STEP_YOU = 8;
-// ⚠️ The About-you step's generation, same contract as FR_RETURN_GEN: a
-// continuation captured under one generation must do NOTHING once the
-// generation moves -- a bare step-number check cannot tell "still here"
-// from "left and came back", and the stale save advancing a fresh entry
-// mid-typing is exactly the class the return step already solved.
+// ⚠️ The About-you step's generation: a continuation captured under one
+// generation must do NOTHING once the generation moves -- a bare step-number
+// check cannot tell "still here" from "left and came back", and the stale save
+// advancing a fresh entry mid-typing is exactly the class this solves. (The
+// success screen carried the same pattern via FR_RETURN_GEN until #12 (0.6.39)
+// made it a static screen with no async paint to retire.)
 let FR_YOU_GEN = 0;
 /* install-flow-9screen: the permission-gate poll. Replaces the old single-gate
    Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
@@ -35836,12 +36109,10 @@ function frGo(step) {
   if (!Number.isFinite(step) || step < 1) step = 1;
   if (step > FR_STEPS) step = FR_STEPS;
 
-  // ⚠️ Leaving the Success (return) step retires its async machine look: an
-  // answer landing after the person moved on must not repaint a pane they are no
-  // longer on. AFTER the clamps, so the bump and the paint branch agree about
+  // ⚠️ Leaving the About-you step retires its async work: its save and prefill
+  // both settle async, and a stale settlement must not repaint a pane the
+  // person left. AFTER the clamps, so the bump and the paint branch agree about
   // what `step` is, against the named constant rather than a bare number.
-  if (step !== FR_STEP_RETURN) FR_RETURN_GEN += 1;
-  // Same guard for the About-you step: its save and prefill both settle async.
   if (step !== FR_STEP_YOU) FR_YOU_GEN += 1;
   // install-flow-9screen: leaving a gated screen (S2 Access, S3 Automation)
   // stops the permission-gate poll and invalidates any in-flight one (frGateStop
@@ -35891,13 +36162,15 @@ function frGo(step) {
     frPaintOpenai();
     frConnResume();
   } else if (step === 6) {
-    // S6 Self improving (Angel wires the two switches' behavior).
+    // S6 Self improving: one consent switch (the daily feedback report). #11
+    // (0.6.39) removed the create-agent-ping switch from this screen.
     frActions({ label: 'Next', go: () => frGo(7) });
-    frRefreshFeedback(); frRefreshPing();   // PR-C2 (#2037 + #2020): paint persisted/default-ON state on show
+    frRefreshFeedback();   // #2037: paint persisted/default-ON state on show
   } else if (step === 7) {
-    // S7 Success: the app-location look + reveal + dock line (frPaintReturn).
+    // S7 Success: a static screen (#12, 0.6.39). The app-location reveal
+    // subsystem was removed; the pane is fixed markup, so there is nothing to
+    // paint here beyond wiring the single primary onward to step 8.
     frActions({ label: 'Next', go: () => frGo(8) });
-    frPaintReturn();
   } else if (step === 8) {
     // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
@@ -35909,13 +36182,15 @@ function frGo(step) {
   frFocusActiveHead(pane);
 }
 
-/* PR-C2 (#2037 + #2020): behavior for install-flow Screen 6's two consent
-   switches. Renet's markup is static spans (#fr-s6-feedback / #fr-s6-createping,
-   role=switch, aria-checked, default-ON) present from first paint. Same backends
-   as the Settings switches (/api/feedback-setting, /api/ping-setting); both
-   default ON, so these are the install-time opt-OUT. Bound once at top level
-   because the spans exist before this script runs. A could-not-read leaves the
-   markup at its default-ON position, never painting a false Off. */
+/* #2037: behavior for install-flow Screen 6's consent switch (the daily feedback
+   report). Static span (#fr-s6-feedback, role=switch, aria-checked, default-ON)
+   present from first paint. Same backend as the Settings switch
+   (/api/feedback-setting); default ON, so this is the install-time opt-OUT. Bound
+   once at top level because the span exists before this script runs. A
+   could-not-read leaves the markup at its default-ON position, never a false Off.
+   #11 (0.6.39): the create-agent-ping switch was removed from this screen (it
+   belongs on the Create-an-Agent screen, #2020); its /api/ping-setting backend is
+   unchanged, only the install-flow control and wiring are gone. */
 function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
 function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
 
@@ -35923,7 +36198,7 @@ function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'
 // purpose: a user's toggle must supersede an in-flight on-show refresh, and a
 // later refresh must supersede a stale toggle response -- one counter, latest
 // action wins either way. FR_FB_SAVING blocks a second toggle while a PUT is in
-// flight. (frRefreshPing/frPingToggle mirror this with FR_PING_*.)
+// flight.
 let FR_FB_EPOCH = 0, FR_FB_SAVING = false;
 async function frRefreshFeedback() {
   const el = document.getElementById('fr-s6-feedback'); if (!el) return;
@@ -35950,34 +36225,8 @@ async function frFeedbackToggle() {
   finally { FR_FB_SAVING = false; }
 }
 
-let FR_PING_EPOCH = 0, FR_PING_SAVING = false;
-async function frRefreshPing() {
-  const el = document.getElementById('fr-s6-createping'); if (!el) return;
-  const mine = ++FR_PING_EPOCH;
-  try {
-    const res = await fetch('/api/ping-setting');
-    if (!res.ok) return;
-    const r = await res.json();
-    if (mine === FR_PING_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
-  } catch { /* leave the default */ }
-}
-async function frPingToggle() {
-  const el = document.getElementById('fr-s6-createping'); if (!el || FR_PING_SAVING) return;
-  FR_PING_SAVING = true; const mine = ++FR_PING_EPOCH;
-  const next = !frSwOn(el);
-  frSwSet(el, next);
-  try {
-    const res = await fetch('/api/ping-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== FR_PING_EPOCH) return;
-    if (!res.ok) { frSwSet(el, !next); return; }
-    if (typeof body.on === 'boolean') frSwSet(el, body.on);
-  } catch { if (mine === FR_PING_EPOCH) frSwSet(el, !next); }
-  finally { FR_PING_SAVING = false; }
-}
-
-// Static spans -> bind once at top level. Click AND Space/Enter (role=switch is
-// keyboard-operable). The spans exist before this script runs (markup ~line 8149).
+// Static span -> bind once at top level. Click AND Space/Enter (role=switch is
+// keyboard-operable). The span exists before this script runs.
 (function bindS6Switches() {
   const wire = (id, fn) => {
     const el = document.getElementById(id); if (!el) return;
@@ -35985,7 +36234,6 @@ async function frPingToggle() {
     el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fn(); } });
   };
   wire('fr-s6-feedback', frFeedbackToggle);
-  wire('fr-s6-createping', frPingToggle);
 })();
 
 /* --------------------------------------------------------------------------
@@ -36086,7 +36334,7 @@ async function frPaintYou() {
       // COME BACK while the save was in flight. The record is saved either
       // way; advancing a step, or writing into a pane, that belongs to a
       // newer generation is the answer-landing-after-they-moved-on shape
-      // FR_RETURN_GEN exists for, and a step-number check cannot see the
+      // FR_YOU_GEN exists for, and a step-number check cannot see the
       // came-back case.
       if (entry !== FR_YOU_GEN) return;
       if (!res.ok) {
@@ -36208,32 +36456,51 @@ function frCheckRow(c, opts) {
     + '</div></div>';
 }
 
-/* install-flow-9screen: S2 Access's "Allow Access" button, delegated on the pane.
-   It opens System Settings -> Privacy -> Files & Folders (POST
-   /api/open-file-access-settings; the engine derives the URL). It cannot GRANT the
-   access (TCC), so the gate poll -- not this click -- flips the pill to granted and
-   unlocks Next. Only a failure speaks, in #fr-s2-msg; the Settings window itself is
-   the success feedback (same rule as S3's Turn-On buttons). */
+/* #1 (Josh 0.6.39): the grant buttons must FIRE the real macOS prompt, not open
+   System Settings. Josh's fresh-account test never got the "Terminal would like to
+   access your files" dialogs on the permission screens; they only appeared later at
+   Import. So a grant click now POSTs Kitty's native trigger, which fires the actual
+   prompt (fire-and-forget: the dialog appears, the user hits Allow, the gate poll
+   below detects the grant and unlocks Next). It falls back to opening System
+   Settings ONLY when the native trigger is unavailable ({ok:false}, e.g. a browser,
+   or before the endpoint has shipped) -- the old behaviour, so nothing regresses
+   during the native rollout. sleep is not a prompt category (pmset, programmatic),
+   so it keeps opening Settings and passes no trigger. */
+async function frFirePermission(triggerUrl, fallbackUrl, msg) {
+  if (msg) msg.textContent = '';
+  if (triggerUrl) {
+    try {
+      const res = await fetch(triggerUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+      const body = await res.json().catch(() => null);
+      // Prompt fired: the gate poll takes it from here. Nothing else to do.
+      if (res.ok && body && body.ok === true) return;
+      // {ok:false} or a non-ok status: the native mechanism is unavailable; fall
+      // back to opening Settings so the person is never left with a dead button.
+    } catch { /* endpoint missing / network error -> fall back */ }
+  }
+  // A category with no Settings fallback (a hypothetical trigger-only gate) simply
+  // stops after the trigger rather than fetching a null URL. Today S2 and S3-tmux
+  // always pass a fallback and S3-sleep is fallback-only, so this only hardens a
+  // future caller.
+  if (!fallbackUrl) return;
+  try {
+    const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    }
+  } catch {
+    if (msg) msg.textContent = 'we could not open System Settings';
+  }
+}
+
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   const b = e.target.closest('.s2-allow');
   if (!b) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
-  try {
-    const res = await fetch('/api/open-file-access-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }
+  finally { b.disabled = false; }
 });
 
 /* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
@@ -36251,26 +36518,19 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  const url = gate === 'sleep' ? '/api/open-sleep-settings'
+  /* #1: tmux fires the native Accessibility PROMPT (Kitty's /api/a11y-prompt, which
+     also injects tmux into the Accessibility list so it appears and is grantable -
+     the gap Josh hit, screenshot 9.51.30). sleep is programmatic (pmset), not a
+     prompt category, so it opens Settings and passes no trigger. Both fall back to
+     opening Settings when the native trigger is unavailable. */
+  const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
+  const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
     : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
-  if (!url) return;
+  if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;
-  try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission(trigger, fallback, msg); }
+  finally { b.disabled = false; }
 });
 
 // install-flow-9screen: frPaintMachine + the standalone machine-check screen
@@ -36930,44 +37190,10 @@ function frConnPaintProgress(progress) {
   }
 }
 
-/* The Success screen's reveal, delegated (the row repaints wholesale).
-   Failure lands in ONE message line with the route's sentence -- replaced,
-   never stacked, so repeated failed clicks do not pile paragraphs. */
-function frRevealSay(html) {
-  const dock = document.getElementById('fr-return-msg');
-  let m = dock.querySelector('.fr-msg');
-  // Clearing REMOVES the node: an empty paragraph parked in a live region
-  // is one more thing for the next reader (human or machine) to reason
-  // about, and nothing needs it kept.
-  if (!html) { if (m) m.remove(); return; }
-  // No role on the child: the dock itself is the live region, and a status
-  // inside a status double-announces on some screen readers.
-  if (!m) { dock.insertAdjacentHTML('afterbegin', '<p class="fr-msg"></p>'); m = dock.querySelector('.fr-msg'); }
-  m.innerHTML = html;
-}
-// install-flow-9screen: the reveal handler now lives on the Success screen
-// (fr-pane-7) and fires for BOTH the app-location "Show me where it is" button
-// frPaintReturn paints (#fr-reveal) and Mona's static S7 button (#fr-s7-showwhere).
-document.getElementById('fr-pane-7').addEventListener('click', async (e) => {
-  const b = e.target.closest('#fr-reveal, #fr-s7-showwhere');
-  if (!b) return;
-  b.disabled = true;
-  try {
-    const res = await fetch('/api/reveal-app', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      frRevealSay(esc((body && body.error) || 'we could not show it'));
-    } else {
-      // A failure sentence from an earlier click must not keep standing
-      // (and re-announcing) over a reveal that just worked.
-      frRevealSay('');
-    }
-  } catch {
-    frRevealSay('we could not show it');
-  } finally {
-    b.disabled = false;
-  }
-});
+// #12 (0.6.39): the Success screen's reveal subsystem (frRevealSay + the
+// fr-pane-7 "Show me where it is" click handler that fired for #fr-reveal and
+// #fr-s7-showwhere) was removed. The screen is now static. The Settings screen
+// keeps its own separate reveal (#set-reveal, wired below with #set-reveal-msg).
 
 /**
  * Will pressing Connect on Claude actually DOWNLOAD something?
@@ -37165,19 +37391,30 @@ function frClaudeConfirmClose() {
   if (!btn.classList || !btn.classList.contains('is-connected')) btn.disabled = false;
 }
 
-document.getElementById('fr-pane-3').addEventListener('click', (e) => {
-  const b = e.target.closest('#fr-llm-connect');
-  if (!b) return;
-  /* A second press while the panel is open closes it again, which is the
-     behaviour the aria-expanded contract promises. Otherwise this is just the
-     gated entry; the confirm decision lives in frConnectStart. */
-  const box = document.getElementById('fr-claude-confirm');
-  if (box && !box.hidden) { frClaudeConfirmClose(); return; }
-  // The same one-press guard the primary has: start() is idempotent under
-  // it anyway, but the list button should not LOOK pressable twice.
-  b.disabled = true;
-  Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
-});
+/* 🛑 #fr-llm-connect LIVES IN #fr-pane-5, NOT #fr-pane-3 (Josh 0.6.39 #3: "Connect
+   Claude is dead"). This handler used to be DELEGATED on #fr-pane-3; when the
+   wizard grew screens and the connect step moved to pane-5, clicks stopped
+   bubbling to a pane-3 listener and the button became tappable-but-inert -- and no
+   test caught it. A DIRECT listener on the button itself (the same pattern the
+   sibling #fr-openai-connect already uses) cannot be broken by a future pane
+   renumber. A click on the button's child <span> (the button "grew a check")
+   still bubbles to the button, so currentTarget is correct. */
+(() => {
+  const connectBtn = document.getElementById('fr-llm-connect');
+  if (!connectBtn) return;
+  connectBtn.addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    /* A second press while the panel is open closes it again, which is the
+       behaviour the aria-expanded contract promises. Otherwise this is just the
+       gated entry; the confirm decision lives in frConnectStart. */
+    const box = document.getElementById('fr-claude-confirm');
+    if (box && !box.hidden) { frClaudeConfirmClose(); return; }
+    // The same one-press guard the primary has: start() is idempotent under
+    // it anyway, but the list button should not LOOK pressable twice.
+    b.disabled = true;
+    Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
+  });
+})();
 
 document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) => {
   /* currentTarget, not target: the sibling handler already does this, and
@@ -37219,9 +37456,10 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
 });
 
 /* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct
-   listener rather than the delegated pattern fr-llm-connect uses above --
-   there is exactly one button per id here, so delegation would add
-   indirection with nothing to share it with. */
+   listener, the same pattern fr-llm-connect now uses above -- there is
+   exactly one button per id here, so delegation would add indirection with
+   nothing to share it with (and a per-pane delegated listener is exactly what
+   broke fr-llm-connect when the connect step moved panes; Josh 0.6.39 #3). */
 /* Which panel Connect opens depends on whether the runner is already here.
    ⚠️ ASKED EVERY TIME, not cached: a runner can arrive or leave between
    presses, and Settings' equivalent says the same in its own comment.
@@ -37724,11 +37962,45 @@ let FR_SCAN_GEN = 0;
 async function frScanAgents() {
   const mine = ++FR_SCAN_GEN;
   let out = null;
+  /* 🔑 #1652: LOAD FOUND AGENTS ONTO THIS SCREEN AFTER THE GRANT, NO LINK.
+     Josh's 0.6.39 ruling, verbatim: "There is no link to appear, even. It just
+     pulls them in." The auto scan (/api/scan-agents) is TCC-free (#2125) and
+     deliberately skips Documents/Downloads/Desktop, so a person whose agent
+     folders sit there was told to "create their first agent" though they have
+     one. Once Screen 2's file-access permission is GRANTED, the fix belongs in
+     DETECTION: reach those folders via the import scan (/api/scan-import ->
+     discover.scan({importScan:true})), so the agents load onto this screen
+     through the ordinary frPaintScan path -- not a link that jumps to create.
+
+     🛑 THE GRANT GATE IS LOAD-BEARING, NOT A CONVENIENCE. The import scan walks
+     the TCC folders, which is exactly what fires the macOS Documents/Downloads
+     prompt. #2125 removed that ambush from a fresh install; running the import
+     scan UNconditionally here would put it straight back. So we only reach for
+     it when /api/file-access-status reports a POSITIVE grant (checkable:true +
+     granted:true) -- the person already asked for it on Screen 2, so the walk is
+     expected. Every other reading (declined, not-yet-checked, or a browser with
+     no native writer -> checkable:false) keeps the TCC-free auto scan. Ordering
+     makes this clean: Screen 2 precedes Screen 9, and this scan fires only from
+     Screen 9's create empty-state, so the grant verdict is already settled by
+     the time we choose a route. */
+  let full = false;
   try {
-    const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+    const g = await fetch('/api/file-access-status', { cache: 'no-store' });
+    const gr = g.ok ? await g.json() : null;
+    full = !!(gr && gr.checkable === true && gr.granted === true);
+  } catch { full = false; }
+  try {
+    const res = await fetch(full ? '/api/scan-import' : '/api/scan-agents', { cache: 'no-store' });
     out = res.ok ? await res.json() : null;
   } catch { out = null; }
   if (mine !== FR_SCAN_GEN) return;
+  /* Both routes answer with `candidates` (agent FOLDERS holding a CLAUDE.md the
+     board has no record of); the import scan additionally reaches ~/Documents.
+     frScanOffer / frPaintScan render `candidates` unchanged, so the granted path
+     surfaces the Documents folders through the same screen and the same Add/Skip
+     rows the auto scan already used. (The import scan's loose `importable` FILES
+     -- a bare agent .md downloaded into Downloads/Desktop -- still flow through
+     the create form's import mode; only the folder candidates load here.) */
   FR_SCAN = out && Array.isArray(out.candidates) ? out : { ok: false, candidates: [] };
   if (FR_STEP > FR_STEP_YOU) frPaintFleet();
 }
@@ -38328,17 +38600,12 @@ function frPaintFleet() {
   /* 🛑 THE DOCK LINE IS GONE FROM THIS ENDING, at Josh's direct ruling
      2026-08-27: "I still don't want the ending of the install to talk about
      putting it in the dock."
-     ⚠️ HIS STATED REASON DOES NOT HOLD OF THE BUILD, and that is recorded
-     rather than repeated: he said "we already told them that on the very
-     very very first step". The Dock line now also sits on the SUCCESS screen (#fr-return-keep), moved there by his 16:08 ruling in the same change that removed it from here; Settings has a separate copy of its own. The
-     installer mentions the Dock only in code comments about icon caching.
-     ⇒ The line is NOT gone from first-run: it moved to the Success screen,
-     under the reveal button (see #fr-return-keep), at his 16:08 ruling. An
-     earlier version of this comment said first-run carried no Dock guidance
-     at all, which was true of the intermediate state and is false now.
-     server.test.js and render-first-run.js assert its ABSENCE here, and
-     click-first-run.js asserts its PRESENCE on Success, so it cannot drift
-     back to this step or fall out of the flow unnoticed. */
+     ⇒ The Dock guidance lives on the Success screen (fr-pane-7), which #12
+     (0.6.39) rewrote into fixed static markup carrying Josh's verbatim copy
+     ("...you will see Kosmos in your dock" and "Drag the Kosmos icon to the far
+     left..."). render-first-run.js and server.test.js assert this ending has NO
+     dock line, and click-first-run.js asserts the Success screen has one, so it
+     cannot drift back to this step or fall out of the flow unnoticed. */
 
   const count = FR && FR.fleetCount;
 
@@ -38484,20 +38751,34 @@ function frPaintFleet() {
        DETECTION, not in a sentence on this screen, and this arm stays silent
        until detection can no longer be wrong about it.
 
-       ⭐ RESOLUTION (2026-09-06, Mona's mock; Splinter verified in code). His
-       ruling above STILL HOLDS: a DISCLOSURE link explaining an empty list is
-       still out. The find-agents link that now renders below is NOT that -- it
-       is the detection-EXTENDING action his ruling DEFERRED TO ("the fix belongs
-       in DETECTION"). The premise changed under #2125, which made the AUTO scan
-       TCC-free so it deliberately skips Documents/Downloads/Desktop to avoid a
-       fresh-install permission ambush. Post-#2125 this empty arm CAN be wrong --
-       agents in those folders were never scanned -- so it is no longer true that
-       "detection can no longer be wrong about it". The link is the mechanism
-       that makes detection REACH those folders: the on-demand /api/scan-import,
-       where the macOS prompt is expected because the person just asked for it.
-       It is the "AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT" (below),
-       turned into an action. Josh can flip it on his morning test; his words
-       above are kept verbatim. */
+       ⭐ RESOLUTION SUPERSEDED (2026-09-06, Josh's 0.6.39 fresh-account test).
+       The find-agents link WAS added here (Mona's mock, Splinter-verified as the
+       detection-extending action the ruling deferred to). Josh's own install test
+       then RE-CONFIRMED his ruling above: on the empty screen he saw the "Look in
+       my Documents and Downloads" text and ruled it should NOT appear (all the
+       more so because the permissions were never actually granted, #1), and when
+       he clicked it, it jumped him to create-agent instead of loading found agents
+       onto this screen.
+       ⇒ THE LINK IS REMOVED and his original ruling holds verbatim: "There is no
+       link to appear, even. It just pulls them in." The fix for agents in
+       Documents/Downloads belongs in DETECTION after all: once the permission flow
+       (#1) actually grants access, a full scan of those folders runs and any
+       agents load onto THIS screen, not a link that jumps to create. So this arm
+       is silent again.
+
+       ✅ WIRED (2026-09-06, #1652, after Kitty's #2347 made the grant real).
+       `frScanAgents` now reaches the TCC folders via the import scan
+       (/api/scan-import) WHEN /api/file-access-status reports a positive grant,
+       so agents in ~/Documents surface through frScanOffer -> `frPaintScan`
+       ("We found N agents on this computer", the Add/Skip rows) on THIS screen --
+       "it just pulls them in", no link. Note the painter is frPaintScan, not
+       frPaintFound: these folders have NO board record (that is why they were
+       invisible), so they are scan CANDIDATES, not found() agents; the ruling
+       named frPaintFound loosely for "the found list on screen 9", and this is
+       the accurate painter for never-recorded disk agents. The grant gate keeps
+       #2125's no-ambush rule intact (the TCC walk fires only after the person
+       granted on Screen 2). Loose importable FILES still route through the create
+       form's import mode; the folder candidates load here. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -38556,14 +38837,7 @@ function frPaintFleet() {
        is expected because the person just asked for it. It is a link, NOT a
        second button: the single Giddy Up stays, frForkActions is unchanged. The
        permission sentence is load-bearing and stays up front. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>'
-      + '<p class="fr-foundnote">Already have an agent on this computer? '
-      + '<button type="button" class="fr-lookimport">Look in my Documents and Downloads</button>. '
-      + 'Kosmos will ask macOS for permission first.</p>';
-    /* The link's click is handled by the #fr-fleet DELEGATED listener (module-level,
-       registered once near the #new-agent handler), NOT bound here: frPaintFleet
-       renders into a stub DOM in the node tests, so a box.querySelector at render
-       time would throw. Delegation keeps this arm from touching the node at all. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;
   }
@@ -38626,100 +38900,15 @@ function frForkActions() {
 }
 
 /* --------------------------------------------------------------------------
-   Step 1 - getting back (the return content, rendered on the orientation step, FR_STEP_RETURN)
+   Step 7 - Success (static screen)
+   --------------------------------------------------------------------------
+   #12 (0.6.39): this screen was a live app-location look (frPaintReturn) with a
+   "Show me where it is" reveal and a machine-check row. Josh's fresh-install
+   test found it duplicated and screwy, so it is now FIXED STATIC MARKUP in
+   fr-pane-7 with the real Kosmos icon in the dock illustration. frPaintReturn,
+   FR_RETURN_GEN and FR_MACHINE_LOOK were removed with it. The Settings screen
+   keeps its own separate app-location reveal (#set-reveal / /api/reveal-app).
    -------------------------------------------------------------------------- */
-
-/**
- * ⚠️ IT LOOKS AGAIN, on entry, rather than reusing step 2's snapshot: a
- * person can sit in this wizard for minutes, and the one question this step
- * answers ("where is the icon RIGHT NOW") deserves an answer at least as
- * fresh as the step. A failed look renders the could-not-ask copy, which
- * is the honest state, never an empty row.
- *
- * ⚠️ The Dock instruction is DRAG, and must never be "simplified" to
- * right-click, Keep in Dock. That advice would not work: Kosmos.app's
- * executable is a script that opens the browser and exits 0, and with
- * LSUIElement false the tile flashes into the Dock and is gone before
- * anyone can right-click it. "Keep in Dock" is unreachable, not merely
- * unreliable (orientation spec, two installer lines cited; independently
- * confirmed by Splinter 2026-08-14).
- */
-/* Entry generation: the pane belongs to its newest entry, and LEAVING the
-   step (frGo to any other step, frClose) retires it. Because the look is
-   SHARED while in flight, two live entries always paint the same answer --
-   the guard's job is the answer or failure that lands after the person has
-   moved on, which must not repaint a pane they are no longer on. Both the
-   success and the failure copies of the guard are tested by leave-then-
-   settle scenarios that red on deletion. */
-let FR_RETURN_GEN = 0;
-/* The machine look is SHARED while in flight: the route shells out twice
-   with 5s timeouts on the server's event loop (its own header says it was
-   split out of /api/first-run for exactly that cost), and repainting the
-   step used to re-fire it as fast as a person could click (the wizard had
-   Back then; any repaint racing a slow answer costs the same, so the share
-   stays). The promise resolves to the PARSED body so every awaiter can
-   read it (a Response body can be consumed once). */
-let FR_MACHINE_LOOK = null;
-async function frPaintReturn() {
-  const gen = ++FR_RETURN_GEN;
-  // The Success screen's frame (spec screen 1): the check row and the dock
-  // line ARE the body; no separate intro paragraph is drawn in the pack
-  // (the container is cleared below so a repaint cannot stack).
-  const introEl = document.getElementById('fr-return-intro');
-  const rowEl = document.getElementById('fr-return-row');
-  const msgEl = document.getElementById('fr-return-msg');
-  introEl.innerHTML = '';
-  // ⚠️ Painted BEFORE the fetch as CHECKING -- a look in progress, which is
-  // what is true at that moment, and a LOCAL state the wire cannot claim.
-  rowEl.innerHTML = frCheckRow({ state: 'checking', title: 'Checking where the Kosmos icon is', detail: 'One moment.' }, { allowLocal: true });
-  // Cleared, not painted: a stale refusal from a previous visit must not
-  // survive a repaint of the row it was about.
-  msgEl.innerHTML = '';
-  try {
-    if (!FR_MACHINE_LOOK) {
-      FR_MACHINE_LOOK = fetch('/api/machine', { cache: 'no-store' })
-        .then((res) => {
-          // ok checked BEFORE parsing: a non-JSON error body used to throw
-          // out of json() first, leaving the status check a dead line.
-          if (!res.ok) throw new Error('machine check failed');
-          return res.json();
-        })
-        .finally(() => { FR_MACHINE_LOOK = null; });
-    }
-    const body = await FR_MACHINE_LOOK;
-    if (gen !== FR_RETURN_GEN) return;
-    // Its OWN field, deliberately not one of `checks` -- see engine/machine.js:
-    // folded into the rows, step 2 counted it and the fleet screen captioned it as a
-    // reason an agent may not run, which it is not.
-    const found = body.appLocation;
-    // ⚠️ Having something to SAY is part of the shape: {state:'ok'} with no
-    // title rendered a confident tick over a blank box, above a dock
-    // pointing at a folder the screen never named. Every sibling screen
-    // guards its payload for content; this one now does too.
-    if (!found || !found.state || !found.title || !found.detail) throw new Error('no app-location answer');
-    // The pack's Show-me button rides the FOUND row only: reliability-or-no-
-    // button, the sleep row's rule. The engine re-derives the location on
-    // click; a look that has gone stale refuses with its own sentence.
-    rowEl.innerHTML = frCheckRow(found)
-      + (found.state === 'ok'
-        ? '<div class="fr-revealrow"><button type="button" id="fr-reveal">Show me where it is</button></div>'
-        : '');
-    /* The message line clears with the row it belongs to: a refusal from a
-       previous look must not sit under a fresh answer. */
-    msgEl.innerHTML = '';
-  } catch {
-    if (gen !== FR_RETURN_GEN) return;
-    // We could not ASK -- a different fact from the engine's own could-not-
-    // check, and worded differently on purpose: the harness tells the fetched
-    // answer, the placeholder, and this fallback apart by their words.
-    rowEl.innerHTML = frCheckRow({
-      state: 'unknown',
-      title: 'We could not check where the Kosmos icon is right now',
-      detail: 'Nothing is wrong. ' + frFindAppHint(),   // #2086: macOS-only Spotlight wording off macOS
-    });
-    msgEl.innerHTML = '';
-  }
-}
 
 /* --------------------------------------------------------------------------
    Opening, finishing, and getting out
@@ -38872,9 +39061,9 @@ function frOpen() {
 }
 
 function frClose() {
+  // Retire any in-flight About-you settlement on the way out (Skip, Escape, the
+  // fork buttons). The Success screen no longer has an async look to retire (#12).
   FR_YOU_GEN += 1;
-  // Same retirement on the way out (Skip, Escape, the fork buttons).
-  FR_RETURN_GEN += 1;
   document.getElementById('firstrun').hidden = true;
   document.querySelectorAll('body > *:not(#firstrun)').forEach((el) => { el.inert = false; });
   if (FR_RETURN && FR_RETURN.focus) FR_RETURN.focus();
@@ -39028,34 +39217,14 @@ function revealBoot() {
   if (c) c.hidden = true;
 }
 
-/* Platform-aware first-run copy (kosmos#2086). The board UI had no platform
-   awareness and showed a Windows user macOS-only instructions (Spotlight, the
-   Dock) on the first-run screen, before the agents pane. macOS keeps its
-   wording; every other platform gets platform-NEUTRAL wording. Neutral, not
-   Windows-specific (Start menu / taskbar), on purpose: the Windows-specific
-   behaviour and the machine's own app-location logic are the #570 Windows
-   umbrella's; this only stops the macOS-only instruction from showing off
-   macOS. The server mirror is engine/machine.js findAppHint, which drives the
-   app-location row's detail (the Spotlight text a Windows user normally hits). */
-function frIsMac() {
-  try {
-    const d = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || '';
-    if (/mac/i.test(d)) return true;
-    if (/win/i.test(d)) return false;
-    return /Mac|Macintosh/i.test(navigator.userAgent || '');
-  } catch { return true; }   // no navigator: keep the historical mac wording
-}
-function frFindAppHint() {
-  return frIsMac()
-    ? 'Type Kosmos into Spotlight, the magnifying glass at the top right of your screen, and it will find it.'
-    : 'Open Kosmos the way you normally open apps on this computer, and it will start.';
-}
-function frApplyPlatformCopy() {
-  if (frIsMac()) return;   // macOS keeps the static Spotlight/Dock wording in the markup
-  const keep = document.getElementById('fr-return-keep');
-  if (keep) keep.innerHTML = '<b>Keep it one click away.</b> Pin Kosmos wherever you '
-    + 'keep the apps you use most, so it is one click away.';
-}
+/* #12 (0.6.39): the platform-aware first-run copy (kosmos#2086: frIsMac,
+   frFindAppHint, frApplyPlatformCopy) was removed. It existed only to rewrite
+   the Success screen's #fr-return-keep line on non-macOS and to word the
+   frPaintReturn could-not-look fallback. Both of those are gone now that the
+   Success screen is fixed static markup carrying Josh's verbatim copy, so the
+   whole cluster (and its firstRunBoot call) went with them. The server side
+   (engine/machine.js findAppHint, which drives the app-location row detail on
+   the Settings screen) is unchanged. */
 
 async function firstRunBoot(force, step) {
   try {
@@ -39072,7 +39241,6 @@ async function firstRunBoot(force, step) {
     if (!state || typeof state !== 'object') return;
     if (state.done && !force) return;
     FR = state;
-    frApplyPlatformCopy();   // #2086: gate the macOS-only first-run copy before any screen paints
     frOpen();
     // ⚠️ Only after `frOpen` has painted step 1, so a forced deep link cannot
     // land on a step whose buttons were never wired.

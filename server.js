@@ -144,6 +144,7 @@ const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
 const fileaccessstatus = require('./engine/fileaccessstatus');
+const promptrequest = require('./engine/promptrequest');
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
 
@@ -2458,6 +2459,15 @@ const server = http.createServer((req, res) => {
            network hiccup. */
         updateLog: updates.installLog(),
         bootedAt: BOOTED_AT,
+        /* #2238: the world the LIVE board booted into (captured at boot in
+           engine/worldenv, NOT a live registry read). A world-switch reconnect
+           poll keys on this: it stays the OLD id through the restart window and
+           only flips once launchd relaunches the board onto the new world, so the
+           poll cannot false-succeed on the registry pointer (which flips the
+           instant POST /api/worlds/active writes it). Inline require is cached, so
+           this does not perturb the worldenv-require ordering the order test
+           guards. */
+        activeWorldId: require('./engine/worldenv').bootedWorld(),
         engine: engineFreshness(),
       });
     } catch (err) {
@@ -2751,13 +2761,37 @@ const server = http.createServer((req, res) => {
           if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
           sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
         }
-        // restartRequired: conservatively always true. A world's roots are applied
-        // ONCE at board startup, and this route does not track which world the
-        // RUNNING board booted with, so it cannot tell a no-op switch (the
-        // already-served world) from a real one. A redundant restart reloads the
-        // same world and is harmless, so it over-signals rather than tracking
-        // boot-world state here; a precise restartRequired is a follow-up.
-        sendJson(res, 200, { ok: true, world, restartRequired: true });
+        /* #2238: a world's roots apply ONCE at board startup, so the running board
+           keeps serving the world it BOOTED with until it restarts. worldenv now
+           captures that booted world, which makes two things possible here:
+           (1) restartRequired is precise -- a switch to the world already booted is
+               a no-op that needs no restart (the old code over-signalled always-true
+               because it could not tell a no-op from a real switch).
+           (2) restarting says whether THIS route is self-restarting the board now.
+               True only for a REAL switch AND when the board can SAFELY self-restart
+               (the com.kosmos.board KeepAlive job). A from-source / unmanaged board
+               reports restarting:false and the switcher UI asks for a MANUAL restart
+               -- never a bare exit that would brick it (engine/boardrestart is the
+               conservative, fail-safe guard; see its header). */
+        const bootedId = require('./engine/worldenv').bootedWorld();
+        // Compare against the CANONICAL id setActiveWorld returned (world.id), not the
+        // raw request `id`, so a no-op is judged on the id the board actually booted vs
+        // the one now active -- robust to any id normalization setActiveWorld may do.
+        const isNoop = bootedId != null && bootedId === world.id;
+        const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
+        sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
+        /* AFTER the response has been sent, drop the board so launchd relaunches it
+           onto the new world. The delay lets the 200 flush to the client before
+           launchctl stop terminates this process -- the stop kills the very
+           connection that asked for the switch. selfRestart re-checks the fail-safe
+           guard, so a launchd state that changed in the interim still cannot brick
+           the board (it no-ops, and Angel's reconnect degrades to the manual path). */
+        if (restarting) {
+          setTimeout(() => {
+            try { require('./engine/boardrestart').selfRestart(); }
+            catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
+          }, 500);
+        }
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -5575,6 +5609,30 @@ const server = http.createServer((req, res) => {
     const opened = machine.openFileAccessSettings();
     if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
     sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
+  /* #1 / #2189: fire the REAL macOS prompts on demand. Screen 2's "Allow Access"
+     POSTs here for files/folders; Screen 3's tmux row POSTs /api/a11y-prompt. Both
+     inherit the cross-site guard above (POST). The engine cannot fire a TCC prompt
+     attributed to tmux, so it records a request and the native app's watcher fires
+     the matching hatch UNDER tmux (see engine/promptrequest.js and the native
+     startPromptRequestWatcher). Fire-and-forget: { ok:true } means the app will fire
+     it (the gate poll then flips the pill); { ok:false, because } means no native app
+     is present, and the caller falls back to opening Settings so a button is never
+     dead. Always 200 with a body -- the caller reads body.ok, not the status. */
+  if (pathname === '/api/a11y-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('a11y'); }
+    catch (err) { r = { ok: false, because: 'we could not record the accessibility prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
+  if (pathname === '/api/file-access-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('file-access'); }
+    catch (err) { r = { ok: false, because: 'we could not record the file-access prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
     return;
   }
 
