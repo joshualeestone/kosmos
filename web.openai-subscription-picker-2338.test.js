@@ -29,7 +29,7 @@ function extract(name, endAnchor) {
 
 /* --- acctOpenaiChoose: the picker reveals exactly the chosen flow ---------- */
 function chooseFn() {
-  const src = extract('acctOpenaiChoose', '\nfunction acctIsOpenaiSubscription');
+  const src = extract('acctOpenaiChoose', '\nfunction acctOpenaiSubView');
   const els = {
     'acct-openai-pick': { hidden: null },
     'acct-openai-key-step': { hidden: null },
@@ -37,9 +37,12 @@ function chooseFn() {
     'acct-openai-key': { focus() { this.focused = true; } },
     'acct-openai-sub-go': { focus() { this.focused = true; } },
   };
+  // acctOpenaiChoose('sub') calls acctOpenaiSubReset (defined elsewhere); spy on it
+  // so the extracted function runs in isolation and we can assert idempotent entry.
+  const spy = { reset: 0 };
   // eslint-disable-next-line no-new-func
-  const fn = new Function('document', src + '; return acctOpenaiChoose;')({ getElementById: (id) => els[id] || null });
-  return { fn, els };
+  const fn = new Function('document', 'acctOpenaiSubReset', src + '; return acctOpenaiChoose;')({ getElementById: (id) => els[id] || null }, () => { spy.reset += 1; });
+  return { fn, els, spy };
 }
 
 test('choosing the key flow shows the key step and hides the picker and the subscription flow', () => {
@@ -52,29 +55,13 @@ test('choosing the key flow shows the key step and hides the picker and the subs
 });
 
 test('choosing the subscription flow shows the sub step and hides the picker and the key flow', () => {
-  const { fn, els } = chooseFn();
+  const { fn, els, spy } = chooseFn();
   fn('sub');
   assert.equal(els['acct-openai-pick'].hidden, true, 'the picker stayed up after a choice was made');
   assert.equal(els['acct-openai-sub-step'].hidden, false, 'the subscription flow did not open when it was chosen');
   assert.equal(els['acct-openai-key-step'].hidden, true, 'the key flow opened even though the subscription flow was chosen');
   assert.equal(els['acct-openai-sub-go'].focused, true, 'the Sign in button did not take focus');
-});
-
-/* --- acctIsOpenaiSubscription: the contract's durable discriminator -------- */
-function isSubFn() {
-  const src = extract('acctIsOpenaiSubscription', '\nfunction acctOpenaiSubView');
-  // eslint-disable-next-line no-new-func
-  return new Function(src + '; return acctIsOpenaiSubscription;')();
-}
-
-test('a chatgpt account with no keyTail is a subscription; a keyed one is not', () => {
-  const isSub = isSubFn();
-  assert.equal(isSub({ provider: 'openai', authMode: 'chatgpt', keyTail: null }), true, 'a chatgpt+no-keyTail row was not read as a subscription');
-  assert.equal(isSub({ provider: 'openai', authMode: 'chatgpt' }), true, 'an absent keyTail was not treated the same as null');
-  assert.equal(isSub({ provider: 'openai', authMode: 'apikey', keyTail: '1234' }), false, 'an API-key row was read as a subscription');
-  assert.equal(isSub({ provider: 'openai', authMode: 'chatgpt', keyTail: '1234' }), false, 'a keyTail did not disqualify a chatgpt row');
-  assert.equal(isSub({ provider: 'claude', authMode: 'chatgpt', keyTail: null }), false, 'a non-openai row was read as an openai subscription');
-  assert.equal(isSub(null), false, 'a null row threw or was read as a subscription');
+  assert.equal(spy.reset, 1, 'entering the subscription step did not reset its affordances (entry is not idempotent)');
 });
 
 /* --- acctOpenaiSubView: every contract state maps, terminals stop the poll -- */
@@ -133,6 +120,16 @@ test('the poll treats a 404 as terminal (stops and re-enables), not a transient 
   assert.match(nextTerminal, /go\.disabled = false/, 'a 404 leaves the Sign-in button stuck disabled');
   // A non-404 non-ok must remain a transient skip (keep polling).
   assert.match(body, /if \(!r\.ok\) return;/, 'a 5xx is no longer treated as a transient skip');
+});
+
+test('a terminal error/cancelled tears down like the 404 branch (reset + null session + re-enable)', () => {
+  const i = PAGE.indexOf('function acctOpenaiSubWatch()');
+  const body = PAGE.slice(i, PAGE.indexOf('\nasync function acctOpenaiSubConnected', i));
+  // The failure branch runs after the ok branch's early return.
+  const fail = body.slice(body.indexOf('if (view.ok)'));
+  assert.match(fail, /ACCT_OPENAI_SUB_SESSION = null/, 'a terminal error leaves the dead session id set');
+  assert.match(fail, /acctOpenaiSubReset\(\)/, 'a terminal error leaves the stale sign-in affordances showing');
+  assert.match(fail, /go\.disabled = false/, 'a terminal error leaves the Sign-in button stuck disabled');
 });
 
 test('a start with no sessionId does not strand a disabled button', () => {

@@ -16218,15 +16218,13 @@ function acctOpenaiChoose(which) {
   keys.hidden = which !== 'key';
   if (sub) sub.hidden = which !== 'sub';
   if (which === 'key') { const k = document.getElementById('acct-openai-key'); if (k) k.focus(); }
-  else { const b = document.getElementById('acct-openai-sub-go'); if (b) b.focus(); }
-}
-/* #2338: a connected OpenAI row is a ChatGPT subscription iff its authMode is
-   chatgpt AND it carries no keyTail; an API-key account always has a keyTail.
-   That single pair is the contract's durable subscription-vs-key discriminator
-   (kosmos#2338), so nothing needs to remember which flow created the row. */
-function acctIsOpenaiSubscription(row) {
-  return !!row && row.provider === 'openai' && row.authMode === 'chatgpt'
-    && (row.keyTail === null || row.keyTail === undefined);
+  else {
+    /* Enter the subscription step at its resting state -- a prior aborted sign-in
+       could have left the open-page link / device code / cancel row showing with
+       no live session, so reset before revealing (makes entry idempotent). */
+    acctOpenaiSubReset();
+    const b = document.getElementById('acct-openai-sub-go'); if (b) b.focus();
+  }
 }
 /* #2338: map a subscription status state to what the panel should show. Pure,
    so the poll loop is a thin wrapper and this is unit-tested against the exact
@@ -17018,6 +17016,12 @@ function acctOpenaiSubWatch() {
     if (!view.done) return;
     acctOpenaiSubStop();
     if (view.ok) { await acctOpenaiSubConnected(out.account); return; }
+    /* error / cancelled: drop the dead session and clear the live affordances (the
+       stale open-page link points at a torn-down authUrl), leaving the error
+       message and a re-enabled Sign-in button to retry with -- the same teardown
+       the 404 branch does. */
+    ACCT_OPENAI_SUB_SESSION = null;
+    acctOpenaiSubReset();
     const go = document.getElementById('acct-openai-sub-go');
     if (go) go.disabled = false;
   }, 1200);
