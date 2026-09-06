@@ -42,6 +42,8 @@ const os = require('node:os');
 const path = require('node:path');
 const store = require('./store');
 const feedback = require('./feedback');
+const projects = require('./projects');
+const create = require('./create'); // for WORKERS_DIR, the one definition of the workers root
 
 // #1856: route through the one data-root derivation (store.ROOT = dataRootFor),
 // like ping/notify -- prod-inert when AGENT_WORKFORCE_DATA is unset.
@@ -114,6 +116,52 @@ function setOn(on) {
  * then this machine's own home is rewritten too -- which matters off macOS
  * (CI / a non-/Users home) where the generic shape would not have matched.
  */
+// #2037 (revision): the identifying names on THIS install -- every agent name,
+// every project name, and the OS account name -- gathered so scrub() can redact
+// them as a BACKSTOP. The primary defence is the author prompt itself, which
+// tells the report writer not to include usernames, agent names or project
+// names; this catches a slip. Every source is wrapped so a source that cannot
+// be read contributes nothing and the send still goes (path-scrubbed, and the
+// body was authored under the prompt rule) rather than throwing on a path that
+// must never throw -- the same fail-soft the module's send layer keeps.
+const NAME_MINLEN = 4; // shorter than this, a name is too likely a common word to redact safely
+const NAME_STOP = new Set(['kosmos']); // the product is the report's SUBJECT, never identifying
+function installNames() {
+  const names = new Set();
+  const add = (v) => {
+    if (typeof v !== 'string') return;
+    const t = v.trim();
+    if (t.length >= NAME_MINLEN && !NAME_STOP.has(t.toLowerCase())) names.add(t);
+  };
+  // Agents: every profile's display name and its on-disk key.
+  try {
+    for (const f of fs.readdirSync(store.PROFILES)) {
+      if (!f.endsWith('.json')) continue;
+      add(f.slice(0, -5));
+      // One unreadable/garbled profile must not lose the display names of the rest.
+      try { add(JSON.parse(fs.readFileSync(path.join(store.PROFILES, f), 'utf8')).displayName); } catch { /* skip this one */ }
+    }
+  } catch { /* no profiles dir yet: nothing to add */ }
+  // Agents, also by their on-disk worker folder, so an agent whose profile write
+  // failed but whose folder exists is still covered. A pure-tmux agent that
+  // Kosmos never created or connected has neither a profile nor a folder and is
+  // left to the prompt rule -- reading the live tmux roster here would make a
+  // send path depend on tmux, which it must never do.
+  try {
+    for (const ent of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) {
+      if (ent.isDirectory() && !ent.name.startsWith('.')) add(ent.name);
+    }
+  } catch { /* no workers dir yet: nothing to add */ }
+  // Projects: each project's name (readAll throws UNREADABLE on a damaged file).
+  try { for (const p of projects.readAll()) add(p && p.name); } catch { /* unreadable: nothing to add */ }
+  // The OS account name, which can appear in a body without a leading path arm
+  // ever matching it (the "user name" case beyond home paths).
+  try { add(os.userInfo().username); } catch { /* no account info: nothing to add */ }
+  // Longest first, so a name that CONTAINS another (e.g. "Mona Lisa" over "Mona")
+  // is redacted before its fragment, and the fragment then finds nothing left.
+  return [...names].sort((a, b) => b.length - a.length);
+}
+
 function scrub(text) {
   if (text == null) return '';
   let out = String(text);
@@ -143,6 +191,33 @@ function scrub(text) {
   if (home && !/^\/(?:Users|home)\//i.test(home) && !/^[A-Za-z]:\\Users\\/i.test(home)) {
     const esc = home.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp(esc + '(?=[/\\\\\\s"\']|$)', 'gi'), '~');
+  }
+  // #2037 (revision): redact this install's identifying names as a backstop to
+  // the author prompt's own rule. Boundaries are UNICODE-AWARE lookarounds, not
+  // `\b`: `\b` fires only at ASCII `[A-Za-z0-9_]`, so a Cyrillic/CJK/accented
+  // name ("Мона", "José") or one bordered by punctuation ("C++", ".env")
+  // would slip through both edges and leak -- exactly the data this arm exists
+  // to protect. `(?<![\p{L}\p{N}_]) ... (?![\p{L}\p{N}_])` with the `u` flag
+  // treats any letter or number (in any script) as a word char, so the name is
+  // matched whole and never inside a longer word. Case-insensitive, longest
+  // first (installNames sorts) so a fragment cannot pre-empt the full name. A
+  // name that is also a common word (a project literally named "email") is
+  // over-redacted, which is the safe direction for a body leaving the machine --
+  // the same choice the path arms above make, and rare in practice because the
+  // author prompt tells the writer not to name projects, agents or users at all.
+  //
+  // Known residuals the BELT does not catch, acceptable only because the prompt
+  // rule is the primary defence: a name shorter than NAME_MINLEN (a 3-char agent
+  // like "Leo"); a bare FRAGMENT of a multi-word name ("Kitty" out of "Ice Cream
+  // Kitty") or a name run together with a digit ("Flimwaddle2"), both of which
+  // whole-name matching leaves alone rather than over-redacting "Ice"/"Cream" or
+  // breaking a digit boundary; and a whitespace- or Unicode-normalization variant
+  // of a stored name. Widening any of these trades a rare-variant leak for gutting
+  // common report text, so the belt stays whole-name and the prompt rule carries
+  // the rest.
+  for (const n of installNames()) {
+    const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp('(?<![\\p{L}\\p{N}_])' + esc + '(?![\\p{L}\\p{N}_])', 'giu'), '[redacted]');
   }
   return out;
 }
