@@ -388,5 +388,9 @@ module.exports = {
 if (require.main === module) {
   const run = (input) => main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0));
   const h = attachStdin(process.stdin, run);
-  setTimeout(() => h.finishNow(), 10000).unref();
+  // 5s backstop (not 10s): with the 8s SessionStart deliver, 5+8=13s stays under
+  // the hook entry's own 15s ceiling even in the pathological never-closing-stdin
+  // case; Claude Code writes the event and closes stdin in milliseconds, so `run`
+  // normally fires at once and only the deliver timeout applies.
+  setTimeout(() => h.finishNow(), 5000).unref();
 }
