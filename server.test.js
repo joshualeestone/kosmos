@@ -5472,7 +5472,7 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   const adopt = firstRunHarness('frPaintFleet', {
     FR: { path: 'adopt', fleetCount: 13, fleetNames: ['Splinter', 'Angel'] },
   });
-  assert.match(adopt.els['fr-title'].textContent, /13 agents/);
+  assert.match(adopt.els['fr-fleet-title'].textContent, /13 agents/);
   // No name chips, at Josh's word (2026-08-17): the heading's count is the
   // claim, and a 600-agent fleet must not become a 600-chip screen.
   assert.ok(!/fr-name/.test(adopt.els['fr-fleet'].innerHTML), 'the chip list came back');
@@ -5481,7 +5481,7 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   const create = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
   });
-  assert.match(create.els['fr-title'].textContent, /Create your first agent/i);
+  assert.match(create.els['fr-fleet-title'].textContent, /Create your first agent/i);
   // The endings ARE this screen's actions now, buttons verbatim from the
   // pack (spec ed29b78): adopt and create carry ONE action each; only the
   // unknown ending gets two, asserted in the broken-payload loop below.
@@ -5512,7 +5512,7 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
     { path: 'nonsense', fleetCount: 3, fleetNames: [] },
   ]) {
     const got = firstRunHarness('frPaintFleet', { FR });
-    const title = got.els['fr-title'].textContent;
+    const title = got.els['fr-fleet-title'].textContent;
     const body = got.els['fr-fleet'].innerHTML;
     /**
      * ⚠️ THE ASSERTION THE COMMENT ALWAYS CLAIMED. This loop used to check only
@@ -9969,7 +9969,7 @@ test('somebody who already has agents is never told they have none', () => {
 
   /* Not looked yet: it must not say either thing. */
   const looking = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: null });
-  assert.match(looking.els['fr-title'].textContent, /Looking for agents/i);
+  assert.match(looking.els['fr-fleet-title'].textContent, /Looking for agents/i);
   assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /none on this computer/i,
     'the empty claim was made before the search had run');
 
@@ -9980,7 +9980,7 @@ test('somebody who already has agents is never told they have none', () => {
   });
   assert.doesNotMatch(found.els['fr-fleet'].innerHTML || '', /none on this computer/i,
     'somebody with agents was still told they have none');
-  assert.match(found.els['fr-title'].textContent, /found an agent on this computer/i,
+  assert.match(found.els['fr-fleet-title'].textContent, /found an agent on this computer/i,
     'the title conflates being on the Mac with being in Kosmos');
   assert.match(found.els['fr-fleet'].innerHTML, /not in Kosmos yet/i,
     'the screen no longer says what has NOT happened, which is the whole distinction');
@@ -10006,7 +10006,7 @@ test('somebody who already has agents is never told they have none', () => {
     'the screen is reporting on its own search again rather than telling the person what to do');
   assert.doesNotMatch(empty.els['fr-fleet'].innerHTML, /Two questions/i,
     'the remnant "two questions" copy is back; Josh: "Those are not the two questions"');
-  assert.match(empty.els['fr-title'].textContent, /Create your first agent/i);
+  assert.match(empty.els['fr-fleet-title'].textContent, /Create your first agent/i);
 
   /* ⚠️ AND A SEARCH THAT COULD NOT RUN IS NOT AN EMPTY MACHINE. This is the same
      distinction one level down: `ok:false` must not license either sentence.
@@ -10024,7 +10024,7 @@ test('somebody who already has agents is never told they have none', () => {
     'the failed-search confession is back on the create-first-agent step');
   assert.match(blind.els['fr-fleet'].innerHTML, /Let\u2019s get started/i,
     'the neutral line is missing on the could-not-look path');
-  assert.match(blind.els['fr-title'].textContent, /Create your first agent/i,
+  assert.match(blind.els['fr-fleet-title'].textContent, /Create your first agent/i,
     'the way forward is gone on a failed search');
 });
 

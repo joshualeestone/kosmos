@@ -56,10 +56,19 @@ function strayCommentTerminators(css) {
 }
 
 test('the stylesheet has no stray comment terminator: a rule discarded by the parser still reads correctly in the file', () => {
-  const open = PAGE.indexOf('<style>');
-  const close = PAGE.lastIndexOf('</style>');
-  assert.ok(open > 0 && close > open, 'could not find the <style> block; this guard is measuring nothing');
-  const css = PAGE.slice(open + 7, close);
+  /* install-flow-9screen: the page now carries MULTIPLE <style> blocks -- the head
+     stylesheet plus per-screen inline blocks in the first-run panes (Mona's S2/S3/
+     S4/S6/S7/S9 snippets). The old "first <style> to last </style>" blob-slice
+     therefore scanned all the pane HTML BETWEEN those blocks as if it were CSS, and
+     a comment-closer token sitting in ordinary markup (a JS-ish token in an HTML
+     comment) read as a stray terminator. Scan each <style> block's ACTUAL css
+     instead (the closer token is deliberately not spelled out here, for the very
+     reason this guard exists) -- a comment
+     cannot span two blocks, so joining them is safe and the guard's intent (no
+     stray comment terminator in real CSS) is preserved. */
+  const blocks = [...PAGE.matchAll(/<style>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+  assert.ok(blocks.length > 0, 'could not find any <style> block; this guard is measuring nothing');
+  const css = blocks.join('\n');
 
   const stray = strayCommentTerminators(css);
   const unclosed = stray.filter((n) => n < 0).map((n) => -n);

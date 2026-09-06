@@ -109,9 +109,10 @@ test('#1345 + #1994: the painter emits three labelled fields (name, does, time z
   assert.doesNotMatch(html, /Anything they should always know/, 'its label is painted again');
   assert.doesNotMatch(html, /You can change these later/, 'the helper text is painted again');
 
-  /* The step still has a Continue, and it is the painter that supplies it. */
-  assert.equal(actions.length, 1, 'the step painted no Continue action');
-  assert.equal(actions[0].label, 'Continue');
+  /* The step still has a primary action, and it is the painter that supplies it.
+     install-flow-9screen: the label is now "Next" (Josh's Continue->Next rename). */
+  assert.equal(actions.length, 1, 'the step painted no primary action');
+  assert.equal(actions[0].label, 'Next');
 });
 
 test('#1345 CONTROL: the lift and the bindings are real, not a silent empty read', () => {
