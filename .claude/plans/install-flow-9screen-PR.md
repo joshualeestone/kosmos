@@ -63,4 +63,53 @@ content-anchored browser checks auto-follow the renumber.
 - Optional visual polish: swap `foundRowsHtml` onto Mona's `.s9-row` styling
   (coordinate with the found-agents lane).
 
+---
+
+## Screen 6 (Self-improving) integration hooks — for Angel's PR-C2
+
+The three facts Angel needs to finalize PR-C2 against the real flow structure, so
+his ready-to-apply patch fast-applies the moment this flow merges:
+
+**1. Panel container + where it drops in.**
+Screen 6 is `<div class="fr-pane" id="fr-pane-6" hidden>`, the 6th of 9 panes
+inside the shared `<div class="fr-body">` (between Model = `#fr-pane-5` and
+Success = `#fr-pane-7`). frGo unhides it on step 6. The two switch rows are already
+present in it (Mona's S6 markup), both **static in the DOM from first paint** (just
+hidden until step 6):
+- `#fr-s6-feedback`  — the daily feedback report (#2037)
+- `#fr-s6-createping` — the create-agent ping (#2020)
+Both are `<span class="s6-sw" role="switch" aria-checked="true" tabindex="0">`.
+Because they are static (not painted), Angel can bind toggle handlers at module
+top-level — direct listeners on the two ids, or one delegated click+keydown handler
+on `#fr-pane-6` (the pattern the S3 gate handler uses). **Toggle contract:** flip
+`aria-checked` between `"true"`/`"false"` (Mona's CSS renders the visual off that
+attribute); `role="switch"` + `tabindex="0"` means Space/Enter must toggle too.
+**Default is ON** (both `aria-checked="true"`), Josh's ruling.
+
+**2. The "on show Screen 6" hook.**
+There is no separate paint function — the on-show hook IS the frGo step-6 branch,
+mirroring how step 5 calls `frPaintSubscription()` etc. It currently reads:
+```js
+  } else if (step === 6) {
+    // S6 Self improving (Angel wires the two switches' behavior).
+    frActions({ label: 'Next', go: () => frGo(7) });
+  } else if (step === 7) {
+```
+Angel adds his refresh calls in that branch so the switches reflect current
+persisted state each time the screen appears:
+```js
+  } else if (step === 6) {
+    frActions({ label: 'Next', go: () => frGo(7) });
+    frRefreshFeedback();
+    frRefreshPing();
+  } else if (step === 7) {
+```
+
+**3. Next control.**
+Screen 6 **reuses the shared `#fr-next`** primary button — there is NO Screen-6-
+specific control. The step-6 branch sets it via
+`frActions({ label: 'Next', go: () => frGo(7) })`. The switches are independent,
+self-persisting toggles; Next just advances to Screen 7 (Success). Screen 6 has no
+gate, so Next is always enabled.
+
 🤖 Generated with [Claude Code](https://claude.com/claude-code)
