@@ -66,34 +66,60 @@ const BASE = {
 
   const r = await page.evaluate((base) => {
     if (typeof card !== 'function') return { error: 'card is not a function (pre-render page?)' };
+    if (typeof lrow !== 'function') return { error: 'lrow is not a function (pre-render page?)' };
 
-    // Render one fixture's card into a detached node and read the render facts.
-    const read = (over) => {
+    // Render one fixture through a renderer into a detached node and read the
+    // render facts. `pillSel` differs per surface (the grid card's state cell is
+    // .astate; the list row's is .lstate) -- THE LIST IS HALF THE BOARD, so both
+    // renderers must carry the coexistence signal (a card-only fix is the
+    // recurring one-renderer debt this file names).
+    const read = (render, pillSel, over) => {
       const a = Object.assign({}, base, over);
       const d = document.createElement('div');
-      d.innerHTML = card(a);
+      d.innerHTML = render(a);
       const el = d.firstElementChild;
-      const pill = el.querySelector('.astate');
+      const pill = el.querySelector(pillSel);
       const also = el.querySelector('.alsowork');
       const dots = also ? also.querySelectorAll('.act i').length : 0;
+      // Read the state LABEL with the badge stripped out. The list row puts the
+      // badge INSIDE .lstate, so reading the raw cell text would fold "Working
+      // now" into the label and make the additive-label control falsely fail;
+      // the grid card's pill never contains the badge, so this is a no-op there.
+      let pillLabel = null;
+      if (pill) {
+        const clone = pill.cloneNode(true);
+        const inner = clone.querySelector('.alsowork');
+        if (inner) inner.remove();
+        pillLabel = (clone.querySelector('b') || clone).textContent.replace(/\s+/g, ' ').trim();
+      }
       return {
-        cardClass: el.className,
+        rootClass: el.className,
         pillClass: pill ? pill.className : null,
-        pillLabel: pill ? ((pill.querySelector('b') || {}).textContent || '') : null,
+        pillLabel,
         hasAlso: !!also,
         alsoDots: dots,
         alsoText: also ? also.textContent.replace(/\s+/g, ' ').trim() : null,
-        // the badge is a SIBLING of the pill, not nested inside it (so it cannot
-        // dilute the "Answer" call-to-action Josh made the pill's loudest thing).
-        alsoIsSibling: !!(also && pill && also.parentElement === pill.parentElement && also !== pill),
+        // Placement differs by surface and both are deliberate: the grid card
+        // puts the badge BELOW the pill (not inside it, so it cannot dilute the
+        // Answer button), the list row puts it INSIDE the .lstate cell (the
+        // sanctioned second-line shape, never an eighth grid child).
+        alsoInsidePill: !!(also && pill && pill.contains(also)),
       };
     };
+    const cardRead = (over) => read(card, '.astate', over);
+    const rowRead = (over) => read(lrow, '.lstate', over);
 
     return {
-      needsOn:  read({ state: 'needs_you', activeWhileWaiting: true }),
-      needsOff: read({ state: 'needs_you', activeWhileWaiting: false }),
-      blockedOn: read({ state: 'blocked', activeWhileWaiting: true }),
-      workingOff: read({ state: 'working', activeWhileWaiting: false }),
+      // grid card
+      needsOn:  cardRead({ state: 'needs_you', activeWhileWaiting: true }),
+      needsOff: cardRead({ state: 'needs_you', activeWhileWaiting: false }),
+      blockedOn: cardRead({ state: 'blocked', activeWhileWaiting: true }),
+      workingOff: cardRead({ state: 'working', activeWhileWaiting: false }),
+      // list row (the other half of the board)
+      rowNeedsOn:  rowRead({ state: 'needs_you', activeWhileWaiting: true }),
+      rowNeedsOff: rowRead({ state: 'needs_you', activeWhileWaiting: false }),
+      rowBlockedOn: rowRead({ state: 'blocked', activeWhileWaiting: true }),
+      rowWorkingOff: rowRead({ state: 'working', activeWhileWaiting: false }),
     };
   }, BASE);
 
@@ -103,33 +129,45 @@ const BASE = {
   if (r.error) {
     problems.push(r.error);
   } else {
-    const { needsOn, needsOff, blockedOn, workingOff } = r;
+    // The surface-AGNOSTIC battery: badge presence, the additive property, the
+    // controls. It never reads a state CLASS, because the two surfaces encode
+    // state differently -- the card carries st-* on its pill, the list row
+    // carries the ground on its .lrow ROOT and its .lstate cell has no st-*
+    // class at all. State-treatment sanity is checked per surface below.
+    //   insideExpected: card places the badge BELOW the pill (false), the list
+    //   row INSIDE .lstate (true) -- both deliberate.
+    const battery = (S, on, off, blockedOn, workingOff, insideExpected) => {
+      // 1. flag ON: badge present, reused .act glyph (3 dots), "Working now" label, correct placement.
+      if (!on.hasAlso) problems.push(S + ': a needs_you agent with activeWhileWaiting has NO working affordance (.alsowork)');
+      if (on.hasAlso && on.alsoDots !== 3) problems.push(S + ': the working affordance is not the board .act glyph (want 3 dots, got ' + on.alsoDots + ')');
+      if (on.hasAlso && !/working now/i.test(on.alsoText || '')) problems.push(S + ': the working affordance has no readable "Working now" label, got ' + JSON.stringify(on.alsoText));
+      if (on.hasAlso && on.alsoInsidePill !== insideExpected) problems.push(S + ': the working affordance placement is wrong (inside state cell=' + on.alsoInsidePill + ', want ' + insideExpected + ')');
 
-    // 1. flag ON, needs_you: the badge is present, is the reused .act glyph (3 dots),
-    //    carries the "Working now" label, and sits BESIDE the pill (not inside it).
-    if (!needsOn.hasAlso) problems.push('a needs_you agent with activeWhileWaiting has NO working affordance (.alsowork)');
-    if (needsOn.hasAlso && needsOn.alsoDots !== 3) problems.push('the working affordance is not the board .act glyph (want 3 dots, got ' + needsOn.alsoDots + ')');
-    if (needsOn.hasAlso && !/working now/i.test(needsOn.alsoText || '')) problems.push('the working affordance has no readable "Working now" label, got ' + JSON.stringify(needsOn.alsoText));
-    if (needsOn.hasAlso && !needsOn.alsoIsSibling) problems.push('the working affordance is nested inside the pill, not a sibling (it must not dilute the Answer button)');
+      // 2. CONTROL: flag OFF on the SAME needs_you agent -> NO badge, and the flag
+      //    changed ONLY the badge: the state-cell class, the label, and the ground
+      //    class are IDENTICAL either way (coexistence is additive, not a state change).
+      if (off.hasAlso) problems.push(S + ': CONTROL FAILED: a needs_you agent WITHOUT activeWhileWaiting still shows .alsowork (the flag is not gating it)');
+      if (on.pillClass !== off.pillClass) problems.push(S + ': activeWhileWaiting changed the state-cell class (' + off.pillClass + ' -> ' + on.pillClass + '); it must be additive');
+      if (on.pillLabel !== off.pillLabel) problems.push(S + ': activeWhileWaiting changed the state LABEL (' + JSON.stringify(off.pillLabel) + ' -> ' + JSON.stringify(on.pillLabel) + '); it must be additive');
+      if (on.rootClass !== off.rootClass) problems.push(S + ': activeWhileWaiting changed the ground class (' + off.rootClass + ' -> ' + on.rootClass + '); state owns the ground');
 
-    // 2. CONTROL: flag OFF on the SAME needs_you agent -> NO badge, and the flag
-    //    changed ONLY the badge: the pill class, its label, and the card ground
-    //    are IDENTICAL either way (coexistence is additive, never a state change).
-    if (needsOff.hasAlso) problems.push('CONTROL FAILED: a needs_you agent WITHOUT activeWhileWaiting still shows .alsowork (the flag is not gating it)');
-    if (needsOn.pillClass !== needsOff.pillClass) problems.push('activeWhileWaiting changed the state PILL class (' + needsOff.pillClass + ' -> ' + needsOn.pillClass + '); it must be additive');
-    if (needsOn.pillLabel !== needsOff.pillLabel) problems.push('activeWhileWaiting changed the state LABEL (' + JSON.stringify(needsOff.pillLabel) + ' -> ' + JSON.stringify(needsOn.pillLabel) + '); it must be additive');
-    if (needsOn.cardClass !== needsOff.cardClass) problems.push('activeWhileWaiting changed the card GROUND class (' + needsOff.cardClass + ' -> ' + needsOn.cardClass + '); state owns the ground');
-    // and the needs_you pill really is the red "attn" treatment (so the "unchanged" above is unchanged from the right thing).
-    if (!/st-attn/.test(needsOn.pillClass || '')) problems.push('the needs_you pill is not st-attn (got ' + needsOn.pillClass + '); the fixture is not exercising the needs_you treatment');
+      // 3. flag ON, blocked: the badge appears there too -> driven by the FLAG, not scoped to needs_you.
+      if (!blockedOn.hasAlso) problems.push(S + ': a BLOCKED agent with activeWhileWaiting has no .alsowork (the render is wrongly scoped to needs_you only)');
 
-    // 3. flag ON, blocked: the badge appears there too (paused pill) -> driven by
-    //    the FLAG, not scoped to the red needs_you pill.
-    if (!blockedOn.hasAlso) problems.push('a BLOCKED agent with activeWhileWaiting has no .alsowork (the render is wrongly scoped to needs_you only)');
-    if (blockedOn.hasAlso && !/st-paused/.test(blockedOn.pillClass || '')) problems.push('the blocked fixture is not the paused treatment (got ' + blockedOn.pillClass + ')');
+      // 4. CONTROL: a plain WORKING agent (flag off) is NOT given the badge.
+      if (workingOff.hasAlso) problems.push(S + ': CONTROL FAILED: a plain working agent shows .alsowork (it should read as working via its own state, not be double-marked)');
+    };
 
-    // 4. CONTROL: a plain WORKING agent (flag off) is NOT given the badge.
-    if (workingOff.hasAlso) problems.push('CONTROL FAILED: a plain working agent shows .alsowork (it should read as working via its own pill, not be double-marked)');
-    if (!/st-working/.test(workingOff.pillClass || '')) problems.push('the working fixture is not st-working (got ' + workingOff.pillClass + ')');
+    battery('card', r.needsOn, r.needsOff, r.blockedOn, r.workingOff, false);
+    battery('lrow', r.rowNeedsOn, r.rowNeedsOff, r.rowBlockedOn, r.rowWorkingOff, true);
+
+    // Surface-SPECIFIC state-treatment sanity: proves the "unchanged" checks above
+    // are unchanged from the RIGHT thing, and that each fixture exercises the state
+    // it names. Card carries state on the pill (st-*); lrow on the .lrow root ground.
+    if (!/st-attn/.test(r.needsOn.pillClass || '')) problems.push('card: the needs_you pill is not st-attn (got ' + r.needsOn.pillClass + ')');
+    if (!/st-working/.test(r.workingOff.pillClass || '')) problems.push('card: the working pill is not st-working (got ' + r.workingOff.pillClass + ')');
+    if (!/\battn\b/.test(r.rowNeedsOn.rootClass || '')) problems.push('lrow: the needs_you row ground is not attn (got ' + r.rowNeedsOn.rootClass + ')');
+    if (!/\bworking\b/.test(r.rowWorkingOff.rootClass || '')) problems.push('lrow: the working row ground is not working (got ' + r.rowWorkingOff.rootClass + ')');
   }
 
   console.log('  ' + JSON.stringify(r));

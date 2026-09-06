@@ -1526,18 +1526,24 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 }
 /* #2146: coexistence signal. A needs_you/blocked agent that is ALSO actively
    working (the engine's additive `activeWhileWaiting`, #2169) carries the board's
-   working glyph BELOW its pill, so the card reads "needs you AND working" without
-   changing the state, the pill, the red ground, or the Needs-you count. A
-   precedence FLIP (working hides needs_you) would reintroduce false-calm, which
+   working glyph alongside its pill, so the board reads "needs you AND working"
+   without changing the state, the pill, the red ground, or the Needs-you count.
+   A precedence FLIP (working hides needs_you) would reintroduce false-calm, which
    is the failure the sticky needs_you exists to prevent -- so this is additive,
    never a replacement (PigeonPete's design, #2146).
+   ⚠️ THE LIST IS HALF THE BOARD, so both renderers carry it: the grid card()
+   puts it BELOW the pill (a column child), the list lrow() puts it INLINE in the
+   .lstate cell (the sanctioned second-line shape, never an eighth grid child).
    ⚠️ The dots are `.act`, the board's ONE working glyph (reused, not a second
    animation, per the same rule the DM busy-line follows). They are decorative
    (aria-hidden), so the meaning rides in the text label, which sits in
-   --k-ink-2 -- the same muted ink the role/task lines already use on this
-   red-tinted ground, so it clears AA. `.act` is already reduced-motion-safe. */
-.acard .alsowork { align-self: center; display: inline-flex; align-items: center;
-                   gap: 6px; margin-top: 6px; font-size: .8125rem; color: var(--k-ink-2); }
+   --k-ink-2 -- the same muted ink the .atask/.amodel/.ltask/.lmodel lines
+   already use on this ground, so it clears AA. `.act` is already
+   reduced-motion-safe. font-weight 400 so it does not inherit .lstate's 600. */
+.alsowork { display: inline-flex; align-items: center; gap: 6px;
+            font-size: .8125rem; font-weight: 400; color: var(--k-ink-2); }
+.acard .alsowork { align-self: center; margin-top: 6px; }
+.lstate .alsowork { margin-left: 10px; }
 /* #2019: the restarting pill. SOLID border (never the dashed unknown -- this is
    not a slot waiting to be filled, per the boardEmpty rule), calm neutral tone so
    the animated K carries the signal rather than a loud colour. The card keeps its
@@ -12608,7 +12614,7 @@ function lrow(a) {
          surfaces reading the SAME saidLine() derivation is still what
          keeps them from disagreeing on the FACT if the list row ever
          grows the line back; showing it is now a per-surface choice. -->
-    <div class="lstate">${glyphOf(a)}${esc(copy.label)}${answerBtn(a)}</div>
+    <div class="lstate">${glyphOf(a)}${esc(copy.label)}${answerBtn(a)}${a.activeWhileWaiting ? '<span class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></span>' : ''}</div>
     <div class="ltask">${esc(taskLine(a, { noQuote: true }))}</div>
     <div class="lmodel">${esc(modelLine(a))}</div>
     <div class="lmem">${mem}</div>
