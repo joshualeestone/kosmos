@@ -484,7 +484,11 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
      counted once by the catch/launch scan below (39), not here. */
-  const EXPECTED_SITES = 64;
+  /* 65 after kosmos#2365 added render-model-spinners-2365.js, whose per-problem
+     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
+     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
+     counted once by the catch/launch scan below (40), not here. */
+  const EXPECTED_SITES = 65;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -626,7 +630,11 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `console.error('FAIL  render-pjmsg-prewrap-2294: could not start a browser' ...)` is one
      catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
      Its per-problem finding-emit loop is counted once by the finding-emit scan above (64). */
-  const EXPECTED_CATCH_SITES = 39;
+  /* 40 after kosmos#2365 added render-model-spinners-2365.js, whose launch-failure
+     `console.error('FAIL  render-model-spinners-2365: could not start a browser' ...)` is one
+     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
+     Its per-problem finding-emit loop is counted once by the finding-emit scan above (65). */
+  const EXPECTED_CATCH_SITES = 40;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '

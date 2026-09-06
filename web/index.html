@@ -37248,6 +37248,12 @@ function frPaintConnect(st) {
   const box = document.getElementById('fr-sub');
   const msg = document.getElementById('fr-sub-msg');
   const phase = st && st.phase;
+  // #11 (Josh 0.6.40): the existing .kspin breathing spinner, INLINED as a literal rather
+  // than calling kGlyph() -- the connect painters are extracted and eval'd in isolation by
+  // the test harnesses (server.connect.test.js pageFunction), which do not have kGlyph in
+  // scope, so a kGlyph() call here throws ReferenceError. The markup mirrors kGlyph() with
+  // no args; .kspin pins static under prefers-reduced-motion and the img is aria-hidden.
+  const spin = '<span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>';
 
   /**
    * ⚠️ REPAINT ONLY WHEN THE SCREEN'S MEANING CHANGES. This runs every
@@ -37287,7 +37293,10 @@ function frPaintConnect(st) {
   const urlLine = '<div id="fr-conn-url"></div>';
 
   if (phase === 'downloading') {
-    box.innerHTML = '<div class="fr-ctitle">Downloading Claude&#8230;</div>'
+    // #11 (Josh 0.6.40): the existing .kspin breathing spinner on this loading title,
+    // beside the live progress bar, so the "working on it" motion is consistent with the
+    // other waiting states on this screen.
+    box.innerHTML = '<div class="fr-ctitle">' + spin + ' Downloading Claude&#8230;</div>'
       // Static progressbar semantics, no live chatter: the phase change was
       // announced once; a screen reader can QUERY the value without being
       // spoken over every second.
@@ -37301,7 +37310,9 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'installing' || phase === 'signin-launching') {
-    box.innerHTML = '<div class="fr-ctitle">'
+    // #11: these were text-only with no motion; add the .kspin spinner so the person sees
+    // it is working ("A moment or two." with nothing moving read as stalled).
+    box.innerHTML = '<div class="fr-ctitle">' + spin + ' '
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
       + '<div class="fr-cdetail">A moment or two.</div>';
@@ -37310,8 +37321,11 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'signin-browser-open' || phase === 'signin-completing') {
+    // #11: the spinner only on 'signin-completing' (the system is finishing/checking). NOT
+    // on 'signin-browser-open', which is waiting on the PERSON to sign in in the browser --
+    // a "working" spinner there would misrepresent who the screen is waiting on.
     box.innerHTML = '<div class="fr-ctitle">'
-      + (phase === 'signin-completing' ? 'Finishing the sign-in&#8230;' : 'Your browser has opened')
+      + (phase === 'signin-completing' ? spin + ' Finishing the sign-in&#8230;' : 'Your browser has opened')
       + '</div>'
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
@@ -37915,7 +37929,13 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
   // the told-directly paint on success corrects it. Narrow and
   // self-correcting, accepted.
   frPaintOpenai.seq = (frPaintOpenai.seq || 0) + 1;
-  msg.textContent = 'Adding…';
+  // #11: the .kspin spinner beside "Adding..." while the key is validated against
+  // api.openai.com. innerHTML (not textContent) so the decorative spinner can ride along;
+  // the text is static so there is nothing to escape. Error/receipt paths below stay on
+  // textContent, which clears this spinner when they land. The spinner markup is inlined
+  // (not kGlyph()) for the same reason as frPaintConnect: this handler is eval-extractable
+  // and kGlyph is defined elsewhere. Mirrors kGlyph() with no args.
+  msg.innerHTML = '<span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span> Adding&#8230;';
   try {
     // Same endpoint Settings uses (#540) -- no new backend for this screen.
     const res = await fetch('/api/accounts/openai', {
