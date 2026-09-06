@@ -36719,7 +36719,11 @@ const FR_GLYPH = { ok: '&#10003;', attention: '!', unknown: '?' };
    to unknown like any unrecognised state, or a malformed answer renders as
    a permanent look-in-progress. */
 const FR_SAY_LOCAL = { checking: 'checking' };
-const FR_GLYPH_LOCAL = { checking: '&#8230;' };
+// #11 (Josh 0.6.40): the initial connection check shows the existing .kspin breathing
+// spinner in its mark box (a 26px grid cell that centres a 16px glyph) instead of a static
+// ellipsis, so the "checking" row visibly moves. `checking` is only ever rendered via the
+// first-run `allowLocal` path (frCheckRow), so this is scoped to the Choose-a-Model check.
+const FR_GLYPH_LOCAL = { checking: kGlyph() };
 
 function frCheckRow(c, opts) {
   // ⚠️ `hasOwnProperty`, not a truthiness test on the lookup: `c.state ===
@@ -37287,7 +37291,10 @@ function frPaintConnect(st) {
   const urlLine = '<div id="fr-conn-url"></div>';
 
   if (phase === 'downloading') {
-    box.innerHTML = '<div class="fr-ctitle">Downloading Claude&#8230;</div>'
+    // #11 (Josh 0.6.40): the existing .kspin breathing spinner on this loading title,
+    // beside the live progress bar, so the "working on it" motion is consistent with the
+    // other waiting states on this screen.
+    box.innerHTML = '<div class="fr-ctitle">' + kGlyph() + ' Downloading Claude&#8230;</div>'
       // Static progressbar semantics, no live chatter: the phase change was
       // announced once; a screen reader can QUERY the value without being
       // spoken over every second.
@@ -37301,7 +37308,9 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'installing' || phase === 'signin-launching') {
-    box.innerHTML = '<div class="fr-ctitle">'
+    // #11: these were text-only with no motion; add the .kspin spinner so the person sees
+    // it is working ("A moment or two." with nothing moving read as stalled).
+    box.innerHTML = '<div class="fr-ctitle">' + kGlyph() + ' '
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
       + '<div class="fr-cdetail">A moment or two.</div>';
@@ -37310,8 +37319,11 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'signin-browser-open' || phase === 'signin-completing') {
+    // #11: the spinner only on 'signin-completing' (the system is finishing/checking). NOT
+    // on 'signin-browser-open', which is waiting on the PERSON to sign in in the browser --
+    // a "working" spinner there would misrepresent who the screen is waiting on.
     box.innerHTML = '<div class="fr-ctitle">'
-      + (phase === 'signin-completing' ? 'Finishing the sign-in&#8230;' : 'Your browser has opened')
+      + (phase === 'signin-completing' ? kGlyph() + ' Finishing the sign-in&#8230;' : 'Your browser has opened')
       + '</div>'
       + '<div class="fr-cdetail">'
       + (phase === 'signin-completing'
@@ -37915,7 +37927,11 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
   // the told-directly paint on success corrects it. Narrow and
   // self-correcting, accepted.
   frPaintOpenai.seq = (frPaintOpenai.seq || 0) + 1;
-  msg.textContent = 'Adding…';
+  // #11: the .kspin spinner beside "Adding..." while the key is validated against
+  // api.openai.com. innerHTML (not textContent) so the decorative spinner can ride along;
+  // the text is static so there is nothing to escape. Error/receipt paths below stay on
+  // textContent, which clears this spinner when they land.
+  msg.innerHTML = kGlyph() + ' Adding&#8230;';
   try {
     // Same endpoint Settings uses (#540) -- no new backend for this screen.
     const res = await fetch('/api/accounts/openai', {
