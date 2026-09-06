@@ -36,7 +36,11 @@ removal comment near `#new-agent` updated to point at the new wiring.
 New self-boot browser-check `docs/browser-checks/render-firstrun-scan-on-grant-1652.js`
 (7/7): GRANTED -> import scan used and candidates render on Screen 9; CONTROLS
 (declined, uncheckable) -> bare scan, the import scan never fires without a grant.
-Wired into `tools/browser-checks.sh`, README indexed, reason-grep EXPECTED_SITES 57->58.
+Wired into `tools/browser-checks.sh`, README indexed. The check carries a top-level
+crash catch (added after an iteration-1 challenge NIT so a launch/spawn throw is not
+a silent "no FAIL line"), so it contributes two reason-grep finding-emit sites (the
+`bad()` helper and the catch) and one catch/launch site: EXPECTED_SITES 57->59,
+EXPECTED_CATCH_SITES 34->35.
 
 ## Decisions
 - **The grant gate is load-bearing, not a convenience.** The import scan walks the
