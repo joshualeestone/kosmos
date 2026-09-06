@@ -101,11 +101,15 @@ function check(name, pass, detail) {
            selected. Reading `why` immediately after the change event races that
            populate -- a race that, under the cut machine's load, read '' on webkit
            and aborted 3b (green alone == contention, not a product change). Wait
-           for the note to settle rather than reading the transient empty. Bounded,
-           and the loop's own poll is the timeout, so a genuinely-empty why still
-           returns after ~2s rather than hanging the check. */
+           for the note to settle rather than reading the transient empty. Bounded
+           at 8000ms (matching this file's other waitForSelector/waitForFunction
+           bounds), so a genuinely-empty why still returns rather than hanging the
+           check. 8000, not 2000: F2 was a LOAD/contention flake, and under that same
+           load an async /v1/models round-trip can exceed a short bound and re-red --
+           the longer bound removes that residual (it fails safe as a false-red
+           either way, never a shipped bug). */
         const whyEl = id('create-model-why');
-        const deadline = Date.now() + 2000;
+        const deadline = Date.now() + 8000;
         while (Date.now() < deadline) {
           if (whyEl && whyEl.textContent && whyEl.textContent.trim()) break;
           await new Promise((r) => setTimeout(r, 50));
