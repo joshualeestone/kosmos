@@ -4233,6 +4233,13 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .emojibtn:hover { background: rgba(20,22,26,.07); }
 .emojibtn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .emojibtn[aria-expanded="true"] { background: rgba(20,22,26,.07); }
+/* #2357 (Josh, 2026-09-06): mute the emoji glyph to a subtle grey, not a prominent
+   yellow smiley (his ask, matching Discord's muted grey). grayscale(1) desaturates the
+   color-emoji's own yellow (CSS `color` cannot touch a color-font glyph; a paint filter
+   can), and a modest opacity recesses it without reading as disabled. Filtered on the
+   GLYPH span (not .emojibtn) so the hover/focus/expanded affordance backgrounds stay at
+   full strength. Same technique as the `.pmark.dim svg` precedent below. */
+.emojibtn-glyph { filter: grayscale(1) opacity(.6); }
 .emojipanel { position: absolute; right: 12px; bottom: calc(100% - 6px); z-index: 5;
   width: 18rem; max-height: 15rem; overflow-y: auto;
   background: var(--k-surface); border: 0.5px solid var(--separator); border-radius: 10px;
@@ -9369,7 +9376,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                app: "the yellow post button", match the pack. So Post and the
                agent page's Send wear `.uprime`, the build's gold. The
                argument above stays as the record of what it cost. -->
-                    <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji">&#128512;</button>
+                    <button class="emojibtn" id="pj-emoji-btn" type="button" aria-label="Add an emoji" title="Add an emoji" aria-expanded="false" aria-controls="pj-emoji"><span class="emojibtn-glyph" aria-hidden="true">&#128512;</span></button>
                     <button class="btn uprime cpost" id="pj-post-go" type="button">Post</button>
         </div>
         <!-- 🔑 THE @ PICKER (#312). Josh: "if I hit the @ symbol, it would pop
