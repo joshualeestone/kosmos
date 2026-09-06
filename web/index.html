@@ -36191,32 +36191,46 @@ function frCheckRow(c, opts) {
     + '</div></div>';
 }
 
-/* install-flow-9screen: S2 Access's "Allow Access" button, delegated on the pane.
-   It opens System Settings -> Privacy -> Files & Folders (POST
-   /api/open-file-access-settings; the engine derives the URL). It cannot GRANT the
-   access (TCC), so the gate poll -- not this click -- flips the pill to granted and
-   unlocks Next. Only a failure speaks, in #fr-s2-msg; the Settings window itself is
-   the success feedback (same rule as S3's Turn-On buttons). */
+/* #1 (Josh 0.6.39): the grant buttons must FIRE the real macOS prompt, not open
+   System Settings. Josh's fresh-account test never got the "Terminal would like to
+   access your files" dialogs on the permission screens; they only appeared later at
+   Import. So a grant click now POSTs Kitty's native trigger, which fires the actual
+   prompt (fire-and-forget: the dialog appears, the user hits Allow, the gate poll
+   below detects the grant and unlocks Next). It falls back to opening System
+   Settings ONLY when the native trigger is unavailable ({ok:false}, e.g. a browser,
+   or before the endpoint has shipped) -- the old behaviour, so nothing regresses
+   during the native rollout. sleep is not a prompt category (pmset, programmatic),
+   so it keeps opening Settings and passes no trigger. */
+async function frFirePermission(triggerUrl, fallbackUrl, msg) {
+  if (msg) msg.textContent = '';
+  if (triggerUrl) {
+    try {
+      const res = await fetch(triggerUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+      const body = await res.json().catch(() => null);
+      // Prompt fired: the gate poll takes it from here. Nothing else to do.
+      if (res.ok && body && body.ok === true) return;
+      // {ok:false} or a non-ok status: the native mechanism is unavailable; fall
+      // back to opening Settings so the person is never left with a dead button.
+    } catch { /* endpoint missing / network error -> fall back */ }
+  }
+  try {
+    const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    }
+  } catch {
+    if (msg) msg.textContent = 'we could not open System Settings';
+  }
+}
+
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   const b = e.target.closest('.s2-allow');
   if (!b) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
-  try {
-    const res = await fetch('/api/open-file-access-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }
+  finally { b.disabled = false; }
 });
 
 /* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
@@ -36234,26 +36248,19 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  const url = gate === 'sleep' ? '/api/open-sleep-settings'
+  /* #1: tmux fires the native Accessibility PROMPT (Kitty's /api/a11y-prompt, which
+     also injects tmux into the Accessibility list so it appears and is grantable -
+     the gap Josh hit, screenshot 9.51.30). sleep is programmatic (pmset), not a
+     prompt category, so it opens Settings and passes no trigger. Both fall back to
+     opening Settings when the native trigger is unavailable. */
+  const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
+  const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
     : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
-  if (!url) return;
+  if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;
-  try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission(trigger, fallback, msg); }
+  finally { b.disabled = false; }
 });
 
 // install-flow-9screen: frPaintMachine + the standalone machine-check screen
