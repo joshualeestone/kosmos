@@ -1859,7 +1859,7 @@ after (54/54 and 40/40, exit 0 both), leaving the worktree pristine:
 | A | route -> `configDir: known.dir` (pre-fix) | default arm RED, route control green |
 | B | drop the `-u` push | launch arm RED, launch control green |
 | C | push `-u` unconditionally | LABELLED control RED, default arm green |
-| D | `configDir: null` for all accounts | LABELLED route control RED |
+| D | `configDir: null` for all accounts | LABELLED route control RED **plus two `#1492` arms (37/40 pass)** |
 
 ⭐ **The pairing is the point, and it is worth stating because a positive-only suite looks identical:**
 A and B prove each production edit is guarded by an assertion that reddens on the pre-fix shape; C and
@@ -2400,3 +2400,42 @@ version, how the value was read, and specifically whether the server was genuine
 all three arms shared one server lifecycle.** The branch's existing witness measures only the WARM
 case by construction, so cold-vs-warm is load-bearing, and three arms on different server states would
 not compose. **A gap is closed when it is reproducible, not when it is reported.**
+
+### Iteration 32, addendum: the declared gap is now MEASURED, on equal footing in both server states
+
+⭐ **The reviewer's real-tmux run was the most valuable thing in the round, AND IT DID NOT CLOSE THE
+GAP AS RUN. It said so itself when asked.** Its three arms were not on the same footing: the `-u` arm
+created the server (COLD), and the other two attached to the server it had started (WARM). The warm
+server had been launched by a client carrying `CLAUDE_CONFIG_DIR=/leaked/acct`, which is exactly why
+the control could see the leak. **A comparison across three different server states is not a
+comparison.** It also volunteered that it never ran the positive cold-check (`tmux -L <sock> ls`
+expecting "no server"), so "cold" rested on a fresh socket name plus a `kill-server` rather than on an
+observation.
+
+✅ **RE-RUN LIKE-FOR-LIKE, both states, every arm on equal footing, with the missing cold-check added.**
+tmux 3.6a, private socket, parent env carrying `CLAUDE_CONFIG_DIR=/leaked/acct`:
+
+| arm | COLD (each arm verified cold first) | WARM (all three on one seeded server) |
+|---|---|---|
+| `-u` pushed | **`[ABSENT]`** | **`[ABSENT]`** |
+| assignment | `[/named/acct]` | `[/named/acct]` |
+| **control, neither** | **`[/leaked/acct]`** | **`[/leaked/acct]`** |
+
+**The control returns the leaked value in BOTH states**, so the `-u` absence is a real strip rather
+than a blind reader. ⇒ **tmux 3.6a does not consume the `-u`, cold or warm.** The value was read by
+having each pane write `${CLAUDE_CONFIG_DIR-ABSENT}` to its own file (single `-`, so an empty-but-set
+value reads empty rather than ABSENT) rather than by `capture-pane`.
+
+⚠️ **RECORDED IN THE PR BODY AS A MANUAL MEASUREMENT, EXPLICITLY NOT AS SUITE COVERAGE.** Nothing
+re-runs it, so it can rot. The distinction matters: the old text said the arm was not exercised, which
+was true of the suite and is still true of the suite.
+
+🛑 **AND MY OWN HARNESS HAD A BUG THAT `set -u` CAUGHT ON THE FIRST RUN.** I wrote
+`local label=$1 kind=$2 f="$OUT/$label.txt"` in one statement; **bash expands every word before the
+`local` builtin runs**, so `$label` was unbound and the script aborted. It failed loudly, which is the
+good case. ⇒ **One `local` per variable when a later one reads an earlier one.**
+
+**Also fixed, from the reviewer's set-aside borderline call:** the mutation table's row D recorded one
+red where the mutation actually reds three (the labelled control plus two `#1492` arms, 37/40).
+Incomplete rather than false, and it **understated** the guard, but a table of evidence should be
+right in both directions.

@@ -91,9 +91,23 @@ a login argument after the binary.
 
 ## What is NOT covered, stated rather than implied
 
-- Nothing exercises the `-u` arm against a real tmux. The suite replays argv and cannot see tmux's
-  parser, and `docs/browser-checks/live-connect.js` (the only real-tmux, real-CLI exerciser) sets
-  `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so it always takes the assignment branch.
+- **The automated suite does not exercise the `-u` arm against a real tmux.** It replays argv and
+  cannot see tmux's parser, and `docs/browser-checks/live-connect.js` (the only real-tmux, real-CLI
+  exerciser) sets `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so it always takes the assignment branch.
+  ✅ **It has, however, been MEASURED by hand** (tmux 3.6a, private socket, parent env carrying
+  `CLAUDE_CONFIG_DIR=/leaked/acct`), in BOTH server states, every arm on equal footing:
+
+  | arm | cold server | warm server |
+  |---|---|---|
+  | `-u` pushed | `[ABSENT]` | `[ABSENT]` |
+  | assignment | `[/named/acct]` | `[/named/acct]` |
+  | control, neither | `[/leaked/acct]` | `[/leaked/acct]` |
+
+  Each cold arm was verified cold with `tmux -L <sock> ls` before running (it must say no server);
+  the warm arms all attached to one seeded server. **The control returns the leaked value in both
+  states**, so the absence on the `-u` arm is a real strip and not an instrument that sees nothing.
+  ⇒ tmux 3.6a does not consume the `-u`. **This is a manual measurement, NOT suite coverage: nothing
+  re-runs it, so it can rot.**
 - Nothing exercises the route ternary through to the launch argv. Both halves are covered; their
   composition is not.
 
