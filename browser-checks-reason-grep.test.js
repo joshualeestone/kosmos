@@ -464,7 +464,14 @@ test('every emit site in every check prints a line the gate can quote', () => {
      the same line, not a partition (same as render-plus-blue-1615 at 57). The
      in-try `catch { bad('the check itself', …) }` adds no site (that scan matches
      the top-level throw line shape, not a bad() call). */
-  const EXPECTED_SITES = 59;
+  /* 61 after kosmos#1652 added render-firstrun-wizard-flow.js (the first end-to-end
+     integration guard for the combined 1..9 first-run flow), which carries TWO
+     SHAPE-1 finding-emit sites, both confirmed quotable: its `bad()` helper
+     `console.log('FAIL  ' + n + '  --  ' + why)` and its single-line top-level
+     `.catch((e) => { console.error('FAIL  ... threw: ' + ...) })` (same shapes as
+     render-firstrun-scan-on-grant-1652's). The catch is ALSO counted once by the
+     catch/launch scan below (36). */
+  const EXPECTED_SITES = 61;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -588,7 +595,11 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      added after an iteration-1 challenge NIT) is one catch/launch emit site,
      confirmed quotable (a `FAIL  ... threw:` prefix the gate quotes). It is ALSO
      counted once by the finding-emit scan above (59). */
-  const EXPECTED_CATCH_SITES = 35;
+  /* 36 after kosmos#1652 added render-firstrun-wizard-flow.js, whose single-line
+     top-level crash catch (same Shape-A form as render-firstrun-scan-on-grant-1652's)
+     is one catch/launch emit site, confirmed quotable (a `FAIL  ... threw:` prefix
+     the gate quotes). ALSO counted once by the finding-emit scan above (61). */
+  const EXPECTED_CATCH_SITES = 36;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
