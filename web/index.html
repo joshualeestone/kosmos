@@ -4554,8 +4554,14 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    dragging the header and tabs with it. Same declaration as `.task`; the
    `because` line can carry a pane target or a path out of stderr, so it
    needs it too. */
+/* #2294: `white-space: pre-wrap` so a PLAIN marker-less multi-line message renders its
+   paragraph breaks instead of collapsing to one line. pjRich's fast path returns
+   `esc(raw)` with literal `\n` (which `white-space: normal` collapsed -- the bug); the slow
+   path already joins lines with `<br>` and carries no literal `\n`, so pre-wrap does not
+   double a markdown message's breaks. Matches the `.dm-b` dialogue surface, which is
+   already pre-wrap. Fenced code keeps its own `.mdcb` pre-wrap regardless. */
 .pj-msg .pj-msg-text { display: block; font: var(--text-body) var(--font-ui); color: var(--label);
-  overflow-wrap: anywhere; }
+  white-space: pre-wrap; overflow-wrap: anywhere; }
 /* ⚠️ The verdict is a SENTENCE under every message, never a tick. A tick would
    be read as "it got there and was understood", and all we know is that tmux
    took the keystroke. */
@@ -31993,12 +31999,13 @@ function pjRich(text) {
      routes a link to ANY target (a relative path, `mailto:`, an anchor -- not
      just http) to the slow path, where its syntax is stripped to the text; the
      http/https checks alone would leave a non-http link showing raw markup.
-     ⚠️ A content-dependent consequence on `.pj-msg-text` (which is not
-     `pre-wrap`): a plain multiline message keeps its literal `\n` here (renders
-     as before), while a message carrying any marker/URL/link takes the slow
-     path and its breaks become `<br>`, so two messages on that surface can wrap
-     differently by content. Intended (see rule 2); noted so it is not a
-     surprise. */
+     📌 On `.pj-msg-text`: a plain multiline message keeps its literal `\n` here,
+     while a message carrying any marker/URL/link takes the slow path and its
+     breaks become `<br>`. Both now render as breaks on that surface, because
+     `.pj-msg-text` is `white-space: pre-wrap` as of #2294 (it was `normal`
+     before, which collapsed the fast path's `\n` -- the bug). The slow path
+     carries no literal `\n` (it joins with `<br>`), so pre-wrap does not double
+     a markdown message's breaks. */
   if (!/[*_`~]/.test(raw)
       && !/(^|\n)[ \t]*(#{1,6}[ \t]|>[ \t]?|[-+][ \t]|\d+\.[ \t]|-{3,}[ \t]*(\n|$))/.test(raw)
       && !/\[[^\]\n]+\]\([^)\n]+\)/.test(raw)
