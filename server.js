@@ -940,9 +940,30 @@ function safeRoster() {
  * guaranteed slug-shaped, so slugFor on the removed side is real normalization, not
  * a no-op. Comparing typed-vs-cleanName would miss a removed agent whose name has a
  * capital or a space (#740). A renamed agent's old births stop counting, which can
- * only UNDER-count (never over-refuse). One entry per slug. Returns null (not 0)
- * when the birth log or removed list cannot be read, so the caller can fail OPEN
- * rather than block a create on a read error.
+ * only UNDER-count (never over-refuse). One entry per slug.
+ *
+ * ⚠️ READ-ERROR BEHAVIOUR, stated as it ACTUALLY is (not as convenient). Both
+ * create.createdLog() and remove.removedAgents() swallow their own fs errors and
+ * return [] -- neither THROWS today. So the `catch { return null }` guards below
+ * are defensive against a FUTURE change (a throwing reader should fail open here,
+ * not crash the request with a 500); they are unreachable on today's readers. What
+ * happens TODAY on a genuinely-unreadable file:
+ *   - birth log unreadable -> [] -> count 0 -> the GLOBAL cap under-enforces for
+ *     that creator (the permissive direction). The per-team cap (<= MAX_TEAM_CAP)
+ *     still bounds the one request; only a real filesystem fault triggers this
+ *     (not anything a caller can do over HTTP), and the cap is not an adversarial
+ *     boundary anyway (see the plan's "What the cap IS and IS NOT").
+ *   - removed list unreadable -> [] -> nothing excluded -> count inflated -> the
+ *     cap is MORE conservative (the safe direction).
+ * The caller's `already !== null` still handles the future throwing-reader case.
+ *
+ * 🔑 THE LAST-OCCURRENCE-WINS OWNERSHIP relies on createAgentInner refusing a
+ * create while a name is on the removed list -- so a live name's owner is its
+ * newest 'created' birth. That refusal (create.js isRemoved) compares by cleanName,
+ * which matches for the slug-addressed removals the frontend actually produces (the
+ * normal path). It is NOT proven airtight for an arbitrary non-slug-shaped removal
+ * record; that pre-existing edge would at worst UNDER-count here (permissive), and
+ * hardening isRemoved to slugFor is out of this slice's scope.
  *
  * 🔑 CORRECT ONLY UNDER THE PER-CREATOR LOCK (withCreatorLock). This is a
  * check-then-act read; the write (createTeam -> recordBirth) happens later, so
