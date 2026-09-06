@@ -42,13 +42,38 @@ const HOOK_EVENTS = Object.freeze([
    need their own migration, which is stated here so nobody discovers it. */
 const MARKER = 'kosmos-report-hook.sh';
 
+/* 🛑 THE DEDUP KEY IS NOW A FAMILY, AND THIS IS THE MIGRATION THE COMMENT ABOVE
+   SAID WOULD BE NEEDED. There are two entrypoints: the bash one on POSIX and the
+   node one on win32 (engine/kosmos-report-hook.js), because Windows ships no
+   bash — measured, kosmos#2266. A second filename under the OLD single-string
+   marker would not have matched an existing entry, so a box that saw both would
+   STACK two hooks and double-report every event.
+
+   ⚠️ MATCHING IS A FAMILY, REPLACEMENT IS NOT. `entryIsOurs` accepts either
+   flavour so neither stacks beside the other. `ensureWired` still leaves an
+   already-correct entry exactly as it is; it replaces one ONLY when the existing
+   entry is our OTHER flavour, which is the one case where leaving it means
+   leaving a command that cannot run on this platform. A mere difference in
+   command TEXT (a flag, a timeout) is still left alone, exactly as before — the
+   original comment's cost is unchanged, and this does not churn a Mac's
+   settings.json on the next run. */
+const MARKER_FAMILY = /kosmos-report-hook\.(?:sh|js)\b/;
+
 /**
  * Where the hook script is, from where THIS module is: installed, engine/
  * sits beside bin/ inside app/; on a source checkout, engine/ sits beside
  * install/. Probed, not assumed, the clipath way; null when neither exists
  * rather than a guess that fails at fire time.
  */
-function hookScriptPath() {
+function hookScriptPath(platform) {
+  /* 🔑 ON WIN32 THE ENTRYPOINT IS THE NODE ONE, AND IT LIVES IN engine/ BESIDE
+     THIS FILE — no probing needed, because unlike the .sh (which is staged from
+     install/ into bin/) it ships wherever engine/ ships. Same relationship, one
+     fewer rung. */
+  if ((platform || process.platform) === 'win32') {
+    const js = path.resolve(__dirname, 'kosmos-report-hook.js');
+    return fs.existsSync(js) ? js : null;
+  }
   const installed = path.resolve(__dirname, '..', 'bin', 'kosmos-report-hook.sh');
   if (fs.existsSync(installed)) return installed;
   const source = path.resolve(__dirname, '..', 'install', 'kosmos-report-hook.sh');
@@ -56,17 +81,40 @@ function hookScriptPath() {
   return null;
 }
 
-function entryFor(scriptPath) {
-  return {
-    matcher: '',
-    hooks: [{ type: 'command', command: 'bash "' + scriptPath + '"', timeout: 15 }],
-  };
+/**
+ * The interpreter for the win32 entry.
+ *
+ * 🔑 RESOLVED BY RELATIONSHIP, NEVER SEARCHED FOR — the property the .sh hook's
+ * own CLI resolution protects, and the reason it gives: a searched interpreter
+ * finds whatever is on PATH, and on Windows the measured answer is NOTHING
+ * (`node` is not on PATH there, kosmos#2266). The bundle ships
+ * `runtime\node.exe` at a fixed offset from `app\`, so engine/ can name it.
+ * `process.execPath` is the fallback and is the same binary in the installed
+ * case, because the board itself runs under the bundled runtime.
+ */
+function nodeBin() {
+  const bundled = path.resolve(__dirname, '..', '..', 'runtime', 'node.exe');
+  if (fs.existsSync(bundled)) return bundled;
+  return process.execPath;
+}
+
+function entryFor(scriptPath, platform) {
+  const command = (platform || process.platform) === 'win32'
+    ? '"' + nodeBin() + '" "' + scriptPath + '"'
+    : 'bash "' + scriptPath + '"';
+  return { matcher: '', hooks: [{ type: 'command', command, timeout: 15 }] };
 }
 
 function entryIsOurs(entry) {
   return !!(entry && Array.isArray(entry.hooks)
-    && entry.hooks.some((h) => h && typeof h.command === 'string' && h.command.includes(MARKER)));
+    && entry.hooks.some((h) => h && typeof h.command === 'string' && MARKER_FAMILY.test(h.command)));
 }
+
+/* 📌 NO SEPARATE "is this the other flavour" HELPER, DELIBERATELY. The merge loop
+   below already replaces any entry `entryIsOurs` matches whose command differs
+   from the one we would write — that is exactly the flavour swap, and it was
+   already correct the moment the matcher became a family. A second predicate
+   saying the same thing is the two-copies defect in miniature. */
 
 /**
  * Merge the seven hook entries into one settings.json. Idempotent: an event
@@ -78,15 +126,30 @@ function entryIsOurs(entry) {
  * born, an install still finishes; the board falls back to scraping, which
  * is the pre-#526 world, not a corruption).
  */
-function ensureWired(settingsPath, scriptPath) {
+function ensureWired(settingsPath, scriptPath, platform) {
+  const plat = platform || process.platform;
   if (!scriptPath) return { wired: false, because: 'the reporting hook script is not on this machine' };
   /* The path is embedded in a double-quoted bash command; a quote,
      backslash, dollar or backtick in it would break the command or execute
      inside it. setup.sh refuses similar characters for the profile write,
      and this keeps the pair consistent (Angel's review). No real
      KOSMOS_HOME carries these; a hand-built one that does gets a sentence
-     instead of a settings file that runs it. */
-  if (/["\\$`]/.test(scriptPath)) {
+     instead of a settings file that runs it.
+
+     🛑 AND THE SET IS PER-PLATFORM, BECAUSE ON WINDOWS THE POSIX SET REFUSES
+     EVERY PATH THERE IS. `\` is bash's escape and win32's SEPARATOR, so the
+     rule above — correct for the bash command it was written for — rejects
+     `C:\...\kosmos-report-hook.js` and would have made the win32 arm below
+     unreachable in every case, wiring nothing and saying only that the path
+     "contains characters we will not embed". A refusal that fires on 100% of
+     real inputs is not a guard, it is an outage with a sentence.
+
+     The win32 command is not a bash command: `\` is inert, `$` and a backtick
+     carry no meaning, and what does break it is a double quote (it terminates
+     the argument) or a `%` (cmd expands it if the command reaches a shell). So
+     each platform refuses exactly what can hurt IT. */
+  const dangerous = plat === 'win32' ? /["%]/ : /["\\$`]/;
+  if (dangerous.test(scriptPath)) {
     return { wired: false, because: 'the hook script path contains characters we will not embed in a command' };
   }
   /* #1582: the fifth refusal. hookScriptPath() correctly probes and, during
@@ -183,7 +246,7 @@ function ensureWired(settingsPath, scriptPath) {
      ours by the marker, so replacing it is not clobbering somebody's
      configuration -- and leaving it is how a machine keeps running a hook
      nobody has looked at since August. */
-  const wantCommand = entryFor(scriptPath).hooks[0].command;
+  const wantCommand = entryFor(scriptPath, plat).hooks[0].command;
   for (const event of HOOK_EVENTS) {
     const existing = Array.isArray(data.hooks[event]) ? data.hooks[event] : [];
     const mine = existing.filter(entryIsOurs);
@@ -193,11 +256,11 @@ function ensureWired(settingsPath, scriptPath) {
       if (mine.some((e) => e.hooks.some((h) => h && h.command === wantCommand))) continue;
       /* Ours, but aimed at another copy. Replace only OUR entries; anything
          else in this event's list is somebody else's hook and is untouched. */
-      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? entryFor(scriptPath) : e));
+      data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? entryFor(scriptPath, plat) : e));
       changed = true;
       continue;
     }
-    data.hooks[event] = existing.concat([entryFor(scriptPath)]);
+    data.hooks[event] = existing.concat([entryFor(scriptPath, plat)]);
     changed = true;
   }
   if (!changed) return { wired: true, changed: false };
@@ -217,4 +280,4 @@ function ensureWired(settingsPath, scriptPath) {
   return { wired: true, changed: true };
 }
 
-module.exports = { HOOK_EVENTS, MARKER, hookScriptPath, entryFor, entryIsOurs, ensureWired };
+module.exports = { HOOK_EVENTS, MARKER, MARKER_FAMILY, hookScriptPath, entryFor, entryIsOurs, nodeBin, ensureWired };
