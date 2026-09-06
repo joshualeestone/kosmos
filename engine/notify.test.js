@@ -115,10 +115,10 @@ test('both telemetry opt-out rows are PRESENT and wired; ping defaults ON (#2020
   /* 🛑 THE HISTORY, so nobody re-derives it: this pinned the rows PRESENT before
      2026-08-26, then their ABSENCE after Josh removed both (his item 3). #2020
      restores them as opt-out CONTROLS (Josh 09-03: "on, and they can turn it off"),
-     so it pins their PRESENCE again - TOGETHER with the send still being OFF by
-     default. The control and the default are ONE decision (#2013): step 1 restores
-     the control and leaves the default OFF; when Josh flips the default ON (step 3,
-     held), the default assertions below flip WITH it - never a default-on without a
+     so it pins their PRESENCE again. The control and the default are ONE decision
+     (#2013): the control was restored first with the default OFF; Josh has SINCE
+     flipped the create-ping default ON (#2020/#2013, 2026-09-05), so the ping
+     assertions below check ON while notify stays OFF - never a default-on without a
      control, which is the exact "removed opt-out" state the deletion existed to
      prevent. */
   const page = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
