@@ -51,7 +51,7 @@ const KEY = 'hasTrustDialogAccepted';
 // Snapshot every env var this file mutates so after() restores the process
 // exactly (matters if ever run in a shared process rather than node's default
 // per-file isolation).
-const ENV_KEYS = ['HOME', 'AGENT_WORKFORCE_HOME', 'AGENT_WORKFORCE_CLAUDE_CONFIG', 'CLAUDE_CONFIG_DIR'];
+const ENV_KEYS = ['HOME', 'USERPROFILE', 'AGENT_WORKFORCE_HOME', 'AGENT_WORKFORCE_CLAUDE_CONFIG', 'CLAUDE_CONFIG_DIR'];
 const ENV_SNAPSHOT = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 
 // DISPOSABLE_HOME is what a walk sets AGENT_WORKFORCE_HOME to, believing it
@@ -62,6 +62,14 @@ const DISPOSABLE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1821-home-'));
 const PRETEND_REAL = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1821-pretend-real-'));
 process.env.AGENT_WORKFORCE_HOME = DISPOSABLE_HOME;
 process.env.HOME = PRETEND_REAL;
+/* 🛑 USERPROFILE TOO -- same reason as firstrun-isolation-1780, and this file is
+   the one that most needs it: its whole point is the RAW `os.homedir()` fallback
+   in trust.js homeDir(). On win32 os.homedir() reads %USERPROFILE%, not $HOME, so
+   redirecting HOME alone left the fallback aimed at the operator's real home and
+   the guard below refused to run -- correctly, but leaving the leak arm unrun on
+   the one platform where the fallback resolves differently.
+   ⚠️ The guard still decides: it asserts os.homedir() itself. Inert on POSIX. */
+process.env.USERPROFILE = PRETEND_REAL;
 delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
 delete process.env.CLAUDE_CONFIG_DIR;
 

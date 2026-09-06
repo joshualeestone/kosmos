@@ -42,12 +42,39 @@ const crypto = require('node:crypto');
 // remove both throwaways. Safe under node's default per-file process isolation; matters if
 // this file is ever run in a shared process, where a leaked AGENT_WORKFORCE_HOME pointing at
 // a deleted dir would sandbox later modules onto nothing.
-const ENV_KEYS = ['HOME', 'AGENT_WORKFORCE_HOME', 'AGENT_WORKFORCE_TMUX_BIN', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS'];
+const ENV_KEYS = ['HOME', 'USERPROFILE', 'APPDATA', 'AGENT_WORKFORCE_HOME', 'AGENT_WORKFORCE_TMUX_BIN', 'AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS'];
 const ENV_SNAPSHOT = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
 const DISPOSABLE = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1780-disposable-'));
 const PRETEND_REAL = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-1780-pretend-real-'));
 process.env.AGENT_WORKFORCE_HOME = DISPOSABLE;
 process.env.HOME = PRETEND_REAL;
+/* 🛑 USERPROFILE TOO, OR THIS WHOLE FILE REFUSES TO RUN ON WINDOWS. `os.homedir()`
+   reads $HOME on POSIX and %USERPROFILE% on win32, so setting HOME alone left
+   os.homedir() pointing at the operator's REAL home there, and the guard below
+   correctly refused to run rather than let the leak arm reach it.
+
+   ⚠️ That refusal was the guard WORKING. The cost was that this safety arm was
+   DARK on Windows -- measured 0 pass / 1 fail, which in a sweep reads exactly
+   like a broken test rather than an unrun one, and a safety arm nobody knows is
+   unrun is worse than one that is merely absent.
+
+   ⚠️ THE GUARD IS UNCHANGED AND STILL DECIDES. It asserts os.homedir() itself,
+   so if NEITHER redirect takes on some future platform it still refuses. Setting
+   USERPROFILE is inert on POSIX, where os.homedir() does not consult it. */
+process.env.USERPROFILE = PRETEND_REAL;
+/* 🛑 AND APPDATA, BECAUSE ON WINDOWS THAT IS WHERE THE STORE ACTUALLY LIVES. The
+   pretend-real machine is only complete if every root the store can resolve
+   through points into it. On the Mac that is `home/Library/Application Support`,
+   so redirecting HOME finishes the job. On win32 `dataRootFor` derives from
+   `APPDATA` when no AGENT_WORKFORCE_HOME override is set, so leaving the real
+   APPDATA in the environment did two bad things at once: the CONTROL below
+   compared against os.homedir() and read the operator's real
+   %APPDATA%\AgentWorkforce, and -- worse -- an actual leak past the seam would
+   have landed in the operator's real store rather than the throwaway. The
+   redirect is the safety property this file is built on, and on Windows it was
+   one variable short of holding.
+   ⚠️ Inert on POSIX: dataRootFor never reads APPDATA on the Mac branch. */
+process.env.APPDATA = path.join(PRETEND_REAL, 'AppData', 'Roaming');
 process.env.AGENT_WORKFORCE_TMUX_BIN = '/nonexistent-tmux-1780';
 delete process.env.AGENT_WORKFORCE_DATA;
 delete process.env.AGENT_WORKFORCE_WORKERS;
