@@ -7898,8 +7898,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s2-say{font:600 .8125rem/1.4 var(--font-ui,-apple-system,sans-serif);margin:0;color:#1c1b19}
         .s2-btns{display:flex;gap:9px;justify-content:flex-end}
         .s2-db{font:600 .75rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:7px;padding:5px 15px;background:#f6f6f4;color:#1c1b19}
-        /* Allow = the macOS blue "suggested" default button, called out with a gold ring. */
-        .s2-db.s2-hl{background:#3f92f0;border-color:#3f92f0;color:#fff;position:relative}
+        /* Allow = the macOS blue "suggested" default button, called out with a gold ring.
+           #0a64fa is the deeper system-accent blue (white label ~4.98:1, clears AA); the
+           lighter #3f92f0 folder icon above intentionally differs, as the real dialog's
+           app icon and default button do. */
+        .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
         .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
