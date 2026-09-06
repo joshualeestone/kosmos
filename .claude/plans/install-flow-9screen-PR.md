@@ -67,8 +67,21 @@ content-anchored browser checks auto-follow the renumber.
 
 ## Screen 6 (Self-improving) integration hooks — for Angel's PR-C2
 
-The three facts Angel needs to finalize PR-C2 against the real flow structure, so
-his ready-to-apply patch fast-applies the moment this flow merges:
+**LOCKED CONTRACT (Renet + Angel, 2026-09-05, Splinter/Mona flagged the seam):**
+path 1 — Angel wires behavior INTO Renet's rows; one set of switches, no collision.
+- My `s6-sw` spans stay as-is (`#fr-s6-feedback`, `#fr-s6-createping`,
+  `role="switch"`, `tabindex="0"`, `aria-checked="true"` default-ON) — Mona's
+  signed-off mock visual, kept.
+- They are DISPLAY-ONLY placeholders / an interactive wiring surface; **Renet wires
+  NO behavior** on them (verified: no click/keydown/POST). Angel's PR-C2 adds:
+  click + Space/Enter toggle (flip `aria-checked`), `PUT /api/feedback-setting` +
+  `PUT /api/ping-setting`, and `frRefreshFeedback()`/`frRefreshPing()` in the frGo
+  step-6 branch.
+- Angel DROPS his own `.toggle` markup (`fr-feedback-toggle`/`fr-ping-toggle`).
+- **Who removes what: nobody removes markup.** Renet's flow merges self-complete
+  with the placeholder switches; PR-C2 makes them live onto the merged base.
+
+The three facts (the wiring surface Angel binds against):
 
 **1. Panel container + where it drops in.**
 Screen 6 is `<div class="fr-pane" id="fr-pane-6" hidden>`, the 6th of 9 panes
