@@ -3266,8 +3266,11 @@ const server = http.createServer((req, res) => {
    *     the authenticated caller (resolveAgentSender), never a self-declared
    *     body.creator -- an agent cannot spawn a team under another agent's name.
    *   - OPERATOR: the board token, no agent token. createdBy = body.creator.
-   * On an ENFORCING board, NEITHER credential is refused (denyPaneFallback, the
-   * #1968 no-credential-loopback-spoof guard). ⚠️ NOT NETWORK: /api/team is kept
+   * On an ENFORCING board, NEITHER credential is refused -- a no-token request
+   * takes the OPERATOR branch and is refused by its board-token 403 (a no-token
+   * request never enters the AGENT branch, so resolveAgentSender's pane-fallback
+   * is unreachable here and denyPaneFallback is deliberately NOT passed; see the
+   * inline auth comment below). ⚠️ NOT NETWORK: /api/team is kept
    * OUT of REMOTE_AGENT_ROUTES, so remoteWriteGuard refuses every network peer --
    * agent-spawning is higher blast radius than report/reply, and an operator who
    * opened the bind for remote REPORTS should not thereby expose remote team
