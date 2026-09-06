@@ -253,7 +253,11 @@ SRC_SHA=""
 # repo whose `.git` is a FILE (a gitdir pointer) rather than a directory, which would silently drop to
 # the local-file fallback.
 if git -C "$SITE_CO" rev-parse --git-dir >/dev/null 2>&1; then
-  git -C "$SITE_CO" fetch -q origin 2>/dev/null || true
+  # Bound the one network call in an otherwise time-boxed audit (the curl calls use -m 20; `timeout`
+  # is not installed on this fleet). git's own low-speed guard aborts a STALLED fetch (< ~1KB/s for
+  # 20s) so a wedged network cannot hang step 9e of a live cut; `|| true` then falls to the local
+  # fallback rather than failing the cut on a transient fetch error.
+  git -C "$SITE_CO" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q origin 2>/dev/null || true
   if git -C "$SITE_CO" show origin/main:setup > "$WORK/origin-setup" 2>/dev/null && [ -s "$WORK/origin-setup" ]; then
     SRC_SHA="$(shasum -a 256 "$WORK/origin-setup" | awk '{print $1}')"
   fi

@@ -29,6 +29,12 @@ grep -q 'served /setup DIFFERS from origin/main:setup' "$CHECK" \
 grep -q '\[ -s "\$WORK/origin-setup" \]' "$CHECK" \
   && ok "the derivation guards on a non-empty git-show result ([ -s ] -- shasum-of-empty cannot mis-compare)" \
   || bad "the derivation lost its non-empty ([ -s ]) empty-guard -- shasum of empty input is a fixed hash that mis-compares (#2360)"
+# lock the COMPARISON DIRECTION, not just the reference strings: the behavioural half below re-implements
+# the derivation, so a `=`->`!=` inversion or an ok/bad swap in the SCRIPT would pass it undetected.
+# Pin that equality (served == deploy source) leads to `ok`, so an inverted operator/branch reds here.
+grep -q '\[ "\$LIVE_SHA" = "\$SRC_SHA" \] && ok' "$CHECK" \
+  && ok "the primary comparison is equality-then-ok (served == source PASSES; an inverted =/!= or ok/bad swap would red this)" \
+  || bad "the primary comparison is no longer '[ \$LIVE_SHA = \$SRC_SHA ] && ok' -- a =/!= inversion or ok/bad swap could pass silently (#2360)"
 
 # ---- BEHAVIOURAL: the derivation reads the deploy source, not a stale local -------------------
 # Reproduce the exact #2360 condition in a real repo: origin/main:setup = A, local working /setup = B.
