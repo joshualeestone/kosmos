@@ -35720,6 +35720,7 @@ function frGo(step) {
   } else if (step === 6) {
     // S6 Self improving (Angel wires the two switches' behavior).
     frActions({ label: 'Next', go: () => frGo(7) });
+    frRefreshFeedback(); frRefreshPing();   // PR-C2 (#2037 + #2020): paint persisted/default-ON state on show
   } else if (step === 7) {
     // S7 Success: the app-location look + reveal + dock line (frPaintReturn).
     frActions({ label: 'Next', go: () => frGo(8) });
@@ -35734,6 +35735,85 @@ function frGo(step) {
 
   frFocusActiveHead(pane);
 }
+
+/* PR-C2 (#2037 + #2020): behavior for install-flow Screen 6's two consent
+   switches. Renet's markup is static spans (#fr-s6-feedback / #fr-s6-createping,
+   role=switch, aria-checked, default-ON) present from first paint. Same backends
+   as the Settings switches (/api/feedback-setting, /api/ping-setting); both
+   default ON, so these are the install-time opt-OUT. Bound once at top level
+   because the spans exist before this script runs. A could-not-read leaves the
+   markup at its default-ON position, never painting a false Off. */
+function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
+function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
+
+// FR_FB_EPOCH is shared between the refresh (read) and the toggle (write) on
+// purpose: a user's toggle must supersede an in-flight on-show refresh, and a
+// later refresh must supersede a stale toggle response -- one counter, latest
+// action wins either way. FR_FB_SAVING blocks a second toggle while a PUT is in
+// flight. (frRefreshPing/frPingToggle mirror this with FR_PING_*.)
+let FR_FB_EPOCH = 0, FR_FB_SAVING = false;
+async function frRefreshFeedback() {
+  const el = document.getElementById('fr-s6-feedback'); if (!el) return;
+  const mine = ++FR_FB_EPOCH;
+  try {
+    const res = await fetch('/api/feedback-setting');
+    if (!res.ok) return;                       // could-not-read: leave the default-ON markup position
+    const r = await res.json();
+    if (mine === FR_FB_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
+  } catch { /* leave the default */ }
+}
+async function frFeedbackToggle() {
+  const el = document.getElementById('fr-s6-feedback'); if (!el || FR_FB_SAVING) return;
+  FR_FB_SAVING = true; const mine = ++FR_FB_EPOCH;
+  const next = !frSwOn(el);
+  frSwSet(el, next);                            // optimistic; revert if the PUT fails
+  try {
+    const res = await fetch('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== FR_FB_EPOCH) return;
+    if (!res.ok) { frSwSet(el, !next); return; }
+    if (typeof body.on === 'boolean') frSwSet(el, body.on);
+  } catch { if (mine === FR_FB_EPOCH) frSwSet(el, !next); }
+  finally { FR_FB_SAVING = false; }
+}
+
+let FR_PING_EPOCH = 0, FR_PING_SAVING = false;
+async function frRefreshPing() {
+  const el = document.getElementById('fr-s6-createping'); if (!el) return;
+  const mine = ++FR_PING_EPOCH;
+  try {
+    const res = await fetch('/api/ping-setting');
+    if (!res.ok) return;
+    const r = await res.json();
+    if (mine === FR_PING_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
+  } catch { /* leave the default */ }
+}
+async function frPingToggle() {
+  const el = document.getElementById('fr-s6-createping'); if (!el || FR_PING_SAVING) return;
+  FR_PING_SAVING = true; const mine = ++FR_PING_EPOCH;
+  const next = !frSwOn(el);
+  frSwSet(el, next);
+  try {
+    const res = await fetch('/api/ping-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
+    const body = await res.json().catch(() => ({}));
+    if (mine !== FR_PING_EPOCH) return;
+    if (!res.ok) { frSwSet(el, !next); return; }
+    if (typeof body.on === 'boolean') frSwSet(el, body.on);
+  } catch { if (mine === FR_PING_EPOCH) frSwSet(el, !next); }
+  finally { FR_PING_SAVING = false; }
+}
+
+// Static spans -> bind once at top level. Click AND Space/Enter (role=switch is
+// keyboard-operable). The spans exist before this script runs (markup ~line 8149).
+(function bindS6Switches() {
+  const wire = (id, fn) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.addEventListener('click', fn);
+    el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fn(); } });
+  };
+  wire('fr-s6-feedback', frFeedbackToggle);
+  wire('fr-s6-createping', frPingToggle);
+})();
 
 /* --------------------------------------------------------------------------
    Step 6 - about you (was step 5 before #1214 inserted the Accessibility step)
