@@ -5925,6 +5925,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun #fr-openai-msg { margin: -4px 0 10px; }
 #firstrun #fr-openai-msg.fr-connbox { margin: -2px 0 10px; padding: 10px 12px; border-radius: 10px;
   background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
+/* #2241 sibling for the SETTINGS add-provider success (#acct-success-box): the same
+   gold-wash check-row box as first-run's .fr-connbox, but scoped here because .fr-connbox
+   and the #firstrun .fr-check.ok override only apply inside #firstrun. The base .fr-check
+   family (global) still lays the row out; these rules just add the box + the ok-mark gold. */
+.acct-connbox { margin: 8px auto 0; max-width: 40ch; padding: 10px 12px; border-radius: 10px;
+  text-align: left; background: rgba(184,137,32,.08); border: 1px solid rgba(184,137,32,.28); }
+.acct-connbox .fr-check { padding: 0; background: none; border: 0; margin: 0; }
+.acct-connbox .fr-mark { width: 26px; height: 26px; border-radius: 8px; flex: 0 0 26px; display: grid;
+  place-items: center; font-size: .875rem; font-weight: 700; }
+.acct-connbox .fr-check.ok .fr-mark {
+  background: rgba(184,137,32,.13); border: 1px solid rgba(184,137,32,.4); color: #6e5311; }
+.acct-connbox .fr-ctitle { font-size: 1rem; font-weight: 600; margin-bottom: 2px; color: var(--k-ink); }
+.acct-connbox .fr-cdetail { font-size: .875rem; color: var(--k-ink-2); line-height: 1.5; }
 /* ⚠️ `.fr-body p.fr-confirm-t`, NOT `.fr-confirm-t`. At (1,1,0) it lost every
    declaration to `#firstrun .fr-body p` at (1,1,1), so the confirm sentence
    rendered as ordinary muted body copy on the one panel whose job is to be
@@ -7583,9 +7596,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
          plain Close row are hidden alongside. Reusable: #1659's disconnect confirm
          can consume the same panel rather than drawing a second that drifts. -->
     <div id="acct-success" class="acct-success" role="status" aria-live="polite" hidden>
-      <span class="acct-ok acct-ok-big" aria-hidden="true">&#10003;</span>
+      <span class="acct-ok acct-ok-big" id="acct-success-check" aria-hidden="true">&#10003;</span>
       <h3 class="acct-success-t" id="acct-success-t">Success!</h3>
       <p class="acct-success-say" id="acct-success-say"></p>
+      <!-- #2241 sibling (Settings): a connected provider reads as the SAME gold
+           check-row box the first-run flow uses (frCheckRow -> .acct-connbox), not a
+           plain "connected to X" line, so the two surfaces match. Populated + shown by
+           acctShowSuccess's gold-box arm (the default check/heading/say are hidden
+           then, since the box carries its own check + title); hidden and the default
+           chrome restored otherwise. -->
+      <div class="acct-connbox" id="acct-success-box" hidden></div>
       <div class="rm-acts" style="margin-top: var(--space-6);">
         <button class="btn" id="acct-success-close" type="button">Close</button>
       </div>
@@ -15987,7 +16007,7 @@ async function worldAddSubmit() {
    row) and shows the reused green check + the account it connected to + a way out.
    closeAcctAdd puts the modal back to its form state on the way out, so the next open
    is clean. */
-function acctShowSuccess(accountLabel) {
+function acctShowSuccess(accountLabel, goldBox) {
   /* kosmos#1656: only paint success while the modal is actually open. The Claude path
      is poll-driven (acctFlowWatch), so a sign-in that completes AFTER the person has
      dismissed the modal must not mutate a hidden modal's state, which would strand a
@@ -16000,7 +16020,26 @@ function acctShowSuccess(accountLabel) {
      mutated while hidden is not reliably announced, so the order is what makes a
      screen reader hear the success, not just show it. */
   document.getElementById('acct-success').hidden = false;
-  document.getElementById('acct-success-say').textContent = 'Successfully connected to ' + accountLabel + '.';
+  /* #2241 sibling: a provider that hands us a gold check-row box (OpenAI, matching the
+     first-run connected box) shows THAT instead of the plain "Successfully connected to X"
+     line. The box carries its own check and title, so the default big check + "Success!"
+     heading + say line are hidden in that arm; the else-arm restores them so a later plain
+     success (or a reopened modal) is clean either way. */
+  const okBox = document.getElementById('acct-success-box');
+  const okCheck = document.getElementById('acct-success-check');
+  const okHeading = document.getElementById('acct-success-t');
+  const okSay = document.getElementById('acct-success-say');
+  if (goldBox) {
+    if (okCheck) okCheck.hidden = true;
+    if (okHeading) okHeading.hidden = true;
+    if (okSay) { okSay.hidden = true; okSay.textContent = ''; }
+    if (okBox) { okBox.innerHTML = goldBox; okBox.hidden = false; }
+  } else {
+    if (okBox) { okBox.hidden = true; okBox.innerHTML = ''; }
+    if (okCheck) okCheck.hidden = false;
+    if (okHeading) okHeading.hidden = false;
+    if (okSay) { okSay.hidden = false; okSay.textContent = 'Successfully connected to ' + accountLabel + '.'; }
+  }
   /* Name the dialog by its "Success!" heading, not the form title we just hid, so a
      screen reader entering the dialog on success does not hear "Add a provider". */
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-success-t');
@@ -16043,7 +16082,12 @@ function closeAcctAdd() {
      open is clean: the success panel gone and the sign-in controls back. */
   const success = document.getElementById('acct-success');
   if (success) success.hidden = true;
-  ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
+  /* #2241 sibling: if the last success used the gold-box arm it hid the default
+     check/heading/say and revealed #acct-success-box; put all four back so the next
+     open (or a later plain success) starts from the default chrome. */
+  const okBox = document.getElementById('acct-success-box');
+  if (okBox) { okBox.hidden = true; okBox.innerHTML = ''; }
+  ['acct-success-check', 'acct-success-t', 'acct-success-say', 'acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts'].forEach((id) => {
     const el = document.getElementById(id); if (el) el.hidden = false;
   });
   document.getElementById('acct-add-dialog').setAttribute('aria-labelledby', 'acct-add-t');
@@ -16093,10 +16137,16 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
     keyField.value = '';
     labelField.value = '';
     const a = out && out.account;
-    // #2095: lead with the entered name (matching the repainted list + the acctShowSuccess toast below); key last-4 fallback.
-    msg.textContent = 'Added' + (enteredLabel ? ': ' + enteredLabel : (a && a.keyTail ? ': API key ending ' + a.keyTail : '')) + '.';
+    // #2241 sibling (Josh, 0.6.35): the connected state reads as the SAME gold check-row
+    // box the first-run flow shows (frCheckRow -> #acct-success-box), not the bare "Added:
+    // API key ending X" line Josh screenshotted. The message line stays a neutral
+    // "Checking the connection…" during the live paintAccounts() verification; on success
+    // acctShowSuccess renders the gold box with the key-ending styled into it.
+    const goldBox = frCheckRow({ state: 'ok', title: 'OpenAI GPT Codex is connected',
+      detail: 'This computer is signed in.' + (a && a.keyTail ? ' (API key ending ' + a.keyTail + ')' : '') });
+    msg.textContent = 'Checking the connection…';
     await paintAccounts();
-    acctShowSuccess(enteredLabel || (a && a.keyTail ? 'your OpenAI account (key ending ' + a.keyTail + ')' : 'your OpenAI account'));
+    acctShowSuccess(enteredLabel || (a && a.keyTail ? 'your OpenAI account (key ending ' + a.keyTail + ')' : 'your OpenAI account'), goldBox);
   } catch (err) {
     msg.textContent = String((err && err.message) || 'We could not add that account.');
     /* kosmos#979: the runner can go missing between opening this form and

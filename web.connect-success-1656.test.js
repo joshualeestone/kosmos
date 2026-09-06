@@ -41,7 +41,11 @@ function fakeDom(ids) {
 }
 
 const IDS = ['acct-add-modal', 'acct-add-dialog', 'acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-claude-flow',
-  'acct-openai-flow', 'acct-add-acts', 'acct-success', 'acct-success-say', 'acct-success-close'];
+  'acct-openai-flow', 'acct-add-acts', 'acct-success', 'acct-success-say', 'acct-success-close',
+  // #2241: acctShowSuccess now also touches these (the gold-box arm hides the default
+  // check/heading and shows the box; the else-arm restores them). The stub throws on an
+  // id it does not carry, so the real function's new refs must be declared here.
+  'acct-success-box', 'acct-success-check', 'acct-success-t'];
 
 /** acctShowSuccess, the REAL one, run against a stub in a known start state. */
 function makeShow(modalHidden) {
@@ -81,7 +85,11 @@ test('kosmos#1656: a background sign-in that finishes on a DISMISSED modal paint
 
 test('kosmos#1656: the way out is a non-primary button (#1438) and reuses the one green check', () => {
   const at = PAGE.indexOf('id="acct-success"');
-  const panel = PAGE.slice(at, at + 600);
+  // Bound at the next sibling (id="acct-add-acts", the plain Close row that follows the
+  // #acct-success panel) rather than a fixed +600: #2241 added #acct-success-box inside the
+  // panel, which pushed acct-success-close past a hard 600 and emptied the slice. This is
+  // the whole panel and nothing beyond it, so it survives the panel gaining more markup.
+  const panel = PAGE.slice(at, PAGE.indexOf('id="acct-add-acts"', at));
   const close = panel.slice(panel.indexOf('acct-success-close') - 60, panel.indexOf('acct-success-close') + 10);
   assert.match(close, /class="btn"/, 'the success Close is a plain .btn');
   assert.doesNotMatch(close, /uprime|danger/, 'the way out is not a primary or destructive action (the #1438 rule)');
@@ -127,6 +135,13 @@ test('kosmos#1656: acctFlowPaint on the connected phase shows success (Claude wi
 
 test('kosmos#1656: the OpenAI add-success is wired to acctShowSuccess (source-pinned)', () => {
   const at = SCRIPT.indexOf("getElementById('acct-openai-go').addEventListener");
-  const handler = SCRIPT.slice(at, at + 1600);
+  // Bound the slice at the NEXT handler (acct-code-go) rather than a fixed +1600 byte
+  // count. #2241 (the Settings OpenAI gold-box) added a comment + a frCheckRow(...) build
+  // before paintAccounts, which pushed the call pair past a hard 1600 and false-reddened
+  // this despite the wiring being intact. Bounding at the handler's real end means it
+  // cannot fall out of the window as the handler grows, and cannot drift into another
+  // function's paintAccounts()/acctShowSuccess() pair (a false green): acct-code-go's
+  // handler is the next one in source.
+  const handler = SCRIPT.slice(at, SCRIPT.indexOf("acct-code-go", at));
   assert.match(handler, /paintAccounts\(\);\s*acctShowSuccess\(/, 'on a good add, success fires after the account list is repainted');
 });

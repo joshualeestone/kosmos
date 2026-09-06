@@ -99,15 +99,25 @@ test('#2095 CONTROL: two accounts typed the SAME name are counted ambiguous and 
   assert.equal(qa, 'main', 'the original account reads (main)');
 });
 
-test('#2095: the Settings add-a-provider "Added" toast leads with the entered name', () => {
-  // Source-pinned (the OpenAI add is inside an async fetch handler, the same reason
-  // web.connect-success-1656.test.js pins its wiring): the confirmation must prefer
-  // the human-chosen name over the key last-4, matching the list it repaints.
+test('#2241 (superseding the #2095 "Added" toast): the Settings OpenAI success is the gold box', () => {
+  // #2241 (Josh, 0.6.35, Splinter-routed) replaced the #2095 "Added: <name>" toast for the
+  // OpenAI connected state with the fixed gold check-row box ("OpenAI GPT Codex is connected. /
+  // This computer is signed in."). The human-chosen name still leads the repainted list
+  // (acctPrimaryName) and the Move picker -- the tests below -- which is where #2095 lives now;
+  // the success surface follows the newer, explicit gold-box copy. Source-pinned (the OpenAI add
+  // is inside an async fetch handler). Bounded at the NEXT handler (acct-code-go), not a fixed
+  // byte count, so it survives the handler growing.
   const at = PAGE.indexOf("getElementById('acct-openai-go').addEventListener");
   assert.notEqual(at, -1, 'the OpenAI add handler is gone from the page');
-  const handler = PAGE.slice(at, at + 1600);
-  assert.match(handler, /msg\.textContent = 'Added' \+ \(enteredLabel \?/,
-    'the Added toast no longer leads with the entered name (it went back to key-only)');
+  const handler = PAGE.slice(at, PAGE.indexOf("acct-code-go", at));
+  assert.match(handler, /const goldBox = frCheckRow\(/,
+    'the OpenAI success no longer builds the gold check-row box');
+  assert.match(handler, /OpenAI GPT Codex is connected/,
+    'the gold box lost its "OpenAI GPT Codex is connected" title');
+  assert.match(handler, /acctShowSuccess\([\s\S]*?,\s*goldBox\)/,
+    'the gold box is no longer handed to acctShowSuccess');
+  assert.doesNotMatch(handler, /msg\.textContent = 'Added'/,
+    'the key-only "Added" toast came back (it was superseded by the gold box)');
 });
 
 test('#2095: the Move-to account picker leads with the chosen name (source-pinned)', () => {
