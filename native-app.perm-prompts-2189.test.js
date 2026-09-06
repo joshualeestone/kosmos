@@ -99,6 +99,14 @@ test('the request watcher is started at launch and consumes BOTH request files u
   assert.ok(check.includes('--kosmos-app-fileaccessprompt'), 'the file-access request does not fire the fileaccessprompt hatch');
   // The a11y branch also refreshes the verdict so the poll flips without the 60s wait.
   assert.ok(check.includes('--kosmos-app-axcheck'), 'the a11y request does not refresh the axcheck, so the pill would not flip promptly');
+  // The cheap pending-check's `names` array must list exactly the requests that get
+  // consumed, or a rename of one but not the other skips detection or consumption.
+  const namesMatch = check.match(/let names = \[([^\]]*)\]/);
+  assert.ok(namesMatch, 'checkPromptRequests no longer has a `names` array to gate the cheap pending-check');
+  const listed = [...namesMatch[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]).sort();
+  const consumed = [...check.matchAll(/consumeRequest\(named: "([^"]+)"/g)].map((m) => m[1]).sort();
+  assert.deepEqual(listed, consumed,
+    'the pending-check `names` array and the consumeRequest calls list different requests; a drift would skip detection or consumption');
 });
 
 test('consumeRequest consumes-before-firing, fires only on a successful delete, and drops a stale request', () => {

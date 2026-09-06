@@ -83,6 +83,27 @@ test('an unknown kind is refused without touching the disk', () => {
   assert.match(r.because, /unknown prompt kind/i);
 });
 
+test('ROUTE CONTRACT: server.js handles exactly the paths web/index.html POSTs', () => {
+  // The HTTP route strings are a load-bearing contract with Renet's caller
+  // (frFirePermission in web/index.html, #2342): if either side's path drifts, the
+  // grant button silently falls back to Settings with no red anywhere. Pin the seam
+  // from BOTH sides (read-only; this does not modify web/). Same discipline as the
+  // engine<->Swift filename contract below.
+  const root = path.join(__dirname, '..');
+  const server = fs.readFileSync(path.join(root, 'server.js'), 'utf8');
+  const web = fs.readFileSync(path.join(root, 'web', 'index.html'), 'utf8');
+  for (const route of ['/api/a11y-prompt', '/api/file-access-prompt']) {
+    assert.ok(
+      server.includes(`pathname === '${route}'`),
+      `server.js no longer handles ${route}; the caller would 404 -> silent Settings fallback`,
+    );
+    assert.ok(
+      web.includes(`'${route}'`),
+      `web/index.html no longer POSTs ${route}; the trigger endpoint would go uncalled`,
+    );
+  }
+});
+
 test('CROSS-LANGUAGE CONTRACT: every request-file name is what the native app consumes', () => {
   // The engine writes these names; native-app/main.swift consumeRequest(named:) reads
   // them. A cross-language seam is two copies of one fact, so this asserts they agree
