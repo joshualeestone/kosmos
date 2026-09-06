@@ -123,6 +123,42 @@ const BASE = {
     };
   }, BASE);
 
+  // Consolidated-view arm: the list row is restyled in the consolidated layout,
+  // which deliberately HIDES every decorative glyph inside .lstate and shrinks it.
+  // The badge's dots nest a level deeper than the direct-child hide rule, so
+  // without a dedicated rule they reappear; and the badge's fixed font-size would
+  // out-size the consolidated label. This needs COMPUTED styles in the LIVE DOM
+  // under the consolidated classes, which the detached-node reads above cannot see.
+  const cons = await page.evaluate((base) => {
+    const a = Object.assign({}, base, { name: 'Baron', sessionName: 'baron', state: 'needs_you', activeWhileWaiting: true });
+    const host = document.createElement('div'); host.id = '__cons'; host.innerHTML = lrow(a);
+    document.body.appendChild(host);
+    // Probe the .act SPAN, which the consolidated rule sets to display:none.
+    // (Reading a child <i> is wrong: a node's own computed display stays its
+    // cascaded value even when an ancestor is display:none, so the <i> would
+    // read visible and never catch the hide.)
+    const dotSpan = host.querySelector('.alsowork .act');
+    const also = host.querySelector('.alsowork');
+    const lstate = host.querySelector('.lstate');
+    const read = () => ({
+      dotDisplay: dotSpan ? getComputedStyle(dotSpan).display : '__no-dot__',
+      alsoSize: also ? getComputedStyle(also).fontSize : null,
+      lstateSize: lstate ? getComputedStyle(lstate).fontSize : null,
+    });
+    // Default (non-consolidated) layout: the control -- dots visible.
+    document.documentElement.removeAttribute('data-layout');
+    document.body.classList.remove('consolidated');
+    const normal = read();
+    // Consolidated layout.
+    document.documentElement.setAttribute('data-layout', 'consolidated');
+    document.body.classList.add('consolidated');
+    const consolidated = read();
+    document.documentElement.removeAttribute('data-layout');
+    document.body.classList.remove('consolidated');
+    host.remove();
+    return { normal, consolidated };
+  }, BASE);
+
   await browser.close();
 
   const problems = [];
@@ -168,9 +204,17 @@ const BASE = {
     if (!/st-working/.test(r.workingOff.pillClass || '')) problems.push('card: the working pill is not st-working (got ' + r.workingOff.pillClass + ')');
     if (!/\battn\b/.test(r.rowNeedsOn.rootClass || '')) problems.push('lrow: the needs_you row ground is not attn (got ' + r.rowNeedsOn.rootClass + ')');
     if (!/\bworking\b/.test(r.rowWorkingOff.rootClass || '')) problems.push('lrow: the working row ground is not working (got ' + r.rowWorkingOff.rootClass + ')');
+
+    // Consolidated view: the badge obeys the "no decorative glyph, words at row size"
+    // rule -- its dots are display:none and its label inherits the .lstate size.
+    if (cons.consolidated.dotDisplay !== 'none') problems.push('consolidated: the working dots are visible (display=' + cons.consolidated.dotDisplay + '); the consolidated view must not get the dot back');
+    if (cons.consolidated.alsoSize && cons.consolidated.lstateSize && cons.consolidated.alsoSize !== cons.consolidated.lstateSize) problems.push('consolidated: the "Working now" label (' + cons.consolidated.alsoSize + ') does not match the consolidated .lstate size (' + cons.consolidated.lstateSize + ')');
+    // CONTROL: in the NORMAL (non-consolidated) layout the dots ARE visible -- proves
+    // the hide above is the consolidated rule, not a global display:none.
+    if (cons.normal.dotDisplay === 'none') problems.push('consolidated CONTROL FAILED: the working dots are hidden even in the normal layout (a global hide, not the consolidated rule)');
   }
 
-  console.log('  ' + JSON.stringify(r));
+  console.log('  ' + JSON.stringify({ ...r, cons }));
   if (problems.length) {
     console.error('render-workindicator-2146: ' + problems.length + ' problem(s)');
     for (const p of problems) console.error('  FAIL  ' + p);

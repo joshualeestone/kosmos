@@ -546,8 +546,11 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   /* 30 after kosmos#1704 added render-worldrename-1704.js, whose launch-failure
      `console.error('FAIL  render-worldrename-1704: could not start a browser' ...)` is one
      catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921).
-     31 after kosmos#1704 slice merged; 32 after kosmos#2146 added render-workindicator-2146.js,
-     whose launch-failure `console.error('FAIL  render-workindicator-2146: could not start a browser' ...)`
+     31 was already the origin/main value at this branch's point (an increment landed
+     without a trail comment; the 0.6.39 cut's render-firstrun-import-1652.js added a
+     finding-emit site but NO catch/launch site, so it left this count at 31).
+     32 after kosmos#2146 added render-workindicator-2146.js, whose launch-failure
+     `console.error('FAIL  render-workindicator-2146: could not start a browser' ...)`
      is one more catch/launch emit site, confirmed quotable (same shape). */
   const EXPECTED_CATCH_SITES = 32;
   assert.equal(sites, EXPECTED_CATCH_SITES,

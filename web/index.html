@@ -2896,6 +2896,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .pause,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .stop,
   html[data-layout="consolidated"] body.consolidated .lrow > .lstate > .qmark { display: none; }
+  /* #2146: the coexistence badge obeys the same consolidated rule. Its dots are
+     a decorative glyph and must stay hidden here too, but they nest one level
+     deeper (.lstate > .alsowork > .act) than the direct-child rule above, so they
+     need their own line or they reappear (the eye "does not get the dot back").
+     The label rides its fixed .8125rem, larger than consolidated .lstate's
+     .625rem, so it inherits here instead -- the words survive at the row's size,
+     the glyph does not, exactly as the state line itself does. */
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork > .act { display: none; }
+  html[data-layout="consolidated"] body.consolidated .lrow > .lstate .alsowork { font-size: inherit; }
   html[data-layout="consolidated"] body.consolidated .lrow:has(.lstate .ansgo) > .lav { grid-row: 1 / span 3; }
   html[data-layout="consolidated"] body.consolidated .lrow > :not(.lav):not(.lname):not(.ltitle):not(.lstate) { display: none; }
   /* The face shrinks to 24px inside its 34px cell so the ring sits OUTSIDE
