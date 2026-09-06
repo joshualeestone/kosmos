@@ -5227,6 +5227,19 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* The read side of Screen 3's gated Next (prevent-sleep). Same three-answers
+     posture as the a11y / file-access gates: block ONLY on the positive
+     `checkable:true, prevented:false`. Unlike those two this reading comes from
+     the engine running `pmset -g custom` itself (no native writer), so it works
+     at launch; an unreadable pmset falls back to checkable:false (fail-safe). */
+  if (pathname === '/api/sleep-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let reading;
+    try { reading = machine.sleepGate(); }
+    catch (err) { reading = { checkable: false, because: 'we could not read the sleep reading (' + String(err && err.message || err) + ')' }; }
+    sendJson(res, 200, reading);
+    return;
+  }
+
   // Marking it done. ⚠️ POST, because it writes -- so it inherits the
   // cross-site guard above rather than being reachable from any page.
   if (pathname === '/api/first-run/complete' && req.method === 'POST') {
