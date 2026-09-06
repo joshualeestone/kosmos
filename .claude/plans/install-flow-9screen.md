@@ -24,6 +24,33 @@ DONE + committed + pushed (branch install-flow-9screen):
   verdict, two-gate AND, fail-safe uncheckable-never-blocks-never-false-green,
   denied->granted transition, non-vacuous gen-guard). Code below, ready to inline.
 
+## ⭐ KEY ARCHITECTURE CORRECTION (2026-09-05, after reading the test tooling)
+
+DO NOT introduce a parallel `#fr-screen-<letter>` container system. KEEP the
+existing `fr-pane-N` numbered model and renumber it to the 9 screens, dropping
+Mona's full-content snippets INTO the numbered panes. Why: the whole test +
+deep-link toolchain keys on `fr-pane-N` -
+- lib-firstrun-steps.js `stepForAnchor` DISCOVERS a step by the anchor's
+  `fr-pane-N` ancestor (identity, not index - #1801), so checks AUTO-FOLLOW a
+  renumbered pane IF the pane keeps the `fr-pane-N` shape + its content anchor
+  (#fr-you, #fr-fleet, #fr-checks...). A `#fr-screen-c` container is invisible to
+  this discovery and would strand every check.
+- `?fr-step=N` deep link, the crumb "Step N of M", the segments, and
+  `paneCount` (segments == numbered-panes - 1 cross-check) all key on fr-pane-N.
+So: the container is `<div class="fr-pane" id="fr-pane-N">`; Mona's snippet
+(eyebrow+h2+copy+graphics+gate rows) is its inner content. The seam typography
+works identically (both are inside .fr-body; descendant selectors match - the
+#fr-screen-c harness proof carries over verbatim to #fr-pane-N).
+- Head model, unified: EVERY pane owns its head now. New-content panes get
+  Mona's eyebrow+h2 from the snippet; REUSE panes (Model/About-you/Create) get
+  Mona's eyebrow+h2 (from S5/S8/S9b) PREPENDED above their existing wired body.
+  The persistent shell #fr-eyebrow/#fr-title is retired (hidden) for all panes;
+  frGo focuses the active pane's own <h2> (assign id+tabindex on enter) and
+  points aria-labelledby at it.
+- Gate rows keep Mona's data-gate markup; the proven gate poll queries within the
+  active pane (querySelectorAll('[data-gate]')) - pane id agnostic, so it works
+  unchanged whether the container is fr-pane-N or fr-screen-letter.
+
 ## The seam architecture (LOCKED, verified)
 
 - Mona sends FULL per-screen inner content (eyebrow + h2 + copy + graphics + gate
