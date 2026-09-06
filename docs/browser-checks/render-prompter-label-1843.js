@@ -111,10 +111,12 @@ function chk(ok, label, extra) {
       // heartbeatSeen check below non-vacuous (a height-0 section would let a
       // "no visible Heartbeat" pass mean nothing).
       chk(sec.promVisible, `[${theme}] the Prompter heading is actually visible on screen`, String(sec.promVisible));
-      // #2054: three blocks now -- Auto-save, Prompter, and the moved "Agents talking
-      // to each other" limit. Daily report (#2037) is not built yet.
-      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agents talking to each other']),
-        `[${theme}] the Automation headings read Auto-save, Prompter, Agents talking`, JSON.stringify(sec.headings));
+      // #2054 added Auto-save, Prompter, and the moved "Agents talking to each other"
+      // limit. #2037/#2301 then shipped "Daily report" (opt-in, default-ON), so the
+      // Automation section now has FOUR headings. The prior comment here said "Daily
+      // report is not built yet" and asserted three -- stale once #2301 landed.
+      chk(JSON.stringify(sec.headings) === JSON.stringify(['Auto-save', 'Prompter', 'Agents talking to each other', 'Daily report']),
+        `[${theme}] the Automation headings read Auto-save, Prompter, Agents talking, Daily report`, JSON.stringify(sec.headings));
       // #2054: the Prompter is a .toggle slider on screen with the visible-word aria.
       chk(sec.promToggle === true && sec.promToggleAria === 'Ask me to check on any agent that has stopped',
         `[${theme}] the Prompter is a slider on screen with its accessible name`, JSON.stringify({ t: sec.promToggle, a: sec.promToggleAria }));
