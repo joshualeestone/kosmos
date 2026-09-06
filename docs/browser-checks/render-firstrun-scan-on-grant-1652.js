@@ -149,4 +149,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
   if (ran < 7) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
-})();
+/* A throw BEFORE the body's try (temp-dir setup, the server spawn, or
+   chromium.launch()) would otherwise crash the process with no quotable line, and
+   the gate reds with the confusing "(no FAIL line...)" (#1864). The top-level
+   catch below prints a quotable failure line so an unexpected launch throw reads
+   as a real failure. It is kept on ONE line to match the established top-level
+   catch shape (render-optout-403-2020 etc.), so the reason-grep tripwires count it
+   -- and this comment deliberately does NOT put the promise-catch token and a
+   quoted failure prefix on the same line, since the catch/launch scan would then
+   count the comment itself as a site (see the reason-grep test's own warning). */
+})().catch((e) => { console.error('FAIL  render-firstrun-scan-on-grant-1652 threw: ' + ((e && e.stack) || e)); process.exit(1); });
