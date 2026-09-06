@@ -35746,6 +35746,11 @@ function frGo(step) {
 function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
 function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
 
+// FR_FB_EPOCH is shared between the refresh (read) and the toggle (write) on
+// purpose: a user's toggle must supersede an in-flight on-show refresh, and a
+// later refresh must supersede a stale toggle response -- one counter, latest
+// action wins either way. FR_FB_SAVING blocks a second toggle while a PUT is in
+// flight. (frRefreshPing/frPingToggle mirror this with FR_PING_*.)
 let FR_FB_EPOCH = 0, FR_FB_SAVING = false;
 async function frRefreshFeedback() {
   const el = document.getElementById('fr-s6-feedback'); if (!el) return;
