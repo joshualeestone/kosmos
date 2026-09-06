@@ -74,6 +74,12 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
       await raf();
       const enterActive = document.body.classList.contains('plus-active');
       const enterBg = bg();
+      /* CHROME, not just body: the whole-app blue is a token override that reaches
+         nav/sidebar by inheritance, so assert an actual chrome surface recolours.
+         .apphead (the top nav bar) paints from var(--k-bg); if it were hardcoded it
+         would clash on blue and every body-only check would still pass. */
+      const head = document.querySelector('.apphead');
+      const enterNavBg = head ? getComputedStyle(head).backgroundColor : null;
       const stars = document.getElementById('plus-stars');
       const mark = document.getElementById('plus-mark');
       const mounted = (typeof plusMounted !== 'undefined') && plusMounted;
@@ -88,6 +94,7 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
       await raf();
       const leaveActive = document.body.classList.contains('plus-active');
       const leaveBg = bg();
+      const leaveNavBg = head ? getComputedStyle(head).backgroundColor : null;
       const leaveMounted = (typeof plusMounted !== 'undefined') && plusMounted;
 
       // 3. Re-enter Plus, then leave to the Agents TAB — must not leak off-tab.
@@ -100,10 +107,10 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
       const offTabBg = bg();
 
       return {
-        enterActive, enterBg, mounted, starsSized, markSized,
-        leaveActive, leaveBg, leaveMounted,
+        enterActive, enterBg, enterNavBg, mounted, starsSized, markSized,
+        leaveActive, leaveBg, leaveNavBg, leaveMounted,
         reEnterActive, offTabActive, offTabBg,
-        hasStars: !!stars, hasMark: !!mark,
+        hasStars: !!stars, hasMark: !!mark, hasHead: !!head,
       };
     });
 
@@ -114,6 +121,8 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
     // Enter: blue on, canvases mounted and sized.
     if (!r.enterActive) problems.push(label + ': entering Plus did not add body.plus-active');
     if (r.enterBg !== BLUE) problems.push(label + ': body did not turn blue on Plus (got ' + r.enterBg + ', want ' + BLUE + ')');
+    if (!r.hasHead) problems.push(label + ': .apphead (nav chrome) not found — cannot verify the chrome recoloured');
+    if (r.enterNavBg !== BLUE) problems.push(label + ': the nav chrome (.apphead) did NOT turn blue on Plus (got ' + r.enterNavBg + ', want ' + BLUE + ') — the whole-app blue is not reaching the chrome');
     if (!r.hasStars || !r.hasMark) problems.push(label + ': the Plus canvases (#plus-stars / #plus-mark) are missing');
     if (!r.mounted) problems.push(label + ': the canvas engine did not mount (plusMounted false) on Plus');
     if (!r.starsSized) problems.push(label + ': #plus-stars has zero size (not laid out / not sized)');
@@ -121,6 +130,7 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
     // Leave a section: blue off, torn down.
     if (r.leaveActive) problems.push(label + ': plus-active LEAKED to another Settings section');
     if (r.leaveBg === BLUE) problems.push(label + ': the blue ground LEAKED to another Settings section (still ' + r.leaveBg + ')');
+    if (r.leaveNavBg === BLUE) problems.push(label + ': the nav chrome (.apphead) stayed blue after leaving Plus — chrome blue LEAKED');
     if (r.leaveMounted) problems.push(label + ': the canvas engine did not tear down on leave (plusMounted still true) — it would burn CPU behind another screen');
     // Leave the tab: no off-tab leak.
     if (!r.reEnterActive) problems.push(label + ': re-entering Plus did not re-apply the skin');
