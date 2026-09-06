@@ -104,6 +104,12 @@ const BASE = {
         // Answer button), the list row puts it INSIDE the .lstate cell (the
         // sanctioned second-line shape, never an eighth grid child).
         alsoInsidePill: !!(also && pill && pill.contains(also)),
+        // DOM ORDER: the badge must FOLLOW the pill, never precede it -- a
+        // regression that rendered it above the pill (card) is caught here.
+        // compareDocumentPosition's FOLLOWING bit (4) is set both when `also` is
+        // a later sibling (card) and when it is contained-after (lrow), so this
+        // one predicate is correct on both surfaces.
+        alsoAfterPill: !!(also && pill && (pill.compareDocumentPosition(also) & 4)),
       };
     };
     const cardRead = (over) => read(card, '.astate', over);
@@ -178,6 +184,7 @@ const BASE = {
       if (on.hasAlso && on.alsoDots !== 3) problems.push(S + ': the working affordance is not the board .act glyph (want 3 dots, got ' + on.alsoDots + ')');
       if (on.hasAlso && !/working now/i.test(on.alsoText || '')) problems.push(S + ': the working affordance has no readable "Working now" label, got ' + JSON.stringify(on.alsoText));
       if (on.hasAlso && on.alsoInsidePill !== insideExpected) problems.push(S + ': the working affordance placement is wrong (inside state cell=' + on.alsoInsidePill + ', want ' + insideExpected + ')');
+      if (on.hasAlso && !on.alsoAfterPill) problems.push(S + ': the working affordance precedes the state pill in DOM order (it must follow it, never render above/before it)');
 
       // 2. CONTROL: flag OFF on the SAME needs_you agent -> NO badge, and the flag
       //    changed ONLY the badge: the state-cell class, the label, and the ground
