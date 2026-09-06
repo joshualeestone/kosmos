@@ -58,10 +58,18 @@ content-anchored browser checks auto-follow the renumber.
 On Splinter's post-serve browser CLEAR + his merge-order call (rebase onto a
 SETTLED main once, not repeatedly — install-flow + Angel's tell-copy + Pete's
 #2315 all want main):
-1. **Rebase onto latest main + resolve the 2 conflicts FIRST**: `tools/browser-checks.sh`
-   (my render-preflight-2163 runner-loop removal vs main's runner edits) and
-   `engine/machine.test.js` (the branch's S2/S3 gated-Next backend vs main).
-   web/index.html auto-merges clean (verified with git merge-tree).
+1. **Rebase onto latest main + resolve the 2 conflicts FIRST** (both understood,
+   mechanical — verified against origin/main 2026-09-05, re-check on the real rebase):
+   - `tools/browser-checks.sh`: both edited the runner for-loop line. Main (Kitty
+     #2314) ADDED `render-settings-openai-goldbox` after
+     `render-firstrun-openai-connectbox-2241`; I REMOVED `render-preflight-2163`.
+     RESOLUTION: take main's line (keep the goldbox addition), delete
+     `render-preflight-2163 ` from it. Both changes survive.
+   - `engine/machine.test.js`: both APPENDED tests (no logical conflict). Mine =
+     the `sleepGate` block (S3 Automation prevent-sleep gate); main = the #2304
+     Windows runner tests. RESOLUTION: keep BOTH blocks.
+   web/index.html auto-merges clean (verified with git merge-tree). After
+   resolving, re-run the full node suite before the browser pass.
 2. **THEN** the browser pass + full challenge-loop, on the rebased+resolved code.
 3. **THEN** PR → merge promptly.
 🛑 NOT browser→challenge→rebase: that ORPHANS the challenge proof
