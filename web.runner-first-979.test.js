@@ -24,38 +24,54 @@ function stepFn() {
   const b = PAGE.indexOf('\nasync function acctOpenaiLook', a);
   assert.ok(b > a, 'the function no longer ends where expected');
   const src = PAGE.slice(a, b);
-  const els = { 'acct-openai-install': { hidden: null }, 'acct-openai-key-step': { hidden: null } };
+  /* #2338: acctOpenaiStep now decides among FOUR elements -- the install step,
+     the subscription-vs-key picker, and the two flows it gates. The flows both
+     stay hidden until acctOpenaiChoose reveals one; acctOpenaiStep only chooses
+     install (missing) vs picker (present/unknown). */
+  const els = {
+    'acct-openai-install': { hidden: null },
+    'acct-openai-pick': { hidden: null },
+    'acct-openai-key-step': { hidden: null },
+    'acct-openai-sub-step': { hidden: null },
+  };
   // eslint-disable-next-line no-new-func
   const make = new Function('document', src + '; return acctOpenaiStep;');
   return { fn: make({ getElementById: (id) => els[id] || null }), els };
 }
 
-test('a missing runner shows the install step and hides the key', () => {
+test('a missing runner shows the install step and nothing else', () => {
   const { fn, els } = stepFn();
   fn(false);
   assert.equal(els['acct-openai-install'].hidden, false, 'the install step stayed hidden with no runner present');
+  assert.equal(els['acct-openai-pick'].hidden, true, 'the connect picker showed before the runner it needs was installed');
   assert.equal(els['acct-openai-key-step'].hidden, true, 'the key field is still offered with no runner to use it');
+  assert.equal(els['acct-openai-sub-step'].hidden, true, 'the subscription flow is offered with no runner to use it');
 });
 
-test('a present runner shows the key and hides the install step', () => {
+/* #2338: a present runner opens on the PICKER (choose a subscription or a key),
+   not straight into a flow. Both flows stay hidden until the person chooses. */
+test('a present runner shows the picker and hides the install step and both flows', () => {
   const { fn, els } = stepFn();
   fn(true);
   assert.equal(els['acct-openai-install'].hidden, true, 'the install step shows for a runner that is already there');
-  assert.equal(els['acct-openai-key-step'].hidden, false, 'the key field is hidden even though the runner is present');
+  assert.equal(els['acct-openai-pick'].hidden, false, 'the connect picker did not show with the runner present');
+  assert.equal(els['acct-openai-key-step'].hidden, true, 'the key flow opened before the person chose it');
+  assert.equal(els['acct-openai-sub-step'].hidden, true, 'the subscription flow opened before the person chose it');
 });
 
 /* ⚠️ THE ARM THAT MATTERS MOST, and the one a two-state boolean would have got
    wrong. "We could not look" is not "it is missing". An unreachable board must
    never send somebody off to install a runner they may already have -- so
-   unknown falls back to the state this form has always opened in. */
+   unknown shows the picker (which forces no install) rather than the install
+   step. */
 test('could-not-look is not treated as missing', () => {
   for (const unknown of [null, undefined]) {
     const { fn, els } = stepFn();
     fn(unknown);
     assert.equal(els['acct-openai-install'].hidden, true,
       `a ${String(unknown)} runner answer offered an install; we do not know that it is missing`);
-    assert.equal(els['acct-openai-key-step'].hidden, false,
-      `a ${String(unknown)} runner answer hid the key field on a board we simply could not read`);
+    assert.equal(els['acct-openai-pick'].hidden, false,
+      `a ${String(unknown)} runner answer hid the picker on a board we simply could not read`);
   }
 });
 

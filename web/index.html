@@ -7698,6 +7698,52 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <div class="frow"><button class="btn uprime" id="acct-openai-install-go" type="button">Confirm</button></div>
         <p class="dhint" id="acct-openai-install-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
       </div>
+      <!-- #2338 (Josh's ChatGPT Pro ask): two ways to connect OpenAI, and they
+           are DISTINCT connection types, not two dialects of one. A ChatGPT
+           subscription signs in through OpenAI's own flow and Codex runs on it
+           with no API key; an API key is a pasted string that bills per use.
+           The engine keeps them apart by authMode (chatgpt vs apikey) and a
+           subscription account never carries a keyTail -- that pair is the
+           durable discriminator, so a connected row can tell the two apart
+           without remembering which flow made it (contract on kosmos#2338).
+           This picker only decides which flow the person ENTERS; it is shown
+           once the runner is present, in the runner-first order #979 set. -->
+      <div id="acct-openai-pick" hidden>
+        <p class="dhint" style="margin:0 0 8px;">Choose how to connect OpenAI.</p>
+        <div class="frow">
+          <button class="btn uprime" id="acct-openai-pick-sub" type="button">Sign in with ChatGPT</button>
+          <button class="btn" id="acct-openai-pick-key" type="button">Use an API key</button>
+        </div>
+        <p class="dhint" style="margin:8px 0 0;">A ChatGPT subscription signs in through OpenAI, with nothing to paste. An API key is a string you create on OpenAI's site.</p>
+      </div>
+      <!-- #2338: the subscription (Sign in with ChatGPT) flow. Unlike the key
+           path there is nothing to paste and, unlike Claude's OAuth, nothing to
+           paste BACK either: OpenAI's browser sign-in finishes on a localhost
+           callback, and the remote (device) fallback shows a code the person
+           types on OpenAI's OWN page. So the shape is start -> open the page ->
+           wait, with no code field in Kosmos. Kosmos never sees the password. -->
+      <div id="acct-openai-sub-step" hidden>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Sign in with your ChatGPT subscription.</b> Kosmos opens OpenAI's sign-in in your browser and never sees your password. Your agents then run on your own subscription, on this computer.</p>
+        <div class="frow" style="margin-top:8px;">
+          <input type="text" id="acct-openai-sub-label" autocomplete="off" maxlength="40"
+                 aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+        </div>
+        <p class="dhint" style="margin:6px 0 0;">The name is optional. It is only so you can tell this account
+          apart from another one later.</p>
+        <div class="frow" style="margin-top:12px;">
+          <button class="btn uprime" id="acct-openai-sub-go" type="button">Sign in with ChatGPT</button>
+        </div>
+        <!-- The sign-in page opens on its own once you start; this link opens it
+             again if the browser did not, or on a remote Mac where there is no
+             browser to open. Device mode shows a code to type on that page. -->
+        <div class="frow" id="acct-openai-sub-open-row" hidden style="margin-top:8px;">
+          <a class="btn" id="acct-openai-sub-open" href="#" target="_blank" rel="noopener">Open the sign-in page</a>
+        </div>
+        <p class="dhint" id="acct-openai-sub-code" role="status" aria-live="polite" hidden style="margin:8px 0 0;"></p>
+        <!-- The way out is a button, at button size, on the step it belongs to
+             (the #1656 family: a person must always be able to leave a sign-in). -->
+        <div class="frow" id="acct-openai-sub-cancel-row" hidden style="margin-top:8px;"><button class="btn" id="acct-openai-sub-cancel" type="button">Stop this sign-in</button></div>
+      </div>
       <div id="acct-openai-key-step">
       <!-- #2164 (Josh, 2026-09-04): match the Claude connect callout beside it.
            This was flat grey .dhint ("just gray text that is not formatted in any
@@ -16138,13 +16184,63 @@ document.getElementById('acct-add-confirm-no').addEventListener('click', () => {
    key step, which is the state this form has always opened in. */
 let ACCT_OPENAI_READY = null;
 let ACCT_OPENAI_POLL = null;
+/* #2338: the in-flight ChatGPT-subscription sign-in. sessionId is the handle the
+   status/cancel routes key on; null means no sign-in is running. Cleared on
+   connect, cancel, and dialog close so a reopen never resumes a dead session. */
+let ACCT_OPENAI_SUB_SESSION = null;
+let ACCT_OPENAI_SUB_POLL = null;
+/* #2338: with the runner present (or its state unknown, which must NOT force an
+   install per #979) the person meets the PICKER, not a flow -- the choice of a
+   ChatGPT subscription vs an API key comes before either flow's controls. Both
+   flows stay hidden until acctOpenaiChoose reveals the chosen one, so reopening
+   the dialog always starts back at the choice. A missing runner still shows the
+   install step first and nothing else, keeping the runner-first order intact. */
 function acctOpenaiStep(present) {
   const inst = document.getElementById('acct-openai-install');
   const keys = document.getElementById('acct-openai-key-step');
   if (!inst || !keys) return;
   const missing = present === false;
   inst.hidden = !missing;
-  keys.hidden = missing;
+  const pick = document.getElementById('acct-openai-pick');
+  const sub = document.getElementById('acct-openai-sub-step');
+  if (pick) pick.hidden = missing;
+  keys.hidden = true;
+  if (sub) sub.hidden = true;
+}
+/* #2338: the person picked a flow. Hide the choice, show the one they chose,
+   and land focus on its first control. */
+function acctOpenaiChoose(which) {
+  const pick = document.getElementById('acct-openai-pick');
+  const keys = document.getElementById('acct-openai-key-step');
+  const sub = document.getElementById('acct-openai-sub-step');
+  if (pick) pick.hidden = true;
+  keys.hidden = which !== 'key';
+  if (sub) sub.hidden = which !== 'sub';
+  if (which === 'key') { const k = document.getElementById('acct-openai-key'); if (k) k.focus(); }
+  else { const b = document.getElementById('acct-openai-sub-go'); if (b) b.focus(); }
+}
+/* #2338: a connected OpenAI row is a ChatGPT subscription iff its authMode is
+   chatgpt AND it carries no keyTail; an API-key account always has a keyTail.
+   That single pair is the contract's durable subscription-vs-key discriminator
+   (kosmos#2338), so nothing needs to remember which flow created the row. */
+function acctIsOpenaiSubscription(row) {
+  return !!row && row.provider === 'openai' && row.authMode === 'chatgpt'
+    && (row.keyTail === null || row.keyTail === undefined);
+}
+/* #2338: map a subscription status state to what the panel should show. Pure,
+   so the poll loop is a thin wrapper and this is unit-tested against the exact
+   contract state set. `done` stops the poll; `ok` distinguishes the terminal
+   success from the terminal failures. */
+function acctOpenaiSubView(state) {
+  switch (state) {
+    case 'starting':         return { done: false, ok: false, say: 'Starting the sign-in…' };
+    case 'awaiting-browser': return { done: false, ok: false, say: 'Finish signing in on the page that opened.' };
+    case 'awaiting-code':    return { done: false, ok: false, say: 'Enter the code on OpenAI’s page to finish.' };
+    case 'connected':        return { done: true,  ok: true,  say: '' };
+    case 'error':            return { done: true,  ok: false, say: 'That sign-in did not finish. Nothing changed; you can try again.' };
+    case 'cancelled':        return { done: true,  ok: false, say: 'Sign-in stopped.' };
+    default:                 return { done: false, ok: false, say: 'Signing in…' };
+  }
 }
 async function acctOpenaiLook() {
   try {
@@ -16171,8 +16267,10 @@ function acctOpenaiWatch() {
       acctOpenaiStop();
       if (msg) msg.textContent = '';
       acctOpenaiStep(true);
-      const k = document.getElementById('acct-openai-key');
-      if (k) k.focus();
+      /* #2338: the install just finished, so land on the picker's first choice
+         rather than a key field the person may not want. */
+      const b = document.getElementById('acct-openai-pick-sub');
+      if (b) b.focus();
       return;
     }
     const job = o.job || {};
@@ -16190,7 +16288,7 @@ function acctPick(which, opts) {
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
-  if (which !== 'openai') { acctOpenaiStop(); return; }
+  if (which !== 'openai') { acctOpenaiStop(); acctOpenaiSubStop(); return; }
   /* Ask every time the form opens rather than caching: a runner can arrive or
      leave between visits, and this dialog deliberately remembers nothing. */
   acctOpenaiStep(ACCT_OPENAI_READY);
@@ -16198,9 +16296,11 @@ function acctPick(which, opts) {
     acctOpenaiStep(ACCT_OPENAI_READY);
     if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
     if (opts && opts.focus === false) return;
+    /* #2338: a present-or-unknown runner opens on the picker; a missing one on
+       the install button. */
     const el = ACCT_OPENAI_READY === false
       ? document.getElementById('acct-openai-install-go')
-      : document.getElementById('acct-openai-key');
+      : document.getElementById('acct-openai-pick-sub');
     if (el) el.focus();
   });
   if (opts && opts.focus === false) return;
@@ -16760,6 +16860,19 @@ function closeAcctAdd() {
      disabled Start button behind a stale confirm panel for the next open, so
      the confirm is reset on the way out (#1587 review). */
   acctAddConfirmReset();
+  /* #2338: a ChatGPT sign-in left running would keep polling a dead dialog and
+     could paint success into a hidden modal (the #1656 hazard). Stop the poll,
+     drop the session, and reset the sub-step's live affordances so the next open
+     starts clean at the picker. */
+  acctOpenaiSubStop();
+  ACCT_OPENAI_SUB_SESSION = null;
+  ['acct-openai-sub-open-row', 'acct-openai-sub-cancel-row', 'acct-openai-sub-code'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.hidden = true;
+  });
+  const subCode = document.getElementById('acct-openai-sub-code');
+  if (subCode) subCode.textContent = '';
+  const subGo = document.getElementById('acct-openai-sub-go');
+  if (subGo) subGo.disabled = false;
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
   const success = document.getElementById('acct-success');
@@ -16839,6 +16952,127 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
   } finally {
     go.disabled = false;
   }
+});
+/* #2338: the picker's two choices. */
+document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
+document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
+/* #2338: reveal the live sign-in affordances once a session has started -- the
+   open-the-page link (browser mode) and/or the code to type on OpenAI's own page
+   (device mode), plus the way out. */
+function acctOpenaiSubShowStart(out) {
+  const openRow = document.getElementById('acct-openai-sub-open-row');
+  const openA = document.getElementById('acct-openai-sub-open');
+  const code = document.getElementById('acct-openai-sub-code');
+  const cancelRow = document.getElementById('acct-openai-sub-cancel-row');
+  if (openA && out && out.authUrl) openA.href = out.authUrl;
+  if (openRow) openRow.hidden = !(out && out.authUrl);
+  if (code) {
+    if (out && out.mode === 'device' && out.userCode) {
+      code.hidden = false;
+      code.textContent = 'On that page, enter this code: ' + out.userCode;
+    } else { code.hidden = true; code.textContent = ''; }
+  }
+  if (cancelRow) cancelRow.hidden = false;
+}
+function acctOpenaiSubStop() {
+  if (ACCT_OPENAI_SUB_POLL) { clearInterval(ACCT_OPENAI_SUB_POLL); ACCT_OPENAI_SUB_POLL = null; }
+}
+/* #2338: poll the sign-in until a terminal state. The pure acctOpenaiSubView maps
+   each state to what to show and whether to stop; this wrapper only fetches and
+   applies. A null/!ok fetch is a transient skip (keep polling), never a stop --
+   the same posture the runner-install watch takes. */
+function acctOpenaiSubWatch() {
+  acctOpenaiSubStop();
+  const msg = document.getElementById('acct-openai-msg');
+  ACCT_OPENAI_SUB_POLL = setInterval(async () => {
+    const id = ACCT_OPENAI_SUB_SESSION;
+    if (!id) { acctOpenaiSubStop(); return; }
+    let out = null;
+    try {
+      const r = await fetch('/api/accounts/openai/subscription/status?sessionId=' + encodeURIComponent(id), { cache: 'no-store' });
+      out = await r.json().catch(() => null);
+      if (!r.ok) return;
+    } catch { return; }
+    if (!out) return;
+    const view = acctOpenaiSubView(out.state);
+    if (msg && view.say) msg.textContent = view.say;
+    if (!view.done) return;
+    acctOpenaiSubStop();
+    if (view.ok) { await acctOpenaiSubConnected(out.account); return; }
+    if (msg) msg.textContent = view.say;
+    const go = document.getElementById('acct-openai-sub-go');
+    if (go) go.disabled = false;
+  }, 1200);
+}
+/* #2338: the terminal success. Mirror the key path's connected paint -- the same
+   gold check-row box (frCheckRow -> acct-success-box), a live paintAccounts()
+   before declaring it, and acctShowSuccess -- so a subscription connect reads
+   exactly like a key connect, differing only in the sentence. */
+async function acctOpenaiSubConnected(account) {
+  ACCT_OPENAI_SUB_SESSION = null;
+  const labelField = document.getElementById('acct-openai-sub-label');
+  const enteredLabel = labelField ? labelField.value.trim() : '';
+  if (labelField) labelField.value = '';
+  const email = account && account.email;
+  const goldBox = frCheckRow({ state: 'ok', title: 'OpenAI GPT Codex is connected',
+    detail: 'Signed in with a ChatGPT subscription.' + (email ? ' (' + email + ')' : '') });
+  const msg = document.getElementById('acct-openai-msg');
+  if (msg) msg.textContent = 'Checking the connection…';
+  await paintAccounts();
+  acctShowSuccess(enteredLabel || (email ? 'your ChatGPT subscription (' + email + ')' : 'your ChatGPT subscription'), goldBox);
+}
+document.getElementById('acct-openai-sub-go').addEventListener('click', async (e) => {
+  const go = e.currentTarget;
+  const msg = document.getElementById('acct-openai-msg');
+  const labelField = document.getElementById('acct-openai-sub-label');
+  go.disabled = true;
+  if (msg) msg.textContent = 'Starting the sign-in…';
+  try {
+    const res = await fetch('/api/accounts/openai/subscription/start', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) {
+      /* A runner is a prerequisite here too: the engine answers needsRunner, so
+         route to the install step in place, the same as the key path (#979). */
+      if (out && out.needsRunner) { ACCT_OPENAI_READY = false; acctOpenaiStep(false); if (msg) msg.textContent = ''; return; }
+      throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
+    }
+    ACCT_OPENAI_SUB_SESSION = out && out.sessionId;
+    acctOpenaiSubShowStart(out);
+    acctOpenaiSubWatch();
+  } catch (err) {
+    go.disabled = false;
+    if (msg) msg.textContent = String((err && err.message) || 'We could not start that sign-in.');
+  }
+});
+document.getElementById('acct-openai-sub-cancel').addEventListener('click', async () => {
+  acctOpenaiSubStop();
+  const id = ACCT_OPENAI_SUB_SESSION;
+  ACCT_OPENAI_SUB_SESSION = null;
+  const msg = document.getElementById('acct-openai-msg');
+  if (id) {
+    try {
+      await fetch('/api/accounts/openai/subscription/cancel', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: id }),
+      });
+    } catch { /* the child is torn down host-side regardless; nothing to show */ }
+  }
+  if (msg) msg.textContent = '';
+  /* Back to the picker so the person can try again or switch to a key. */
+  const openRow = document.getElementById('acct-openai-sub-open-row');
+  const cancelRow = document.getElementById('acct-openai-sub-cancel-row');
+  const code = document.getElementById('acct-openai-sub-code');
+  if (openRow) openRow.hidden = true;
+  if (cancelRow) cancelRow.hidden = true;
+  if (code) { code.hidden = true; code.textContent = ''; }
+  acctOpenaiStep(ACCT_OPENAI_READY);
+  const go = document.getElementById('acct-openai-sub-go');
+  if (go) go.disabled = false;
 });
 document.getElementById('acct-code-go').addEventListener('click', async () => {
   const code = document.getElementById('acct-code').value.trim();
