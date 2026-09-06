@@ -139,6 +139,7 @@ CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""
 # latest.json is ever pretty-printed; an empty result still refuses at the guards below (fail-safe).
 ptr_artifact() { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 ptr_sha()      { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_version()  { printf '%s' "$1" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
 
 if [ "$PROMOTE" = 1 ]; then
   # 🛑 A PROMOTE MOVES THE POINTER ON PURPOSE (#2195), so the committed-vs-live guard must NOT fire,
@@ -329,3 +330,23 @@ served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo 
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
+
+# #2159: a --promote is a version-moving PROD go-live (staging -> prod), so the build is now live to
+# users -- generate the release-notes social posts, exactly as a prod CUT does (release.sh's #2159
+# hook). A plain --publish is a same-version site-copy re-deploy (no new release to announce), so it
+# does NOT post -- only the PROMOTE path does. Like the cut hook, post-release-notes.sh is DRY-RUN by
+# default and CANNOT auto-publish without the deliberate multi-gate (--publish AND KOSMOS_SOCIAL_AUTOPOST=1
+# AND live @installkosmos creds in the secrets map), so a promote PREVIEWS the notes and a bad note can
+# never auto-publish. This closes the gap where a staging->prod promote (the launch flow) shipped a
+# release to users but never announced it, while a direct prod cut did. Best-effort: the release has
+# already shipped and been verified above, so a hook non-zero must never fail the promote.
+if [ "$PROMOTE" = 1 ]; then
+  _pv="$(ptr_version "$sj")"
+  if [ -n "$_pv" ]; then
+    echo ""
+    KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$REPO/tools/post-release-notes.sh" "$_pv" --publish \
+      || echo "post-release-notes: hook returned non-zero (the promote still shipped; this is best-effort)"
+  else
+    echo "post-release-notes: could not read the promoted version from the served latest.json -- skipping the notes hook (the promote still shipped and was verified)."
+  fi
+fi
