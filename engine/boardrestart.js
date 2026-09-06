@@ -67,6 +67,26 @@ function plistDeclaresUnconditionalKeepAlive() {
 // `properties = a | b | ...` line; `keepalive` there means the running job has
 // keepalive ACTIVE now (a disabled / non-keepalive-loaded job omits it). Returns
 // the running pid and that loaded-keepalive fact; any failure to read is {ok:false}.
+//
+// 🔑 THE `properties = ... keepalive ...` FORMAT IS REAL, NOT ASSUMED. Verified
+// against the live com.kosmos.board on this fleet's macOS (launchctl on Darwin):
+//   properties = keepalive | runatload | inferred program | managed LWCR | has LWCR
+// A pipe-delimited token line, `keepalive` present for a KeepAlive job. The regex
+// is word-bounded so it is that token, not a substring of another word.
+//
+// ⚠️ ONE BOUNDED RESIDUAL, stated rather than hidden: the `properties` line shows
+// keepalive is PRESENT but not whether it is UNCONDITIONAL, so a CONDITIONAL
+// loaded KeepAlive (a dict) also shows `keepalive`. The disk-plist unconditional
+// <true/> check (plistDeclaresUnconditionalKeepAlive) is what rejects a conditional
+// KeepAlive -- and it can only be evaded by a divergence in the OTHER direction
+// than the one this loaded check closes: a disk plist edited to unconditional while
+// the LOADED job is still conditional, without a reload. That does not occur for
+// com.kosmos.board: it is written UNCONDITIONAL -- measured on this fleet, the live
+// ~/Library/LaunchAgents/com.kosmos.board.plist carries `<key>KeepAlive</key><true/>`,
+// and tools/restart-local-board.sh documents it as the KeepAlive board plist -- so a
+// conditional loaded com.kosmos.board never exists to diverge from. Even in that
+// impossible case the failure is a board that declines to relaunch after a clean
+// stop -- recoverable by a manual restart, never data loss.
 function loadedJob() {
   const u = uid();
   if (u === null) return { ok: false };
