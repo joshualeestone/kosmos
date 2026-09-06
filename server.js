@@ -4627,9 +4627,11 @@ const server = http.createServer((req, res) => {
         }
         const out = openaiAccounts.startChatgptLogin({ label: body.label, mode: body.mode, codexBin: resolved.bin });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
-        // authUrl is the URL to open (the browser callback URL, or the device
-        // verification URL); userCode is present only in device mode.
-        sendJson(res, 200, { sessionId: out.sessionId, mode: out.mode, authUrl: out.authUrl, userCode: out.userCode });
+        // Only the session + mode are known synchronously. authUrl (the browser
+        // callback URL, or the device verification URL) and userCode (device mode
+        // only) are printed by codex AFTER this returns, so the client reads them
+        // by polling GET .../subscription/status, never from this response.
+        sendJson(res, 200, { sessionId: out.sessionId, mode: out.mode });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

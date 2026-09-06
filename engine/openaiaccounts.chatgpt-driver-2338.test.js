@@ -110,4 +110,48 @@ test('status for an unknown session is a clean refusal', () => {
   assert.equal(r.ok, false);
 });
 
-test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+// #2338 iter-1 (resource bounds). Always restore the real timers after a test
+// that shrank them, so a later test is never run with a 60ms watchdog.
+const REAL_TIMERS = { timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 };
+test.afterEach(() => { openai.setChatgptTimers(REAL_TIMERS); });
+
+test('an ABANDONED sign-in (never cancelled) is killed by the watchdog and errors, not left running forever', async () => {
+  openai.setChatgptTimers({ timeout: 60, ttl: 100000 }); // 60ms watchdog; long ttl so the errored session lingers to be read
+  process.env.FAKE_CODEX_SLEEP = '1'; // the mock prints, then sleeps 30s (never exits on its own)
+  const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'abandoned' });
+  assert.equal(r.ok, true, r.because);
+  const s = await waitFor(r.sessionId, (x) => x.state === 'error' || x.state === 'connected');
+  assert.equal(s.state, 'error', 'the watchdog terminates a sign-in the user walked away from');
+  assert.match(s.error, /timed out/);
+  assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.codex-abandoned')), false, 'the watchdog removes the dir it created');
+  delete process.env.FAKE_CODEX_SLEEP;
+});
+
+test('a SETTLED session is dropped from the Map after the read-grace TTL (no unbounded growth)', async () => {
+  openai.setChatgptTimers({ timeout: 100000, ttl: 200 }); // long watchdog; 200ms grace
+  delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP;
+  const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'reapme' });
+  assert.equal(r.ok, true, r.because);
+  const s = await waitFor(r.sessionId, (x) => x.state === 'connected' || x.state === 'error');
+  assert.equal(s.state, 'connected', s.error);
+  assert.equal(openai.chatgptLoginStatus(r.sessionId).ok, true, 'readable within the grace window');
+  await new Promise((res) => setTimeout(res, 400)); // > ttl
+  assert.equal(openai.chatgptLoginStatus(r.sessionId).ok, false, 'the session is reaped once the TTL elapses');
+});
+
+test('concurrent UNLABELLED starts get DIFFERENT work slots (no shared CODEX_HOME)', async () => {
+  process.env.FAKE_CODEX_SLEEP = '1'; // both stay pending, holding their slots
+  const before = new Set(fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-work')));
+  const a = openai.startChatgptLogin({ codexBin: MOCK });
+  const b = openai.startChatgptLogin({ codexBin: MOCK });
+  assert.equal(a.ok, true, a.because);
+  assert.equal(b.ok, true, b.because);
+  assert.notEqual(a.sessionId, b.sessionId);
+  const created = fs.readdirSync(SANDBOX).filter((n) => n.startsWith('.codex-work') && !before.has(n));
+  assert.equal(created.length, 2, 'two concurrent unlabelled starts reserved two distinct slots, not one shared dir');
+  openai.cancelChatgptLogin(a.sessionId);
+  openai.cancelChatgptLogin(b.sessionId);
+  delete process.env.FAKE_CODEX_SLEEP;
+});
+
+test.after(() => { openai.setChatgptTimers({ timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 }); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });

@@ -409,11 +409,16 @@ function cleanLabel(label) {
   return String(label == null ? '' : label).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-/** The first free spot, the way accounts.nextWorkDir hands one out. */
-function nextWorkDir() {
+/** The first free spot, the way accounts.nextWorkDir hands one out.
+    #2338: an optional `exclude` Set of dirs already owned by a live sign-in, so
+    two concurrent unlabelled starts are never handed the SAME work slot (the
+    on-disk auth.json does not exist yet for either, so without this both would
+    pick the same one). Existing callers pass nothing and are unaffected. */
+function nextWorkDir(exclude) {
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(homeDir(), `.codex-${label}`);
+    if (exclude && exclude.has(dir)) continue;
     if (!fs.existsSync(dir)) return { label, dir };
     // A directory with no sign-in in it is free too: a cancelled add leaves
     // exactly this shape, and it must not eat a spot forever.
@@ -607,6 +612,42 @@ function finishChatgptLogin({ dir, label }) {
  * an auth-less slot). Sessions are held here, keyed by an opaque id. */
 const chatgptSessions = new Map();
 
+/* #2338 iter-1 (resource bounds): without these, an abandoned `codex login`
+   child (the user closes the connect tab and never cancels) runs forever, and
+   the session Map grows without limit because nothing ever deletes an entry.
+   Two bounds close both:
+     - loginTimeoutMs: a watchdog kills a still-pending child after this and
+       marks the session errored, so a browser-mode login waiting on a localhost
+       callback cannot hold a process (and a socket) open indefinitely.
+     - sessionTtlMs: a TERMINAL session (connected/error/cancelled) is dropped
+       from the Map this long after it settled -- long enough for the client's
+       final poll to read the outcome, short enough that entries do not
+       accumulate. All timers are unref'd so they never keep the process alive.
+   Both are overridable for tests (a 5-minute real timeout is not test-able). */
+let loginTimeoutMs = 5 * 60 * 1000;
+let sessionTtlMs = 2 * 60 * 1000;
+function setChatgptTimers({ timeout, ttl } = {}) {
+  if (Number.isFinite(timeout)) loginTimeoutMs = timeout;
+  if (Number.isFinite(ttl)) sessionTtlMs = ttl;
+}
+// Dirs owned by a live (non-terminal) sign-in. See resolveFreshChatgptDir.
+const activeChatgptDirs = new Set();
+const CHATGPT_TERMINAL = new Set(['connected', 'error', 'cancelled']);
+function chatgptIsTerminal(session) { return CHATGPT_TERMINAL.has(session.state); }
+function stopChatgptWatch(session) {
+  if (session.timer) { clearTimeout(session.timer); session.timer = null; }
+}
+// Release a settled session's resources ONCE: stop its watchdog, free its work
+// slot, and schedule its Map entry to be dropped after the read-grace TTL.
+function reapChatgptSession(session) {
+  if (session.reaped) return;
+  session.reaped = true;
+  activeChatgptDirs.delete(session.dir);
+  stopChatgptWatch(session);
+  const t = setTimeout(() => { chatgptSessions.delete(session.id); }, sessionTtlMs);
+  if (t && typeof t.unref === 'function') t.unref();
+}
+
 // Resolve a FRESH isolated CODEX_HOME for a subscription login. Always creates the
 // dir (madeDir true) so anti-litter is unambiguous: a labelled slot already holding
 // an account is refused; otherwise an auth-less nextWorkDir slot is used (matching
@@ -618,14 +659,27 @@ function resolveFreshChatgptDir(label) {
     if (!clean) return { error: 'that is not a name we can use for an account' };
     const dir = path.join(homeDir(), `.codex-${clean}`);
     if (fs.existsSync(authFile(dir))) return { error: 'there is already an OpenAI account by that name on this computer' };
+    // A live sign-in already owns this labelled dir (auth.json not written yet):
+    // refuse rather than let two sign-ins share one CODEX_HOME.
+    if (activeChatgptDirs.has(dir)) return { error: 'a sign-in for that name is already in progress' };
     spot = { label: clean, dir };
   } else {
-    spot = nextWorkDir();
+    // Skip dirs a live sign-in already holds, so concurrent unlabelled starts
+    // never collide on the same work slot.
+    spot = nextWorkDir(activeChatgptDirs);
     if (!spot) return { error: 'we could not find a free spot for another account' };
   }
-  const madeDir = !fs.existsSync(spot.dir);
-  try { fs.mkdirSync(spot.dir, { recursive: true }); }
-  catch { return { error: 'we could not make a place for that account on this computer' }; }
+  // ATOMIC madeDir: a non-recursive mkdir tells us whether WE created the dir.
+  // EEXIST means it was already there (an auth-less slot we are reusing, or a
+  // race), and madeDir=false keeps our cleanup from deleting a dir we did not
+  // make -- closing the existsSync-then-mkdir TOCTOU. homeDir() already exists,
+  // so a non-recursive mkdir of the single `.codex-*` leaf is sufficient.
+  let madeDir;
+  try { fs.mkdirSync(spot.dir); madeDir = true; }
+  catch (e) {
+    if (e && e.code === 'EEXIST') madeDir = false;
+    else return { error: 'we could not make a place for that account on this computer' };
+  }
   return { dir: spot.dir, label: spot.label, madeDir };
 }
 
@@ -656,17 +710,25 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
   const m = mode === 'device' ? 'device' : 'browser';
   const spot = resolveFreshChatgptDir(label);
   if (spot.error) return { ok: false, because: spot.error };
+  // Reserve the work slot for the life of this sign-in, so a concurrent start
+  // is handed a different one (see resolveFreshChatgptDir / nextWorkDir).
+  activeChatgptDirs.add(spot.dir);
   const args = m === 'device' ? ['login', '--device-auth'] : ['login'];
   let child;
   try {
     child = spawn(bin, args, { env: { ...process.env, CODEX_HOME: spot.dir }, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch {
+    activeChatgptDirs.delete(spot.dir);
     if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     return { ok: false, because: 'we could not start the OpenAI sign-in' };
   }
   const sessionId = crypto.randomBytes(16).toString('hex');
-  const session = { id: sessionId, child, dir: spot.dir, label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null };
+  const session = { id: sessionId, child, dir: spot.dir, label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, reaped: false };
   chatgptSessions.set(sessionId, session);
+  // Remove ONLY a dir we created that no account landed in (never a real one).
+  const dropDirIfOurs = () => {
+    if (session.madeDir && !session.account) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  };
   const onData = (d) => {
     session.buf += String(d);
     const parsed = parseChatgptLoginOutput(session.buf);
@@ -677,20 +739,43 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
   // codex may print the URL/code to either stream; watch both.
   if (child.stdout) child.stdout.on('data', onData);
   if (child.stderr) child.stderr.on('data', onData);
-  child.on('error', () => { if (session.state !== 'cancelled') { session.state = 'error'; session.error = 'the OpenAI sign-in process failed to run'; } });
+  child.on('error', () => {
+    // Guard EVERY terminal state, not just cancelled: an `error` arriving after a
+    // code-0 `connected` exit must not overwrite state to error while keeping the
+    // account, and a doubled error/exit must not clean up twice.
+    if (chatgptIsTerminal(session)) return;
+    session.state = 'error';
+    session.error = 'the OpenAI sign-in process failed to run';
+    dropDirIfOurs();
+    reapChatgptSession(session);
+  });
   child.on('exit', (code) => {
-    if (session.state === 'cancelled') return; // cancel already cleaned up
+    if (chatgptIsTerminal(session)) return; // cancel/error/watchdog already settled it
     if (code === 0) {
       const fin = finishChatgptLogin({ dir: session.dir, label: session.label });
-      if (fin.ok) { session.state = 'connected'; session.account = fin.account; return; }
+      if (fin.ok) { session.state = 'connected'; session.account = fin.account; reapChatgptSession(session); return; }
       session.error = fin.because;
     } else {
       session.error = 'the OpenAI sign-in did not complete';
     }
     session.state = 'error';
-    if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    dropDirIfOurs();
+    reapChatgptSession(session);
   });
-  return { ok: true, sessionId, mode: m, authUrl: session.authUrl, userCode: session.userCode };
+  // Watchdog: bound an abandoned sign-in. Unref'd so it never keeps the process up.
+  session.timer = setTimeout(() => {
+    if (chatgptIsTerminal(session)) return;
+    try { session.child.kill(); } catch { /* best effort */ }
+    session.state = 'error';
+    session.error = 'the OpenAI sign-in timed out';
+    dropDirIfOurs();
+    reapChatgptSession(session);
+  }, loginTimeoutMs);
+  if (session.timer && typeof session.timer.unref === 'function') session.timer.unref();
+  // authUrl/userCode are NOT returned here: they are printed by codex AFTER this
+  // synchronous return (via onData), so they are always absent at this point. The
+  // client reads them from chatgptLoginStatus, which is where they actually land.
+  return { ok: true, sessionId, mode: m };
 }
 
 /** Poll a subscription sign-in. @returns {{ok:true, state, authUrl?, userCode?, account?, error?} | {ok:false, because}} */
@@ -708,6 +793,7 @@ function cancelChatgptLogin(sessionId) {
   try { s.child.kill(); } catch { /* best effort */ }
   // Remove ONLY a dir we created and that no account landed in (never a real one).
   if (s.madeDir && !s.account) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  reapChatgptSession(s); // free the slot + schedule the Map entry to be dropped
   return { ok: true, cancelled: true };
 }
 
@@ -1239,7 +1325,7 @@ const listLive = inflight.collapse(listLiveNow);
 module.exports = {
   list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
-  checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
+  checkLive, listLive, setFetcher, setChatgptTimers, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
   readName, writeName,   // #2095: the human-chosen display name (sidecar file)
 };

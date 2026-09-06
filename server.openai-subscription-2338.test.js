@@ -35,7 +35,7 @@ runners.status = () => ({ openai: { job: { phase: 'installed' } } });
 // Mock the driver so no real `codex login` is ever spawned.
 let lastStartArgs = null;
 openai.startChatgptLogin = (a) => { lastStartArgs = a; return { ok: true, sessionId: 'sess-1', mode: a.mode === 'device' ? 'device' : 'browser', authUrl: 'https://auth.example/x', userCode: a.mode === 'device' ? 'WXYZ-1234' : undefined }; };
-openai.chatgptLoginStatus = (id) => (id === 'sess-1' ? { ok: true, state: 'connected', account: { provider: 'openai', authMode: 'chatgpt', keyTail: null, email: 'p@e.co' } } : { ok: false, because: 'no such sign-in in progress' });
+openai.chatgptLoginStatus = (id) => (id === 'sess-1' ? { ok: true, state: 'connected', authUrl: 'https://auth.example/x', userCode: 'WXYZ-1234', account: { provider: 'openai', authMode: 'chatgpt', keyTail: null, email: 'p@e.co' } } : { ok: false, because: 'no such sign-in in progress' });
 openai.cancelChatgptLogin = (id) => (id === 'sess-1' ? { ok: true, cancelled: true } : { ok: false, because: 'no such sign-in in progress' });
 
 let base;
@@ -45,25 +45,30 @@ test.after(() => { try { server.close(); } catch { /* best effort */ } try { fs.
 const post = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 const get = (p) => fetch(base + p);
 
-test('POST subscription/start returns the session + auth prompt and passes mode/label to the driver', async () => {
+test('POST subscription/start returns ONLY the session + mode (authUrl/userCode come from status) and passes mode/label to the driver', async () => {
   const r = await post('/api/accounts/openai/subscription/start', { mode: 'device', label: 'Side' });
   assert.equal(r.status, 200);
   const b = await r.json();
   assert.equal(b.sessionId, 'sess-1');
   assert.equal(b.mode, 'device');
-  assert.equal(b.userCode, 'WXYZ-1234');
-  assert.match(b.authUrl, /^https:/);
+  // authUrl/userCode are printed by codex AFTER start returns, so the start
+  // response must NOT advertise them (they were structurally always undefined).
+  assert.equal(b.authUrl, undefined, 'start does not carry authUrl (the client polls status)');
+  assert.equal(b.userCode, undefined, 'start does not carry userCode (the client polls status)');
   assert.deepEqual({ mode: lastStartArgs.mode, label: lastStartArgs.label }, { mode: 'device', label: 'Side' });
   assert.equal(lastStartArgs.codexBin, '/mock/codex', 'the route hands the resolved codex bin to the driver');
 });
 
-test('GET subscription/status returns the state + account for a known session', async () => {
+test('GET subscription/status returns the state + account AND the auth prompt (authUrl/userCode)', async () => {
   const r = await get('/api/accounts/openai/subscription/status?sessionId=sess-1');
   assert.equal(r.status, 200);
   const b = await r.json();
   assert.equal(b.state, 'connected');
   assert.equal(b.account.authMode, 'chatgpt');
   assert.equal(b.account.keyTail, null, 'the subscription discriminator: no keyTail');
+  // The auth prompt the picker opens is read HERE, not from start.
+  assert.match(b.authUrl, /^https:/, 'status carries the auth URL the picker opens');
+  assert.equal(b.userCode, 'WXYZ-1234', 'status carries the device user code');
 });
 
 test('GET subscription/status 404s an unknown session', async () => {
