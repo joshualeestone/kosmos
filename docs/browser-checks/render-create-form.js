@@ -55,7 +55,7 @@ function check(name, pass, detail) {
     await page.waitForFunction(() => !document.getElementById('cstep-name').hidden, null, { timeout: 8000 });
     await page.waitForTimeout(500);
 
-    const seen = await page.evaluate(() => {
+    const seen = await page.evaluate(async () => {
       const live = (el) => {
         if (!el) return false;
         const r = el.getBoundingClientRect();
@@ -89,16 +89,35 @@ function check(name, pass, detail) {
       const elbow = el ? getComputedStyle(el, '::before') : null;
       /* #245: drive the provider menu both ways and read what it does to
          its neighbours, then leave it where it started. */
-      const openaiParks = (() => {
+      const openaiParks = await (async () => {
         const sel = id('create-provider');
         const model = id('create-model');
         const acctSel = id('create-account');
         sel.value = 'openai';
         sel.dispatchEvent(new Event('change', { bubbles: true }));
+        /* #2140 SETTLE-WAIT: paintOpenaiCreateModel clears #create-model-why to ''
+           first (its loading state) and only sets the note synchronously in the
+           no-account branch or AFTER an async models fetch when an account is
+           selected. Reading `why` immediately after the change event races that
+           populate -- a race that, under the cut machine's load, read '' on webkit
+           and aborted 3b (green alone == contention, not a product change). Wait
+           for the note to settle rather than reading the transient empty. Bounded
+           at 8000ms (matching this file's other waitForSelector/waitForFunction
+           bounds), so a genuinely-empty why still returns rather than hanging the
+           check. 8000, not 2000: F2 was a LOAD/contention flake, and under that same
+           load an async /v1/models round-trip can exceed a short bound and re-red --
+           the longer bound removes that residual (it fails safe as a false-red
+           either way, never a shipped bug). */
+        const whyEl = id('create-model-why');
+        const deadline = Date.now() + 8000;
+        while (Date.now() < deadline) {
+          if (whyEl && whyEl.textContent && whyEl.textContent.trim()) break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
         const parked = {
           modelDisabled: model.disabled,
           acctDisabled: acctSel.disabled,
-          why: (id('create-model-why') || {}).textContent || '',
+          why: (whyEl || {}).textContent || '',
         };
         sel.value = 'anthropic';
         sel.dispatchEvent(new Event('change', { bubbles: true }));

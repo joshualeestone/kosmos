@@ -97,15 +97,25 @@ let failed = 0;
   const walkLabel = 'Walk Test ' + process.pid + '-' + Date.now().toString(36).slice(-4);
   await p.fill('#acct-openai-label', walkLabel);
   await p.click('#acct-openai-go');
-  await p.waitForTimeout(1200);
-  const msg = await p.innerText('#acct-openai-msg');
-  /* #2095: the add message now LEADS WITH THE CHOSEN NAME ("Added: <label>."),
-     not the key tail -- the tail is only the fallback message when no name is
-     entered. This test always enters a name, so it asserts the name is shown.
-     The security half is unchanged and load-bearing: the full key ("walkwalk...")
-     must never appear in the message. */
-  say('the add message names the chosen account, never the full key',
-    /Added/.test(msg) && msg.includes(walkLabel) && !/walkwalk/.test(msg), msg);
+  /* 🛑 #2303 MOVED THE SUCCESS INDICATOR OFF THE MESSAGE LINE, and this check
+     read the old location -- it took the 0.6.37 cut's 3b down. On success the add
+     now: sets #acct-openai-msg to a transient "Checking the connection…", runs a
+     live paintAccounts() verification, then acctShowSuccess() HIDES the whole
+     acct-openai-flow (including #acct-openai-msg) and shows a gold #acct-success-box
+     ("OpenAI GPT Codex is connected" + the key TAIL). So the msg line's frozen last
+     value is "Checking the connection…", never "Added: <label>". Wait for the real
+     success surface (a proper settle-wait, replacing the old fixed 1200ms) and
+     assert it there; the chosen LABEL is now asserted on the account row below
+     (#2095 makes the label the row's primary display). This is the same class of
+     staleness this file's history documents: "Connected"->"Signed in" took 0.5.88,
+     "provider leaving the row" took 0.6.05, and this took 0.6.37. */
+  await p.waitForSelector('#acct-success-box', { state: 'visible', timeout: 8000 });
+  const successBox = (await p.innerText('#acct-success-box')).replace(/\s+/g, ' ').trim();
+  /* Security half, UNCHANGED and load-bearing (kept on the re-point, per the
+     never-drop-a-security-guard rule): the full key ("walkwalk…") must never
+     appear on the success surface -- only the key tail. */
+  say('the add succeeds with the gold connected box, never the full key',
+    /connected/i.test(successBox) && !/walkwalk/.test(successBox), successBox);
   say('the key field is emptied after the add', (await p.inputValue('#acct-openai-key')) === '');
   // #770: each account is its own box now (.acct-row retired), a green
   // Connected mark and a Disconnect door on every one.
@@ -145,6 +155,14 @@ let failed = 0;
   say('the OpenAI group holds the key-tail row', groups.some((g) => /OpenAI/.test(g.provider)
       && !/Codex/.test(g.provider)
       && g.rows.some((r) => /API key ending WALK/.test(r))), JSON.stringify(groups));
+  /* #2303 re-point: the "names the chosen account, never the full key" assertion
+     that used to read the add MESSAGE now reads the account ROW, which #2095 made
+     the label's primary display. Same intent, current location: the OpenAI row
+     carries the chosen label and only the key TAIL, never the full key. */
+  say('the OpenAI account row names the chosen label, never the full key',
+    groups.some((g) => /OpenAI/.test(g.provider) && !/Codex/.test(g.provider)
+      && g.rows.some((r) => r.includes(walkLabel) && !/walkwalk/.test(r))),
+    JSON.stringify(groups.map((g) => g.provider + ':' + g.rows.join(' | '))));
   /* Same move: the OpenAI-ness of a row is now a property of its GROUP. */
   say('no row in the OpenAI group carries the history arm',
     !groups.some((g) => /OpenAI/.test(g.provider) && g.rows.some((r) => /history/.test(r))));
