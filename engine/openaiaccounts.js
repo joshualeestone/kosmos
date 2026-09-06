@@ -21,7 +21,8 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
-const { spawnSync } = require('node:child_process');
+const { spawnSync, spawn } = require('node:child_process');
+const crypto = require('node:crypto');
 const subscription = require('./subscription');
 const inflight = require('./inflight');
 const runners = require('./runners');
@@ -588,6 +589,128 @@ function finishChatgptLogin({ dir, label }) {
   return { ok: true, account: row };
 }
 
+/* ── ChatGPT (subscription) sign-in driver (#2338) ────────────────────────────
+ *
+ * The analog of addWithKeyLive for the SUBSCRIPTION connection type. Unlike the
+ * api-key path (a fast, synchronous `codex login --with-api-key` with the key on
+ * stdin), a subscription sign-in is a LONG interactive flow -- codex opens a
+ * browser (localhost callback) or, with --device-auth, prints a URL + user code
+ * and polls -- so the user must act OUTSIDE Kosmos and we cannot block the server.
+ * The driver spawns `codex login` ASYNC into a FRESH isolated CODEX_HOME, keeps a
+ * session, and the route polls it. On a clean exit it hands off to
+ * finishChatgptLogin (the connected gate). Never overwrites the user's ~/.codex:
+ * every session gets its own labelled/nextWorkDir slot.
+ *
+ * Session lifetime is the server process: a mid-login server restart drops the
+ * session (a deliberate MVP tradeoff vs connect.js's tmux, acceptable for a
+ * ~1-minute flow; the isolated dir is cleaned by cancel or by a later add reusing
+ * an auth-less slot). Sessions are held here, keyed by an opaque id. */
+const chatgptSessions = new Map();
+
+// Resolve a FRESH isolated CODEX_HOME for a subscription login. Always creates the
+// dir (madeDir true) so anti-litter is unambiguous: a labelled slot already holding
+// an account is refused; otherwise an auth-less nextWorkDir slot is used (matching
+// addWithKey). Returns { dir, label, madeDir } or { error }.
+function resolveFreshChatgptDir(label) {
+  let spot;
+  if (label != null && String(label).trim()) {
+    const clean = cleanLabel(label);
+    if (!clean) return { error: 'that is not a name we can use for an account' };
+    const dir = path.join(homeDir(), `.codex-${clean}`);
+    if (fs.existsSync(authFile(dir))) return { error: 'there is already an OpenAI account by that name on this computer' };
+    spot = { label: clean, dir };
+  } else {
+    spot = nextWorkDir();
+    if (!spot) return { error: 'we could not find a free spot for another account' };
+  }
+  const madeDir = !fs.existsSync(spot.dir);
+  try { fs.mkdirSync(spot.dir, { recursive: true }); }
+  catch { return { error: 'we could not make a place for that account on this computer' }; }
+  return { dir: spot.dir, label: spot.label, madeDir };
+}
+
+/* PROVISIONAL codex-login output parser (#2338). Extracts the auth URL and, in
+   device mode, the user code, from codex login's stdout/stderr. The EXACT lines
+   codex prints are the ONE part of this driver not yet pinned to real output --
+   verified at the release gate under a real ChatGPT subscription. Kept isolated so
+   the gate touches only this function: it recognises the general shapes (an https
+   URL; a short, often-hyphenated device code) rather than a fixed line format. */
+function parseChatgptLoginOutput(text) {
+  const out = {};
+  const url = String(text).match(/https?:\/\/[^\s'"]+/);
+  if (url) out.authUrl = url[0];
+  const code = String(text).match(/\b[A-Z0-9]{4}-?[A-Z0-9]{4}\b/);
+  if (code) out.userCode = code[0];
+  return out;
+}
+
+/**
+ * Start a ChatGPT subscription sign-in: spawn `codex login` (browser) or
+ * `codex login --device-auth` (device) into a fresh isolated CODEX_HOME and watch
+ * it. Non-blocking; the caller polls chatgptLoginStatus.
+ * @returns {{ok:true, sessionId:string, mode:string, authUrl?:string, userCode?:string} | {ok:false, because:string}}
+ */
+function startChatgptLogin({ label, mode, codexBin } = {}) {
+  const bin = String(codexBin || '');
+  if (!bin || !runners.isRunnable(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
+  const m = mode === 'device' ? 'device' : 'browser';
+  const spot = resolveFreshChatgptDir(label);
+  if (spot.error) return { ok: false, because: spot.error };
+  const args = m === 'device' ? ['login', '--device-auth'] : ['login'];
+  let child;
+  try {
+    child = spawn(bin, args, { env: { ...process.env, CODEX_HOME: spot.dir }, stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch {
+    if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    return { ok: false, because: 'we could not start the OpenAI sign-in' };
+  }
+  const sessionId = crypto.randomBytes(16).toString('hex');
+  const session = { id: sessionId, child, dir: spot.dir, label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null };
+  chatgptSessions.set(sessionId, session);
+  const onData = (d) => {
+    session.buf += String(d);
+    const parsed = parseChatgptLoginOutput(session.buf);
+    if (parsed.authUrl && !session.authUrl) session.authUrl = parsed.authUrl;
+    if (parsed.userCode && !session.userCode) session.userCode = parsed.userCode;
+    if (session.state === 'starting') session.state = m === 'device' ? 'awaiting-code' : 'awaiting-browser';
+  };
+  // codex may print the URL/code to either stream; watch both.
+  if (child.stdout) child.stdout.on('data', onData);
+  if (child.stderr) child.stderr.on('data', onData);
+  child.on('error', () => { if (session.state !== 'cancelled') { session.state = 'error'; session.error = 'the OpenAI sign-in process failed to run'; } });
+  child.on('exit', (code) => {
+    if (session.state === 'cancelled') return; // cancel already cleaned up
+    if (code === 0) {
+      const fin = finishChatgptLogin({ dir: session.dir, label: session.label });
+      if (fin.ok) { session.state = 'connected'; session.account = fin.account; return; }
+      session.error = fin.because;
+    } else {
+      session.error = 'the OpenAI sign-in did not complete';
+    }
+    session.state = 'error';
+    if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  });
+  return { ok: true, sessionId, mode: m, authUrl: session.authUrl, userCode: session.userCode };
+}
+
+/** Poll a subscription sign-in. @returns {{ok:true, state, authUrl?, userCode?, account?, error?} | {ok:false, because}} */
+function chatgptLoginStatus(sessionId) {
+  const s = chatgptSessions.get(sessionId);
+  if (!s) return { ok: false, because: 'no such sign-in in progress' };
+  return { ok: true, state: s.state, authUrl: s.authUrl, userCode: s.userCode, account: s.account, error: s.error };
+}
+
+/** Cancel a pending subscription sign-in: kill the child and anti-litter the dir. */
+function cancelChatgptLogin(sessionId) {
+  const s = chatgptSessions.get(sessionId);
+  if (!s) return { ok: false, because: 'no such sign-in in progress' };
+  s.state = 'cancelled';
+  try { s.child.kill(); } catch { /* best effort */ }
+  // Remove ONLY a dir we created and that no account landed in (never a real one).
+  if (s.madeDir && !s.account) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+  return { ok: true, cancelled: true };
+}
+
 /* ── live check (#960) ───────────────────────────────────────────────────
    `codex login status` is LOCAL ONLY -- verified by pointing CODEX_HOME at a
    directory holding a fabricated, never-valid key and getting "Logged in
@@ -1114,7 +1237,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
-  list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, startChatgptLogin, chatgptLoginStatus, cancelChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
