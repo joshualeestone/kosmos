@@ -206,4 +206,4 @@ function createTeam(opts, deps) {
   return { outcome, created, refused, because, creator, purpose, cap };
 }
 
-module.exports = { createTeam, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };
+module.exports = { createTeam, resolveCap, DEFAULT_TEAM_CAP, MAX_TEAM_CAP };

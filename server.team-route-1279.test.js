@@ -148,6 +148,50 @@ test('all members dead: no agent is created, and the reason names the sign-in, n
     assert.match(r.json.because || '', /could not sign in/i, 'the all-dead reason should name the sign-in, not "a team with no members"');
     assert.doesNotMatch(r.json.because || '', /no members/i);
     assert.equal(r.json.refused.length, 2);
+    // Schema parity: this route-built response carries `cap` like every
+    // createTeam-produced outcome does.
+    assert.equal(typeof r.json.cap, 'number', 'the all-dead response should carry the cap field for schema consistency');
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('over-cap + dead members: refused for the cap with the honest ORIGINAL count, and the cap reason is NOT clobbered by liveness detail', async () => {
+  create.setClaudeProbe(LIVE);
+  try {
+    // 13 members (> default cap 12), a mix of live Claude and dead OpenAI. The
+    // cap gate must fire on the ORIGINAL 13 BEFORE any liveness sweep, so the
+    // dead members are never checked and the refusal names the cap, not a
+    // sign-in -- the exact clobber the merge-guard prevents.
+    const members = [];
+    for (let i = 0; i < 10; i++) members.push({ name: 'mixlive' + i, role: 'pm' });
+    for (let i = 0; i < 3; i++) members.push({ name: 'mixdead' + i, role: 'pm', provider: 'openai' });
+    const r = await postTeam({ creator: 'pmboss', purpose: 'over cap with dead', members });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.match(r.json.because || '', /13 agents/, 'the cap refusal must count the ORIGINAL 13, not a liveness-reduced subset');
+    assert.match(r.json.because || '', /cap is 12/, 'the cap refusal must name the bound');
+    assert.doesNotMatch(r.json.because || '', /sign-in|were created/i, 'the true cap reason was clobbered by liveness/merge detail');
+    // createTeam refuseAll never populates refused[]; the dead members must NOT
+    // have leaked into it (proof the liveness sweep was skipped for an over-cap request).
+    assert.equal(r.json.refused.length, 0, 'a whole-request cap refusal must not list per-member refusals');
+    assert.ok(!create.createdLog().some((e) => e && /^mix(live|dead)\d+$/.test(e.name)), 'an over-cap request created agents');
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('whole-request shape refusal (missing purpose) is NOT clobbered when liveness also filtered a dead member', async () => {
+  create.setClaudeProbe(LIVE);
+  try {
+    // Under cap, missing purpose, one live + one dead. Liveness filters the dead
+    // one, createTeam refuses the whole request for the missing purpose. The
+    // real reason must survive -- not be replaced by "0 of 2 agents were created".
+    const r = await postTeam({
+      creator: 'pmboss',
+      members: [{ name: 'shapelive', role: 'pm' }, { name: 'shapedead', role: 'pm', provider: 'openai' }],
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.match(r.json.because || '', /stated purpose/i, 'the shape reason was clobbered by liveness/merge detail');
+    assert.doesNotMatch(r.json.because || '', /agents were created/i, 'a whole-request shape refusal must not report a per-member tally');
+    assert.ok(!birthOf('shapelive'), 'a shape-refused team should create nothing');
   } finally { create.setClaudeProbe(null); }
 });
 

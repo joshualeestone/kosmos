@@ -3109,16 +3109,19 @@ const server = http.createServer((req, res) => {
    * (createTeam + the cap + provenance) merged in #2247; THIS is the route that
    * makes it reachable.
    *
-   * 🔑 AUTH IS INHERITED, AND THAT SETS THE SCOPE OF THIS SLICE. Every /api/ POST
-   * is board-token-gated by the sensitive-route check above (only report/reply
-   * are exempt, as REMOTE_AGENT_ROUTES). This route is NOT exempt, so it requires
-   * the BOARD token -- the operator/board, not an arbitrary agent token. That
-   * makes this slice OPERATOR-DRIVEN team creation, safe by construction (the
-   * caller already holds the board). Letting a PM AGENT (agent token) drive it is
-   * the security-sensitive NEXT slice: it needs a deliberate agent-token model
-   * (an exemption + remoteWriteGuard, like report/reply) and an opt-in, and it is
-   * where a per-creator GLOBAL active-agent cap earns its keep. Named on the card,
-   * not smuggled in here.
+   * 🔑 AUTH IS INHERITED, AND THAT SETS THE SCOPE OF THIS SLICE. On an ENFORCING
+   * board, every /api/ POST is board-token-gated by the sensitive-route check
+   * above (only report/reply are exempt, as REMOTE_AGENT_ROUTES). This route is
+   * NOT exempt, so it requires the BOARD token -- the operator/board, not an
+   * arbitrary agent token -- making this slice OPERATOR-DRIVEN team creation.
+   * ⚠️ That guarantee is exactly as strong as `/api/agents`' and no stronger: on a
+   * NON-enforcing board this route, like every other /api write route, is reachable
+   * by any loopback/local-account caller with no token (this is not a new gap this
+   * route opens -- #1946 is the board-enforcement story for all of them). Letting a
+   * PM AGENT (agent token) drive it deliberately is the security-sensitive NEXT
+   * slice: it needs an agent-token model (an exemption + remoteWriteGuard, like
+   * report/reply) and an opt-in, and it is where a per-creator GLOBAL active-agent
+   * cap earns its keep. Named on the card, not smuggled in here.
    *
    * 🛑 #1903 LIVENESS RAIL, kept at parity with POST /api/agents: a member whose
    * account cannot sign in would create an agent that 401s on its first turn. So
@@ -3152,16 +3155,32 @@ const server = http.createServer((req, res) => {
 
         const members = Array.isArray(body.members) ? body.members : null;
 
+        /* 🔑 THE CAP GATE RUNS BEFORE THE LIVENESS SWEEP, on the ORIGINAL request
+           count, and this ordering carries two fixes. (1) It bounds the sweep: a
+           request over the cap skips liveness entirely, so the per-member
+           subprocess sweep runs on at most `cap` (<= MAX_TEAM_CAP 50) members
+           rather than on an unbounded body -- "Kosmos owns the bound, not the
+           prompt" has to hold against the check's OWN cost, not only createTeam's.
+           (2) It keeps the refusal honest: an over-cap request is handed WHOLE to
+           createTeam (dead members included), which refuses it for the cap with
+           the true original count and creates nothing (its refuseAll fires before
+           the member loop), rather than the count being silently reduced by
+           liveness first. The effective cap is read from createTeam's own
+           resolveCap so the two never drift. */
+        const cap = team.resolveCap(undefined, process.env);
+        const overCap = !!(members && members.length > cap);
+
         /* Per-member #1903 liveness pre-flight, run in parallel, mirroring the
-           single-create route. Only members that are objects with a well-formed
-           name are checked -- a bad-shape or bad-name member is left for
-           createTeam/createAgent to refuse in its own words, exactly as the
-           single route leaves a bad name to createAgentInner. A member whose
-           account is DEFINITIVELY dead is collected here and removed from the set
-           handed to createTeam; everything else proceeds. */
+           single-create route -- SKIPPED when the request is already over the cap
+           (see above). Only members that are objects with a well-formed name are
+           checked -- a bad-shape or bad-name member is left for createTeam/
+           createAgent to refuse in its own words, exactly as the single route
+           leaves a bad name to createAgentInner. A member whose account is
+           DEFINITIVELY dead is collected here and removed from the set handed to
+           createTeam; everything else proceeds. */
         const livenessRefused = [];
         let liveMembers = members;
-        if (members && members.length) {
+        if (members && members.length && !overCap) {
           const verdicts = await Promise.all(members.map(async (m) => {
             if (!m || typeof m !== 'object' || Array.isArray(m)) return { m, dead: false };
             if (create.nameProblem(m.name)) return { m, dead: false };
@@ -3180,38 +3199,47 @@ const server = http.createServer((req, res) => {
               liveMembers.push(v.m);
             }
           }
-        }
 
-        /* If liveness removed EVERY member of a request that DID carry members,
-           do not hand createTeam an empty list -- it would refuse with "a team
-           with no members", misnaming a request whose members were all dead. Name
-           the real reason. An absent/empty members field is a different case: a
-           shape error createTeam should name, so it falls through to createTeam. */
-        if (members && members.length && liveMembers.length === 0) {
-          sendJson(res, 400, {
-            outcome: 'refused',
-            created: [],
-            refused: livenessRefused,
-            because: "every member's account could not sign in; no agent was created (see refused[])",
-            creator: (typeof body.creator === 'string') ? body.creator.trim() : '',
-            purpose: (typeof body.purpose === 'string') ? body.purpose.trim() : '',
-          });
-          return;
+          /* If liveness removed EVERY member of a request that DID carry members,
+             do not hand createTeam an empty list -- it would refuse with "a team
+             with no members", misnaming a request whose members were all dead.
+             Name the real reason. (An absent/empty members field never reaches
+             here: this block is guarded on members.length, so that shape error
+             falls through to createTeam, which names it.) */
+          if (liveMembers.length === 0) {
+            sendJson(res, 400, {
+              outcome: 'refused',
+              created: [],
+              refused: livenessRefused,
+              because: "every member's account could not sign in; no agent was created (see refused[])",
+              creator: (typeof body.creator === 'string') ? body.creator.trim() : '',
+              purpose: (typeof body.purpose === 'string') ? body.purpose.trim() : '',
+              cap,
+            });
+            return;
+          }
         }
 
         const result = team.createTeam({
           creator: body.creator,
           purpose: body.purpose,
-          members: liveMembers,
+          members: overCap ? members : liveMembers,
         });
 
         /* Merge the liveness refusals into the engine's own refused[] and
-           recompute the outcome, so a team the engine created in full but which
-           had a dead member pre-removed is honestly reported PARTIAL rather than
-           created. created.length drives the 400/200 split exactly as the single
-           route does: nothing created is the caller's fault (bad specs or dead
-           accounts) -> 400; anything created -> 200 with the per-member detail. */
-        if (livenessRefused.length) {
+           recompute the outcome -- but ONLY when createTeam produced PER-MEMBER
+           results. A WHOLE-REQUEST refusal (over cap, or a missing creator/
+           purpose/members shape error) returns created:[] AND refused:[], and its
+           `because` is the real reason; clobbering it with the "X of Y created"
+           line would discard that reason AND misreport the accounting (the dead
+           members are a subset of a request that was refused wholesale for a more
+           fundamental reason, and nothing would have been created regardless). So
+           the recompute is gated on createTeam having actually run its member loop
+           (created or refused non-empty). When it did, created.length drives the
+           400/200 split exactly as the single route does: nothing created is the
+           caller's fault -> 400; anything created -> 200 with per-member detail. */
+        const wholeRequestRefusal = result.created.length === 0 && result.refused.length === 0;
+        if (livenessRefused.length && !wholeRequestRefusal) {
           result.refused = result.refused.concat(livenessRefused);
           result.outcome = (result.created.length === 0) ? 'refused' : 'partial';
           const totalRequested = members ? members.length : 0;
