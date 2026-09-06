@@ -275,6 +275,13 @@ test('the state chatter is hidden from the EYE only, and a needs-you row keeps i
   const hides = CSS.match(new RegExp('[^{}]*\\.lrow > \\.lstate[^{]*\\{[^}]*\\}', 'g')) || [];
   for (const h of hides) {
     if (/\.lstate >/.test(h)) continue;          // the glyph rule, which SHOULD be display:none
+    /* #2146: the coexistence badge's working dots (.alsowork > .act) are a
+       decorative, aria-hidden glyph nested one level deeper than the direct-child
+       glyph rule above, so `/\.lstate >/` does not catch them. Hiding them in
+       consolidated is the SAME legitimate class (a decorative glyph off the eye,
+       nothing lost to the ear) -- it does not take .lstate or any meaningful
+       text out of the accessibility tree, which is the property this loop guards. */
+    if (/\.alsowork > \.act\b/.test(h)) continue;
     /* ⚠️ AND THE FOLDED COLUMN IS NOT THE DEFECT. `body.consolidated.fold-a`
        collapses the agents rail to 48px and shows avatars only, so hiding the
        name, title and state there is the feature. My first version of this loop
