@@ -229,12 +229,58 @@ EOFSIG
 head_ "The served installer matches the repo"
 curl -fsSL -o "$WORK/setup" "$SITE/setup" 2>/dev/null
 LIVE_SHA="$(shasum -a 256 "$WORK/setup" | awk '{print $1}')"
-if [ -f "$REPO/../chaoskosmos-site/setup" ]; then
-  REPO_SHA="$(shasum -a 256 "$REPO/../chaoskosmos-site/setup" | awk '{print $1}')"
-  [ "$LIVE_SHA" = "$REPO_SHA" ] && ok "served /setup is byte-identical to chaoskosmos-site/setup" \
-                                || bad "served /setup DIFFERS from chaoskosmos-site/setup (live $LIVE_SHA)"
+# #2360: compare the served /setup against the DEPLOY SOURCE (origin/main), NOT the local working-tree
+# /setup. The deploy ships from origin/main via the #2286 fresh-origin-main mechanism, so a local
+# checkout that lags origin (a /setup commit lands on origin during a cut; a shared checkout is
+# routinely behind) made this FALSE-RED "served /setup DIFFERS" with release-exit=1 even though the
+# served bytes were CORRECT. Measured on the 0.6.40 cut: served cdbce978 == origin/main:setup, but the
+# local working tree was 312cd7ed (1 commit behind) -> false exit=1, which an operator then had to rule
+# benign by hand. Comparing vs origin/main removes that COMMON local-lag false-red (a shared checkout
+# is behind by default) and still hard-FAILs a real served-vs-source mismatch. It is NOT window-free:
+# a far NARROWER residual remains -- if origin/main advances between the deploy and this audit with a
+# NEW /setup commit that was not what was deployed, the served (correct) bytes differ from the
+# now-newer origin/main:setup and this FAILs. That window is the deploy->9e gap inside one cut
+# (seconds, under the merge-freeze), vs the local-lag window which is always open; the window-free
+# alternative is to compare against the exact sha the deploy shipped (#2286's SITE_SHA), a larger
+# change deferred to a follow-up. Fetch first so origin/main is current; write it to a temp FILE (never a
+# $(...) capture, which strips the trailing newline and so changes the sha); guard on git's own exit
+# (git show of a missing path prints nothing, and shasum of empty input is a fixed non-file hash that
+# would silently mis-compare). Fall back to the local working tree only if origin/main:setup is
+# unreadable, and then always as UNPROVEN (never a pass, never a hard FAIL): the local tree can be
+# stale, so it confirms nothing about the deploy source, and UNPROVEN still exits 1 (fails closed).
+SITE_CO="$REPO/../chaoskosmos-site"
+SRC_SHA=""
+# `git rev-parse --git-dir`, not `[ -d "$SITE_CO/.git" ]`: the latter misses a linked worktree or a
+# repo whose `.git` is a FILE (a gitdir pointer) rather than a directory, which would silently drop to
+# the local-file fallback.
+if git -C "$SITE_CO" rev-parse --git-dir >/dev/null 2>&1; then
+  # Bound this fetch so a wedged network cannot hang step 9e of a live cut (`timeout` is not installed
+  # on this fleet). git's low-speed guard aborts a stalled TRANSFER (< ~1KB/s for 20s); it does NOT
+  # bound the CONNECT phase, so a SYN-blackholed origin still waits the OS TCP connect timeout (~75s on
+  # macOS) -- a bounded-ish delay, not an unbounded hang, and `|| true` then falls to the local fallback
+  # rather than failing the cut on a transient error. (Not every curl here is timeout-bounded, so this
+  # bound is a local improvement, not a claim the whole audit is time-boxed.) The fetch is ref-only
+  # (refs/remotes, FETCH_HEAD) and git's fetch is concurrency-safe, so mutating the shared site checkout
+  # here is benign even while the deploy step touches it.
+  git -C "$SITE_CO" -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=20 fetch -q origin 2>/dev/null || true
+  if git -C "$SITE_CO" show origin/main:setup > "$WORK/origin-setup" 2>/dev/null && [ -s "$WORK/origin-setup" ]; then
+    SRC_SHA="$(shasum -a 256 "$WORK/origin-setup" | awk '{print $1}')"
+  fi
+fi
+if [ -n "$SRC_SHA" ]; then
+  [ "$LIVE_SHA" = "$SRC_SHA" ] && ok "served /setup is byte-identical to origin/main:setup (the deploy source)" \
+                              || bad "served /setup DIFFERS from origin/main:setup -- the deploy source (live $LIVE_SHA, origin/main $SRC_SHA)"
+elif [ -f "$SITE_CO/setup" ]; then
+  # Origin/main:setup was unreadable, so we CANNOT confirm against the deploy source. Matching the
+  # LOCAL working tree does NOT confirm it (the local tree can be stale -- the whole #2360 bug), so a
+  # match is UNPROVEN, not a pass: reporting `ok` here would be a silent-pass (served stale + local
+  # equal to that stale copy reads as certified). Both arms are UNPROVEN; unproven>0 exits the check 1,
+  # so this degraded path fails CLOSED rather than green-lighting an unconfirmed served artifact.
+  REPO_SHA="$(shasum -a 256 "$SITE_CO/setup" | awk '{print $1}')"
+  [ "$LIVE_SHA" = "$REPO_SHA" ] && unp "served /setup matches the LOCAL chaoskosmos-site/setup, but origin/main:setup was unreadable -- a local match does NOT confirm the deploy source (the local tree can be stale), so UNPROVEN not a pass (live $LIVE_SHA) (#2360)" \
+                               || unp "served /setup differs from the LOCAL chaoskosmos-site/setup and origin/main was unreadable -- cannot confirm against the deploy source (live $LIVE_SHA); a stale local checkout can cause this (#2360)"
 else
-  unp "no local chaoskosmos-site checkout to compare against (live $LIVE_SHA)"
+  unp "no chaoskosmos-site checkout to compare against (live $LIVE_SHA)"
 fi
 
 head_ "The installer's floor and the artifact's floor agree"
