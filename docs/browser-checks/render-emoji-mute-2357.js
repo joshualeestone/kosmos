@@ -69,7 +69,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // The desaturation must be on the GLYPH, not the button, so the hover/focus affordance
     // background is not itself muted.
     if (/grayscale/i.test(r.btnFilter || '')) problems.push('the grayscale filter is on the .emojibtn button itself, which also mutes its hover/focus affordance background -- it belongs on the glyph span');
-    if (!/128512|😀/.test(r.glyphText)) problems.push('the emoji glyph is missing (expected the grinning-face emoji), got "' + r.glyphText + '"');
+    // textContent resolves the &#128512; entity to the rendered emoji, so match the char.
+    if (!/😀/.test(r.glyphText)) problems.push('the emoji glyph is missing (expected the grinning-face emoji), got "' + r.glyphText + '"');
     // Accessibility preserved: the button keeps its name and the decorative glyph is hidden.
     if (!/emoji/i.test(r.ariaLabel)) problems.push('the button lost its accessible name (aria-label about adding an emoji), got "' + r.ariaLabel + '"');
     if (r.glyphAriaHidden !== 'true') problems.push('the decorative glyph span should be aria-hidden="true" (the name comes from the button aria-label), got ' + r.glyphAriaHidden);
