@@ -2607,10 +2607,17 @@ live-tense claims about past state; the sweep was for a PHRASE.** `"the current 
 sat unanchored one round later. ⇒ **Iteration 34 named this shape, 35 committed it, 36 found it.**
 
 ✅ **So this round swept the CLASS, not another variant:**
-`grep -nE '\b(the current|currently|right now|as of now|at present|today)\b'` -> **15 hits, every one
+`grep -nE '\b(the current|currently|right now|as of now|at present|today)\b'` -> **every hit
 classified** rather than counted. Three were genuine and are now anchored ("as of that round", "the
-09-04 rebase"). **The other twelve are deliberate and stay**, which is the part worth recording so the
-next reviewer does not re-litigate them:
+09-04 rebase"). **The rest are deliberate and stay**, which is the part worth recording so the next
+reviewer does not re-litigate them:
+
+🛑 **NO COUNT IS QUOTED, AND THE FIRST VERSION OF THIS ENTRY QUOTED TWO WRONG ONES.** It said "15
+hits" and "the other twelve"; the pattern returned **17** at the commit swept, leaving 14. I had
+counted a printed list BY EYE instead of running `grep -c`. ⇒ **Sixth instance of this document's own
+rule, committed in the entry that swept the class the rule belongs to.** Case was not the cause (17
+both ways); eyeballing was. And the number has moved again since, because this entry's own prose
+contains the swept words. **Run the pattern; do not read a figure.**
 
 - **Statements about the PRODUCT's behaviour** ("cannot currently repair a credential") -- present
   tense about the code under review is correct, and that IS the subject of this branch.
@@ -2638,3 +2645,45 @@ matching at `status: clean`.
 **Set aside, and I agree with the reasoning:** it did not re-run the hand tmux table, because the PR
 body declares it manual and a shared-Mac tmux run risks a false red. **It verified instead that the
 warm arm seeds a DISTINCT value** -- the property that makes the control able to discriminate.
+
+### Iteration 37, 2026-09-06 02:35: the entry that swept the class re-committed the class
+
+Verdict: **MERGE. No blocker. One LOW**, working-plan only. A seventh independent reviewer reproduced
+all four mutation arms, both test files (94/94), and every sweep with its OWN wider patterns.
+
+🛑 **THE LOW IS THE SIXTH INSTANCE OF THIS DOCUMENT'S OWN RULE, COMMITTED IN THE ENTRY THAT SWEPT THE
+CLASS THE RULE BELONGS TO.** Iteration 36 wrote "15 hits" and "the other twelve". Measured at the
+commit it actually swept: **17**, leaving 14. **Both figures wrong, consistently off by two.**
+
+⭐ **AND THE CAUSE IS WORTH MORE THAN THE FIX: I COUNTED A PRINTED LIST BY EYE.** I ran the sweep, read
+the lines off the screen, and typed a number. **Case was not the cause (17 both ways, checked), and no
+tool lied to me** -- I simply did not run `grep -c`. ⇒ **The rule "run the command" is not only about
+staleness. A number you obtained by looking is not a measurement**, and it fails the same way whether
+the document moves or not.
+
+✅ **Counts deleted; the classification and the command stand.** The one figure that remains is
+anchored to an immutable commit and is reproducible by `git show <sha>:<file> | grep -c` -- **stable
+in a way a three-dot diff figure is not**, because reading a file at a commit does not depend on a
+merge-base. Verified: 17 at `984e9348`, 22 at `bdc94a80` (control: the same command discriminates
+between commits).
+
+✅ **THE REVIEWER CHECKED THE PART THAT MATTERED MOST AND IT HELD: the SET.** It independently
+classified all 14 survivors and every one fell under a category iteration 36 named (product-behaviour
+present tense, verbatim quotations of retracted text, explicit disclaimers, deliberate
+time-dependence, a reader instruction). ⇒ **The classification was right and only the arithmetic was
+wrong**, which is the better failure of the two.
+
+**Independently verified, with live controls:** `configDir: null` equivalent to omission at
+`connect.js:911`, the only `opts.configDir` read; all three production call sites correct; **all four
+arms mutation-proven each for its own reason with the paired control green**, the unconditional-`-u`
+control naming both `env` failure modes (127 loud, 0 silent); **the `-u` arm exercised against a real
+tmux 3.6a on a private socket, control with no `-u` returning the leaked value**; `create.js` four
+code sites distinguished from five grep hits; both test files 94/94; the PR body carrying **zero** hex
+tokens against a live control on the plan; and a WIDER live-tense sweep of the published PR body
+(adding *now, latest, newest, so far, at the moment, presently, recently*) returning four hits, all
+legitimate.
+
+**Set aside, and I agree:** the route-ternary-to-argv composition is uncovered and stated in three
+places; the `-u` also changes the plain first sign-in, disclosed; and the "returned 9" figure earlier
+in this plan is a count inside the document but is anchored as a past correction **and still
+reproduces at 9**.
