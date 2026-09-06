@@ -276,6 +276,7 @@ const boardAuthState = { on: false, token: null };
   }
 }
 const create = require('./engine/create');
+const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
 /* ⚠️ For the not-running rows only. `engine/status.js` reads the same store for
@@ -3093,6 +3094,216 @@ const server = http.createServer((req, res) => {
       // one — so the catch path would have thrown at runtime, and the suite went
       // green because nothing exercised it. A route's error path needs a test as
       // much as its happy path does.
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /**
+   * --- a PM agent (or the operator) builds a TEAM for a stated purpose (#1279)
+   * -----------------------------------------------------------------------
+   *
+   * The authoring seam over engine/team.createTeam: one request creates several
+   * agents at once, each carrying WHO asked for them (creator) and WHY (purpose)
+   * as birth-record provenance, and the whole request bounded by the
+   * Kosmos-owned team cap so a "build me a team" cannot run away. The engine core
+   * (createTeam + the cap + provenance) merged in #2247; THIS is the route that
+   * makes it reachable.
+   *
+   * 🔑 AUTH IS INHERITED, AND THAT SETS THE SCOPE OF THIS SLICE. On an ENFORCING
+   * board, every /api/ POST is board-token-gated by the sensitive-route check
+   * above (only report/reply are exempt, as REMOTE_AGENT_ROUTES). This route is
+   * NOT exempt, so it requires the BOARD token -- the operator/board, not an
+   * arbitrary agent token -- making this slice OPERATOR-DRIVEN team creation.
+   * ⚠️ That guarantee is exactly as strong as `/api/agents`' and no stronger: on a
+   * NON-enforcing board this route, like every other /api write route, is reachable
+   * by any loopback/local-account caller with no token (this is not a new gap this
+   * route opens -- #1946 is the board-enforcement story for all of them). Letting a
+   * PM AGENT (agent token) drive it deliberately is the security-sensitive NEXT
+   * slice: it needs an agent-token model (an exemption + remoteWriteGuard, like
+   * report/reply) and an opt-in, and it is where a per-creator GLOBAL active-agent
+   * cap earns its keep. Named on the card, not smuggled in here.
+   *
+   * 🛑 #1903 LIVENESS RAIL, kept at parity with POST /api/agents: a member whose
+   * account cannot sign in would create an agent that 401s on its first turn. So
+   * each well-named member is live-checked (create.accountConnectable) BEFORE any
+   * write, and a confirmed-dead one is refused with the remedy and never handed to
+   * createTeam -- it lands in refused[] beside the engine's own per-member
+   * refusals. Only a DEFINITIVELY dead account refuses (accountConnectable's
+   * #1315 asymmetry); connected / unconfirmable / unresolvable all proceed.
+   *
+   * 🛑 WHAT THIS SLICE DELIBERATELY DOES NOT DO, on the record so it is not
+   * discovered later as a hidden gap:
+   *   - No project ATTACH. A member spec's `projects` still composes the managed
+   *     block at birth (createAgent/#732), but projects.addAgent (the roster
+   *     attach POST /api/agents runs after CREATED) is not run here. Follow-up.
+   *   - No first-agent home seed (#166/#732) -- not a team-creation concern.
+   *     (The OpenAI per-model validation #2140/#2191 IS ported, in the liveness
+   *     sweep below, at parity with the single route -- see there.)
+   *   - No per-creator GLOBAL active-agent cap: the per-request cap (<= MAX_TEAM_CAP
+   *     50) bounds one call; a ceiling across calls needs a birth-log reader that
+   *     does not exist yet, and belongs with the agent-token slice above.
+   */
+  if (pathname === '/api/team' && req.method === 'POST') {
+    readBody(req)
+      .then(async (buf) => {
+        let body;
+        try {
+          body = JSON.parse(buf.toString('utf8') || '{}') || {};
+        } catch {
+          sendJson(res, 400, { error: 'we could not read that request' });
+          return;
+        }
+
+        const members = Array.isArray(body.members) ? body.members : null;
+
+        /* 🔑 THE CAP GATE RUNS BEFORE THE LIVENESS SWEEP, on the ORIGINAL request
+           count, and this ordering carries two fixes. (1) It bounds the sweep: a
+           request over the cap skips liveness entirely, so the per-member
+           subprocess sweep runs on at most `cap` (<= MAX_TEAM_CAP 50) members
+           rather than on an unbounded body -- "Kosmos owns the bound, not the
+           prompt" has to hold against the check's OWN cost, not only createTeam's.
+           (2) It keeps the refusal honest: an over-cap request is handed WHOLE to
+           createTeam (dead members included), which refuses it for the cap with
+           the true original count and creates nothing (its refuseAll fires before
+           the member loop), rather than the count being silently reduced by
+           liveness first. The effective cap is read from createTeam's own
+           resolveCap so the two never drift.
+           📌 The override in THIS slice is the operator env AGENT_WORKFORCE_TEAM_CAP
+           only: the route passes no `deps` to createTeam, so resolveCap's
+           `deps.cap` operator-config channel is unreachable over HTTP. Consistent
+           (route and engine both read the same env, no drift); wiring `deps.cap`
+           from a real operator-config source belongs with the agent-token slice,
+           where the cap story is finished. */
+        const cap = team.resolveCap(undefined, process.env);
+        const overCap = !!(members && members.length > cap);
+
+        /* Per-member #1903 liveness pre-flight, run in parallel, mirroring the
+           single-create route -- SKIPPED when the request is already over the cap
+           (see above). Only members that are objects with a well-formed name are
+           checked -- a bad-shape or bad-name member is left for createTeam/
+           createAgent to refuse in its own words, exactly as the single route
+           leaves a bad name to createAgentInner. A member whose account is
+           DEFINITIVELY dead is collected here and removed from the set handed to
+           createTeam; everything else proceeds. */
+        const livenessRefused = [];
+        let liveMembers = members;
+        if (members && members.length && !overCap) {
+          // The sweep fans out one verdict per member concurrently. Its
+          // concurrency ceiling is the cap (<= MAX_TEAM_CAP 50), enforced by the
+          // over-cap skip above -- so at most `cap` accountConnectable calls
+          // (each possibly a real `claude -p` / `/v1/models` probe) run at once,
+          // never an unbounded fan-out from the request body.
+          const verdicts = await Promise.all(members.map(async (m) => {
+            if (!m || typeof m !== 'object' || Array.isArray(m)) return { m, dead: false };
+            if (create.nameProblem(m.name)) return { m, dead: false };
+            try {
+              const liveness = await create.accountConnectable({ provider: m.provider, accountDir: m.account });
+              if (liveness && liveness.ok === false) return { m, dead: true, because: liveness.because };
+            } catch { /* a failed liveness check is not a reason to block a create (#1916) */ }
+            /* #2140/#2191 parity with POST /api/agents: an OpenAI member with an
+               explicit model the account cannot run is born broken -- the same
+               "fails on its first turn" class the liveness rail above prevents,
+               so the team route guards it the same way rather than porting half
+               the rail. Only a DEFINITIVE miss refuses: "Let OpenAI choose"
+               (empty model) is skipped, and runnableAllowlist() returns null when
+               the account could not be checked, so any uncertainty (or a crash,
+               caught below) FAILS OPEN (#1916). Its OWN try, not shared with the
+               liveness check above, so a crash in that check does not silently
+               skip this one -- byte-for-byte with the sibling route's two blocks. */
+            if (String(m.provider || '') === 'openai'
+                && typeof m.model === 'string' && m.model.trim() !== '') {
+              try {
+                const wantModel = m.model.trim();
+                const dir = (m.account && String(m.account).trim() !== '')
+                  ? String(m.account).trim()
+                  : openaiAccounts.defaultDir();
+                const allowed = openaiAccounts.runnableAllowlist(await openaiAccounts.accountModels(dir));
+                if (allowed && !allowed.includes(wantModel)) {
+                  return { m, dead: true, because: wantModel + ' is not a model this account can run; pick one from the list' };
+                }
+              } catch { /* a validator crash is not a reason to block a create (#1916) */ }
+            }
+            return { m, dead: false };
+          }));
+          liveMembers = [];
+          for (const v of verdicts) {
+            if (v.dead) {
+              const nm = String((v.m.name !== undefined && v.m.name !== null) ? v.m.name : '').slice(0, 120) || null;
+              livenessRefused.push({ name: nm, because: v.because });
+            } else {
+              liveMembers.push(v.m);
+            }
+          }
+
+          /* If liveness removed EVERY member of a request that DID carry members,
+             do not hand createTeam an empty list -- it would refuse with "a team
+             with no members", misnaming a request whose members were all dead.
+             Name the real reason. (An absent/empty members field never reaches
+             here: this block is guarded on members.length, so that shape error
+             falls through to createTeam, which names it.)
+
+             🔑 BUT ONLY WHEN THE SHAPE IS OTHERWISE VALID. createTeam enforces a
+             refusal PRIORITY -- missing creator, then missing purpose, then the
+             members check -- and the merge-guard below preserves that priority for
+             the some-dead case. This early-return must honour it too: if creator
+             or purpose is missing, "all dead" is NOT the most fundamental reason,
+             so fall through to createTeam (an empty liveMembers still hits its
+             creator/purpose checks FIRST, since those precede the members check),
+             and let it own that higher-priority refusal in its own words rather
+             than reporting a sign-in problem over a missing creator. */
+          const shapeOk = typeof body.creator === 'string' && body.creator.trim() !== ''
+            && typeof body.purpose === 'string' && body.purpose.trim() !== '';
+          if (liveMembers.length === 0 && shapeOk) {
+            /* 🔑 NEUTRAL SUMMARY, keyed to NO cause. A member reaches the refused
+               set for TWO reasons now -- a dead account (accountConnectable) OR an
+               unrunnable OpenAI model (#2140) -- so a top-level "could not sign in"
+               would misname the all-model case and point at the wrong remedy
+               (re-authenticate vs. pick a valid model). The accurate per-member
+               reason (sign-in remedy or model remedy) rides in refused[], where a
+               caller reads why EACH failed; the summary only says none survived. */
+            sendJson(res, 400, {
+              outcome: 'refused',
+              created: [],
+              refused: livenessRefused,
+              because: 'no member could be created; every member was refused (see refused[])',
+              creator: body.creator.trim(),
+              purpose: body.purpose.trim(),
+              cap,
+            });
+            return;
+          }
+        }
+
+        const result = team.createTeam({
+          creator: body.creator,
+          purpose: body.purpose,
+          members: overCap ? members : liveMembers,
+        });
+
+        /* Merge the liveness refusals into the engine's own refused[] and
+           recompute the outcome -- but ONLY when createTeam produced PER-MEMBER
+           results. A WHOLE-REQUEST refusal (over cap, or a missing creator/
+           purpose/members shape error) returns created:[] AND refused:[], and its
+           `because` is the real reason; clobbering it with the "X of Y created"
+           line would discard that reason AND misreport the accounting (the dead
+           members are a subset of a request that was refused wholesale for a more
+           fundamental reason, and nothing would have been created regardless). So
+           the recompute is gated on createTeam having actually run its member loop
+           (created or refused non-empty). When it did, created.length drives the
+           400/200 split exactly as the single route does: nothing created is the
+           caller's fault -> 400; anything created -> 200 with per-member detail. */
+        const wholeRequestRefusal = result.created.length === 0 && result.refused.length === 0;
+        if (livenessRefused.length && !wholeRequestRefusal) {
+          result.refused = result.refused.concat(livenessRefused);
+          result.outcome = (result.created.length === 0) ? 'refused' : 'partial';
+          const totalRequested = members ? members.length : 0;
+          result.because = (result.created.length + ' of ' + totalRequested
+            + ' agents were created; ' + result.refused.length + ' were refused (see refused[])');
+        }
+
+        const code = result.outcome === 'refused' ? 400 : 200;
+        sendJson(res, code, result);
+      })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
