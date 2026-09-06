@@ -162,11 +162,20 @@ test('piece four: the row draws its ring only with a known memory and its warnin
 
 
 
-test('piece five: the header folds to its notice slots, the K mark is the header\'s own image at the rail top, and the rails go flat', () => {
+test('piece five: the consolidated header stays as a top bar (#2282), keeps its notice slots, and the rails go flat', () => {
   const start = PAGE.indexOf('@media (min-width: 960px) {\n  html[data-layout="consolidated"]');
   const block = PAGE.slice(start, PAGE.indexOf('\n}\n', start) + 3);
   const decls = stripCssComments(block);
-  assert.match(block, /> \.apphead \.klink, [^{]*> \.apphead h1,\n[^{]*> \.apphead \.tabs, [^{]*> \.apphead \.headright \{ display: none; \}/, 'the header does not fold to its slots');
+  /* #2282 (Josh 0.6.36; Mona's mock): the header no longer FOLDS AWAY in the
+     consolidated view -- it stays a real full-width top bar (K mark + Kosmos switcher
+     on the left, appearance + view-toggle on the right), so the top reads the same on
+     every view. Only the h1 (the visually-hidden title) and the center tabs (one
+     screen, no separate tab screens) are hidden; the top-right .headright controls are
+     NOT hidden -- they are what USED to drift into the side rail. The RENDERED result
+     is verified by render-tophead-consolidated-2282.js; here we pin the CSS rule. */
+  assert.match(block, /> \.apphead header \{[^}]*display: flex/, 'the consolidated header is not laid out as a top bar (#2282)');
+  assert.match(block, /> \.apphead h1,\n[^{]*> \.apphead \.tabs \{ display: none; \}/, 'the consolidated view no longer hides just the h1 + center tabs (#2282)');
+  assert.doesNotMatch(decls, /> \.apphead \.headright[ ,][^{]*\{[^}]*display: none/, 'the consolidated view still hides the top-right controls -- #2282 keeps them in the header instead of folding them to the rail');
   assert.doesNotMatch(decls, /> \.apphead \{[^}]*display: none/, 'the whole header is hidden, and with it the update and offline notices');
   /* ⚠️ THIS USED TO FORBID MENTIONING A SLOT AT ALL, which is a proxy for the
      real property: a slot must not be styled AWAY. kosmos#1188 moved the
