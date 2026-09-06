@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: plus-blue-1615
-diff_hash: 60289932ea9ab4de8261d75035c882ea30772e6bbc09891c222a877d1467730d
+diff_hash: d717789e15e3582f8da3cb3ab1e187736de9225f7d59fa6c561a1c35649cd921
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-06T16:07:00Z
@@ -11,6 +11,8 @@ converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+> post-merge re-sync (2026-09-06): current main merged in (picks up Renet's connect-confirm fix #2344); auto-merged clean (browser-checks.sh list union resolved earlier), re-verified full suite 4898/0 + render check on the merged tree. diff_hash recomputed; the Plus reskin is byte-unchanged from convergence.
 
 **Iterations:** 5 blind passes (plus the initial + final validation gates)
 **Converged:** Yes (iteration 4 first returned zero BLOCKER/WARNING/CONVENTION; iteration 5 confirmed, only a NIT, now fixed)
