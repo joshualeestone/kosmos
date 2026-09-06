@@ -2,13 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: s2say-compact-size
-diff_hash: b9f51e936b87d86b0a2edaa055a66d1ee6b03fd7d4235b873785af306217f537
-validation: partial (box-free portions passed; full browser-check suite box-contended #704, gated by GitHub CI)
+diff_hash: 6d3eb781c85a19d4e33e0e89f419fa98567664c2976b71026c28ce5b05efb24e
+validation: partial (box-free portions + consolidated-980 pass; full browser-check suite box-contended #704, gated by GitHub CI)
 subdir_audit: passed
 timestamp: 2026-09-06T20:37:03Z
-iterations: 1
+iterations: 2
 converged: true
 ---
+
+<!-- Iteration 2 (post-PR, CI-driven): GitHub CI on #2362 caught web.consolidated-980
+"pre-rail grid rows" failing (body-child counter read 19, < the >=20 sanity floor).
+Root cause was NOT the selector change: that test counts body children by parsing the
+markup TEXT with a depth tracker, and my CSS COMMENT contained a literal "<p>", which
+its parser read as an unclosed tag and miscounted. Reworded "<p>" -> "p element"
+(comment only, behavior unchanged). consolidated-980 back to 13/13, browser-check still
+10/10. New diff_hash reflects the reword. Lesson: a text-parsing test CAN be broken by a
+comment, so "a CSS/comment change cannot affect a DOM count" was wrong here. -->
+
 
 ## [CHALLENGE-LOOP] Summary
 
