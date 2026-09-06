@@ -189,6 +189,17 @@ other three. Do not read the merge as the card being done.
 
 ## 2026-09-05: THE SUITE THAT RUNS IS NOT THE SUITE YOU RAN
 
+✅ **After the harness fix: `SUITE_EXIT=0`, 4826/4826, terminal verdict present,
+measured on `a6cc181b`.** This is the first full-suite green this branch has had on
+a base that is actually current.
+
+⚠️ **Recorded against myself: I started that run on a BUSY lane.** The probe
+printed two contending pids and the run was chained after it rather than gated on
+it, so the check was decorative. The result stands (contention produces false REDS,
+never false greens) but the process was wrong and the fleet has asked twice that it
+not happen. **A probe whose output cannot stop the next command is not a gate.**
+
+
 Rebased again (**147 behind** after one idle day, now 0), pushed at `1330825a`,
 and ran the FULL suite for the first time since the parameter collision.
 **`SUITE_EXIT=1`, one failure in 4826.**
