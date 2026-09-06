@@ -289,6 +289,11 @@ test('#1704 2b-ii: POST /api/worlds/active switches the active world and reports
     assert.equal(body.ok, true);
     assert.equal(body.world.id, targetId, 'the response reports the now-active world');
     assert.equal(body.restartRequired, true, 'the switch takes effect on the next board start, so restartRequired is honest');
+    /* #2238: restarting is FALSE here, and it MUST be: the test process is not the
+       com.kosmos.board launchd job (pid mismatch in canSelfRestart), so the route
+       neither reports a self-restart nor fires one. This is the fail-safe guard AND
+       what keeps the suite from stopping the operator's real dev board mid-test. */
+    assert.equal(body.restarting, false, 'a non-board process never self-restarts (fail-safe)');
 
     // The registry now reports the switch (GET reads it fresh) even though the
     // running board still serves the previous world's roots until it restarts.
