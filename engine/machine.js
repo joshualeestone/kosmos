@@ -290,17 +290,52 @@ function installedCheck(opts) {
    */
   const { codexBin } = create.binPaths(opts);
   /* ⚠️ THE LABEL IS WHAT A PERSON READS, AND IT USED TO BE "tmux" (#1019). The
-     key stays `tmux` -- it is a stable identifier and `present.tmux` is read
-     elsewhere -- but the LABEL reaches sentences, and this row is now the only
-     one that can produce a warning, so "We looked for tmux at ..." became the
-     failure sentence of the whole screen.
+     key stays `tmux` -- it is a stable identifier -- but the LABEL reaches
+     sentences, and this row is now the only one that can produce a warning, so
+     "We looked for tmux at ..." became the failure sentence of the whole screen.
+     📌 #2304: an earlier version of this note said `present.tmux` is "read
+     elsewhere". A repo-wide search finds no consumer of THIS result's
+     `present.tmux` (create.js's `job.tmux` is a plist field, unrelated), and the
+     win32 branch below relies on that: it does not probe tmux at all, so
+     `present.tmux` is simply absent on Windows. Do not "restore" a tmux probe on
+     win32 to keep the key present -- nothing reads it, and Windows has no tmux.
      📌 The path still carries the word, because the file really does live at
      `<home>/tmux/bin/tmux` and showing a path you have altered would be worse
      than showing one that contains a term. What changes is that the word is no
      longer the NOUN of a sentence addressed to a person, which is what the two
      standing rulings are about. The Claude Code row beside this one has read
      "Claude Code" rather than "claude" since it was written; this is that. */
-  const parts = [['tmux', 'the part that runs agents', tmuxBin, true]];
+  /* #2304/#570: platform-injected like `create.unusablePath(bin, platform)` and
+     `ownerOnlyModeIsEnforced`. The required "part that runs agents" is tmux on
+     macOS, but Windows has no tmux: the #570 port runs agents THROUGH the Claude
+     CLI (`claude agents --json` for the roster/capture, `claude --session-id` for
+     create), so on win32 the required substrate is the runner itself. Before
+     this, installedCheck required tmux on every platform and told a Windows user
+     -- who has no tmux and needs none -- "Kosmos cannot start agents on this
+     computer", pointed them at the macOS download, and named a Homebrew tmux
+     path. That was the sibling arm of the same #570 defect `create.unusablePath`
+     already narrowed.
+
+     ⚠️ TWO OF THREE PLATFORM-DEPENDENT READS ARE INJECTED, THE THIRD CANNOT BE.
+     The injected `platform` drives the required-part list (here) AND the
+     unusable-path CHARACTER check (`create.unusablePath(bin, platform)` below,
+     so a normal win32 backslash path is not misread as unusable and the win32
+     arm is assertable from a Mac). The RUNNABILITY probe `runners.isRunnable`
+     is deliberately NOT threaded: it is used as an Array callback `(el, i, arr)`
+     and must stay single-argument (see `runners.runnableExactly`'s comment and
+     `engine.runnable-not-directory.test.js`), so it reads `process.platform`,
+     which is correct on the machine it actually runs on. Do not "complete" the
+     injection by adding a param to isRunnable -- it breaks the callback contract. */
+  // Written without a leading `(` after `=` on purpose: the runnable-not-directory
+  // audit's enclosing-function heuristic reads `const x = (` as an arrow-function
+  // declaration, which would re-attribute installedCheck's pinned accessSync weak
+  // call to a bogus `fn: 'platform'`. `&&` binds tighter than `||`, so this is the
+  // same value as `(opts && opts.platform) || process.platform`.
+  const platform = opts && opts.platform || process.platform;
+  const isWin = platform === 'win32';
+  const parts = isWin
+    ? [['claude', 'the part that runs agents', claudeBin, true]]
+    : [['tmux', 'the part that runs agents', tmuxBin, true]];
   /**
    * ⚠️ BOTH RUNNERS, and the keys are STABLE IDENTIFIERS rather than the
    * display labels. Two reasons, both learned the hard way in this file:
@@ -313,11 +348,17 @@ function installedCheck(opts) {
    *     reads `undefined`, which is falsy, which reads as ABSENT -- collapsing
    *     the null-vs-false distinction the rest of this function exists to
    *     protect. `label` stays for the sentences; `key` is the contract.
+   *
+   * ⚠️ On win32 Claude is REQUIRED above rather than informational, and tmux is
+   * not probed at all (there is none, and its default is a macOS Homebrew path).
+   * codex-on-win32 is not wired yet (win32roster/capture/create are all
+   * Claude-CLI based), so Claude is the win32 substrate; when a codex path lands
+   * on Windows, the required set becomes "at least one runner" rather than Claude.
    */
-  const informational = [
-    ['claude', 'Claude Code', claudeBin, false],
-    ['codex', 'Codex', codexBin, false],
-  ];
+  const informational = isWin
+    ? [['codex', 'Codex', codexBin, false]]
+    : [['claude', 'Claude Code', claudeBin, false],
+       ['codex', 'Codex', codexBin, false]];
 
   const missing = [];
   const unreadable = [];
@@ -358,7 +399,7 @@ function installedCheck(opts) {
      * the screen says it is not, and the actual cause -- a quote or a newline in
      * the path -- is never named anywhere.
      */
-    if (create.unusablePath(bin)) { present[key] = null; if (required) unusable.push({ label, bin }); continue; }
+    if (create.unusablePath(bin, platform)) { present[key] = null; if (required) unusable.push({ label, bin }); continue; }
 
     /**
      * ⚠️ TWO PROBES, BECAUSE `EACCES` MEANS TWO DIFFERENT THINGS HERE and
