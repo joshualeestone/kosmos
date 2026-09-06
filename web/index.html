@@ -7881,19 +7881,26 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              ============================================================ -->
         <style>
         /* S2 macOS permission-dialog reproduction + the file-access gate row */
-        .s2-dlg-fan{display:flex;gap:0;max-width:100%;overflow-x:auto;padding:2px 0 6px;margin:2px 0 14px}
-        .s2-dlg{flex:none;width:186px;text-align:center;border-radius:14px;padding:15px 16px;
-          background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;
-          box-shadow:0 8px 22px rgba(0,0,0,.16);transform:scale(.86);transform-origin:top center;margin-left:-30px}
-        .s2-dlg:first-child{margin-left:0}
-        .s2-fold{width:44px;height:34px;margin:2px auto 10px;border-radius:6px;position:relative;
+        /* #8 (Josh 0.6.39, screen 9.50.20): ONE compact macOS-style prompt preview
+           instead of the old three-card stacked fan. Reads as a single real
+           "Terminal would like to access files" dialog with the Allow button ringed,
+           so the person recognizes the one prompt they will see and knows to click
+           Allow. Illustrative only (aria-hidden); the functional grant is the
+           .s2-gate-row below, untouched. */
+        .s2-dlg-fan{display:flex;justify-content:center;margin:2px 0 16px}
+        .s2-dlg{width:320px;max-width:100%;text-align:left;border-radius:12px;padding:16px 18px 14px;
+          background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
+        .s2-dlg-head{display:flex;align-items:flex-start;gap:11px;margin:0 0 14px}
+        .s2-fold{flex:none;width:34px;height:34px;border-radius:7px;position:relative;
           background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
-        .s2-fold::before{content:"";position:absolute;top:-5px;left:6px;width:18px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
-        .s2-fold .s2-hand{position:absolute;right:-4px;bottom:-4px;font-size:15px}
-        .s2-say{font:600 .75rem/1.35 var(--font-ui,-apple-system,sans-serif);margin:0 0 12px;color:#1c1b19}
-        .s2-btns{display:flex;gap:8px;justify-content:center}
-        .s2-db{font:600 .6875rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:6px;padding:4px 12px;background:#f6f6f4;color:#1c1b19}
-        .s2-db.s2-hl{background:#e9e8e5}
+        .s2-fold::before{content:"";position:absolute;top:-5px;left:5px;width:16px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
+        .s2-fold .s2-hand{position:absolute;right:-4px;bottom:-4px;font-size:14px}
+        .s2-say{font:600 .8125rem/1.4 var(--font-ui,-apple-system,sans-serif);margin:0;color:#1c1b19}
+        .s2-btns{display:flex;gap:9px;justify-content:flex-end}
+        .s2-db{font:600 .75rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:7px;padding:5px 15px;background:#f6f6f4;color:#1c1b19}
+        /* Allow = the macOS blue "suggested" default button, called out with a gold ring. */
+        .s2-db.s2-hl{background:#3f92f0;border-color:#3f92f0;color:#fff;position:relative}
+        .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px}
@@ -7915,15 +7922,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>When prompted, click Allow.</p>
 
         <div class="s2-dlg-fan" aria-hidden="true">
-          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-            <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
-          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-            <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
-          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
-            <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+          <div class="s2-dlg">
+            <div class="s2-dlg-head">
+              <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+              <p class="s2-say">"Terminal" would like to access files in your folders.</p>
+            </div>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div>
+          </div>
         </div>
 
         <!-- GATE ROW: Renet's poll sets data-granted on this div when file access is confirmed. -->
