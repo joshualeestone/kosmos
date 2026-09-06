@@ -106,7 +106,7 @@ test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way
   dom.els.get('acct-success').hidden = false;
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) dom.els.get(id).hidden = true;
   dom.els.get('acct-add-dialog').attrs['aria-labelledby'] = 'acct-success-t';
-  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {});
+  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {});
   close();
   assert.equal(dom.els.get('acct-success').hidden, true, 'the success panel is hidden on close');
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) {

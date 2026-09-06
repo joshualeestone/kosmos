@@ -16213,6 +16213,7 @@ function acctOpenaiChoose(which) {
   const pick = document.getElementById('acct-openai-pick');
   const keys = document.getElementById('acct-openai-key-step');
   const sub = document.getElementById('acct-openai-sub-step');
+  if (!keys) return;
   if (pick) pick.hidden = true;
   keys.hidden = which !== 'key';
   if (sub) sub.hidden = which !== 'sub';
@@ -16288,7 +16289,7 @@ function acctPick(which, opts) {
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
-  if (which !== 'openai') { acctOpenaiStop(); acctOpenaiSubStop(); return; }
+  if (which !== 'openai') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; return; }
   /* Ask every time the form opens rather than caching: a runner can arrive or
      leave between visits, and this dialog deliberately remembers nothing. */
   acctOpenaiStep(ACCT_OPENAI_READY);
@@ -16866,11 +16867,7 @@ function closeAcctAdd() {
      starts clean at the picker. */
   acctOpenaiSubStop();
   ACCT_OPENAI_SUB_SESSION = null;
-  ['acct-openai-sub-open-row', 'acct-openai-sub-cancel-row', 'acct-openai-sub-code'].forEach((id) => {
-    const el = document.getElementById(id); if (el) el.hidden = true;
-  });
-  const subCode = document.getElementById('acct-openai-sub-code');
-  if (subCode) subCode.textContent = '';
+  acctOpenaiSubReset();
   const subGo = document.getElementById('acct-openai-sub-go');
   if (subGo) subGo.disabled = false;
   /* kosmos#1656: return the modal to its form state on the way out, so the next
@@ -16977,29 +16974,50 @@ function acctOpenaiSubShowStart(out) {
 function acctOpenaiSubStop() {
   if (ACCT_OPENAI_SUB_POLL) { clearInterval(ACCT_OPENAI_SUB_POLL); ACCT_OPENAI_SUB_POLL = null; }
 }
+/* #2338: hide the sign-in's live affordances (the open-page link, the device
+   code, the way out) and clear the code, back to the picker's resting state.
+   Shared by cancel, an expired session, and dialog close. */
+function acctOpenaiSubReset() {
+  ['acct-openai-sub-open-row', 'acct-openai-sub-cancel-row', 'acct-openai-sub-code'].forEach((id) => {
+    const el = document.getElementById(id); if (el) el.hidden = true;
+  });
+  const code = document.getElementById('acct-openai-sub-code');
+  if (code) code.textContent = '';
+}
 /* #2338: poll the sign-in until a terminal state. The pure acctOpenaiSubView maps
    each state to what to show and whether to stop; this wrapper only fetches and
-   applies. A null/!ok fetch is a transient skip (keep polling), never a stop --
-   the same posture the runner-install watch takes. */
+   applies. A transient (network / 5xx) fetch is a skip that keeps polling, but a
+   404 is TERMINAL per the contract (the session is unknown or expired): stop,
+   drop the dead session, and hand the person a fresh try -- otherwise the poll
+   would hammer the 404 for ever behind a stuck "signing in" message. */
 function acctOpenaiSubWatch() {
   acctOpenaiSubStop();
   const msg = document.getElementById('acct-openai-msg');
   ACCT_OPENAI_SUB_POLL = setInterval(async () => {
     const id = ACCT_OPENAI_SUB_SESSION;
     if (!id) { acctOpenaiSubStop(); return; }
-    let out = null;
+    let r;
     try {
-      const r = await fetch('/api/accounts/openai/subscription/status?sessionId=' + encodeURIComponent(id), { cache: 'no-store' });
-      out = await r.json().catch(() => null);
-      if (!r.ok) return;
-    } catch { return; }
+      r = await fetch('/api/accounts/openai/subscription/status?sessionId=' + encodeURIComponent(id), { cache: 'no-store' });
+    } catch { return; }   // a network blip is transient: keep polling
+    if (r.status === 404) {
+      // The session is gone host-side. Terminal -- do not keep polling a 404.
+      acctOpenaiSubStop();
+      ACCT_OPENAI_SUB_SESSION = null;
+      acctOpenaiSubReset();
+      if (msg) msg.textContent = 'That sign-in expired. Nothing changed; you can try again.';
+      const go = document.getElementById('acct-openai-sub-go');
+      if (go) go.disabled = false;
+      return;
+    }
+    if (!r.ok) return;    // a 5xx or other non-404 error is transient: keep polling
+    const out = await r.json().catch(() => null);
     if (!out) return;
     const view = acctOpenaiSubView(out.state);
     if (msg && view.say) msg.textContent = view.say;
     if (!view.done) return;
     acctOpenaiSubStop();
     if (view.ok) { await acctOpenaiSubConnected(out.account); return; }
-    if (msg) msg.textContent = view.say;
     const go = document.getElementById('acct-openai-sub-go');
     if (go) go.disabled = false;
   }, 1200);
@@ -17040,7 +17058,13 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
       if (out && out.needsRunner) { ACCT_OPENAI_READY = false; acctOpenaiStep(false); if (msg) msg.textContent = ''; return; }
       throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
     }
-    ACCT_OPENAI_SUB_SESSION = out && out.sessionId;
+    /* A 2xx with no sessionId is a start we cannot poll: treat it as a failure so
+       the catch re-enables the button, rather than leaving a dead form behind a
+       stuck "Starting the sign-in…" (the key path's finally covers the same gap). */
+    if (!out || !out.sessionId) {
+      throw new Error((out && (out.error || out.because)) || 'we could not start that sign-in');
+    }
+    ACCT_OPENAI_SUB_SESSION = out.sessionId;
     acctOpenaiSubShowStart(out);
     acctOpenaiSubWatch();
   } catch (err) {
@@ -17064,12 +17088,7 @@ document.getElementById('acct-openai-sub-cancel').addEventListener('click', asyn
   }
   if (msg) msg.textContent = '';
   /* Back to the picker so the person can try again or switch to a key. */
-  const openRow = document.getElementById('acct-openai-sub-open-row');
-  const cancelRow = document.getElementById('acct-openai-sub-cancel-row');
-  const code = document.getElementById('acct-openai-sub-code');
-  if (openRow) openRow.hidden = true;
-  if (cancelRow) cancelRow.hidden = true;
-  if (code) { code.hidden = true; code.textContent = ''; }
+  acctOpenaiSubReset();
   acctOpenaiStep(ACCT_OPENAI_READY);
   const go = document.getElementById('acct-openai-sub-go');
   if (go) go.disabled = false;

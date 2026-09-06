@@ -120,6 +120,31 @@ test('a start that needs the runner routes to the install step in place, like th
   assert.match(body, /ACCT_OPENAI_READY = false; acctOpenaiStep\(false\)/, 'a needsRunner start does not reveal the install step in place');
 });
 
+test('the poll treats a 404 as terminal (stops and re-enables), not a transient skip', () => {
+  const i = PAGE.indexOf('function acctOpenaiSubWatch()');
+  assert.ok(i > -1, 'acctOpenaiSubWatch moved');
+  const body = PAGE.slice(i, PAGE.indexOf('\nasync function acctOpenaiSubConnected', i));
+  assert.match(body, /r\.status === 404/, 'a 404 is not distinguished, so an expired session polls forever');
+  // The 404 branch must stop the poll, drop the session, and re-enable the button.
+  const four = body.slice(body.indexOf('r.status === 404'));
+  const nextTerminal = four.slice(0, four.indexOf('if (!r.ok) return'));
+  assert.match(nextTerminal, /acctOpenaiSubStop\(\)/, 'a 404 does not stop the poll');
+  assert.match(nextTerminal, /ACCT_OPENAI_SUB_SESSION = null/, 'a 404 leaves the dead session id set');
+  assert.match(nextTerminal, /go\.disabled = false/, 'a 404 leaves the Sign-in button stuck disabled');
+  // A non-404 non-ok must remain a transient skip (keep polling).
+  assert.match(body, /if \(!r\.ok\) return;/, 'a 5xx is no longer treated as a transient skip');
+});
+
+test('a start with no sessionId does not strand a disabled button', () => {
+  const i = PAGE.indexOf("'/api/accounts/openai/subscription/start'");
+  assert.ok(i > -1, 'the subscription start handler moved');
+  const body = PAGE.slice(i, i + 1100);
+  assert.match(body, /if \(!out \|\| !out\.sessionId\)/, 'a 2xx start with no sessionId is not guarded, so the button stays disabled behind a stuck message');
+  // The guard must throw so the shared catch re-enables the button.
+  const guard = body.slice(body.indexOf('!out.sessionId'));
+  assert.match(guard.slice(0, 200), /throw new Error/, 'the no-sessionId guard does not throw into the catch that re-enables the button');
+});
+
 test('the connected paint mirrors the key path: a live check then the gold box', () => {
   const i = PAGE.indexOf('async function acctOpenaiSubConnected');
   assert.ok(i > -1, 'acctOpenaiSubConnected moved');
