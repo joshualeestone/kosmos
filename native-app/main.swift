@@ -909,8 +909,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
            let mtime = attrs[.modificationDate] as? Date,
            Date().timeIntervalSince(mtime) > 30 {
-            try? FileManager.default.removeItem(at: url)
-            logLine("prompt-request: dropped stale \(name) (older than 30s)")
+            // Log by what actually happened: an unconditional "dropped" would lie when
+            // the delete failed (the file survives and the next tick retries).
+            do {
+                try FileManager.default.removeItem(at: url)
+                logLine("prompt-request: dropped stale \(name) (older than 30s)")
+            } catch {
+                logLine("prompt-request: could not drop stale \(name) (\(error.localizedDescription)); will retry next tick")
+            }
             return
         }
         // Delete before firing, and fire ONLY if the delete succeeded. The delete is
