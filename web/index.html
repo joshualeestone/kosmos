@@ -1191,9 +1191,17 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
    button showing the active world's name, opening a menu of the person's worlds
    + "New Kosmos". Same control radius and separator as the header pills. */
 .worldsw { position: relative; display: inline-flex; }
-.worldsw-btn { display: inline-flex; align-items: center; gap: 5px; max-width: 220px;
+/* #2350 (Josh, 2026-09-06): the switcher control is the same HEIGHT as the light/dark
+   switcher (.themepick) on the header icon row, so the two read as a matched set. The
+   theme control renders 32px (its 30px segment + the 0.5px control border, which rounds
+   to 1px each side); this control shares the same 0.5px border and radius-control, so an
+   explicit 32px height (border-box) lands it at the same rendered height. Vertical padding
+   is dropped (the height + align-items:center centers the text); horizontal padding stays.
+   render-worldsw-height-2350.js pins the two heights equal so a future change to either
+   re-surfaces here rather than drifting. */
+.worldsw-btn { display: inline-flex; align-items: center; gap: 5px; max-width: 220px; height: 32px;
   border: 0.5px solid var(--separator); background: none; border-radius: var(--radius-control);
-  padding: 4px 8px; cursor: pointer; font: 600 var(--text-callout) var(--font-ui); color: var(--k-ink); }
+  padding: 0 8px; cursor: pointer; font: 600 var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .worldsw-btn:hover { background: var(--k-side); }
 .worldsw-btn:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .worldsw-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
