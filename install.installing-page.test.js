@@ -68,6 +68,14 @@ test('#2363: the taken branch offers NO browser link, and never points anything 
   // anyway" link was then vestigial -- a click landed cookie-less on a 403/empty
   // board, or on the FOREIGN board the copy itself calls "often THEIRS, not yours".
   // #2363 removed it: the branch points at the app (Applications), not a dead URL.
+  // 🔑 THE RULE, NOT A SPELLING: the taken div must carry NO anchor at all. Pinning
+  // the exact old strings (below) documents what was removed, but a re-add in a NEW
+  // shape (a different id/text, a static href) would slip past those; the taken div
+  // is a small, fixed markup block that legitimately needs zero <a> tags, so guard
+  // the class (no browser link) rather than only the instance.
+  const takenDiv = HTML.slice(HTML.indexOf('<div id="taken">'), HTML.indexOf('</div>', HTML.indexOf('<div id="taken">')) + 6);
+  assert.doesNotMatch(takenDiv, /<a\b/, 'the taken branch carries an anchor tag -- under #2073 (app-only) it must offer NO browser link, in ANY shape');
+  // The exact prior-shipped shape, pinned so a straight revert is caught by name too:
   assert.doesNotMatch(HTML, /Open it anyway/, 'the vestigial "Open it anyway" browser link is back on the taken branch (#2073 app-only: it must not offer a board link)');
   assert.doesNotMatch(HTML, /id="go"/, 'the #go link element is back -- the taken branch must not carry a browser board link under #2073');
   assert.doesNotMatch(HTML, /getElementById\("go"\)\.href = base \+ "\/"/, 'the taken branch points a link at the bare board address again (removed by #2363)');
