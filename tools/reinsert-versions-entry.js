@@ -43,7 +43,12 @@ const idRe = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const base = fs.readFileSync(baseFile, 'utf8');
 const ours = fs.readFileSync(ourFile, 'utf8');
 
-// Idempotence: never rewrite an entry the fresh page already carries.
+// Idempotence: never rewrite an entry the fresh page already carries. NOTE this
+// diverges from insert-release-entry.js, which exits 0 ("nothing written") on a
+// duplicate: here a duplicate means the fresh origin/main ALREADY has this version
+// (a same-version re-cut, which byte-reproducibility refuses upstream anyway, or a
+// double-run), so a HARD refusal that aborts the 7b push is the safe choice --
+// re-inserting or overlaying a second copy would be worse.
 if (base.includes(`id="${id}"`)) {
   console.error(`${id} is already on the fresh page; refusing to re-insert (would rewrite history)`);
   process.exit(1);
@@ -73,6 +78,10 @@ const entry = ours.slice(startAt, endAt);
 // Insert above the newest entry on the fresh page (its comment belongs to the
 // entry below it, so go above the comment when one sits just before the anchor --
 // the same 2000-char rule as insert-release-entry.js).
+// The numeric anchor `v[0-9-]+` matches the same version-id shape as idRe above:
+// versions are numeric by construction (the cut's version arg is X.Y.Z), so both
+// sites assume `[v0-9-]`. idRe is escaped defensively; if versions ever gain
+// letters, BOTH this anchor and idRe would need widening together.
 const anchor = base.search(/ {4}<article class="rel" id="v[0-9-]+"/);
 if (anchor < 0) {
   console.error('the fresh page has no existing entry to insert above; refusing to re-insert');
