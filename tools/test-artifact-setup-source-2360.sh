@@ -23,6 +23,12 @@ grep -q 'git -C "\$SITE_CO" show origin/main:setup' "$CHECK" \
 grep -q 'served /setup DIFFERS from origin/main:setup' "$CHECK" \
   && ok "a served-vs-origin/main difference is the hard FAIL (a real served-vs-source mismatch)" \
   || bad "the hard FAIL no longer names origin/main:setup as the reference"
+# the empty-guard is load-bearing: `git show` of a missing path prints nothing, and shasum of empty
+# input is a FIXED non-file hash that would silently mis-compare. The behavioural half below carries its
+# OWN copy of this guard, so it cannot catch the SCRIPT losing it -- pin it statically here too.
+grep -q '\[ -s "\$WORK/origin-setup" \]' "$CHECK" \
+  && ok "the derivation guards on a non-empty git-show result ([ -s ] -- shasum-of-empty cannot mis-compare)" \
+  || bad "the derivation lost its non-empty ([ -s ]) empty-guard -- shasum of empty input is a fixed hash that mis-compares (#2360)"
 
 # ---- BEHAVIOURAL: the derivation reads the deploy source, not a stale local -------------------
 # Reproduce the exact #2360 condition in a real repo: origin/main:setup = A, local working /setup = B.

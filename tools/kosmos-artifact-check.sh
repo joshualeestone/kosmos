@@ -235,15 +235,24 @@ LIVE_SHA="$(shasum -a 256 "$WORK/setup" | awk '{print $1}')"
 # routinely behind) made this FALSE-RED "served /setup DIFFERS" with release-exit=1 even though the
 # served bytes were CORRECT. Measured on the 0.6.40 cut: served cdbce978 == origin/main:setup, but the
 # local working tree was 312cd7ed (1 commit behind) -> false exit=1, which an operator then had to rule
-# benign by hand. Comparing vs origin/main can't false-fail on a local lag AND still catches a real
-# served-vs-source mismatch. Fetch first so origin/main is current; write it to a temp FILE (never a
+# benign by hand. Comparing vs origin/main removes that COMMON local-lag false-red (a shared checkout
+# is behind by default) and still hard-FAILs a real served-vs-source mismatch. It is NOT window-free:
+# a far NARROWER residual remains -- if origin/main advances between the deploy and this audit with a
+# NEW /setup commit that was not what was deployed, the served (correct) bytes differ from the
+# now-newer origin/main:setup and this FAILs. That window is the deploy->9e gap inside one cut
+# (seconds, under the merge-freeze), vs the local-lag window which is always open; the window-free
+# alternative is to compare against the exact sha the deploy shipped (#2286's SITE_SHA), a larger
+# change deferred to a follow-up. Fetch first so origin/main is current; write it to a temp FILE (never a
 # $(...) capture, which strips the trailing newline and so changes the sha); guard on git's own exit
 # (git show of a missing path prints nothing, and shasum of empty input is a fixed non-file hash that
 # would silently mis-compare). Fall back to the local working tree only if origin/main:setup is
 # unreadable, and only as UNPROVEN on a difference -- a stale local checkout must never hard-fail here.
 SITE_CO="$REPO/../chaoskosmos-site"
 SRC_SHA=""
-if [ -d "$SITE_CO/.git" ]; then
+# `git rev-parse --git-dir`, not `[ -d "$SITE_CO/.git" ]`: the latter misses a linked worktree or a
+# repo whose `.git` is a FILE (a gitdir pointer) rather than a directory, which would silently drop to
+# the local-file fallback.
+if git -C "$SITE_CO" rev-parse --git-dir >/dev/null 2>&1; then
   git -C "$SITE_CO" fetch -q origin 2>/dev/null || true
   if git -C "$SITE_CO" show origin/main:setup > "$WORK/origin-setup" 2>/dev/null && [ -s "$WORK/origin-setup" ]; then
     SRC_SHA="$(shasum -a 256 "$WORK/origin-setup" | awk '{print $1}')"
