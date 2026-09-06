@@ -290,10 +290,15 @@ function installedCheck(opts) {
    */
   const { codexBin } = create.binPaths(opts);
   /* ⚠️ THE LABEL IS WHAT A PERSON READS, AND IT USED TO BE "tmux" (#1019). The
-     key stays `tmux` -- it is a stable identifier and `present.tmux` is read
-     elsewhere -- but the LABEL reaches sentences, and this row is now the only
-     one that can produce a warning, so "We looked for tmux at ..." became the
-     failure sentence of the whole screen.
+     key stays `tmux` -- it is a stable identifier -- but the LABEL reaches
+     sentences, and this row is now the only one that can produce a warning, so
+     "We looked for tmux at ..." became the failure sentence of the whole screen.
+     📌 #2304: an earlier version of this note said `present.tmux` is "read
+     elsewhere". A repo-wide search finds no consumer of THIS result's
+     `present.tmux` (create.js's `job.tmux` is a plist field, unrelated), and the
+     win32 branch below relies on that: it does not probe tmux at all, so
+     `present.tmux` is simply absent on Windows. Do not "restore" a tmux probe on
+     win32 to keep the key present -- nothing reads it, and Windows has no tmux.
      📌 The path still carries the word, because the file really does live at
      `<home>/tmux/bin/tmux` and showing a path you have altered would be worse
      than showing one that contains a term. What changes is that the word is no
