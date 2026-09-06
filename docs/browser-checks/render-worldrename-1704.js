@@ -11,7 +11,7 @@
  * ⚠️ WHY A BROWSER. The rows + cogs are built in JS from the /api/worlds response,
  * and the modal is driven by DOM handlers -- none of it is visible to a source grep.
  * HERMETIC: loads web/index.html over file://, boots no server; it calls the page's
- * real worldswRender() with fixture worlds and stubs window.fetch to capture the PUT.
+ * real worldswRender() with fixture worlds and stubs window.fetch to capture the POST.
  * Reds on a page without the cog / rename modal (the pre-14.1 switcher).
  *
  * Run:
@@ -89,9 +89,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await new Promise((res) => setTimeout(res, 0));
     window.fetch = realFetch;
 
-    const put = calls.find((c) => c.url.indexOf('/api/worlds/rename') !== -1 && c.method === 'POST');
-    out.rename_posted = !!put;
-    try { out.rename_body = put ? JSON.parse(put.body) : null; } catch { out.rename_body = null; }
+    const posted = calls.find((c) => c.url.indexOf('/api/worlds/rename') !== -1 && c.method === 'POST');
+    out.rename_posted = !!posted;
+    try { out.rename_body = posted ? JSON.parse(posted.body) : null; } catch { out.rename_body = null; }
     return out;
   });
 
@@ -120,6 +120,6 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-worldrename-1704: OK (a rename cog on each non-default world opens a pre-filled modal that PUTs the rename)');
+  console.log('render-worldrename-1704: OK (a rename cog on each non-default world opens a pre-filled modal that POSTs the rename)');
   process.exit(0);
 })();
