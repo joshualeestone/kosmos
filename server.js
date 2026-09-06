@@ -2760,13 +2760,34 @@ const server = http.createServer((req, res) => {
           if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
           sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
         }
-        // restartRequired: conservatively always true. A world's roots are applied
-        // ONCE at board startup, and this route does not track which world the
-        // RUNNING board booted with, so it cannot tell a no-op switch (the
-        // already-served world) from a real one. A redundant restart reloads the
-        // same world and is harmless, so it over-signals rather than tracking
-        // boot-world state here; a precise restartRequired is a follow-up.
-        sendJson(res, 200, { ok: true, world, restartRequired: true });
+        /* #2238: a world's roots apply ONCE at board startup, so the running board
+           keeps serving the world it BOOTED with until it restarts. worldenv now
+           captures that booted world, which makes two things possible here:
+           (1) restartRequired is precise -- a switch to the world already booted is
+               a no-op that needs no restart (the old code over-signalled always-true
+               because it could not tell a no-op from a real switch).
+           (2) restarting says whether THIS route is self-restarting the board now.
+               True only for a REAL switch AND when the board can SAFELY self-restart
+               (the com.kosmos.board KeepAlive job). A from-source / unmanaged board
+               reports restarting:false and the switcher UI asks for a MANUAL restart
+               -- never a bare exit that would brick it (engine/boardrestart is the
+               conservative, fail-safe guard; see its header). */
+        const bootedId = require('./engine/worldenv').bootedWorld();
+        const isNoop = bootedId != null && bootedId === id;
+        const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
+        sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
+        /* AFTER the response has been sent, drop the board so launchd relaunches it
+           onto the new world. The delay lets the 200 flush to the client before
+           launchctl stop terminates this process -- the stop kills the very
+           connection that asked for the switch. selfRestart re-checks the fail-safe
+           guard, so a launchd state that changed in the interim still cannot brick
+           the board (it no-ops, and Angel's reconnect degrades to the manual path). */
+        if (restarting) {
+          setTimeout(() => {
+            try { require('./engine/boardrestart').selfRestart(); }
+            catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
+          }, 500);
+        }
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

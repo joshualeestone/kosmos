@@ -19,7 +19,9 @@ const LAUNCH = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-boardrestart-2238-'
 process.env.AGENT_WORKFORCE_LAUNCH = LAUNCH;
 
 const board = require('./boardrestart');
-const PLIST = board.plistPath();
+// The module derives the plist path from AGENT_WORKFORCE_LAUNCH + the board label;
+// the test writes the fixture at the same path (kept internal to the module).
+const PLIST = nodePath.join(LAUNCH, 'com.kosmos.board.plist');
 
 const KEEPALIVE_TRUE = `<?xml version="1.0"?><plist><dict>
   <key>Label</key><string>com.kosmos.board</string>

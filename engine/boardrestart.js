@@ -105,4 +105,4 @@ function selfRestart() {
   return { ok: true };
 }
 
-module.exports = { canSelfRestart, selfRestart, setRunner, BOARD_LABEL, plistPath };
+module.exports = { canSelfRestart, selfRestart, setRunner };
