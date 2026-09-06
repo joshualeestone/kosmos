@@ -97,17 +97,25 @@ a login argument after the binary.
   ✅ **It has, however, been MEASURED by hand** (tmux 3.6a, private socket, parent env carrying
   `CLAUDE_CONFIG_DIR=/leaked/acct`), in BOTH server states, every arm on equal footing:
 
-  | arm | cold server | warm server |
+  Cold arms: server created by the client, each verified cold with `tmux -L <sock> ls` first (it must
+  report no server). Warm arms: one server seeded beforehand from a shell carrying a **distinct**
+  value, `CLAUDE_CONFIG_DIR=/seeded/acct`, so the control can tell client-leak from server-leak.
+
+  | arm | cold server (client env `/leaked/acct`) | warm server (seeded `/seeded/acct`, client `/leaked/acct`) |
   |---|---|---|
   | `-u` pushed | `[ABSENT]` | `[ABSENT]` |
   | assignment | `[/named/acct]` | `[/named/acct]` |
-  | control, neither | `[/leaked/acct]` | `[/leaked/acct]` |
+  | control, neither | `[/leaked/acct]` | **`[/seeded/acct]`** |
 
-  Each cold arm was verified cold with `tmux -L <sock> ls` before running (it must say no server);
-  the warm arms all attached to one seeded server. **The control returns the leaked value in both
-  states**, so the absence on the `-u` arm is a real strip and not an instrument that sees nothing.
-  ⇒ tmux 3.6a does not consume the `-u`. **This is a manual measurement, NOT suite coverage: nothing
-  re-runs it, so it can rot.**
+  ⇒ **The pane inherits the SERVER's environment.** Cold, the client starts the server, so the
+  client's value becomes the server's. Warm, the pre-existing server's value wins and the client's
+  never reaches the pane. **That is the warm/cold mechanism this branch's comments describe, now
+  measured in both directions rather than reasoned.** The control returns a leaked value in both
+  states, so the `-u` absence is a real strip and not a blind reader ⇒ tmux 3.6a does not consume the
+  `-u`.
+  ⚠️ An earlier version of this table gave both columns the same client value, so its warm control
+  **could not discriminate** which environment reached the pane. **This is a manual measurement, NOT
+  suite coverage: nothing re-runs it, so it can rot.**
 - Nothing exercises the route ternary through to the launch argv. Both halves are covered; their
   composition is not.
 

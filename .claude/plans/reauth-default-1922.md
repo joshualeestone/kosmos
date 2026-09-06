@@ -1505,7 +1505,11 @@ sentence was in the plan.**
 ## The loop's own shape, measured at iteration 17, and the wrong conclusion I nearly drew
 
 **Every one of iteration 17's four warnings points at prose I added in an earlier FIX commit**
-(`bc4a2c00`, `a9904cb0`, `6d78877f`, `650dbb6d`), not at the implementation. Measured with
+(`bc4a2c00`, `a9904cb0`, `6d78877f`, `650dbb6d` -- ⚠️ **all four are PRE-REBASE ORPHANS, reachable
+from no ref: `git branch -a --contains` returns empty for each, so a reader cannot reproduce this
+measurement.** The disclaimer at the top of the iteration log is scoped to the sections ABOVE it and
+does not reach this line, which is the partial-sweep shape this plan keeps naming, applied to its own
+disclaimer), not at the implementation. Measured with
 `git log -S` per site.
 
 | rounds | code defects | claim defects |
@@ -2439,3 +2443,48 @@ good case. ⇒ **One `local` per variable when a later one reads an earlier one.
 red where the mutation actually reds three (the labelled control plus two `#1492` arms, 37/40).
 Incomplete rather than false, and it **understated** the guard, but a table of evidence should be
 right in both directions.
+
+### Iteration 33, 2026-09-06 01:35: MERGE, two LOWs, and my own experiment could not discriminate
+
+Verdict: **MERGE. No blocker. Two LOWs, both fixed.**
+
+**LOW 1: four cited shas are pre-existing orphans.** `git branch -a --contains` returns empty for
+`bc4a2c00`, `a9904cb0`, `6d78877f`, `650dbb6d` (control: the same command names the branch for
+`148ff31a`). ⭐ **And the sharp part is where the plan's own disclaimer sits: it is scoped to "the
+iteration sections ABOVE", and this citation is BELOW it.** ⇒ **The partial-sweep shape this document
+keeps naming, applied to its own disclaimer.** A caveat with a scope is itself a claim about coverage.
+
+**LOW 2, and it is a defect in MY experiment, not in the branch.** The tmux table I added last round
+gave the cold and warm columns **the same client value**, so its warm control could not tell
+client-leak from server-leak. Re-run with the seed deliberately DISTINCT:
+
+```
+server seeded from a shell carrying CLAUDE_CONFIG_DIR=/seeded/acct
+arms then run from a client carrying  CLAUDE_CONFIG_DIR=/leaked/acct
+
+warm_unset  [ABSENT]        warm_assign [/named/acct]        warm_none [/seeded/acct]
+```
+
+⇒ **The pane inherits the SERVER's environment.** Cold, the client starts the server so its value
+becomes the server's; warm, the pre-existing server's value wins and the client's never arrives.
+⭐ **That is exactly the warm/cold mechanism this branch's comments assert, and it was listed as
+REASONED FROM SOURCE rather than measured. It is now measured in both directions.**
+
+🛑 **The lesson is about experiment design, not about tmux: I gave two variables the same value, so
+the arm that was supposed to discriminate them could only ever confirm.** It returned the answer I
+expected and told me nothing. **A control needs its two sides to be distinguishable before it can
+control anything** ⇒ give every factor a distinct, recognisable value.
+
+**Verified correct by this reviewer, with live controls:** `configDir: null` equivalent to omission at
+`connect.js:911`; only one of four `connect.start` call sites needed the fix; **all four arms
+mutation-proven, each red for its own reason with the paired control staying green**; a fifth,
+self-devised silent-leak mutation reddening at the grammar walk; the `env` grammar table reproducing
+exactly including the exit-127 arm; the seam re-count at HEAD (44 / 12 / 41) with a bogus-var control
+of 0; the floors reproducing at `>=11` and `>=25`; `accounts.js:302` and `:227-228`; the
+`AUTH_FRIENDLY_MESSAGE` unexported prediction; suites 54/54, 40/40, 9/9; and the validation log's
+newest row matching the current diff hash at `status: clean`.
+
+**Set aside by the reviewer, and I agree:** the route-ternary-to-launch-argv composition is uncovered,
+**but the branch states that explicitly in three places rather than implying coverage**, and both
+halves are guarded. The missing `-pre-challenge.md` proof file is expected mid-loop and must land
+before `gh pr create`.
