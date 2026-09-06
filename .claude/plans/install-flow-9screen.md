@@ -148,6 +148,42 @@ browser-check against the real flow - add one under docs/browser-checks/).
    #1720 web/ gate (browser-check or Browser-check: trailer).
 6. Full node suite + challenge-loop + PR. Ping Splinter for Angel's S6.
 
+## TEST-INVARIANT LANDMINES (map these fixes UP FRONT - a 6->9 renumber cascades)
+
+The first-run flow is pinned by ~25 test artifacts. Renumbering blind hits the
+"blast radius measured from reds is a lower bound" trap (a renumber breaks N
+checks, only some go red). Reconcile ALL of these in the same change:
+
+- **docs/browser-checks/lib-firstrun-steps.js** = the CENTRAL step->anchor map
+  (`stepForAnchor`) that every render-firstrun-* check deep-links through. Update
+  this FIRST; it is the single source the checks share.
+- **~15 browser-checks** keyed to steps: render-first-run, render-firstrun-enter
+  -2186, render-firstrun-model-continue-2134, render-firstrun-namestep-1994wiz,
+  render-firstrun-connect-box-2187, render-firstrun-openai-connectbox-2241,
+  render-a11y-gate-2125, render-a11y-copy-1940, render-preflight-2163,
+  render-connect-skip, click-first-run, render-sleep-button, import-agent-flow,
+  regress-a-night, named-controls. Each asserts content at a specific step.
+- **web.firstrun-model.test.js** slices raw markup pane-3..pane-5 to isolate the
+  model step -> if panes are renumbered/retired, fix the slice anchors.
+- **~10 web.firstrun-*.test.js**: firstrun-a11y-1214, firstrun-enter-2186,
+  firstrun-fractions-1835 (the frGo(3.7) clamp), firstrun-you-reach-1772,
+  found-every-path-1493, found-undo, connect-confirm, willinstall-behaviour-1556.
+- **server.test.js**: stale-id greps (asserts retired ids ABSENT in raw markup) +
+  first-run structure. Retiring a pane may need its old id added to a stale guard.
+- **tools.browser-checks-wired.test.js + browser-checks-reason-grep.test.js**:
+  a NEW browser-check must be wired (runner loop + README index + EXPECTED_SITES
+  reason-grep + selectors), per the browser-check wiring guards.
+- **#1720 web/ gate**: any web/index.html diff needs a browser-check or a
+  `Browser-check: <reason>` commit trailer.
+- **Josh rulings to preserve** (not test-pinned but ruled): no Back / no visible
+  Skip (fr-acts), the model "show all six rows" (#262/sticky footer), Claude/GPT/
+  Gemini order, the Dock line ON Success under reveal (2026-08-27 16:08), the
+  privacy copy (above), model-step copy verbatim, OpenAI no-key-promise (#2241).
+  The #2163 pre-flight interstitial + old Success (fr-pane-1) are being replaced
+  by S7 - confirm with Splinter the interstitial's expectations copy has a home
+  (S2 Access "when prompted click Allow" partly covers it; S4 Notifications the
+  background-activity part) or is dropped by the spec.
+
 ## Decisions (decide-and-continue, recorded)
 
 - file-access via native-written-file, not engine probe (DENIED arm unobservable
