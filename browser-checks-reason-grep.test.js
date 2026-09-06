@@ -452,7 +452,13 @@ test('every emit site in every check prints a line the gate can quote', () => {
      the silent "(no FAIL line)" the gate exists to prevent). It is ALSO counted
      once by the catch/launch scan below (34) — the two scans tally different
      properties of the same line, not a partition. */
-  const EXPECTED_SITES = 57;
+  /* 58 after kosmos#1652: added render-firstrun-scan-on-grant-1652.js, whose
+     `bad()` helper prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one
+     SHAPE-1 finding-emit site, confirmed quotable (the same shape as
+     render-firstrun-import-1652's). Its in-try `catch { bad('the check itself', …) }`
+     does not add a catch/launch site (that scan matches the top-level throw line
+     shape, not a bad() call), exactly as its sibling did not. */
+  const EXPECTED_SITES = 58;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
