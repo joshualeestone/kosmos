@@ -9211,6 +9211,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              honour is a promise printed on a screen. It belongs here the day
              something reads it. -->
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
+        <!-- #992: the "get to it as a user" half of the transcript. 🛑 THE LABEL
+             SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the same reason
+             the sibling pjs-chats-reveal button says "the conversations" and not
+             "this project's": every task's transcript is one file in ONE shared
+             folder (<data>/task-chats), so a button framed as "this task's"
+             would promise a per-task destination the storage does not give -- the
+             screen answering a narrower question than it was asked. The hint
+             discloses the shape. Same disable/say-nothing/ask/report shape as
+             pjs-chats-reveal. -->
+        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:16px;">Show me where the task conversations live</button>
+        <p class="fhint" style="margin:6px 0 0;">One folder, with a file for each task's conversation.</p>
+        <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </aside>
     </div>
   </div>
@@ -30452,6 +30464,27 @@ document.getElementById('pjs-chats-reveal').addEventListener('click', async () =
   btn.disabled = true;
   try {
     const res = await fetch('/api/chats/reveal', { method: 'POST' });
+    const got = await res.json().catch(() => ({}));
+    if (!res.ok) msg.textContent = pjSentence(got.error || 'we could not open that folder');
+  } catch {
+    msg.textContent = 'We could not reach Kosmos to do that.';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* #992: the task-side companion to pjs-chats-reveal above -- the "get to it as a
+   user" half of the task transcript. Same shape (disable, say nothing, ask,
+   report), pointed at the global task-chats folder. The button lives in the task
+   view (#pj-task-view), which is present in the DOM from parse time (hidden), so
+   this listener attaches here alongside the others. */
+document.getElementById('tk-chats-reveal').addEventListener('click', async () => {
+  const btn = document.getElementById('tk-chats-reveal');
+  const msg = document.getElementById('tk-chats-msg');
+  msg.textContent = '';
+  btn.disabled = true;
+  try {
+    const res = await fetch('/api/task-chats/reveal', { method: 'POST' });
     const got = await res.json().catch(() => ({}));
     if (!res.ok) msg.textContent = pjSentence(got.error || 'we could not open that folder');
   } catch {

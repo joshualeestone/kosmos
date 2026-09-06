@@ -1868,6 +1868,59 @@ test('the chats-reveal route: global by name, honest about an empty install, gua
   }
 });
 
+test('the task-chats-reveal route: global by name, honest about an empty install, guard inherited (#992)', async () => {
+  /**
+   * The task-side companion to the chats-reveal route above. Every task's
+   * transcript is one flat file in ONE directory (<data>/task-chats), and this
+   * codebase opens the FOLDER rather than open -R a file, so like the chats
+   * route this is global by name; a per-task URL would promise a destination the
+   * storage does not give. The button lives in the task view for the same reason
+   * the chats button lives in project settings.
+   */
+  const projects = require('./engine/projects');
+  const taskchat = require('./engine/taskchat');
+  const fsx = require('node:fs');
+  const dir = taskchat.taskChatsDir();
+  try {
+    // Guard, by count: this POST opens an app.
+    let ran = 0;
+    let opened = null;
+    projects.setRevealRunner((_bin, args) => { ran += 1; opened = args && args[0]; return { ok: true }; });
+
+    const cross = await req('/api/task-chats/reveal', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', origin: 'https://evil.example' },
+    });
+    assert.equal(cross.status, 403, 'a cross-site page can open Finder');
+    assert.equal(ran, 0, 'the guard answered 403 but Finder opened anyway');
+
+    /* The empty arm is an answer, not an error: taskchat.record() makes this
+       directory on the first lifecycle event, so "not there" means no task has
+       recorded anything, and open on a missing path would report a Finder
+       failure for a working install. */
+    if (fsx.existsSync(dir)) fsx.rmSync(dir, { recursive: true, force: true });
+    const empty = await post('/api/task-chats/reveal', {});
+    assert.equal(empty.status, 409, 'a machine with no task conversations yet was not told so');
+    assert.match(json(empty).error, /nothing to show you/i);
+    assert.equal(ran, 0, 'it tried to open a folder that does not exist');
+
+    fsx.mkdirSync(dir, { recursive: true });
+    const ok = await post('/api/task-chats/reveal', {});
+    assert.equal(ok.status, 200);
+    assert.equal(ran, 1, 'the folder exists and nothing opened');
+    assert.equal(opened, dir, `it opened ${opened} rather than the task-chats directory`);
+    assert.equal(json(ok).where, dir);
+
+    /* A Finder that refuses is reported in words, not as a success. */
+    projects.setRevealRunner(() => ({ ok: false, because: 'Finder did not open' }));
+    const refused = await post('/api/task-chats/reveal', {});
+    assert.equal(refused.status, 409);
+    assert.match(json(refused).error, /Finder/);
+  } finally {
+    projects.setRevealRunner(null);
+  }
+});
+
 test('the reveal-folder route: guard inherited, server-derived path, honest refusals', async () => {
   const projects = require('./engine/projects');
   const made = json(await post('/api/projects', { name: 'Reveal Wire' }));
