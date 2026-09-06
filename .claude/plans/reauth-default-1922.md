@@ -963,8 +963,13 @@ silently:
 git diff --numstat origin/main...HEAD -- engine/connect.js server.js
 ```
 
-At `63c4f389` that gives `70` and `32` (source total 102, of which the overwhelming majority is
-comment). Re-run it rather than trusting any number written here.
+At `148ff31a` (reachable from this branch; `git branch -a --contains` names it) that gives `70` and
+`27`. 🛑 **An earlier version of this line cited `63c4f389`, which is reachable from NO ref**: it
+survived only in the author's local reflog, so nobody else could reproduce the citation, and its
+figure differed (`70`/`32`) purely because a pre-rebase sha resolves `origin/main...` against a
+different merge-base. ⇒ **A sha in a citation is only evidence if the reader can reach it: check with
+`git branch -a --contains <sha>` before pinning to one.** Re-run it rather than trusting any number
+written here.
 
 📌 The original point stands and is why the entry exists: **100 was wrong.**
 I measured with `git diff --numstat origin/main` -- **TWO dots** -- which compares against the
@@ -2355,3 +2360,43 @@ equivalent to omitted at `connect.js:911` (a non-empty string takes the other br
 box in all four arms, including the operand-before-`-u` form leaking at exit 0.
 
 🛑 **NOT CONVERGED: this round had findings. Iteration 32 follows.**
+
+### Iteration 32, 2026-09-06 01:20: MERGE verdict, two LOWs, and a stated gap closed by measurement
+
+Verdict: **MERGE. No blocker. Two LOW notes, both fixed below.**
+
+**LOW 1: a citation pinned to a commit reachable from NO ref.** `git branch -a --contains 63c4f389`
+returns **empty** while the same command names the branch for HEAD (the control). That object survives
+only in this machine's reflog, so **no colleague could reproduce the citation**, and its figure
+differed (`70`/`32` against `70`/`27`) purely because a pre-rebase sha resolves `origin/main...`
+against a different merge-base. Re-pinned to `148ff31a`, verified reachable on both the local and
+remote branch and verified to reproduce. ⇒ **A sha in a citation is only evidence if the reader can
+reach it. `git branch -a --contains <sha>` before pinning.**
+
+**LOW 2, in the PR body, and it is a scope claim.** The text said *"a genuinely signed-out user still
+opens the gate and the sign-in runs"*. True only for the **listed** population: `accounts.list()`
+drops any directory whose `identityOf` is null (`accounts.js:228`), and `identityOf` returns null when
+`oauthAccount` is absent (`:134`), so a **fully cleared** default `.claude.json` never appears in the
+list and `/api/connect/start` answers 400 instead of opening the gate. Pre-existing behaviour, not
+introduced here, now stated rather than implied. ⇒ **"Signed out" is broader than "signed out AND
+still enumerable", and the sentence claimed the wider set.**
+
+⭐ **THE MOST VALUABLE THING IN THIS ROUND IS NOT A FINDING: THE REVIEWER CLOSED A GAP THIS BRANCH
+DECLARES UNCOVERED.** The PR body states that nothing exercises the `-u` arm against a real tmux,
+because the suite replays argv and the only real-tmux exerciser sets the seam. The reviewer built the
+missing experiment: tmux 3.6a, cold private socket, `CLAUDE_CONFIG_DIR` set in the parent.
+
+| arm | value seen inside the pane |
+|---|---|
+| `-u` pushed | **[ABSENT]** |
+| assignment | `[/named/acct]` |
+| **control, neither** | **`[/leaked/acct]`** |
+
+**The control is what makes it worth anything: it returns the dangerous answer**, so the absence on
+the `-u` arm is a real strip rather than an instrument that sees nothing.
+
+⚠️ **NOT YET RECORDED AS MEASURED IN THE PR BODY. I have asked for the exact commands, the tmux
+version, how the value was read, and specifically whether the server was genuinely COLD and whether
+all three arms shared one server lifecycle.** The branch's existing witness measures only the WARM
+case by construction, so cold-vs-warm is load-bearing, and three arms on different server states would
+not compose. **A gap is closed when it is reproducible, not when it is reported.**

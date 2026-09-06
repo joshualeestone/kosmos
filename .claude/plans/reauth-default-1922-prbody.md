@@ -53,7 +53,12 @@ ENOENT, timeout) took the same connected exit pre-fix. Post-fix it reads the rea
 about.
 
 ⚠️ **NOT every default-account machine.** `checkLive` returns `NONE` on a recognised
-`loggedIn: false`, so a genuinely signed-out user still opens the gate and the sign-in runs; a
+`loggedIn: false`, so a signed-out user whose account is still LISTED opens the gate and the sign-in
+runs. ⚠️ Scope, because "signed-out" is broader than the reachable population: `accounts.list()` drops
+any directory whose `identityOf` is null (`engine/accounts.js:228`), and `identityOf` returns null
+when `oauthAccount` is absent, so a FULLY CLEARED default `.claude.json` never appears in the list at
+all and `/api/connect/start` answers 400 rather than opening the gate. Pre-existing behaviour, not
+introduced here. A
 missing binary opens it too. Two pre-existing arms on main cover those separately, neither added by
 this branch: the signed-out case by `#1560` ("a connected-looking FILE does not block sign-in when the
 world says signed out", `engine/connect.test.js`), and the missing-binary case by `#1580`
