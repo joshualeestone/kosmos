@@ -34,8 +34,10 @@ const { start, server } = require('./server');
 
 // The route reads canSelfRestart/selfRestart off the required module at call time,
 // so these patches take effect. selfRestart is a SPY that never touches launchctl.
-// Originals saved + restored in test.after so the patch never leaks (belt-and-suspenders:
-// the suite runs --test-isolation=process, so a separate process already contains it).
+// Originals are saved + restored in test.after -- that restore is what contains the
+// patch to this file. (Node's default test isolation also runs each file in its own
+// process, but the runner does not pass --test-isolation explicitly, so the restore,
+// not the runner flag, is the guarantee.)
 const _origCanSelfRestart = boardrestart.canSelfRestart;
 const _origSelfRestart = boardrestart.selfRestart;
 let canRestart = false;
@@ -47,6 +49,13 @@ let base;
 const jpost = (p, obj) => fetch(base + p, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(obj) });
 const post = (p, obj) => jpost(p, obj).then(async (r) => ({ status: r.status, body: await r.json() }));
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+// Poll until pred() or a generous deadline -- robust to a loaded event loop delaying
+// the route's 500ms deferred restart (no fixed-margin flake).
+async function waitUntil(pred, ms = 3000) {
+  const t0 = Date.now();
+  while (!pred()) { if (Date.now() - t0 > ms) return false; await wait(20); }
+  return true;
+}
 
 test.before(async () => {
   await start(0);
@@ -67,13 +76,14 @@ test('canSelfRestart TRUE + a real switch -> restarting:true, restartRequired:tr
   canRestart = true; selfRestartCalls = 0;
   const r = await post('/api/worlds/active', { id: 'alphaworld' });
   assert.equal(r.status, 200);
+  assert.equal(r.body.world.id, 'alphaworld', 'the response reports the switched-to world');
   assert.equal(r.body.restartRequired, true, 'a real switch needs a restart');
   assert.equal(r.body.restarting, true, 'a self-restartable board reports it is restarting now');
   // The restart is deferred 500ms so the response flushes first; it must NOT have
   // fired synchronously (the response would have been killed), and it MUST fire after.
   assert.equal(selfRestartCalls, 0, 'the restart is fired AFTER the response, never before it flushes');
-  await wait(700);
-  assert.equal(selfRestartCalls, 1, 'the deferred self-restart actually fired');
+  assert.equal(await waitUntil(() => selfRestartCalls === 1), true, 'the deferred self-restart actually fired');
+  assert.equal(selfRestartCalls, 1, 'fired exactly once');
 });
 
 test('canSelfRestart FALSE + a real switch -> restarting:false, restartRequired:true, and NO restart fires (the manual-banner arm a from-source board takes)', async () => {
