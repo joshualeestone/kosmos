@@ -35,6 +35,7 @@ const os = require('node:os');
 const path = require('node:path');
 const status = require('./status');
 const codexsession = require('./codexsession');
+const geminisession = require('./geminisession');
 const store = require('./store');
 
 /* "Dismiss this forever" (Josh, 2026-08-24 17:06): the board's found-agents
@@ -364,6 +365,66 @@ function foundCodex(roster) {
   return { agents: kept, unreadable };
 }
 
+/* #2243: Gemini agents already on this computer, the third provider path and the
+   analogue of foundCodex. Gemini keeps its project cwds in a JSON MAP at
+   <GEMINI_CLI_HOME>/projects.json, and a project's instructions live in
+   <cwd>/GEMINI.md, the disk sibling of CLAUDE.md and AGENTS.md. So a directory
+   listed in projects.json whose GEMINI.md INTRODUCES somebody ("You are
+   <name>...") IS a discoverable Gemini agent, read with the same identityFromText
+   the CLAUDE.md arm uses. The ~/.gemini resolution and the projects.json read
+   live in geminisession, the way foundCodex delegates to codexsession (which also
+   keeps found() out of check-frozen-roots' #1432 resolver set).
+
+   🛑 SAME SANDBOX REFUSAL AS foundCodex (#1500): geminisession reaches ~/.gemini
+   directly, OUTSIDE configRoots, so a fixture that sandboxed the Claude half would
+   otherwise read the operator's real machine here. sandboxIsInconsistent() gives a
+   fixture the empty answer a fixture should get, and geminisession.HOME honours
+   AGENT_WORKFORCE_GEMINI_HOME so a test can point it at a sandbox.
+
+   ⚠️ SAME RETURN SHAPE and rules as found()/foundCodex. Claude then Codex WIN a
+   dir collision (they merge first in found()): a folder reachable more than one
+   way is one agent, and connect already knows how to act on the Claude/Codex
+   record. No ghost-collapse is needed here (unlike foundCodex): projects.json is
+   a current map, so a moved agent's old cwd simply fails the GEMINI.md read rather
+   than surviving as a second row. */
+function foundGemini(roster) {
+  if (status.sandboxIsInconsistent()) return { agents: [], unreadable: 0 };
+
+  const byDir = new Map();
+  let unreadable = 0;
+  for (const cwd of geminisession.projects()) {
+    if (byDir.has(cwd)) continue;
+    let text;
+    /* No GEMINI.md is NOT an unreadable agent: it is a Gemini project that is not
+       an agent (the common case, a plain repo Gemini ran in once, like a node
+       package with no GEMINI.md). Skip it silently, exactly as found() skips a
+       folder with no CLAUDE.md; do not count it. */
+    try { text = fs.readFileSync(path.join(cwd, 'GEMINI.md'), 'utf8').slice(0, 4000); }
+    catch { continue; }
+    const id = status.identityFromText(text);
+    if (!id || !id.displayName) {
+      /* A GEMINI.md that INTRODUCES somebody ("You are ...") but names nobody the
+         parser can read is an agent we could not NAME, not a non-agent: count it
+         unreadable so the board surfaces the skip rather than silently dropping an
+         agent (#1527), exactly as foundCodex counts an unreadable rollout. A file
+         that introduces nobody ("You are an expert in Rust", or no such line at
+         all) is genuinely not an agent and is skipped silently: the same split
+         found() makes, and the same rule as the CLAUDE.md arm, never guess a name. */
+      if (INTRODUCES.test(text)) unreadable += 1;
+      continue;
+    }
+    byDir.set(cwd, {
+      dir: cwd,
+      name: id.displayName,
+      role: id.role,
+      instructions: path.join(cwd, 'GEMINI.md'),
+      runner: 'gemini',
+      already: alreadyIn(cwd, roster),
+    });
+  }
+  return { agents: [...byDir.values()], unreadable };
+}
+
 function found() {
   let roots;
   try { roots = status.configRoots(); } catch (err) {
@@ -552,13 +613,17 @@ function found() {
        knows how to act on. */
     const codex = foundCodex(roster);
     for (const a of codex.agents) if (!byDir.has(a.dir)) byDir.set(a.dir, a);
+    /* #2243: Gemini agents last, so a folder Claude or Codex already knows wins the
+       collision (connect acts on that record); a Gemini-only folder is added. */
+    const gemini = foundGemini(roster);
+    for (const a of gemini.agents) if (!byDir.has(a.dir)) byDir.set(a.dir, a);
 
   /* Stable and human: by the name a person would look for. */
   const agents = [...byDir.values()].sort((a, b) => a.name.localeCompare(b.name));
     return {
     ok: true,
     agents,
-    unreadable: unreadable + codex.unreadable,
+    unreadable: unreadable + codex.unreadable + gemini.unreadable,
     /* Named rather than summed: the three mean different things to a person and
        the remedy differs by bucket. One "we skipped 17" would be the same shape
        of unhelpful as the empty screen it replaces. */
@@ -1460,6 +1525,7 @@ function disconnect(name) {
 
 module.exports = { alreadyIn,
   foundCodex,
+  foundGemini,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   declined, decline, undecline, DECLINED_FILE,
