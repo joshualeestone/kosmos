@@ -27770,9 +27770,11 @@ document.getElementById('new-agent').addEventListener('click', () => openCreate(
 /* #1652/#5: the first-run find-agents "look in my Documents and Downloads" link and
    its delegated #fr-fleet handler were REMOVED on Josh's 0.6.39 ruling (see the
    frPaintFleet create arm). Agents in Documents/Downloads are reached by the
-   permission-granted full scan loading them onto screen 9 via the found path, not a
-   link that jumped to create. openCreate still takes an optional initialMode, which
-   the import panel uses; nothing now calls it with 'import' from first-run. */
+   permission-granted full scan loading them onto screen 9 (now wired in
+   frScanAgents: the import scan runs when file-access is granted, and the folder
+   candidates render via frPaintScan), not a link that jumped to create. openCreate
+   still takes an optional initialMode, which the import panel uses; nothing now
+   calls it with 'import' from first-run. */
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
@@ -37944,11 +37946,45 @@ let FR_SCAN_GEN = 0;
 async function frScanAgents() {
   const mine = ++FR_SCAN_GEN;
   let out = null;
+  /* 🔑 #1652: LOAD FOUND AGENTS ONTO THIS SCREEN AFTER THE GRANT, NO LINK.
+     Josh's 0.6.39 ruling, verbatim: "There is no link to appear, even. It just
+     pulls them in." The auto scan (/api/scan-agents) is TCC-free (#2125) and
+     deliberately skips Documents/Downloads/Desktop, so a person whose agent
+     folders sit there was told to "create their first agent" though they have
+     one. Once Screen 2's file-access permission is GRANTED, the fix belongs in
+     DETECTION: reach those folders via the import scan (/api/scan-import ->
+     discover.scan({importScan:true})), so the agents load onto this screen
+     through the ordinary frPaintScan path -- not a link that jumps to create.
+
+     🛑 THE GRANT GATE IS LOAD-BEARING, NOT A CONVENIENCE. The import scan walks
+     the TCC folders, which is exactly what fires the macOS Documents/Downloads
+     prompt. #2125 removed that ambush from a fresh install; running the import
+     scan UNconditionally here would put it straight back. So we only reach for
+     it when /api/file-access-status reports a POSITIVE grant (checkable:true +
+     granted:true) -- the person already asked for it on Screen 2, so the walk is
+     expected. Every other reading (declined, not-yet-checked, or a browser with
+     no native writer -> checkable:false) keeps the TCC-free auto scan. Ordering
+     makes this clean: Screen 2 precedes Screen 9, and this scan fires only from
+     Screen 9's create empty-state, so the grant verdict is already settled by
+     the time we choose a route. */
+  let full = false;
   try {
-    const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+    const g = await fetch('/api/file-access-status', { cache: 'no-store' });
+    const gr = g.ok ? await g.json() : null;
+    full = !!(gr && gr.checkable === true && gr.granted === true);
+  } catch { full = false; }
+  try {
+    const res = await fetch(full ? '/api/scan-import' : '/api/scan-agents', { cache: 'no-store' });
     out = res.ok ? await res.json() : null;
   } catch { out = null; }
   if (mine !== FR_SCAN_GEN) return;
+  /* Both routes answer with `candidates` (agent FOLDERS holding a CLAUDE.md the
+     board has no record of); the import scan additionally reaches ~/Documents.
+     frScanOffer / frPaintScan render `candidates` unchanged, so the granted path
+     surfaces the Documents folders through the same screen and the same Add/Skip
+     rows the auto scan already used. (The import scan's loose `importable` FILES
+     -- a bare agent .md downloaded into Downloads/Desktop -- still flow through
+     the create form's import mode; only the folder candidates load here.) */
   FR_SCAN = out && Array.isArray(out.candidates) ? out : { ok: false, candidates: [] };
   if (FR_STEP > FR_STEP_YOU) frPaintFleet();
 }
@@ -38711,8 +38747,22 @@ function frPaintFleet() {
        link to appear, even. It just pulls them in." The fix for agents in
        Documents/Downloads belongs in DETECTION after all: once the permission flow
        (#1) actually grants access, a full scan of those folders runs and any
-       agents load onto THIS screen via the found path (frPaintFound), not a link
-       that jumps to create. So this arm is silent again. */
+       agents load onto THIS screen, not a link that jumps to create. So this arm
+       is silent again.
+
+       ✅ WIRED (2026-09-06, #1652, after Kitty's #2347 made the grant real).
+       `frScanAgents` now reaches the TCC folders via the import scan
+       (/api/scan-import) WHEN /api/file-access-status reports a positive grant,
+       so agents in ~/Documents surface through frScanOffer -> `frPaintScan`
+       ("We found N agents on this computer", the Add/Skip rows) on THIS screen --
+       "it just pulls them in", no link. Note the painter is frPaintScan, not
+       frPaintFound: these folders have NO board record (that is why they were
+       invisible), so they are scan CANDIDATES, not found() agents; the ruling
+       named frPaintFound loosely for "the found list on screen 9", and this is
+       the accurate painter for never-recorded disk agents. The grant gate keeps
+       #2125's no-ambush rule intact (the TCC walk fires only after the person
+       granted on Screen 2). Loose importable FILES still route through the create
+       form's import mode; the folder candidates load here. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:

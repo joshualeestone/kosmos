@@ -452,7 +452,19 @@ test('every emit site in every check prints a line the gate can quote', () => {
      the silent "(no FAIL line)" the gate exists to prevent). It is ALSO counted
      once by the catch/launch scan below (34) — the two scans tally different
      properties of the same line, not a partition. */
-  const EXPECTED_SITES = 57;
+  /* 59 after kosmos#1652: added render-firstrun-scan-on-grant-1652.js, which
+     carries TWO SHAPE-1 finding-emit sites, both confirmed quotable: its `bad()`
+     helper `console.log('FAIL  ' + n + '  --  ' + why)` (the same shape as
+     render-firstrun-import-1652's), and its top-level
+     `.catch((e) => { console.error('FAIL  ... threw: ' + ...) })` (the same shape
+     as render-optout-403-2020's, added after an iteration-1 challenge NIT so a
+     launch/spawn throw before the body's try is not the silent "(no FAIL line)"
+     the gate exists to prevent). That top-level catch is ALSO counted once by the
+     catch/launch scan below (35) -- the two scans tally different properties of
+     the same line, not a partition (same as render-plus-blue-1615 at 57). The
+     in-try `catch { bad('the check itself', …) }` adds no site (that scan matches
+     the top-level throw line shape, not a bad() call). */
+  const EXPECTED_SITES = 59;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -570,8 +582,13 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `})().catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' ...) })`
      with an explicit STRING first argument on the `.catch(` line, confirmed
      quotable — a second catch/launch site in that one file (see the 57 note in
-     the finding-emit scan above; both scans count this line, for different reasons). */
-  const EXPECTED_CATCH_SITES = 34;
+     the finding-emit scan above; both scans count this line, for different reasons).
+     35 after kosmos#1652 added render-firstrun-scan-on-grant-1652.js, whose
+     single-line top-level crash catch (same Shape-A form as render-plus-blue-1615's,
+     added after an iteration-1 challenge NIT) is one catch/launch emit site,
+     confirmed quotable (a `FAIL  ... threw:` prefix the gate quotes). It is ALSO
+     counted once by the finding-emit scan above (59). */
+  const EXPECTED_CATCH_SITES = 35;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
