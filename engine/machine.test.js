@@ -1184,16 +1184,49 @@ test('#2304 Windows: a missing runner is attention and names the runner, never t
     'the Windows failure must not name tmux or a Homebrew path (tmux is not probed on win32)');
   assert.match(text, /the part that runs agents/,
     'the failure names the substrate a Windows box actually needs');
-  // KNOWN FOLLOW-UP (#2304 defect 2, macOS product copy on BOTH failure arms):
-  // the missing-runner remedy still reads "Download for macOS", and the
-  // unusable-path arm's detail names "the parts of macOS" and lists "a
-  // backslash" as forbidden (wrong on win32, where a backslash is a normal
-  // separator). Fixing either needs a platform branch in the copy PLUS the
-  // Windows download target (a #570 / product decision, and Josh owns the final
-  // phrasing), so both are flagged, not invented. The reported bug (runner
-  // PRESENT -> ok) is fixed without touching them, and threading `platform` into
-  // create.unusablePath below means a NORMAL win32 backslash path no longer even
-  // reaches the unusable arm (see the backslash test).
+  // #2304 defect 2 (NOW FIXED, was a KNOWN FOLLOW-UP): the missing-runner remedy
+  // must not point a Windows user at the macOS build.
+  assert.doesNotMatch(text, /Download for macOS|macOS/,
+    'the Windows missing-runner remedy must not name the macOS download');
+  assert.match(text, /The part that runs agents is not installed where Kosmos can use it/,
+    'win32 frames the remedy around the runner, not a Kosmos re-download (a Kosmos reinstall would not put back a missing runner)');
+});
+
+test('#2304 defect-2 CONTROL: the macOS missing-runner remedy is byte-unchanged (still "Download for macOS")', () => {
+  // The fix is win32-scoped; darwin must keep Josh's existing wording verbatim.
+  // If the win32 remedy had leaked to darwin, this reds.
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  // (On darwin, Claude Code is informational, not required, so a missing claude is
+  // still OK -- #979. The remedy string only appears on a REAL macOS failure; assert
+  // it via a genuinely-missing REQUIRED part: tmux.)
+  const tmuxGone = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
+  assert.equal(tmuxGone.state, 'attention');
+  assert.match(tmuxGone.detail, /open installkosmos\.com and click Download for macOS/,
+    'macOS keeps the exact existing remedy wording');
+  assert.equal(got.state, 'ok', 'a darwin GPT-only box is unaffected (#979 control)');
+});
+
+test('#2304 defect-2 Windows: the unusable-path arm names no macOS and no backslash', () => {
+  // A win32 path carrying a QUOTE still reaches the unusable arm (create.unusablePath
+  // forbids a quote on every platform; only the backslash is POSIX-only, #1889). Its
+  // detail must not say "the parts of macOS" and must not list "a backslash" as
+  // forbidden -- on win32 a backslash is the normal separator.
+  const got = machine.installedCheck({ platform: 'win32', claudeBin: 'C:\\Program Files\\cl"aude\\claude.exe', tmuxBin: REAL_BIN });
+  assert.equal(got.state, 'attention', 'a quoted path is unusable on every platform');
+  assert.match(got.detail, /The path set for/, 'it is the unusable-path arm');
+  assert.doesNotMatch(got.detail, /the parts of macOS|a backslash|macOS/,
+    'the win32 unusable-path detail must not name macOS or forbid a backslash');
+  assert.match(got.detail, /the part of this computer that starts an agent/,
+    'the win32 noun is platform-correct');
+  assert.match(got.detail, /A quote or a line break/,
+    'the win32 forbidden-character list omits the backslash');
+});
+
+test('#2304 defect-2 CONTROL: the macOS unusable-path arm is byte-unchanged (macOS + backslash)', () => {
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/opt/home"brew/bin/tmux' });
+  assert.equal(got.state, 'attention', 'a quoted path is unusable on macOS too');
+  assert.match(got.detail, /A quote, a backslash or a line break in a path is something we will not pass on to the parts of macOS that start an agent/,
+    'macOS keeps the exact existing unusable-path wording');
 });
 
 test('#2304 Windows: a backslash runner path is classified MISSING, not UNUSABLE (unusablePath is injected)', () => {
