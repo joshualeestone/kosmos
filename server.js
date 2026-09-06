@@ -959,7 +959,8 @@ function safeRoster() {
  *
  * 🔑 THE LAST-OCCURRENCE-WINS OWNERSHIP relies on createAgentInner refusing a
  * create while a name is on the removed list -- so a live name's owner is its
- * newest 'created' birth. That refusal (create.js isRemoved) compares by cleanName,
+ * newest 'created' birth. That refusal (createAgentInner in create.js, via
+ * remove.isRemoved) compares by cleanName,
  * which matches for the slug-addressed removals the frontend actually produces (the
  * normal path). It is NOT proven airtight for an arbitrary non-slug-shaped removal
  * record; that pre-existing edge would at worst UNDER-count here (permissive), and
