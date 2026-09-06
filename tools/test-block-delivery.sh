@@ -47,6 +47,34 @@ case "$out" in
   *) bad "partial case misread: $(printf '%s' "$out" | grep colleagues)" ;;
 esac
 
+# 🔑 CODEX AGENTS BOOT AGENTS.md, NOT CLAUDE.md (#2245/#2259). A CLAUDE.md-only
+# reader silently OMITS them -- the exact population #2245 added -- and reports a
+# false clean. This arm is the regression guard: a claude agent that HAS the block
+# and a codex agent (AGENTS.md, no CLAUDE.md) that LACKS it. The fix must see BOTH,
+# so colleagues reads UNDELIVERED to 1. The OLD code saw only the claude agent and
+# read "delivered to all entitled" -- vacuously green while blind to the codex agent.
+mkdir -p "$T/codex/claudey" "$T/codex/codexy"
+printf '# agent\n<!-- kosmos:colleagues:start -->\nx\n<!-- kosmos:colleagues:end -->\n' > "$T/codex/claudey/CLAUDE.md"
+printf '# agent\nnothing here\n' > "$T/codex/codexy/AGENTS.md"
+out="$(run "$T/codex")"
+case "$out" in
+  *"2 agents"*) ok "a codex agent (AGENTS.md, no CLAUDE.md) is SEEN, not silently omitted" ;;
+  *) bad "the codex agent was omitted; fleet count is not 2: $(printf '%s' "$out" | grep '^fleet:')" ;;
+esac
+case "$out" in
+  *"colleagues"*"UNDELIVERED to 1"*) ok "a block missing from a codex agent's AGENTS.md is caught, not false-cleaned" ;;
+  *) bad "codex undelivered misread (old CLAUDE.md-only code would say delivered-to-all): $(printf '%s' "$out" | grep colleagues)" ;;
+esac
+
+# --- a codex agent that HAS the block reads as delivered (AGENTS.md is READ) --
+mkdir -p "$T/codexfull/codexy"
+printf '# agent\n<!-- kosmos:colleagues:start -->\nx\n<!-- kosmos:colleagues:end -->\n' > "$T/codexfull/codexy/AGENTS.md"
+out="$(run "$T/codexfull")"
+case "$out" in
+  *"colleagues"*"delivered to all entitled"*) ok "a block present in a codex agent's AGENTS.md reads as delivered (the file is actually read)" ;;
+  *) bad "codex AGENTS.md content not read: $(printf '%s' "$out" | grep colleagues)" ;;
+esac
+
 # 🔑 THE DISTINCTION THIS TOOL EXISTS FOR. `you` has no record on this machine,
 # so its absence must NOT be reported as undelivered. If this arm ever fails,
 # the tool has started counting absences again.

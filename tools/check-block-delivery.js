@@ -11,7 +11,9 @@
  *
  * ⭐ SAME SHAPE AS `exit 0` MEANING SUBMITTED RATHER THAN DELIVERED. The
  * sender's success is not the receiver's state, and only the receiver can say.
- * This reads the receiver: the agent CLAUDE.md files themselves.
+ * This reads the receiver: the agent brief files themselves -- CLAUDE.md for a
+ * claude agent, AGENTS.md for a codex agent (#2245/#2259), each read from the
+ * file that agent actually boots from.
  *
  *   node tools/check-block-delivery.js
  *
@@ -34,6 +36,22 @@ const REPO = path.join(__dirname, '..');
 const projects = require(path.join(REPO, 'engine', 'projects.js'));
 
 const WORKERS = process.env.KOSMOS_WORKERS_DIR || path.join(process.env.HOME || '', 'work', 'workers');
+
+/* An agent's brief is the file it BOOTS from: AGENTS.md for a codex agent,
+   CLAUDE.md for a claude agent (engine/create.js briefFilename). Before #2245
+   every agent booted CLAUDE.md; a codex agent now boots AGENTS.md and has no
+   CLAUDE.md (#2245), so reading only CLAUDE.md silently OMITS exactly the
+   population #2245 added -- the most reassuring possible way to be blind, and
+   the same false-clean this tool exists to prevent. Resolve the real brief per
+   agent: AGENTS.md if present (matching engine/discover.js, which prefers it),
+   else CLAUDE.md; null if the folder is not an agent. */
+function briefPath(dir) {
+  for (const fn of ['AGENTS.md', 'CLAUDE.md']) {
+    const p = path.join(dir, fn);
+    try { if (fs.statSync(p).isFile()) return p; } catch { /* try the next brief name */ }
+  }
+  return null;
+}
 
 /* Whether each block currently has ANYTHING to deliver. Asked of the source of
    truth, never inferred from the agents' files -- inferring it from the thing
@@ -70,7 +88,7 @@ const names = ['projects', 'you', 'reports', 'connections', 'policy', 'doctrine'
 
 let agents;
 try {
-  agents = fs.readdirSync(WORKERS).filter((d) => { try { return fs.statSync(path.join(WORKERS, d, 'CLAUDE.md')).isFile(); } catch { return false; } });
+  agents = fs.readdirSync(WORKERS).filter((d) => briefPath(path.join(WORKERS, d)) !== null);
 } catch (e) {
   console.error('FAIL  cannot read ' + WORKERS + ' (' + e.code + '); nothing below would describe the fleet');
   process.exit(2);
@@ -79,11 +97,11 @@ try {
 /* 🔑 A FLOOR ON THE POPULATION. With zero agent files every block reads as
    delivered-to-all, which is the most reassuring possible way to be blind. */
 if (!agents.length) {
-  console.error('FAIL  no agent CLAUDE.md files under ' + WORKERS + '; every verdict below would be vacuous');
+  console.error('FAIL  no agent brief files (CLAUDE.md or AGENTS.md) under ' + WORKERS + '; every verdict below would be vacuous');
   process.exit(2);
 }
 
-const text = Object.fromEntries(agents.map((a) => [a, fs.readFileSync(path.join(WORKERS, a, 'CLAUDE.md'), 'utf8')]));
+const text = Object.fromEntries(agents.map((a) => [a, fs.readFileSync(briefPath(path.join(WORKERS, a)), 'utf8')]));
 /* 🔑 NAME BOTH SUBJECTS, NOT JUST ONE (Ice Cream Kitty's rule, 2026-08-27:
    publish the query with the count, the endpoint with the reading). This tool
    reads TWO different things -- the agents' files, and the ENGINE that says
