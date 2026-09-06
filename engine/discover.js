@@ -37,6 +37,10 @@ const status = require('./status');
 const codexsession = require('./codexsession');
 const geminisession = require('./geminisession');
 const store = require('./store');
+// #8: the SAME best-effort H1-name extraction the import parse uses, so the
+// found-files list and the import form agree on a role-first-under-`# Name` file
+// (agentfile requires no engine module, so this is a clean one-way dependency).
+const agentfile = require('./agentfile');
 
 /* "Dismiss this forever" (Josh, 2026-08-24 17:06): the board's found-agents
    block can be sent away for good. The flag lives on disk beside the app's
@@ -1038,7 +1042,11 @@ function scan(opts) {
           if ((id && id.displayName) || INTRODUCES.test(text)) {
             byFile.set(freal, {
               file,
-              name: (id && id.displayName) || '',
+              // #8: fall back to the H1 heading when the intro line names nobody the
+              // parser can read (a `# Pip` file with a role-first intro), so this row
+              // shows "Pip" -- matching what the import form prepopulates -- instead of
+              // "an agent file with no name in it".
+              name: (id && id.displayName) || agentfile.headingName(text) || '',
               role: (id && id.role) || null,
               preview: text,
             });

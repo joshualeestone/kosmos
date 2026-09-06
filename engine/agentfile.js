@@ -134,6 +134,32 @@ function suggestName(displayName, deps) {
    not match. */
 const INTRODUCES = /^[ \t]*(?:#+[ \t]*)?You are\s/mi;
 
+/* #8 (Josh 0.6.40 re-test): a best-effort name from the file's FIRST markdown H1
+   heading -- the CLAUDE.md convention (`# Pip`). When the "You are ..." line names
+   nobody the strict parser can read (a role-first intro under a `# Pip` heading),
+   the name is almost always the heading, and Josh's re-test imported exactly such a
+   file and got a BLANK name input. This lets the offer-to-name branch PREPOPULATE
+   that heading instead of leaving the field empty (still editable -- the person
+   confirms). Skips a heading that is itself the intro line (`# You are X`):
+   identityFromText already handles those, and "You are X" is not a name. Returns ''
+   for a file with no usable H1 (the bare "You are angel" / role-first "named Krang"
+   #4 cases), so those stay offer-to-name with an empty name, unchanged. */
+function headingName(src) {
+  /* Strip fenced code blocks first: a `# heading` inside ``` is code, not the file's
+     title, and must not be mistaken for the agent's name. */
+  const text = String(src == null ? '' : src).replace(/```[\s\S]*?```/g, '');
+  /* The first H1 specifically (`# Name`) -- exactly one `#` then a space, so a `##`
+     subsection heading above the name (e.g. `## Overview`) is not taken instead. */
+  const m = text.match(/^[ \t]*#[ \t]+(.+?)[ \t]*$/m);
+  if (!m) return '';
+  /* Strip inline emphasis: `**bold**`, `` `code` ``, and leading/trailing `*`/`_`
+     wrappers (a mid-word underscore in a name is left alone). */
+  const raw = m[1].replace(/\*\*/g, '').replace(/`/g, '').replace(/^[*_]+|[*_]+$/g, '').trim();
+  if (!raw || /^You are\b/i.test(raw)) return '';  // an intro line is not a name
+  const sv = safeValue(raw);
+  return (sv && sv.length <= MAX_DISPLAY) ? sv : '';
+}
+
 function importFromInstructions(src, deps) {
   const identity = deps.identityFromText(src);
   if (!identity || !identity.displayName) {
@@ -144,6 +170,15 @@ function importFromInstructions(src, deps) {
        person name it, rather than rejecting a real agent for a format nit. This is
        the import twin of discovery's introduces-but-unnamed rule. */
     if (INTRODUCES.test(src)) {
+      /* #8: prepopulate the detected name from the H1 heading when the intro line
+         did not yield a clean one, rather than leaving the create form's name blank
+         (Josh's 0.6.40 re-test). Still needsName:true -- a best-effort from a heading
+         is a prefill the person confirms, not a settled parse. A file with no usable
+         heading falls through to the empty offer-to-name, exactly as before. */
+      const heading = headingName(src);
+      if (heading) {
+        return { ok: true, name: suggestName(heading, deps), displayName: heading, provider: null, body: src, recognizedFromContent: true, needsName: true };
+      }
       return { ok: true, name: '', displayName: '', provider: null, body: src, recognizedFromContent: true, needsName: true };
     }
     /* Genuinely not an agent file: nothing introduces an agent. Name the wrong KIND
@@ -390,4 +425,4 @@ function importAgent(text, deps) {
   return { ok: true, name, displayName, provider: provider || null, body };
 }
 
-module.exports = { exportAgent, importAgent, IMPORT_CONTRACT, MARK, KIND };
+module.exports = { exportAgent, importAgent, headingName, IMPORT_CONTRACT, MARK, KIND };
