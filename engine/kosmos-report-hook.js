@@ -228,16 +228,23 @@ async function deliver(report, io) {
   }
 }
 
-/** The throttle key: TMUX_PANE if present (there is none on native Windows),
- *  else a HASH of the per-launch agent token, else a constant. The token is
- *  hashed, never used verbatim: the key becomes a marker FILENAME under %TEMP%,
- *  and #1970 keeps the credential off enumerable surfaces -- a hash gives a
- *  stable per-agent throttle without writing the secret to disk. */
-function throttleKey(env) {
+/** The throttle key, most-specific first: TMUX_PANE if present (there is none on
+ *  native Windows), else a HASH of the per-launch agent token (hashed, never
+ *  verbatim: the key is a marker FILENAME under %TEMP% and #1970 keeps the
+ *  credential off enumerable surfaces), else the PARENT pid.
+ *  🛑 The final fallback is `ppid`, NOT a shared constant: on win32 a launch
+ *  whose token-mint failed carries no token (engine/win32create), so a shared
+ *  'nopane' key would collapse every such agent onto one mark file and let one
+ *  agent's PreToolUse throttle another's. The Claude Code session process is the
+ *  hook's parent and is stable across a session's hook fires but distinct per
+ *  agent, so ppid isolates them. 'nopane' remains only for the truly-unknowable
+ *  case (no pane, no token, no ppid). */
+function throttleKey(env, ppid) {
   const pane = env && env.TMUX_PANE;
   if (pane) return String(pane).replace(/[^A-Za-z0-9_-]/g, '_');
   const tok = env && env.KOSMOS_AGENT_TOKEN;
   if (tok) return 'a' + crypto.createHash('sha256').update(String(tok)).digest('hex').slice(0, 16);
+  if (typeof ppid === 'number' && ppid > 0) return 'p' + ppid;
   return 'nopane';
 }
 
@@ -245,7 +252,7 @@ function throttleKey(env) {
  *  per key. A state change resets the mark (see main). now()/dir are injectable. */
 function heartbeatDue(io) {
   const dir = io.throttleDir;
-  const mark = path.join(dir, throttleKey(io.env));
+  const mark = path.join(dir, throttleKey(io.env, io.ppid));
   try { fs.mkdirSync(dir, { recursive: true }); } catch { return true; }
   try {
     const last = Number(fs.readFileSync(mark, 'utf8')) || 0;
@@ -256,10 +263,10 @@ function heartbeatDue(io) {
 }
 
 function resetMark(io) {
-  try { fs.rmSync(path.join(io.throttleDir, throttleKey(io.env)), { force: true }); } catch { /* best effort */ }
+  try { fs.rmSync(path.join(io.throttleDir, throttleKey(io.env, io.ppid)), { force: true }); } catch { /* best effort */ }
 }
 function setMark(io) {
-  try { fs.mkdirSync(io.throttleDir, { recursive: true }); fs.writeFileSync(path.join(io.throttleDir, throttleKey(io.env)), String(io.now())); } catch { /* best effort */ }
+  try { fs.mkdirSync(io.throttleDir, { recursive: true }); fs.writeFileSync(path.join(io.throttleDir, throttleKey(io.env, io.ppid)), String(io.now())); } catch { /* best effort */ }
 }
 
 /**
@@ -274,7 +281,10 @@ async function main(io) {
   const stdout = o.stdout || ((s) => process.stdout.write(s));
   const now = o.now || (() => Math.floor(Date.now() / 1000));
   const throttleDir = o.throttleDir || path.join(os.tmpdir(), 'kosmos-report-throttle');
-  const ctx = { env, now, throttleDir };
+  // ppid isolates the throttle per agent-session when there is no pane/token
+  // (win32 mint-failure case); injectable for tests.
+  const ppid = typeof o.ppid === 'number' ? o.ppid : process.ppid;
+  const ctx = { env, now, throttleDir, ppid };
 
   const evt = parseInput(o.input);
   const event = field(evt, 'hook_event_name');
@@ -338,28 +348,40 @@ function safeUid() {
   catch { return -1; }
 }
 
+/**
+ * Wire a stdin stream: accumulate `data`, and on END or ERROR call `onDone(input)`
+ * exactly once. Extracted + exported so the error path is unit-testable.
+ * 🛑 The `error` listener is load-bearing: a stdin stream error (broken pipe /
+ * reset) with NO listener is thrown as an uncaught exception in Node and crashes
+ * the process non-zero, which would break the agent -- the one outcome the
+ * fail-safe contract forbids. Routing error through the same once-only onDone
+ * keeps every path resolving to exit 0. Returns { finishNow } so a stdin that
+ * never ends can be forced (the backstop timer). */
+function attachStdin(stream, onDone) {
+  let input = '';
+  let done = false;
+  const finish = () => { if (done) return; done = true; onDone(input); };
+  if (stream.setEncoding) stream.setEncoding('utf8');
+  stream.on('data', (d) => { input += d; });
+  stream.on('end', finish);
+  stream.on('error', finish);
+  return { finishNow: finish };
+}
+
 module.exports = {
   parseInput, field, reportFor, buildBody, resolvePort, resolveUrl,
-  readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue, main,
+  readBoardToken, agentToken, deliver, timeoutFor, throttleKey, heartbeatDue,
+  attachStdin, main,
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 
 /* Run only when invoked directly (Claude Code runs `"<node>" "<this>"`); a
-   require() in a test never triggers a network send. stdin is the event JSON. */
+   require() in a test never triggers a network send. stdin is the event JSON.
+   attachStdin fires `run` once (on end OR error); the unref'd timer is the
+   backstop for a stdin that never ends -- finishNow shares attachStdin's
+   once-guard, so run cannot fire twice regardless of timing. */
 if (require.main === module) {
-  let input = '';
-  let started = false;
-  // Run main AT MOST ONCE: stdin `end` is the normal path; the unref'd timer is
-  // a backstop for a stdin that never ends. A run-once flag keeps the two from
-  // both firing regardless of how DEFAULT_TIMEOUT_MS and the 10s guard compare
-  // (so a later timeout bump cannot resurrect a double send).
-  const run = () => {
-    if (started) return;
-    started = true;
-    main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0));
-  };
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', (d) => { input += d; });
-  process.stdin.on('end', run);
-  setTimeout(run, 10000).unref();
+  const run = (input) => main({ input }).then((code) => process.exit(code || 0)).catch(() => process.exit(0));
+  const h = attachStdin(process.stdin, run);
+  setTimeout(() => h.finishNow(), 10000).unref();
 }

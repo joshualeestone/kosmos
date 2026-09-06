@@ -282,6 +282,13 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
   assert.equal(reporthook.unsafeForCommand('C:\\a$env.js', 'win32'), true, 'PowerShell $ must be refused pending the real-win32 shell');
   assert.equal(reporthook.unsafeForCommand('/a/b$x.sh', 'linux'), true);
   assert.equal(reporthook.unsafeForCommand('/a/b.sh', 'linux'), false);
+  // cmd.exe/PowerShell metacharacters that ARE quote-protected must NOT be
+  // refused -- especially `()`, since C:\Program Files (x86)\ is a normal path
+  // and refusing it would break the common case.
+  assert.equal(reporthook.unsafeForCommand('C:\\Program Files (x86)\\Kosmos\\app\\engine\\kosmos-report-hook.js', 'win32'), false,
+    'the Program Files (x86) path must be allowed');
+  assert.equal(reporthook.unsafeForCommand('C:\\a&b^c|d<e>f.js', 'win32'), false,
+    'quote-protected cmd.exe metacharacters must not be refused');
   assert.equal(reporthook.unsafeForCommand(null, 'win32'), true, 'a non-string is unsafe, not a throw');
 });
 

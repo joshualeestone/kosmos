@@ -19,6 +19,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const hook = require('./kosmos-report-hook');
 const store = require('./store');
+const attachStdinFor = hook.attachStdin;
 
 const evt = (name, extra) => JSON.stringify({ hook_event_name: name, ...(extra || {}) });
 
@@ -243,4 +244,47 @@ test('main throttles PreToolUse: the first heartbeat fires, an immediate second 
   await hook.main({ input: evt('PreToolUse', { tool_name: 'Edit' }), ...base });
   await hook.main({ input: evt('PreToolUse', { tool_name: 'Edit' }), ...base });
   assert.equal(n, 1, 'the second PreToolUse within the window must be throttled');
+});
+
+const EventEmitter = require('node:events');
+
+test('attachStdin fires onDone once on END, accumulating data', () => {
+  const s = new EventEmitter(); s.setEncoding = () => {};
+  let got = null; let calls = 0;
+  attachStdinFor(s, (input) => { got = input; calls += 1; });
+  s.emit('data', '{"a":'); s.emit('data', '1}'); s.emit('end'); s.emit('end');
+  assert.equal(got, '{"a":1}');
+  assert.equal(calls, 1, 'onDone must fire exactly once');
+});
+
+test('attachStdin routes a stdin ERROR through onDone (exit-0 path), never an uncaught throw', () => {
+  // A stdin error with no listener crashes Node non-zero -> breaks the agent.
+  const s = new EventEmitter(); s.setEncoding = () => {};
+  let calls = 0;
+  attachStdinFor(s, () => { calls += 1; });
+  // If no 'error' listener were attached, this emit would THROW here.
+  assert.doesNotThrow(() => s.emit('error', new Error('EPIPE')));
+  assert.equal(calls, 1, 'an error must still finish once, so the process can exit 0');
+  // And a later end does not double-fire.
+  s.emit('end');
+  assert.equal(calls, 1);
+});
+
+test('attachStdin finishNow forces completion for a stdin that never ends, once', () => {
+  const s = new EventEmitter(); s.setEncoding = () => {};
+  let calls = 0;
+  const h = attachStdinFor(s, () => { calls += 1; });
+  h.finishNow(); h.finishNow(); s.emit('error', new Error('x'));
+  assert.equal(calls, 1, 'finishNow + a later error must not double-fire');
+});
+
+test('throttleKey isolates by ppid when there is no pane and no token (no shared nopane collision)', () => {
+  assert.equal(hook.throttleKey({}, 4321), 'p4321');
+  assert.notEqual(hook.throttleKey({}, 4321), hook.throttleKey({}, 8765), 'different agent sessions must not collide');
+  // 'nopane' only when there is truly nothing to key on.
+  assert.equal(hook.throttleKey({}, 0), 'nopane');
+  assert.equal(hook.throttleKey({}), 'nopane');
+  // A token still wins over ppid (more specific), and a pane over both.
+  assert.match(hook.throttleKey({ KOSMOS_AGENT_TOKEN: 'abcd' }, 4321), /^a/);
+  assert.equal(hook.throttleKey({ TMUX_PANE: '%1' }, 4321), '_1');
 });

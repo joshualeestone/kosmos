@@ -105,17 +105,23 @@ function entryFor(scriptPath, opts) {
  * for that platform. posix (the value rides inside a double-quoted `bash`
  * command in sh): a quote, backslash, dollar or backtick would break out of or
  * execute inside the command. win32 (the value rides inside a double-quoted
- * command): the double-quote ends the quoting; `%` is cmd.exe variable
- * expansion; and `$`/backtick are live inside a PowerShell double-quoted string.
- * We do NOT yet know which shell Claude Code uses to run a hook on Windows, so
- * the win32 set is the CONSERVATIVE SUPERSET of cmd.exe AND PowerShell -- over-
- * refusing a path with one of these degrades to falling back to scraping, which
- * is safe, whereas under-refusing could execute an injected fragment. A
- * backslash is NOT included: it is the ordinary Windows separator, so the posix
- * guard's `\\` would refuse every real Windows path. (The box's real-win32
- * verify confirms the invocation shell; this set can be relaxed to just `["%]`
- * if it turns out to be cmd.exe only.) Type-safe: a non-string is unsafe rather
- * than throwing on `.test`.
+ * command, which is how entryFor builds it): the value that matters is what can
+ * break OUT of or expand INSIDE the surrounding double quotes.
+ *   - `"` ends the quoting (both shells).
+ *   - `%` is cmd.exe variable expansion, which happens even inside double quotes.
+ *   - `` ` `` and `$` are live inside a PowerShell double-quoted string.
+ * The classic cmd.exe metacharacters `& | < > ^ ( )` are NOT included, and that
+ * is deliberate, not an omission: inside a double-quoted argument they are
+ * literal, so they cannot start a command -- and `( )` in particular MUST be
+ * allowed, because `C:\Program Files (x86)\...` is a completely ordinary install
+ * path and refusing it would break the common case to defend against a hazard
+ * the quotes already neutralize. We do not yet know which shell Claude Code uses
+ * to run a hook on Windows, so this is the conservative superset of the two
+ * plausible DOUBLE-QUOTED contexts (cmd.exe: `"`,`%`; PowerShell: `"`,`` ` ``,`$`);
+ * the box's real-win32 verify confirms the shell, and the set relaxes to `["%]`
+ * if it is cmd.exe only. A backslash is excluded (the ordinary Windows
+ * separator; the posix `\\` would refuse every real path). Type-safe: a
+ * non-string is unsafe rather than throwing on `.test`.
  */
 function unsafeForCommand(s, plat) {
   if (typeof s !== 'string') return true;
