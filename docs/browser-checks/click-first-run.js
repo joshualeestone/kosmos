@@ -137,21 +137,25 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     console.log('   ...clicking through every step, in the pack\'s order');
     ok(/Get Started/.test(await page.locator('#fr-next').textContent()), 'the Welcome primary is Get Started');
 
-    // Walk to the Success screen (step 7) by content and prove the LIVE
-    // app-location route paints there (the reveal + the ruled Dock line).
-    await advanceToAnchor(page, '#fr-return');
-    ok((await activeHead(page)) === 'Kosmos is now installed and configured.', 'reached the Success screen (S7)');
-    await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
-    const successText = await page.locator('#fr-return').textContent();
-    /* 🔑 THE DOCK LINE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
+    // Walk to the Success screen (step 7) by content. #12 (0.6.39): it is now a
+    // FIXED STATIC screen -- no app-location look, no reveal button, no machine
+    // dependency. Assert the ruled copy and the ABSENCE of the removed subsystem.
+    await advanceToAnchor(page, '#fr-success');
+    ok((await activeHead(page)) === 'Kosmos is installed and configured.', 'reached the Success screen (S7)');
+    const successText = await page.locator('#fr-pane-7').textContent();
+    /* 🔑 THE DOCK GUIDANCE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
        render-first-run asserts it ABSENT on the fleet ending; this asserts it
        PRESENT here, and the pair is what stops it drifting or vanishing. */
-    ok(/Kosmos is already in your Dock, the strip of icons/.test(successText),
-      'the Success screen says the icon is already in the Dock (it auto-opened)');
-    ok(/Drag its icon to the far left/.test(successText),
-      'the Dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
-    ok(!/Checking where the Kosmos icon is/.test(successText), 'the live answer replaced the checking placeholder');
-    ok(!/right now/.test(successText), 'and it is the route\'s answer, not the could-not-ask fallback');
+    ok(/you will see Kosmos in your dock\./.test(successText),
+      'the Success screen tells the person they will see Kosmos in their dock');
+    ok(/Drag the Kosmos icon to the far left so it stays there and is easy to find later\./.test(successText),
+      'the dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
+    // The removed reveal subsystem must not be on the Success screen.
+    ok((await page.locator('#fr-s7-showwhere').count()) === 0, 'no static Show-me-where button');
+    ok((await page.locator('#fr-reveal').count()) === 0, 'no injected reveal button');
+    ok(!/Checking where the Kosmos icon is/.test(successText), 'no app-location check row');
+    // The real Kosmos app icon is in the dock illustration, not a gold placeholder.
+    ok((await page.locator('#fr-pane-7 img.fc-k').count()) >= 1, 'the real Kosmos app icon renders in the dock tile');
 
     // On to About-you (step 8), reached by content. The gate IS the design (no
     // skip): Continue WAITS on the two required answers.
