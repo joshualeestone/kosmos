@@ -1,148 +1,167 @@
 # PR-C2 prep: install-flow Screen 6 "self-improving" consent switches (#2037 + #2020)
 
-**Status: PREP ONLY.** This is a ready-to-apply patch, staged here so that the
-moment Renet's 9-screen install flow lands on `main`, PR-C2 is a fast apply, not a
-from-scratch build. **Do NOT edit `web/index.html` until Renet's flow is merged**
-(collision rule: she owns the flow structure in `web/index.html`).
+**Status: PREP, FINALIZED against Renet's `install-flow-9screen` branch (2026-09-05).**
+This is the ready-to-apply BEHAVIOR patch. **Do NOT edit `web/index.html` until
+Renet's flow merges** (collision rule). Apply the moment `install-flow-9screen`
+lands on main (Splinter coordinates the merge order).
 
-Routed by Splinter (2026-09-05, from Josh's signed-off mock). Both backends already
-shipped (feedback #2037 via #2301/#2309; create-ping #2020 via #2283), so this is
-UI + wiring + tests only, no engine work.
+Routed by Splinter; structure hooks handed over by Renet (HEADS-UP 2026-09-05, full
+writeup on her branch at `.claude/plans/install-flow-9screen-PR.md`).
 
-## Spec (Josh's signed-off mock, via Splinter)
+## The split (confirmed with Renet)
 
-- eyebrow: `SELF IMPROVING`
-- headline: `Help make Kosmos work better for everyone`
-- toggle 1 (switch, default ON): `Have an agent send a daily report with any bugs or improvement suggestions.` [#2037 feedback]
-- toggle 2 (switch, default ON): `Let Kosmos know when you create an agent.` [#2020 create-ping]
-- bottom button: `Next`
-- Both are SWITCHES (not checkboxes), both default ON.
+- **Renet owns the MARKUP** and it is ALREADY on her branch (`web/index.html`
+  `fr-pane-6`, ~line 8099), STATIC in the DOM from first paint, hidden until step 6:
+  eyebrow "Self improving", headline "Help make Kosmos work better for everyone",
+  two `.s6-switch-row`s:
+  - `<span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0">` -- daily report (#2037)
+  - `<span class="s6-sw" id="fr-s6-createping" role="switch" aria-checked="true" tabindex="0">` -- create ping (#2020)
+  Both default `aria-checked="true"` (ON). **Mona's CSS paints off `aria-checked`**
+  (`.s6-sw[aria-checked="false"]` = grey + slider left; default = blue + slider right).
+- **Angel (me) owns the BEHAVIOR only**: the toggle handlers + the on-show refresh.
+  No markup to add. So this patch is JS + tests, applied onto her static markup.
 
-## Grounding (verified against origin/main at prep time)
+## Integration hooks (from Renet, against her real structure)
 
-- **Both backends default ON**: `/api/feedback-setting` (feedbacksend.read ENOENT -> on:true) and `/api/ping-setting` (ping.read ENOENT -> on:true, `engine/ping.js:75`). Unreadable -> off (the safe direction). So a Screen 6 switch reading either backend paints ON on a fresh install.
-- **Existing Settings switches to mirror** (web/index.html): `#feedback-toggle` (feedbackPaint / refreshFeedback / feedbackToggleClick, `/api/feedback-setting`) and `#tell-toggle` (tellPaint / refreshTell / tellToggleClick, `/api/ping-setting`). Shared helper `paintSwitch(togId, on)` (on===null -> hidden + aria stripped; the could-not-read state). Both carry an EPOCH counter (stale-fetch guard) + a SAVING guard + the privacy "could-not-read, never a false Off" treatment.
-- **Switch markup pattern**: `<div class="setrow" id="X-row"><div><b>title</b><p class="dhint">sub</p></div><button class="toggle" id="X-toggle" role="switch" aria-label="..." hidden><i></i></button></div>`.
-- **Install flow (`#firstrun`)**: `.fr-body` screens with `p.fc-eyebrow`, `h2`, `.fr-segs`/`.fr-seg` progress, `.fr-acts` actions row + `#fr-next`. Step counter `#fr-step` ("Step 1 of 6" today; Renet is expanding to 9). CSS scoped to `#firstrun`.
+1. **Container**: `#fr-pane-6`, 6th of 9 panes in `.fr-body` (Model=5, Success=7).
+   Switches are STATIC -> bind at module top-level (direct listeners on the two
+   ids, OR one delegated click+keydown on `#fr-pane-6`).
+2. **On-show hook**: the `frGo` `} else if (step === 6) {` branch (currently just
+   `frActions({ label: 'Next', go: () => frGo(7) })`). ADD `frRefreshFeedback()`
+   + `frRefreshPing()` in that branch (mirrors step 5's `frPaintSubscription()`),
+   so the switches reflect persisted state on show.
+3. **Next**: reuses the shared `#fr-next` via `frActions` in the step-6 branch.
+   No S6-specific control, no gate (Next always enabled -> Success/7).
 
-## The Screen 6 CONTENT markup (to drop into Renet's Screen 6 `.fr-body`)
+## The behavior JS (apply onto Renet's markup)
 
-Uses `fr-`-prefixed ids so it never collides with the Settings switches. The
-`.setrow`/`.toggle`/`.dhint` classes already exist; verify they render acceptably
-inside `#firstrun .fr-body` (they inherit the wizard's `#firstrun` scoping) or add
-a scoped rule.
-
-```html
-<p class="fc-eyebrow">SELF IMPROVING</p>
-<h2>Help make Kosmos work better for everyone</h2>
-<div class="setrow" id="fr-feedback-row">
-  <div><b>Have an agent send a daily report with any bugs or improvement suggestions.</b></div>
-  <button class="toggle" id="fr-feedback-toggle" role="switch" aria-label="Send a daily product-feedback report" hidden><i></i></button>
-</div>
-<div class="setrow" id="fr-ping-row" style="margin-top:12px;">
-  <div><b>Let Kosmos know when you create an agent.</b></div>
-  <button class="toggle" id="fr-ping-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
-</div>
-<p class="dhint" id="fr-consent-msg" role="status" style="margin:10px 0 0;"></p>
-<!-- The Next button is Renet's flow's advance control (#fr-next or her Screen-6
-     equivalent); this screen adds no button of its own. -->
-```
-
-## The JS wiring (mirror of the Settings switches, targeting the fr- ids)
-
-Reuses `paintSwitch` and the exact could-not-read / EPOCH / SAVING treatment. When
-Renet's flow SHOWS Screen 6, it must call `frRefreshFeedback()` and `frRefreshPing()`
-so the switches paint from the live backend (both default ON).
+Toggle = flip `aria-checked` "true"<->"false" (Mona's CSS renders it); click AND
+Space/Enter must toggle. On toggle, PUT the backend and reflect. Both backends
+default ON (verified: feedbacksend + `engine/ping.js:75` ENOENT->on:true), so a
+fresh install shows both ON.
 
 ```js
-/* PR-C2 (#2037 + #2020): the install-flow Screen-6 copies of the two consent
-   switches. Same backends as the Settings switches (/api/feedback-setting,
-   /api/ping-setting), same could-not-read-never-a-false-Off treatment; both
-   default ON, and these switches are the install-time opt-out. Separate ids
-   (fr-*) so the two live independently of the Settings row. */
-let FR_FEEDBACK_EPOCH = 0, FR_FEEDBACK_SAVING = false;
-function frFeedbackPaint(r) {
-  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
-  paintSwitch('fr-feedback-toggle', unread ? null : r.on === true);
-}
+/* PR-C2 (#2037 + #2020): behavior for install-flow Screen 6's two consent
+   switches. Renet's markup is static spans (#fr-s6-feedback / #fr-s6-createping,
+   role=switch, aria-checked). Same backends as the Settings switches
+   (/api/feedback-setting, /api/ping-setting); both default ON, these are the
+   install-time opt-out. Bound at top level because the spans exist from first
+   paint. */
+function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
+function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
+
+let FR_FB_EPOCH = 0, FR_FB_SAVING = false;
 async function frRefreshFeedback() {
-  const mine = ++FR_FEEDBACK_EPOCH;
+  const el = document.getElementById('fr-s6-feedback'); if (!el) return;
+  const mine = ++FR_FB_EPOCH;
   try {
     const res = await fetch('/api/feedback-setting');
-    if (!res.ok) { if (mine === FR_FEEDBACK_EPOCH) frFeedbackPaint(null); return; }
+    if (!res.ok) return;                       // could-not-read: leave the default-ON markup position
     const r = await res.json();
-    if (mine === FR_FEEDBACK_EPOCH) frFeedbackPaint(r);
-  } catch { if (mine === FR_FEEDBACK_EPOCH) frFeedbackPaint(null); }
+    if (mine === FR_FB_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
+  } catch { /* leave the default */ }
 }
-async function frFeedbackToggleClick() {
-  if (FR_FEEDBACK_SAVING) return; FR_FEEDBACK_SAVING = true;
-  const mine = ++FR_FEEDBACK_EPOCH;
-  const msg = document.getElementById('fr-consent-msg');
+async function frFeedbackToggle() {
+  const el = document.getElementById('fr-s6-feedback'); if (!el || FR_FB_SAVING) return;
+  FR_FB_SAVING = true; const mine = ++FR_FB_EPOCH;
+  const next = !frSwOn(el);
+  frSwSet(el, next);                            // optimistic; revert if the PUT fails
   try {
-    const on = document.getElementById('fr-feedback-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+    const res = await fetch('/api/feedback-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
     const body = await res.json().catch(() => ({}));
-    if (mine !== FR_FEEDBACK_EPOCH) return;
-    if (!res.ok) { if (msg) msg.textContent = body.error || 'We could not save that setting.'; return; }
-    frFeedbackPaint(body);
-  } catch { if (msg) msg.textContent = 'We could not save that setting.'; }
-  finally { FR_FEEDBACK_SAVING = false; }
+    if (mine !== FR_FB_EPOCH) return;
+    if (!res.ok) { frSwSet(el, !next); return; }
+    if (typeof body.on === 'boolean') frSwSet(el, body.on);
+  } catch { if (mine === FR_FB_EPOCH) frSwSet(el, !next); }
+  finally { FR_FB_SAVING = false; }
 }
 
 let FR_PING_EPOCH = 0, FR_PING_SAVING = false;
-function frPingPaint(r) {
-  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
-  paintSwitch('fr-ping-toggle', unread ? null : r.on === true);
-}
 async function frRefreshPing() {
+  const el = document.getElementById('fr-s6-createping'); if (!el) return;
   const mine = ++FR_PING_EPOCH;
   try {
     const res = await fetch('/api/ping-setting');
-    if (!res.ok) { if (mine === FR_PING_EPOCH) frPingPaint(null); return; }
+    if (!res.ok) return;
     const r = await res.json();
-    if (mine === FR_PING_EPOCH) frPingPaint(r);
-  } catch { if (mine === FR_PING_EPOCH) frPingPaint(null); }
+    if (mine === FR_PING_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
+  } catch { /* leave the default */ }
 }
-async function frPingToggleClick() {
-  if (FR_PING_SAVING) return; FR_PING_SAVING = true;
-  const mine = ++FR_PING_EPOCH;
-  const msg = document.getElementById('fr-consent-msg');
+async function frPingToggle() {
+  const el = document.getElementById('fr-s6-createping'); if (!el || FR_PING_SAVING) return;
+  FR_PING_SAVING = true; const mine = ++FR_PING_EPOCH;
+  const next = !frSwOn(el);
+  frSwSet(el, next);
   try {
-    const on = document.getElementById('fr-ping-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/ping-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on }) });
+    const res = await fetch('/api/ping-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
     const body = await res.json().catch(() => ({}));
     if (mine !== FR_PING_EPOCH) return;
-    if (!res.ok) { if (msg) msg.textContent = body.error || 'We could not save that setting.'; return; }
-    frPingPaint(body);
-  } catch { if (msg) msg.textContent = 'We could not save that setting.'; }
+    if (!res.ok) { frSwSet(el, !next); return; }
+    if (typeof body.on === 'boolean') frSwSet(el, body.on);
+  } catch { if (mine === FR_PING_EPOCH) frSwSet(el, !next); }
   finally { FR_PING_SAVING = false; }
 }
-document.getElementById('fr-feedback-toggle').addEventListener('click', frFeedbackToggleClick);
-document.getElementById('fr-ping-toggle').addEventListener('click', frPingToggleClick);
+
+// Static spans -> bind once at top level. Click + Space/Enter (role=switch a11y).
+(function bindS6Switches() {
+  const wire = (id, fn) => {
+    const el = document.getElementById(id); if (!el) return;
+    el.addEventListener('click', fn);
+    el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fn(); } });
+  };
+  wire('fr-s6-feedback', frFeedbackToggle);
+  wire('fr-s6-createping', frPingToggle);
+})();
 ```
 
-## Tests (model on web.feedback-switch-2037.test.js + web.firstrun-*.test.js)
+And in `frGo`'s step-6 branch (Renet's file), add the two refresh calls:
+```js
+  } else if (step === 6) {
+    frActions({ label: 'Next', go: () => frGo(7) });
+    frRefreshFeedback(); frRefreshPing();   // <-- PR-C2 add
+  }
+```
 
-A new `web.firstrun-consent-2037.test.js` should statically assert (these files are
-source-grep tests, not runtime DOM):
-1. The page carries `id="fr-feedback-toggle"` and `id="fr-ping-toggle"` as `role="switch"`.
-2. The eyebrow `SELF IMPROVING` and headline `Help make Kosmos work better for everyone` are present.
-3. Both toggle copies are present verbatim.
-4. `frFeedbackToggleClick` PUTs `/api/feedback-setting` and `frPingToggleClick` PUTs `/api/ping-setting`.
-5. Both paint via `paintSwitch` and use the could-not-read (`unread -> null`) treatment (no false Off).
-6. Screen 6 is refreshed on show: whatever hook Renet's flow exposes calls `frRefreshFeedback()` + `frRefreshPing()`.
-Plus a `browser-test`/render check (Screen 6 renders, both switches paint ON on a fresh board) once the flow exists.
+## Tests (new web.firstrun-consent-2037.test.js, source-grep style)
 
-## What I need from Renet's flow (FLAG to Splinter)
+1. `#fr-s6-feedback` and `#fr-s6-createping` exist as `role="switch"` with `aria-checked="true"` (default ON) -- guards against the markup regressing.
+2. The eyebrow "Self improving" and headline "Help make Kosmos work better for everyone" and both toggle copies are present verbatim.
+3. `frFeedbackToggle` PUTs `/api/feedback-setting`; `frPingToggle` PUTs `/api/ping-setting`.
+4. Both toggles flip `aria-checked` and bind BOTH click and keydown (Space/Enter).
+5. `frGo` step-6 branch calls `frRefreshFeedback()` + `frRefreshPing()`.
+Plus the render check: extend a firstrun/browser-check to drive to Screen 6 and assert both switches paint ON on a fresh board, and toggling flips them + persists (round-trips the backend).
 
-The prep above is self-contained EXCEPT three integration points that belong to her
-flow structure. I need these before the fast-apply:
-1. **The Screen 6 panel container** in her sequence (id / how the screen is defined) so I drop the content into the right `.fr-body`.
-2. **The "on show Screen 6" hook** so `frRefreshFeedback()` + `frRefreshPing()` fire when the screen appears (mirrors how the Settings switches refresh on the Settings tab opening).
-3. **The Next-button** on Screen 6 (is it `#fr-next` reused, or a Screen-6-specific control?) so nav wiring is correct.
-4. Coordinate the exact S6 surface with Mona's signed-off mock (#102).
+## Contract LOCKED - Option A (Renet + Splinter + Mona, 2026-09-05)
 
-## Flags raised (separate from PR-C2)
+- **Mona (design owner) CONFIRMED A** and corrected her earlier `.toggle` lean: the
+  install flow already uses the pill as its switch idiom (S3's `.s3-sw` and S6's
+  `.s6-sw` are the identical 38x22 blue pill), so intra-flow consistency (pill)
+  beats Settings-tab consistency (`.toggle`). The pill is the Josh-approved mock
+  visual AND the flow-consistent choice. Settled.
+- **Mona's implementation note (already satisfied by the JS above):** drive
+  `aria-checked` from the BACKEND READ (the EPOCH/SAVING/could-not-read treatment),
+  not a permanently hardcoded `aria-checked="true"` - so we keep "never a false
+  Off" and reflect the real setting, while still painting ON by default on a fresh
+  install (ENOENT -> on:true). `frRefreshFeedback`/`frRefreshPing` do exactly this
+  (GET -> set aria-checked from `r.on`, EPOCH-guarded; the toggle handlers carry
+  SAVING + optimistic-revert).
 
-- **Stale Settings copy**: the Settings `#tell-row` sub-copy still says create-ping is "Off by default", but `/api/ping-setting` now defaults ON (#2020/#2283, verified `engine/ping.js:75`). That is a Settings-copy fix, not PR-C2 — flag for whoever owns the Settings ping row.
-- **Disclosure line**: my #2037 report-revision (#2309) already scrubs project/agent/user names + adds the in-prompt no-identifiers rule, so the earlier "report body keeps names" disclosure concern is largely resolved. Any Screen-6 disclosure copy is Josh's mock-review call, not mine to write.
+### Could-not-read handling (resolved)
+
+The Settings switches HIDE on a 403 could-not-read; a static `.s6-sw` pill cannot
+hide. My refresh LEAVES the pill at its default-ON markup position on a
+could-not-read (non-ok GET or throw). That satisfies "never a false Off" (it never
+shows OFF while the engine may be sending - it shows the honest ON default), and
+Screen 6 only runs on a fresh LOCAL install board where the GET succeeds anyway.
+No distinct could-not-read visual is defined for the pill and none is needed here.
+
+Mona's weakest premise (a role=switch span is as robust as `.toggle`): the wiring
+above replicates every `.toggle` semantic on the span (aria-checked, click +
+Space/Enter, EPOCH/SAVING/optimistic-revert, PUT). No `.toggle`-specific guarantee
+is lost, so no revisit needed.
+
+## Side-flags (separate from PR-C2, already routed to Splinter)
+
+- Stale Settings `#tell-row` "Off by default" copy (create-ping defaults ON now):
+  being fixed separately on branch `tell-copy-onbydefault-2020` (Splinter routed it).
+- Disclosure copy: resolved by #2309's scrub; Josh's mock-review call.
