@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: install-flow-0639
-diff_hash: d53455dc47e57f62d2b05e98d78cca1aaf6c9c8a64f5e61745fcdce8e282558d
+diff_hash: 8b635a58fd7abdd4f7169a8435e4bdb53adf551a437c2781f7440f23d7b6ef28
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-06T16:41:00Z
@@ -11,6 +11,8 @@ converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
+
+> post-merge re-sync (2026-09-06): current main merged in (picks up #2340 + Renet's connect-confirm fix #2344); auto-merged web/index.html clean (no conflicts), re-verified full suite 4898/0 + the four browser-check gates 18/0 + syntax on the merged tree. diff_hash recomputed for the merged diff; the 4 fixes are byte-unchanged from convergence.
 
 **Iterations:** 2 blind passes (plus the initial + final validation gates)
 **Converged:** Yes (iteration 2 returned zero findings after iteration 1's were fixed)
