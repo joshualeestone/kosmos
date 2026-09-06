@@ -1,4 +1,4 @@
-# web-reconnect-2238 — wire the in-app Kosmos world-switch reconnect
+# web-reconnect-2238: wire the in-app Kosmos world-switch reconnect
 
 kosmos#2238 (the multiple-Kosmos SWITCH). This branch is the WEB half of the
 restart-on-switch feature. The server half landed in #2346 (PigeonPete): the fail-safe
@@ -13,15 +13,15 @@ pointer).
 `worldswSwitch` (web/index.html) now acts on the FINAL response instead of always
 showing a manual-restart banner:
 
-- **restarting:true** — the board is self-restarting now. Show "Switching Kosmos…",
+- **restarting:true**: the board is self-restarting now. Show "Switching Kosmos…",
   then `worldswReconnect` polls `GET /api/status.activeWorldId` every ~2s, treats a
   thrown fetch (connection refused while launchd relaunches) as keep-polling, and
   reloads once `activeWorldId` flips to the switched-to world. A ~150s ceiling falls
   back to the manual banner.
-- **restarting:false (with a real restartRequired)** — a from-source / unmanaged board
+- **restarting:false (with a real restartRequired)**: a from-source / unmanaged board
   that will not self-restart safely: the honest manual "restart Kosmos" banner, no
   auto-reconnect.
-- **restartRequired:false** — a no-op switch to the already-booted world: say it is
+- **restartRequired:false**: a no-op switch to the already-booted world: say it is
   already active, no restart, no poll.
 
 ## Why the poll keys on the booted world
@@ -30,7 +30,7 @@ showing a manual-restart banner:
 `/api/worlds.activeWorldId` (the registry) would false-succeed during the restart
 window, before the board reboots. `/api/status.activeWorldId` reports the world the
 LIVE board BOOTED into, which stays the OLD id until launchd relaunches onto the new
-world — so the poll cannot false-succeed. This is the race #2346's status change closed;
+world, so the poll cannot false-succeed. This is the race #2346's status change closed;
 the web side must key on it, and the browser check proves it observes the OLD id before
 the flip.
 
@@ -45,6 +45,6 @@ the flip.
 
 ## Follow-up (not this branch)
 
-End-to-end verification on a real INSTALLED board (the release gate) — the actual
+End-to-end verification on a real INSTALLED board (the release gate), the actual
 launchd stop/relaunch cannot be exercised on the shared box or in a hermetic file://
 check. Hand to PigeonPete once merged.

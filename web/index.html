@@ -16353,6 +16353,10 @@ let WORLDSW_SWITCHING = false;
 // exercise the flip deterministically without waiting real seconds.
 let WORLDSW_RECONNECT_INTERVAL_MS = 2000;
 let WORLDSW_RECONNECT_TIMEOUT_MS = 150000;
+// After this long with no reboot, the reconnect banner offers the manual restart as an
+// escape hatch (a silently-no-op'd self-restart would otherwise show a bare spinner for
+// the whole ceiling). `let` so a browser check can lower it.
+let WORLDSW_RECONNECT_SLOW_MS = 20000;
 async function worldswSwitch(id, name) {
   if (WORLDSW_SWITCHING) return;
   const banner = document.getElementById('worldsw-restart');
@@ -16442,10 +16446,19 @@ async function worldswSwitch(id, name) {
    BOOTED into (engine/worldenv.bootedWorld, NOT the registry pointer that flipped the
    instant the switch POSTed), so the poll cannot false-succeed before the board actually
    reboots onto the new world. On the confirmed flip, reload. A ~150s ceiling falls back
-   to the manual banner rather than polling forever. */
+   to the manual banner rather than polling forever.
+   SLOW GUIDANCE: the board self-restart is fire-and-forget, so if the server's
+   post-response selfRestart() no-ops (it re-checks canSelfRestart and may abort), the
+   board never reboots and nothing flips -- without a mid-poll signal the user would
+   watch a bare "Switching..." for the full ceiling. So once the poll has run past
+   WORLDSW_RECONNECT_SLOW_MS with no flip, update the banner ONCE to offer the manual
+   restart as an escape hatch while still polling (mirrors the #553 update flow's "slow"
+   verdict). The reload-on-flip behaviour is unchanged. */
 async function worldswReconnect(switchedId, switchedName, say) {
   say('Switching to ' + switchedName + '…');
-  const deadline = Date.now() + WORLDSW_RECONNECT_TIMEOUT_MS;
+  const start = Date.now();
+  const deadline = start + WORLDSW_RECONNECT_TIMEOUT_MS;
+  let slowShown = false;
   while (Date.now() < deadline) {
     await new Promise((r) => setTimeout(r, WORLDSW_RECONNECT_INTERVAL_MS));
     let booted = null;
@@ -16457,6 +16470,10 @@ async function worldswReconnect(switchedId, switchedName, say) {
       say('Switched to ' + switchedName + '. Reloading…');
       worldswReload();
       return;
+    }
+    if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
+      slowShown = true;
+      say('Still switching to ' + switchedName + '… this is taking longer than usual. If Kosmos does not come back on its own, restart it (run "kosmos restart", or restart your Mac).');
     }
   }
   say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, restart Kosmos (run "kosmos restart", or restart your Mac).');

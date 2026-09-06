@@ -95,6 +95,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         if (postMode === 'manual') {
           return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: true, restarting: false }) });
         }
+        if (postMode === 'restart-stuck') {
+          // restarting:true but the board's self-restart silently no-ops: the booted
+          // world NEVER flips (pendingReboot left false), so the poll runs to the slow
+          // threshold and then the timeout, and must never reload.
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: true, restarting: true }) });
+        }
         if (postMode === 'restart-norequire') {
           // Contract-INVALID shape (the server never sends restarting:true with
           // restartRequired:false), used to prove the client checks restarting BEFORE
@@ -224,7 +230,27 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       saidAlready: /already/i.test(bannerMsg()),
     };
 
-    return { before, afterRestarting, afterManual, afterNoop, afterInvalid };
+    // ---- Scenario E: restarting:true but the board never reboots (self-restart no-op) ----
+    // The banner must offer the manual escape hatch at the SLOW threshold, then land on
+    // the timeout fallback, and must NEVER reload.
+    registryActive = 'w1'; bootedActive = 'w1'; postMode = 'restart-stuck';
+    pendingReboot = false; rebootPollsSeen = 0; reloadCount = 0; statusObserved.length = 0;
+    WORLDSW_RECONNECT_SLOW_MS = 40;
+    WORLDSW_RECONNECT_TIMEOUT_MS = 500;
+    await worldsFetch(); await sleep(10);
+    const cE = await clickSide();
+    if (cE.error) return { error: cE.error };
+    const slowSeen = await waitFor(() => /taking longer than usual/i.test(bannerMsg()), 900);
+    const finalSeen = await waitFor(() => /taking a while to restart/i.test(bannerMsg()), 1500);
+    await sleep(30);
+    const afterStuck = {
+      slowSeen, finalSeen,
+      reloaded: reloadCount > 0,
+      polled: statusObserved.length,
+      guardReleased: (typeof WORLDSW_SWITCHING === 'boolean') ? WORLDSW_SWITCHING === false : null,
+    };
+
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck };
   });
 
   await browser.close();
@@ -265,6 +291,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (d.saidAlready) problems.push('restarting:true with restartRequired:false was mistaken for a no-op ("already active") -- the client must check restarting BEFORE noop');
     if (!d.reloaded) problems.push('restarting:true (even with restartRequired:false) must RECONNECT and reload -- the board is restarting');
     if (d.polled === 0) problems.push('restarting:true must poll /api/status to confirm the reboot, but it polled 0 times');
+
+    // Scenario E: restarting:true but the board never reboots -> slow guidance, timeout, no reload
+    const e = r.afterStuck;
+    if (!e.slowSeen) problems.push('a stuck restart should offer the manual restart at the slow threshold ("taking longer than usual"), but that guidance never appeared');
+    if (!e.finalSeen) problems.push('a stuck restart should land on the timeout fallback ("taking a while to restart") after the ceiling, but it did not');
+    if (e.reloaded) problems.push('a restart that never reboots must NOT reload (no false-success on a stuck board)');
+    if (e.polled === 0) problems.push('a stuck restart should have polled /api/status, but polled 0 times');
+    if (e.guardReleased === false) problems.push('WORLDSW_SWITCHING must be released after the reconnect times out (finally), but it is still held');
   }
 
   console.log('  ' + JSON.stringify(r));
