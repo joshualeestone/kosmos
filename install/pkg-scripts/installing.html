@@ -106,7 +106,15 @@
          page's to build alone; it needs an endpoint this standalone file
          does not have. Tracked separately rather than guessed at here. -->
     <p>Something is already running on this computer at the address Kosmos uses, so this page will not jump to it on its own. On a Mac with more than one person's account, this is often THEIRS, not yours.</p>
-    <p><a class="go" id="go" href="#">Open it anyway</a></p>
+    <!-- #2363: the manual browser link that used to sit here (a bare-URL anchor to
+         base+"/") is REMOVED. Under #2073 (app-only, no browser surface) it was
+         vestigial: clicking it lands cookie-less on a 403/empty board, or on the
+         FOREIGN board this very copy says is "often THEIRS, not yours" -- either way
+         not the user's dashboard. Their dashboard is the native app; the muted line
+         below already points there ("in Applications") and gives the safe-backout
+         for a wrong guess, so dropping the dead link leaves the branch complete
+         without a rewrite. (The wording of the old link is deliberately NOT quoted
+         here -- the install-page guard greps this file to prove the link is gone.) -->
     <p class="muted">If it is not yours, close it without changing anything. Your own copy of Kosmos is in Applications.</p>
   </div>
 </main>
@@ -362,7 +370,10 @@
         // A removal is two changes when a sentence has been split in two.
         document.getElementById("shape").style.display = "none";
         document.getElementById("hint").style.display = "none";
-        document.getElementById("go").href = base + "/";
+        // #2363: the manual browser link is gone (see the taken-branch markup), so
+        // there is no #go element to point at the bare board URL. Under #2073
+        // (app-only) that link was vestigial; the branch now points at the app, not
+        // a browser address, and this page never sends anyone onto a board.
         show("taken");
         return;
       }
