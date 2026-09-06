@@ -35,12 +35,14 @@ grep -q '\[ -s "\$WORK/origin-setup" \]' "$CHECK" \
 grep -q '\[ "\$LIVE_SHA" = "\$SRC_SHA" \] && ok' "$CHECK" \
   && ok "the primary comparison is equality-then-ok (served == source PASSES; an inverted =/!= or ok/bad swap would red this)" \
   || bad "the primary comparison is no longer '[ \$LIVE_SHA = \$SRC_SHA ] && ok' -- a =/!= inversion or ok/bad swap could pass silently (#2360)"
-# the DEGRADED fallback (origin/main unreadable) must never `ok` a local-tree MATCH: matching a
-# possibly-stale local does not confirm the deploy source, so an `ok` there is a silent-pass. Pin that
-# no `ok` verdict claims byte-identity to the LOCAL tree (the fallback reports UNPROVEN both ways).
-grep -q 'ok "served /setup is byte-identical to the LOCAL' "$CHECK" \
-  && bad "the fallback still passes (ok) on a local-tree match -- a silent-pass: a stale local equal to stale served reads as certified (#2360)" \
-  || ok "the degraded fallback never passes on a local match (it reports UNPROVEN, so it cannot green an unconfirmed served artifact)"
+# the DEGRADED fallback (origin/main unreadable) must report UNPROVEN, never `ok`, on a local-tree
+# MATCH: matching a possibly-stale local does not confirm the deploy source, so an `ok` there is a
+# silent-pass. POSITIVELY pin that the fallback match verdict IS `unp` (a negative absence-grep would
+# pass vacuously -- origin/main's pre-fix `ok` uses different wording, so it would miss both the old
+# bug and a future unp->ok flip). This positive pin reds against origin/main (no such `unp` line there).
+grep -q 'unp "served /setup matches the LOCAL' "$CHECK" \
+  && ok "the degraded fallback reports UNPROVEN (not ok) on a local match -- it cannot green an unconfirmed served artifact" \
+  || bad "the degraded fallback no longer reports UNPROVEN on a local match -- passing (ok) on a stale-local match is a silent-pass (#2360)"
 
 # ---- BEHAVIOURAL: the derivation reads the deploy source, not a stale local -------------------
 # Reproduce the exact #2360 condition in a real repo: origin/main:setup = A, local working /setup = B.
@@ -58,7 +60,9 @@ SHA_A="$(printf 'ORIGIN-SETUP-BYTES-A\n' | shasum -a 256 | awk '{print $1}')"
 SHA_B="$(shasum -a 256 "$T/site/setup" | awk '{print $1}')"
 [ "$SHA_A" != "$SHA_B" ] || bad "test setup invalid: A and B hash the same, so the test cannot discriminate"
 
-# the fix's exact derivation:
+# a faithful re-implementation of the fix's origin-vs-local derivation (the fetch here omits the
+# script's http.lowSpeedLimit/Time flags -- irrelevant to this local file:// fetch and to what this
+# discriminates; the script's real derivation is pinned by the static greps above):
 git -C "$T/site" fetch -q origin 2>/dev/null || true
 if git -C "$T/site" show origin/main:setup > "$T/origin-setup" 2>/dev/null && [ -s "$T/origin-setup" ]; then
   DERIVED="$(shasum -a 256 "$T/origin-setup" | awk '{print $1}')"
