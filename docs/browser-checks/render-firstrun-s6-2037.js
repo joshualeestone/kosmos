@@ -72,7 +72,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const realFetch = window.fetch;
     window.fetch = (url, opts) => {
       calls.push({ url: String(url), method: (opts && opts.method) || 'GET' });
-      return Promise.resolve({ ok: true, json: async () => ({ on: false, ok: true }) });
+      // Echo the requested state, like the real backend: a PUT {on:X} confirms {on:X}.
+      // (A canned constant would fight the optimistic flip on a toggle back to ON.)
+      let on = false;
+      try { on = !!JSON.parse((opts && opts.body) || '{}').on; } catch { /* GET: default */ }
+      return Promise.resolve({ ok: true, json: async () => ({ on, ok: true }) });
     };
 
     // Real bound CLICK on the feedback switch.
@@ -85,10 +89,20 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await new Promise((res) => setTimeout(res, 0));
     const afterPgSpace = rd(pg);
 
+    // Cover the OTHER modality on EACH switch (both are bound by the same wire()
+    // helper, but a regression could break one modality on one switch). Toggle each
+    // back: feedback via Enter keydown, create-ping via a real click.
+    fb.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((res) => setTimeout(res, 0));
+    const afterFbEnter = rd(fb);          // back to "true"
+    pg.click();
+    await new Promise((res) => setTimeout(res, 0));
+    const afterPgClick = rd(pg);          // back to "true"
+
     window.fetch = realFetch;
     const put = (u) => calls.some((c) => c.url.indexOf(u) !== -1 && c.method === 'PUT');
     return {
-      roles, initial, paneVisible, afterShow, afterFbClick, afterPgSpace,
+      roles, initial, paneVisible, afterShow, afterFbClick, afterPgSpace, afterFbEnter, afterPgClick,
       fbPut: put('/api/feedback-setting'), pgPut: put('/api/ping-setting'), calls,
     };
   });
@@ -108,6 +122,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.fbPut) problems.push('clicking the feedback switch sent no PUT to /api/feedback-setting');
     if (r.afterPgSpace !== 'false') problems.push('Space on the create-ping switch did not toggle it (keydown wiring absent?): aria-checked=' + r.afterPgSpace);
     if (!r.pgPut) problems.push('Space on the create-ping switch sent no PUT to /api/ping-setting');
+    if (r.afterFbEnter !== 'true') problems.push('Enter on the feedback switch did not toggle it back (the OTHER modality is unwired): aria-checked=' + r.afterFbEnter);
+    if (r.afterPgClick !== 'true') problems.push('clicking the create-ping switch did not toggle it back (the OTHER modality is unwired): aria-checked=' + r.afterPgClick);
   }
 
   console.log('  ' + JSON.stringify(r));
