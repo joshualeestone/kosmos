@@ -122,14 +122,94 @@ And in `frGo`'s step-6 branch (Renet's file), add the two refresh calls:
   }
 ```
 
-## Tests (new web.firstrun-consent-2037.test.js, source-grep style)
+## Tests -- READY TO APPLY (new file: web.firstrun-consent-prc2.test.js)
 
-1. `#fr-s6-feedback` and `#fr-s6-createping` exist as `role="switch"` with `aria-checked="true"` (default ON) -- guards against the markup regressing.
-2. The eyebrow "Self improving" and headline "Help make Kosmos work better for everyone" and both toggle copies are present verbatim.
-3. `frFeedbackToggle` PUTs `/api/feedback-setting`; `frPingToggle` PUTs `/api/ping-setting`.
-4. Both toggles flip `aria-checked` and bind BOTH click and keydown (Space/Enter).
-5. `frGo` step-6 branch calls `frRefreshFeedback()` + `frRefreshPing()`.
-Plus the render check: extend a firstrun/browser-check to drive to Screen 6 and assert both switches paint ON on a fresh board, and toggling flips them + persists (round-trips the backend).
+Source-grep style, modeled on web.feedback-switch-2037.test.js (page.scriptOf +
+page.lift + a codeOnly comment-stripper). `lift` handles `async function`
+declarations (my handlers are async function declarations -- liftable). The route
+round-trips live in server.test.js and the engine defaults in
+feedbacksend.test.js / ping.test.js; this file pins the S6 WIRING those cannot see.
+Drop it in verbatim when PR-C2 applies:
+
+```js
+'use strict';
+/**
+ * PR-C2 (#2037 + #2020): install-flow Screen 6 "self-improving" consent switches.
+ * Renet's install-flow-9screen ships the Screen 6 MARKUP (two s6-sw pill SPANS,
+ * #fr-s6-feedback / #fr-s6-createping, role=switch, aria-checked default-ON). This
+ * pins the BEHAVIOR PR-C2 wires in: the toggle handlers flip aria-checked and PUT
+ * the existing backends (/api/feedback-setting, /api/ping-setting), bind click +
+ * Space/Enter, and the frGo step-6 branch refreshes on show (paints default-ON).
+ */
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const nodePath = require('node:path');
+const page = require('./test-support/page');
+const RAW = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+const SCRIPT = page.scriptOf(RAW);
+const lift = (name) => page.lift(SCRIPT, name);
+function codeOnly(src) {
+  return src.replace(/<!--[\s\S]*?-->/g, '').replace(/\/\*[\s\S]*?\*\//g, '')
+    .split('\n').filter((l) => !/^\s*\/\//.test(l)).join('\n');
+}
+const PAGE = codeOnly(RAW);
+
+test('Screen 6 ships the two consent switches as default-ON role=switch spans', () => {
+  assert.match(PAGE, /id="fr-s6-feedback"[^>]*role="switch"[^>]*aria-checked="true"/, 'feedback switch missing or not default-ON');
+  assert.match(PAGE, /id="fr-s6-createping"[^>]*role="switch"[^>]*aria-checked="true"/, 'create-ping switch missing or not default-ON');
+});
+
+test('Screen 6 carries the signed-off eyebrow, headline and both switch copies', () => {
+  assert.match(PAGE, /Self improving/i, 'the eyebrow is missing');
+  assert.match(PAGE, /Help make Kosmos work better for everyone/, 'the headline is missing');
+  assert.match(PAGE, /Have an agent send a daily report with any bugs or improvement suggestions\./, 'the feedback copy is missing');
+  assert.match(PAGE, /Let Kosmos know when you create an agent\./, 'the create-ping copy is missing');
+});
+
+test('each toggle handler flips aria-checked and PUTs its own backend', () => {
+  const fb = lift('frFeedbackToggle');
+  assert.match(fb, /aria-checked|frSwSet/, 'the feedback toggle does not read/flip aria-checked');
+  assert.match(fb, /\/api\/feedback-setting/, 'the feedback toggle does not target /api/feedback-setting');
+  assert.match(fb, /method:\s*'PUT'/, 'the feedback toggle does not PUT');
+  const pg = lift('frPingToggle');
+  assert.match(pg, /aria-checked|frSwSet/, 'the ping toggle does not read/flip aria-checked');
+  assert.match(pg, /\/api\/ping-setting/, 'the ping toggle does not target /api/ping-setting');
+  assert.match(pg, /method:\s*'PUT'/, 'the ping toggle does not PUT');
+});
+
+test('each refresh drives the switch from the backend GET, guarding could-not-read (never a false Off)', () => {
+  const rf = lift('frRefreshFeedback');
+  assert.match(rf, /fetch\('\/api\/feedback-setting'\)/, 'the feedback refresh does not GET the backend');
+  assert.match(rf, /aria-checked|frSwSet/, 'the feedback refresh does not set the switch from the read');
+  assert.match(rf, /res\.ok/, 'the feedback refresh does not guard a non-ok read');
+  const rp = lift('frRefreshPing');
+  assert.match(rp, /fetch\('\/api\/ping-setting'\)/, 'the ping refresh does not GET the backend');
+  assert.match(rp, /aria-checked|frSwSet/, 'the ping refresh does not set the switch from the read');
+  assert.match(rp, /res\.ok/, 'the ping refresh does not guard a non-ok read');
+});
+
+test('both switches bind click AND keydown (a role=switch is keyboard-operable)', () => {
+  assert.match(PAGE, /'fr-s6-feedback'/, 'the feedback id is not wired in JS');
+  assert.match(PAGE, /'fr-s6-createping'/, 'the ping id is not wired in JS');
+  assert.match(PAGE, /addEventListener\('click'/, 'no click binding on the S6 switches');
+  assert.match(PAGE, /addEventListener\('keydown'/, 'no keydown binding (Space/Enter) on the S6 switches');
+  assert.match(PAGE, /'Enter'|' '/, 'Space/Enter is not handled in the keydown binding');
+});
+
+test('the frGo step-6 branch refreshes both switches on show (so default-ON paints)', () => {
+  const frGo = lift('frGo');
+  const s6 = frGo.slice(frGo.indexOf('step === 6'));
+  const nextBranch = s6.indexOf('step === 7');
+  const branch = nextBranch > -1 ? s6.slice(0, nextBranch) : s6;
+  assert.match(branch, /frRefreshFeedback\(\)/, 'frGo step 6 does not call frRefreshFeedback');
+  assert.match(branch, /frRefreshPing\(\)/, 'frGo step 6 does not call frRefreshPing');
+});
+```
+
+Plus a render arm (post-apply, when the shared box is free): extend a firstrun
+browser-check to drive to Screen 6 and assert both pills paint ON on a fresh board,
+and that toggling one flips its `aria-checked` AND round-trips the backend.
 
 ## Contract LOCKED - Option A (Renet + Splinter + Mona, 2026-09-05)
 
