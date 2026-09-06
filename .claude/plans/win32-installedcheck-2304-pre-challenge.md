@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-installedcheck-2304
-diff_hash: f3612b7c8a8d5dd92bf0d7f46d3f760a6ff6e683eab26304fac8e14cf42d5c35
+diff_hash: b5163a558a6a79423cc04d51e8df873509832a240834efd531c79d083dc71b92
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-06T01:33:16Z
@@ -65,6 +65,17 @@ discriminating, no vacuous assertions).
   does not restore a tmux probe on win32.
 **Converged** -- the only iteration-2 finding was a doc NIT on a stale pre-existing
 comment; the comment-only fix changes no behaviour, so no re-review is owed.
+
+#### Post-convergence: a CI-caught sibling audit (not a loop iteration)
+The first CI run went red on `engine.runnable-not-directory.test.js`'s weak-call
+audit, which the local affected-suite runs did not exercise. The audit keys each
+pinned `accessSync(X_OK)` on `{file, call, fn}`; my `const platform = (opts && ...)`
+matched its FN_DECL `= (` arrow-function heuristic, so installedCheck's pinned weak
+call was re-attributed to a bogus `fn: 'platform'`. Fixed by writing the RHS
+without a leading paren (`opts && opts.platform || process.platform`,
+precedence-equivalent). Behaviour identical (machine 45/45, runnable-not-directory
+22/22). This is the sibling-audit-staleness class -- a change tripping a meta-check
+that pins a set the change altered.
 
 ### Final Ledger
 
