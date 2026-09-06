@@ -5180,7 +5180,23 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
     if (!stale) {
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null };
+      /* 🛑 CARRY `backgroundWait` THROUGH. This branch builds a FRESH object rather
+         than spreading `scraped`, so every scraped-only field is dropped -- and the
+         one that matters is a fact about the SCREEN, which a self-report cannot
+         contradict and does not replace. The report says "I am working"; the screen
+         independently says "and the work is a background agent". Both are true.
+         🛑 AND THIS IS THE STEADY STATE OF A REAL WAIT, NOT AN EDGE CASE, which is
+         what made it worth a BLOCKER. `install/kosmos-report-hook.sh` fires
+         `report working --auto` on PreToolUse throttled to one line per 60s, and a
+         background agent's own tool calls re-heartbeat the parent. A 60s heartbeat
+         against a 300s decay window means the report is FRESH for the whole wait,
+         so this arm is where a live background wait actually lives.
+         ⇒ Dropping the flag here sent `chat.waitingNote` the false sentence ("it
+         will not read this until it finishes") on a pane whose REPL is at its
+         prompt -- the exact sentence this branch's chat half exists to remove,
+         reappearing in the one arm the feature is for. Measured across all five
+         report arms; this was the only one that lost it. */
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
@@ -5211,13 +5227,28 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
          (the row replaces `Worked for …`). So an agent whose hook is installed
          reports `idle` at the same moment its screen starts saying it is waiting,
          and the board returns IDLE with this verdict discarded and no conflict
-         surfaced. Measured: fresh idle report -> idle; fresh working report ->
-         working; no report -> working.
-         ⇒ THIS READER HELPS WHERE THERE IS NO REPORT, A STALE ONE, OR A WORKING
-         ONE. It is voided where a fresh auto-idle exists, which on this fleet is
-         usually seconds (the background agent's own tool calls re-heartbeat the
-         parent to `working`) but is the WHOLE WAIT wherever the background agent
-         is quiet or does not share the hook session.
+         surfaced.
+         🛑 THIS PARAGRAPH USED TO CITE THREE MEASUREMENTS AND TWO WERE FALSE, so
+         it is restated with the date it was taken and what changed underneath it.
+         It read "fresh idle report -> idle; fresh working report -> working; no
+         report -> working", and that was true when written. RE-MEASURED
+         2026-09-06 on this tree, all five arms:
+           no report                 -> working, flag kept, no conflict
+           FRESH working report      -> working, flag kept, no conflict
+           STALE working report      -> working, flag kept, no conflict
+           FRESH idle report         -> working, flag kept, no conflict
+           STALE idle report         -> working, flag kept, no conflict
+         ⇒ **`-> idle` no longer happens on any arm.** Upstream #1995 landed while
+         this branch was open and made a scraped WORKING outrank a reported idle,
+         which closes the voiding this paragraph was written to describe. The two
+         remaining differences are handled above: the fresh-working branch had to
+         be taught to CARRY the flag, and #1995's conflict is exempted for this
+         screen because the report and the screen are both true.
+         ⭐ THE GENERAL POINT, WHICH IS WHY THE OLD TEXT IS QUOTED RATHER THAN
+         DELETED: a comment citing a measurement is the kind most likely to go
+         stale, because the citation is exactly what stops the next reader
+         re-taking it. This one described a defect that upstream had already fixed,
+         and it would have sent someone to build a workaround for it.
          📌 Arguably rule 6 is wrong here rather than this reader: the Stop hook
          asserts THE TURN ENDED, which is true and is not in conflict with "a
          background agent is still running" -- the board conflates the two. That
@@ -5287,6 +5318,24 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      must still outrank a working screen, so this sits below those branches and
      cannot capture them. */
   if (scraped.state === STATE.WORKING) {
+    /* 🛑 #1889 TAKES UP THE ASYMMETRY THE COMMENT ABOVE NAMES AND LEAVES OPEN.
+       That paragraph says the one honest weakness of leading with the screen is
+       that "a spinner can IN PRINCIPLE belong to a background subprocess while the
+       agent's own turn has ended", and marks it reversible if the free-agent
+       reading ever matters more. `backgroundWait` makes that case DETECTABLE
+       rather than in-principle: the screen is saying, in its own words, that the
+       work is a background agent and the parent's turn is over.
+       ⇒ The STATE is unchanged, deliberately. #1995's call to lead with the screen
+       stands, and this does not reopen #1965. What goes is the CONFLICT, because
+       on this one screen there is nothing to be in conflict about: the report says
+       the TURN ENDED and the screen says A BACKGROUND AGENT IS RUNNING, and both
+       are true at once. Surfacing them as a disagreement tells an operator to go
+       and resolve a contradiction that does not exist.
+       📌 Identical reasoning to rule 5's exemption above, one branch over, and the
+       same structural flag rather than a sentence match so the two cannot drift. */
+    if (scraped.backgroundWait === true) {
+      return { ...scraped, reported: false, conflict: null };
+    }
     return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
   }
   // `idle`, and `started` with nothing after it: at rest either way.

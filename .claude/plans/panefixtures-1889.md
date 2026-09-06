@@ -187,6 +187,64 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## ITERATION 24: THE FLAG WAS DROPPED IN THE ONE ARM THE FEATURE IS FOR
+
+`reconcileReport`'s fresh-`working` branch builds a NEW object instead of
+spreading `scraped`, so it dropped `backgroundWait`. Measured across all five
+report arms, and only one lost it:
+
+| report | state | backgroundWait |
+|---|---|---|
+| none | working | true |
+| **FRESH working (30s)** | working | **undefined** |
+| stale working | working | true |
+| fresh idle | working | true |
+| stale idle | working | true |
+
+🛑 **AND THAT ARM IS THE STEADY STATE OF A LIVE WAIT, NOT AN EDGE CASE.**
+`kosmos-report-hook.sh` fires `report working --auto` on PreToolUse throttled to
+one line per 60s, and a background agent's own tool calls re-heartbeat the parent,
+against a 300s decay window. So the report stays FRESH for the whole wait, and the
+flag was false **exactly when the feature was supposed to fire**: the person got
+back "it will not read this until it finishes" on a pane at its prompt, which is
+verbatim the sentence this branch's chat half exists to remove.
+
+Fixed at `reconcileReport` rather than at the two card builders, so every consumer
+of the reconciled verdict benefits. Pinned with all five arms plus a control (an
+ordinary working pane must still come back `false`), and both perturbations bite:
+dropping the carry-through reds the arms, setting it unconditionally `true` reds
+the control.
+
+## UPSTREAM #1995 CLOSED THE CARD I FILED, AND LEFT ITS SIBLING OPEN BY NAME
+
+Re-measured: **a fresh auto-idle report no longer overrides a scraped WORKING.**
+#1995 landed while this branch was open. That closes #1965 as filed, and it means
+my own comment describing the voiding was **describing a defect upstream had
+already fixed** and would have sent somebody to build a workaround for it.
+
+⭐ **#1995's own comment names the case this branch makes detectable:** *"a spinner
+can IN PRINCIPLE belong to a background subprocess while the agent's own turn has
+ended and it is free for a new prompt"*, marked *"reversible if we later decide the
+free-agent reading matters more."* `backgroundWait` turns that in-principle into a
+fact on the screen.
+
+⇒ **The STATE is left alone. #1995's call to lead with the screen stands and this
+does not reopen #1965.** What goes is the CONFLICT, because on this one screen
+there is nothing to reconcile: the report says THE TURN ENDED and the screen says
+A BACKGROUND AGENT IS RUNNING, and both are true. Surfacing them as a disagreement
+sends an operator to resolve a contradiction that does not exist.
+
+Its control is the load-bearing half: an ordinary working screen over the same
+reported idle must STILL raise the conflict, or the assertion is satisfied by
+deleting #1995's arm outright. Perturbing that way reds **two** rows.
+
+### A comment citing a measurement is the kind most likely to go stale
+
+The precedence paragraph stated three measurements and two were false. They were
+true when written. **The citation is exactly what stops the next reader re-taking
+it**, which is why that shape rots quietly. Rewritten with the date, all five arms,
+and what changed underneath it, with the old text quoted rather than deleted.
+
 ## 2026-09-05: THE SUITE THAT RUNS IS NOT THE SUITE YOU RAN
 
 ✅ **After the harness fix: `SUITE_EXIT=0`, 4826/4826, terminal verdict present,

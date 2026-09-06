@@ -2350,6 +2350,96 @@ test('#1889: the evidence contract for the background-agent wait line', () => {
   assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
 });
 
+test('#1889: a background wait and a reported idle are not in conflict, because both are true', () => {
+  /**
+   * 🛑 THE FALSE CONFLICT #1995 LEFT OPEN BY NAME.
+   *
+   * #1995 made a scraped WORKING outrank a reported idle and surfaces the report
+   * as a conflict. Its own comment names the one honest weakness: "a spinner can
+   * IN PRINCIPLE belong to a background subprocess while the agent's own turn has
+   * ended", marked reversible if that reading ever matters more.
+   *
+   * `backgroundWait` makes it detectable rather than in-principle. On this screen
+   * the report says THE TURN ENDED and the screen says A BACKGROUND AGENT IS
+   * RUNNING, and both are true at once, so there is nothing to reconcile.
+   * Surfacing it sends an operator to resolve a contradiction that does not exist.
+   *
+   * ⚠️ THE STATE IS DELIBERATELY UNCHANGED. #1995's call to lead with the screen
+   * stands and this does not reopen #1965; only the false sentence goes. The row
+   * below asserts BOTH halves so a future change that flips the state reds here.
+   */
+  const now = Date.now();
+  const freshIdle = { found: true, state: STATE.IDLE, confidence: CONFIDENCE.REPORTED,
+    because: 'it is at rest and nothing is needed', at: new Date(now - 30 * 1000).toISOString(), auto: true };
+  const waitScrape = { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
+    because: 'it is waiting on a background agent', backgroundWait: true };
+
+  const got = reconcileReport(freshIdle, waitScrape, now);
+  assert.equal(got.state, STATE.WORKING, 'the screen must still lead, per #1995');
+  assert.equal(got.conflict, null,
+    'a background wait and a reported idle were surfaced as a disagreement, and they are both true');
+
+  /* 🛑 CONTROL: an ORDINARY working screen over the same reported idle must STILL
+     raise the conflict. Without this the assertion above is satisfied by deleting
+     #1995's arm entirely, which is a different and much worse change. */
+  const ordinary = { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+  const ctl = reconcileReport(freshIdle, ordinary, now);
+  assert.equal(ctl.state, STATE.WORKING, '#1995 stopped leading with the screen');
+  assert.match(String(ctl.conflict || ''), /last report said it was at rest/,
+    '#1995 stopped surfacing the conflict for an ordinary working pane');
+});
+
+test('#1889: the background-wait flag survives EVERY report arm, including the steady-state one', () => {
+  /**
+   * 🛑 THE ARM THAT LOST IT WAS THE ONE THE FEATURE IS FOR.
+   *
+   * `reconcileReport`'s fresh-`working` branch builds a NEW object instead of
+   * spreading `scraped`, so it dropped every scraped-only field. `backgroundWait`
+   * is a fact about the SCREEN: a self-report saying "I am working" does not
+   * contradict the screen saying "and the work is a background agent".
+   *
+   * ⚠️ AND IT IS THE STEADY STATE, NOT AN EDGE CASE. `kosmos-report-hook.sh` fires
+   * `report working --auto` on PreToolUse throttled to one line per 60s, and the
+   * background agent's own tool calls re-heartbeat the parent, so the report stays
+   * FRESH for the whole wait against a 300s decay window. The flag was therefore
+   * false exactly when the feature was supposed to fire, and the person got the
+   * false sentence back.
+   *
+   * All five arms are pinned so a future refactor of any one of them reds here.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const now = Date.now();
+  const scraped = classify(pane, '✻ Waiting for 1 background agent to finish' + footer);
+  assert.equal(scraped.backgroundWait, true, 'the fixture stopped being a background wait');
+
+  const rep = (state, ageMs) => ({ found: true, state, confidence: CONFIDENCE.REPORTED,
+    because: 'r', at: new Date(now - ageMs).toISOString(), auto: true });
+
+  for (const [label, reported] of [
+    ['no report', null],
+    ['a FRESH working report (the steady state of a live wait)', rep(STATE.WORKING, 30 * 1000)],
+    ['a STALE working report', rep(STATE.WORKING, 10 * 60 * 1000)],
+    ['a FRESH idle report', rep(STATE.IDLE, 30 * 1000)],
+    ['a STALE idle report', rep(STATE.IDLE, 10 * 60 * 1000)],
+  ]) {
+    const got = reconcileReport(reported, scraped, now);
+    assert.equal(got.state, STATE.WORKING, 'the verdict stopped being working with ' + label);
+    assert.equal(got.backgroundWait, true,
+      'the background-wait flag was lost with ' + label + ', so the board tells a person their message will go unread on a pane at its prompt');
+  }
+
+  /* 🛑 CONTROL, AND IT IS WHAT STOPS THE FIX BEING "SET IT TRUE EVERYWHERE". An
+     ORDINARY mid-turn pane must come back false on the same arm, or the assertions
+     above are satisfied by a constant rather than by the flag being carried. */
+  const ordinary = classify(pane, '· Improvising… (35s · ↓ 1.5k tokens)' + footer);
+  assert.equal(ordinary.state, STATE.WORKING, 'the control fixture is not a working pane');
+  assert.notEqual(ordinary.backgroundWait, true, 'the control fixture is itself a background wait');
+  assert.equal(reconcileReport(rep(STATE.WORKING, 30 * 1000), ordinary, now).backgroundWait, false,
+    'an ordinary mid-turn pane claimed a background wait');
+});
+
 test('#1889: a decayed report on a background wait is not a broken reporter', () => {
   /**
    * 🛑 THE ONE PLACE THIS DIFF COULD MAKE THE BOARD LESS TRUTHFUL, and it shipped
