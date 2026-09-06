@@ -912,6 +912,157 @@ function safeRoster() {
   }
 }
 
+/* #1279 GLOBAL PER-CREATOR ACTIVE-AGENT CAP.
+ *
+ * The per-team cap (engine/team.resolveCap) bounds ONE request; this bounds
+ * ACCUMULATION across requests, so a PM agent cannot spawn past a ceiling by
+ * making many teams. It exists for the AGENT path only -- an agent spawning
+ * agents is the surface the cap defends; the operator (board token) manages the
+ * whole fleet and is exempt.
+ *
+ * `activeAgentsCreatedBy` counts the agents a creator has ALIVE right now:
+ * birth-log entries (create.createdLog) they created that SUCCEEDED and have NOT
+ * been removed (remove.removedAgents, the same "gone" set safeRoster uses).
+ *
+ * 🛑 NOT the live roster, DELIBERATELY. A freshly-created agent is not on the
+ * tmux roster until its pane appears (seconds later, and never under DRY_RUN),
+ * so a roster-keyed count would read 0 right after a create -- exactly the window
+ * a spawn cap has to bound. Keying on birth-MINUS-removed counts a just-created
+ * agent immediately (its birth is written synchronously before createAgent
+ * returns) and still drops one the creator later removes, so the bound is on
+ * active LOAD and headroom returns on removal. Conservative (a crashed-but-not-
+ * removed agent still counts), which is the safe direction for a ceiling.
+ *
+ * Compared by SLUG (create.slugFor, the ONE machine-name rule), applied to BOTH
+ * sides -- and both applications are load-bearing, not one redundant. The birth log
+ * stores the name AS TYPED. removeAgents (recordRemoval) stores create.cleanName(name)
+ * (TRIM only, case/space preserved), which is slug-shaped in practice ONLY because
+ * the frontend addresses removal by the already-slugged sessionName -- it is NOT
+ * guaranteed slug-shaped, so slugFor on the removed side is real normalization, not
+ * a no-op. Comparing typed-vs-cleanName would miss a removed agent whose name has a
+ * capital or a space (#740). A renamed agent's old births stop counting, which can
+ * only UNDER-count (never over-refuse). One entry per slug.
+ *
+ * ⚠️ READ-ERROR BEHAVIOUR, stated as it ACTUALLY is (not as convenient). Both
+ * create.createdLog() and remove.removedAgents() swallow their own fs errors and
+ * return [] -- neither THROWS today. So the `catch { return null }` guards below
+ * are defensive against a FUTURE change (a throwing reader should fail open here,
+ * not crash the request with a 500); they are unreachable on today's readers. What
+ * happens TODAY on a genuinely-unreadable file:
+ *   - birth log unreadable -> [] -> count 0 -> the GLOBAL cap under-enforces for
+ *     that creator (the permissive direction). The per-team cap (<= MAX_TEAM_CAP)
+ *     still bounds the one request; only a real filesystem fault triggers this
+ *     (not anything a caller can do over HTTP), and the cap is not an adversarial
+ *     boundary anyway (see the plan's "What the cap IS and IS NOT").
+ *   - removed list unreadable -> [] -> nothing excluded -> count inflated -> the
+ *     cap is MORE conservative (the safe direction).
+ * The caller's `already !== null` still handles the future throwing-reader case.
+ *
+ * 🔑 THE LAST-OCCURRENCE-WINS OWNERSHIP relies on createAgentInner refusing a
+ * create while a name is on the removed list -- so a live name's owner is its
+ * newest 'created' birth. That refusal (createAgentInner in create.js, via
+ * remove.isRemoved) compares by cleanName,
+ * which matches for the slug-addressed removals the frontend actually produces (the
+ * normal path). It is NOT proven airtight for an arbitrary non-slug-shaped removal
+ * record; that pre-existing edge would at worst UNDER-count here (permissive), and
+ * hardening isRemoved to slugFor is out of this slice's scope.
+ *
+ * 🔑 CORRECT ONLY UNDER THE PER-CREATOR LOCK (withCreatorLock). This is a
+ * check-then-act read; the write (createTeam -> recordBirth) happens later, so
+ * two concurrent same-creator requests would each read the same stale count and
+ * both pass. The route serializes the check+create for one creator through the
+ * lock, so the birth log this reads already reflects the previous request. */
+function activeAgentsCreatedBy(creator) {
+  if (!creator) return 0;
+  let births;
+  try { births = create.createdLog(); } catch { return null; }
+  if (!Array.isArray(births)) return null;
+  let gone;
+  try {
+    // 🛑 slugFor, NOT cleanName. cleanName only TRIMS; the birth log stores the
+    // name AS TYPED ("Casey", "Kira Knightley"). removedAgents (recordRemoval)
+    // stores cleanName(name) -- slug-shaped in practice only because the frontend
+    // addresses removal by the already-slugged sessionName, NOT guaranteed -- so
+    // slugFor here is real normalization on the removed side, not a no-op.
+    // Comparing typed-vs-cleanName would fail to exclude a removed agent whose
+    // name has a capital or a space (#740 makes those common), leaving it
+    // consuming a cap slot forever (over-refuse). slugFor is idempotent, so
+    // applying it to an already-slug name is safe.
+    gone = new Set(removal.removedAgents()
+      .filter((r) => r && r.stopped !== false)
+      .map((r) => { try { return create.slugFor(r.name); } catch { return String(r.name); } }));
+  } catch { return null; }
+  /* LAST-occurrence wins: the NEWEST 'created' birth per clean name is its current
+     owner (the log is append-only oldest-first). createAgentInner REFUSES a create
+     while a name is on the removed list (create.js #removed guard), so a name is
+     freed before it can be recreated -- a live name's current owner is always its
+     newest 'created' birth. First-occurrence-wins would mis-attribute a name that
+     was removed and later recreated by ANOTHER creator: it would keep counting the
+     ORIGINAL creator (who no longer owns it) and never count the new one. The Map
+     dedups by name; last write (newest) wins. */
+  const ownerByName = new Map();
+  for (const b of births) {
+    if (!b || b.outcome !== 'created' || !b.name) continue;
+    // slugFor (not cleanName) to match the removed-set + the machine name -- see above.
+    let slug; try { slug = create.slugFor(b.name); } catch { slug = String(b.name); }
+    if (!slug) continue;
+    ownerByName.set(slug, b.createdBy);
+  }
+  let n = 0;
+  for (const [name, by] of ownerByName) {
+    if (by === creator && !gone.has(name)) n++;
+  }
+  return n;
+}
+
+/* #1279 per-creator serialization for the global cap. The cap is check-then-act
+   (read activeAgentsCreatedBy, then createTeam writes births).
+   🔑 WHAT MAKES IT ATOMIC TODAY is NOT this lock: the route runs the count read
+   and createTeam ADJACENTLY with no `await` between them, and createTeam (and
+   create.createAgent under it) is fully SYNCHRONOUS, so under Node's single
+   thread the check+create cannot interleave -- whichever request runs its
+   critical section first finishes read+write before any other continuation runs.
+   🛡️ THIS LOCK IS FORWARD-PROTECTION, and that is the reason to keep it. The
+   moment createTeam (or createAgent) grows an `await` before it writes the birth,
+   the adjacency stops being atomic and two concurrent same-creator requests would
+   each read a stale count and both pass. The lock closes that future race by
+   serializing the check+create per creator; different creators never contend. So
+   do NOT remove it as "redundant" -- it is redundant only while the create stays
+   synchronous, and nothing enforces that invariant except this lock. Its
+   serialization is proven directly in the withCreatorLock unit tests (with an
+   async fn that DOES yield); the route's concurrency test proves the cap OUTCOME
+   holds, not the mechanism.
+   Standard chained-promise lock: each caller runs after the previous same-creator
+   caller SETTLES, and the map entry is dropped once it is the tail, so it does not
+   grow across creators. */
+const teamCreateLocks = new Map();
+function withCreatorLock(creator, fn) {
+  const prev = teamCreateLocks.get(creator) || Promise.resolve();
+  const run = prev.then(fn, fn); // run after prev settles, whatever its outcome
+  const chained = run.catch(() => {}); // the chain tail must never reject
+  teamCreateLocks.set(creator, chained);
+  chained.then(() => {
+    if (teamCreateLocks.get(creator) === chained) teamCreateLocks.delete(creator);
+  });
+  return run;
+}
+
+/* The Kosmos-owned per-creator ceiling. Default 25 (two full default teams plus
+ * headroom); operator override via AGENT_WORKFORCE_CREATOR_AGENT_CAP; hard ceiling
+ * 100 that no override may exceed -- same "Kosmos owns the bound, not the prompt"
+ * posture as the per-team cap. Reversible; Josh can override. */
+const CREATOR_AGENT_CAP_DEFAULT = 25;
+const MAX_CREATOR_AGENT_CAP = 100;
+function creatorAgentCap(env) {
+  let cap = CREATOR_AGENT_CAP_DEFAULT;
+  const fromEnv = env && env.AGENT_WORKFORCE_CREATOR_AGENT_CAP;
+  if (fromEnv !== undefined && fromEnv !== null && String(fromEnv).trim() !== '') {
+    const nnum = Number(fromEnv);
+    if (Number.isInteger(nnum) && nnum > 0) cap = nnum;
+  }
+  return Math.min(cap, MAX_CREATOR_AGENT_CAP);
+}
+
 // Reads the body of an upload. Capped, because an unbounded read on a local
 // server is still a way to fill someone's memory by accident.
 const MAX_UPLOAD = 6 * 1024 * 1024;
@@ -1529,6 +1680,21 @@ function isLoopbackPeer(req) {
  */
 const REMOTE_AGENT_ROUTES = new Set(['POST /api/report', 'POST /api/reply']);
 
+/* #1279: routes a LOOPBACK caller may reach with an AGENT token instead of the
+   board token, but which -- UNLIKE REMOTE_AGENT_ROUTES -- a NETWORK peer may NOT
+   reach. POST /api/team SPAWNS agents (a far higher blast radius than report/
+   reply's message posts), so:
+     - it is exempted from the board-token sensitive-gate below, so a same-machine
+       PM agent can drive it with its own agent token; but
+     - it is deliberately kept OUT of REMOTE_AGENT_ROUTES, so `remoteWriteGuard`
+       refuses every network peer. An operator opens the bind to let remote agents
+       REPORT; they should not thereby also let remote agents create teams. The two
+       decisions are decoupled on purpose.
+   The /api/team handler re-enforces auth itself (a valid agent token OR the board
+   token; no-credential refused on an enforcing board), exactly as report/reply do
+   one layer down -- see that handler. */
+const LOOPBACK_AGENT_ROUTES = new Set(['POST /api/team']);
+
 /**
  * What makes opening the bind safe (#1112 phase 2).
  *
@@ -1733,7 +1899,13 @@ const server = http.createServer((req, res) => {
     // because only they have parsed the body (an agent token may ride in
     // `body.token`, which this pre-body gate cannot see). The code-execution
     // surface (POST /api/agents) is gated by this board-token check regardless.
-    const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`);
+    // LOOPBACK_AGENT_ROUTES (POST /api/team, #1279) is exempted for the same
+    // reason: a same-machine PM agent reaches it with an AGENT token, not the
+    // board token, and re-enforces auth in the handler (agent token OR board
+    // token; no-credential refused on an enforcing board). It stays OUT of
+    // REMOTE_AGENT_ROUTES, so remoteWriteGuard still refuses a NETWORK peer.
+    const exemptAgent = REMOTE_AGENT_ROUTES.has(`${req.method} ${pathname}`)
+      || LOOPBACK_AGENT_ROUTES.has(`${req.method} ${pathname}`);
     if (sensitive && !exemptAgent && !boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE })) {
       sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`' });
       return;
@@ -3110,19 +3282,22 @@ const server = http.createServer((req, res) => {
    * (createTeam + the cap + provenance) merged in #2247; THIS is the route that
    * makes it reachable.
    *
-   * 🔑 AUTH IS INHERITED, AND THAT SETS THE SCOPE OF THIS SLICE. On an ENFORCING
-   * board, every /api/ POST is board-token-gated by the sensitive-route check
-   * above (only report/reply are exempt, as REMOTE_AGENT_ROUTES). This route is
-   * NOT exempt, so it requires the BOARD token -- the operator/board, not an
-   * arbitrary agent token -- making this slice OPERATOR-DRIVEN team creation.
-   * ⚠️ That guarantee is exactly as strong as `/api/agents`' and no stronger: on a
-   * NON-enforcing board this route, like every other /api write route, is reachable
-   * by any loopback/local-account caller with no token (this is not a new gap this
-   * route opens -- #1946 is the board-enforcement story for all of them). Letting a
-   * PM AGENT (agent token) drive it deliberately is the security-sensitive NEXT
-   * slice: it needs an agent-token model (an exemption + remoteWriteGuard, like
-   * report/reply) and an opt-in, and it is where a per-creator GLOBAL active-agent
-   * cap earns its keep. Named on the card, not smuggled in here.
+   * 🔑 AUTH: LOOPBACK-ONLY, AGENT-TOKEN OR BOARD-TOKEN. This route is exempted
+   * from the board-token sensitive-gate (LOOPBACK_AGENT_ROUTES), so it enforces
+   * its own auth below in TWO paths:
+   *   - AGENT: a same-machine PM agent with a valid agent token. The creator IS
+   *     the authenticated caller (resolveAgentSender), never a self-declared
+   *     body.creator -- an agent cannot spawn a team under another agent's name.
+   *   - OPERATOR: the board token, no agent token. createdBy = body.creator.
+   * On an ENFORCING board, NEITHER credential is refused -- a no-token request
+   * takes the OPERATOR branch and is refused by its board-token 403 (a no-token
+   * request never enters the AGENT branch, so resolveAgentSender's pane-fallback
+   * is unreachable here and denyPaneFallback is deliberately NOT passed; see the
+   * inline auth comment below). ⚠️ NOT NETWORK: /api/team is kept
+   * OUT of REMOTE_AGENT_ROUTES, so remoteWriteGuard refuses every network peer --
+   * agent-spawning is higher blast radius than report/reply, and an operator who
+   * opened the bind for remote REPORTS should not thereby expose remote team
+   * creation. See the LOOPBACK_AGENT_ROUTES note and #1279's threat model.
    *
    * 🛑 #1903 LIVENESS RAIL, kept at parity with POST /api/agents: a member whose
    * account cannot sign in would create an agent that 401s on its first turn. So
@@ -3132,6 +3307,14 @@ const server = http.createServer((req, res) => {
    * refusals. Only a DEFINITIVELY dead account refuses (accountConnectable's
    * #1315 asymmetry); connected / unconfirmable / unresolvable all proceed.
    *
+   * 🛑 TWO CAPS. The per-team cap (engine/team.resolveCap, <= MAX_TEAM_CAP 50)
+   * bounds ONE request; the per-creator GLOBAL active-agent cap (activeAgentsCreatedBy
+   * + creatorAgentCap, AGENT path only) bounds ACCUMULATION across requests so a PM
+   * agent cannot spawn past a ceiling by making many teams. The global cap is
+   * check-then-act, so it is enforced ATOMICALLY with the create under a
+   * per-creator lock (withCreatorLock) -- otherwise two concurrent same-creator
+   * requests would each read a stale count and both pass. See both below.
+   *
    * 🛑 WHAT THIS SLICE DELIBERATELY DOES NOT DO, on the record so it is not
    * discovered later as a hidden gap:
    *   - No project ATTACH. A member spec's `projects` still composes the managed
@@ -3140,9 +3323,10 @@ const server = http.createServer((req, res) => {
    *   - No first-agent home seed (#166/#732) -- not a team-creation concern.
    *     (The OpenAI per-model validation #2140/#2191 IS ported, in the liveness
    *     sweep below, at parity with the single route -- see there.)
-   *   - No per-creator GLOBAL active-agent cap: the per-request cap (<= MAX_TEAM_CAP
-   *     50) bounds one call; a ceiling across calls needs a birth-log reader that
-   *     does not exist yet, and belongs with the agent-token slice above.
+   *   - No NETWORK team creation, and no per-agent PERMISSION model (permissions
+   *     are global per engine/policy.js; createdBy is the prerequisite for ever
+   *     enforcing "a created agent cannot exceed its creator"). Both are future
+   *     decisions, named on #1279, not smuggled in here.
    */
   if (pathname === '/api/team' && req.method === 'POST') {
     readBody(req)
@@ -3156,6 +3340,61 @@ const server = http.createServer((req, res) => {
         }
 
         const members = Array.isArray(body.members) ? body.members : null;
+
+        /* --- #1279 AUTH: identify the caller; the caller decides the creator ----
+           This route is exempt from the board-token sensitive-gate
+           (LOOPBACK_AGENT_ROUTES), so it enforces auth HERE. A NETWORK peer was
+           already refused upstream by remoteWriteGuard (this route is not in
+           REMOTE_AGENT_ROUTES). Two loopback paths, and NO third:
+             AGENT   -- an agent token is present: the creator IS the authenticated
+                        caller (resolveAgentSender resolves the token; an invalid
+                        one is refused 403), never a self-declared body.creator, so
+                        an agent cannot spawn a team under another agent's name.
+             OPERATOR -- no agent token: on an enforcing board the board token is
+                        required (the 403 just below), else refused; createdBy =
+                        body.creator (slice-1 behaviour).
+           🔑 THE NO-CREDENTIAL REFUSAL IS THE OPERATOR BRANCH'S BOARD-TOKEN 403,
+           not resolveAgentSender: a request with no token does not enter the AGENT
+           branch at all. resolveAgentSender is called here only WITH a token, so
+           its pane-fallback (the thing report/reply's denyPaneFallback guards) is
+           structurally unreachable on this path -- which is why this call does not
+           pass denyPaneFallback (it would be inert). */
+        const presentedAgentToken = (req.headers && req.headers['x-kosmos-agent-token']) || body.token;
+        let effectiveCreator;
+        let callerKind;
+        if (presentedAgentToken) {
+          const authRoster = safeRoster();
+          if (authRoster === null) {
+            // A transient server condition (the roster read failed), so 503
+            // (retryable) rather than report/reply's 200-with-reason: this is a
+            // create surface, and a caller should retry, not read a permanent
+            // refusal. The one deliberate divergence from the report/reply posture.
+            sendJson(res, 503, { error: 'we could not check which agents are running, so we could not tell who this request is from; try again' });
+            return;
+          }
+          const sender = resolveAgentSender(req, body, authRoster);
+          if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
+          effectiveCreator = sender.card.sessionName;
+          callerKind = 'agent';
+        } else {
+          // OPERATOR path: no agent token, so on an enforcing board the board token
+          // is required (computed only here -- it is never read on the agent path).
+          const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
+          if (boardAuthState.on && !hasBoardToken) {
+            sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`, or present an agent token' });
+            return;
+          }
+          effectiveCreator = body.creator;
+          callerKind = 'operator';
+        }
+
+        /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
+           per-creator lock immediately before createTeam (see the createTeam call
+           below), NOT here. The check is check-then-act with the create, so it
+           must be atomic with it under withCreatorLock to close the TOCTOU race
+           two concurrent same-creator requests would otherwise have. Doing the
+           check here (before the async liveness sweep, unlocked) is exactly the
+           racy shape. The per-team cap below still runs here to bound the sweep. */
 
         /* 🔑 THE CAP GATE RUNS BEFORE THE LIVENESS SWEEP, on the ORIGINAL request
            count, and this ordering carries two fixes. (1) It bounds the sweep: a
@@ -3252,7 +3491,7 @@ const server = http.createServer((req, res) => {
              creator/purpose checks FIRST, since those precede the members check),
              and let it own that higher-priority refusal in its own words rather
              than reporting a sign-in problem over a missing creator. */
-          const shapeOk = typeof body.creator === 'string' && body.creator.trim() !== ''
+          const shapeOk = typeof effectiveCreator === 'string' && effectiveCreator.trim() !== ''
             && typeof body.purpose === 'string' && body.purpose.trim() !== '';
           if (liveMembers.length === 0 && shapeOk) {
             /* 🔑 NEUTRAL SUMMARY, keyed to NO cause. A member reaches the refused
@@ -3267,7 +3506,7 @@ const server = http.createServer((req, res) => {
               created: [],
               refused: livenessRefused,
               because: 'no member could be created; every member was refused (see refused[])',
-              creator: body.creator.trim(),
+              creator: effectiveCreator.trim(),
               purpose: body.purpose.trim(),
               cap,
             });
@@ -3275,11 +3514,56 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        const result = team.createTeam({
-          creator: body.creator,
+        const teamOpts = {
+          creator: effectiveCreator,
           purpose: body.purpose,
           members: overCap ? members : liveMembers,
-        });
+        };
+        let result;
+        if (callerKind === 'agent') {
+          /* Enforce the GLOBAL per-creator cap ATOMICALLY with the create, under
+             the per-creator lock, so two concurrent same-creator requests cannot
+             each pass a stale count (the TOCTOU race). The cap applies only when
+             createTeam will actually create -- not overCap (it would refuse for
+             the per-team cap anyway) and the request is well-shaped (purpose
+             present, so createTeam still owns the shape refusals first). The add
+             count is liveMembers.length, the members createTeam will attempt;
+             conservative (a bad-spec member createTeam later refuses is still
+             counted here, which can only refuse slightly early, never over the
+             cap). A null count (unreadable birth log / removed list) FAILS OPEN,
+             leaving the per-team cap as the bound for this one request.
+             ⚠️ SCOPE: this bounds a COOPERATIVE agent using its own token. A
+             compromised agent that can read the board token reaches the cap-exempt
+             OPERATOR branch (and already the uncapped POST /api/agents), so this is
+             not an adversarial boundary -- that needs the deferred per-agent
+             permission model. See the plan's "What the cap IS and IS NOT". */
+          const capRefusal = await withCreatorLock(effectiveCreator, async () => {
+            const purposeOk = typeof body.purpose === 'string' && body.purpose.trim() !== '';
+            if (!overCap && purposeOk && liveMembers && liveMembers.length) {
+              const gcap = creatorAgentCap(process.env);
+              const already = activeAgentsCreatedBy(effectiveCreator);
+              if (already !== null && already + liveMembers.length > gcap) {
+                return { gcap, already, add: liveMembers.length };
+              }
+            }
+            result = team.createTeam(teamOpts);
+            return null;
+          });
+          if (capRefusal) {
+            sendJson(res, 400, {
+              outcome: 'refused', created: [], refused: [],
+              because: 'you already have ' + capRefusal.already + ' active agent(s) you created and this would add '
+                + capRefusal.add + ', past the per-creator cap of ' + capRefusal.gcap
+                + '. Remove some of your agents, or build a smaller team.',
+              creator: (typeof effectiveCreator === 'string' ? effectiveCreator.trim() : effectiveCreator),
+              purpose: (typeof body.purpose === 'string' ? body.purpose.trim() : ''),
+              cap: capRefusal.gcap,
+            });
+            return;
+          }
+        } else {
+          result = team.createTeam(teamOpts);
+        }
 
         /* Merge the liveness refusals into the engine's own refused[] and
            recompute the outcome -- but ONLY when createTeam produced PER-MEMBER
@@ -9872,7 +10156,14 @@ module.exports = {
      pure function with controls rather than through a bind nothing local can
      reach. `bindHost` proves the default is unchanged; `REMOTE_AGENT_ROUTES` is
      the allowlist under test. */
-  remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES,
+  remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES, LOOPBACK_AGENT_ROUTES,
+  /* #1279: the global per-creator active-agent cap helpers, exported so a test can
+     pin the pure cap resolution (default / env override / hard ceiling), the
+     active-count logic, and the per-creator serialization lock directly, without
+     driving the whole route. withCreatorLock is exported so its serialization can
+     be proven with an fn that actually YIELDS (the route's critical section is
+     synchronous, so it cannot). */
+  activeAgentsCreatedBy, creatorAgentCap, withCreatorLock,
   /* #1946: the board-auth module (its `decide`/`matches` are pinned directly as
      pure functions) and the live enforcement holder. `boardAuthState` is exported
      so a test can boot a SANDBOXED board (guard off, no real-store side effect)
