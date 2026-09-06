@@ -1143,3 +1143,49 @@ test('no live sentence in this file still says "this Mac"', () => {
   assert.deepEqual(live, [],
     'these lines still say "this Mac" to a person:\n' + live.map(([n, l]) => '  ' + n + ': ' + l.trim()).join('\n'));
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+   #2304/#570: installedCheck is platform-injected (like create.unusablePath).
+   On Windows there is no tmux; the #570 port runs agents through the Claude CLI,
+   so the runner is the required substrate. Before this, installedCheck required
+   tmux on every platform and told a Windows user their computer could not run
+   agents. Both branches are asserted from this Mac via the `platform` opt.
+   ───────────────────────────────────────────────────────────────────────── */
+
+test('#2304 Windows: the runner present is OK even with no tmux (the reported bug)', () => {
+  const got = machine.installedCheck({ platform: 'win32', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
+  assert.equal(got.state, 'ok', 'a Windows box with the runner present must NOT be told it cannot run agents');
+  assert.equal(got.present.claude, true, 'the runner is present');
+  // The tmux requirement, the Homebrew path, and the macOS-download remedy must
+  // not appear on a Windows OK verdict.
+  assert.doesNotMatch(got.title + ' ' + got.detail, /tmux|homebrew|\/opt\/homebrew|macOS|Download/i,
+    'no tmux / macOS remedy fires when the Windows runner is present');
+});
+
+test('#2304 CONTROL: on macOS the identical input still requires tmux (the fix is win32-scoped)', () => {
+  // Same bins as the reported-bug case, only the platform differs: macOS still
+  // requires tmux, so this must be attention. If the win32 branch had leaked to
+  // darwin, this would flip to ok and the discriminator would be lost.
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
+  assert.equal(got.state, 'attention', 'macOS still requires tmux');
+});
+
+test('#2304 CONTROL: on macOS a GPT-only box (no Claude, tmux present) is still OK, unchanged', () => {
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  assert.equal(got.state, 'ok', 'the #979 GPT-only behaviour is untouched on macOS');
+});
+
+test('#2304 Windows: a missing runner is attention and names the runner, never tmux or a Homebrew path', () => {
+  const got = machine.installedCheck({ platform: 'win32', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  assert.equal(got.state, 'attention', 'no runner on Windows means an agent cannot start');
+  assert.equal(got.present.claude, false, 'the runner is absent');
+  const text = got.title + ' ' + got.detail;
+  assert.doesNotMatch(text, /tmux|homebrew|\/opt\/homebrew/i,
+    'the Windows failure must not name tmux or a Homebrew path (tmux is not probed on win32)');
+  assert.match(text, /the part that runs agents/,
+    'the failure names the substrate a Windows box actually needs');
+  // KNOWN FOLLOW-UP (#2304 defect 2): the remedy still reads "Download for
+  // macOS" here. Fixing it needs the Windows download target (a #570/product
+  // decision, possibly not published yet), so it is flagged, not invented. The
+  // reported bug (runner PRESENT -> ok) is fixed above without touching it.
+});

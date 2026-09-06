@@ -300,7 +300,21 @@ function installedCheck(opts) {
      longer the NOUN of a sentence addressed to a person, which is what the two
      standing rulings are about. The Claude Code row beside this one has read
      "Claude Code" rather than "claude" since it was written; this is that. */
-  const parts = [['tmux', 'the part that runs agents', tmuxBin, true]];
+  /* #2304/#570: platform-injected like `create.unusablePath(bin, platform)` and
+     `ownerOnlyModeIsEnforced`, so BOTH branches are assertable from a Mac. The
+     required "part that runs agents" is tmux on macOS, but Windows has no tmux:
+     the #570 port runs agents THROUGH the Claude CLI (`claude agents --json` for
+     the roster/capture, `claude --session-id` for create), so on win32 the
+     required substrate is the runner itself. Before this, installedCheck required
+     tmux on every platform and told a Windows user -- who has no tmux and needs
+     none -- "Kosmos cannot start agents on this computer", pointed them at the
+     macOS download, and named a Homebrew tmux path. That was the sibling arm of
+     the same #570 defect `create.unusablePath` already narrowed. */
+  const platform = (opts && opts.platform) || process.platform;
+  const isWin = platform === 'win32';
+  const parts = isWin
+    ? [['claude', 'the part that runs agents', claudeBin, true]]
+    : [['tmux', 'the part that runs agents', tmuxBin, true]];
   /**
    * ⚠️ BOTH RUNNERS, and the keys are STABLE IDENTIFIERS rather than the
    * display labels. Two reasons, both learned the hard way in this file:
@@ -313,11 +327,17 @@ function installedCheck(opts) {
    *     reads `undefined`, which is falsy, which reads as ABSENT -- collapsing
    *     the null-vs-false distinction the rest of this function exists to
    *     protect. `label` stays for the sentences; `key` is the contract.
+   *
+   * ⚠️ On win32 Claude is REQUIRED above rather than informational, and tmux is
+   * not probed at all (there is none, and its default is a macOS Homebrew path).
+   * codex-on-win32 is not wired yet (win32roster/capture/create are all
+   * Claude-CLI based), so Claude is the win32 substrate; when a codex path lands
+   * on Windows, the required set becomes "at least one runner" rather than Claude.
    */
-  const informational = [
-    ['claude', 'Claude Code', claudeBin, false],
-    ['codex', 'Codex', codexBin, false],
-  ];
+  const informational = isWin
+    ? [['codex', 'Codex', codexBin, false]]
+    : [['claude', 'Claude Code', claudeBin, false],
+       ['codex', 'Codex', codexBin, false]];
 
   const missing = [];
   const unreadable = [];
