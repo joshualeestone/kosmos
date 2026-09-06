@@ -50,6 +50,20 @@ on #1279 before building; this file is the durable record.
 - **operator exempt from the cap:** the operator manages the whole fleet and is
   board-authorized; the cap defends against an AGENT spawning agents.
 
+## What the cap IS and IS NOT (honest boundary)
+The per-creator cap bounds a COOPERATIVE agent using its own assigned agent token:
+it cannot spawn past the ceiling by making many teams. It is NOT a hard boundary
+against a COMPROMISED or adversarial agent. A loopback caller that omits its agent
+token falls to the OPERATOR branch, which is cap-exempt; on an enforcing board that
+branch requires the board token, but the board token is a mode-600 file readable by
+the same OS account every Kosmos-created agent already runs under -- the same access
+that already lets an agent reach the uncapped POST /api/agents today. So a compromised
+agent that can read the board token becomes the operator and bypasses the cap, exactly
+as it could already create agents one at a time. Closing that requires a per-agent
+PERMISSION model (permissions are global today, per engine/policy.js) -- the deliberately
+deferred slice. The cap is a real guardrail against runaway/cooperative spawning, framed
+honestly, not oversold as an adversarial boundary.
+
 ## Deliberately NOT in this slice (named on #1279)
 - No NETWORK team creation, and no per-agent PERMISSION model (permissions are
   global per engine/policy.js; createdBy is the prerequisite for ever enforcing

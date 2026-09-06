@@ -51,6 +51,7 @@ const create = require('./engine/create');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
 const remove = require('./engine/remove');
+const status = require('./engine/status');
 const fleet = require('./test-support/fleet');
 
 const TOK = 'BOARDTOKEN_teamtok_0123456789abcdef';
@@ -208,11 +209,29 @@ test('activeAgentsCreatedBy: a removed agent with a CAPITAL/space name is exclud
     { createdBy: 'boss', outcome: 'created', name: 'Casey' },            // removed below (slug 'casey')
     { createdBy: 'boss', outcome: 'created', name: 'Kira Knightley' },   // alive (slug 'kira-knightley')
   ].map((r) => JSON.stringify(r)).join('\n') + '\n');
-  setRemoved([{ name: 'casey', stopped: true, removedAt: new Date().toISOString(), shownAs: 'Casey' }]);
+  // Seed the removed record with the CAPITAL name (the cleanName shape recordRemoval
+  // writes), NOT a pre-lowered slug -- so this exercises slugFor on the REMOVED side
+  // too (both 'Casey' birth and 'Casey' removed must slug to 'casey' to match).
+  setRemoved([{ name: 'Casey', stopped: true, removedAt: new Date().toISOString(), shownAs: 'Casey' }]);
   try {
     assert.equal(activeAgentsCreatedBy('boss'), 1,
       'a removed capital-named agent still counted -- the slug/trim mismatch was not fixed');
   } finally { fs.rmSync(logFile, { force: true }); try { setRemoved([]); } catch { /* best effort */ } }
+});
+
+test('AUTH: an unreadable roster on the agent path fails closed with 503 (not a create)', async () => {
+  // Force safeRoster() -> null by making snapshot()'s pane source throw.
+  const tok = sendertoken.mint('rosterfail').token;
+  liveness.seen('rosterfail');
+  status.setPaneSource(() => { throw new Error('roster unreadable (test)'); });
+  try {
+    const r = await postTeam(
+      { creator: 'rosterfail', purpose: 'roster down', members: [{ name: 'rosterfailteam', role: 'pm' }] },
+      { 'x-kosmos-agent-token': tok },
+    );
+    assert.equal(r.status, 503, 'an unreadable roster on the agent path must fail closed with 503: ' + JSON.stringify(r.json));
+    assert.ok(!birthOf('rosterfailteam'), 'a 503 (roster unreadable) still created an agent');
+  } finally { status.setPaneSource(null); }
 });
 
 test('activeAgentsCreatedBy: the same creator recreating a name counts it ONCE, not once per birth', () => {

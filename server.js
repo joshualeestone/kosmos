@@ -932,13 +932,17 @@ function safeRoster() {
  * active LOAD and headroom returns on removal. Conservative (a crashed-but-not-
  * removed agent still counts), which is the safe direction for a ceiling.
  *
- * Compared by SLUG (create.slugFor, the ONE machine-name rule): the birth log
- * stores the name AS TYPED while removedAgents (and the roster) store the canonical
- * slug, so both sides are slugged to match -- comparing typed-vs-slug would miss a
- * removed agent whose name has a capital or a space (#740). A renamed agent's old
- * births stop counting, which can only UNDER-count (never over-refuse). One entry
- * per slug. Returns null (not 0) when the birth log or removed list cannot be read,
- * so the caller can fail OPEN rather than block a create on a read error.
+ * Compared by SLUG (create.slugFor, the ONE machine-name rule), applied to BOTH
+ * sides -- and both applications are load-bearing, not one redundant. The birth log
+ * stores the name AS TYPED. removeAgents (recordRemoval) stores create.cleanName(name)
+ * (TRIM only, case/space preserved), which is slug-shaped in practice ONLY because
+ * the frontend addresses removal by the already-slugged sessionName -- it is NOT
+ * guaranteed slug-shaped, so slugFor on the removed side is real normalization, not
+ * a no-op. Comparing typed-vs-cleanName would miss a removed agent whose name has a
+ * capital or a space (#740). A renamed agent's old births stop counting, which can
+ * only UNDER-count (never over-refuse). One entry per slug. Returns null (not 0)
+ * when the birth log or removed list cannot be read, so the caller can fail OPEN
+ * rather than block a create on a read error.
  *
  * 🔑 CORRECT ONLY UNDER THE PER-CREATOR LOCK (withCreatorLock). This is a
  * check-then-act read; the write (createTeam -> recordBirth) happens later, so
@@ -953,13 +957,14 @@ function activeAgentsCreatedBy(creator) {
   let gone;
   try {
     // 🛑 slugFor, NOT cleanName. cleanName only TRIMS; the birth log stores the
-    // name AS TYPED ("Casey", "Kira Knightley") while removedAgents stores the
-    // canonical SLUG ("casey", "kira-knightley") -- the same machine name the
-    // roster and the DELETE route use. Comparing typed-vs-slug would fail to
-    // exclude a removed agent whose name has a capital or a space (#740 makes
-    // those common), leaving it consuming a cap slot forever (over-refuse). Both
-    // sides go through slugFor, the ONE machine-name rule; it is idempotent, so
-    // slugging the already-slug removed names is safe.
+    // name AS TYPED ("Casey", "Kira Knightley"). removedAgents (recordRemoval)
+    // stores cleanName(name) -- slug-shaped in practice only because the frontend
+    // addresses removal by the already-slugged sessionName, NOT guaranteed -- so
+    // slugFor here is real normalization on the removed side, not a no-op.
+    // Comparing typed-vs-cleanName would fail to exclude a removed agent whose
+    // name has a capital or a space (#740 makes those common), leaving it
+    // consuming a cap slot forever (over-refuse). slugFor is idempotent, so
+    // applying it to an already-slug name is safe.
     gone = new Set(removal.removedAgents()
       .filter((r) => r && r.stopped !== false)
       .map((r) => { try { return create.slugFor(r.name); } catch { return String(r.name); } }));
@@ -3500,7 +3505,12 @@ const server = http.createServer((req, res) => {
              conservative (a bad-spec member createTeam later refuses is still
              counted here, which can only refuse slightly early, never over the
              cap). A null count (unreadable birth log / removed list) FAILS OPEN,
-             leaving the per-team cap as the bound for this one request. */
+             leaving the per-team cap as the bound for this one request.
+             ⚠️ SCOPE: this bounds a COOPERATIVE agent using its own token. A
+             compromised agent that can read the board token reaches the cap-exempt
+             OPERATOR branch (and already the uncapped POST /api/agents), so this is
+             not an adversarial boundary -- that needs the deferred per-agent
+             permission model. See the plan's "What the cap IS and IS NOT". */
           const capRefusal = await withCreatorLock(effectiveCreator, async () => {
             const purposeOk = typeof body.purpose === 'string' && body.purpose.trim() !== '';
             if (!overCap && purposeOk && liveMembers && liveMembers.length) {
@@ -3519,7 +3529,7 @@ const server = http.createServer((req, res) => {
               because: 'you already have ' + capRefusal.already + ' active agent(s) you created and this would add '
                 + capRefusal.add + ', past the per-creator cap of ' + capRefusal.gcap
                 + '. Remove some of your agents, or build a smaller team.',
-              creator: effectiveCreator,
+              creator: (typeof effectiveCreator === 'string' ? effectiveCreator.trim() : effectiveCreator),
               purpose: (typeof body.purpose === 'string' ? body.purpose.trim() : ''),
               cap: capRefusal.gcap,
             });
