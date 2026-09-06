@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fix-2250-recorded-runner
-diff_hash: 29e3761c724d9562de34c0dc91f1692a06ffbe374cf5e1858cfe1e3b57b93d8e
+diff_hash: 539d2b32f356ba592dc0fa28e652eb6c617fe9bda386ad61a6bcb95f3c1b8ef4
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-06T00:24:01Z
@@ -15,7 +15,7 @@ converged: true
 **Iterations:** 2
 **Converged:** Yes
 **Total findings:** 6 (1 BLOCKER, 0 WARNINGs, 1 CONVENTION, 3 NITs; plus 1 baseline test-suite failure covering 2 tests)
-**Fixed:** 4 | **Deferred:** 1 | **Asked:** 0
+**Fixed:** 5 | **Deferred:** 0 | **Asked:** 0
 
 Card: kosmos#2250. Scope: a shared `create.recordedRunner(name)` helper (plist
 first via `readJob`, profile `provider` as the fallback) routed through the three
@@ -77,7 +77,7 @@ gate passed (no `web/` change). Green.
 | 2 | 1 | NIT | engine/create.js | never-throws comment imprecise | FIXED | cbc0f475 |
 | 3 | 1 | NIT | engine/status.js:3774 | readIdentity had no direct test | FIXED | cbc0f475 (added test) |
 | 4 | 1 | NIT | engine/create.test.js | '../evil' control message imprecise | FIXED | cbc0f475 |
-| 5 | - | CONVENTION | .claude/plans/ | No plan file for this branch | DEFERRED | Scoped night-shift residual (#2250); a full /pplan plan is not warranted for a one-helper fix. Reasoning captured on the card and in the commit. |
+| 5 | - | CONVENTION | .claude/plans/ | No plan file for this branch | FIXED | Added `.claude/plans/fix-2250-recorded-runner.md` (the pre-challenge-gate requires it). |
 
 ### Strengths (across all iterations)
 - The path-traversal guard (`readJob`'s `NAME_RE` check before `plistPath`) is
