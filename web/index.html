@@ -16333,22 +16333,26 @@ function worldswRender(data) {
   }
   sw.hidden = false;
 }
-/* #2238: switch the active Kosmos. The registry flip is POST /api/worlds/active
-   (#2212). This slice makes SELECTION work -- on 0.6.35 the rows were read-only, so a
-   created world could not be selected at all. On success it marks the new active world
-   (list + promoted name) and shows an HONEST banner that its projects and agents load
-   after the board restarts.
-   WHY NOT auto-restart here: a world's data-root is applied only at board boot, and the
-   installed board is a DETACHED process the app does not own (install/setup.sh: the
-   login job is RunAtLoad with NO KeepAlive, and `kosmos start` daemonises via nohup and
-   exits). Restarting it in-app therefore needs a detached `kosmos restart` helper
-   (stop-by-pid, wait for the port to free, start) plus a boot-token reconnect -- which
-   is fleet-sensitive and only verifiable by a live board restart on a real install, not
-   on the shared box. That auto-restart is the #2238 follow-up; shipping a "Restart now"
-   button that silently no-ops (the old launchctl-kickstart path re-ran `kosmos start`,
-   which sees the healthy port and does nothing) would be worse than honest guidance.
-   Failures are classified by the endpoint contract (404 no-such-world, 409 busy, else). */
+/* #2238: switch the active Kosmos. POST /api/worlds/active flips the registry and,
+   when the board can SAFELY self-restart, restarts it onto the new world (#2346:
+   engine/boardrestart's conservative com.kosmos.board KeepAlive guard, which never
+   stops a board that would not relaunch). The response is FINAL about which path
+   happened, so the UI keys on it rather than guessing:
+     - restartRequired:false -> a no-op switch to the world the board already booted
+       into; nothing to restart, so just say it is already active.
+     - restarting:true       -> the board is self-restarting NOW. Show "Switching...",
+       wait for it to come back on the new world (worldswReconnect), reload on the
+       confirmed flip.
+     - restarting:false (with a real restartRequired) -> a from-source / unmanaged
+       board that will NOT self-restart safely; show the honest manual-restart banner.
+   This replaces the earlier always-manual banner (the auto-restart was the deferred
+   #2238 follow-up, now landed via #2346). Failures are classified by the endpoint
+   contract (404 no-such-world, 409 busy, else). */
 let WORLDSW_SWITCHING = false;
+// The reconnect poll cadence. `let` (not const) so a browser check can lower them and
+// exercise the flip deterministically without waiting real seconds.
+let WORLDSW_RECONNECT_INTERVAL_MS = 2000;
+let WORLDSW_RECONNECT_TIMEOUT_MS = 150000;
 async function worldswSwitch(id, name) {
   if (WORLDSW_SWITCHING) return;
   const banner = document.getElementById('worldsw-restart');
@@ -16356,6 +16360,7 @@ async function worldswSwitch(id, name) {
   // role=status announces a mutation only while the region is IN the a11y tree, so
   // UNHIDE first, then set the text (setting text on a hidden region can go unspoken).
   const say = (t) => { banner.hidden = false; bmsg.textContent = t; };
+  const focusTrigger = () => { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); };
   WORLDSW_SWITCHING = true;
   try {
     let res;
@@ -16369,7 +16374,6 @@ async function worldswSwitch(id, name) {
       say('Could not reach Kosmos to switch. Try again.');
       return;
     }
-    const focusTrigger = () => { const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus(); };
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const because = body && body.because;
@@ -16380,20 +16384,78 @@ async function worldswSwitch(id, name) {
       else { say(because || 'Could not switch to that Kosmos.'); }
       return;
     }
-    // Success: the active world is recorded. Prefer the server-returned world.name over
-    // the row's captured name (they agree in practice, but the server is authoritative if
-    // a concurrent rename happened). Mark it (list + header), be honest that its projects
-    // and agents load only after the board restarts, and move focus to the switcher
-    // trigger (which now shows the new active name) since the refetch drops the button.
+    // Success: the active world is recorded. Prefer the server-returned world (the
+    // server is authoritative if a concurrent rename happened) for both the id the
+    // reconnect polls on and the name shown.
     const okBody = await res.json().catch(() => null);
-    const switchedName = (okBody && okBody.world && okBody.world.name) || name;
+    const world = okBody && okBody.world;
+    // The server judged the no-op against the CANONICAL world.id (not the raw request
+    // id), and /api/status.activeWorldId reports that same canonical id, so the poll
+    // keys on world.id too.
+    const switchedId = (world && world.id) || id;
+    const switchedName = (world && world.name) || name;
+    // restarting is FINAL (server contract): true = the board is self-restarting now.
+    const restarting = !!(okBody && okBody.restarting);
+    // restartRequired defaults true; only an explicit false means a no-op switch to the
+    // world the running board already booted into.
+    const noop = !!okBody && okBody.restartRequired === false;
+
+    // Mark the new active world (list + promoted name) before branching on the outcome.
     await worldsFetch().catch(() => {});
-    say('Switched to ' + switchedName + '. Its projects and agents load the next time the Kosmos board restarts (run "kosmos restart", or restart your Mac).');
+
+    if (noop) {
+      say(switchedName + ' is already your active Kosmos.');
+      focusTrigger();
+      return;
+    }
+    if (restarting) {
+      // The board is restarting itself onto the new world; wait for it to come back
+      // and reload. The WORLDSW_SWITCHING guard is held across the whole poll (this is
+      // awaited before the finally), so a second switch cannot race the restart.
+      await worldswReconnect(switchedId, switchedName, say);
+      return;
+    }
+    // A board that will not self-restart safely (from source / unmanaged): honest
+    // guidance, no auto-reconnect (a poll would wait out the full timeout for a
+    // restart that is never coming).
+    say('Switched to ' + switchedName + '. Restart Kosmos to finish switching (run "kosmos restart", or restart your Mac); its projects and agents load when the board comes back.');
     focusTrigger();
   } finally {
     WORLDSW_SWITCHING = false;
   }
 }
+
+/* #2238: the board reported it is self-restarting (restarting:true) onto the new world.
+   Wait for it to come back, then reload so the app loads that world. Mirrors the update
+   flow's reconnect (see the #553 spinner poll above): poll GET /api/status every ~2s,
+   treat a THROWN fetch (connection refused while launchd relaunches the board) as "still
+   restarting" and keep polling, and key on activeWorldId -- the world the LIVE board
+   BOOTED into (engine/worldenv.bootedWorld, NOT the registry pointer that flipped the
+   instant the switch POSTed), so the poll cannot false-succeed before the board actually
+   reboots onto the new world. On the confirmed flip, reload. A ~150s ceiling falls back
+   to the manual banner rather than polling forever. */
+async function worldswReconnect(switchedId, switchedName, say) {
+  say('Switching to ' + switchedName + '…');
+  const deadline = Date.now() + WORLDSW_RECONNECT_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, WORLDSW_RECONNECT_INTERVAL_MS));
+    let booted = null;
+    try {
+      const s = await fetch('/api/status', { cache: 'no-store' });
+      if (s.ok) { const body = await s.json().catch(() => null); booted = body && body.activeWorldId; }
+    } catch { /* the board dropped the connection mid-restart; that is expected, keep polling */ }
+    if (booted != null && booted === switchedId) {
+      say('Switched to ' + switchedName + '. Reloading…');
+      worldswReload();
+      return;
+    }
+  }
+  say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, restart Kosmos (run "kosmos restart", or restart your Mac).');
+  const btn = document.getElementById('worldsw-btn'); if (btn) btn.focus();
+}
+// Indirected through a named function so a browser check can observe the reload without
+// actually navigating the test page.
+function worldswReload() { location.reload(); }
 function worldswClose() {
   const menu = document.getElementById('worldsw-menu');
   if (!menu || menu.hidden) return;
