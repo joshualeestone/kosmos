@@ -136,7 +136,7 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
       if (completeHit.n >= 1) ok('GRANTED: the S9 primary fires /api/first-run/complete (the flow terminates)'); else bad('GRANTED finish fires complete', 'complete hit ' + completeHit.n + ' times, s9click=' + s9click);
 
       if (!errs.length) ok('GRANTED: no page errors across the whole 1..9 flow'); else bad('GRANTED no page errors', errs.join(' | '));
-      await ctx.close();
+      await ctx.close().catch(() => {});   // a cleanup throw must not RED a passing check (false-red guard, iter-2 NIT)
     }
 
     // ── NOT-GRANTED: the S2 gate blocks the flow. ──
@@ -165,7 +165,7 @@ const readStep = (page) => page.evaluate(() => (typeof FR_STEP !== 'undefined') 
       await page.waitForTimeout(300);
       const stillS2 = await readStep(page);
       if (stillS2 === 2) ok('NOT-GRANTED: the flow stays held at S2 (a disabled Next is inert)'); else bad('NOT-GRANTED stays held at S2', 'advanced to step ' + stillS2);
-      await ctx.close();
+      await ctx.close().catch(() => {});   // a cleanup throw must not RED a passing check (false-red guard, iter-2 NIT)
     }
   } catch (e) {
     bad('the check itself', String((e && e.message) || e));
