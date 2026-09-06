@@ -24,9 +24,12 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-switch-arms-2238-'
 const mkTemp = (p) => fs.mkdtempSync(nodePath.join(os.tmpdir(), p));
 process.env.AGENT_WORKFORCE_HOME = SANDBOX;
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
-process.env.AGENT_WORKFORCE_WORKERS = mkTemp('aw-sa-workers-');
-process.env.AGENT_WORKFORCE_PROJECTS = mkTemp('aw-sa-projects-');
-process.env.AGENT_WORKFORCE_LAUNCH = mkTemp('aw-sa-launch-');
+// Tracked so test.after removes them too (not just SANDBOX).
+const TEMP_ROOTS = [];
+const rootTemp = (p) => { const d = mkTemp(p); TEMP_ROOTS.push(d); return d; };
+process.env.AGENT_WORKFORCE_WORKERS = rootTemp('aw-sa-workers-');
+process.env.AGENT_WORKFORCE_PROJECTS = rootTemp('aw-sa-projects-');
+process.env.AGENT_WORKFORCE_LAUNCH = rootTemp('aw-sa-launch-');
 process.env.AGENT_WORKFORCE_TMUX_BIN = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
 
 const boardrestart = require('./engine/boardrestart');
@@ -69,7 +72,7 @@ test.after(() => {
   boardrestart.canSelfRestart = _origCanSelfRestart;
   boardrestart.selfRestart = _origSelfRestart;
   try { server.close(); } catch { /* best effort */ }
-  try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
+  for (const d of [SANDBOX, ...TEMP_ROOTS]) { try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* best effort */ } }
 });
 
 test('canSelfRestart TRUE + a real switch -> restarting:true, restartRequired:true, and the restart FIRES after the response (the arm nobody can e2e here)', async () => {
