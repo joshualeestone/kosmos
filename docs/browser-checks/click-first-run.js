@@ -474,6 +474,61 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await ctx.close();
   }
 
+  /* ------------------------------------------------------------------ */
+  console.log('\n12. The open-settings buttons actually POST (S2 Allow Access, S3 Turn On)');
+  // The challenge review flagged that nothing clicked these open-settings buttons
+  // end to end -- a labelled primary that silently did nothing on the S2 button was
+  // exactly the class of defect that shipped once. This clicks each and asserts the
+  // POST fires, and that a refusal is SPOKEN in the pane's own message line, not
+  // swallowed. The endpoints are mocked so no real System Settings opens.
+  {
+    // S2 "Allow Access" -> /api/open-file-access-settings.
+    const { ctx, page } = await fresh(browser);
+    let s2posts = 0;
+    await page.route('**/api/open-file-access-settings', (r) => { s2posts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s2-allow');
+    await page.click('.s2-allow');
+    await page.waitForTimeout(250);
+    ok(s2posts === 1, `S2 "Allow Access" POSTs open-file-access-settings (saw ${s2posts})`);
+    // A 409 must speak in the pane's own line, not fail silently.
+    await page.unroute('**/api/open-file-access-settings');
+    await page.route('**/api/open-file-access-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
+    await page.click('.s2-allow');
+    await page.waitForFunction(
+      () => /could not open/i.test((document.getElementById('fr-s2-msg') || {}).textContent || ''),
+      null, { timeout: 3000 }).catch(() => {});
+    ok(/could not open/i.test(await page.locator('#fr-s2-msg').textContent()),
+      'a refused S2 "Allow Access" is spoken in #fr-s2-msg, not swallowed');
+    await ctx.close();
+  }
+  {
+    // S3 "Turn On": the sleep row opens Energy, the tmux row opens Accessibility.
+    const { ctx, page } = await fresh(browser);
+    let sleepPosts = 0; let tmuxPosts = 0;
+    await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-accessibility-settings', (r) => { tmuxPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s3-gate-row');
+    await page.click('[data-gate="sleep"] .s3-on');
+    await page.waitForTimeout(150);
+    await page.click('[data-gate="tmux"] .s3-on');
+    await page.waitForTimeout(250);
+    ok(sleepPosts === 1, `S3 sleep "Turn On" POSTs open-sleep-settings (saw ${sleepPosts})`);
+    ok(tmuxPosts === 1, `S3 tmux "Turn On" POSTs open-accessibility-settings (saw ${tmuxPosts})`);
+    // A 409 on an S3 "Turn On" must SPEAK in #fr-s3-msg, the same not-swallowed
+    // contract S2 has. The S3 failure branch is a structurally separate path with
+    // its own message id, so a dropped or mistyped #fr-s3-msg would pass the
+    // POST-fires assertions above while the identical S2 defect goes red.
+    await page.unroute('**/api/open-accessibility-settings');
+    await page.route('**/api/open-accessibility-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
+    await page.click('[data-gate="tmux"] .s3-on');
+    await page.waitForFunction(
+      () => /could not open/i.test((document.getElementById('fr-s3-msg') || {}).textContent || ''),
+      null, { timeout: 3000 }).catch(() => {});
+    ok(/could not open/i.test(await page.locator('#fr-s3-msg').textContent()),
+      'a refused S3 "Turn On" is spoken in #fr-s3-msg, not swallowed');
+    await ctx.close();
+  }
+
   } catch (e) {
     // Named as a THROW, not folded into an ordinary ok(): a section that died
     // tells you nothing about the assertions it never reached, and a reader must
