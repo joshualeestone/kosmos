@@ -78,7 +78,10 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
       const mark = document.getElementById('plus-mark');
       const mounted = (typeof plusMounted !== 'undefined') && plusMounted;
       const starsSized = !!stars && stars.width > 0 && stars.height > 0;
-      const markSized = !!mark && mark.width > 0 && mark.height > 0;
+      /* clientWidth (LAYOUT width), not .width: the drawing-buffer width is set
+         to clientWidth||480 so it is never 0 even when hidden — only the laid-out
+         width can return the dangerous answer (0 when the pane is not on screen). */
+      const markSized = !!mark && mark.clientWidth > 0 && mark.height > 0;
 
       // 2. Leave to another Settings section — must un-blue AND tear down.
       settingsGo('you');
@@ -138,4 +141,4 @@ const BLUE = 'rgb(7, 12, 22)';   /* #070c16, the first-step blue ground */
     process.exit(1);
   }
   console.log('render-plus-blue-1615: Plus turns the app blue + mounts its canvases on enter, and un-blues + tears down on leave (both schemes + reduced-motion; no leak to another section or tab).');
-})();
+})().catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' + (e && e.message || e)); process.exit(1); });

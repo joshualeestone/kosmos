@@ -10795,7 +10795,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            over 1.5s (or a single static frame under prefers-reduced-motion), by
            the plusMark engine in the app script. Decorative -> aria-hidden; the
            heading below carries the accessible name. -->
-      <div class="markwrap"><canvas id="plus-mark" aria-hidden="true"></canvas></div>
+      <canvas id="plus-mark" aria-hidden="true"></canvas>
       <h3 class="plus-hero-h">Your Kosmos, wherever you are</h3>
       <p class="plus-lede">Access your agents and projects from your phone or any
       computer, even while you're away from this computer. Get notified when work
@@ -11371,6 +11371,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 /* Guarded so the top-level executes cleanly under the repo's headless page-eval
    tests (web.post-receipt / web.quoteb eval this whole script in a Node scope
    with no window/matchMedia); identical to the bare form in a real browser. */
+/* A 2x FLOOR, not the raw device ratio (verbatim from first-step.html): the
+   wordmark and star field stay crisp on a 1x display, at the cost of a larger
+   backing store there. Bounded — the canvases exist only while Plus is on screen
+   and are torn down on leave, so nothing pays this off-screen. */
 var PLUS_DPR = Math.max(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
 var plusReduce = (typeof matchMedia === 'function') && matchMedia('(prefers-reduced-motion: reduce)').matches;
 var plusMarkCv = null, plusMarkRaf = null, plusScene = null, plusMD = null;
