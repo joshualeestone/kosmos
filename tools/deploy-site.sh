@@ -346,16 +346,19 @@ echo "deploy-site: published and verified -- the site is live and the installers
 # version ($sj) is strictly NEWER than the version that was live BEFORE this deploy ($LJ, fetched at
 # the top). A same-version re-point and a rollback both skip. `sort -V` is the version compare already
 # used in tools/dist-retention.sh. If $LJ's version is unreadable (an anomaly the top-of-script fetch
-# would normally have refused on), we fall through to announce -- the hook's own per-version
-# idempotency then prevents re-announcing a version already posted.
+# would normally have refused on), we SKIP rather than announce: without the prior version a rollback
+# cannot be told from a forward move, and the whole point of this gate is that a rollback must not
+# announce -- a missed announcement is safer than a wrong public one.
 if [ "$PROMOTE" = 1 ]; then
   _pv="$(ptr_version "$sj")"   # the version this promote just made live
   _lv="$(ptr_version "$LJ")"   # the version that was live BEFORE this deploy
   if [ -z "$_pv" ]; then
     echo "post-release-notes: could not read the promoted version from the served latest.json -- skipping the notes hook (the promote still shipped and was verified)."
+  elif [ -z "$_lv" ]; then
+    echo "post-release-notes: could not read the previously-live version, so this cannot be confirmed a FORWARD promote rather than a rollback -- skipping the notes hook (a rollback must not announce; a missed announcement is safer than a wrong public one)."
   elif [ "$_pv" = "$_lv" ]; then
     echo "post-release-notes: promoted version $_pv matches the previously-live version -- not a new release, skipping the notes hook."
-  elif [ -n "$_lv" ] && [ "$(printf '%s\n%s\n' "$_lv" "$_pv" | sort -V | tail -1)" != "$_pv" ]; then
+  elif [ "$(printf '%s\n%s\n' "$_lv" "$_pv" | sort -V | tail -1)" != "$_pv" ]; then
     echo "post-release-notes: promoted version $_pv is not newer than the previously-live $_lv (a rollback) -- skipping the notes hook (a rollback must not announce)."
   else
     echo ""
