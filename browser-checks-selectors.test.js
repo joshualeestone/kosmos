@@ -49,6 +49,12 @@ const KNOWN_STALE = [
   { check: 'render-a11y-copy-1940.js', id: 'fr-a11y-open' },
   { check: 'render-a11y-gate-2125.js', id: 'fr-a11y-open' },
   { check: 'render-sleep-button.js', id: 'fr-machine-msg' },
+  /* The 6->9 rework also removed the step indicators (crumb #fr-step + segments
+     #fr-segs, Josh's spec) and retired the #2163 preflight interstitial. These
+     checks are restated (or retired) in this branch's browser-checks pass. */
+  { check: 'click-first-run.js', id: 'fr-segs' },
+  { check: 'click-first-run.js', id: 'fr-step' },
+  { check: 'render-preflight-2163.js', id: 'fr-step' },
 ];
 
 /* The ids a check asks for. Comments are stripped first (a comment quoting
