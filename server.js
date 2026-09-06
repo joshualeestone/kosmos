@@ -144,6 +144,7 @@ const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
 const fileaccessstatus = require('./engine/fileaccessstatus');
+const promptrequest = require('./engine/promptrequest');
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
 
@@ -5517,6 +5518,30 @@ const server = http.createServer((req, res) => {
     const opened = machine.openFileAccessSettings();
     if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
     sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
+  /* #1 / #2189: fire the REAL macOS prompts on demand. Screen 2's "Allow Access"
+     POSTs here for files/folders; Screen 3's tmux row POSTs /api/a11y-prompt. Both
+     inherit the cross-site guard above (POST). The engine cannot fire a TCC prompt
+     attributed to tmux, so it records a request and the native app's watcher fires
+     the matching hatch UNDER tmux (see engine/promptrequest.js and the native
+     startPromptRequestWatcher). Fire-and-forget: { ok:true } means the app will fire
+     it (the gate poll then flips the pill); { ok:false, because } means no native app
+     is present, and the caller falls back to opening Settings so a button is never
+     dead. Always 200 with a body -- the caller reads body.ok, not the status. */
+  if (pathname === '/api/a11y-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('a11y'); }
+    catch (err) { r = { ok: false, because: 'we could not record the accessibility prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
+  if (pathname === '/api/file-access-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('file-access'); }
+    catch (err) { r = { ok: false, because: 'we could not record the file-access prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
     return;
   }
 
