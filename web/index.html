@@ -7690,398 +7690,622 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <!-- 2. Welcome. No account, no email, and where the transcripts go —
            the last of which the requirements ask to be stated here rather than
            discovered later. -->
-      <div class="fr-pane" id="fr-pane-2">
-        <!-- ⚠️ THE PRIVACY SENTENCE ON THIS SCREEN HAS BEEN WRONG THREE TIMES,
-             and the pattern is recorded here because the paragraph keeps its
-             guardian even across a redesign: it does not go wrong by being
-             rewritten, it goes wrong when a FEATURE changes what is true.
-             (First: a transcript capability claim nothing implemented. Second:
-             "nothing of it is sent anywhere", false because agents think with
-             Claude. Third, 2026-08-17: About-you made the narrowed claim false
-             AGAIN without an edit -- the profile is prompt text in every boot
-             file.) The middle line below is Mona Lisa's RULED wording from the
-             first-run spec (kosmos-firstrun-spec.md): the pack's own Saturday
-             version predates About-you and must not ship. Re-read this
-             whenever anything new is added to what agents carry. -->
-        <p>Your agents live on this computer, and so does everything they
-           write.</p>
-        <!-- Josh's rewrite, verbatim, and RULED FINAL as written (2026-08-17,
-             "leave that one line the way that I wrote it"): provider-generic
-             so this screen survives new providers, and it reads BEFORE
-             Claude is chosen. The and-your-answers-here addition was offered
-             and declined; do not re-add it without his word. -->
-        <p>They're powered by an AI provider, so your requests are sent to
-           that provider to be answered.</p>
-        <!-- 🛑 A LINE ABOUT THE AGENT-CREATED PING WAS HERE FOR ONE RELEASE
-             (0.2.50) AND JOSH TOOK IT OUT, 2026-08-22 00:22: "I don't care and
-             don't want any nit picky in the weeds lawyer speak. They don't have
-             to notify us or use our service or pay. It's all optional and we
-             are not bringing it up."
-             📌 RECORDED RATHER THAN SILENTLY REVERTED, because the guardian
-             above says this paragraph goes wrong when a FEATURE changes what is
-             true, and a future reader who notices the ping and not this comment
-             would add the line back believing it an oversight. It is a ruling.
-             🔑 THE DISCLOSURE LIVES AT THE POINT OF THE ACT INSTEAD: the box on
-             the create-agent screen, ticked, with the words on it. His argument
-             is that a choice explained where it is made needs no preamble on a
-             screen three steps earlier, and that is a real position rather than
-             an omission.
-             ⚠️ WHAT IS THEREFORE TRUE OF THIS SCREEN, so nobody has to re-derive
-             it: it names the AI provider as the destination for an agent's work,
-             and does not name the one message Kosmos sends when an agent is
-             created. That message carries no content of the agent's. -->
-        <p>No account setup. No email needed.</p>
+      <!-- S1 Welcome (was fr-pane-2). Privacy copy staged, placement Josh's on review. -->
+      <div class="fr-pane" id="fr-pane-1">
+        <!-- ============================================================
+             SCREEN 1 - WELCOME   (spec letter C, edited)
+             Inner content of the screen container. Renet's shell owns the frame,
+             the flush-left gold mark, the Next/Back bar, and transitions.
+             Primary button label (shell parameter): "Get Started"
+             Gate: none.  Dynamic: none.  Screen-internal CSS namespace: s1-*
+             Copy is Josh's, verbatim (2026-09-05). Uses the existing first-run
+             typography (.fc-eyebrow / <h2> / .fr-body p) so it renders native.
+             ============================================================ -->
+        <p class="fc-eyebrow">Lets do it</p>
+        <h2>Welcome to Kosmos</h2>
+        <p>Create and manage a workforce of AI agents that work for you.</p>
+
+        <!-- No graphic, no gate, no dynamic content on this screen. This one is the
+             shape sample: if this seam is right (my inner content drops into your
+             #fr-screen-c and renders native), the rest follow the same pattern with
+             s1-* / s2-* screen CSS + the data-gate hooks where they apply. -->
+        <!-- 🛑 PRIVACY COPY, RULED-FINAL, STAGED HERE PENDING JOSH'S PLACEMENT (Splinter 2026-09-05).
+             These three lines MUST be preserved through the 9-screen redesign; PLACEMENT (which screen,
+             whether split) is Josh's on review. Staged in a hidden block so nothing is lost and the raw
+             markup still carries them, WITHOUT pre-placing them on this screen. Do NOT delete; Josh moves
+             them out of this staging block when he reviews the built flow.
+             ⚠️ Guardian (kept verbatim from old fr-pane-2): this paragraph does not go wrong by being
+             rewritten, it goes wrong when a FEATURE changes what is true. Middle line is Josh's verbatim,
+             RULED FINAL 2026-08-17 -- do not reword. Re-read whenever anything new is added to what agents
+             carry. -->
+        <div id="fr-privacy-staged" hidden>
+          <p>Your agents live on this computer, and so does everything they write.</p>
+          <p>They're powered by an AI provider, so your requests are sent to that provider to be answered.</p>
+          <p>No account setup. No email needed.</p>
+        </div>
       </div>
 
-      <!-- 4. The machine checks. Painted from /api/machine. -->
-      <div class="fr-pane" id="fr-pane-4" hidden>
-        <div id="fr-checks" role="status" aria-live="polite"></div>
-        <!-- ⚠️ Announced, like its sibling on the next step. This is the one
-             sentence that reconciles the three rows above it into an answer
-             ("1 thing needs your attention, and 1 thing we could not check"),
-             and it was the only message on the panel that was never spoken.
-             WCAG 2.1 SC 4.1.3, which is AA. -->
-        <div class="fr-msg" id="fr-machine-msg" role="status" aria-live="polite"></div>
+      <!-- S2 Access (new). Gate: data-gate="file-access". Next locked until granted. -->
+      <div class="fr-pane" id="fr-pane-2" hidden>
+        <!-- ============================================================
+             SCREEN 2 - ACCESS   (replaces spec screen B)
+             Primary button (shell param): "Next", GREYED until the gate is granted. No skip.
+             GATE: data-gate="file-access" on the status row. Renet's poll detects the grant
+               and sets `data-granted` on that row (my CSS then swaps red "Approval Required"
+               + the Allow button for green "Approval Granted"), and enables #fr-next.
+             Dynamic: none.  CSS namespace: s2-*
+             Copy is Josh's, verbatim. Graphic: the macOS file-access dialogs, reproduced (a real
+             framed screenshot can swap in if preferred; the reproduction is lightweight + theme-aware).
+             ============================================================ -->
+        <style>
+        /* S2 macOS permission-dialog reproduction + the file-access gate row */
+        .s2-dlg-fan{display:flex;gap:0;max-width:100%;overflow-x:auto;padding:2px 0 6px;margin:2px 0 14px}
+        .s2-dlg{flex:none;width:186px;text-align:center;border-radius:14px;padding:15px 16px;
+          background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;
+          box-shadow:0 8px 22px rgba(0,0,0,.16);transform:scale(.86);transform-origin:top center;margin-left:-30px}
+        .s2-dlg:first-child{margin-left:0}
+        .s2-fold{width:44px;height:34px;margin:2px auto 10px;border-radius:6px;position:relative;
+          background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
+        .s2-fold::before{content:"";position:absolute;top:-5px;left:6px;width:18px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
+        .s2-fold .s2-hand{position:absolute;right:-4px;bottom:-4px;font-size:15px}
+        .s2-say{font:600 .75rem/1.35 var(--font-ui,-apple-system,sans-serif);margin:0 0 12px;color:#1c1b19}
+        .s2-btns{display:flex;gap:8px;justify-content:center}
+        .s2-db{font:600 .6875rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:6px;padding:4px 12px;background:#f6f6f4;color:#1c1b19}
+        .s2-db.s2-hl{background:#e9e8e5}
+        /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
+        .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+          background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px}
+        .s2-gate-lbl{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        .s2-gate-rest{margin-left:auto;display:flex;align-items:center;gap:9px}
+        .s2-pill{font:650 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:3px 9px;border:1px solid}
+        .s2-pill-req{color:var(--attn,#b3261e);border-color:var(--attn,#b3261e)}
+        .s2-pill-ok{color:var(--green,#2f7d5a);border-color:var(--green,#2f7d5a)}
+        .s2-allow{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
+          color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        .s2-granted{display:none}
+        .s2-gate-row[data-granted] .s2-req{display:none}
+        .s2-gate-row[data-granted] .s2-granted{display:flex;align-items:center}
+        </style>
+
+        <p class="fc-eyebrow">Access</p>
+        <h2>Kosmos needs your permission</h2>
+        <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
+        <p>When prompted, click Allow.</p>
+
+        <div class="s2-dlg-fan" aria-hidden="true">
+          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+            <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+            <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+            <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+        </div>
+
+        <!-- GATE ROW: Renet's poll sets data-granted on this div when file access is confirmed. -->
+        <div class="s2-gate-row" data-gate="file-access">
+          <span class="s2-gate-lbl">File Access</span>
+          <span class="s2-gate-rest s2-req">
+            <span class="s2-pill s2-pill-req">Approval Required</span>
+            <button class="s2-allow" type="button">Allow Access</button>
+          </span>
+          <span class="s2-gate-rest s2-granted">
+            <span class="s2-pill s2-pill-ok">&#10003; Approval Granted</span>
+          </span>
+        </div>
       </div>
 
-      <!-- 3. Model. THREE answers, and the third must never render as the
-           second — see engine/subscription.js for what that costs. -->
+      <!-- S3 Automation (new). Gates: data-gate="sleep" + "tmux". Next locked until BOTH. -->
       <div class="fr-pane" id="fr-pane-3" hidden>
-        <!-- The pack's model list, as drawn and at Josh's explicit word
-             (2026-08-17: "Yes I want that picking a model in the app").
-             Claude and OpenAI both carry Connect now (#944-adjacent, Josh
-             asked why OpenAI still said Coming soon after it already worked
-             in Settings -- "coming soon" had gone false with no commit
-             marking the day it did, Splinter's finding); Gemini/Llama/Qwen/
-             Mistral are the genuine Coming soon. The verdict row (#fr-sub)
-             renders BENEATH the list, exactly where the pack draws its
-             could-not-tell chk row, for Claude only -- OpenAI's own row
-             carries its own state (#fr-openai-msg) since its connect shape
-             (a pasted key) has no equivalent poll to reconcile against.
-             Claude's Connect button re-checks before it does anything: a
-             CONNECTED verdict short-circuits to the green row, and an
-             unknown one enters a drive whose REPL detection says "we could
-             not confirm" rather than forcing credential entry (the painter
-             comment states the guarantee precisely). -->
-        <p>Your agents run on your own subscription, on this computer.</p>
-        <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
-             show all of the models. That's more important to me than having
-             the button above the fold. It's not like it's unreasonable to
-             have to scroll down." He was comparing the live app against this
-             exact row set, real vendor marks and all, from the design pack.
+        <!-- ============================================================
+             SCREEN 3 - AUTOMATION   (spec screen F + part of E)
+             Primary button (shell param): "Next", GREYED until BOTH gates granted. No skip.
+             GATES: data-gate="sleep" and data-gate="tmux" on the two status rows. Renet's poll
+               sets `data-granted` on each when detected (red "Needs Activated" -> green
+               "Activated"), and enables #fr-next only when both are granted.
+             Dynamic: none.  CSS namespace: s3-*
+             Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
+             TMUX permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
+             ============================================================ -->
+        <style>
+        .s3-win{background:#f7f7f5;border:1px solid #d8d6d2;border-radius:12px;overflow:hidden;
+          box-shadow:0 8px 22px rgba(0,0,0,.14);color:#1c1b19;margin:0 0 10px}
+        .s3-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#eceae7;border-bottom:1px solid #d8d6d2}
+        .s3-tl{width:11px;height:11px;border-radius:50%}
+        .s3-r{background:#ff5f57}.s3-y{background:#febc2e}.s3-g{background:#28c840}
+        .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
+        .s3-body{padding:12px 14px}
+        .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
+        .s3-mtxt{font:600 .75rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
+        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.6875rem}
+        .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
+        .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+        .s3-step-cap{font:600 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.1em;text-transform:uppercase;color:var(--k-ink-3,#8a857c);margin:2px 0 6px}
+        .s3-step-cap .s3-standin{color:var(--attn,#b3261e)}
+        /* gate rows (same contract as S2): red "Needs Activated" -> data-granted -> green "Activated" */
+        .s3-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+          background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px;margin:0 0 10px}
+        .s3-gate-lbl{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        .s3-gate-rest{margin-left:auto;display:flex;align-items:center;gap:9px}
+        .s3-pill{font:650 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:3px 9px;border:1px solid}
+        .s3-pill-req{color:var(--attn,#b3261e);border-color:var(--attn,#b3261e)}
+        .s3-pill-ok{color:var(--green,#2f7d5a);border-color:var(--green,#2f7d5a)}
+        .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
+          color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        .s3-granted{display:none}
+        .s3-gate-row[data-granted] .s3-req{display:none}
+        .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
+        </style>
 
-             ⚠️ #262 MEASURED SOMETHING REAL, AND IT STILL HOLDS: six full
-             rows put this card at 1003px, and Continue 300px below the fold
-             at 950/800/700 if the card just grows. What changed is not that
-             number, it is which fix it drives. #262 hid five rows to keep
-             Continue on-screen; that traded the thing Josh actually wants
-             (see all six) for the thing that was easy to fix (button
-             visible). The fix now is `#firstrun .fr-box`/`.fr-body` above:
-             Continue is a sticky footer on every step of this wizard, and
-             the body scrolls under it — so six rows and an always-visible
-             Continue are no longer in tension. (Splinter, 2026-08-25:
-             "#262's problem, solved by pinning instead of hiding.")
+        <p class="fc-eyebrow">Automation</p>
+        <h2>Kosmos never sleeps</h2>
+        <p>To get the most out of your agents we need to ensure they can stay awake and access the things they need to work for you.</p>
 
-             Real vendor marks, inlined SVG (nothing fetched at runtime) —
-             see `.pmark` above for why Claude is in colour and the rest are
-             monochrome by filter. -->
-        <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm" aria-label="Connect Claude">Connect</button></div>
-        <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
-             14:44, watching a fresh install: "it downloaded 231MB without asking...
-             total chaos". And 14:59: "I should be notified before an almost-quarter-
-             of-a-gig download that's about to happen."
-             ⚠️ Same reveal contract as #fr-openai-flow below (hidden, aria-expanded
-             on the button, aria-controls pointing here), because the two rows sit
-             next to each other and a person should not meet two different ideas of
-             what pressing Connect does. Josh described the behaviour as "it pops
-             down right below it" -- OpenAI already did that; Claude did not.
-             📌 THE SIZE IS ROUGH ON PURPOSE, and it is in the SENTENCE rather than
-             only on the bar. Being told how big it is once the bar is already
-             moving is being told too late to decline, which makes the confirm a
-             formality. But Josh, 15:27: "a white collar person doesnt care if its
-             108 or 127MB.. they just want to know its making progress installing."
-             ⇒ Say it is large, then show it moving. "Around 230MB" is enough to
-             decide whether to do this now or on better wifi, which is the decision
-             he described wanting to make. An exact figure serves nobody reading it
-             and is one more number that has to stay true.
-             ⚠️ No time estimate: dropped at 15:07 ("that seems hard"). We cannot
-             know somebody's connection, so any figure is a promise the product
-             breaks on the screen where trust is being decided.
-             ⚠️ STALENESS: the figure is hardcoded in frClaudeDownloadBytes, not
-             in this markup. It is rough, so a small drift in
-             the real artifact does not make it a lie, but a large one would. The
-             durable version reads the size the engine already knows before it
-             downloads; worth doing when that field exists rather than inventing a
-             second source of truth for it now. -->
-        <div id="fr-claude-confirm" class="fr-confirm" role="group" aria-labelledby="fr-claude-confirm-t" hidden>
-          <p class="fr-confirm-t" id="fr-claude-confirm-t">In order to connect to Claude, we need to install Claude Code first.</p>
-          <div class="frow">
-            <button class="btn uprime" type="button" id="fr-claude-confirm-go" aria-describedby="fr-claude-confirm-t">Confirm</button>
-            <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
-          </div>
+        <p class="s3-step-cap">1 &middot; keep this computer awake</p>
+        <div class="s3-win" aria-hidden="true">
+          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw"></span></div></div>
         </div>
-        <!-- 🛑 THE CONNECT PANEL LIVES UNDER CLAUDE, NOT UNDER THE WHOLE LIST
-             (Josh, 2026-08-26, items 8, 9 and 10). It used to sit after every
-             provider row, so pressing Confirm on Claude painted the progress bar,
-             every status line and finally the connected verdict at the BOTTOM of
-             the screen -- far from the thing he had just pressed, and below four
-             providers he had not. His words: "it is showing below all of the
-             models in the wrong spot".
-
-             ⚠️ ONE MOVE FIXES ALL THREE OF HIS ITEMS, because they were one bug
-             with three symptoms: the panel, the progress and the verdict all
-             render into #fr-sub. No JavaScript changed.
-
-             📌 If a future provider needs its own panel, give it its own
-             container rather than moving this one back down. -->
-        <div id="fr-sub"></div>
-        <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
-        <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
-             purpose. Each phase panel already says what is happening in its
-             title; speaking the change needs a live region, but rendering the
-             same sentence twice is the said-it-twice copy defect the
-             connection notice was already caught by once. -->
-        <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
-        <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
-             GPT under Claude, and then Gemini 3rd"). Beyond his preference it
-             is the right shape: Gemini is a `llm off` Coming soon row, and it
-             previously sat BETWEEN the only two providers that work, so the eye
-             hit a dead row on the way to the second live one. Both working rows
-             now come first. Move this only if a provider changes state. -->
-        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
-        <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
-             Claude, so it gets its own small reveal instead of reusing
-             fr-llm-connect. Shares Settings' #acct-openai-flow contract
-             (same endpoint, same copy, same "never shown again" promise) so a
-             person who has already done this once in Settings recognises it
-             here. Hidden until Connect is pressed; the row's own message line
-             (#fr-openai-msg) carries the outcome, same shape as Claude's
-             #fr-sub beneath it. -->
-        <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
-             item 7, from a live run: "it immediately jumped to asking me for an
-             API key"). Claude's row already said what it needed to install and
-             offered Not now; Settings' OpenAI flow already did the same. This
-             row was the one place the pattern was missing, so a person met the
-             requirement only AFTER finding and pasting a key.
-             ⚠️ Settings' own comment beside #acct-openai-install says "the
-             first-run wizard already learned this: prerequisites go before
-             credentials." It had -- for Claude. -->
-        <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
-          <p class="fr-confirm-t" id="fr-openai-confirm-t">In order to connect to OpenAI GPT we need to download the installer.</p>
-          <div class="frow">
-            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Confirm</button>
-            <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
-          </div>
-          <div class="fr-progress fr-indet" id="fr-openai-confirm-bar" role="progressbar"
-               aria-label="Installing the OpenAI runner" hidden><i></i></div>
-          <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        <div class="s3-gate-row" data-gate="sleep">
+          <span class="s3-gate-lbl">Prevent sleep</span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Needs Activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
-        <!-- 🛑 THE BOX IS `.fr-confirm`, THE SAME ONE THE STEP BEFORE THIS USES
-             (#1207, Josh: "all of it inside a bounding box, like the prior
-             step"). Reusing that class rather than a new one is what makes the
-             two steps match without a second set of rules to keep in sync.
-             ⚠️ THE "Get a key" LINK SITS IN A `.frow`, AND THAT IS LOAD-BEARING.
-             `.btn` sets padding and no `display`; a `<button>` is inline-block by
-             default but an `<a>` is plain inline, so its vertical padding
-             OVERLAPS the line above instead of pushing it -- exactly the
-             collision Josh photographed on the sign-in step (#1209). `.frow` is
-             `display: flex`, which blockifies its children, so the anchor's
-             padding behaves. This is the codebase's own row pattern; it is not a
-             new rule and it is not a coincidence that it works.
-             📌 Both paragraphs carry `.fr-confirm-t`, so the sizes MATCH BY
-             CONSTRUCTION rather than by two rules agreeing (Josh's follow-up:
-             "the font sizes should all match as well"). -->
-        <div id="fr-openai-flow" hidden class="fr-confirm">
-          <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-          <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
-          <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
-               "We don't need this line at all for the openAI."
-               ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
-               flagged that "it stays on this Mac" spans two claims; measurement
-               showed `engine/openaiaccounts.js:242` sends the key to
-               api.openai.com to validate it, so the short form was not true and
-               the true form needed eleven words of qualification. NO CLAIM BEATS
-               A CLAIM YOU HAVE TO QUALIFY: there is now nothing here to keep true
-               when that validation call changes, and nothing for a reader to
-               catch us on.
-               📌 SETTINGS KEEPS ITS OWN SENTENCE. He was looking at first run and
-               ruled on first run; removing copy from a screen nobody raised is
-               scope this card was not given. `web.firstrun-model.test.js` guards
-               that Settings still carries it. -->
-          <p class="fr-confirm-t" id="fr-openai-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
-          <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
-               and Add together, no Show/Hide. Settings' own #acct-openai-key
-               keeps Show/Hide so a long pasted key can be checked before
-               pressing Add; first-run trades that check away on purpose for
-               a shorter row, his explicit call, not a case where the two
-               screens differ on the underlying risk. -->
-          <div class="frow">
-            <input type="password" id="fr-openai-key" autocomplete="new-password" spellcheck="false"
-                   aria-label="OpenAI API key" placeholder="sk-…">
-            <button class="btn uprime" id="fr-openai-go" type="button">Add</button>
-          </div>
+
+        <p class="s3-step-cap">2 &middot; when prompted, switch TMUX to On <span class="s3-standin">(stand-in graphic)</span></p>
+        <div class="s3-win" aria-hidden="true">
+          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Login Items &amp; Extensions</span></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Allow in the background</small></span><span class="s3-sw"></span></div></div>
         </div>
-        <!-- 🛑 OUTSIDE #fr-openai-flow ON PURPOSE. The connected paint hides
-             the whole form (flow.hidden = true) and then writes the outcome
-             here; caught in challenge-loop iteration 2 with this element
-             INSIDE the flow, where "Added: API key ending xxxx." landed in a
-             display:none subtree -- invisible, and the aria-live announcement
-             never fired. The message must survive the form it reports on. -->
-        <!-- #2241: a DIV (was a p) so the connected state can hold the .fr-check gold
-             check-row block, the same shape Claude's #fr-sub uses; stays a plain dhint
-             line for the not-yet-connected / dead-reason states. -->
-        <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite"></div>
-        <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
-             reorder moved it past the wrong closing tag, so the list showed five
-             rows instead of six: Gemini vanished until somebody pressed Connect on
-             GPT, appeared inside the API-key form, then vanished again when the
-             form hid itself on success. The order test still passed, because it
-             read source order and not whether a hidden container opened in between. -->
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
-        <p class="smore-t">Runs on this computer</p>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
+        <div class="s3-gate-row" data-gate="tmux">
+          <span class="s3-gate-lbl">TMUX</span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Needs Activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
+        </div>
       </div>
 
-      <!-- 5. Accessibility (kosmos#1214). An OFFER, not a requirement (Josh ruled
-           offer-not-require, 2026-09-01): the button opens the setting, Continue
-           proceeds whether or not it was turned on, and the optional sentence
-           points at where to do it later. It reuses the SAME action the Settings
-           box uses (/api/open-accessibility-settings) and, like that box, does
-           NOT and CANNOT grant the permission itself (TCC), so it claims no state
-           and shows no tick. The named place ("Settings, under Keeping agents
-           running") is pinned by a test against the box that actually holds the
-           button, so a Settings reorganisation cannot leave this pointing at a
-           pane that has moved.
-           📌 Placed right after the model pane (pane-3) in FILE order on purpose:
-           web.firstrun-model.test.js slices pane-3 to pane-5 to isolate the model
-           step, so this pane must remain the one that follows pane-3. -->
+      <!-- S4 Notifications (new). -->
+      <div class="fr-pane" id="fr-pane-4" hidden>
+        <!-- ============================================================
+             SCREEN 4 - NOTIFICATIONS   (new screen; art from Josh's bash-notification screenshot)
+             Primary button (shell param): "Next".  Gate: none.  Dynamic: none.
+             CSS namespace: s4-*   Copy is Josh's, verbatim.
+             Graphic: the macOS "App Background Activity / bash can run in the background"
+             notification, reproduced (a real framed screenshot can swap in if preferred).
+             ============================================================ -->
+        <style>
+        .s4-notif{max-width:340px;margin:2px 0 0;display:flex;gap:11px;align-items:flex-start;
+          background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 14px;
+          box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
+        .s4-gear{width:30px;height:30px;border-radius:7px;flex:none;display:grid;place-items:center;font-size:16px;
+          background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
+        .s4-nt{font:700 .75rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
+        .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
+        .s4-x{margin-left:auto;color:#8a8a86;font-size:.9rem;flex:none;line-height:1}
+        </style>
+
+        <p class="fc-eyebrow">Notifications</p>
+        <h2>Random notifications may appear</h2>
+        <p>When using Kosmos you might notice random notifications to tell you things are working in the background.</p>
+        <p>This is totally normal.</p>
+
+        <div class="s4-notif" aria-hidden="true">
+          <span class="s4-gear">&#9881;</span>
+          <div>
+            <p class="s4-nt">App Background Activity</p>
+            <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
+          </div>
+          <span class="s4-x">&times;</span>
+        </div>
+      </div>
+
+      <!-- S5 Model (reuse old fr-pane-3 body). Mona S5 head prepended. -->
       <div class="fr-pane" id="fr-pane-5" hidden>
-        <p>Allow Kosmos agents to work in applications on this computer. Turn on
-           'Tmux' in Accessibility to enable this.</p>
-        <button class="btn fr-sleepbtn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
-        <p class="fr-msg" id="fr-a11y-msg" role="status" aria-live="polite"></p>
-        <!-- #2125 slice 3 (Josh, 2026-09-04): GATE Continue until Accessibility is
-             actually enabled, verified, superseding the 09-01 offer-not-require.
-             So the old "you can turn this on anytime in Settings" skip-out is gone
-             (it is no longer optional at this step), replaced by what-to-toggle
-             guidance and a live status line the gate poll writes. The guidance
-             names BOTH grants tmux needs: Accessibility (the list) AND, when macOS
-             asks, Automation ("control your computer"). -->
-        <p class="fr-a11y-guide" id="fr-a11y-guide">Find <b>Tmux</b> in the Accessibility list and switch it on. If macOS also
-           asks to let Tmux control your computer, allow that too. Then come back to this window.</p>
-        <p class="fr-next" id="fr-a11y-status" role="status" aria-live="polite"></p>
+        <p class="fc-eyebrow">Model</p>
+        <h2>Choose a model.</h2>
+                <!-- The pack's model list, as drawn and at Josh's explicit word
+                     (2026-08-17: "Yes I want that picking a model in the app").
+                     Claude and OpenAI both carry Connect now (#944-adjacent, Josh
+                     asked why OpenAI still said Coming soon after it already worked
+                     in Settings -- "coming soon" had gone false with no commit
+                     marking the day it did, Splinter's finding); Gemini/Llama/Qwen/
+                     Mistral are the genuine Coming soon. The verdict row (#fr-sub)
+                     renders BENEATH the list, exactly where the pack draws its
+                     could-not-tell chk row, for Claude only -- OpenAI's own row
+                     carries its own state (#fr-openai-msg) since its connect shape
+                     (a pasted key) has no equivalent poll to reconcile against.
+                     Claude's Connect button re-checks before it does anything: a
+                     CONNECTED verdict short-circuits to the green row, and an
+                     unknown one enters a drive whose REPL detection says "we could
+                     not confirm" rather than forcing credential entry (the painter
+                     comment states the guarantee precisely). -->
+                <p>Your agents run on your own subscription, on this computer.</p>
+                <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
+                     show all of the models. That's more important to me than having
+                     the button above the fold. It's not like it's unreasonable to
+                     have to scroll down." He was comparing the live app against this
+                     exact row set, real vendor marks and all, from the design pack.
+
+                     ⚠️ #262 MEASURED SOMETHING REAL, AND IT STILL HOLDS: six full
+                     rows put this card at 1003px, and Continue 300px below the fold
+                     at 950/800/700 if the card just grows. What changed is not that
+                     number, it is which fix it drives. #262 hid five rows to keep
+                     Continue on-screen; that traded the thing Josh actually wants
+                     (see all six) for the thing that was easy to fix (button
+                     visible). The fix now is `#firstrun .fr-box`/`.fr-body` above:
+                     Continue is a sticky footer on every step of this wizard, and
+                     the body scrolls under it — so six rows and an always-visible
+                     Continue are no longer in tension. (Splinter, 2026-08-25:
+                     "#262's problem, solved by pinning instead of hiding.")
+
+                     Real vendor marks, inlined SVG (nothing fetched at runtime) —
+                     see `.pmark` above for why Claude is in colour and the rest are
+                     monochrome by filter. -->
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
+                  <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm" aria-label="Connect Claude">Connect</button></div>
+                <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
+                     14:44, watching a fresh install: "it downloaded 231MB without asking...
+                     total chaos". And 14:59: "I should be notified before an almost-quarter-
+                     of-a-gig download that's about to happen."
+                     ⚠️ Same reveal contract as #fr-openai-flow below (hidden, aria-expanded
+                     on the button, aria-controls pointing here), because the two rows sit
+                     next to each other and a person should not meet two different ideas of
+                     what pressing Connect does. Josh described the behaviour as "it pops
+                     down right below it" -- OpenAI already did that; Claude did not.
+                     📌 THE SIZE IS ROUGH ON PURPOSE, and it is in the SENTENCE rather than
+                     only on the bar. Being told how big it is once the bar is already
+                     moving is being told too late to decline, which makes the confirm a
+                     formality. But Josh, 15:27: "a white collar person doesnt care if its
+                     108 or 127MB.. they just want to know its making progress installing."
+                     ⇒ Say it is large, then show it moving. "Around 230MB" is enough to
+                     decide whether to do this now or on better wifi, which is the decision
+                     he described wanting to make. An exact figure serves nobody reading it
+                     and is one more number that has to stay true.
+                     ⚠️ No time estimate: dropped at 15:07 ("that seems hard"). We cannot
+                     know somebody's connection, so any figure is a promise the product
+                     breaks on the screen where trust is being decided.
+                     ⚠️ STALENESS: the figure is hardcoded in frClaudeDownloadBytes, not
+                     in this markup. It is rough, so a small drift in
+                     the real artifact does not make it a lie, but a large one would. The
+                     durable version reads the size the engine already knows before it
+                     downloads; worth doing when that field exists rather than inventing a
+                     second source of truth for it now. -->
+                <div id="fr-claude-confirm" class="fr-confirm" role="group" aria-labelledby="fr-claude-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-claude-confirm-t">In order to connect to Claude, we need to install Claude Code first.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-claude-confirm-go" aria-describedby="fr-claude-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
+                  </div>
+                </div>
+                <!-- 🛑 THE CONNECT PANEL LIVES UNDER CLAUDE, NOT UNDER THE WHOLE LIST
+                     (Josh, 2026-08-26, items 8, 9 and 10). It used to sit after every
+                     provider row, so pressing Confirm on Claude painted the progress bar,
+                     every status line and finally the connected verdict at the BOTTOM of
+                     the screen -- far from the thing he had just pressed, and below four
+                     providers he had not. His words: "it is showing below all of the
+                     models in the wrong spot".
+
+                     ⚠️ ONE MOVE FIXES ALL THREE OF HIS ITEMS, because they were one bug
+                     with three symptoms: the panel, the progress and the verdict all
+                     render into #fr-sub. No JavaScript changed.
+
+                     📌 If a future provider needs its own panel, give it its own
+                     container rather than moving this one back down. -->
+                <div id="fr-sub"></div>
+                <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
+                <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
+                     purpose. Each phase panel already says what is happening in its
+                     title; speaking the change needs a live region, but rendering the
+                     same sentence twice is the said-it-twice copy defect the
+                     connection notice was already caught by once. -->
+                <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
+                <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
+                     GPT under Claude, and then Gemini 3rd"). Beyond his preference it
+                     is the right shape: Gemini is a `llm off` Coming soon row, and it
+                     previously sat BETWEEN the only two providers that work, so the eye
+                     hit a dead row on the way to the second live one. Both working rows
+                     now come first. Move this only if a provider changes state. -->
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
+                  <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
+                <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
+                     Claude, so it gets its own small reveal instead of reusing
+                     fr-llm-connect. Shares Settings' #acct-openai-flow contract
+                     (same endpoint, same copy, same "never shown again" promise) so a
+                     person who has already done this once in Settings recognises it
+                     here. Hidden until Connect is pressed; the row's own message line
+                     (#fr-openai-msg) carries the outcome, same shape as Claude's
+                     #fr-sub beneath it. -->
+                <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
+                     item 7, from a live run: "it immediately jumped to asking me for an
+                     API key"). Claude's row already said what it needed to install and
+                     offered Not now; Settings' OpenAI flow already did the same. This
+                     row was the one place the pattern was missing, so a person met the
+                     requirement only AFTER finding and pasting a key.
+                     ⚠️ Settings' own comment beside #acct-openai-install says "the
+                     first-run wizard already learned this: prerequisites go before
+                     credentials." It had -- for Claude. -->
+                <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-openai-confirm-t">In order to connect to OpenAI GPT we need to download the installer.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
+                  </div>
+                  <div class="fr-progress fr-indet" id="fr-openai-confirm-bar" role="progressbar"
+                       aria-label="Installing the OpenAI runner" hidden><i></i></div>
+                  <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                </div>
+                <!-- 🛑 THE BOX IS `.fr-confirm`, THE SAME ONE THE STEP BEFORE THIS USES
+                     (#1207, Josh: "all of it inside a bounding box, like the prior
+                     step"). Reusing that class rather than a new one is what makes the
+                     two steps match without a second set of rules to keep in sync.
+                     ⚠️ THE "Get a key" LINK SITS IN A `.frow`, AND THAT IS LOAD-BEARING.
+                     `.btn` sets padding and no `display`; a `<button>` is inline-block by
+                     default but an `<a>` is plain inline, so its vertical padding
+                     OVERLAPS the line above instead of pushing it -- exactly the
+                     collision Josh photographed on the sign-in step (#1209). `.frow` is
+                     `display: flex`, which blockifies its children, so the anchor's
+                     padding behaves. This is the codebase's own row pattern; it is not a
+                     new rule and it is not a coincidence that it works.
+                     📌 Both paragraphs carry `.fr-confirm-t`, so the sizes MATCH BY
+                     CONSTRUCTION rather than by two rules agreeing (Josh's follow-up:
+                     "the font sizes should all match as well"). -->
+                <div id="fr-openai-flow" hidden class="fr-confirm">
+                  <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
+                  <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
+                  <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
+                       "We don't need this line at all for the openAI."
+                       ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
+                       flagged that "it stays on this Mac" spans two claims; measurement
+                       showed `engine/openaiaccounts.js:242` sends the key to
+                       api.openai.com to validate it, so the short form was not true and
+                       the true form needed eleven words of qualification. NO CLAIM BEATS
+                       A CLAIM YOU HAVE TO QUALIFY: there is now nothing here to keep true
+                       when that validation call changes, and nothing for a reader to
+                       catch us on.
+                       📌 SETTINGS KEEPS ITS OWN SENTENCE. He was looking at first run and
+                       ruled on first run; removing copy from a screen nobody raised is
+                       scope this card was not given. `web.firstrun-model.test.js` guards
+                       that Settings still carries it. -->
+                  <p class="fr-confirm-t" id="fr-openai-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
+                  <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
+                       and Add together, no Show/Hide. Settings' own #acct-openai-key
+                       keeps Show/Hide so a long pasted key can be checked before
+                       pressing Add; first-run trades that check away on purpose for
+                       a shorter row, his explicit call, not a case where the two
+                       screens differ on the underlying risk. -->
+                  <div class="frow">
+                    <input type="password" id="fr-openai-key" autocomplete="new-password" spellcheck="false"
+                           aria-label="OpenAI API key" placeholder="sk-…">
+                    <button class="btn uprime" id="fr-openai-go" type="button">Add</button>
+                  </div>
+                </div>
+                <!-- 🛑 OUTSIDE #fr-openai-flow ON PURPOSE. The connected paint hides
+                     the whole form (flow.hidden = true) and then writes the outcome
+                     here; caught in challenge-loop iteration 2 with this element
+                     INSIDE the flow, where "Added: API key ending xxxx." landed in a
+                     display:none subtree -- invisible, and the aria-live announcement
+                     never fired. The message must survive the form it reports on. -->
+                <!-- #2241: a DIV (was a p) so the connected state can hold the .fr-check gold
+                     check-row block, the same shape Claude's #fr-sub uses; stays a plain dhint
+                     line for the not-yet-connected / dead-reason states. -->
+                <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite"></div>
+                <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
+                     reorder moved it past the wrong closing tag, so the list showed five
+                     rows instead of six: Gemini vanished until somebody pressed Connect on
+                     GPT, appeared inside the API-key form, then vanished again when the
+                     form hid itself on success. The order test still passed, because it
+                     read source order and not whether a hidden container opened in between. -->
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
+                <p class="smore-t">Runs on this computer</p>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
-      <!-- 4. About you. The pack's step, its copy verbatim: two required
-           answers and one genuinely optional one. ⚠️ NO SKIP, at Josh's call
-           ("if they don't want to tell what they wanna be called and who they
-           are then they have no purpose in using this") -- and removing the
-           skip only means something if Continue WAITS, so the first two
-           answers gate the button and the third stays optional, which is the
-           difference between asking and pretending to ask. The wizard's own
-           quiet exit stays: that is the trap-escape for a wrong detection,
-           not a skip of this question. -->
+      <!-- S6 Self improving (new). Switches fr-s6-feedback / fr-s6-createping = Angel wires behavior. -->
       <div class="fr-pane" id="fr-pane-6" hidden>
-        <div id="fr-you"></div>
-        <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
-      </div>
+        <!-- ============================================================
+             SCREEN 6 - SELF IMPROVING   (new screen)
+             Primary button (shell param): "Next".  Gate: none.  Dynamic: the switch state.
+             CSS namespace: s6-*   Copy is Josh's, verbatim.
+             SPLIT NOTE: Angel owns the two switches' BEHAVIOR (both default-ON): the daily
+             feedback report (#2037, already landed as PR-C1) and the create-agent ping (#2020).
+             This snippet is the VISUAL: eyebrow + headline + the two switch ROWS with the exact
+             copy. Angel wires the switch controls into these rows (ids fr-s6-feedback /
+             fr-s6-createping so her toggle handlers bind; fr- prefix = a wiring surface).
+             ============================================================ -->
+        <style>
+        .s6-switch-row{display:flex;align-items:flex-start;gap:12px;
+          background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:12px 14px;margin:0 0 10px}
+        .s6-sw{width:38px;height:22px;border-radius:99px;position:relative;flex:none;margin-top:1px;background:#2f7bf6}
+        .s6-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+        .s6-sw[aria-checked="false"]{background:#c9c7c2}
+        .s6-sw[aria-checked="false"]::after{right:auto;left:2px}
+        .s6-lbl{font:500 .9rem/1.45 var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        </style>
 
-      <!-- 5. The fork. ⚠️ "Adopting" is not an import: every agent already on
-           this machine is already on the board, because the board is built from
-           `tmux list-panes`. So this screen SHOWS them rather than migrating
-           them, and there is no progress bar here because there is no work. -->
-      <div class="fr-pane" id="fr-pane-7" hidden>
-        <div id="fr-fleet"></div>
-        <!-- ⚠️ THE WAY BACK, AND IT IS THE LAST STEP ON PURPOSE. It opened the
-             flow until 2026-08-22, which put an instruction in front of a
-             person before they had the motive for it: you drag something to
-             your Dock because you expect to want it again, and before they
-             have used it they do not know that yet. Two written rulings placed
-             it here (the orientation spec's Placement heading, and the PIN's
-             ordering ending on "getting back") and the comment justifying the
-             front position cited the spec as sanctioning the move, which it
-             does not.
-             🔑 The screen it sat on is NOT wrong to open the flow. Step 1
-             answers "did that work", which is the only question somebody has
-             coming out of a Terminal, and it is about the INSTALL. This line
-             is about RETURNING. They are two jobs, and only one of them
-             survives being moved, so the split is what resolved the placement
-             rather than either screen winning (Mona Lisa, 2026-08-22). -->
-      </div>
+        <p class="fc-eyebrow">Self improving</p>
+        <h2>Help make Kosmos work better for everyone</h2>
 
-      <!-- 1. Success. ⚠️ The one thing the install said only into
-           Terminal scrollback, now said where the person actually is. The
-           check row LOOKS (the app-location check in /api/machine) rather
-           than remembering where the installer meant to put the icon: the
-           icon legitimately lands in /Applications, ~/Applications, or
-           nowhere, and a screen claiming a location nobody checked is the
-           defect this codebase is built against. -->
-      <!-- #2163 (Josh, 2026-09-04, 0.6.28 fresh-install test): a pre-flight
-           expectations screen. Josh: "a screen that comes before basically
-           everything else that says: you're going to get warned by these sorts of
-           things because you're setting your agent up to help you run the computer."
-           🔑 AN INTERSTITIAL, DELIBERATELY OUTSIDE THE NUMBERED STEP COUNT, exactly
-           like the Success screen (step 1) is. It is NOT an fr-pane-N, so frGo's
-           numbered loop never touches it -- `frShowExplainer` shows it (from the
-           Success screen's button) and frGo hides it on entering any numbered step.
-           This was chosen over a numbered pane precisely to avoid renumbering the
-           whole 1..7 flow (+ its 7 browser-checks) for a copy screen, AND because
-           the two natural fold-hosts (Success, Welcome) are both Josh-RULED
-           scope-locked surfaces that must not carry this content.
-           ⚠️ SCOPE: this is for the LEGITIMATE, UNAVOIDABLE prompts (Accessibility,
-           background-activity notices). The prompts we CAN suppress -- the app
-           disk-scan Documents access -- STAY suppressed (#2148/#2125 slice 1); this
-           screen never excuses a prompt we could have avoided. -->
-      <div class="fr-pane" id="fr-pane-intro" hidden>
-        <p>You&rsquo;re setting up agents to work on this computer for you. As you
-           go, macOS will ask your permission for a few things: letting an agent
-           reach a folder, work in your other apps, or keep running in the
-           background.</p>
-        <p>That is expected, and it is how you stay in control: each prompt is
-           macOS asking whether to let your agents do the very thing you are setting
-           them up to do. Allow them and your agents can get to work.</p>
-      </div>
-      <div class="fr-pane" id="fr-pane-1" hidden>
-        <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
-             like step 4's #fr-checks: a region inserted and populated in one
-             innerHTML write is the documented way to get no announcement.
-             The write that matters (the engine answer arriving) lands in a
-             region that long predates it; the initial placeholder joins the
-             tree with the pane, the same shape as step 4's "Looking...". -->
-        <div id="fr-return">
-          <div id="fr-return-intro"></div>
-          <div id="fr-return-row" role="status" aria-live="polite"></div>
-          <!-- A live region: the reveal button's failure sentences land here
-               (frRevealSay), and a screen-reader user who fired that click
-               would otherwise never hear the refusal -- the same SC 4.1.3 call
-               as the check row above.
-               🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
-               below. This region is CLEARED and REWRITTEN by frRevealSay, so
-               static copy parked in it would vanish on the first failed
-               reveal click and be announced as a status change on every
-               repaint. The line below is static markup for that reason. -->
-          <div id="fr-return-msg" role="status" aria-live="polite"></div>
-          <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
-               reveal button, at Josh's ruling of 2026-08-27 16:08 after he
-               did a full wipe and screenshotted this screen: "somebody
-               elected to take the message out of this."
-               ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
-               two written rulings: step 1 answers "did the install work", and
-               the Dock line is about RETURNING, so it went to the last step.
-               HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
-               at the ending, and the two statements are coherent together:
-               on Success, not at the last step.
-               📌 The id here is deliberately NOT the one this region used to
-               carry. That retired id is asserted absent by server.test.js as
-               a stale-id guard, and the assertion greps the raw markup, so
-               even naming it in a comment would fail the check. Same line,
-               different anchor, and this note cannot spell the old one. -->
-          <p id="fr-return-keep" class="dhint">Kosmos is already in your Dock, the strip of icons along the edge of your screen. Drag its icon to the far left so it stays handy.</p>
+        <div class="s6-switch-row">
+          <span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0"></span>
+          <span class="s6-lbl">Have an agent send a daily report with any bugs or improvement suggestions.</span>
         </div>
+        <div class="s6-switch-row">
+          <span class="s6-sw" id="fr-s6-createping" role="switch" aria-checked="true" tabindex="0"></span>
+          <span class="s6-lbl">Let Kosmos know when you create an agent.</span>
+        </div>
+      </div>
+
+      <!-- S7 Success (reuse old fr-pane-1 #fr-return region). Mona S7 prepended; fr-s7-showwhere wired to reveal. -->
+      <div class="fr-pane" id="fr-pane-7" hidden>
+        <!-- ============================================================
+             SCREEN 7 - SUCCESS   (spec screen A, edited)
+             Primary button (shell param): "Next".  Gate: none.
+             CSS namespace: s7-*   Copy is Josh's, verbatim.
+             WIRED CONTROL: "Show me where it is" reuses the existing app feature (appLocation /
+             the Settings "Show me where it is" handler). id="fr-s7-showwhere" = Renet/app binds it.
+             Graphic: the annotated dock, Josh's confirmed design (Kosmos mark on the right, a short
+             arrow sweeping it left). Works in light + dark.
+             REAL MARK: the gold "K" square is a stand-in ONLY for the standalone preview. For the
+             build, drop the app's existing Kosmos mark into the .s7-app.s7-k tile: it is the
+             <img class="fc-k"> PNG data URI already in web/index.html (the first-run card head,
+             ~line 7609). Reuse that exact asset rather than the "K" placeholder.
+             ============================================================ -->
+        <style>
+        .s7-showwhere{display:inline-flex;align-items:center;border-radius:8px;padding:8px 14px;margin:0 0 12px;
+          font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
+          background:var(--k-surface,#fff);color:var(--k-ink-2,#4a4f57);border:1px solid var(--k-rule,#e3e1dc)}
+        .s7-dock-wrap{position:relative;padding:34px 10px 8px;margin:8px auto 0;max-width:440px}
+        .s7-dock{display:flex;gap:12px;align-items:flex-end;justify-content:center;border-radius:20px;padding:11px 16px;
+          background:rgba(180,178,173,.28);border:1px solid rgba(160,158,152,.42);
+          box-shadow:0 8px 24px rgba(0,0,0,.10),inset 0 1px 0 rgba(255,255,255,.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+        .s7-app{width:40px;height:40px;border-radius:10px;background:linear-gradient(160deg,#d5d3ce,#a9a7a2);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.12)}
+        .s7-divider{width:1px;align-self:stretch;margin:4px 3px;background:rgba(120,118,112,.4)}
+        .s7-app.s7-k{background:linear-gradient(155deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920));
+          box-shadow:0 3px 10px rgba(184,137,32,.45),inset 0 1px 0 rgba(255,255,255,.35);display:grid;place-items:center;position:relative;z-index:2}
+        .s7-app.s7-k span{font:800 1.35rem var(--font-ui,-apple-system,sans-serif);color:#3a2c06;line-height:1}
+        .s7-arrow{position:absolute;top:0;left:14%;right:10%;height:34px;pointer-events:none}
+        .s7-cap{display:block;text-align:center;font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#4a4f57);margin-top:12px}
+        .s7-cap b{color:var(--gold-deep,#b88920)}
+        @media (prefers-color-scheme:dark){
+          :root:not([data-theme="light"]) .s7-dock{background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
+          :root:not([data-theme="light"]) .s7-app{background:linear-gradient(160deg,#4a4a4e,#333336)}
+          :root:not([data-theme="light"]) .s7-arrow path{stroke:var(--gold-bright,#e3b341)}
+        }
+        :root[data-theme="dark"] .s7-dock{background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
+        :root[data-theme="dark"] .s7-app{background:linear-gradient(160deg,#4a4a4e,#333336)}
+        :root[data-theme="dark"] .s7-arrow path{stroke:var(--gold-bright,#e3b341)}
+        .s7-arrow path{stroke:var(--gold-deep,#b88920)}
+        </style>
+
+        <p class="fc-eyebrow">Success</p>
+        <h2>Kosmos is now installed and configured.</h2>
+        <p>You can find Kosmos in your applications folder.</p>
+        <button class="s7-showwhere" id="fr-s7-showwhere" type="button">Show me where it is</button>
+        <p>It is already in the right of your dock, but move it to the left so it stays there permanently.</p>
+
+        <div class="s7-dock-wrap">
+          <svg class="s7-arrow" viewBox="0 0 300 34" fill="none" aria-hidden="true">
+            <path d="M232 26 C 190 2, 90 2, 40 20" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+            <path d="M40 20 l 12 -8 M40 20 l 11 7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <div class="s7-dock" aria-hidden="true">
+            <span class="s7-app"></span><span class="s7-app"></span><span class="s7-app"></span>
+            <span class="s7-divider"></span>
+            <span class="s7-app"></span><span class="s7-app s7-k"><span>K</span></span>
+          </div>
+          <span class="s7-cap">Drag <b>Kosmos</b> to the left of the dock so it stays</span>
+        </div>
+                <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
+                     like step 4's #fr-checks: a region inserted and populated in one
+                     innerHTML write is the documented way to get no announcement.
+                     The write that matters (the engine answer arriving) lands in a
+                     region that long predates it; the initial placeholder joins the
+                     tree with the pane, the same shape as step 4's "Looking...". -->
+                <div id="fr-return">
+                  <div id="fr-return-intro"></div>
+                  <div id="fr-return-row" role="status" aria-live="polite"></div>
+                  <!-- A live region: the reveal button's failure sentences land here
+                       (frRevealSay), and a screen-reader user who fired that click
+                       would otherwise never hear the refusal -- the same SC 4.1.3 call
+                       as the check row above.
+                       🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
+                       below. This region is CLEARED and REWRITTEN by frRevealSay, so
+                       static copy parked in it would vanish on the first failed
+                       reveal click and be announced as a status change on every
+                       repaint. The line below is static markup for that reason. -->
+                  <div id="fr-return-msg" role="status" aria-live="polite"></div>
+                  <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
+                       reveal button, at Josh's ruling of 2026-08-27 16:08 after he
+                       did a full wipe and screenshotted this screen: "somebody
+                       elected to take the message out of this."
+                       ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
+                       two written rulings: step 1 answers "did the install work", and
+                       the Dock line is about RETURNING, so it went to the last step.
+                       HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
+                       at the ending, and the two statements are coherent together:
+                       on Success, not at the last step.
+                       📌 The id here is deliberately NOT the one this region used to
+                       carry. That retired id is asserted absent by server.test.js as
+                       a stale-id guard, and the assertion greps the raw markup, so
+                       even naming it in a comment would fail the check. Same line,
+                       different anchor, and this note cannot spell the old one. -->
+                  <p id="fr-return-keep" class="dhint">Kosmos is already in your Dock, the strip of icons along the edge of your screen. Drag its icon to the far left so it stays handy.</p>
+                </div>
+      </div>
+
+      <!-- S8 About you (reuse old fr-pane-6 #fr-you). Mona S8 head prepended. -->
+      <div class="fr-pane" id="fr-pane-8" hidden>
+        <p class="fc-eyebrow">About you</p>
+        <h2>Who are your agents working for?</h2>
+                <div id="fr-you"></div>
+                <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
+      </div>
+
+      <!-- S9 Your agents (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
+      <div class="fr-pane" id="fr-pane-9" hidden>
+        <!-- ============================================================
+             SCREEN 9A - YOUR AGENTS (found)   (new screen; shown ONLY if agents were found)
+             Primary button (shell param): "Giddy Up".  Gate: none.
+             DYNAMIC: the found-agents list. id="fr-found-agents" = Renet populates the rows from
+               the detected agents; each row follows the template below (the .s9-row markup).
+               Giddy Up then drops the person onto the Agents dashboard with the added agents.
+             CSS namespace: s9-*   Copy is Josh's, VERBATIM (the headline reads as if a word is
+               missing, "agents"?; Josh signed off "roll with what you got", so shipped as written;
+               one-line copy change if he wants it later).
+             ============================================================ -->
+        <style>
+        .s9-list{margin:2px 0 0}
+        .s9-row{display:flex;align-items:center;gap:10px;background:var(--k-surface,#fff);
+          border:1px solid var(--k-rule,#e3e1dc);border-radius:9px;padding:8px 11px;margin:0 0 7px}
+        .s9-fk{width:24px;height:24px;border-radius:6px;flex:none;
+          background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        .s9-fn{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        .s9-fn small{display:block;font-weight:400;color:var(--k-ink-3,#8a857c);font-size:.6875rem}
+        .s9-add{margin-left:auto;border:0;border-radius:8px;padding:6px 12px;font:650 .75rem var(--font-ui,-apple-system,sans-serif);
+          color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        /* the Added state (row gets data-added; Renet flips it on select) */
+        .s9-added{margin-left:auto;border-radius:8px;padding:6px 12px;font:650 .75rem var(--font-ui,-apple-system,sans-serif);
+          background:var(--k-surface,#fff);color:var(--green,#2f7d5a);border:1px solid var(--green,#2f7d5a);display:none}
+        .s9-row[data-added] .s9-add{display:none}
+        .s9-row[data-added] .s9-added{display:inline-flex;align-items:center}
+        </style>
+
+        <p class="fc-eyebrow">Your agents</p>
+        <h2>We found existing AGENTS on this computer</h2>
+        <p>You can easily add them to Kosmos.</p>
+
+        <!-- DYNAMIC: Renet fills #fr-found-agents with one .s9-row per detected agent, using the
+             template below. Row template (name in .s9-fn, path in <small>, Add button + Added state
+             toggled by data-added on the row): -->
+        <div class="s9-list" id="fr-found-agents">
+          <div class="s9-row">
+            <span class="s9-fk"></span>
+            <span class="s9-fn">agent-name<small>~/.claude</small></span>
+            <button class="s9-add" type="button">Add Agent</button>
+            <span class="s9-added">&#10003; Added</span>
+          </div>
+        </div>
+                <div id="fr-fleet"></div>
+                <!-- ⚠️ THE WAY BACK, AND IT IS THE LAST STEP ON PURPOSE. It opened the
+                     flow until 2026-08-22, which put an instruction in front of a
+                     person before they had the motive for it: you drag something to
+                     your Dock because you expect to want it again, and before they
+                     have used it they do not know that yet. Two written rulings placed
+                     it here (the orientation spec's Placement heading, and the PIN's
+                     ordering ending on "getting back") and the comment justifying the
+                     front position cited the spec as sanctioning the move, which it
+                     does not.
+                     🔑 The screen it sat on is NOT wrong to open the flow. Step 1
+                     answers "did that work", which is the only question somebody has
+                     coming out of a Terminal, and it is about the INSTALL. This line
+                     is about RETURNING. They are two jobs, and only one of them
+                     survives being moved, so the split is what resolved the placement
+                     rather than either screen winning (Mona Lisa, 2026-08-22). -->
       </div>
 
       <!-- ⚠️ OUTSIDE THE PANES, and that is the whole point of it. This is the

@@ -36,6 +36,19 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
    Remove the entry when the check is restated; the test refuses an entry
    that is no longer stale, so the list cannot rot in the other direction. */
 const KNOWN_STALE = [
+  /* install-flow-9screen: the 6->9 setup-flow rework retired the standalone
+     machine-check screen (#fr-checks / #fr-machine-msg) and the standalone
+     Accessibility step (#fr-a11y-open), folding the sleep + tmux concerns into
+     the new S3 Automation gate. These five checks test screens that no longer
+     exist and are restated (or retired) in this branch's browser-checks pass by
+     the screen owner. Listed here, not silenced elsewhere. See the 9-screen plan
+     (.claude/plans/install-flow-9screen.md). Remove each entry when its check is
+     restated to the S3 gate (or deleted). */
+  { check: 'click-first-run.js', id: 'fr-checks' },
+  { check: 'render-first-run.js', id: 'fr-checks' },
+  { check: 'render-a11y-copy-1940.js', id: 'fr-a11y-open' },
+  { check: 'render-a11y-gate-2125.js', id: 'fr-a11y-open' },
+  { check: 'render-sleep-button.js', id: 'fr-machine-msg' },
 ];
 
 /* The ids a check asks for. Comments are stripped first (a comment quoting
