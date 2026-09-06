@@ -8160,6 +8160,40 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /**
+   * Show a person where a task's stored conversation lives (kosmos#992).
+   *
+   * The task-side companion to /api/chats/reveal above. #992 gave tasks a
+   * transcript (engine/taskchat.js); this is the "get to it as a user" half of
+   * Josh's ask (2026-08-26: "a button that I can use to open and find that
+   * dialog", in BOTH project and task settings).
+   *
+   * 🛑 GLOBAL BY NAME, EXACTLY AS THE CHATS ROUTE IS, AND FOR THE SAME REASON.
+   * Every task's transcript is one flat file in ONE directory,
+   * `<data>/task-chats`, and this codebase deliberately opens the FOLDER rather
+   * than `open -R`-selecting a single file (see projects.revealFolder). So the
+   * route is `/api/task-chats/reveal`, not `/api/task/<id>/<n>/reveal` which
+   * would promise a per-task destination the storage does not give; the button
+   * beside it says "one folder with a file for each task's conversation".
+   *
+   * ⚠️ A MISSING DIRECTORY IS AN ANSWER, NOT AN ERROR -- same as the chats
+   * route. taskchat.record() makes it on the first lifecycle event, so "not
+   * there" means no task has recorded anything yet, and `open` on a missing
+   * path would report a Finder failure for a working install.
+   */
+  if (pathname === '/api/task-chats/reveal' && req.method === 'POST') {
+    const taskchat = require('./engine/taskchat');
+    const dir = taskchat.taskChatsDir();
+    if (!fs.existsSync(dir)) {
+      sendJson(res, 409, { error: 'there are no stored task conversations yet, so there is nothing to show you' });
+      return;
+    }
+    const opened = projects.revealFolder(dir);
+    if (opened.ok) { sendJson(res, 200, { ok: true, where: dir }); return; }
+    sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
   const reveal = pathname.match(/^\/api\/project\/([^/]+)\/reveal-folder$/);
   if (reveal && req.method === 'POST') {
     const id = decodeSegment(reveal[1]);
