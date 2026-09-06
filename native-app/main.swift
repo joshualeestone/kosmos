@@ -875,10 +875,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // actually ask for the correct permission"). The webview button POSTs to the engine
     // (server.js), which drops a request file in the shared store dir; this watcher --
     // running in the APP, the process that can spawn under the bundled tmux -- notices it
-    // and fires the matching hatch under tmux, so the prompt is attributed to tmux (the
-    // responsible process, exactly as the launch-time axprompt is). Firing through the app
-    // rather than letting the engine spawn tmux keeps the spawn tree IDENTICAL to the
-    // proven launch path, adding no new attribution assumption to the #2125 seam.
+    // and fires the matching hatch under tmux, using the SAME under-tmux spawn the
+    // launch-time axcheck uses. Firing through the app rather than letting the engine
+    // spawn tmux keeps the spawn tree IDENTICAL to the proven launch (axcheck) path,
+    // adding no new attribution assumption to the #2125 seam. (The attribution the
+    // Accessibility API actually reports is the #2125/#2347-item-B question -- the AX
+    // call is labelled by the calling binary, the kosmos-app, not tmux -- tracked
+    // separately; this watcher's job is only the on-demand FIRING, timing fixed in #2347.)
     private func startPromptRequestWatcher() {
         checkPromptRequests()
         // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
@@ -930,8 +933,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // and the file persisted to this launch. Firing a TCC prompt the user did not
         // just ask for is surprising -- and unlike the live case there is no button
         // click to explain it. 30s comfortably covers the POST -> 1.5s-tick latency of a
-        // real click. (a11y has a launch-time axprompt anyway; this matters most for the
-        // file-access request, which has no launch equivalent.)
+        // real click. (#2347: this now matters EQUALLY for both requests -- neither a11y
+        // nor file-access fires at launch any more, so a leftover request of either kind
+        // would be the only way an un-asked-for prompt could appear; the 30s drop is what
+        // prevents it.)
         if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
            let mtime = attrs[.modificationDate] as? Date,
            Date().timeIntervalSince(mtime) > 30 {
