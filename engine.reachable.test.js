@@ -39,6 +39,7 @@ const EXCUSED = {
   setFreshnessForTests: 'test seam',
   setProbeTtlForTests: 'test seam: ages the willInstall probe cache instead of sleeping 60s (#1556)',
   setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',
+  setChatgptTimers: 'test seam (#2338): shrinks the ChatGPT-subscription sign-in watchdog + reap TTL so the abandoned-child and session-reap tests run in ms instead of minutes (never wired to a screen)',
   setBase: 'test seam (update feed base url)',
   setInstallRunner: 'test seam (update installer)',
   setInstalledRoot: 'test seam (update root)',

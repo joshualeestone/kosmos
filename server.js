@@ -4602,6 +4602,68 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2338: connect an OpenAI account via a ChatGPT SUBSCRIPTION (no API key). The
+     analog of POST /api/accounts/openai above, but a LONG interactive flow: `start`
+     spawns `codex login` into an isolated CODEX_HOME and returns a session the
+     switcher polls; `status` reports progress; `cancel` tears a pending one down.
+     The api-key route above is unchanged and remains the SEPARATE connection type
+     (its accounts carry a keyTail; a subscription account has authMode chatgpt and
+     no keyTail -- the durable discriminator). */
+  if (pathname === '/api/accounts/openai/subscription/start' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (body != null && typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        body = body || {};
+        // Same runner resolution + structured needsRunner answer as the api-key route:
+        // no OpenAI runner installed -> tell the screen to reveal the install step.
+        const resolved = runners.resolveBin('openai');
+        const liveJob = (runners.status().openai || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
+          sendJson(res, 400, { error: openaiAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'openai' });
+          return;
+        }
+        const out = openaiAccounts.startChatgptLogin({ label: body.label, mode: body.mode, codexBin: resolved.bin });
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        // Only the session + mode are known synchronously. authUrl (the browser
+        // callback URL, or the device verification URL) and userCode (device mode
+        // only) are printed by codex AFTER this returns, so the client reads them
+        // by polling GET .../subscription/status, never from this response.
+        sendJson(res, 200, { sessionId: out.sessionId, mode: out.mode });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  if (pathname === '/api/accounts/openai/subscription/status' && req.method === 'GET') {
+    let sessionId = '';
+    try { sessionId = new URL(req.url, ROUTING_BASE).searchParams.get('sessionId') || ''; } catch { sessionId = ''; }
+    const out = openaiAccounts.chatgptLoginStatus(sessionId);
+    if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+    // On `state:"connected"` the account is populated (a GET /api/accounts row shape);
+    // it then also appears in /api/accounts as authMode chatgpt with no keyTail.
+    sendJson(res, 200, { state: out.state, authUrl: out.authUrl, userCode: out.userCode, account: out.account, error: out.error });
+    return;
+  }
+
+  if (pathname === '/api/accounts/openai/subscription/cancel' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const sessionId = body && typeof body === 'object' ? String(body.sessionId || '') : '';
+        const out = openaiAccounts.cancelChatgptLogin(sessionId);
+        if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+        // `cancelled:false` when the session had already settled (nothing pending
+        // to cancel) -- forward it rather than always claiming a cancel happened.
+        sendJson(res, 200, { cancelled: out.cancelled });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* #1026: the chat models a specific OpenAI account can run, for the create
      screen's picker. Per-account and async (a live /v1/models fetch with that
      account's key), so it cannot ride the static, account-agnostic /api/roles
