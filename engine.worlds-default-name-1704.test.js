@@ -72,6 +72,30 @@ test('#1704 14.2: a registry persisted with the OLD name is normalized to "Kosmo
   assert.equal(side.name, 'Side World', 'a NAMED world name is left untouched by normalization');
 });
 
+test('#1704 14.2: activeWorld() on a fresh install returns the default named "Kosmos 1"', () => {
+  const base = freshBase();
+  assert.equal(fs.existsSync(worlds.registryPath(base)), false, 'no registry file yet');
+  const active = worlds.activeWorld(base);
+  assert.equal(active.id, worlds.DEFAULT_ID, 'the active world is the default');
+  assert.equal(active.name, 'Kosmos 1', 'activeWorld() reports the default as "Kosmos 1"');
+});
+
+test('#1704 14.2: a malformed registry fail-safes to the default named "Kosmos 1"', () => {
+  const base = freshBase();
+  // A hand-corrupted worlds.json (not valid JSON) must fail SAFE to the default world,
+  // and that default must carry the new name -- not leave the fallback showing the old one.
+  fs.writeFileSync(worlds.registryPath(base), '{ this is not json');
+  // Control: prove the file is genuinely unparseable, so we are exercising the
+  // fail-safe path and not a happy read.
+  assert.throws(() => JSON.parse(fs.readFileSync(worlds.registryPath(base), 'utf8')),
+    'the on-disk registry is genuinely malformed');
+
+  const reg = worlds.readRegistry(base);
+  const def = reg.worlds.find((w) => w.id === worlds.DEFAULT_ID);
+  assert.ok(def, 'the fail-safe still yields the default world');
+  assert.equal(def.name, 'Kosmos 1', 'the fail-safe default is named "Kosmos 1"');
+});
+
 test('#1704 14.2: a freshly created world keeps its own name; the default it persists alongside is "Kosmos 1"', () => {
   const base = freshBase();
   const made = worlds.createWorld(base, 'My Second Kosmos');

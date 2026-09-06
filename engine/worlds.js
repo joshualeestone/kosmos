@@ -37,7 +37,8 @@ const DEFAULT_ID = 'default';
 // This is a display constant, not user data: the default world's id stays 'default'
 // and its data still lives at the legacy roots (base:null), so the label change moves
 // nothing and renames nothing. readRegistry re-applies it to a persisted default entry
-// too, so every install shows it -- not only fresh ones (see normalizeDefaultName).
+// too, so every install shows it -- not only fresh ones (the DEFAULT_ID name-force in
+// readRegistry, below).
 const DEFAULT_NAME = 'Kosmos 1';
 const REGISTRY_FILE = 'worlds.json';
 const WORLDS_SUBDIR = 'worlds';
