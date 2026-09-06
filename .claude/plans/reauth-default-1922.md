@@ -1192,8 +1192,9 @@ command. For the PR body, `grep -cE '[0-9a-f]{8,40}'` returns zero, so nothing t
 depends on an unreachable object.
 
 ✅ **DISCHARGED at 03:38:51Z.** Full validation on the rebased head: **exit 0, ran rather than
-skipped** (`validation-log: running validation sequence`, the #1961 check), hash `07356482aa9d`
-matching the current diff hash byte for byte with a clean tree, **3899 pass / 0 fail**, zero
+skipped** (`validation-log: running validation sequence`, the #1961 check), hash `07356482aa9d`,
+which matched the diff hash **AT THAT COMMIT** byte for byte with a clean tree (it is not the current
+hash and is not meant to be: run the PR body's two commands for that), **3899 pass / 0 fail**, zero
 FAIL-shaped lines, `all clear` on the shell half.
 
 📌 The node count rose 3897 -> 3899 across the rebase. **Not mine:** `engine/connect.test.js` still
@@ -1997,7 +1998,8 @@ Verdict: **NOT converged. 1 BLOCKER, 1 WARNING**, both in `4969d638`, both with 
 
 **The BLOCKER was a STATE defect, not a text defect, and that distinction changes the fix.** The PR
 body tells a reviewer to run two commands and check that the newest validation row's hash equals the
-current diff hash. At HEAD they did not match: newest row `290ec3ab1b83` measures `f9134fc9`, the
+diff hash of whatever head they are on. **At the head of that moment** they did not match: newest row
+`290ec3ab1b83` measured `f9134fc9`, the
 PARENT, while HEAD hashed to `1f9dc45cf4c4`. A reviewer following that instruction would correctly
 conclude the branch was **not validated at its head**, because it was not.
 
@@ -2504,7 +2506,7 @@ self-devised silent-leak mutation reddening at the grammar walk; the `env` gramm
 exactly including the exit-127 arm; the seam re-count at HEAD (44 / 12 / 41) with a bogus-var control
 of 0; the floors reproducing at `>=11` and `>=25`; `accounts.js:302` and `:227-228`; the
 `AUTH_FRIENDLY_MESSAGE` unexported prediction; suites 54/54, 40/40, 9/9; and the validation log's
-newest row matching the current diff hash at `status: clean`.
+newest row matching the diff hash **as of that round** at `status: clean`.
 
 **Set aside by the reviewer, and I agree:** the route-ternary-to-launch-argv composition is uncovered,
 **but the branch states that explicitly in three places rather than implying coverage**, and both
@@ -2547,8 +2549,49 @@ for its own reason, paired controls staying green**, plus the silent operand-fir
 the grammar walk; suites 54 + 40 with 0 fail, `#1560` 3/3 and `#1580` 9/9; **the tmux table re-run
 independently, with the warm control returning the SEEDED value, so the discrimination genuinely
 holds**; the floors at `>=11` and `>=25` with a bogus-alternation control of 0; and the validation
-log's newest row matching the current diff hash at `status: clean`.
+log's newest row matching the diff hash **as of that round** at `status: clean`.
 
 **Set aside by the reviewer, and I agree:** the `-u` also changes the plain first sign-in, and the
 route-ternary-to-launch-argv composition is uncovered. **Both are disclosed in the PR body in the
 right words**; neither is a defect.
+
+### Iteration 35, 2026-09-06 02:10: MERGE, and the last figure-without-a-command is gone
+
+Verdict: **MERGE. No blocker. One LOW**, and a fifth independent reviewer reproduced all five
+mutation arms from scratch.
+
+**LOW: the one surviving place a figure about the branch's own state sat without a command.** A
+discharge record read *"hash `07356482aa9d` matching the current diff hash byte for byte"*. That hash
+is genuine history (it appears once in the validation log), but **"the current diff hash" is a
+live-tense claim, and it is no longer true.** ⇒ Anchored to the commit it described, with a pointer to
+the PR body's two commands for the current value.
+
+✅ **AND I SWEPT THE PHRASE RATHER THAN FIXING THE SITE**, because fixing only the reported instance is
+the exact defect corrected one round earlier. `grep -n 'the current diff hash'` found **four**; the
+reviewer reported one. The other three do not quote a stale figure (they describe a check that passed
+at the time), but all four carried time-relative wording inside a permanent record. All four now say
+**"at that commit"** or **"as of that round"**. The phrase survives only in the PR body, where it
+belongs, as an instruction to the reader rather than a claim about the past.
+
+⭐ **That is the whole class in one line: in a document that accumulates, "current" is a claim with an
+expiry date, and nothing warns you when it passes.**
+
+**Independently verified by this reviewer, with live controls:**
+
+| mutation | default arm | control |
+|---|---|---|
+| revert the route ternary | RED | green |
+| `configDir: null` for all | green | **RED** (39 -> 37 pass) |
+| drop the `-u` push | RED | green |
+| `-u` unconditional | green | **RED** |
+| **`-u` AFTER the binary (the silent operand form)** | **RED via the grammar walk** | green |
+
+Baselines 54/54 and 40/40. **Every plan self-check executed as its prose says**: the orphan-sha loop
+prints its list with no count quoted, `grep -cE '[0-9a-f]{8,40}'` on the PR body returns 0 with the
+plan as a live control, the `file:line` sweep is empty with a 24-hit unfiltered control, the seam
+ratio holds, and both floors reproduce.
+
+**Set aside by the reviewer, and I agree with the reasoning:** it did not re-run the hand tmux table,
+because the PR body declares that measurement manual and non-rerunning, and re-running it on a shared
+Mac risks a false red. **It checked instead that the warm arm seeds a distinct value, which is what
+makes the control able to discriminate** -- the property that matters, without the risk.
