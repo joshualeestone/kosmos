@@ -90,6 +90,7 @@ function load(opts = {}) {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+function deferred() { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; }
 
 test('toggle: ON -> off flips aria-checked and PUTs {on:false} to its own backend', async () => {
   const { els, calls, setFetch, api } = load();
@@ -109,17 +110,19 @@ test('toggle: the ping switch targets /api/ping-setting, not the feedback one', 
   assert.ok(!calls.some((c) => c[0] === '/api/feedback-setting'), 'the ping toggle did not touch the feedback backend');
 });
 
-test('never a false Off: a non-ok PUT reverts to the default-ON position', async () => {
-  const { els, setFetch, api } = load();
+test('never a false Off: a non-ok PUT is attempted, then reverts to the default-ON position', async () => {
+  const { els, calls, setFetch, api } = load();
   setFetch(async () => ({ ok: false, json: async () => ({}) }));
   await api.frFeedbackToggle();
+  assert.ok(calls.some((c) => c[1] && c[1].method === 'PUT'), 'a PUT was actually attempted (not a silent no-op)');
   assert.equal(els['fr-s6-feedback'].getAttribute('aria-checked'), 'true', 'a failed PUT left it ON, never a false Off');
 });
 
-test('never a false Off: a thrown PUT reverts to the default-ON position', async () => {
-  const { els, setFetch, api } = load();
+test('never a false Off: a thrown PUT is attempted, then reverts to the default-ON position', async () => {
+  const { els, calls, setFetch, api } = load();
   setFetch(async () => { throw new Error('network down'); });
   await api.frPingToggle();
+  assert.ok(calls.some((c) => c[0] === '/api/ping-setting' && c[1] && c[1].method === 'PUT'), 'a PUT was actually attempted');
   assert.equal(els['fr-s6-createping'].getAttribute('aria-checked'), 'true', 'a thrown PUT left it ON, never a false Off');
 });
 
@@ -164,4 +167,37 @@ test('both switches bind a click listener (mouse-operable)', () => {
   const { els } = load();
   assert.ok((els['fr-s6-feedback'].listeners.click || []).length, 'the feedback switch has a click listener');
   assert.ok((els['fr-s6-createping'].listeners.click || []).length, 'the ping switch has a click listener');
+});
+
+test('epoch guard: a superseded slow response does not repaint over a newer one', async () => {
+  const ctx = load();
+  const slow = deferred();
+  ctx.setFetch(() => slow.promise);          // first refresh: slow, resolves last
+  const p1 = ctx.api.frRefreshFeedback();    // captures epoch N, awaits the slow read
+  ctx.setFetch(async () => ({ ok: true, json: async () => ({ on: true }) }));
+  await ctx.api.frRefreshFeedback();         // epoch N+1, paints ON (the newer answer)
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'true', 'the newer read painted ON');
+  // now the STALE first read finally arrives saying Off -- it must be ignored.
+  slow.resolve({ ok: true, json: async () => ({ on: false }) });
+  await p1; await flush();
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'true', 'the superseded response did not repaint Off');
+});
+
+test('re-entrancy guard: a second toggle while a PUT is in flight is dropped (one PUT, one flip)', async () => {
+  const ctx = load();
+  const hang = deferred();
+  ctx.setFetch(() => hang.promise);          // the PUT hangs, holding SAVING true
+  const p1 = ctx.api.frFeedbackToggle();     // SAVING=true, optimistic flip to Off
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'false', 'the first toggle flipped optimistically');
+  // Fire the second WITHOUT awaiting: with the guard it short-circuits synchronously;
+  // without the guard it would proceed and send a second PUT (caught by the count
+  // below), rather than hanging the test on the still-pending first fetch.
+  ctx.api.frFeedbackToggle();                // SAVING true -> short-circuits, no second flip/PUT
+  await flush();
+  const puts = ctx.calls.filter((c) => c[1] && c[1].method === 'PUT').length;
+  assert.equal(puts, 1, 'only one PUT was sent while the first was in flight');
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'false', 'the dropped second click did not flip it back');
+  hang.resolve({ ok: true, json: async () => ({ on: false }) });
+  await p1; await flush();
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'false', 'final state settles Off');
 });
