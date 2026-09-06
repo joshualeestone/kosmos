@@ -145,9 +145,16 @@ const INTRODUCES = /^[ \t]*(?:#+[ \t]*)?You are\s/mi;
    for a file with no usable H1 (the bare "You are angel" / role-first "named Krang"
    #4 cases), so those stay offer-to-name with an empty name, unchanged. */
 function headingName(src) {
-  const m = String(src == null ? '' : src).match(/^[ \t]*#{1,6}[ \t]+(.+?)[ \t]*$/m);
+  /* Strip fenced code blocks first: a `# heading` inside ``` is code, not the file's
+     title, and must not be mistaken for the agent's name. */
+  const text = String(src == null ? '' : src).replace(/```[\s\S]*?```/g, '');
+  /* The first H1 specifically (`# Name`) -- exactly one `#` then a space, so a `##`
+     subsection heading above the name (e.g. `## Overview`) is not taken instead. */
+  const m = text.match(/^[ \t]*#[ \t]+(.+?)[ \t]*$/m);
   if (!m) return '';
-  const raw = m[1].replace(/\*\*/g, '').trim();   // strip bold emphasis common in headings
+  /* Strip inline emphasis: `**bold**`, `` `code` ``, and leading/trailing `*`/`_`
+     wrappers (a mid-word underscore in a name is left alone). */
+  const raw = m[1].replace(/\*\*/g, '').replace(/`/g, '').replace(/^[*_]+|[*_]+$/g, '').trim();
   if (!raw || /^You are\b/i.test(raw)) return '';  // an intro line is not a name
   const sv = safeValue(raw);
   return (sv && sv.length <= MAX_DISPLAY) ? sv : '';
@@ -418,4 +425,4 @@ function importAgent(text, deps) {
   return { ok: true, name, displayName, provider: provider || null, body };
 }
 
-module.exports = { exportAgent, importAgent, IMPORT_CONTRACT, MARK, KIND };
+module.exports = { exportAgent, importAgent, headingName, IMPORT_CONTRACT, MARK, KIND };
