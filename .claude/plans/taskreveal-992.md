@@ -63,3 +63,16 @@ a global-folder reveal must not be framed as per-scope). Fixed: label is now
 now carries the same 🛑 reasoning so it is not reintroduced. Three STRENGTHs (route
 is a line-for-line mirror of /api/chats/reveal with the guard inherited and a
 server-derived path; test mirrors #969 arm-for-arm; handler mirrors pjs-chats-reveal).
+
+## Challenge-loop iteration 2 + the #1720 gate (2026-09-05)
+Iteration 2: converged (1 NIT mirroring the #969 sibling test's exact lifecycle,
+deferred; 4 strengths). The 6j gate then flagged #1720 (a web/ change with no
+docs/browser-checks/ assertion). Resolved the PREFERRED way (a real assertion, not
+a trailer): render-tasks.js already opens #pj-task-view and has a page-error net,
+so added a visibility assertion for #tk-chats-reveal there. Coverage now: route +
+fail-soft behaviour by the server route test; presence + wiring by render-tasks.js
+at step-3b; per-pixel contrast by .btn class-equivalence (render-fields.js only
+visits the initial screen -- it does NOT traverse the task view, so it does not
+directly check this button's styling). FOLLOW-UP (noted, not this slice):
+extend render-fields.js to traverse #pj-task-view so task-view buttons get a
+direct contrast assertion.

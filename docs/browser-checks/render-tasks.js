@@ -222,6 +222,12 @@ const MEMBER = 'taskmate';
     // The view PAGE (#206): meta, the blessed close-note naming the agent.
     await p.locator('.tkcard').first().click();
     await p.waitForSelector('#pj-task-view', { state: 'visible' });
+    // #992: the task-conversation reveal button lives in this view. Assert it
+    // renders and is visible here -- render-fields.js only visits the initial
+    // screen, so this is the assertion that covers the button's presence at
+    // step-3b. Its route + fail-soft behaviour are covered separately by the
+    // server.projects.test.js task-chats-reveal test.
+    if (!(await p.locator('#tk-chats-reveal').isVisible())) die('the #992 task-conversation reveal button is missing from the task view');
     const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
