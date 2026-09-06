@@ -2773,7 +2773,10 @@ const server = http.createServer((req, res) => {
                -- never a bare exit that would brick it (engine/boardrestart is the
                conservative, fail-safe guard; see its header). */
         const bootedId = require('./engine/worldenv').bootedWorld();
-        const isNoop = bootedId != null && bootedId === id;
+        // Compare against the CANONICAL id setActiveWorld returned (world.id), not the
+        // raw request `id`, so a no-op is judged on the id the board actually booted vs
+        // the one now active -- robust to any id normalization setActiveWorld may do.
+        const isNoop = bootedId != null && bootedId === world.id;
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
         sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
         /* AFTER the response has been sent, drop the board so launchd relaunches it

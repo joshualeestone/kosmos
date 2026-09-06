@@ -46,44 +46,63 @@ function setRunner(fn) { runner = fn; }
 
 function uid() { return typeof process.getuid === 'function' ? process.getuid() : null; }
 
-// The plist must exist AND declare UNCONDITIONAL KeepAlive (<true/>) or a clean
-// stop is not guaranteed to relaunch. A CONDITIONAL KeepAlive (a <dict>) is
-// deliberately treated as NOT safe: it may choose not to relaunch after a clean
-// stop, which is the exact brick we refuse to risk.
-function hasUnconditionalKeepAlive() {
+// The on-disk plist must declare UNCONDITIONAL KeepAlive (<true/>). This is kept
+// ALONGSIDE the LOADED check below, not instead of it: `launchctl print`'s summary
+// tells us keepalive IS set on the running job but not WHETHER it is conditional,
+// and a CONDITIONAL KeepAlive (a <dict>, e.g. {SuccessfulExit:false}) may not
+// relaunch after a clean stop -- the disk <true/> is what rules that out. A binary
+// plist (rare for this hand-written / generated XML label) fails to match here and
+// resolves to a safe manual restart: a documented limitation, never a brick.
+function plistDeclaresUnconditionalKeepAlive() {
   let xml;
   try { xml = fs.readFileSync(plistPath(), 'utf8'); } catch { return false; }
   return /<key>\s*KeepAlive\s*<\/key>\s*<true\s*\/>/.test(xml);
 }
 
-// Is launchd running THIS process as the com.kosmos.board job right now?
-// Conservative: any failure to POSITIVELY confirm -> false.
-function isThisProcessTheBoardJob() {
+// The LOADED launchd job state, from one `launchctl print` -- the AUTHORITATIVE
+// answer to "will a stop relaunch this process", because the on-disk plist can
+// DIVERGE from what launchd actually loaded: a plist hand-edited without a reload,
+// or a job `launchctl disable`d, leaves the disk saying KeepAlive while the live
+// job will not relaunch. `launchctl print` summarises the loaded config on a
+// `properties = a | b | ...` line; `keepalive` there means the running job has
+// keepalive ACTIVE now (a disabled / non-keepalive-loaded job omits it). Returns
+// the running pid and that loaded-keepalive fact; any failure to read is {ok:false}.
+function loadedJob() {
   const u = uid();
-  if (u === null) return false;
+  if (u === null) return { ok: false };
   const r = runner('launchctl', ['print', `gui/${u}/${BOARD_LABEL}`]);
-  if (!r.ok || typeof r.stdout !== 'string') return false;
+  if (!r.ok || typeof r.stdout !== 'string') return { ok: false };
   const m = r.stdout.match(/\bpid\s*=\s*(\d+)\b/);
-  if (!m) return false;                    // not running, or shape we do not recognise -> unsure -> no
-  return Number(m[1]) === process.pid;     // stopping the job stops US iff its live pid is ours
+  const keepaliveLoaded = /\bproperties\s*=[^\n]*\bkeepalive\b/.test(r.stdout);
+  return { ok: true, pid: m ? Number(m[1]) : null, keepaliveLoaded };
 }
 
 /**
- * Will `launchctl stop com.kosmos.board` bring this board back? True ONLY when
- * the plist exists with unconditional KeepAlive AND launchd is running THIS
- * process as that job. Every other answer is false -> the caller reports
- * restartRequired and never exits.
+ * Will `launchctl stop com.kosmos.board` bring this board back? True ONLY when the
+ * plist declares unconditional KeepAlive AND the LOADED launchd job is running THIS
+ * pid with keepalive active. Requiring the loaded state (not just the disk plist)
+ * closes the divergence hole: a disabled or edited-without-reload job whose disk
+ * plist still says KeepAlive would otherwise be a false positive that bricks the
+ * board. Every uncertainty -> false -> the caller reports restartRequired and
+ * never exits.
  * @returns {{canRestart:boolean, because:string}}
  */
 function canSelfRestart() {
   if (!fs.existsSync(plistPath())) {
     return { canRestart: false, because: 'this board is not the com.kosmos.board launchd job (from-source or unmanaged); restart it by hand' };
   }
-  if (!hasUnconditionalKeepAlive()) {
+  if (!plistDeclaresUnconditionalKeepAlive()) {
     return { canRestart: false, because: 'the board job has no unconditional KeepAlive, so a stop might not relaunch it; restart it by hand' };
   }
-  if (!isThisProcessTheBoardJob()) {
+  const job = loadedJob();
+  if (!job.ok) {
+    return { canRestart: false, because: 'could not read the loaded com.kosmos.board job; restart the board by hand' };
+  }
+  if (job.pid !== process.pid) {
     return { canRestart: false, because: 'this process is not the running com.kosmos.board job; restart the board by hand' };
+  }
+  if (!job.keepaliveLoaded) {
+    return { canRestart: false, because: 'the running board job has no keepalive loaded (disabled, or the plist was changed without a reload), so a stop would not relaunch it; restart it by hand' };
   }
   return { canRestart: true, because: 'the board is the com.kosmos.board KeepAlive job and will relaunch when stopped' };
 }

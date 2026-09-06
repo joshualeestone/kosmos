@@ -39,10 +39,14 @@ const NO_KEEPALIVE = `<?xml version="1.0"?><plist><dict>
 
 function writePlist(xml) { fs.writeFileSync(PLIST, xml); }
 function rmPlist() { try { fs.rmSync(PLIST, { force: true }); } catch { /* best effort */ } }
-// A launchctl print stub whose job is running under a given pid.
-function printStub(pid) {
+// A launchctl print stub whose job is running under a given pid, with keepalive
+// loaded (the `properties = ... keepalive ...` line real launchd prints for a
+// KeepAlive job). `keepalive:false` drops that line to model a disabled / reloaded-
+// away job whose disk plist still says KeepAlive.
+function printStub(pid, { keepalive = true } = {}) {
+  const props = keepalive ? '\n\tproperties = keepalive | runatload | inferred program' : '\n\tproperties = runatload | inferred program';
   return (cmd, args) => {
-    if (cmd === 'launchctl' && args[0] === 'print') return { ok: true, stdout: `com.kosmos.board = {\n\tactive count = 1\n\tpid = ${pid}\n\tstate = running\n}` };
+    if (cmd === 'launchctl' && args[0] === 'print') return { ok: true, stdout: `com.kosmos.board = {\n\tactive count = 1\n\tpid = ${pid}\n\tstate = running${props}\n}` };
     if (cmd === 'launchctl' && args[0] === 'stop') return { ok: true, stdout: '' };
     return { ok: false, because: 'unexpected command' };
   };
@@ -93,6 +97,15 @@ test('FALSE: the running pid is NOT this process (stopping it would not restart 
   assert.equal(board.canSelfRestart().canRestart, false);
 });
 
+test('FALSE: the LOADED job has no keepalive (disabled / reloaded away) even though the disk plist still says KeepAlive', () => {
+  // The divergence hole: disk plist says unconditional KeepAlive, but the running
+  // launchd job no longer has keepalive active. The LOADED config is authoritative
+  // -- a stop would not relaunch, so we must refuse (would otherwise brick).
+  writePlist(KEEPALIVE_TRUE);
+  board.setRunner(printStub(process.pid, { keepalive: false }));
+  assert.equal(board.canSelfRestart().canRestart, false, 'the loaded config, not the disk plist, decides whether a stop relaunches');
+});
+
 // ── selfRestart obeys the guard ─────────────────────────────────────────────
 test('selfRestart REFUSES (no stop issued) when canSelfRestart is false', () => {
   rmPlist();
@@ -108,7 +121,7 @@ test('selfRestart issues launchctl stop on the happy path', () => {
   const calls = [];
   board.setRunner((cmd, args) => {
     calls.push(args.join(' '));
-    if (args[0] === 'print') return { ok: true, stdout: `pid = ${process.pid}` };
+    if (args[0] === 'print') return { ok: true, stdout: `pid = ${process.pid}\n\tproperties = keepalive | runatload` };
     return { ok: true, stdout: '' };
   });
   const r = board.selfRestart();
@@ -120,7 +133,7 @@ test('selfRestart falls back to the bare-label stop when the gui-domain form fai
   writePlist(KEEPALIVE_TRUE);
   const stops = [];
   board.setRunner((cmd, args) => {
-    if (args[0] === 'print') return { ok: true, stdout: `pid = ${process.pid}` };
+    if (args[0] === 'print') return { ok: true, stdout: `pid = ${process.pid}\n\tproperties = keepalive | runatload` };
     if (args[0] === 'stop') {
       stops.push(args[1]);
       return args[1].includes('gui/') ? { ok: false, because: 'domain miss' } : { ok: true, stdout: '' };
