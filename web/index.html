@@ -1524,6 +1524,20 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 @media (prefers-reduced-motion: reduce) {
   .acard.working .astate.st-working { animation: none; background: rgba(47,125,90,.14); }
 }
+/* #2146: coexistence signal. A needs_you/blocked agent that is ALSO actively
+   working (the engine's additive `activeWhileWaiting`, #2169) carries the board's
+   working glyph BELOW its pill, so the card reads "needs you AND working" without
+   changing the state, the pill, the red ground, or the Needs-you count. A
+   precedence FLIP (working hides needs_you) would reintroduce false-calm, which
+   is the failure the sticky needs_you exists to prevent -- so this is additive,
+   never a replacement (PigeonPete's design, #2146).
+   ⚠️ The dots are `.act`, the board's ONE working glyph (reused, not a second
+   animation, per the same rule the DM busy-line follows). They are decorative
+   (aria-hidden), so the meaning rides in the text label, which sits in
+   --k-ink-2 -- the same muted ink the role/task lines already use on this
+   red-tinted ground, so it clears AA. `.act` is already reduced-motion-safe. */
+.acard .alsowork { align-self: center; display: inline-flex; align-items: center;
+                   gap: 6px; margin-top: 6px; font-size: .8125rem; color: var(--k-ink-2); }
 /* #2019: the restarting pill. SOLID border (never the dashed unknown -- this is
    not a slot waiting to be filled, per the boardEmpty rule), calm neutral tone so
    the animated K carries the signal rather than a loud colour. The card keeps its
@@ -12428,6 +12442,7 @@ function card(a) {
     <div class="aname"><button class="namego" type="button" aria-label="Open ${esc(a.name)}">${esc(a.name)}</button>${staleBadge(a)}</div>
     <div class="ameta">${esc(roleLine(a, ROLE_TITLES))}</div>
     <div class="astate st-${m.st}">${glyphOf(a)}<b>${esc(copy.label)}</b>${answer}</div>
+    ${a.activeWhileWaiting ? '<div class="alsowork"><span class="act" aria-hidden="true"><i></i><i></i><i></i></span><span>Working now</span></div>' : ''}
     <div class="amodel">${esc(modelLine(a))}</div>
     <div class="atask">${esc(taskLine(a, { noQuote: true }))}</div>
     ${conflictNote(a) ? `<div class="note">${esc(conflictNote(a))}</div>` : ''}
