@@ -8192,7 +8192,13 @@ const server = http.createServer((req, res) => {
              view only, matching cleanMessage, so a break adjacent to indentation
              cannot leave a double space. */
           const flatText = String(m.text || '').replace(/\s+/g, ' ');
-          const line = when + '  ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
+          /* #2255 (agent-delivery): the post id in brackets before the row, so an
+             agent reading `kosmos room` can name which post to react to
+             (`kosmos react <project> <id> <emoji>`). It parallels the `[kosmos]`
+             prefix the system lines already carry: a bracket after the gutter is
+             a tag, and a post's tag is the id you react against. Only posts carry
+             it -- valve/refused/note rows are not reactable and keep `[kosmos]`. */
+          const line = when + '  [' + m.id + '] ' + who + ' -> ' + (Array.isArray(m.to) && m.to.length ? m.to.join(', ') : 'the room') + ': ' + flatText;
           /* The same sentence the page shows, one per silent name, right
              under the post it is about (#563). */
           const owed = Array.isArray(silent[m.id]) ? silent[m.id] : [];

@@ -982,6 +982,58 @@ cmd_restart() {
   cmd_start
 }
 
+# #2255: an agent reacts to a room post with an emoji (Discord-style). The
+# operator reacts on the board; this is the agent's own surface, mirroring
+# cmd_post -- the sender rides in from_pane (never trusted from the body), so an
+# agent can only ever react AS itself. The post id comes from `kosmos room`,
+# which prints it in brackets before each post (e.g. [m3]). The route TOGGLES:
+# reacting again with the same emoji takes the reaction back.
+cmd_react() {
+  local project post emoji body because
+  project="${1:-}"; post="${2:-}"; emoji="${3:-}"
+  if [ -z "$project" ] || [ -z "$post" ] || [ -z "$emoji" ]; then
+    say "Usage: kosmos react <project-id> <post-id> <emoji>   (the post id is in brackets before each post in kosmos room, e.g. [m3])"
+    exit 2
+  fi
+  if ! healthy; then
+    say "Kosmos is not running, so the reaction could not be kept. Start it with: kosmos start"
+    exit 1
+  fi
+  # Same hand-rolled JSON escaping as cmd_post, same bash-3.2 reason.
+  local esc_project esc_post esc_emoji esc_pane
+  esc_project=$(printf '%s' "$project" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_post=$(printf '%s' "$post" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_emoji=$(printf '%s' "$emoji" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/react" \
+    -H 'content-type: application/json' \
+    --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    say "We could not reach Kosmos to keep that reaction. Is it running at $URL?"
+    exit 1
+  }
+  # The route answers 200 even for a refusal (a room-state answer read off `ok`),
+  # and 400 {"error"} only for an unreadable request. Globs are ANCHORED on the
+  # top-level key so a `because` string cannot flip the verdict.
+  case "$body" in
+    '{"error":'*)
+      because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+      say "Kosmos could not read that reaction: ${because:-it did not say why}."
+      exit 1 ;;
+  esac
+  case "$body" in
+    *'"ok":true'*'"op":"add"'*)     say "Reacted $emoji to that post." ;;
+    *'"ok":true'*'"op":"remove"'*)  say "Took your $emoji back off that post." ;;
+    *'"ok":false'*)
+      because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
+      say "Not reacted: ${because:-we could not tell why}."
+      exit 1 ;;
+    *)
+      say "Not reacted: Kosmos gave an answer we could not read."
+      exit 1 ;;
+  esac
+}
+
 # Read a project room's recent talk (#314): the tail, oldest first, shaped by
 # the server (?as=text) because stock bash has no JSON parser. This is the
 # command an agent brought in after a valve is taught, so it must work with
@@ -1081,9 +1133,9 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|report|room|feedback|adopt|whoami) set -- "$1" ;;
+    msg|reply|post|react|report|room|feedback|adopt|whoami) set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | feedback | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
@@ -1268,12 +1320,13 @@ case "${1:-}" in
   msg)     shift; cmd_msg "$@" ;;
   reply)   shift; cmd_reply "$@" ;;
   post)    shift; cmd_post "$@" ;;
+  react)   shift; cmd_react "$@" ;;
   report)  shift; cmd_report "$@" ;;
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | report | room | feedback | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
