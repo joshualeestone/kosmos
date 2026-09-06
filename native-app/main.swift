@@ -848,13 +848,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     }
 
     private func checkPromptRequests() {
+        // Steady state is cheap: only a fileExists per request name. Resolve the install
+        // (config load + disk path resolution) ONLY when a request is actually pending,
+        // rather than every 1.5s tick for the app's whole idle lifetime.
+        let names = ["a11y-prompt-request", "file-access-prompt-request"]
+        let pending = names.contains { name in
+            guard let u = storeFileURL(name) else { return false }
+            return FileManager.default.fileExists(atPath: u.path)
+        }
+        guard pending else { return }
         // kosmosHome carries the bundled tmux; a failure to resolve means we cannot spawn
         // under tmux, so there is nothing to do (the button's Settings fallback covers it).
         guard let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome else { return }
         consumeRequest(named: "a11y-prompt-request") { [weak self] in
             self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axprompt")
-            // Refresh the verdict promptly so the screen's poll flips to granted without
-            // waiting for the 60s axcheck timer.
+            // Refresh the verdict now. Accessibility is granted asynchronously (the user
+            // toggles tmux in System Settings), so this does NOT flip the pill by itself
+            // -- it just keeps the reading fresh; the 60s timer or a later re-request
+            // captures the eventual grant. (Contrast the file-access hatch, where the TCC
+            // prompt is synchronous and the one hatch can capture the grant.)
             self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
         }
         consumeRequest(named: "file-access-prompt-request") { [weak self] in
@@ -864,9 +876,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    // If the named request file is present, DELETE it and run `fire`. Deleting first is
-    // the consume: a hatch that takes a moment cannot be launched twice by successive
-    // ticks, and a stale request from a crashed run fires at most one prompt.
+    // If a fresh request file is present, consume it (delete) and fire the hatch. A
+    // request older than 30s is dropped unfired (it is from a previous run), and the
+    // hatch fires only if the delete actually succeeded, so a failed delete cannot
+    // re-fire the prompt every tick.
     private func consumeRequest(named name: String, fire: () -> Void) {
         guard let url = storeFileURL(name),
               FileManager.default.fileExists(atPath: url.path) else { return }
@@ -885,12 +898,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("prompt-request: dropped stale \(name) (older than 30s)")
             return
         }
-        // Delete before firing (the consume): a hatch that takes a moment cannot be
-        // launched twice by successive ticks. A transient spawn failure loses this one
-        // request, but the button's gate poll never flips, so a re-click simply
-        // re-requests it -- recovery without a double-prompt, which is the safer default
-        // for a TCC prompt.
-        try? FileManager.default.removeItem(at: url)
+        // Delete before firing, and fire ONLY if the delete succeeded. The delete is
+        // the consume: a hatch that takes a moment cannot be launched twice by
+        // successive ticks -- but that guarantee holds only when the file is actually
+        // gone. A best-effort `try?` that failed while still firing would leave the
+        // request on disk and re-fire a real TCC prompt every 1.5s until the staleness
+        // guard drops it (prompt spam). So on a delete failure we log and bail; the next
+        // tick retries the delete, and staleness is the backstop. (A transient SPAWN
+        // failure still loses the one request, but the gate poll never flips, so a
+        // re-click re-requests it -- recovery without a double-prompt.)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            logLine("prompt-request: could not consume \(name) (\(error.localizedDescription)); not firing to avoid a re-fire loop")
+            return
+        }
         logLine("prompt-request: consumed \(name); firing under tmux")
         fire()
     }

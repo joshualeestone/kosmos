@@ -101,10 +101,21 @@ test('the request watcher is started at launch and consumes BOTH request files u
   assert.ok(check.includes('--kosmos-app-axcheck'), 'the a11y request does not refresh the axcheck, so the pill would not flip promptly');
 });
 
-test('consumeRequest DELETES the request before firing (so a slow hatch cannot re-trigger)', () => {
+test('consumeRequest consumes-before-firing, fires only on a successful delete, and drops a stale request', () => {
   const fn = SRC.slice(SRC.indexOf('private func consumeRequest('), SRC.indexOf('private func spawnAxHatchUnderTmux('));
   const removeAt = fn.indexOf('removeItem');
   const fireAt = fn.indexOf('fire()');
   assert.ok(removeAt !== -1 && fireAt !== -1, 'consumeRequest must both delete the request and fire');
   assert.ok(removeAt < fireAt, 'consumeRequest fires before deleting; successive ticks could launch the hatch twice');
+  // Fire ONLY if the consume delete succeeded: a non-optional `try removeItem` in a
+  // do/catch that returns before fire(). A best-effort `try?` that fired anyway would
+  // re-fire the prompt every tick when the delete fails (prompt spam).
+  assert.ok(fn.includes('try FileManager.default.removeItem(at: url)'),
+    'consumeRequest uses a best-effort delete then fires unconditionally; a failed delete would re-fire the prompt every tick');
+  const consumeCatch = fn.indexOf('catch {', fn.indexOf('try FileManager.default.removeItem(at: url)'));
+  assert.ok(consumeCatch !== -1 && consumeCatch < fireAt && /return/.test(fn.slice(consumeCatch, fireAt)),
+    'a failed consume delete must return before fire(), or it re-fires the prompt on the next tick');
+  // A request older than 30s is dropped, not fired (it is from a previous run).
+  assert.ok(/timeIntervalSince\([^)]*\)\s*>\s*30/.test(fn),
+    'consumeRequest does not drop a >30s-stale request; a leftover from a prior run would fire a surprise prompt');
 });
