@@ -7,12 +7,14 @@
  *
  * The name is a display constant, not user data: the default world keeps id
  * 'default' and base:null (legacy roots in place), so the label moves nothing.
- * These tests pin THREE things a presence-only check would miss:
- *   1. a fresh install (no registry) synthesizes the default as "Kosmos 1";
- *   2. a registry PERSISTED with the old name is normalized on read, so two
- *      installs never disagree about what the same default world is called;
- *   3. a NAMED world's name is left exactly as written -- normalization touches
- *      only the default entry.
+ * These tests pin the things a presence-only check would miss:
+ *   - a fresh install (no registry) synthesizes the default as "Kosmos 1";
+ *   - a registry PERSISTED with the old name is normalized on read, so two
+ *     installs never disagree about what the same default world is called;
+ *   - activeWorld() and the malformed-registry fail-safe both report "Kosmos 1"
+ *     (the paths that do NOT run the name-force loop);
+ *   - a NAMED world's name is left exactly as written -- normalization touches
+ *     only the default entry.
  *
  * Each test drives readRegistry against its OWN temp base, so a wrong-name arm
  * can genuinely fail rather than reading some other test's state.
