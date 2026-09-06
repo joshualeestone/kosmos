@@ -4837,6 +4837,8 @@ test('#2250 CONTROL: a live plist stays authoritative over a contradictory profi
 
 test('#2250 CONTROL: no plist and no profile defaults to claude, and an unusable name never throws', () => {
   assert.equal(create.recordedRunner('rr-nobody-here'), 'claude', 'the historical default is claude');
+  // safeKey sanitises '../evil' to 'evil' (it does not reject), so readProfile
+  // reads a nonexistent profile and returns {}: no provider, no throw, claude.
   assert.equal(create.recordedRunner('../evil'), 'claude',
-    'a name readProfile/safeKey rejects resolves to claude rather than throwing');
+    'a traversal-shaped name resolves to claude rather than building a path or throwing');
 });

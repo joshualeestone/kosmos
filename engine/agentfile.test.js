@@ -73,7 +73,11 @@ test('#1652 THE SAFETY ARM: the per-install identity anchor does NOT travel', ()
 });
 
 test('#1652: the provider travels as a hint when it is known, and is simply absent when it is not', () => {
-  makeAgent('withprov');
+  // #2250: a codex agent (provider 'openai') boots from AGENTS.md, which is the
+  // file instructions.fileFor now resolves for it. Write the brief there so the
+  // export reads the file a real codex agent actually has.
+  const wpDir = makeAgent('withprov', null);
+  fs.writeFileSync(path.join(wpDir, 'AGENTS.md'), BODY);
   store.writeProfile('withprov', { provider: 'openai' });
   assert.match(agentfile.exportAgent('withprov', deps).text, /^provider: openai$/m);
 

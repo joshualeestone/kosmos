@@ -632,8 +632,11 @@ function briefFilename(runner) { return runner === 'codex' ? 'AGENTS.md' : 'CLAU
    wins), and `setProvider` writes the plist and the profile together, so they do
    not disagree for a NAME_RE-passing agent. This never touches `readJob`'s
    NAME_RE guard on `plistPath` -- the path check is unchanged. It never throws:
-   an unusable name (`safeKey` inside `readProfile` rejecting it) defaults to
-   claude, the historical fail-closed answer. */
+   `readProfile` already swallows a missing or unreadable profile (including
+   `safeKey` throwing on an empty key) and returns `{}`, so `.provider` is
+   undefined and the result defaults to claude, the historical fail-closed
+   answer; the try/catch is a belt in case `readProfile` is ever changed to
+   throw. */
 function recordedRunner(name) {
   const fromJob = (readJob(name) || {}).runner;
   if (fromJob) return fromJob;

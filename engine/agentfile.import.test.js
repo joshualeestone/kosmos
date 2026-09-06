@@ -35,7 +35,12 @@ const BODY = '# You are Casey Jones\n\nYou answer one question, and you answer i
 function exportedFile(name, body = BODY, profile = null) {
   const dir = path.join(process.env.AGENT_WORKFORCE_WORKERS, name);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body);
+  // #2250: a codex agent (profile provider 'openai') boots from AGENTS.md, and
+  // that is the file instructions.fileFor now resolves for it (via
+  // create.recordedRunner). Write the brief where a real codex agent's brief
+  // lives, so the export half reads the file that actually exists.
+  const brief = (profile && profile.provider === 'openai') ? 'AGENTS.md' : 'CLAUDE.md';
+  fs.writeFileSync(path.join(dir, brief), body);
   if (profile) store.writeProfile(name, profile);
   const out = agentfile.exportAgent(name, { store, instructions });
   assert.equal(out.ok, true, 'PRECONDITION: export failed: ' + out.because);
