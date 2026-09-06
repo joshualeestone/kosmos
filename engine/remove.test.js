@@ -1926,3 +1926,49 @@ test('a value the person changed in the gap is left, and the record retires (#16
   assert.equal(trust.recordedWrite(name), null,
     'the record survived although nothing ours remains, so a future removal would act again');
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #2323: removing an agent must REVOKE its sender token, so a removed agent that
+// is still beating (guaranteed for a REMOTE agent, whose process removal cannot
+// stop) can no longer authenticate via resolveAgentSender's paneless arm.
+// End-to-end so it proves the revoke keys on the SAME name the token is minted
+// under (a key mismatch would silently leave the token live).
+// ─────────────────────────────────────────────────────────────────────────────
+const sendertoken = require('./sendertoken');
+
+test('#2323: removing an agent revokes its sender token (a removed agent stops resolving)', () => {
+  const name = madeAgent('revoke-on-remove');
+  boardShows(name, name);
+  const minted = sendertoken.mint(name);
+  assert.equal(minted.ok, true, 'precondition: token minted');
+  assert.equal(sendertoken.resolveName(minted.token).ok, true,
+    'precondition: the token resolves to the agent before removal');
+
+  world();
+  remove.setDryRun(false);
+  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED, 'precondition: the agent was removed');
+
+  // The fix: the token no longer resolves. If removal did not revoke it (or
+  // revoked the wrong key), resolveName would still return ok:true here.
+  assert.equal(sendertoken.resolveName(minted.token).ok, false,
+    'the removed agent\'s token still resolves -- removal did not revoke it, or revoked the wrong key');
+});
+
+test('#2323: restoring after removal is unaffected (a fresh token is minted on relaunch; revoke-on-remove does not break reversibility)', () => {
+  const name = madeAgent('revoke-then-restore');
+  boardShows(name, name);
+  const minted = sendertoken.mint(name);
+  world();
+  remove.setDryRun(false);
+  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the old token was revoked on removal');
+
+  const back = world();
+  remove.setDryRun(false);
+  assert.equal(remove.restore(name).outcome, remove.OUTCOME.RESTORED, 'restore still works after a revoking removal');
+  assert.equal(remove.isRemoved(name), false, 'the agent is back');
+  // A fresh mint (what a relaunch does) resolves; the revoked one stays dead.
+  const fresh = sendertoken.mint(name);
+  assert.equal(sendertoken.resolveName(fresh.token).ok, true, 'a freshly minted token resolves after restore');
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the pre-removal token stays revoked');
+});
