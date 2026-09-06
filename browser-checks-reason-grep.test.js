@@ -468,8 +468,15 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (the matcher counts it, so a red names the failing assertion; same shape
      as render-account-badge-1921's). Its launch-failure emit is counted once by the
-     catch/launch scan below (36), not here. */
-  const EXPECTED_SITES = 60;
+     catch/launch scan below (37), not here. */
+  /* 62 after kosmos#1652 added render-firstrun-wizard-flow.js (the first end-to-end
+     integration guard for the combined 1..9 first-run flow) -- merged alongside #2350's
+     +1 above -- which carries TWO SHAPE-1 finding-emit sites, both confirmed quotable:
+     its `bad()` helper `console.log('FAIL  ' + n + '  --  ' + why)` and its single-line
+     top-level `.catch((e) => { console.error('FAIL  ... threw: ' + ...) })` (same shapes
+     as render-firstrun-scan-on-grant-1652's). The catch is ALSO counted once by the
+     catch/launch scan below (37). */
+  const EXPECTED_SITES = 62;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -598,7 +605,12 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      is one catch/launch emit site, confirmed quotable (same shape as
      render-account-badge-1921's). Its per-problem finding-emit loop is counted once by
      the finding-emit scan above (60), not here. */
-  const EXPECTED_CATCH_SITES = 36;
+  /* 37 after kosmos#1652 added render-firstrun-wizard-flow.js -- merged alongside #2350's
+     +1 above -- whose single-line top-level crash catch (same Shape-A form as
+     render-firstrun-scan-on-grant-1652's) is one catch/launch emit site, confirmed
+     quotable (a `FAIL  ... threw:` prefix the gate quotes). ALSO counted once by the
+     finding-emit scan above (62). */
+  const EXPECTED_CATCH_SITES = 37;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
