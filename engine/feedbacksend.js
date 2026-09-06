@@ -43,6 +43,7 @@ const path = require('node:path');
 const store = require('./store');
 const feedback = require('./feedback');
 const projects = require('./projects');
+const create = require('./create'); // for WORKERS_DIR, the one definition of the workers root
 
 // #1856: route through the one data-root derivation (store.ROOT = dataRootFor),
 // like ping/notify -- prod-inert when AGENT_WORKFORCE_DATA is unset.
@@ -141,6 +142,16 @@ function installNames() {
       try { add(JSON.parse(fs.readFileSync(path.join(store.PROFILES, f), 'utf8')).displayName); } catch { /* skip this one */ }
     }
   } catch { /* no profiles dir yet: nothing to add */ }
+  // Agents, also by their on-disk worker folder, so an agent whose profile write
+  // failed but whose folder exists is still covered. A pure-tmux agent that
+  // Kosmos never created or connected has neither a profile nor a folder and is
+  // left to the prompt rule -- reading the live tmux roster here would make a
+  // send path depend on tmux, which it must never do.
+  try {
+    for (const ent of fs.readdirSync(create.WORKERS_DIR, { withFileTypes: true })) {
+      if (ent.isDirectory() && !ent.name.startsWith('.')) add(ent.name);
+    }
+  } catch { /* no workers dir yet: nothing to add */ }
   // Projects: each project's name (readAll throws UNREADABLE on a damaged file).
   try { for (const p of projects.readAll()) add(p && p.name); } catch { /* unreadable: nothing to add */ }
   // The OS account name, which can appear in a body without a leading path arm
@@ -182,7 +193,13 @@ function scrub(text) {
     out = out.replace(new RegExp(esc + '(?=[/\\\\\\s"\']|$)', 'gi'), '~');
   }
   // #2037 (revision): redact this install's identifying names as a backstop to
-  // the author prompt's own rule. Word-bounded and case-insensitive; longest
+  // the author prompt's own rule. Boundaries are UNICODE-AWARE lookarounds, not
+  // `\b`: `\b` fires only at ASCII `[A-Za-z0-9_]`, so a Cyrillic/CJK/accented
+  // name ("Мона", "José") or one bordered by punctuation ("C++", ".env")
+  // would slip through both edges and leak -- exactly the data this arm exists
+  // to protect. `(?<![\p{L}\p{N}_]) ... (?![\p{L}\p{N}_])` with the `u` flag
+  // treats any letter or number (in any script) as a word char, so the name is
+  // matched whole and never inside a longer word. Case-insensitive, longest
   // first (installNames sorts) so a fragment cannot pre-empt the full name. A
   // name that is also a common word (a project literally named "email") is
   // over-redacted, which is the safe direction for a body leaving the machine --
@@ -190,7 +207,7 @@ function scrub(text) {
   // author prompt tells the writer not to name projects, agents or users at all.
   for (const n of installNames()) {
     const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp('\\b' + esc + '\\b', 'gi'), '[redacted]');
+    out = out.replace(new RegExp('(?<![\\p{L}\\p{N}_])' + esc + '(?![\\p{L}\\p{N}_])', 'giu'), '[redacted]');
   }
   return out;
 }

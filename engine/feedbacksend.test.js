@@ -15,12 +15,22 @@ const nodePath = require('node:path');
 
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-feedbacksend-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+// #2037 revision: scrub() now enumerates worker folders, so the workers root
+// must be sandboxed too or the tests would read the real ~/work/workers.
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
 const feedback = require('./feedback');
 const feedbacksend = require('./feedbacksend');
+const store = require('./store');
+const projects = require('./projects');
 
 function fresh() {
   try { fs.rmSync(feedbacksend.FILE, { force: true }); } catch { /* absent is fine */ }
   try { fs.rmSync(feedback.dir(), { recursive: true, force: true }); } catch { /* absent is fine */ }
+  // #2037 revision: reset the identifying-name sources so a name written by one
+  // scrub test cannot leak into another's exact-equality assertions.
+  try { fs.rmSync(store.PROFILES, { recursive: true, force: true }); } catch { /* absent is fine */ }
+  try { fs.rmSync(projects.file(), { force: true }); } catch { /* absent is fine */ }
+  try { fs.rmSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true, force: true }); } catch { /* absent is fine */ }
   feedbacksend.setSender(null);
 }
 test.beforeEach(fresh);
@@ -291,8 +301,6 @@ test('sendDailyOnce does NOT send if the sent-marker write fails (no all-day re-
    OS account name are word-bounded, case-insensitive, longest-first, and
    guarded by a minimum length + a stoplist for the product's own name.
    ───────────────────────────────────────────────────────────────────────── */
-const store = require('./store');
-const projects = require('./projects');
 
 test('#2037 scrub redacts agent, project and account names, keeping the product name', () => {
   // agent: both the display name and its on-disk key are identifying
@@ -334,4 +342,33 @@ test('#2037 scrub is fail-soft: an unreadable projects file never throws and sti
   assert.equal(out, '~/x and Snorfblat',
     'the path arm still runs, an unenumerable project name is left alone, and nothing throws');
   fs.writeFileSync(projects.file(), '[]', 'utf8'); // reset the shared sandbox
+});
+
+test('#2037 scrub redacts a non-ASCII / punctuation-bordered name (\\b would miss it)', () => {
+  store.writeProfile('cyr', { displayName: 'Монализа' }); // Cyrillic: both edges non-ASCII
+  projects.writeAll([{ id: 'jose', name: 'José' }]);       // trailing accent defeats a closing \b
+  const out = feedbacksend.scrub('the Монализа agent and José both hit a bug');
+  assert.ok(!out.includes('Монализа'), 'a Cyrillic name must be redacted (\\b fires only at ASCII)');
+  assert.ok(!out.includes('José'), 'an accent-bordered name must be redacted');
+});
+
+test('#2037 scrub escapes regex metacharacters: a literal dot is not a wildcard', () => {
+  projects.writeAll([{ id: 'dot', name: 'a.b.c' }]);
+  assert.ok(feedbacksend.scrub('the a.b.c module broke').includes('[redacted]'), 'the literal name is redacted');
+  assert.equal(feedbacksend.scrub('the axbxc module broke'), 'the axbxc module broke',
+    'the dot is a literal, not a wildcard, so a lookalike is left alone');
+});
+
+test('#2037 scrub survives a malformed profile and still redacts the readable ones', () => {
+  store.writeProfile('goodagent', { displayName: 'Zorptastic' });
+  fs.mkdirSync(store.PROFILES, { recursive: true });
+  fs.writeFileSync(nodePath.join(store.PROFILES, 'broken.json'), '{ not valid json', 'utf8');
+  const out = feedbacksend.scrub('Zorptastic reported it'); // must not throw
+  assert.ok(!out.includes('Zorptastic'), 'a readable profile is still redacted despite a garbled sibling');
+});
+
+test('#2037 scrub redacts an agent known only by its worker folder (no profile)', () => {
+  fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'Folderonly'), { recursive: true });
+  assert.ok(!feedbacksend.scrub('the Folderonly agent crashed').includes('Folderonly'),
+    'an agent with a worker folder but no profile is still redacted');
 });
