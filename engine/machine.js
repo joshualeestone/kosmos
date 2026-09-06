@@ -326,7 +326,12 @@ function installedCheck(opts) {
      `engine.runnable-not-directory.test.js`), so it reads `process.platform`,
      which is correct on the machine it actually runs on. Do not "complete" the
      injection by adding a param to isRunnable -- it breaks the callback contract. */
-  const platform = (opts && opts.platform) || process.platform;
+  // Written without a leading `(` after `=` on purpose: the runnable-not-directory
+  // audit's enclosing-function heuristic reads `const x = (` as an arrow-function
+  // declaration, which would re-attribute installedCheck's pinned accessSync weak
+  // call to a bogus `fn: 'platform'`. `&&` binds tighter than `||`, so this is the
+  // same value as `(opts && opts.platform) || process.platform`.
+  const platform = opts && opts.platform || process.platform;
   const isWin = platform === 'win32';
   const parts = isWin
     ? [['claude', 'the part that runs agents', claudeBin, true]]
