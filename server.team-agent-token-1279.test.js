@@ -180,6 +180,37 @@ test('activeAgentsCreatedBy counts a creator\'s SUCCEEDED, NOT-removed births (n
   }
 });
 
+test('activeAgentsCreatedBy: a name REUSED by another creator counts for the CURRENT owner, not the original (last-occurrence wins)', () => {
+  // 'X' was created by alice, later (after removal/free) recreated by bob and is now
+  // alive. The append-only log holds both 'created' rows, oldest-first. First-
+  // occurrence-wins would keep counting alice (who no longer owns X) and never
+  // count bob; last-occurrence-wins attributes X to its current owner, bob.
+  const logFile = create.createdLogFile();
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, [
+    { createdBy: 'alice', outcome: 'created', name: 'sharedx' },
+    { createdBy: 'bob', outcome: 'created', name: 'sharedx' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  setRemoved([]); // sharedx is currently alive (bob's)
+  try {
+    assert.equal(activeAgentsCreatedBy('alice'), 0, 'alice no longer owns the reused name and must not still count it');
+    assert.equal(activeAgentsCreatedBy('bob'), 1, 'the current owner of the reused name must count it');
+  } finally { fs.rmSync(logFile, { force: true }); }
+});
+
+test('activeAgentsCreatedBy: the same creator recreating a name counts it ONCE, not once per birth', () => {
+  const logFile = create.createdLogFile();
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, [
+    { createdBy: 'boss', outcome: 'created', name: 'recre' },
+    { createdBy: 'boss', outcome: 'created', name: 'recre' }, // removed then recreated by boss
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  setRemoved([]);
+  try {
+    assert.equal(activeAgentsCreatedBy('boss'), 1, 'a reused name is one live agent, counted once (deduped by name)');
+  } finally { fs.rmSync(logFile, { force: true }); }
+});
+
 // ---- Route auth (enforcing board) ------------------------------------------
 
 test('AUTH: enforcing board refuses a team request with NO credential (403)', async () => {

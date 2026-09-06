@@ -957,14 +957,24 @@ function activeAgentsCreatedBy(creator) {
       .filter((r) => r && r.stopped !== false)
       .map((r) => { try { return create.cleanName(r.name); } catch { return String(r.name); } }));
   } catch { return null; }
-  const seen = new Set();
-  let n = 0;
+  /* LAST-occurrence wins: the NEWEST 'created' birth per clean name is its current
+     owner (the log is append-only oldest-first). createAgentInner REFUSES a create
+     while a name is on the removed list (create.js #removed guard), so a name is
+     freed before it can be recreated -- a live name's current owner is always its
+     newest 'created' birth. First-occurrence-wins would mis-attribute a name that
+     was removed and later recreated by ANOTHER creator: it would keep counting the
+     ORIGINAL creator (who no longer owns it) and never count the new one. The Map
+     dedups by name; last write (newest) wins. */
+  const ownerByName = new Map();
   for (const b of births) {
-    if (!b || b.createdBy !== creator || b.outcome !== 'created' || !b.name) continue;
+    if (!b || b.outcome !== 'created' || !b.name) continue;
     let clean; try { clean = create.cleanName(b.name); } catch { clean = String(b.name); }
-    if (!clean || seen.has(clean)) continue;
-    seen.add(clean);
-    if (!gone.has(clean)) n++;
+    if (!clean) continue;
+    ownerByName.set(clean, b.createdBy);
+  }
+  let n = 0;
+  for (const [name, by] of ownerByName) {
+    if (by === creator && !gone.has(name)) n++;
   }
   return n;
 }
@@ -3311,13 +3321,16 @@ const server = http.createServer((req, res) => {
            structurally unreachable on this path -- which is why this call does not
            pass denyPaneFallback (it would be inert). */
         const presentedAgentToken = (req.headers && req.headers['x-kosmos-agent-token']) || body.token;
-        const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
         let effectiveCreator;
         let callerKind;
         if (presentedAgentToken) {
           const authRoster = safeRoster();
           if (authRoster === null) {
-            sendJson(res, 503, { error: 'we could not check which agents are running, so we could not tell who this request is from' });
+            // A transient server condition (the roster read failed), so 503
+            // (retryable) rather than report/reply's 200-with-reason: this is a
+            // create surface, and a caller should retry, not read a permanent
+            // refusal. The one deliberate divergence from the report/reply posture.
+            sendJson(res, 503, { error: 'we could not check which agents are running, so we could not tell who this request is from; try again' });
             return;
           }
           const sender = resolveAgentSender(req, body, authRoster);
@@ -3325,6 +3338,9 @@ const server = http.createServer((req, res) => {
           effectiveCreator = sender.card.sessionName;
           callerKind = 'agent';
         } else {
+          // OPERATOR path: no agent token, so on an enforcing board the board token
+          // is required (computed only here -- it is never read on the agent path).
+          const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
           if (boardAuthState.on && !hasBoardToken) {
             sendJson(res, 403, { error: 'this board belongs to the account that started it; open it with `kosmos open`, or present an agent token' });
             return;
