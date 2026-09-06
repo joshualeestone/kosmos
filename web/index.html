@@ -2543,7 +2543,13 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .railme-b { min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .railme-n { display: block; font-size: .8125rem; font-weight: 600; color: var(--k-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .railme-s { display: block; font-size: .6875rem; color: var(--k-ink-2); }
-  html[data-layout="consolidated"] body.consolidated .railme-theme, html[data-layout="consolidated"] body.consolidated .railme-lay { flex: none; }
+  /* #2282: the appearance + view-toggle controls now live in the one top header on
+     every view (above), so the side rail no longer carries its own copies -- the rail
+     keeps only the per-view person -> Settings affordance (#520). Hiding rather than
+     removing the markup keeps the one document-level theme/layout handler and
+     paintThemePicker/applyLayout sync trivially correct (a hidden radio is still kept
+     in sync; it just is not shown). */
+  html[data-layout="consolidated"] body.consolidated .railme-theme, html[data-layout="consolidated"] body.consolidated .railme-lay { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a > #rail-me { justify-content: center; padding-left: 0; padding-right: 0; }
   /* #2154: the view toggle folds away with the theme pill (and the name) when the
      agents column is folded to its letters, for the same reason -- there is no
@@ -2600,9 +2606,24 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      pixels across everything. That is why it looks like a banner rather than
      like a gap above one column, and why reading the rails' own padding never
      explained it. */
-  html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; margin: 0; }
-  html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
-  html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .worldsw, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
+  /* #2282 (Josh 0.6.36, Mona's mock design/top-header.html): ONE header across the
+     top on every view. In the consolidated view the header used to be fully hidden
+     (its controls drifted into the #rail-me side rail); now it stays as a real
+     full-width top bar so the top reads the same in tab, consolidated and grid.
+     🔑 RECONCILES #1303 (Josh, twice: "no gray emptiness band across the top"):
+     that objection was to an EMPTY 4px collapsed-header band. This is not that -- the
+     bar now carries real content (the K mark, the Kosmos switcher on the left, the
+     appearance + view-toggle controls on the right) flush to the top with no empty
+     margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
+     ask) puts there. The center TABS stay hidden in this view (consolidated is one
+     screen, not separate tab screens) -- matching the mock's 2-column consolidated
+     header (left cluster + right cluster). */
+  html[data-layout="consolidated"] body.consolidated > .apphead header {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+    padding: 8px var(--space-8); min-height: 0; margin: 0;
+    background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated > .apphead h1,
+  html[data-layout="consolidated"] body.consolidated > .apphead .tabs { display: none; }
   html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
   /* The rails on a deeper ground than the conversation, and their rows flat
