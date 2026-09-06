@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: perm-fire-1029
-diff_hash: c8e3cd21dee184448b1b214bdf61ba75f68044b2d82938f1962546263bcf2d0f
+diff_hash: 37205380cb6a96a4ef3d108ec172685b6d0cc39b0e902703107a27921cb0b4cd
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-06T15:57:00Z
@@ -71,3 +71,15 @@ Kitty's live trigger endpoints are not served yet, so the trigger path is verifi
 against mocked responses, not her real native mechanism. Her weakest premise (the
 under-tmux AX attribution may need deeper native work to surface tmux) does not change
 this UI: trigger + poll + flip + fallback is stable either way.
+
+### Bundled: #4 import loosening (engine/agentfile.js)
+
+Also in this PR (same install-flow launch pass): importFromInstructions now recognizes
+a file whose text INTRODUCES an agent even when the name is not cleanly parseable (a
+lowercase name, a role-first intro), returning recognizedFromContent with an empty
+name so the create form prompts for one (the server already handles that). Gated on an
+anchored "You are ..." intro line, so it cannot over-accept arbitrary markdown. Tests:
+30/30 (2 new #4 tests incl a control that a file introducing nobody stays refused).
+Not separately blind-reviewed (small, INTRODUCES-gated, controlled); the family-4
+heading/role-description format with no "You are" is deferred (the recognition takes
+content only, no filename, so it is content-ambiguous - flagged to Splinter).
