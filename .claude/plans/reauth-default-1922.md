@@ -1807,7 +1807,7 @@ report here, but a stricter count would be smaller.
    Fixed to `grep -n 'confirmed live on'` (1 hit).
 2. **A second anchor that does not exist:** `grep -n 'Two spellings' engine/accounts.js` = 0 at both
    bases. The sentence it quotes is at `accounts.js:84`. Fixed to `grep -n 'most expensive habit'`.
-3. **Three line refs invalidated by today's rebase** (`server.js:781`, `:1553`, `:4995`). The
+3. **Three line refs invalidated by the 09-04 rebase** (`server.js:781`, `:1553`, `:4995`). The
    comments moved rather than vanished. Replaced with reproducing greps instead of renumbering,
    because a renumber goes stale at the next rebase and a grep does not.
 
@@ -2149,7 +2149,7 @@ same sweep reproduces the plan's own HEAD figure (92 + 47) and returns other val
 `actual: …/.claude, expected: null`; force null 37/3; drop `-u` 53/1; `-u` unconditional 53/1);
 baselines 40/40 and 54/54; iteration 25's new no-production-setter command returns empty with the
 unfiltered form returning 17 and a live negative control; the PR-body validation commands agree at
-the current hash with `status: clean`. The reviewer also reported that its own bare-prefix grep method
+the diff hash **as of that round** with `status: clean`. The reviewer also reported that its own bare-prefix grep method
 gave 13 where the plan's prefixed method gives 12, **and said the plan's was correct** rather than
 filing its own as a finding.
 
@@ -2295,7 +2295,7 @@ three historical pairs, scoped `1560`=0 with control `1922`=6, the 1560 sweep wi
 a `1922` sweep that HAS one, iteration-28's blocker reproduced exactly at both parent and carrier);
 PR-body validation block matching the newest log row at `status: clean`.
 
-**CODE, mutation-proven again today by a third independent reviewer, all four arms:** revert route ->
+**CODE, mutation-proven again AT THAT ROUND by a third independent reviewer, all four arms:** revert route ->
 39/1 `actual: …/.claude, expected: null`; `configDir: null` unconditional -> ROUTE control reds 37/3;
 drop `-u` -> 53/1; `-u` unconditional -> LAUNCH control reds 52/2. Baselines 54/54, 40/40, 9/9.
 
@@ -2595,3 +2595,46 @@ ratio holds, and both floors reproduce.
 because the PR body declares that measurement manual and non-rerunning, and re-running it on a shared
 Mac risks a false red. **It checked instead that the warm arm seeds a distinct value, which is what
 makes the control able to discriminate** -- the property that matters, without the risk.
+
+### Iteration 36, 2026-09-06 02:25: a phrase-scoped sweep is narrower than the class it names
+
+Verdict: **MERGE. No blocker. One LOW**, and a sixth independent reviewer reproduced all five mutation
+arms and every self-check from scratch.
+
+🛑 **THE LOW IS MY OWN FIX FROM ONE ROUND EARLIER, AND IT IS THE THIRD TIME THIS EXACT SHAPE HAS
+RECURRED.** Iteration 35 swept `"the current diff hash"` and anchored four sites. **The class is
+live-tense claims about past state; the sweep was for a PHRASE.** `"the current hash"` (no "diff")
+sat unanchored one round later. ⇒ **Iteration 34 named this shape, 35 committed it, 36 found it.**
+
+✅ **So this round swept the CLASS, not another variant:**
+`grep -nE '\b(the current|currently|right now|as of now|at present|today)\b'` -> **15 hits, every one
+classified** rather than counted. Three were genuine and are now anchored ("as of that round", "the
+09-04 rebase"). **The other twelve are deliberate and stay**, which is the part worth recording so the
+next reviewer does not re-litigate them:
+
+- **Statements about the PRODUCT's behaviour** ("cannot currently repair a credential") -- present
+  tense about the code under review is correct, and that IS the subject of this branch.
+- **Quotations of retracted text** in the correction records. **Editing wording inside a quotation
+  falsifies the record**, which is why they are left verbatim.
+- **Explicit disclaimers** ("it is not the current hash and is not meant to be").
+- **Deliberate points about time-dependence** ("correct today and scheduled to break", "true of this
+  machine today rather than enforced by a test") -- the transience IS the claim.
+- **An instruction to the reader** ("run this for the current pair"), which is the convention working.
+
+⭐ **The lesson generalises past this document: when a fix is a SWEEP, the sweep's pattern is itself a
+claim about coverage, and it inherits every narrowness the original defect had.** Three rounds running
+I fixed a scoping defect with a narrower-scoped instrument. **The remedy is to sweep the class and
+CLASSIFY the hits, because a classification survives a variant that a pattern match does not.**
+
+**Independently verified by this reviewer, with live controls:** all five mutation arms red each for
+its own reason with paired controls green, including the silent operand-first form at the grammar
+walk; baselines 54/54 and 40/40, `#1560` 3/3, `#1580` 9/9; **all four `env` grammar arms reproduced
+byte for byte including the exit-0 silent leak and the exit-127 loud one**; the non-permuting getopt
+evidence at `agent-supervisor.sh:413`; `checkLive` call sites = 2 with the other 8 hits being prose;
+every plan self-check executing as written (unreachable-sha loop, PR-body sha count 0 against a live
+control, the file:line sweep, the seam ratio, the bucket sweep); and the validation log's newest row
+matching at `status: clean`.
+
+**Set aside, and I agree with the reasoning:** it did not re-run the hand tmux table, because the PR
+body declares it manual and a shared-Mac tmux run risks a false red. **It verified instead that the
+warm arm seeds a DISTINCT value** -- the property that makes the control able to discriminate.
