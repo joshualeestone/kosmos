@@ -29,6 +29,21 @@ const SETUP = fs.readFileSync(path.join(__dirname, 'install', 'setup.sh'), 'utf8
 function runs(text) {
   return text.split('\n').filter((l) => !/^\s*#/.test(l)).join('\n');
 }
+
+/* The commands the installer EXECUTES, with plist heredoc DATA dropped too. A
+   plist body (its <string>/<key>/<array>/... lines) is written to a file, not run
+   here, so a `launchctl bootout` embedded in a login-agent plist's own program
+   (the com.kosmos.open-once one-shot boots itself out at login, #2151) is not the
+   install path booting anything out. Used only by the no-bootout claim below;
+   `runs()` itself stays markup-preserving because other claims inspect the board
+   plist's <key>/<string> shape. A real shell command never begins with an XML
+   tag, so dropping `^\s*<tag` cannot hide a bare install-path launchctl. */
+function runsNoPlistData(text) {
+  return runs(text)
+    .split('\n')
+    .filter((l) => !/^\s*<[a-z?!/]/i.test(l))
+    .join('\n');
+}
 function stepBlock(title) {
   const at = SETUP.indexOf(`step "${title}"`);
   assert.ok(at > -1, `the step "${title}" is gone from the installer`);
@@ -46,7 +61,12 @@ test('installing does not boot out a board that is already registered', () => {
      before `bootstrap`, and the machine has the job booted out and no board at
      all until the next login. */
   const block = stepBlock('Keeping Kosmos running after a restart.');
-  assert.ok(!/bootout/.test(block),
+  /* Strip plist DATA for the no-bootout claim: this step also writes the
+     com.kosmos.open-once login agent, whose OWN program boots itself out at
+     login (#2151) -- a bootout inside a plist <string>, not a command the
+     installer runs. The concern here is the install path executing a bootout of
+     the board; a bare `launchctl bootout` command still trips this. */
+  assert.ok(!/bootout/.test(runsNoPlistData(block)),
     'the install path boots the board out, which can kill the update that is running it');
   assert.match(block, /launchctl print/,
     'nothing probes whether the job is already loaded, so the skip cannot happen');
@@ -65,6 +85,20 @@ test('uninstalling does boot it out, because there is nothing left to protect', 
   /* enable first, or a standing per-user disable outlives the plist and a
      reinstalled Kosmos is silently refused. */
   assert.ok(block.indexOf('launchctl enable') < block.indexOf('launchctl bootout'));
+});
+
+test('the one-shot open agent boots ITSELF out, not just deletes its plist (#2151)', () => {
+  /* The com.kosmos.open-once RunAtLoad job used to only `rm` its plist file,
+     leaving the job loaded-but-idle in launchd's registry until logout. Its
+     program must ALSO `launchctl bootout` its own label so nothing lingers. This
+     is a bootout inside the job's OWN plist program (login-time self-teardown),
+     which is exactly why the board-job no-bootout claim above filters plist
+     markup -- the two are not in tension. */
+  const at = SETUP.indexOf('com.kosmos.open-once');
+  assert.ok(at > -1, 'the open-once one-shot job is gone from the installer');
+  const block = SETUP.slice(at, at + 1500);
+  assert.match(block, /launchctl bootout "gui\/\$_open_uid\/\$_open_label"/,
+    'the open-once program does not boot itself out; it lingers in the launchd registry until logout (#2151)');
 });
 
 test('a sandboxed run reaches launchd in neither direction', () => {
