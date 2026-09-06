@@ -94,9 +94,14 @@ test('the one-shot open agent boots ITSELF out, not just deletes its plist (#215
      is a bootout inside the job's OWN plist program (login-time self-teardown),
      which is exactly why the board-job no-bootout claim above filters plist
      markup -- the two are not in tension. */
-  const at = SETUP.indexOf('com.kosmos.open-once');
+  const at = SETUP.indexOf('_open_label=com.kosmos.open-once');
   assert.ok(at > -1, 'the open-once one-shot job is gone from the installer');
-  const block = SETUP.slice(at, at + 1500);
+  /* Anchor to the plist heredoc's closing PLIST marker, not a fixed char count,
+     so the slice tracks the block if it grows (a positional +N slice is the
+     brittle shape this codebase keeps getting bitten by). */
+  const end = SETUP.indexOf('\nPLIST\n', at);
+  assert.ok(end > at, 'the open-once plist heredoc no longer closes with PLIST; the anchor is stale');
+  const block = SETUP.slice(at, end);
   assert.match(block, /launchctl bootout "gui\/\$_open_uid\/\$_open_label"/,
     'the open-once program does not boot itself out; it lingers in the launchd registry until logout (#2151)');
 });
