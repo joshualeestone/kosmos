@@ -36213,6 +36213,11 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
       // back to opening Settings so the person is never left with a dead button.
     } catch { /* endpoint missing / network error -> fall back */ }
   }
+  // A category with no Settings fallback (a hypothetical trigger-only gate) simply
+  // stops after the trigger rather than fetching a null URL. Today S2 and S3-tmux
+  // always pass a fallback and S3-sleep is fallback-only, so this only hardens a
+  // future caller.
+  if (!fallbackUrl) return;
   try {
     const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
     if (!res.ok) {
