@@ -7799,6 +7799,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
             <span class="s2-pill s2-pill-ok">&#10003; Approval Granted</span>
           </span>
         </div>
+        <!-- install-flow-9screen: "Allow Access" opens System Settings -> Privacy ->
+             Files & Folders (the delegated handler is on this pane; the gate poll,
+             not this click, flips the pill to granted). Only a failure speaks here;
+             the Settings window itself is the success feedback (same rule as S3). -->
+        <p class="fr-msg" id="fr-s2-msg" role="status" aria-live="polite"></p>
       </div>
 
       <!-- S3 Automation (new). Gates: data-gate="sleep" + "tmux". Next locked until BOTH. -->
@@ -35552,11 +35557,9 @@ let FR_STEP = 1;
 let FR_RETURN = null;     // where the keyboard was before this opened
 let FR_FORGOT = false;    // the completion flag did not stick, and we said so
 let FR_FINISHING = false; // a completion is in flight; guards Escape and Continue at once
-// ⚠️ Kept so the fork step cannot promise something step 4 just contradicted. Null
-// until the check screen has actually answered -- an empty array here would be
-// "we looked and found nothing wrong", which is not the same thing.
-let FR_MACHINE = null;
-let FR_CHECKING = 0;      // which machine-check request is the current one
+// install-flow-9screen: FR_MACHINE (the machine-check screen's result) is gone
+// with that screen and its snag-hedging reader (see frPaintFleet's create arm).
+let FR_CHECKING = 0;      // which machine-check request is the current one (frRecheck)
 
 /**
  * ⚠️ `.onclick`, NOT `addEventListener`. These two buttons change meaning on
@@ -35951,6 +35954,34 @@ function frCheckRow(c, opts) {
       : '')
     + '</div></div>';
 }
+
+/* install-flow-9screen: S2 Access's "Allow Access" button, delegated on the pane.
+   It opens System Settings -> Privacy -> Files & Folders (POST
+   /api/open-file-access-settings; the engine derives the URL). It cannot GRANT the
+   access (TCC), so the gate poll -- not this click -- flips the pill to granted and
+   unlocks Next. Only a failure speaks, in #fr-s2-msg; the Settings window itself is
+   the success feedback (same rule as S3's Turn-On buttons). */
+document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
+  const b = e.target.closest('.s2-allow');
+  if (!b) return;
+  const msg = document.getElementById('fr-s2-msg');
+  b.disabled = true;
+  try {
+    const res = await fetch('/api/open-file-access-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    } else if (msg) {
+      // A retry that succeeds must not leave an earlier failure sentence standing
+      // beside an actually-open Settings window.
+      msg.textContent = '';
+    }
+  } catch {
+    if (msg) msg.textContent = 'we could not open System Settings';
+  } finally {
+    b.disabled = false;
+  }
+});
 
 /* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
    pane. This REPLACES the two retired top-level handlers (the machine-check

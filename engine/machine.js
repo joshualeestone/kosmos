@@ -1067,6 +1067,34 @@ function openAccessibilitySettings(runner, lister) {
 /* Test hook, same reason as its sibling's. */
 function resetA11yPaneCache() { A11Y_PANE_CACHE = undefined; }
 
+/* ── the Files & Folders pane (install-flow-9screen: Screen 2 "Allow Access") ──
+   The S2 Access screen's gold "Allow Access" button opens System Settings to the
+   Files & Folders privacy pane, the same door-not-claim contract as the
+   Accessibility button above: it OFFERS the setting; it never reads or claims
+   whether access was granted (that is a TCC fact only the native app can read,
+   #1344). The pane lives in the SAME Privacy & Security bundle the Accessibility
+   pane does, so this reuses that probe (bundle id moved between macOS versions;
+   a hardcoded one opens Settings to nowhere) and only swaps the anchor. */
+function fileAccessPaneUrl(runner, lister) {
+  const a11y = a11yPaneUrl(runner, lister);
+  if (!a11y) return null;
+  /* Same bundle, the Files & Folders anchor instead of Accessibility. */
+  return a11y.replace('?Privacy_Accessibility', '?Privacy_FilesAndFolders');
+}
+
+/** Open the Files & Folders pane. The URL is ALWAYS derived here, never taken
+    from a caller, for the same reason its sibling states: the route that fronts
+    this must not become a way for a page to `open` arbitrary URLs. */
+function openFileAccessSettings(runner, lister) {
+  const url = fileAccessPaneUrl(runner, lister);
+  if (!url) return { ok: false, because: 'we could not find the file-access screen on this computer' };
+  const r = runner || run;
+  const res = r('/usr/bin/open', [url]);
+  return res.ok
+    ? { ok: true }
+    : { ok: false, because: 'System Settings did not open' };
+}
+
 /* ── the label-truth check (#224's trap, found live 2026-08-23) ──────────
    launchd has no sandbox: a harness (or anything) can register a plist from
    a temp directory over a real Kosmos label, and every liveness probe stays
@@ -1173,4 +1201,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

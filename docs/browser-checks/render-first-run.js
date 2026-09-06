@@ -42,15 +42,6 @@ fs.mkdirSync(OUT, { recursive: true });
  */
 const machineEngine = require('../../engine/machine');
 
-/**
- * A laptop that sleeps on battery, and a launchctl that will not answer: one
- * real finding and one thing we could not check, which is the pair the counting
- * sentence exists to keep apart.
- */
-const LAPTOP_PMSET = [
-  'Battery Power:', ' lidwake              1', ' sleep                10', ' disksleep            10', '',
-  'AC Power:', ' lidwake              1', ' sleep                0', ' disksleep            10', '',
-].join('\n');
 
 /* App-location fixtures for the return step and the machine payloads, each GENERATED
    by the real engine against a scratch pair of folders rather than
@@ -85,20 +76,6 @@ const CLEAR_INPUTS = {
   runner: () => ({ ok: true, stdout: 'com.kosmos.agent.x' }),
 };
 
-/* The clear payload is engine-generated. (History: it was captured against
-   the live route until app-location briefly joined the rows and made dev
-   machines unable to read clear; app-location now rides BESIDE the rows and
-   never joins the counts, but the fixture stays engine-generated -- a
-   deterministic payload plus the on-screen control below is strictly
-   stronger than trusting whatever machine runs the harness.) */
-const MACHINE_CLEAR = (() => {
-  const got = machineEngine.check({ ...CLEAR_INPUTS, appDirs: APPFIX.sys });
-  if (got.attention !== 0 || got.unknown !== 0) {
-    throw new Error(`the clear fixture is not clear (attention=${got.attention}, unknown=${got.unknown})`);
-  }
-  return got;
-})();
-
 const appFixture = (dirs, wantState, label) => {
   // (Root note: mode-000 does not seal for root, so the blind fixture reads
   // attention instead of unknown under sudo -- the throw below is loud but
@@ -117,23 +94,6 @@ const MACHINE_APP_HOME = appFixture(APPFIX.home, 'ok', 'home');
 const MACHINE_APP_NONE = appFixture(APPFIX.none, 'attention', 'missing');
 const MACHINE_APP_BLIND = appFixture(APPFIX.blind, 'unknown', 'blind');
 
-const MACHINE_MIXED = (() => {
-  const got = machineEngine.check({
-    pmset: LAPTOP_PMSET,
-    claudeBin: '/bin/sh',
-    tmuxBin: '/bin/sh',
-    runner: (cmd) => (cmd === '/bin/launchctl' ? { ok: false, because: 'no' } : { ok: true, stdout: '' }),
-    // Pinned so the appLocation field (now beside the rows, not among
-    // them) stays deterministic; the counts below never included it.
-    appDirs: APPFIX.sys,
-  });
-  // The control: this fixture is only worth screenshotting if it really does
-  // carry one of each, which is the whole point of the shot.
-  if (got.attention !== 1 || got.unknown !== 1) {
-    throw new Error(`the mixed fixture no longer shows one of each (attention=${got.attention}, unknown=${got.unknown})`);
-  }
-  return got;
-})();
 
 const FLEET_REAL = null; // let the real server answer
 // Every shot PINS its /api/first-run payload: without this the action bar

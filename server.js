@@ -5193,6 +5193,16 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* install-flow-9screen: Screen 2 "Allow Access" opens the Files & Folders
+     privacy pane. Same door-not-claim contract as open-accessibility-settings:
+     the URL is derived in the engine, never taken from the page. */
+  if (pathname === '/api/open-file-access-settings' && req.method === 'POST') {
+    const opened = machine.openFileAccessSettings();
+    if (opened.ok) { sendJson(res, 200, { ok: true }); return; }
+    sendJson(res, 409, { error: opened.because });
+    return;
+  }
+
   /* #2125 slice 3: the Accessibility trust reading, for the first-run Continue
      gate (Josh ruled: block Continue until Accessibility is actually enabled,
      verified). A STATE question -- GET, read-only, and it NEVER 500s (same
