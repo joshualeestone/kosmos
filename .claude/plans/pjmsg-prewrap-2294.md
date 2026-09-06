@@ -1,22 +1,22 @@
 # pjmsg-prewrap-2294: plain multi-line messages keep their breaks on .pj-msg-text
 
-kosmos#2294 (low-sev, split from #2292; Splinter parked it post-launch — now post-0.6.40-cut,
+kosmos#2294 (low-sev, split from #2292; Splinter parked it post-launch, now post-0.6.40-cut,
 taken as an in-lane fast-follow filler).
 
 ## Problem
 
 On the project message list, `.pj-msg-text` was `white-space: normal`. pjRich's FAST path
 (a plain marker-less message) returns `esc(raw)` with the literal `\n`, which `normal`
-collapses — so a paragraph break in an unformatted message rendered as a single line. A
+collapses, so a paragraph break in an unformatted message rendered as a single line. A
 message carrying any markdown marker / URL / link takes pjRich's SLOW path, whose breaks
 become `<br>`, so it rendered fine; two messages could wrap differently by content.
 
-## Fix (CSS only — does not touch pjRich / Renet's #2067/#2239 logic)
+## Fix (CSS only, does not touch pjRich / Renet's #2067/#2239 logic)
 
 `.pj-msg .pj-msg-text { white-space: pre-wrap; ... }` (matching the `.dm-b` dialogue
 surface, already pre-wrap). This makes the fast path's literal `\n` render as breaks.
 
-It is safe against the slow path because pjRich's slow path does `out.join('<br>')` — its
+It is safe against the slow path because pjRich's slow path does `out.join('<br>')`, its
 output carries NO literal `\n`, so pre-wrap has nothing to double. Fenced code keeps its own
 `.mdcb` pre-wrap regardless. Verified both paths render identically (see the check). Also
 updated the pjRich comment that documented `.pj-msg-text` as "not pre-wrap" (now stale).

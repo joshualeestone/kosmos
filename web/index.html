@@ -31884,11 +31884,14 @@ function pjInline(text) {
       those tags in prose and never as literal markup: several test harnesses
       locate the page's last script block by scanning for the literal open tag,
       so a literal one here would make them slice the page from this comment.)
-   2. Container-agnostic line breaks. `.dm-b` is `white-space: pre-wrap` but
-      `.pj-msg-text` is NOT, so a rendered break is an explicit `<br>` and the
-      source `\n` is CONSUMED rather than left to double-break under pre-wrap.
-      Output stays INLINE (no block elements to fight pre-wrap): a heading, a
-      list row and a quote are styled inline spans, each on its own line.
+   2. Container-agnostic line breaks. `.dm-b` and (as of #2294) `.pj-msg-text`
+      are both `white-space: pre-wrap`. A rendered break from a marker line is
+      still an explicit `<br>` and the source `\n` is CONSUMED (the slow path
+      joins with `<br>`), so a markdown message never double-breaks under
+      pre-wrap; only a plain fast-path message's own `\n` renders as a break
+      (the #2294 fix). Output stays INLINE (no block elements to fight
+      pre-wrap): a heading, a list row and a quote are styled inline spans,
+      each on its own line.
    3. Degrade: a RECOGNISED marker is CONSUMED, not shown. A block marker at a
       line start (`#`, `-`, `>`, a fence) and a CLOSED inline pair (`**b**`,
       `` `c` ``) never reach the reader as raw markup; leaking a recognised
@@ -31897,8 +31900,9 @@ function pjInline(text) {
       the guarantee is about paired/block markup, not every stray asterisk.
    4. Plain text is byte-identical to the old `esc(raw)`. A message with no
       markup and no URL returns exactly what pjInline returned, so neither
-      surface regresses on ordinary text (and `.pj-msg-text` keeps collapsing
-      its newlines exactly as before on that fast path).
+      surface regresses on ordinary text. As of #2294 `.pj-msg-text` is
+      `white-space: pre-wrap`, so a plain message's own `\n` renders as breaks
+      there too (it collapsed before), matching `.dm-b`.
 
    Element set (installkosmos.com/design/rich-text-dialogue): bold, italic,
    strikethrough, inline code, fenced code block, one heading size, unordered
