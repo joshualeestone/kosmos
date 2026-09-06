@@ -10,7 +10,7 @@
  *   - Auth (enforcing board): no credential -> 403; invalid agent token -> 403; a
  *     valid agent token -> the AUTHENTICATED caller is createdBy (a self-declared
  *     body.creator is ignored); the board token -> the operator path.
- *   - Global cap: the per-creator active-agent count (birth log x live roster)
+ *   - Global cap: the per-creator active-agent count (birth log minus removed)
  *     bounds accumulation across calls, on the AGENT path only (operator exempt).
  *
  * Sandboxes every create root + the Claude config (fixture-discipline), DRY_RUN +
@@ -50,6 +50,7 @@ const { start, server, boardAuthState, remoteWriteGuard, REMOTE_AGENT_ROUTES, LO
 const create = require('./engine/create');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
+const remove = require('./engine/remove');
 const fleet = require('./test-support/fleet');
 
 const TOK = 'BOARDTOKEN_teamtok_0123456789abcdef';
@@ -81,6 +82,11 @@ async function postTeam(body, headers = {}) {
   return { status: res.status, json };
 }
 function birthOf(name) { return create.createdLog().filter((e) => e && e.name === name).pop() || null; }
+// Seed the removed-agents store directly (remove.js does not export a writer).
+function setRemoved(list) {
+  fs.mkdirSync(path.dirname(remove.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify(list, null, 2) + '\n', 'utf8');
+}
 
 // ---- Network refusal (pure, exported guard) --------------------------------
 
@@ -110,27 +116,30 @@ test('creatorAgentCap: default 25, env override, hard ceiling 100', () => {
   assert.equal(creatorAgentCap({ AGENT_WORKFORCE_CREATOR_AGENT_CAP: '0' }), 25, 'a non-positive override is ignored');
 });
 
-// ---- activeAgentsCreatedBy (birth log x live roster) -----------------------
+// ---- activeAgentsCreatedBy (birth log minus removed) --------------------
 
-test('activeAgentsCreatedBy counts only a creator\'s SUCCEEDED births whose agent is still on the roster', () => {
-  // Seed the birth log: two by 'boss' (one live, one removed), one by someone else, one refused.
+test('activeAgentsCreatedBy counts a creator\'s SUCCEEDED, NOT-removed births (not the live roster)', () => {
+  // Seed the birth log: two by 'boss' (one still present, one removed), one refused,
+  // one by someone else. The count is birth-MINUS-removed, so a fresh birth counts
+  // even with NO roster (proving the fix for the roster-lag defect).
   const logFile = create.createdLogFile();
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   const rows = [
-    { createdBy: 'boss', outcome: 'created', name: 'liveone' },
-    { createdBy: 'boss', outcome: 'created', name: 'goneone' },   // not on roster -> not counted
-    { createdBy: 'boss', outcome: 'refused', name: 'refusedone' }, // refused -> not counted
-    { createdBy: 'other', outcome: 'created', name: 'notmine' },   // different creator
+    { createdBy: 'boss', outcome: 'created', name: 'presentone' },
+    { createdBy: 'boss', outcome: 'created', name: 'removedone' },  // removed below -> not counted
+    { createdBy: 'boss', outcome: 'refused', name: 'refusedone' },  // refused -> not counted
+    { createdBy: 'other', outcome: 'created', name: 'notmine' },    // different creator
   ];
   fs.writeFileSync(logFile, rows.map((r) => JSON.stringify(r)).join('\n') + '\n');
-  const board = fleet.install([fleet.agent('liveone'), fleet.agent('notmine')]);
+  // Mark 'removedone' removed (stopped) so it drops out of the active count.
+  setRemoved([{ name: 'removedone', stopped: true, removedAt: new Date().toISOString(), shownAs: 'removedone' }]);
   try {
-    assert.equal(activeAgentsCreatedBy('boss'), 1, 'only the live, succeeded, own-created agent counts');
+    assert.equal(activeAgentsCreatedBy('boss'), 1, 'only the present, succeeded, own-created agent counts (roster not consulted)');
     assert.equal(activeAgentsCreatedBy('other'), 1);
     assert.equal(activeAgentsCreatedBy('nobody'), 0);
   } finally {
-    board.restore();
     fs.rmSync(logFile, { force: true });
+    try { setRemoved([]); } catch { /* best effort */ }
   }
 });
 
@@ -190,7 +199,8 @@ test('AUTH: the BOARD token drives the operator path (createdBy = body.creator)'
 
 test('CAP: the agent path is refused when its active-agent count + team size exceeds the per-creator cap', async () => {
   create.setClaudeProbe(LIVE);
-  // Env cap is 3. Seed 3 live agents created by 'capagent'; one more member tips it over.
+  // Env cap is 3. Seed 3 NON-removed births by 'capagent'; the count is birth-minus-
+  // removed, so these count as active WITHOUT any roster presence (the roster-lag fix).
   const logFile = create.createdLogFile();
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.writeFileSync(logFile, [
@@ -198,9 +208,10 @@ test('CAP: the agent path is refused when its active-agent count + team size exc
     { createdBy: 'capagent', outcome: 'created', name: 'capexistB' },
     { createdBy: 'capagent', outcome: 'created', name: 'capexistC' },
   ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  setRemoved([]); // nothing removed -> all three count
   const tok = sendertoken.mint('capagent').token;
   liveness.seen('capagent');
-  const board = fleet.install([fleet.agent('capexistA'), fleet.agent('capexistB'), fleet.agent('capexistC')]);
+  const board = fleet.install([]); // empty roster proves the count does NOT use it
   try {
     const r = await postTeam(
       { creator: 'capagent', purpose: 'one too many', members: [{ name: 'capnewone', role: 'pm' }] },
@@ -213,6 +224,60 @@ test('CAP: the agent path is refused when its active-agent count + team size exc
   } finally { board.restore(); create.setClaudeProbe(null); fs.rmSync(logFile, { force: true }); }
 });
 
+test('CAP: a REMOVED prior agent frees headroom (birth-minus-removed), so the same request now succeeds', async () => {
+  create.setClaudeProbe(LIVE);
+  const logFile = create.createdLogFile();
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, [
+    { createdBy: 'freeagent', outcome: 'created', name: 'freeA' },
+    { createdBy: 'freeagent', outcome: 'created', name: 'freeB' },
+    { createdBy: 'freeagent', outcome: 'created', name: 'freeC' },
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  // Remove one -> active count drops to 2, so 2 + 1 = 3 is NOT over the cap of 3.
+  setRemoved([{ name: 'freeC', stopped: true, removedAt: new Date().toISOString(), shownAs: 'freeC' }]);
+  const tok = sendertoken.mint('freeagent').token;
+  liveness.seen('freeagent');
+  const board = fleet.install([]);
+  try {
+    const r = await postTeam(
+      { creator: 'freeagent', purpose: 'headroom restored', members: [{ name: 'freenew', role: 'pm' }] },
+      { 'x-kosmos-agent-token': tok },
+    );
+    assert.equal(r.status, 200, 'removing an agent did not free cap headroom: ' + JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'created', JSON.stringify(r.json));
+    assert.ok(birthOf('freenew'), 'the create under restored headroom should have succeeded');
+  } finally { board.restore(); create.setClaudeProbe(null); fs.rmSync(logFile, { force: true }); try { setRemoved([]); } catch { /* best effort */ } }
+});
+
+test('CAP: concurrent same-creator requests cannot BOTH pass a stale count (the TOCTOU race is closed by the lock)', async () => {
+  create.setClaudeProbe(LIVE);
+  const logFile = create.createdLogFile();
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, ''); // start from zero active agents for 'raceagent'
+  setRemoved([]);
+  const prevCap = process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP;
+  process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP = '1'; // cap of 1: only ONE of the two 1-member requests may create
+  const tok = sendertoken.mint('raceagent').token;
+  liveness.seen('raceagent');
+  const board = fleet.install([]);
+  try {
+    const [a, b] = await Promise.all([
+      postTeam({ creator: 'raceagent', purpose: 'race a', members: [{ name: 'raceone', role: 'pm' }] }, { 'x-kosmos-agent-token': tok }),
+      postTeam({ creator: 'raceagent', purpose: 'race b', members: [{ name: 'racetwo', role: 'pm' }] }, { 'x-kosmos-agent-token': tok }),
+    ]);
+    const created = [a, b].filter((r) => r.status === 200 && r.json && r.json.outcome === 'created').length;
+    const refused = [a, b].filter((r) => r.status === 400 && r.json && r.json.outcome === 'refused').length;
+    assert.equal(created, 1, 'exactly one concurrent request should have created; the lock failed if both did: ' + JSON.stringify([a.json, b.json]));
+    assert.equal(refused, 1, 'the other concurrent request should have been refused for the cap');
+    const births = [birthOf('raceone'), birthOf('racetwo')].filter(Boolean).length;
+    assert.equal(births, 1, 'exactly one agent should have been created across the two concurrent requests');
+  } finally {
+    board.restore(); create.setClaudeProbe(null); fs.rmSync(logFile, { force: true });
+    if (prevCap === undefined) delete process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP;
+    else process.env.AGENT_WORKFORCE_CREATOR_AGENT_CAP = prevCap;
+  }
+});
+
 test('CAP: the OPERATOR path is EXEMPT from the per-creator cap (board token, same seeded load)', async () => {
   create.setClaudeProbe(LIVE);
   const logFile = create.createdLogFile();
@@ -222,7 +287,8 @@ test('CAP: the OPERATOR path is EXEMPT from the per-creator cap (board token, sa
     { createdBy: 'opsboss', outcome: 'created', name: 'opsexistB' },
     { createdBy: 'opsboss', outcome: 'created', name: 'opsexistC' },
   ].map((r) => JSON.stringify(r)).join('\n') + '\n');
-  const board = fleet.install([fleet.agent('opsexistA'), fleet.agent('opsexistB'), fleet.agent('opsexistC')]);
+  setRemoved([]);
+  const board = fleet.install([]);
   try {
     const r = await postTeam(
       { creator: 'opsboss', purpose: 'operator over the agent cap', members: [{ name: 'opsnewone', role: 'pm' }] },

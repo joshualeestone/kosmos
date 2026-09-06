@@ -920,30 +920,68 @@ function safeRoster() {
  * whole fleet and is exempt.
  *
  * `activeAgentsCreatedBy` counts the agents a creator has ALIVE right now:
- * birth-log entries (create.createdLog) they created that SUCCEEDED, whose agent
- * name is still on the live roster (safeRoster drops removed/stopped). The bound
- * is on active LOAD, not lifetime creations, so a creator who removes agents
- * regains headroom. Counted by createdBy STRING; a renamed agent's old births
- * stop counting, which can only UNDER-count (never over-refuse) -- acceptable for
- * a ceiling, and rename is rare. One entry per agent name (a re-created name after
- * removal appears once). */
+ * birth-log entries (create.createdLog) they created that SUCCEEDED and have NOT
+ * been removed (remove.removedAgents, the same "gone" set safeRoster uses).
+ *
+ * 🛑 NOT the live roster, DELIBERATELY. A freshly-created agent is not on the
+ * tmux roster until its pane appears (seconds later, and never under DRY_RUN),
+ * so a roster-keyed count would read 0 right after a create -- exactly the window
+ * a spawn cap has to bound. Keying on birth-MINUS-removed counts a just-created
+ * agent immediately (its birth is written synchronously before createAgent
+ * returns) and still drops one the creator later removes, so the bound is on
+ * active LOAD and headroom returns on removal. Conservative (a crashed-but-not-
+ * removed agent still counts), which is the safe direction for a ceiling.
+ *
+ * Compared by CLEAN name (create.cleanName): removedAgents stores clean names
+ * while the birth log stores the name as typed. A renamed agent's old births stop
+ * counting, which can only UNDER-count (never over-refuse). One entry per clean
+ * name. Returns null (not 0) when the birth log or removed list cannot be read,
+ * so the caller can fail OPEN rather than block a create on a read error.
+ *
+ * 🔑 CORRECT ONLY UNDER THE PER-CREATOR LOCK (withCreatorLock). This is a
+ * check-then-act read; the write (createTeam -> recordBirth) happens later, so
+ * two concurrent same-creator requests would each read the same stale count and
+ * both pass. The route serializes the check+create for one creator through the
+ * lock, so the birth log this reads already reflects the previous request. */
 function activeAgentsCreatedBy(creator) {
   if (!creator) return 0;
   let births;
   try { births = create.createdLog(); } catch { return null; }
   if (!Array.isArray(births)) return null;
-  const roster = safeRoster();
-  if (roster === null) return null; // unreadable roster: cannot count, caller decides
-  const live = new Set(roster.map((a) => a.sessionName));
+  let gone;
+  try {
+    gone = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name));
+  } catch { return null; }
   const seen = new Set();
   let n = 0;
   for (const b of births) {
-    if (!b || b.createdBy !== creator || b.outcome !== 'created') continue;
-    if (!b.name || seen.has(b.name)) continue;
-    seen.add(b.name);
-    if (live.has(b.name)) n++;
+    if (!b || b.createdBy !== creator || b.outcome !== 'created' || !b.name) continue;
+    let clean; try { clean = create.cleanName(b.name); } catch { clean = String(b.name); }
+    if (!clean || seen.has(clean)) continue;
+    seen.add(clean);
+    if (!gone.has(clean)) n++;
   }
   return n;
+}
+
+/* #1279 TOCTOU guard for the global per-creator cap. The cap is check-then-act
+   (read activeAgentsCreatedBy, then createTeam writes births), so two concurrent
+   same-creator /api/team requests could each read the same stale count and each
+   pass, accumulating past the cap. The board is a SINGLE process (loopback), so
+   an in-process per-creator lock serializes the check+create for one creator,
+   closing the race; different creators never contend. Standard chained-promise
+   lock: each caller runs after the previous same-creator caller SETTLES, and the
+   map entry is dropped once it is the tail, so it does not grow across creators. */
+const teamCreateLocks = new Map();
+function withCreatorLock(creator, fn) {
+  const prev = teamCreateLocks.get(creator) || Promise.resolve();
+  const run = prev.then(fn, fn); // run after prev settles, whatever its outcome
+  const chained = run.catch(() => {}); // the chain tail must never reject
+  teamCreateLocks.set(creator, chained);
+  chained.then(() => {
+    if (teamCreateLocks.get(creator) === chained) teamCreateLocks.delete(creator);
+  });
+  return run;
 }
 
 /* The Kosmos-owned per-creator ceiling. Default 25 (two full default teams plus
@@ -3206,7 +3244,10 @@ const server = http.createServer((req, res) => {
    * 🛑 TWO CAPS. The per-team cap (engine/team.resolveCap, <= MAX_TEAM_CAP 50)
    * bounds ONE request; the per-creator GLOBAL active-agent cap (activeAgentsCreatedBy
    * + creatorAgentCap, AGENT path only) bounds ACCUMULATION across requests so a PM
-   * agent cannot spawn past a ceiling by making many teams. See both below.
+   * agent cannot spawn past a ceiling by making many teams. The global cap is
+   * check-then-act, so it is enforced ATOMICALLY with the create under a
+   * per-creator lock (withCreatorLock) -- otherwise two concurrent same-creator
+   * requests would each read a stale count and both pass. See both below.
    *
    * 🛑 WHAT THIS SLICE DELIBERATELY DOES NOT DO, on the record so it is not
    * discovered later as a hidden gap:
@@ -3275,30 +3316,13 @@ const server = http.createServer((req, res) => {
           callerKind = 'operator';
         }
 
-        /* --- #1279 GLOBAL per-creator active-agent cap (AGENT path only) --------
-           The per-team cap bounds one call; this bounds ACCUMULATION across calls
-           so a PM agent cannot spawn past a ceiling by making many teams. The
-           OPERATOR is exempt (board-authorized, manages the whole fleet). Gated on
-           a well-shaped request (purpose + members present) so createTeam still
-           OWNS the shape refusals FIRST -- a resource bound applied after shape,
-           mirroring createTeam's own creator/purpose-before-cap priority. A null
-           count (unreadable roster/log) FAILS OPEN: the per-team cap still bounds
-           this one request, so a read error never blocks a legitimate create. */
-        const purposeOk = typeof body.purpose === 'string' && body.purpose.trim() !== '';
-        if (callerKind === 'agent' && members && members.length && purposeOk) {
-          const gcap = creatorAgentCap(process.env);
-          const already = activeAgentsCreatedBy(effectiveCreator);
-          if (already !== null && already + members.length > gcap) {
-            sendJson(res, 400, {
-              outcome: 'refused', created: [], refused: [],
-              because: 'you already have ' + already + ' active agent(s) you created and this would add '
-                + members.length + ', past the per-creator cap of ' + gcap
-                + '. Remove some of your agents, or build a smaller team.',
-              creator: effectiveCreator, purpose: body.purpose.trim(), cap: gcap,
-            });
-            return;
-          }
-        }
+        /* #1279 GLOBAL per-creator active-agent cap: enforced INSIDE the
+           per-creator lock immediately before createTeam (see the createTeam call
+           below), NOT here. The check is check-then-act with the create, so it
+           must be atomic with it under withCreatorLock to close the TOCTOU race
+           two concurrent same-creator requests would otherwise have. Doing the
+           check here (before the async liveness sweep, unlocked) is exactly the
+           racy shape. The per-team cap below still runs here to bound the sweep. */
 
         /* 🔑 THE CAP GATE RUNS BEFORE THE LIVENESS SWEEP, on the ORIGINAL request
            count, and this ordering carries two fixes. (1) It bounds the sweep: a
@@ -3418,11 +3442,51 @@ const server = http.createServer((req, res) => {
           }
         }
 
-        const result = team.createTeam({
+        const teamOpts = {
           creator: effectiveCreator,
           purpose: body.purpose,
           members: overCap ? members : liveMembers,
-        });
+        };
+        let result;
+        if (callerKind === 'agent') {
+          /* Enforce the GLOBAL per-creator cap ATOMICALLY with the create, under
+             the per-creator lock, so two concurrent same-creator requests cannot
+             each pass a stale count (the TOCTOU race). The cap applies only when
+             createTeam will actually create -- not overCap (it would refuse for
+             the per-team cap anyway) and the request is well-shaped (purpose
+             present, so createTeam still owns the shape refusals first). The add
+             count is liveMembers.length, the members createTeam will attempt;
+             conservative (a bad-spec member createTeam later refuses is still
+             counted here, which can only refuse slightly early, never over the
+             cap). A null count (unreadable birth log / removed list) FAILS OPEN,
+             leaving the per-team cap as the bound for this one request. */
+          const capRefusal = await withCreatorLock(effectiveCreator, async () => {
+            const purposeOk = typeof body.purpose === 'string' && body.purpose.trim() !== '';
+            if (!overCap && purposeOk && liveMembers && liveMembers.length) {
+              const gcap = creatorAgentCap(process.env);
+              const already = activeAgentsCreatedBy(effectiveCreator);
+              if (already !== null && already + liveMembers.length > gcap) {
+                return { gcap, already, add: liveMembers.length };
+              }
+            }
+            result = team.createTeam(teamOpts);
+            return null;
+          });
+          if (capRefusal) {
+            sendJson(res, 400, {
+              outcome: 'refused', created: [], refused: [],
+              because: 'you already have ' + capRefusal.already + ' active agent(s) you created and this would add '
+                + capRefusal.add + ', past the per-creator cap of ' + capRefusal.gcap
+                + '. Remove some of your agents, or build a smaller team.',
+              creator: effectiveCreator,
+              purpose: (typeof body.purpose === 'string' ? body.purpose.trim() : ''),
+              cap: capRefusal.gcap,
+            });
+            return;
+          }
+        } else {
+          result = team.createTeam(teamOpts);
+        }
 
         /* Merge the liveness refusals into the engine's own refused[] and
            recompute the outcome -- but ONLY when createTeam produced PER-MEMBER
