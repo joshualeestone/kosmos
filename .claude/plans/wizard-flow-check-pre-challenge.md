@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: wizard-flow-check
-diff_hash: 523030ae4956ffcdddc43e5a91fd7e1c27bb42a74e16ed090b29564ffdc9abe2
+diff_hash: 8f035bc8794cda9532272f9fd68a3680d51b84cdb4d3aea7cc11fbdd8344ce1c
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-06T19:38:35Z
+timestamp: 2026-09-06T19:47:46Z
 iterations: 3
 converged: true
 ---
@@ -56,4 +56,4 @@ None.
 ### Strengths (across all iterations)
 - Non-vacuity is strong and both polarities are pinned: GRANTED proves the flow reaches S9 (a stuck transition reds via `finalStep===9 && stuck===null`), NOT-GRANTED proves the S2 gate blocks; the S9 row asserts `rows===1` against a 1-candidate import-scan mock while scan-agents/found-agents are empty, so it discriminates the granted (import) route actually fired. (iterations 1, 2, 3)
 - The NIT fixes introduced no regression: browser=null guard on both throw paths, bounded waits that fail RED (never false-green), ctx.close guarded. (iterations 2, 3)
-- Reason-grep bookkeeping exact and self-verifying (EXPECTED_SITES 61, EXPECTED_CATCH_SITES 36); runner + README wiring correct; the mock-the-grant scope boundary preserved in the header + README. (iterations 1, 2, 3)
+- Reason-grep bookkeeping exact and self-verifying (EXPECTED_SITES 62, EXPECTED_CATCH_SITES 37 after merging origin/main #2350); runner + README wiring correct; the mock-the-grant scope boundary preserved in the header + README. (iterations 1, 2, 3)
