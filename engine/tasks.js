@@ -25,6 +25,12 @@
  * agent stay distinguishable later.
  */
 const projects = require('./projects');
+/* #992: a task's transcript. record() is best-effort and never throws, so a
+   failed append can never break the task write that triggered it -- the task is
+   the source of truth, the transcript is a record of it. Every call below sits
+   AFTER the successful projects.mutate / writeParts, so a refused write (an
+   agent not on the project) records nothing. */
+const taskchat = require('./taskchat');
 
 const SENTENCE_MAX = 200;
 const DETAIL_MAX = 2000;
@@ -102,6 +108,15 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
       taskCounter: number,
       tasks: [...(p.tasks || []), made],
     };
+  });
+  taskchat.record(projectId, made.number, {
+    kind: 'created', sentence: made.sentence, detail: made.detail,
+    addedBy: made.addedBy, addedVia: made.addedVia,
+    // #992: a task created pre-assigned carries its first assignee HERE. That
+    // assignment does not go through assignPart (create writes `who` directly),
+    // so without this the transcript would show an agent removed but never that
+    // one was on it from birth. null when it was created unassigned.
+    who: made.who,
   });
   return made;
 }
@@ -203,13 +218,35 @@ function addPart(projectId, n, { sentence, who, made } = {}) {
   // offers members, so an assignee that is not on the project reaches here only
   // via the API, and #761 now types a line into whoever `who` names -- a check
   // that never fired before this had a live-pane side effect to guard.
+  // #992 (iter-6 nit): capture the new part's id so the transcript's part-added
+  // line carries `partId`, exactly as its sibling part events (assigned /
+  // part-closed / part-reopened) do -- otherwise a reader cannot correlate a
+  // part-added with the later events on that same part. Computed inside the
+  // callback (nextPartId needs the live parts), read after a successful write.
+  let newPartId = null;
+  // #992: adding an OPEN part to an already-complete task (all prior parts
+  // closed, derived progressOf().closed true) un-completes it -- a real
+  // task-level reopen, on the same derived transition setPartClosed/setClosed
+  // record. A new part is always open, so addPart can only reopen, never
+  // complete; that is why there is no `closed` counterpart here.
+  // A task closed via an explicit task.closedAt stays closed after adding a part
+  // (progressOf gives closedAt precedence over all-parts-done), so THAT case
+  // records no reopened -- correctly, the task genuinely remains closed.
+  let taskReopened = false;
   const task = writeParts(projectId, n, (parts, t, p) => {
     if (whoKey && !(p.agents || []).includes(whoKey)) {
       throw new Error('that agent is not on this project, so the part cannot be given to it');
     }
-    return parts.concat([{ id: nextPartId(parts), who: whoKey, sentence: said, closedAt: null,
+    newPartId = nextPartId(parts);
+    const next = parts.concat([{ id: newPartId, who: whoKey, sentence: said, closedAt: null,
       addedVia: viaOf(made), createdAt: new Date().toISOString() }]);
+    if (progressOf({ ...t, parts }).closed && !progressOf({ ...t, parts: next }).closed) {
+      taskReopened = true;
+    }
+    return next;
   });
+  taskchat.record(projectId, Number(n), { kind: 'part-added', partId: newPartId, sentence: said, who: whoKey });
+  if (taskReopened) taskchat.record(projectId, Number(n), { kind: 'reopened' });
   return { ok: true, task };
 }
 
@@ -247,18 +284,48 @@ function assignPart(projectId, n, partId, who, made) {
     });
   });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  // Only a real move is recorded: a resubmit of the current assignee (moved
+  // false) changed nothing and types no pane line, so it leaves no transcript
+  // line either. `who: null` is a real event -- somebody was taken off.
+  if (moved) taskchat.record(projectId, Number(n), { kind: 'assigned', partId: Number(partId), who: whoKey });
   return { ok: true, task, changed: moved };
 }
 
 /** Finish a part, or put it back. The parent's state follows from its parts. */
 function setPartClosed(projectId, n, partId, closedAt) {
   let found = false;
-  const task = writeParts(projectId, n, (parts) => parts.map((x) => {
-    if (Number(x.id) !== Number(partId)) return x;
-    found = true;
-    return { ...x, closedAt };
-  }));
+  let partTransition = false;
+  // #992: does closing/reopening THIS part flip the whole task's derived
+  // completion? +1 the task just completed, -1 it just re-opened, 0 no change.
+  let taskTransition = 0;
+  const task = writeParts(projectId, n, (parts, t) => {
+    const next = parts.map((x) => {
+      if (Number(x.id) !== Number(partId)) return x;
+      found = true;
+      // #992: record only a real open<->closed TRANSITION, not a re-close (which
+      // passes a fresh timestamp so a raw closedAt comparison would misfire). Same
+      // fidelity gate as assignPart's `moved`: no spurious lifecycle events.
+      partTransition = (!!x.closedAt) !== (!!closedAt);
+      return { ...x, closedAt };
+    });
+    // #992: a MULTI-part task completes when its last open part closes -- that is
+    // the derived progressOf().closed state (tasks.js progressOf: task.closedAt OR
+    // all parts closed), and it is reached with NO task.closedAt write to hang a
+    // `closed` event on. Without recording the derived transition here, a
+    // multi-part task's completion (and its re-opening when a part is reopened)
+    // never appears in its transcript, only the per-part lines. Compare the
+    // derived state before/after the part change; setClosed records the SAME
+    // derived transition, so the two paths stay consistent and never double-count.
+    if (found) {
+      const before = progressOf({ ...t, parts }).closed;
+      const after = progressOf({ ...t, parts: next }).closed;
+      if (before !== after) taskTransition = after ? 1 : -1;
+    }
+    return next;
+  });
   if (!found) return { ok: false, because: 'there is no part by that number on this task' };
+  if (partTransition) taskchat.record(projectId, Number(n), { kind: closedAt ? 'part-closed' : 'part-reopened', partId: Number(partId) });
+  if (taskTransition) taskchat.record(projectId, Number(n), { kind: taskTransition > 0 ? 'closed' : 'reopened' });
   return { ok: true, task };
 }
 
@@ -278,15 +345,28 @@ function reopen(projectId, n) {
 
 function setClosed(projectId, n, closedAt) {
   let changed;
+  // #992: +1 just completed, -1 just re-opened, 0 no change (see below).
+  let transition = 0;
   projects.mutate(projectId, (p) => {
     const t = byNumber(p, n);
     if (!t) throw new Error('there is no task by that number on this project');
+    // #992: record on the DERIVED completion state (progressOf), not the raw
+    // parent closedAt. Two reasons: (1) a re-close passes a fresh timestamp, so
+    // comparing closed-ness rather than the value logs no duplicate; (2) an
+    // explicit close of a task whose parts are ALREADY all closed (so it was
+    // derived-closed before this call) is not a new completion and records
+    // nothing -- which also keeps this consistent with setPartClosed, so the two
+    // close paths never emit two `closed` lines for one completion.
+    const before = progressOf(t).closed;
     changed = { ...t, closedAt };
+    const after = progressOf(changed).closed;
+    if (before !== after) transition = after ? 1 : -1;
     return {
       ...p,
       tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
     };
   });
+  if (transition) taskchat.record(projectId, changed.number, { kind: transition > 0 ? 'closed' : 'reopened' });
   return changed;
 }
 

@@ -1,0 +1,130 @@
+# Plan: give task conversations a transcript (#992)
+
+## The reframing (verified, not assumed)
+The card's premise is false. A task (engine/tasks.js) is a kanban item (number,
+sentence, detail, parts, who) with NO message concept. Operator<->agent dialogue
+goes through the PROJECT ROOM (engine/chat.js / engine/messages.js), addressed to
+an agent, never associated with a task. The assigned agent's real working
+transcript lives in its OWN Claude/Codex session dir (~/.claude/projects,
+~/.codex/sessions) which Kosmos reads but does not own; the tmux pane is captured
+live and never stored. So there was no task conversation to persist -- this is a
+define-then-capture, not a persist-an-existing.
+
+## Josh's settled rulings (from the card)
+- Storage stays under app data (store.ROOT). The store.js:6-7 rule is NOT reversed:
+  nothing lands in the user's project folder.
+- The requirement is REACHABILITY, not location: every conversation stored, a
+  button that opens it, in BOTH project settings (exists: /api/chats/reveal) and
+  TASK settings (does not exist yet).
+- The one undecided thing: the messages.js retention debt (whole-file re-read on
+  every send, no rotation) -- adding task transcripts to that log doubles it.
+
+## My decision (Josh decide-and-continue)
+A task's recorded conversation = an append-only PER-TASK transcript under app data,
+capturing the text Kosmos controls and, until now, discarded: the task lifecycle
+(created / part-added / assigned / part-closed / part-reopened / closed / reopened).
+
+- **Storage shape, decided once:** `store.ROOT/task-chats/<projectId>.task-<n>.jsonl`,
+  keyed by (projectId, number) -- the only thing that names a task uniquely (a
+  task's number is issued by its project and unique only there). Mirrors chat.js's
+  per-thread file scheme.
+- **Retention-safe by construction** (the undecided thing, answered): a per-task
+  FILE, not the single messages.jsonl. record() APPENDS one line and never reads
+  the file back; read() loads exactly one task's small file. No whole-file re-read,
+  no shared-log doubling.
+- **Best-effort:** record() catches its own failures and returns false, so a failed
+  append can never break the task write that triggered it (the task is the source
+  of truth). read() validates shape and skips malformed lines, like messages.js.
+- **Paths computed at call time** (store.ROOT is a lazy getter), so tests sandbox
+  via AGENT_WORKFORCE_DATA and a late data-root change is honored.
+
+## What this PR delivers
+- engine/taskchat.js -- the store (record / read / taskChatsDir / taskChatFile).
+- engine/tasks.js -- wired at every lifecycle point; each call sits AFTER the
+  successful projects.mutate / writeParts, so a refused write records nothing; an
+  assignment resubmit of the current agent (moved false) records nothing.
+- taskchat.992.test.js -- 20 tests: round-trip + `at` stamp + append order,
+  per-task and per-project file isolation, [] on missing/unreadable/invalid,
+  fail-soft on bad input, malformed-line skip, control-char flattening,
+  append-not-rewrite (retention), under-app-data-not-project-folder, and the
+  tasks.js integration (create/close/reopen/assign + resubmit-records-nothing +
+  refused-write-records-nothing).
+
+## Iteration-6 nits applied on resume (2026-09-05 night shift)
+Challenge-loop converged at iteration 6 (two consecutive zero-code-defect passes);
+these two are polish, not defects, applied after a clean rebase onto origin/main:
+1. **part-added carries `partId`.** Its sibling part events (assigned /
+   part-closed / part-reopened) all record `partId`; part-added did not, so a
+   reader could not correlate a part-added with the later events on that same
+   part. `nextPartId` is now captured into a closure inside the writeParts
+   callback and recorded. Covered by the lifecycle test.
+2. **The caller-side half of the best-effort promise is tested.** A new test
+   forces record() to fail (a non-writable task-chats dir) and asserts
+   tasks.create still returns the task and nothing was recorded -- proving the
+   swallowed failure never propagates into the task write.
+Full suite green after the rebase: node 4721/4721 pass, 0 fail; the shipped
+shell gate (tools/run-tests.sh test:shell chain) ran to completion.
+
+## Challenge-loop resume iteration 1 (2026-09-05): derived task-closure recorded
+A fresh blind review found the one real gap: a MULTI-part task completes via the
+DERIVED progressOf().closed state (task.closedAt OR all parts closed), reached by
+closing the last open part with NO task.closedAt write -- so a multi-part task's
+completion showed only as part-closed lines and never a task-level `closed`.
+Fixed uniformly: setPartClosed and setClosed both now record `closed`/`reopened`
+on the derived progressOf().closed transition. This also makes an explicit close
+of an already-all-parts-closed task record nothing (no duplicate), keeping the two
+close paths consistent. Three new tests (multi-part completion + reopen, no-dup on
+explicit-close-of-complete, refused-addPart-records-nothing). Deferred, with reason:
+UTF-16 surrogate-boundary slice (cosmetic; JSON escapes/restores, line integrity
+holds), whoSeen on `created` (folds into the follow-up provenance pass #2/#3, not
+piecemeal), and C1 control chars (correct by design -- only U+000A splits JSONL,
+display-escaping is the renderer's job, matching messages.js).
+
+## Challenge-loop resume iteration 2 (2026-09-05): apply the derived model uniformly
+The fresh review found the iter-1 fix was not applied to addPart: adding an OPEN
+part to an already-complete task (all prior parts closed) un-completes it -- a real
+task-level reopen (progressOf().closed true -> false) that recorded only part-added.
+Fixed: addPart now records `reopened` on that derived transition too (a new part is
+always open, so addPart can only reopen, never complete). Also tightened read() to
+require `at` be a parseable date (Number.isFinite(Date.parse)), parity with
+engine/messages.js rowShaped -- drops a foreign/torn append carrying a non-date `at`.
+Two new tests. Surrogate-slice NIT remains deferred (as above).
+
+## Challenge-loop resume iteration 3 (2026-09-05): one doc line, two defers
+Fresh review found no code defect. Added one comment in addPart noting the
+explicit-closedAt-wins asymmetry (a task closed via task.closedAt stays closed
+after adding a part, so records no reopened -- correct). Deferred, with reason:
+(a) the CONVENTION suggesting a breadcrumb in record()'s catch -- the bare
+best-effort catch on the record/write path IS the codebase convention
+(messages.js's own record/deliver paths use `catch { return false; }` /
+`catch { /* best effort */ }` with no breadcrumb, and no process.emitWarning or
+debug-hook pattern exists anywhere in engine/; the ENOENT distinction cited is on
+messages.js's READ path, which taskchat.read() already mirrors). Adding a warning
+would introduce an unmatched new pattern. (b) the surrogate-slice NIT (as above).
+
+## Deliberate follow-ups (scoped, NOT in this PR)
+1. **Task-Settings reveal button + route** -- the project half already exists
+   (POST /api/chats/reveal opens store.ROOT/chats). A sibling
+   POST /api/task/<projectId>/<n>/reveal opening the task-chats location + a button
+   in the task view. Small, but touches the very large server.js + web/index.html;
+   clean as its own slice now that the store it points at exists and will not move.
+2. **The assignment line typed into the pane** (currently ephemeral in server.js)
+   -- record its text as an `assigned` event field.
+3. **A pointer to the agent's external Claude/Codex session** for the task, so the
+   reveal can also reach the working transcript Kosmos does not own.
+4. **A retention valve on close/reopen** (challenge iter-4 note): setClosed
+   (close/reopen) and setPartClosed are not behind the parts valve that meters
+   addPart/assignPart, so a process toggling a task closed/open in a loop would
+   append two lines per cycle to that one task's file. Pre-existing scope (the
+   close/reopen route is unvalved regardless of #992) and it does not break the
+   O(1)-append retention claim; noted here if that route is ever exposed to
+   unmetered process callers.
+
+## Weakest premise
+That "record the text that goes into a task" is well-served by the lifecycle events
+Kosmos controls, rather than requiring the agent's full external working transcript.
+Josh's words were "all the text and information that goes into those." The lifecycle
++ the pane line + a pointer to the external session (follow-ups 2/3) cover that
+without copying logs Claude/Codex own; if Josh wants the external transcript COPIED
+into app data, that is a larger, higher-risk piece (size, retention, privacy) and a
+separate decision. Reversible: the store shape does not change if that is added.
