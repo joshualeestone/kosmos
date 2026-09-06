@@ -246,7 +246,8 @@ LIVE_SHA="$(shasum -a 256 "$WORK/setup" | awk '{print $1}')"
 # $(...) capture, which strips the trailing newline and so changes the sha); guard on git's own exit
 # (git show of a missing path prints nothing, and shasum of empty input is a fixed non-file hash that
 # would silently mis-compare). Fall back to the local working tree only if origin/main:setup is
-# unreadable, and only as UNPROVEN on a difference -- a stale local checkout must never hard-fail here.
+# unreadable, and then always as UNPROVEN (never a pass, never a hard FAIL): the local tree can be
+# stale, so it confirms nothing about the deploy source, and UNPROVEN still exits 1 (fails closed).
 SITE_CO="$REPO/../chaoskosmos-site"
 SRC_SHA=""
 # `git rev-parse --git-dir`, not `[ -d "$SITE_CO/.git" ]`: the latter misses a linked worktree or a
@@ -270,8 +271,13 @@ if [ -n "$SRC_SHA" ]; then
   [ "$LIVE_SHA" = "$SRC_SHA" ] && ok "served /setup is byte-identical to origin/main:setup (the deploy source)" \
                               || bad "served /setup DIFFERS from origin/main:setup -- the deploy source (live $LIVE_SHA, origin/main $SRC_SHA)"
 elif [ -f "$SITE_CO/setup" ]; then
+  # Origin/main:setup was unreadable, so we CANNOT confirm against the deploy source. Matching the
+  # LOCAL working tree does NOT confirm it (the local tree can be stale -- the whole #2360 bug), so a
+  # match is UNPROVEN, not a pass: reporting `ok` here would be a silent-pass (served stale + local
+  # equal to that stale copy reads as certified). Both arms are UNPROVEN; unproven>0 exits the check 1,
+  # so this degraded path fails CLOSED rather than green-lighting an unconfirmed served artifact.
   REPO_SHA="$(shasum -a 256 "$SITE_CO/setup" | awk '{print $1}')"
-  [ "$LIVE_SHA" = "$REPO_SHA" ] && ok "served /setup is byte-identical to the LOCAL chaoskosmos-site/setup (origin/main unreadable)" \
+  [ "$LIVE_SHA" = "$REPO_SHA" ] && unp "served /setup matches the LOCAL chaoskosmos-site/setup, but origin/main:setup was unreadable -- a local match does NOT confirm the deploy source (the local tree can be stale), so UNPROVEN not a pass (live $LIVE_SHA) (#2360)" \
                                || unp "served /setup differs from the LOCAL chaoskosmos-site/setup and origin/main was unreadable -- cannot confirm against the deploy source (live $LIVE_SHA); a stale local checkout can cause this (#2360)"
 else
   unp "no chaoskosmos-site checkout to compare against (live $LIVE_SHA)"

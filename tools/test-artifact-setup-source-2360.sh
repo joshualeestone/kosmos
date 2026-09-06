@@ -35,6 +35,12 @@ grep -q '\[ -s "\$WORK/origin-setup" \]' "$CHECK" \
 grep -q '\[ "\$LIVE_SHA" = "\$SRC_SHA" \] && ok' "$CHECK" \
   && ok "the primary comparison is equality-then-ok (served == source PASSES; an inverted =/!= or ok/bad swap would red this)" \
   || bad "the primary comparison is no longer '[ \$LIVE_SHA = \$SRC_SHA ] && ok' -- a =/!= inversion or ok/bad swap could pass silently (#2360)"
+# the DEGRADED fallback (origin/main unreadable) must never `ok` a local-tree MATCH: matching a
+# possibly-stale local does not confirm the deploy source, so an `ok` there is a silent-pass. Pin that
+# no `ok` verdict claims byte-identity to the LOCAL tree (the fallback reports UNPROVEN both ways).
+grep -q 'ok "served /setup is byte-identical to the LOCAL' "$CHECK" \
+  && bad "the fallback still passes (ok) on a local-tree match -- a silent-pass: a stale local equal to stale served reads as certified (#2360)" \
+  || ok "the degraded fallback never passes on a local match (it reports UNPROVEN, so it cannot green an unconfirmed served artifact)"
 
 # ---- BEHAVIOURAL: the derivation reads the deploy source, not a stale local -------------------
 # Reproduce the exact #2360 condition in a real repo: origin/main:setup = A, local working /setup = B.
