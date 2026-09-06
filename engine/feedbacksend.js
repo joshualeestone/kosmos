@@ -205,6 +205,16 @@ function scrub(text) {
   // over-redacted, which is the safe direction for a body leaving the machine --
   // the same choice the path arms above make, and rare in practice because the
   // author prompt tells the writer not to name projects, agents or users at all.
+  //
+  // Known residuals the BELT does not catch, acceptable only because the prompt
+  // rule is the primary defence: a name shorter than NAME_MINLEN (a 3-char agent
+  // like "Leo"); a bare FRAGMENT of a multi-word name ("Kitty" out of "Ice Cream
+  // Kitty") or a name run together with a digit ("Flimwaddle2"), both of which
+  // whole-name matching leaves alone rather than over-redacting "Ice"/"Cream" or
+  // breaking a digit boundary; and a whitespace- or Unicode-normalization variant
+  // of a stored name. Widening any of these trades a rare-variant leak for gutting
+  // common report text, so the belt stays whole-name and the prompt rule carries
+  // the rest.
   for (const n of installNames()) {
     const esc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     out = out.replace(new RegExp('(?<![\\p{L}\\p{N}_])' + esc + '(?![\\p{L}\\p{N}_])', 'giu'), '[redacted]');
