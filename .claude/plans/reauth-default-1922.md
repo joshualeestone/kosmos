@@ -1525,11 +1525,24 @@ launder the old numbers by attaching a command that did not produce them.
 
 **The conclusion survives on a pattern that IS reproducible, and the majority still is not mine:**
 
+🛑 **THE COMMAND FIRST SHIPPED HERE WAS ITSELF A FALSE-ZERO INSTRUMENT, NARROW IN TWO WAYS**, found
+by the iteration-31 control round. It was **case-sensitive** (missing "An earlier version..." at
+`connect.js:1868`, so that file read 0) **and lexically narrow** (missing "used to say", "an earlier
+draft", "earlier version of this comment", which are the same idiom). Totals across the four files:
+**5** as shipped -> **21** with `-i` -> **34** widened. ⇒ **I replaced an unreproducible count with a
+reproducible one that undercounted by ~7x, in the round whose subject was unreproducible counts.**
+
 ```
-grep -c 'an earlier version' engine/connect.js engine/connect.test.js server.js server.connect.test.js
-git diff origin/main...HEAD -- <those four> | grep '^+' | grep -c 'an earlier version'   # mine
-git grep -c 'an earlier version' origin/main -- <those four>                             # pre-existing
+PAT='an earlier version|an earlier draft|a previous version|previously said|used to say|used to read|an earlier comment|earlier version of this'
+grep -Eic "$PAT" engine/connect.js engine/connect.test.js server.js server.connect.test.js
+git diff origin/main...HEAD -- <those four> | grep '^+' | grep -Eic "$PAT"   # mine:         9
+git grep -Eic "$PAT" origin/main -- <those four>                            # pre-existing: 25
 ```
+
+**The conclusion is not merely preserved, it is STRONGER than the narrow form implied: 9 mine against
+25 pre-existing.** Controls: a bogus alternation returns 0 on both arms, so the instrument
+discriminates. ⭐ **A guard narrower than the class it names becomes the failure it was meant to
+prevent, and case is only ONE of the two axes on which a pattern can be too narrow.**
 
 ⇒ **The idiom is house style, by a majority I did not put there. Trimming mine would have made this
 branch the OUTLIER**, which is the opposite of the consistency I was invoking the rule for. Three
@@ -2292,3 +2305,44 @@ round**, reordering it to put the PR body and the code first and telling it that
 acceptable outcome. **That framing could have produced the clean answer.** ⇒ **Iteration 31 is a
 CONTROL: the same branch, a neutral prompt without that framing.** A clean round after twenty-nine
 dirty ones is exactly the result that deserves a second instrument.
+
+### Iteration 31, 2026-09-06 00:46: the CONTROL round, and it earned its place
+
+Verdict: **MERGE-yes on the code, 1 MEDIUM and 2 LOW, all in the plan/process.**
+
+⭐ **THIS ROUND EXISTED BECAUSE I DISTRUSTED MY OWN PROMPT, AND THAT DISTRUST WAS CORRECT.** Round 30
+came back clean on a prompt I had reordered and in which I had told the reviewer a clean round was an
+acceptable outcome. Round 31 used a neutral prompt: no mention of prior rounds, no claim the code was
+settled, no permission to find nothing. **It found something round 30 missed.** ⇒ **A clean result
+from an instrument you have just adjusted is a property of the instrument until a second one agrees.**
+
+**MEDIUM: the "reproducible command" I shipped at iteration 29 was itself a false-zero instrument.**
+Case-sensitive AND lexically narrow: 5 as shipped, 21 with `-i`, **34** widened. The conclusion
+survives and is stronger than the narrow form implied (9 mine against 25 pre-existing). Fixed above,
+with the widened command run verbatim before shipping and a bogus-alternation control returning 0.
+
+🛑 **The generalisable half, which cost two rounds: I replaced an UNREPRODUCIBLE count with a
+REPRODUCIBLE one that was WRONG, in the round whose subject was unreproducible counts.** Making a
+claim checkable is not the same as making it true, and a command that runs looks finished in a way
+prose does not. ⇒ **When you replace a claim with a command, the command needs its own control.**
+⚠️ And case was only ONE of the two axes: the fleet bulletin names case-sensitivity, so I checked
+that axis and would have shipped the vocabulary-narrow version had I not asked whether the pattern
+was narrower than the CLASS it names.
+
+**LOW: no `<branch>-pre-challenge.md` proof file exists.** Correct and expected: the hook blocks
+`gh pr create` until the loop converges and the file is written. Recorded so it is not mistaken for an
+oversight.
+
+**LOW: the branch is behind `origin/main` and THE MERGED TREE HAS NOT BEEN TEST-RUN.** `git merge-tree
+--write-tree` predicts **0 conflicts**, and main has touched `server.js`, `engine/connect.js` and
+`engine/accounts.js` but **not** the route ternary, `launchSignin`, or `isDefault` semantics. ⇒ **Risk
+low, NOT zero, and this is exactly what the owed rebase-then-revalidate answers.**
+
+**Independently confirmed correct by this second reviewer, with controls:** `configDir: null` is
+equivalent to omitted at `connect.js:911` (a non-empty string takes the other branch); all three
+`connect.start(` call sites accounted for; `known.isDefault` always a real boolean
+(`accounts.js:232`); **four mutations, four discriminations, the other arm green each time**; and the
+**fifth, silent mutation caught by the grammar walk**. The `env` grammar reproduced verbatim on this
+box in all four arms, including the operand-before-`-u` form leaking at exit 0.
+
+🛑 **NOT CONVERGED: this round had findings. Iteration 32 follows.**
