@@ -53,3 +53,13 @@ intent as well as it did for projects. It is the same shape he accepted for #969
 it; if he wants a per-task destination later, that is a store-shape change (see
 Rejected) and a separate decision. Reversible: the route and button do not change
 the store.
+
+## Challenge-loop iteration 1 (2026-09-05): copy fix (global framing)
+Fresh review found one CONVENTION: the button label said "this task's
+conversation", reintroducing the per-scope framing the sibling pjs-chats-reveal
+button deliberately avoids (it says "the conversations", with a comment explaining
+a global-folder reveal must not be framed as per-scope). Fixed: label is now
+"Show me where the task conversations live", matching the sibling, and the comment
+now carries the same 🛑 reasoning so it is not reintroduced. Three STRENGTHs (route
+is a line-for-line mirror of /api/chats/reveal with the guard inherited and a
+server-derived path; test mirrors #969 arm-for-arm; handler mirrors pjs-chats-reveal).

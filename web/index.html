@@ -9191,12 +9191,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
              honour is a promise printed on a screen. It belongs here the day
              something reads it. -->
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
-        <!-- #992: the "get to it as a user" half of the transcript. Like the
-             project button in Settings, every task's conversation is one file in
-             ONE folder, so this opens the whole folder and the label says so
-             rather than promising a per-task destination the storage does not
-             give. Same disable/say-nothing/ask/report shape as pjs-chats-reveal. -->
-        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:16px;">Show me where this task's conversation lives</button>
+        <!-- #992: the "get to it as a user" half of the transcript. 🛑 THE LABEL
+             SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the same reason
+             the sibling pjs-chats-reveal button says "the conversations" and not
+             "this project's": every task's transcript is one file in ONE shared
+             folder (<data>/task-chats), so a button framed as "this task's"
+             would promise a per-task destination the storage does not give -- the
+             screen answering a narrower question than it was asked. The hint
+             discloses the shape. Same disable/say-nothing/ask/report shape as
+             pjs-chats-reveal. -->
+        <button class="btn" id="tk-chats-reveal" type="button" style="margin-top:16px;">Show me where the task conversations live</button>
         <p class="fhint" style="margin:6px 0 0;">One folder, with a file for each task's conversation.</p>
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </aside>
