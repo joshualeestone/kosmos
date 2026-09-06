@@ -35,6 +35,7 @@ const ID_TOKEN = idToken('pete@example.com');
 const MOCK = nodePath.join(SANDBOX, 'codex-mock.sh');
 fs.writeFileSync(MOCK, `#!/bin/bash
 if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
+if [ "$FAKE_CODEX_IGNORE_TERM" = "1" ]; then trap '' TERM; echo "waiting..."; sleep 60; exit 0; fi
 if [ "$FAKE_CODEX_TRICKY" = "1" ]; then
   # a URL with trailing punctuation, and an 8-char alnum token INSIDE the URL that
   # must NOT be mistaken for the real hyphenated device code that follows it.
@@ -43,6 +44,7 @@ else
   echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
 fi
 if [ "$FAKE_CODEX_SLEEP" = "1" ]; then sleep 30; exit 0; fi
+if [ "$FAKE_CODEX_APIKEY" = "1" ]; then printf '{"auth_mode":"apikey","OPENAI_API_KEY":"sk-x"}' > "$CODEX_HOME/auth.json"; exit 0; fi
 printf '{"auth_mode":"chatgpt","tokens":{"id_token":"%s"}}' "$FAKE_ID_TOKEN" > "$CODEX_HOME/auth.json"
 exit 0
 `);
@@ -198,11 +200,51 @@ test('the auth prompt is parsed cleanly: no trailing URL punctuation, and a URL 
   process.env.FAKE_CODEX_TRICKY = '1';
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'device', label: 'tricky' });
   assert.equal(r.ok, true, r.because);
-  // Wait until the parser has seen the output (awaiting-code or already connected).
-  const s = await waitFor(r.sessionId, (x) => !!x.userCode || x.state === 'connected' || x.state === 'error');
+  // Wait specifically until the PARSER has produced the code (the field this test
+  // asserts), never merely on 'connected' -- exit can be observed before the final
+  // stdout flush is parsed, which would read authUrl/userCode as undefined.
+  const s = await waitFor(r.sessionId, (x) => !!x.userCode || x.state === 'error');
   assert.equal(s.authUrl, 'https://auth.openai.com/AB12CD34', 'the trailing period is trimmed from the URL');
   assert.equal(s.userCode, 'FGHJ-6789', 'the real hyphenated code, not the AB12CD34 token inside the URL');
   delete process.env.FAKE_CODEX_TRICKY;
+});
+
+test('a child that IGNORES SIGTERM is SIGKILLed, so its slot and dir are still freed (no slot exhaustion)', async () => {
+  openai.setChatgptTimers({ timeout: 40, forceKill: 60, ttl: 100000 }); // 40ms watchdog, 60ms force-kill
+  process.env.FAKE_CODEX_IGNORE_TERM = '1';
+  const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'stubborn' });
+  assert.equal(r.ok, true, r.because);
+  const s = await waitFor(r.sessionId, (x) => x.state === 'error');
+  assert.match(s.error, /timed out/);
+  // SIGTERM is trapped/ignored by the mock; only the SIGKILL escalation makes it
+  // exit, and only the exit frees the dir. Poll for it (proving the escalation ran).
+  const dirGone = async () => {
+    for (let i = 0; i < 300; i += 1) {
+      if (!fs.existsSync(nodePath.join(SANDBOX, '.codex-stubborn'))) return true;
+      await new Promise((res) => setTimeout(res, 20));
+    }
+    return false;
+  };
+  assert.equal(await dirGone(), true, 'SIGKILL escalation frees the slot even when SIGTERM is ignored');
+  delete process.env.FAKE_CODEX_IGNORE_TERM;
+});
+
+test('a REUSED auth-less slot where codex writes a non-subscription auth.json is not left as a spurious account', async () => {
+  openai.setChatgptTimers({ timeout: 100000, ttl: 100000 });
+  delete process.env.FAKE_CODEX_SLEEP; delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_IGNORE_TERM;
+  process.env.FAKE_CODEX_APIKEY = '1';
+  // Pre-create the labelled dir WITHOUT an auth.json, so the driver REUSES it
+  // (madeDir=false via EEXIST) rather than creating it.
+  const dir = nodePath.join(SANDBOX, '.codex-reuse');
+  fs.mkdirSync(dir, { recursive: true });
+  const before = openai.list().length;
+  const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'reuse' });
+  assert.equal(r.ok, true, r.because);
+  const s = await waitFor(r.sessionId, (x) => x.state === 'error' || x.state === 'connected');
+  assert.equal(s.state, 'error', 'an api-key login is refused as not a subscription');
+  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), false, 'the refused api-key auth.json is removed from the reused slot');
+  assert.equal(openai.list().length, before, 'the reused slot did not become a spurious listed account');
+  delete process.env.FAKE_CODEX_APIKEY;
 });
 
 test.after(() => { openai.setChatgptTimers({ timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 }); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });

@@ -626,9 +626,15 @@ const chatgptSessions = new Map();
    Both are overridable for tests (a 5-minute real timeout is not test-able). */
 let loginTimeoutMs = 5 * 60 * 1000;
 let sessionTtlMs = 2 * 60 * 1000;
-function setChatgptTimers({ timeout, ttl } = {}) {
+// After a SIGTERM (cancel/watchdog), escalate to an uncatchable SIGKILL if the
+// child has not exited within this grace, so a child that ignores SIGTERM cannot
+// leak its work slot / temp dir forever (the exit handler, which frees them, would
+// otherwise never fire). See cancel/watchdog.
+let forceKillMs = 3000;
+function setChatgptTimers({ timeout, ttl, forceKill } = {}) {
   if (Number.isFinite(timeout)) loginTimeoutMs = timeout;
   if (Number.isFinite(ttl)) sessionTtlMs = ttl;
+  if (Number.isFinite(forceKill)) forceKillMs = forceKill;
 }
 // Dirs owned by a live (non-terminal) sign-in. See resolveFreshChatgptDir.
 const activeChatgptDirs = new Set();
@@ -648,6 +654,17 @@ function reapChatgptSession(session) {
   stopChatgptWatch(session);
   const t = setTimeout(() => { chatgptSessions.delete(session.id); }, sessionTtlMs);
   if (t && typeof t.unref === 'function') t.unref();
+}
+// After a SIGTERM, guarantee the child eventually dies (so its exit handler frees
+// the slot/dir): if it has not exited within forceKillMs, send an uncatchable
+// SIGKILL. Guarded by session.exited so it never signals a reused pid. Unref'd.
+function armForceKill(session) {
+  const t = setTimeout(() => {
+    if (session.exited) return;
+    try { session.child.kill('SIGKILL'); } catch { /* best effort */ }
+  }, forceKillMs);
+  if (t && typeof t.unref === 'function') t.unref();
+  session.forceKillTimer = t;
 }
 
 // Resolve a FRESH isolated CODEX_HOME for a subscription login. Always creates the
@@ -733,11 +750,18 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
     return { ok: false, because: 'we could not start the OpenAI sign-in' };
   }
   const sessionId = crypto.randomBytes(16).toString('hex');
-  const session = { id: sessionId, child, dir: spot.dir, label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, reaped: false };
+  const session = { id: sessionId, child, dir: spot.dir, label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
   chatgptSessions.set(sessionId, session);
-  // Remove ONLY a dir we created that no account landed in (never a real one).
+  // Anti-litter a sign-in that did NOT land a subscription account:
+  //   - a dir WE created -> remove it whole;
+  //   - a REUSED auth-less slot (madeDir=false, EEXIST) -> remove ONLY the auth.json
+  //     codex may have written, so a refused (e.g. api-key) or failed sign-in never
+  //     leaves a spurious account in an existing slot (it would surface in list()).
+  // A real subscription account (session.account set) is always kept.
   const dropDirIfOurs = () => {
-    if (session.madeDir && !session.account) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    if (session.account) return;
+    if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
+    else { try { fs.rmSync(authFile(session.dir), { force: true }); } catch { /* best effort */ } }
   };
   // Free the work slot and drop a temp dir. Call ONLY when the child is confirmed
   // gone (its `exit`, or a spawn that produced no child), never right after a
@@ -769,6 +793,8 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
   child.on('exit', (code) => {
     // Runs for EVERY exit, INCLUDING a kill() from cancel/watchdog. Only here is
     // the child guaranteed dead, so this is where the slot/dir are freed.
+    session.exited = true;
+    if (session.forceKillTimer) { clearTimeout(session.forceKillTimer); session.forceKillTimer = null; }
     if (chatgptIsTerminal(session)) {
       // cancel/watchdog/error already set the terminal state and scheduled the
       // Map drop; the child we killed has now truly exited, so it is finally safe
@@ -793,6 +819,7 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
   session.timer = setTimeout(() => {
     if (chatgptIsTerminal(session)) return;
     try { session.child.kill(); } catch { /* best effort */ }
+    armForceKill(session); // SIGKILL if it ignores SIGTERM, so exit (and the slot free) happens
     session.state = 'error';
     session.error = 'the OpenAI sign-in timed out';
     reapChatgptSession(session);
@@ -822,6 +849,7 @@ function cancelChatgptLogin(sessionId) {
   if (chatgptIsTerminal(s)) return { ok: true, cancelled: false };
   s.state = 'cancelled';
   try { s.child.kill(); } catch { /* best effort */ }
+  armForceKill(s); // SIGKILL if it ignores SIGTERM, so exit (and the slot free) happens
   reapChatgptSession(s); // schedule the Map drop; the exit handler frees slot + dir
   return { ok: true, cancelled: true };
 }
