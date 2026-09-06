@@ -166,6 +166,27 @@ test('all members dead: no agent is created, and the reason names the sign-in, n
   } finally { create.setClaudeProbe(null); }
 });
 
+test('all members dead AND a missing shape field: the higher-priority shape reason wins, not "could not sign in"', async () => {
+  create.setClaudeProbe(LIVE);
+  try {
+    // Every member is dead (OpenAI, no sign-in) AND purpose is missing. createTeam
+    // prioritizes the missing purpose over the members check, so the all-dead
+    // early-return must NOT fire -- the route defers to that higher-priority
+    // refusal rather than reporting a sign-in problem over a missing purpose.
+    const r = await postTeam({
+      creator: 'pmboss',
+      members: [
+        { name: 'deadnopurpa', role: 'pm', provider: 'openai' },
+        { name: 'deadnopurpb', role: 'pm', provider: 'openai' },
+      ],
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.match(r.json.because || '', /stated purpose/i, 'the higher-priority missing-purpose reason must win over "could not sign in"');
+    assert.doesNotMatch(r.json.because || '', /could not sign in/i);
+  } finally { create.setClaudeProbe(null); }
+});
+
 test('over-cap + dead members: refused for the cap with the honest ORIGINAL count, and the cap reason is NOT clobbered by liveness detail', async () => {
   create.setClaudeProbe(LIVE);
   try {

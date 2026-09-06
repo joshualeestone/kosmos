@@ -3193,16 +3193,20 @@ const server = http.createServer((req, res) => {
             try {
               const liveness = await create.accountConnectable({ provider: m.provider, accountDir: m.account });
               if (liveness && liveness.ok === false) return { m, dead: true, because: liveness.because };
-              /* #2140/#2191 parity with POST /api/agents: an OpenAI member with an
-                 explicit model the account cannot run is born broken -- the same
-                 "fails on its first turn" class the liveness rail above prevents,
-                 so the team route guards it the same way rather than porting half
-                 the rail. Only a DEFINITIVE miss refuses: "Let OpenAI choose"
-                 (empty model) is skipped, and runnableAllowlist() returns null
-                 when the account could not be checked, so any uncertainty (or a
-                 crash, caught below) FAILS OPEN (#1916). */
-              if (String(m.provider || '') === 'openai'
-                  && typeof m.model === 'string' && m.model.trim() !== '') {
+            } catch { /* a failed liveness check is not a reason to block a create (#1916) */ }
+            /* #2140/#2191 parity with POST /api/agents: an OpenAI member with an
+               explicit model the account cannot run is born broken -- the same
+               "fails on its first turn" class the liveness rail above prevents,
+               so the team route guards it the same way rather than porting half
+               the rail. Only a DEFINITIVE miss refuses: "Let OpenAI choose"
+               (empty model) is skipped, and runnableAllowlist() returns null when
+               the account could not be checked, so any uncertainty (or a crash,
+               caught below) FAILS OPEN (#1916). Its OWN try, not shared with the
+               liveness check above, so a crash in that check does not silently
+               skip this one -- byte-for-byte with the sibling route's two blocks. */
+            if (String(m.provider || '') === 'openai'
+                && typeof m.model === 'string' && m.model.trim() !== '') {
+              try {
                 const wantModel = m.model.trim();
                 const dir = (m.account && String(m.account).trim() !== '')
                   ? String(m.account).trim()
@@ -3211,8 +3215,8 @@ const server = http.createServer((req, res) => {
                 if (allowed && !allowed.includes(wantModel)) {
                   return { m, dead: true, because: wantModel + ' is not a model this account can run; pick one from the list' };
                 }
-              }
-            } catch { /* a failed check is not a reason to block a create (#1916) */ }
+              } catch { /* a validator crash is not a reason to block a create (#1916) */ }
+            }
             return { m, dead: false };
           }));
           liveMembers = [];
@@ -3230,15 +3234,27 @@ const server = http.createServer((req, res) => {
              with no members", misnaming a request whose members were all dead.
              Name the real reason. (An absent/empty members field never reaches
              here: this block is guarded on members.length, so that shape error
-             falls through to createTeam, which names it.) */
-          if (liveMembers.length === 0) {
+             falls through to createTeam, which names it.)
+
+             🔑 BUT ONLY WHEN THE SHAPE IS OTHERWISE VALID. createTeam enforces a
+             refusal PRIORITY -- missing creator, then missing purpose, then the
+             members check -- and the merge-guard below preserves that priority for
+             the some-dead case. This early-return must honour it too: if creator
+             or purpose is missing, "all dead" is NOT the most fundamental reason,
+             so fall through to createTeam (an empty liveMembers still hits its
+             creator/purpose checks FIRST, since those precede the members check),
+             and let it own that higher-priority refusal in its own words rather
+             than reporting a sign-in problem over a missing creator. */
+          const shapeOk = typeof body.creator === 'string' && body.creator.trim() !== ''
+            && typeof body.purpose === 'string' && body.purpose.trim() !== '';
+          if (liveMembers.length === 0 && shapeOk) {
             sendJson(res, 400, {
               outcome: 'refused',
               created: [],
               refused: livenessRefused,
               because: "every member's account could not sign in; no agent was created (see refused[])",
-              creator: (typeof body.creator === 'string') ? body.creator.trim() : '',
-              purpose: (typeof body.purpose === 'string') ? body.purpose.trim() : '',
+              creator: body.creator.trim(),
+              purpose: body.purpose.trim(),
               cap,
             });
             return;
