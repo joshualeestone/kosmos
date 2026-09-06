@@ -250,7 +250,31 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       guardReleased: (typeof WORLDSW_SWITCHING === 'boolean') ? WORLDSW_SWITCHING === false : null,
     };
 
-    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck };
+    // ---- Scenario F: closing the menu DURING a reconnect keeps it open (guidance stays) ----
+    // The status banner lives inside the menu, so a close would hide the reconnect
+    // guidance. worldswClose must no-op while a reconnect is polling, then work again once
+    // it ends.
+    registryActive = 'w1'; bootedActive = 'w1'; postMode = 'restart-stuck';
+    pendingReboot = false; rebootPollsSeen = 0; reloadCount = 0; statusObserved.length = 0;
+    WORLDSW_RECONNECT_SLOW_MS = 40;
+    WORLDSW_RECONNECT_TIMEOUT_MS = 600;
+    await worldsFetch(); await sleep(10);
+    if (typeof worldswOpen === 'function') worldswOpen();
+    const menuEl = document.getElementById('worldsw-menu');
+    const cF = await clickSide();
+    if (cF.error) return { error: cF.error };
+    await waitFor(() => typeof WORLDSW_RECONNECTING !== 'undefined' && WORLDSW_RECONNECTING === true, 300);
+    const menuOpenBeforeClose = !!menuEl && menuEl.hidden === false;
+    worldswClose();  // an outside-click / Escape / trigger toggle during the reconnect
+    const menuStillOpenAfterClose = !!menuEl && menuEl.hidden === false;
+    const bannerVisibleAfterClose = !document.getElementById('worldsw-restart').hidden;
+    // Let the reconnect time out, then the menu must be closable again.
+    await waitFor(() => typeof WORLDSW_RECONNECTING !== 'undefined' && WORLDSW_RECONNECTING === false, 1500);
+    worldswClose();
+    const menuClosedAfterTimeout = !!menuEl && menuEl.hidden === true;
+    const afterMenuClose = { menuOpenBeforeClose, menuStillOpenAfterClose, bannerVisibleAfterClose, menuClosedAfterTimeout };
+
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose };
   });
 
   await browser.close();
@@ -299,6 +323,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (e.reloaded) problems.push('a restart that never reboots must NOT reload (no false-success on a stuck board)');
     if (e.polled === 0) problems.push('a stuck restart should have polled /api/status, but polled 0 times');
     if (e.guardReleased === false) problems.push('WORLDSW_SWITCHING must be released after the reconnect times out (finally), but it is still held');
+
+    // Scenario F: closing the menu during a reconnect keeps it open so guidance stays visible
+    const f = r.afterMenuClose;
+    if (!f.menuOpenBeforeClose) problems.push('scenario F setup: the menu should have been open before the mid-reconnect close');
+    if (!f.menuStillOpenAfterClose) problems.push('closing the switcher menu DURING a reconnect must keep it open (the guidance banner lives inside it) -- worldswClose should no-op while WORLDSW_RECONNECTING');
+    if (!f.bannerVisibleAfterClose) problems.push('the reconnect guidance banner must stay visible after a mid-reconnect menu close');
+    if (!f.menuClosedAfterTimeout) problems.push('after the reconnect ends, the menu must be closable again (worldswClose no longer no-ops)');
   }
 
   console.log('  ' + JSON.stringify(r));
