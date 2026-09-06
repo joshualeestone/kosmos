@@ -3765,9 +3765,13 @@ function readIdentity(sessionName) {
      of this file makes a cycle. */
   /* #2245: runner-aware, matching instructions.fileFor -- a codex agent's brief
      is AGENTS.md, a claude agent's is CLAUDE.md, by the recorded runner. Reading
-     the hardcoded CLAUDE.md here would miss a codex agent's real brief. */
+     the hardcoded CLAUDE.md here would miss a codex agent's real brief. #2250:
+     through the SHARED `create.recordedRunner` (plist first, profile `provider`
+     as the fallback) so a CONNECTED codex agent whose name fails NAME_RE -- which
+     `readJob` refuses, since its arg is a plist path -- has its identity read
+     from AGENTS.md, not a CLAUDE.md it never wrote. */
   const create = require('./create');
-  const file = path.join(create.workerDir(sessionName), create.briefFilename((create.readJob(sessionName) || {}).runner));
+  const file = path.join(create.workerDir(sessionName), create.briefFilename(create.recordedRunner(sessionName)));
 
   // ⚠️ Through the SHARED reader, not a local `readFileSync`.
   //

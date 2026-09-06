@@ -4761,3 +4761,82 @@ test('#1672 CONTROL: a normal create reports no such failure', () => {
   const said = (r.steps || []).some((s) => s && s.ok === false && /operating instructions/.test(s.label || ''));
   assert.equal(said, false, 'a healthy create must not claim the working rules failed');
 });
+
+/* ─────────────────────────────────────────────────────────────────────────
+   #2250: create.recordedRunner + the brief-file callers that share it.
+
+   A CONNECTED codex agent whose name passes nameUsable/safeKey but fails
+   NAME_RE (uppercase, a dot, a space, a single char) had no readable runner:
+   `readJob` refuses the name because its arg becomes a plist path (a traversal
+   surface), so the brief fell to CLAUDE.md -- the file a codex agent does NOT
+   boot from. recordedRunner falls back to the profile's `provider` (the source
+   the board already uses) so the brief lands in AGENTS.md, WITHOUT loosening
+   readJob's NAME_RE guard.
+   ───────────────────────────────────────────────────────────────────────── */
+
+// Write a minimal launchd plist readJob can parse. Index 8 is the runner
+// (#245); omit it for claude. args[4]/args[5] must be truthy and length >= 7.
+function rrWritePlist(name, { runner } = {}) {
+  const args = ['/bin/bash', '/sup', name, '/tmp/wd', '/bin/echo', 'sess:0.0', '/tmp/log', ''];
+  if (runner) args[8] = runner;
+  const body = args.map((a) => `<string>${a}</string>`).join('');
+  const xml = `<?xml version="1.0"?>\n<plist version="1.0"><dict>`
+    + `<key>ProgramArguments</key><array>${body}</array></dict></plist>`;
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.writeFileSync(create.plistPath(name), xml, 'utf8');
+}
+
+test('#2250 recordedRunner: a NAME_RE-failing connected codex agent resolves to codex via the profile', () => {
+  const store = require('./store');
+  const name = 'Orch.Main'; // uppercase + dot: passes nameUsable, fails NAME_RE
+  assert.equal(create.NAME_RE.test(name), false, 'precondition: the name must fail NAME_RE');
+  assert.equal(create.readJob(name), null, 'precondition: readJob refuses the name (no runner from the plist)');
+  store.writeProfile(name, { provider: 'openai' });
+  assert.equal(create.recordedRunner(name), 'codex',
+    'the profile provider is the fallback readJob cannot reach');
+  assert.ok(create.instructionFile(name).endsWith('AGENTS.md'),
+    'the brief must land in the file a codex agent actually boots from');
+});
+
+test('#2250 fileFor: the NAME_RE-failing codex agent brief routes to AGENTS.md in its recorded folder', () => {
+  const store = require('./store');
+  const instructions = require('./instructions');
+  const name = 'Orch.Main';
+  const dir = nodePath.join(SANDBOX, 'connected-orch-main');
+  fs.mkdirSync(dir, { recursive: true });
+  store.writeProfile(name, { dir, provider: 'openai' });
+  assert.equal(instructions.fileFor(name), nodePath.join(dir, 'AGENTS.md'),
+    'end to end: fileFor points at the codex brief inside the recorded folder');
+});
+
+test('#2250 CONTROL: a NAME_RE-failing name with no provider stays claude (fail-closed preserved)', () => {
+  const store = require('./store');
+  const name = 'Conn.Claude'; // fails NAME_RE, connected, NOT codex
+  const dir = nodePath.join(SANDBOX, 'connected-conn-claude');
+  fs.mkdirSync(dir, { recursive: true });
+  store.writeProfile(name, { dir }); // no provider
+  assert.equal(create.recordedRunner(name), 'claude',
+    'the fallback flips to codex ONLY on provider === openai, never blanket');
+  assert.ok(create.instructionFile(name).endsWith('CLAUDE.md'));
+});
+
+test('#2250 CONTROL: a live plist stays authoritative over a contradictory profile fallback', () => {
+  const store = require('./store');
+  // A codex plist with a silent profile: the plist decides.
+  rrWritePlist('rr-codexjob', { runner: 'codex' });
+  store.writeProfile('rr-codexjob', {});
+  assert.equal(create.recordedRunner('rr-codexjob'), 'codex',
+    'a readable plist runner is authoritative');
+  // The discriminating arm: a claude plist with a codex-claiming profile must
+  // still resolve claude. Profile-FIRST would return codex here and fail.
+  rrWritePlist('rr-claudejob'); // no arg 8 => claude
+  store.writeProfile('rr-claudejob', { provider: 'openai' });
+  assert.equal(create.recordedRunner('rr-claudejob'), 'claude',
+    'the profile is a FALLBACK only: it must not override a live plist');
+});
+
+test('#2250 CONTROL: no plist and no profile defaults to claude, and an unusable name never throws', () => {
+  assert.equal(create.recordedRunner('rr-nobody-here'), 'claude', 'the historical default is claude');
+  assert.equal(create.recordedRunner('../evil'), 'claude',
+    'a name readProfile/safeKey rejects resolves to claude rather than throwing');
+});
