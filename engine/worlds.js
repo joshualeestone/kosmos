@@ -32,7 +32,14 @@ const os = require('os');
 const store = require('./store'); // dataRootFor, safeKey
 
 const DEFAULT_ID = 'default';
-const DEFAULT_NAME = 'Kosmos';
+// #1704 item 14.2 (Josh, 2026-09-05): the first/default world is called "Kosmos 1"
+// so a person understands it is the first one, sitting alongside "Add a new Kosmos".
+// This is a display constant, not user data: the default world's id stays 'default'
+// and its data still lives at the legacy roots (base:null), so the label change moves
+// nothing and renames nothing. readRegistry re-applies it to a persisted default entry
+// too, so every install shows it -- not only fresh ones (the DEFAULT_ID name-force in
+// readRegistry, below).
+const DEFAULT_NAME = 'Kosmos 1';
 const REGISTRY_FILE = 'worlds.json';
 const WORLDS_SUBDIR = 'worlds';
 /* The character class store.safeKey produces. A world id must match this to be a
@@ -92,6 +99,12 @@ function readRegistry(base) {
   // traversal is the worse failure. The default must still survive (re-added below).
   const worlds = obj.worlds.filter((w) => w && typeof w.id === 'string' && CLEAN_ID.test(w.id));
   if (!worlds.some((w) => w.id === DEFAULT_ID)) worlds.unshift(defaultWorld());
+  // The default world's name is a display constant (DEFAULT_NAME), never user-editable
+  // -- the id 'default' is reserved and there is no rename path for it. A registry
+  // persisted before item 14.2 froze the old name into worlds.json (createWorld writes
+  // the whole registry, default entry included), so force it here rather than leave two
+  // installs disagreeing about what the same default world is called.
+  for (const w of worlds) if (w.id === DEFAULT_ID) w.name = DEFAULT_NAME;
   let activeWorldId = typeof obj.activeWorldId === 'string' ? obj.activeWorldId : DEFAULT_ID;
   if (!worlds.some((w) => w.id === activeWorldId)) activeWorldId = DEFAULT_ID;
   // The schema is v1 today; a future v2 migration would branch on obj.version here.
