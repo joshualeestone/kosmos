@@ -6289,7 +6289,11 @@ body.plus-active {
   border-radius: 12px; padding: 14px 16px; margin: 0 0 20px; max-width: 660px; }
 .plus-note { color: var(--k-ink-2); max-width: 60ch; margin: 0 0 18px; }
 .plus-note b { color: var(--k-ink); }
-a.plus-btn { display: inline-block; background: linear-gradient(150deg,#4171E3,#2f57c4);
+/* The light stop is #3a68d8, one notch darker than first-step's #4171E3: white
+   13px text over the mock's lightest corner computes ~4.47:1, a hair under AA,
+   and this clears 4.5:1 unambiguously across the whole gradient. Visually
+   indistinguishable; the accent still reads as the royal-blue brand button. */
+a.plus-btn { display: inline-block; background: linear-gradient(150deg,#3a68d8,#2f57c4);
   color: #fff; border: 0; border-radius: 11px; padding: 11px 22px; font-weight: 650;
   text-decoration: none; box-shadow: 0 6px 22px rgba(65,113,227,.4); }
 a.plus-btn:hover { filter: brightness(1.06); }
