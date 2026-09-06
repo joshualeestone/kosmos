@@ -5828,6 +5828,19 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 }
 #firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* #1652: the inline "Look in my Documents and Downloads" find-agents link in the
+   create-ending copy. An in-sentence, detection-EXTENDING action (it runs the
+   on-demand /api/scan-import of the TCC folders the #2125 auto-scan skips), so it
+   is a button styled as an underlined link -- the same quiet treatment as
+   #fr-alt.is-link -- sitting on the baseline of the note it lives in, NEVER a
+   second button competing with the single Giddy Up (Mona's ruling, 2026-09-06). */
+#firstrun .fr-lookimport {
+  background: transparent; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--k-ink); cursor: pointer;
+  text-decoration: underline; text-underline-offset: 3px;
+}
+#firstrun .fr-lookimport:hover { color: var(--k-ink-2); }
+#firstrun .fr-lookimport:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; border-radius: 3px; }
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
 #firstrun .fr-body h2:focus-visible { outline: none; }
@@ -27196,13 +27209,20 @@ function roleByKey(key) {
   return (ROLES || []).find((r) => r.key === key) || null;
 }
 
-async function loadRoles() {
+async function loadRoles(initialMode) {
+  // #1652: the create form opens on 'pm' by default; the ONLY caller that passes
+  // a mode is the first-run "look in my Documents/Downloads" link, which passes
+  // 'import' so the panel opens straight on import (and populateFoundImports runs
+  // the on-demand scan). Threaded through here rather than a separate pickMode
+  // after openCreate, because loadRoles' async pickMode default would otherwise
+  // override that later call and land the panel back on 'pm'.
+  const mode = initialMode === 'import' ? 'import' : 'pm';
   const msg = document.getElementById('roles-msg');
   // ⚠️ Fetched once, but the DEFAULT is re-applied every time the panel opens.
   // Returning early on the second visit left the picker rendered from last
   // time with its old choice still marked, while `openCreate` had just
   // cleared it -- a screen showing a selection the page did not have.
-  if (ROLES && ROLES.length) { updateRecPill(); pickMode('pm'); return; }
+  if (ROLES && ROLES.length) { updateRecPill(); pickMode(mode); return; }
   msg.textContent = 'Loading…';
   try {
     const res = await fetch('/api/roles', { cache: 'no-store' });
@@ -27218,7 +27238,7 @@ async function loadRoles() {
     if (!ROLES.length) throw new Error('none came back');
     msg.textContent = '';
     buildPicker();
-    pickMode('pm');
+    pickMode(mode);
   } catch (err) {
     // ⚠️ Do NOT fall back to a hardcoded list. The blurb a person reads while
     // choosing has to be the copy the agent is actually created from, and a
@@ -27403,7 +27423,7 @@ document.getElementById('rolesel').addEventListener('change', () => {
    ARIA role PROMISED this behaviour, so the code had to keep the promise. A
    native radio makes the promise and keeps it in the same breath. */
 
-function openCreate() {
+function openCreate(initialMode) {
   PICKED = null;
   /* 🛑 THE RADIOS ARE CLEARED, WHICH THE OLD PICKER NEVER DID. A form control
      keeps its state across a hidden panel, so reopening this form used to show
@@ -27443,13 +27463,31 @@ function openCreate() {
   document.getElementById('role-next').disabled = true;
   cstep('role');
   showTab('create');
-  loadRoles();
+  // #1652: passes the mode through to loadRoles' async pickMode, so the first-run
+  // import link (openCreate('import')) lands on the import panel rather than being
+  // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
+  loadRoles(initialMode === 'import' ? 'import' : 'pm');
   /* Read on every open, not once on boot: the standing answer can be changed
      in Settings between two visits to this form. */
   refreshCreateTell();
 }
 
-document.getElementById('new-agent').addEventListener('click', openCreate);
+/* #1652: wrapped, not bound bare. openCreate now takes an optional initialMode
+   (for the first-run import link); binding it directly would hand the click Event
+   in as that arg. */
+document.getElementById('new-agent').addEventListener('click', () => openCreate());
+/* #1652: the first-run "look in my Documents and Downloads" find-agents link, in
+   frPaintFleet's create arm. DELEGATED on #fr-fleet so the create arm never
+   touches the node itself (frPaintFleet renders into a stub DOM in the node
+   tests, where a per-render querySelector would throw). An arrow wraps
+   openCreate('import') so the click Event is not passed as the mode. frFinish
+   leaves first-run, then openCreate('import') opens the create panel straight on
+   the import mode (threaded through loadRoles' async pickMode), which runs
+   populateFoundImports() -> the on-demand /api/scan-import of the TCC folders the
+   #2125 auto scan skips. */
+document.getElementById('fr-fleet').addEventListener('click', (e) => {
+  if (e.target.closest('.fr-lookimport')) frFinish(() => openCreate('import'));
+});
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
@@ -27533,7 +27571,8 @@ document.getElementById('made-look').addEventListener('click', () => {
   document.getElementById('made-head').textContent = 'Looking for ' + (MADE_LAST.result.shownAs || MADE_LAST.name);
   watchForAgent(MADE_LAST.name, MADE_LAST.result, ++WATCH);
 });
-document.getElementById('made-retry').addEventListener('click', openCreate);
+/* #1652: wrapped for the same reason as #new-agent above. */
+document.getElementById('made-retry').addEventListener('click', () => openCreate());
 
 document.getElementById('role-next').addEventListener('click', () => {
   const role = roleByKey(PICKED);
@@ -38413,7 +38452,22 @@ function frPaintFleet() {
        and the reason is worth keeping: a link explaining why the list is empty
        is a worse product than a list that is not empty. The fix belongs in
        DETECTION, not in a sentence on this screen, and this arm stays silent
-       until detection can no longer be wrong about it. */
+       until detection can no longer be wrong about it.
+
+       ⭐ RESOLUTION (2026-09-06, Mona's mock; Splinter verified in code). His
+       ruling above STILL HOLDS: a DISCLOSURE link explaining an empty list is
+       still out. The find-agents link that now renders below is NOT that -- it
+       is the detection-EXTENDING action his ruling DEFERRED TO ("the fix belongs
+       in DETECTION"). The premise changed under #2125, which made the AUTO scan
+       TCC-free so it deliberately skips Documents/Downloads/Desktop to avoid a
+       fresh-install permission ambush. Post-#2125 this empty arm CAN be wrong --
+       agents in those folders were never scanned -- so it is no longer true that
+       "detection can no longer be wrong about it". The link is the mechanism
+       that makes detection REACH those folders: the on-demand /api/scan-import,
+       where the macOS prompt is expected because the person just asked for it.
+       It is the "AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT" (below),
+       turned into an action. Josh can flip it on his morning test; his words
+       above are kept verbatim. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -38464,7 +38518,22 @@ function frPaintFleet() {
        📌 Built hidden rather than built on click, same rule as the found list's
        undo: an element that already exists cannot be the element a later edit
        forgets to create. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>';
+    /* #1652 (Mona's mock, 2026-09-06): the find-agents opt-in. The auto scan is
+       TCC-free (#2125) and skips Documents/Downloads/Desktop, so a person whose
+       agent files sit there is told to "create their first agent" though they
+       have one. This quiet inline link runs the on-demand /api/scan-import of
+       those folders (openCreate then pickMode('import')), where the macOS prompt
+       is expected because the person just asked for it. It is a link, NOT a
+       second button: the single Giddy Up stays, frForkActions is unchanged. The
+       permission sentence is load-bearing and stays up front. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>'
+      + '<p class="fr-foundnote">Already have an agent on this computer? '
+      + '<button type="button" class="fr-lookimport">Look in my Documents and Downloads</button>. '
+      + 'Kosmos will ask macOS for permission first.</p>';
+    /* The link's click is handled by the #fr-fleet DELEGATED listener (module-level,
+       registered once near the #new-agent handler), NOT bound here: frPaintFleet
+       renders into a stub DOM in the node tests, so a box.querySelector at render
+       time would throw. Delegation keeps this arm from touching the node at all. */
     frForkActions();
     return;
   }
