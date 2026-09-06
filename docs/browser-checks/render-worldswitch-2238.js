@@ -71,6 +71,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     let registryActive = 'w1';
     let bootedActive = 'w1';
     let postMode = 'restarting';            // 'restarting' | 'manual' | 'noop'
+    // The simulated reboot flips the booted world after this many /api/status polls, so
+    // the reconnect deterministically observes the OLD booted world at least once first.
+    const REBOOT_AFTER_POLLS = 2;
+    let pendingReboot = false;
+    let rebootPollsSeen = 0;
     const calls = [];
     const statusObserved = [];              // every activeWorldId the reconnect poll saw
     let reloadCount = 0;
@@ -90,14 +95,24 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         if (postMode === 'manual') {
           return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: true, restarting: false }) });
         }
-        // restarting:true -- the board self-restarts; simulate the reboot flipping the
-        // BOOTED world after a short delay (several poll intervals at the sped-up cadence).
-        setTimeout(() => { bootedActive = id; }, 90);
+        // restarting:true -- the board self-restarts; the reboot flips the BOOTED world
+        // on a poll COUNT (see the status stub), not a wall-clock timer, so the "observed
+        // the OLD id before the flip" control cannot flake on event-loop timing.
+        pendingReboot = true;
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: true, restarting: true }) });
       }
       if (url.indexOf('/api/status') !== -1 && method === 'GET') {
-        statusObserved.push(bootedActive);
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ activeWorldId: bootedActive }) });
+        // Simulate the board rebooting onto the new world: report the OLD booted world
+        // for the first REBOOT_AFTER_POLLS polls, then flip. Deterministic in poll count
+        // (not wall-clock), so the reconnect ALWAYS observes the old id first (poll #1)
+        // and the new id on the flip poll -- the race-safe assertion cannot flake.
+        if (pendingReboot) {
+          rebootPollsSeen += 1;
+          if (rebootPollsSeen >= REBOOT_AFTER_POLLS) { bootedActive = registryActive; pendingReboot = false; rebootPollsSeen = 0; }
+        }
+        const reported = bootedActive;   // capture post-flip so statusObserved == what was returned
+        statusObserved.push(reported);
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ activeWorldId: reported }) });
       }
       if (url.indexOf('/api/worlds') !== -1 && method === 'GET') {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ worlds: [{ id: 'w1', name: 'Home' }, { id: 'w2', name: 'Side Project' }], activeWorldId: registryActive }) });
@@ -158,6 +173,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
     // ---- Scenario B: restarting:false (manual) -> honest manual banner, no reconnect ----
     registryActive = 'w1'; bootedActive = 'w1'; postMode = 'manual';
+    pendingReboot = false; rebootPollsSeen = 0;
     reloadCount = 0; statusObserved.length = 0;
     await worldsFetch(); await sleep(10);
     const cB = await clickSide();
@@ -172,6 +188,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
     // ---- Scenario C: restartRequired:false -> no-op, already active, no reload ----
     registryActive = 'w1'; bootedActive = 'w1'; postMode = 'noop';
+    pendingReboot = false; rebootPollsSeen = 0;
     reloadCount = 0; statusObserved.length = 0;
     await worldsFetch(); await sleep(10);
     const cC = await clickSide();

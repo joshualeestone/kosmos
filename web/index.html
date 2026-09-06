@@ -16412,6 +16412,10 @@ async function worldswSwitch(id, name) {
       // The board is restarting itself onto the new world; wait for it to come back
       // and reload. The WORLDSW_SWITCHING guard is held across the whole poll (this is
       // awaited before the finally), so a second switch cannot race the restart.
+      // worldsFetch above rebuilt the rows and dropped the clicked button, so move
+      // focus to the switcher trigger (now showing the new name) before the poll, or
+      // keyboard focus would sit on <body> for the whole ~150s reconnect.
+      focusTrigger();
       await worldswReconnect(switchedId, switchedName, say);
       return;
     }
