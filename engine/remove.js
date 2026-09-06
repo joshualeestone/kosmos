@@ -354,7 +354,21 @@ function recordRemoval(clean, job, stopped, shownAs) {
      its token. Restore does not need to un-revoke: a local agent re-mints on
      relaunch, a remote one is re-issued by the operator. Best-effort: a revoke
      fault must not break a removal (the module's posture). */
-  try { sendertoken.revoke(clean); } catch { /* best-effort: never block a removal on a revoke fault */ }
+  /* Best-effort but NOT silent. Blocking the removal on a revoke fault would be
+     wrong -- it would strand a half-removed agent -- so the removal proceeds. But
+     a revoke that FAILS (a throw, or an ok:false from a busy lock / a non-ENOENT
+     unlink error) leaves the token file alive, and a still-beating removed agent
+     would keep authenticating with removal reporting REMOVED and no signal. So a
+     failure is LOGGED distinctly (the posture sendertoken itself uses for its
+     #1916 fail-opens), giving an operator the one line that says the token
+     outlived the removal. */
+  let revoked;
+  try { revoked = sendertoken.revoke(clean); } catch (e) { revoked = { ok: false, because: (e && e.message) || 'threw' }; }
+  if (!revoked || revoked.ok !== true) {
+    console.error('#2323: removed ' + clean + ' but could NOT revoke its sender token'
+      + ((revoked && revoked.because) ? ' (' + revoked.because + ')' : '')
+      + '; a still-beating agent could keep authenticating until the token is cleared.');
+  }
   const existing = readRemovedForWrite();
   // ⚠️ Refuse rather than overwrite. Answering `false` costs this one agent its
   // Restore button and says so; overwriting costs every OTHER removed agent

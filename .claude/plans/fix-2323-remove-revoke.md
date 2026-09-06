@@ -20,11 +20,18 @@ sendertoken's own header mandates this: "A caller that recreates or deletes an
 agent MUST call revoke()." create.js (recreate) and delete-leftover.js (delete)
 already did; REMOVE was the missed lifecycle event.
 
-Keyed on `clean` (the canonical name removeInner acts on), the same name the token
-is minted under, so sendertoken's safeKey resolves to the same file. The end-to-end
-test (mint under the name -> remove -> assert resolveName now fails) is what proves
-the key matches; safeKey/cleanName/slugFor diverge on capital/space names (#740),
-so key reasoning alone is not trusted.
+Keyed on `clean` (the canonical name removeInner acts on). Correctness rests on
+there being ONE name form in the removal path: removal and minting both operate on
+the agent's exact MACHINE name (plan/jobFor/sessionFor/exists all key on it, and a
+remove() called with a raw display name is REFUSED at plan() before it can reach
+revoke), so `revoke(clean)` always hits the same file `mint` wrote -- this is NOT
+a case of safeKey/cleanName/slugFor happening to agree on a divergent input; there
+is no divergent input to defend, because the display-name path is refused upstream.
+The end-to-end tests exercise this on the representative machine-name (slug) case
+(mint -> remove -> assert resolveName now fails); a key mismatch would leave the
+token live and fail the test. (safeKey does strip spaces without hyphenating, which
+diverges from slugFor -- that divergence was the #2319 cap-count bug, in a
+different path that DID mix name forms; it does not apply to this removal path.)
 
 ## Deliberately NOT done: the paneless-arm removed-check (defense in depth)
 resolveAgentSender's paneless arm could also exclude the removed set. Deferred: it
