@@ -74,7 +74,7 @@ test('#2363: the taken branch offers NO browser link, and never points anything 
   // is a small, fixed markup block that legitimately needs zero <a> tags, so guard
   // the class (no browser link) rather than only the instance.
   const takenDiv = HTML.slice(HTML.indexOf('<div id="taken">'), HTML.indexOf('</div>', HTML.indexOf('<div id="taken">')) + 6);
-  assert.doesNotMatch(takenDiv, /<a\b/, 'the taken branch carries an anchor tag -- under #2073 (app-only) it must offer NO browser link, in ANY shape');
+  assert.doesNotMatch(takenDiv, /<a\b/i, 'the taken branch carries an anchor tag -- under #2073 (app-only) it must offer NO browser link, in ANY shape');   // /i: an uppercase <A ...> re-add must not false-pass (the fleet's most-repeated false-zero)
   // The exact prior-shipped shape, pinned so a straight revert is caught by name too:
   assert.doesNotMatch(HTML, /Open it anyway/, 'the vestigial "Open it anyway" browser link is back on the taken branch (#2073 app-only: it must not offer a board link)');
   assert.doesNotMatch(HTML, /id="go"/, 'the #go link element is back -- the taken branch must not carry a browser board link under #2073');
