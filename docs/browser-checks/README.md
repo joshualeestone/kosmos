@@ -778,3 +778,20 @@ own declarations and reports ZERO matches** — a false zero that reads as
 Check `selectorText` first, recurse after. The same shape as
 test-support/page.js's brace-walk lesson: verify the instrument before
 believing its silence.
+
+## `render-plus-blue-1615.js`
+
+kosmos#1615: the Kosmos Plus tab's whole-app blue skin. While the tab is on
+screen the app takes the first-step blue ground via `body.plus-active` (a
+body-level token override that beats the theme cascade by inheritance), and the
+two first-step canvases (`#plus-stars`, `#plus-mark`) mount. The half a source
+read cannot see is the LEAVE: `syncPlusChrome()` must un-blue and tear the
+canvases down the moment you leave the section OR the tab, so nothing paints
+behind another screen and no rAF burns off-screen. The check drives the real
+page — enter Plus, leave to another Settings section, re-enter, leave to the
+Agents tab — and asserts the computed `body` background is the blue on enter and
+is NOT blue on either leave, that `plusMounted` is true on enter and false on
+leave, and that both canvases are sized. Runs in light, dark and reduced-motion.
+Reds on origin/main, where none of `body.plus-active` / the canvases /
+`syncPlusChrome` exist. Chromium (the assertion is computed style + class
+toggles, engine-agnostic; both schemes are the coverage that matters here).

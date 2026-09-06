@@ -72,6 +72,11 @@ test('every --label-3 declaration clears 4.5 on the worst ground in its theme', 
   const all = decls('label-3');
   const light = all.filter((c) => c.startsWith('rgba(20,'));
   const dark = all.filter((c) => c.startsWith('rgba(255,'));
+  /* #1615: the Kosmos Plus blue skin (body.plus-active) is a THIRD themed ground,
+     and its --label-3 is a hex, not an rgba. It gets its own bucket and its own
+     grounds below, so the exhaustive parity assert still accounts for every
+     declaration rather than silently leaving the new one unchecked. */
+  const plus = all.filter((c) => c.startsWith('#'));
   assert.ok(light.length && dark.length,
     'the light/dark split stopped working, so this test is measuring one theme twice');
   /* ⚠️ EXHAUSTIVE, and the first version was not. A loose pattern put the DARK
@@ -79,18 +84,21 @@ test('every --label-3 declaration clears 4.5 on the worst ground in its theme', 
      as a catastrophic failure and was a bad filter. Worse than a false alarm:
      any declaration matching NEITHER pattern would have been silently unchecked,
      which is the shape that lets a token slip through a guard written for it. */
-  assert.equal(light.length + dark.length, all.length,
-    'a --label-3 declaration matched neither theme and was not checked: '
-    + all.filter((c) => !light.includes(c) && !dark.includes(c)).join(', '));
+  assert.equal(light.length + dark.length + plus.length, all.length,
+    'a --label-3 declaration matched no theme and was not checked: '
+    + all.filter((c) => !light.includes(c) && !dark.includes(c) && !plus.includes(c)).join(', '));
 
   /* The worst ground each theme puts this text on: white and the panel surface.
-     `--k-surface` in dark is lighter than `--k-bg`, so it is the harder one. */
+     `--k-surface` in dark is lighter than `--k-bg`, so it is the harder one.
+     For the plus skin the hardest ground is the LIGHTEST blue it sits on — the
+     card gradient's top (#1b2c50) — then the surface token, then the deep body. */
   const grounds = {
     light: [hex('#ffffff'), rgb(decls('k-bg')[0])],
     dark: [rgb(decls('k-surface').find((c) => c.startsWith('#17')) || '#17191c'), hex('#0c0d0f')],
+    plus: [hex('#1b2c50'), rgb(decls('k-surface').find((c) => c === '#132140') || '#132140'), hex('#070c16')],
   };
 
-  for (const [theme, colours] of [['light', light], ['dark', dark]]) {
+  for (const [theme, colours] of [['light', light], ['dark', dark], ['plus', plus]]) {
     for (const c of colours) {
       for (const g of grounds[theme]) {
         const r = ratio(rgb(c), g);

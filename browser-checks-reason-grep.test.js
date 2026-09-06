@@ -441,7 +441,18 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 55 after kosmos#2146 added render-workindicator-2146.js, whose per-problem
      `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
      finding-emit site, confirmed quotable (same shape as render-worldrename-1704). */
-  const EXPECTED_SITES = 55;
+  /* 56 after kosmos#1615 added render-plus-blue-1615.js, whose per-problem
+     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more
+     SHAPE-1 finding-emit site, confirmed quotable (a `  FAIL  ` prefix the gate
+     quotes; same shape as render-workindicator-2146). */
+  /* 57: render-plus-blue-1615.js ALSO carries a top-level
+     `.catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' + ...) })`,
+     whose same-line `'FAIL  ...' +` is a second SHAPE-1 finding-emit site in that
+     one file (a deliberate quotable line so an unexpected throw in the body is not
+     the silent "(no FAIL line)" the gate exists to prevent). It is ALSO counted
+     once by the catch/launch scan below (34) — the two scans tally different
+     properties of the same line, not a partition. */
+  const EXPECTED_SITES = 57;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -551,8 +562,16 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      finding-emit site but NO catch/launch site, so it left this count at 31).
      32 after kosmos#2146 added render-workindicator-2146.js, whose launch-failure
      `console.error('FAIL  render-workindicator-2146: could not start a browser' ...)`
-     is one more catch/launch emit site, confirmed quotable (same shape). */
-  const EXPECTED_CATCH_SITES = 32;
+     is one more catch/launch emit site, confirmed quotable (same shape).
+     33 after kosmos#1615 added render-plus-blue-1615.js, whose launch-failure
+     `console.error('FAIL  render-plus-blue-1615: could not start a browser' ...)`
+     is one more catch/launch emit site, confirmed quotable (same shape).
+     34: the SAME check also carries a Shape-A top-level crash catch,
+     `})().catch((e) => { console.error('FAIL  render-plus-blue-1615 threw: ' ...) })`
+     with an explicit STRING first argument on the `.catch(` line, confirmed
+     quotable — a second catch/launch site in that one file (see the 57 note in
+     the finding-emit scan above; both scans count this line, for different reasons). */
+  const EXPECTED_CATCH_SITES = 34;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
