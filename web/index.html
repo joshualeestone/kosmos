@@ -37165,19 +37165,30 @@ function frClaudeConfirmClose() {
   if (!btn.classList || !btn.classList.contains('is-connected')) btn.disabled = false;
 }
 
-document.getElementById('fr-pane-3').addEventListener('click', (e) => {
-  const b = e.target.closest('#fr-llm-connect');
-  if (!b) return;
-  /* A second press while the panel is open closes it again, which is the
-     behaviour the aria-expanded contract promises. Otherwise this is just the
-     gated entry; the confirm decision lives in frConnectStart. */
-  const box = document.getElementById('fr-claude-confirm');
-  if (box && !box.hidden) { frClaudeConfirmClose(); return; }
-  // The same one-press guard the primary has: start() is idempotent under
-  // it anyway, but the list button should not LOOK pressable twice.
-  b.disabled = true;
-  Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
-});
+/* 🛑 #fr-llm-connect LIVES IN #fr-pane-5, NOT #fr-pane-3 (Josh 0.6.39 #3: "Connect
+   Claude is dead"). This handler used to be DELEGATED on #fr-pane-3; when the
+   wizard grew screens and the connect step moved to pane-5, clicks stopped
+   bubbling to a pane-3 listener and the button became tappable-but-inert -- and no
+   test caught it. A DIRECT listener on the button itself (the same pattern the
+   sibling #fr-openai-connect already uses) cannot be broken by a future pane
+   renumber. A click on the button's child <span> (the button "grew a check")
+   still bubbles to the button, so currentTarget is correct. */
+(() => {
+  const connectBtn = document.getElementById('fr-llm-connect');
+  if (!connectBtn) return;
+  connectBtn.addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    /* A second press while the panel is open closes it again, which is the
+       behaviour the aria-expanded contract promises. Otherwise this is just the
+       gated entry; the confirm decision lives in frConnectStart. */
+    const box = document.getElementById('fr-claude-confirm');
+    if (box && !box.hidden) { frClaudeConfirmClose(); return; }
+    // The same one-press guard the primary has: start() is idempotent under
+    // it anyway, but the list button should not LOOK pressable twice.
+    b.disabled = true;
+    Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
+  });
+})();
 
 document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) => {
   /* currentTarget, not target: the sibling handler already does this, and
@@ -37219,9 +37230,10 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
 });
 
 /* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct
-   listener rather than the delegated pattern fr-llm-connect uses above --
-   there is exactly one button per id here, so delegation would add
-   indirection with nothing to share it with. */
+   listener, the same pattern fr-llm-connect now uses above -- there is
+   exactly one button per id here, so delegation would add indirection with
+   nothing to share it with (and a per-pane delegated listener is exactly what
+   broke fr-llm-connect when the connect step moved panes; Josh 0.6.39 #3). */
 /* Which panel Connect opens depends on whether the runner is already here.
    ⚠️ ASKED EVERY TIME, not cached: a runner can arrive or leave between
    presses, and Settings' equivalent says the same in its own comment.
