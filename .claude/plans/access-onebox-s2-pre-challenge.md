@@ -2,12 +2,13 @@
 pre_challenge: true
 method: challenge-loop
 branch: access-onebox-s2
-diff_hash: 08f686ad89dc97c80ad4e15da0b232e6d546314e28871148294bd9dd201266f4
+diff_hash: 5f8c59d7fe48fe3e1a7383cba42c39afc83505e0e259c566d1117a846fc4aef1
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-06T19:25:43Z
 iterations: 2
 converged: true
+rebased_onto: origin/main (was ba5d5815, now includes #2350 + #2259); browser-checks.sh loop-line union re-resolved; re-validated post-rebase
 ---
 
 ## [CHALLENGE-LOOP] Summary
