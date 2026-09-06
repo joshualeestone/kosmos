@@ -514,6 +514,18 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await page.waitForTimeout(250);
     ok(sleepPosts === 1, `S3 sleep "Turn On" POSTs open-sleep-settings (saw ${sleepPosts})`);
     ok(tmuxPosts === 1, `S3 tmux "Turn On" POSTs open-accessibility-settings (saw ${tmuxPosts})`);
+    // A 409 on an S3 "Turn On" must SPEAK in #fr-s3-msg, the same not-swallowed
+    // contract S2 has. The S3 failure branch is a structurally separate path with
+    // its own message id, so a dropped or mistyped #fr-s3-msg would pass the
+    // POST-fires assertions above while the identical S2 defect goes red.
+    await page.unroute('**/api/open-accessibility-settings');
+    await page.route('**/api/open-accessibility-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
+    await page.click('[data-gate="tmux"] .s3-on');
+    await page.waitForFunction(
+      () => /could not open/i.test((document.getElementById('fr-s3-msg') || {}).textContent || ''),
+      null, { timeout: 3000 }).catch(() => {});
+    ok(/could not open/i.test(await page.locator('#fr-s3-msg').textContent()),
+      'a refused S3 "Turn On" is spoken in #fr-s3-msg, not swallowed');
     await ctx.close();
   }
 
