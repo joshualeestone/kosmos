@@ -143,6 +143,7 @@ function getImportScan() {
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
+const fileaccessstatus = require('./engine/fileaccessstatus');
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
 
@@ -5207,6 +5208,21 @@ const server = http.createServer((req, res) => {
     let reading;
     try { reading = a11ystatus.read(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
+    sendJson(res, 200, reading);
+    return;
+  }
+
+  /* The read side of Screen 2's gated Next (file access). Same posture as
+     /api/a11y-status: three answers, and the gate blocks ONLY on the positive
+     `checkable:true, granted:false`. `checkable:false` (a browser, or the native
+     app has not written a reading yet) must NOT block -- there is no file grant
+     to give in a browser, and the flow must never strand a tester. The native
+     app supplies the reading because folder access is a TCC fact the engine
+     cannot definitively read (#1344); this route only surfaces it. */
+  if (pathname === '/api/file-access-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    let reading;
+    try { reading = fileaccessstatus.read(); }
+    catch (err) { reading = { checkable: false, because: 'we could not read the file-access reading (' + String(err && err.message || err) + ')' }; }
     sendJson(res, 200, reading);
     return;
   }
