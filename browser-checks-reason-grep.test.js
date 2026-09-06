@@ -438,7 +438,10 @@ test('every emit site in every check prints a line the gate can quote', () => {
   /* 54 after kosmos#1652: added render-firstrun-import-1652.js, whose `bad()` helper
      prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
      site, confirmed quotable (the same shape as render-reactions-2255's). */
-  const EXPECTED_SITES = 54;
+  /* 55 after kosmos#2146 added render-workindicator-2146.js, whose per-problem
+     `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
+     finding-emit site, confirmed quotable (same shape as render-worldrename-1704). */
+  const EXPECTED_SITES = 55;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -540,7 +543,16 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   /* 29 after the #2241 SETTINGS sibling render-settings-openai-goldbox.js, one launch-failure
      catch (console.error('FAIL  render-settings-openai-goldbox: could not start a browser')),
      confirmed quotable (starts with FAIL). */
-  const EXPECTED_CATCH_SITES = 31;
+  /* 30 after kosmos#1704 added render-worldrename-1704.js, whose launch-failure
+     `console.error('FAIL  render-worldrename-1704: could not start a browser' ...)` is one
+     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921).
+     31 was already the origin/main value at this branch's point (an increment landed
+     without a trail comment; the 0.6.39 cut's render-firstrun-import-1652.js added a
+     finding-emit site but NO catch/launch site, so it left this count at 31).
+     32 after kosmos#2146 added render-workindicator-2146.js, whose launch-failure
+     `console.error('FAIL  render-workindicator-2146: could not start a browser' ...)`
+     is one more catch/launch emit site, confirmed quotable (same shape). */
+  const EXPECTED_CATCH_SITES = 32;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
