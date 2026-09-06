@@ -932,10 +932,12 @@ function safeRoster() {
  * active LOAD and headroom returns on removal. Conservative (a crashed-but-not-
  * removed agent still counts), which is the safe direction for a ceiling.
  *
- * Compared by CLEAN name (create.cleanName): removedAgents stores clean names
- * while the birth log stores the name as typed. A renamed agent's old births stop
- * counting, which can only UNDER-count (never over-refuse). One entry per clean
- * name. Returns null (not 0) when the birth log or removed list cannot be read,
+ * Compared by SLUG (create.slugFor, the ONE machine-name rule): the birth log
+ * stores the name AS TYPED while removedAgents (and the roster) store the canonical
+ * slug, so both sides are slugged to match -- comparing typed-vs-slug would miss a
+ * removed agent whose name has a capital or a space (#740). A renamed agent's old
+ * births stop counting, which can only UNDER-count (never over-refuse). One entry
+ * per slug. Returns null (not 0) when the birth log or removed list cannot be read,
  * so the caller can fail OPEN rather than block a create on a read error.
  *
  * 🔑 CORRECT ONLY UNDER THE PER-CREATOR LOCK (withCreatorLock). This is a
@@ -950,12 +952,17 @@ function activeAgentsCreatedBy(creator) {
   if (!Array.isArray(births)) return null;
   let gone;
   try {
-    // cleanName both sides: the removed store already holds clean names, but
-    // normalising here keeps the comparison self-consistent with the cleanName
-    // applied to each birth below, rather than depending on that invariant.
+    // 🛑 slugFor, NOT cleanName. cleanName only TRIMS; the birth log stores the
+    // name AS TYPED ("Casey", "Kira Knightley") while removedAgents stores the
+    // canonical SLUG ("casey", "kira-knightley") -- the same machine name the
+    // roster and the DELETE route use. Comparing typed-vs-slug would fail to
+    // exclude a removed agent whose name has a capital or a space (#740 makes
+    // those common), leaving it consuming a cap slot forever (over-refuse). Both
+    // sides go through slugFor, the ONE machine-name rule; it is idempotent, so
+    // slugging the already-slug removed names is safe.
     gone = new Set(removal.removedAgents()
       .filter((r) => r && r.stopped !== false)
-      .map((r) => { try { return create.cleanName(r.name); } catch { return String(r.name); } }));
+      .map((r) => { try { return create.slugFor(r.name); } catch { return String(r.name); } }));
   } catch { return null; }
   /* LAST-occurrence wins: the NEWEST 'created' birth per clean name is its current
      owner (the log is append-only oldest-first). createAgentInner REFUSES a create
@@ -968,9 +975,10 @@ function activeAgentsCreatedBy(creator) {
   const ownerByName = new Map();
   for (const b of births) {
     if (!b || b.outcome !== 'created' || !b.name) continue;
-    let clean; try { clean = create.cleanName(b.name); } catch { clean = String(b.name); }
-    if (!clean) continue;
-    ownerByName.set(clean, b.createdBy);
+    // slugFor (not cleanName) to match the removed-set + the machine name -- see above.
+    let slug; try { slug = create.slugFor(b.name); } catch { slug = String(b.name); }
+    if (!slug) continue;
+    ownerByName.set(slug, b.createdBy);
   }
   let n = 0;
   for (const [name, by] of ownerByName) {

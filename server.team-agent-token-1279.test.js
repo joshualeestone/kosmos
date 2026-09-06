@@ -198,6 +198,23 @@ test('activeAgentsCreatedBy: a name REUSED by another creator counts for the CUR
   } finally { fs.rmSync(logFile, { force: true }); }
 });
 
+test('activeAgentsCreatedBy: a removed agent with a CAPITAL/space name is excluded (slug match, not trim match)', () => {
+  // The birth log stores the name AS TYPED ("Casey"), removedAgents stores the
+  // SLUG ("casey"). A trim-only comparison would miss the match and keep counting
+  // the removed agent forever (over-refuse). Both sides must go through slugFor.
+  const logFile = create.createdLogFile();
+  fs.mkdirSync(path.dirname(logFile), { recursive: true });
+  fs.writeFileSync(logFile, [
+    { createdBy: 'boss', outcome: 'created', name: 'Casey' },            // removed below (slug 'casey')
+    { createdBy: 'boss', outcome: 'created', name: 'Kira Knightley' },   // alive (slug 'kira-knightley')
+  ].map((r) => JSON.stringify(r)).join('\n') + '\n');
+  setRemoved([{ name: 'casey', stopped: true, removedAt: new Date().toISOString(), shownAs: 'Casey' }]);
+  try {
+    assert.equal(activeAgentsCreatedBy('boss'), 1,
+      'a removed capital-named agent still counted -- the slug/trim mismatch was not fixed');
+  } finally { fs.rmSync(logFile, { force: true }); try { setRemoved([]); } catch { /* best effort */ } }
+});
+
 test('activeAgentsCreatedBy: the same creator recreating a name counts it ONCE, not once per birth', () => {
   const logFile = create.createdLogFile();
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
@@ -297,12 +314,14 @@ test('CAP: a REMOVED prior agent frees headroom (birth-minus-removed), so the sa
   const logFile = create.createdLogFile();
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
   fs.writeFileSync(logFile, [
-    { createdBy: 'freeagent', outcome: 'created', name: 'freeA' },
-    { createdBy: 'freeagent', outcome: 'created', name: 'freeB' },
-    { createdBy: 'freeagent', outcome: 'created', name: 'freeC' },
+    { createdBy: 'freeagent', outcome: 'created', name: 'FreeA' },
+    { createdBy: 'freeagent', outcome: 'created', name: 'FreeB' },
+    { createdBy: 'freeagent', outcome: 'created', name: 'Free C' },
   ].map((r) => JSON.stringify(r)).join('\n') + '\n');
   // Remove one -> active count drops to 2, so 2 + 1 = 3 is NOT over the cap of 3.
-  setRemoved([{ name: 'freeC', stopped: true, removedAt: new Date().toISOString(), shownAs: 'freeC' }]);
+  // The birth is typed ("Free C"); the removed record is the SLUG ("free-c") the
+  // real DELETE route writes, so this only frees headroom if the count slug-matches.
+  setRemoved([{ name: 'free-c', stopped: true, removedAt: new Date().toISOString(), shownAs: 'Free C' }]);
   const tok = sendertoken.mint('freeagent').token;
   liveness.seen('freeagent');
   const board = fleet.install([]);
