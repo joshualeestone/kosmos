@@ -4656,7 +4656,9 @@ const server = http.createServer((req, res) => {
         const sessionId = body && typeof body === 'object' ? String(body.sessionId || '') : '';
         const out = openaiAccounts.cancelChatgptLogin(sessionId);
         if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
-        sendJson(res, 200, { cancelled: true });
+        // `cancelled:false` when the session had already settled (nothing pending
+        // to cancel) -- forward it rather than always claiming a cancel happened.
+        sendJson(res, 200, { cancelled: out.cancelled });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

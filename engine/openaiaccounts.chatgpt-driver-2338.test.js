@@ -35,7 +35,13 @@ const ID_TOKEN = idToken('pete@example.com');
 const MOCK = nodePath.join(SANDBOX, 'codex-mock.sh');
 fs.writeFileSync(MOCK, `#!/bin/bash
 if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
-echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
+if [ "$FAKE_CODEX_TRICKY" = "1" ]; then
+  # a URL with trailing punctuation, and an 8-char alnum token INSIDE the URL that
+  # must NOT be mistaken for the real hyphenated device code that follows it.
+  echo "Go to https://auth.openai.com/AB12CD34. Then enter FGHJ-6789"
+else
+  echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
+fi
 if [ "$FAKE_CODEX_SLEEP" = "1" ]; then sleep 30; exit 0; fi
 printf '{"auth_mode":"chatgpt","tokens":{"id_token":"%s"}}' "$FAKE_ID_TOKEN" > "$CODEX_HOME/auth.json"
 exit 0
@@ -95,7 +101,17 @@ test('cancel kills the child and removes the created dir', async () => {
   assert.equal(c.ok, true);
   assert.equal(c.cancelled, true);
   assert.equal(openai.chatgptLoginStatus(r.sessionId).state, 'cancelled');
-  assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.codex-cancelme')), false, 'cancel removes the dir it created');
+  // The dir is removed when the KILLED child actually exits (async), not
+  // synchronously in cancel -- so a concurrent start can never reuse a dir the
+  // dying child still owns. Poll for it.
+  const dirGone = async () => {
+    for (let i = 0; i < 200; i += 1) {
+      if (!fs.existsSync(nodePath.join(SANDBOX, '.codex-cancelme'))) return true;
+      await new Promise((res) => setTimeout(res, 20));
+    }
+    return false;
+  };
+  assert.equal(await dirGone(), true, 'cancel removes the dir it created once the child exits');
   delete process.env.FAKE_CODEX_SLEEP;
 });
 
@@ -123,7 +139,16 @@ test('an ABANDONED sign-in (never cancelled) is killed by the watchdog and error
   const s = await waitFor(r.sessionId, (x) => x.state === 'error' || x.state === 'connected');
   assert.equal(s.state, 'error', 'the watchdog terminates a sign-in the user walked away from');
   assert.match(s.error, /timed out/);
-  assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.codex-abandoned')), false, 'the watchdog removes the dir it created');
+  // The watchdog kills the child; the dir is removed when that child actually
+  // exits (async), so poll for it.
+  const dirGone = async () => {
+    for (let i = 0; i < 200; i += 1) {
+      if (!fs.existsSync(nodePath.join(SANDBOX, '.codex-abandoned'))) return true;
+      await new Promise((res) => setTimeout(res, 20));
+    }
+    return false;
+  };
+  assert.equal(await dirGone(), true, 'the watchdog removes the dir it created once the killed child exits');
   delete process.env.FAKE_CODEX_SLEEP;
 });
 
@@ -152,6 +177,32 @@ test('concurrent UNLABELLED starts get DIFFERENT work slots (no shared CODEX_HOM
   openai.cancelChatgptLogin(a.sessionId);
   openai.cancelChatgptLogin(b.sessionId);
   delete process.env.FAKE_CODEX_SLEEP;
+});
+
+test('cancelling an ALREADY-CONNECTED session does not regress it (cancelled:false, account kept)', async () => {
+  openai.setChatgptTimers({ timeout: 100000, ttl: 100000 }); // keep the session readable
+  delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP; delete process.env.FAKE_CODEX_TRICKY;
+  const r = openai.startChatgptLogin({ codexBin: MOCK, label: 'keepme' });
+  const s = await waitFor(r.sessionId, (x) => x.state === 'connected' || x.state === 'error');
+  assert.equal(s.state, 'connected', s.error);
+  const c = openai.cancelChatgptLogin(r.sessionId);
+  assert.equal(c.ok, true);
+  assert.equal(c.cancelled, false, 'a settled session has nothing to cancel');
+  const after = openai.chatgptLoginStatus(r.sessionId);
+  assert.equal(after.state, 'connected', 'cancel must NOT overwrite a connected state');
+  assert.ok(after.account, 'the real account is preserved');
+});
+
+test('the auth prompt is parsed cleanly: no trailing URL punctuation, and a URL token is not the device code', async () => {
+  delete process.env.FAKE_CODEX_FAIL; delete process.env.FAKE_CODEX_SLEEP;
+  process.env.FAKE_CODEX_TRICKY = '1';
+  const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'device', label: 'tricky' });
+  assert.equal(r.ok, true, r.because);
+  // Wait until the parser has seen the output (awaiting-code or already connected).
+  const s = await waitFor(r.sessionId, (x) => !!x.userCode || x.state === 'connected' || x.state === 'error');
+  assert.equal(s.authUrl, 'https://auth.openai.com/AB12CD34', 'the trailing period is trimmed from the URL');
+  assert.equal(s.userCode, 'FGHJ-6789', 'the real hyphenated code, not the AB12CD34 token inside the URL');
+  delete process.env.FAKE_CODEX_TRICKY;
 });
 
 test.after(() => { openai.setChatgptTimers({ timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 }); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });

@@ -637,12 +637,14 @@ function chatgptIsTerminal(session) { return CHATGPT_TERMINAL.has(session.state)
 function stopChatgptWatch(session) {
   if (session.timer) { clearTimeout(session.timer); session.timer = null; }
 }
-// Release a settled session's resources ONCE: stop its watchdog, free its work
-// slot, and schedule its Map entry to be dropped after the read-grace TTL.
+// Schedule a settled session's Map entry to be dropped after the read-grace TTL,
+// and stop its watchdog. ONCE. This does NOT free the work slot / temp dir: that
+// is done only when the child is CONFIRMED gone (its `exit`, or a spawn that never
+// produced a child), because freeing a slot while a killed child is still dying
+// lets a concurrent start reuse a dir the dying child could still write into.
 function reapChatgptSession(session) {
   if (session.reaped) return;
   session.reaped = true;
-  activeChatgptDirs.delete(session.dir);
   stopChatgptWatch(session);
   const t = setTimeout(() => { chatgptSessions.delete(session.id); }, sessionTtlMs);
   if (t && typeof t.unref === 'function') t.unref();
@@ -691,9 +693,17 @@ function resolveFreshChatgptDir(label) {
    URL; a short, often-hyphenated device code) rather than a fixed line format. */
 function parseChatgptLoginOutput(text) {
   const out = {};
-  const url = String(text).match(/https?:\/\/[^\s'"]+/);
-  if (url) out.authUrl = url[0];
-  const code = String(text).match(/\b[A-Z0-9]{4}-?[A-Z0-9]{4}\b/);
+  const s = String(text);
+  const url = s.match(/https?:\/\/[^\s'"<>]+/);
+  // Trim trailing sentence punctuation the greedy class swallows ("...activate."
+  // or a parenthesised URL), so the client never opens a URL with a stray `.`/`)`.
+  if (url) out.authUrl = url[0].replace(/[.,;:!?)\]}'"]+$/, '');
+  // Search for the device code in text with URLs REMOVED: a verification URL often
+  // contains an 8-char alnum token (a path segment or ?code=...), which would
+  // otherwise be extracted as the user code in preference to the real one. Prefer
+  // the hyphenated XXXX-XXXX form, falling back to the optional-hyphen shape.
+  const withoutUrls = s.replace(/https?:\/\/[^\s'"<>]+/g, ' ');
+  const code = withoutUrls.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/) || withoutUrls.match(/\b[A-Z0-9]{4}-?[A-Z0-9]{4}\b/);
   if (code) out.userCode = code[0];
   return out;
 }
@@ -729,6 +739,10 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
   const dropDirIfOurs = () => {
     if (session.madeDir && !session.account) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
   };
+  // Free the work slot and drop a temp dir. Call ONLY when the child is confirmed
+  // gone (its `exit`, or a spawn that produced no child), never right after a
+  // still-async kill(). Idempotent: Set.delete and rmSync(force) both no-op twice.
+  const freeSlotAndDir = () => { activeChatgptDirs.delete(session.dir); dropDirIfOurs(); };
   const onData = (d) => {
     session.buf += String(d);
     const parsed = parseChatgptLoginOutput(session.buf);
@@ -746,29 +760,41 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
     if (chatgptIsTerminal(session)) return;
     session.state = 'error';
     session.error = 'the OpenAI sign-in process failed to run';
-    dropDirIfOurs();
+    // A spawn-level `error` (e.g. ENOENT) means no child is running, and `exit`
+    // may never fire, so free here. If `exit` does follow, freeSlotAndDir is
+    // idempotent.
+    freeSlotAndDir();
     reapChatgptSession(session);
   });
   child.on('exit', (code) => {
-    if (chatgptIsTerminal(session)) return; // cancel/error/watchdog already settled it
+    // Runs for EVERY exit, INCLUDING a kill() from cancel/watchdog. Only here is
+    // the child guaranteed dead, so this is where the slot/dir are freed.
+    if (chatgptIsTerminal(session)) {
+      // cancel/watchdog/error already set the terminal state and scheduled the
+      // Map drop; the child we killed has now truly exited, so it is finally safe
+      // to release its slot and remove a temp dir.
+      freeSlotAndDir();
+      return;
+    }
     if (code === 0) {
       const fin = finishChatgptLogin({ dir: session.dir, label: session.label });
-      if (fin.ok) { session.state = 'connected'; session.account = fin.account; reapChatgptSession(session); return; }
+      if (fin.ok) { session.state = 'connected'; session.account = fin.account; freeSlotAndDir(); reapChatgptSession(session); return; }
       session.error = fin.because;
     } else {
       session.error = 'the OpenAI sign-in did not complete';
     }
     session.state = 'error';
-    dropDirIfOurs();
+    freeSlotAndDir();
     reapChatgptSession(session);
   });
   // Watchdog: bound an abandoned sign-in. Unref'd so it never keeps the process up.
+  // It kills the child and schedules the Map drop; the slot/dir are freed by the
+  // `exit` handler when the killed child actually dies.
   session.timer = setTimeout(() => {
     if (chatgptIsTerminal(session)) return;
     try { session.child.kill(); } catch { /* best effort */ }
     session.state = 'error';
     session.error = 'the OpenAI sign-in timed out';
-    dropDirIfOurs();
     reapChatgptSession(session);
   }, loginTimeoutMs);
   if (session.timer && typeof session.timer.unref === 'function') session.timer.unref();
@@ -785,15 +811,18 @@ function chatgptLoginStatus(sessionId) {
   return { ok: true, state: s.state, authUrl: s.authUrl, userCode: s.userCode, account: s.account, error: s.error };
 }
 
-/** Cancel a pending subscription sign-in: kill the child and anti-litter the dir. */
+/** Cancel a PENDING subscription sign-in: kill the child; the exit handler then
+    frees the slot and anti-litters the dir once the child is truly gone. */
 function cancelChatgptLogin(sessionId) {
   const s = chatgptSessions.get(sessionId);
   if (!s) return { ok: false, because: 'no such sign-in in progress' };
+  // Do NOT regress an already-settled session: a connected one keeps its real
+  // account (cancelling it would report `cancelled` over a live account), and an
+  // errored/cancelled one is already done. There is nothing pending to cancel.
+  if (chatgptIsTerminal(s)) return { ok: true, cancelled: false };
   s.state = 'cancelled';
   try { s.child.kill(); } catch { /* best effort */ }
-  // Remove ONLY a dir we created and that no account landed in (never a real one).
-  if (s.madeDir && !s.account) { try { fs.rmSync(s.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
-  reapChatgptSession(s); // free the slot + schedule the Map entry to be dropped
+  reapChatgptSession(s); // schedule the Map drop; the exit handler frees slot + dir
   return { ok: true, cancelled: true };
 }
 
