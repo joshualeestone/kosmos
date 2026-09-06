@@ -3136,8 +3136,9 @@ const server = http.createServer((req, res) => {
    *   - No project ATTACH. A member spec's `projects` still composes the managed
    *     block at birth (createAgent/#732), but projects.addAgent (the roster
    *     attach POST /api/agents runs after CREATED) is not run here. Follow-up.
-   *   - No OpenAI per-model validation (#2140/#2191) and no first-agent home seed
-   *     (#166/#732) -- neither is a team-creation concern in this slice.
+   *   - No first-agent home seed (#166/#732) -- not a team-creation concern.
+   *     (The OpenAI per-model validation #2140/#2191 IS ported, in the liveness
+   *     sweep below, at parity with the single route -- see there.)
    *   - No per-creator GLOBAL active-agent cap: the per-request cap (<= MAX_TEAM_CAP
    *     50) bounds one call; a ceiling across calls needs a birth-log reader that
    *     does not exist yet, and belongs with the agent-token slice above.
@@ -3181,12 +3182,36 @@ const server = http.createServer((req, res) => {
         const livenessRefused = [];
         let liveMembers = members;
         if (members && members.length && !overCap) {
+          // The sweep fans out one verdict per member concurrently. Its
+          // concurrency ceiling is the cap (<= MAX_TEAM_CAP 50), enforced by the
+          // over-cap skip above -- so at most `cap` accountConnectable calls
+          // (each possibly a real `claude -p` / `/v1/models` probe) run at once,
+          // never an unbounded fan-out from the request body.
           const verdicts = await Promise.all(members.map(async (m) => {
             if (!m || typeof m !== 'object' || Array.isArray(m)) return { m, dead: false };
             if (create.nameProblem(m.name)) return { m, dead: false };
             try {
               const liveness = await create.accountConnectable({ provider: m.provider, accountDir: m.account });
               if (liveness && liveness.ok === false) return { m, dead: true, because: liveness.because };
+              /* #2140/#2191 parity with POST /api/agents: an OpenAI member with an
+                 explicit model the account cannot run is born broken -- the same
+                 "fails on its first turn" class the liveness rail above prevents,
+                 so the team route guards it the same way rather than porting half
+                 the rail. Only a DEFINITIVE miss refuses: "Let OpenAI choose"
+                 (empty model) is skipped, and runnableAllowlist() returns null
+                 when the account could not be checked, so any uncertainty (or a
+                 crash, caught below) FAILS OPEN (#1916). */
+              if (String(m.provider || '') === 'openai'
+                  && typeof m.model === 'string' && m.model.trim() !== '') {
+                const wantModel = m.model.trim();
+                const dir = (m.account && String(m.account).trim() !== '')
+                  ? String(m.account).trim()
+                  : openaiAccounts.defaultDir();
+                const allowed = openaiAccounts.runnableAllowlist(await openaiAccounts.accountModels(dir));
+                if (allowed && !allowed.includes(wantModel)) {
+                  return { m, dead: true, because: wantModel + ' is not a model this account can run; pick one from the list' };
+                }
+              }
             } catch { /* a failed check is not a reason to block a create (#1916) */ }
             return { m, dead: false };
           }));

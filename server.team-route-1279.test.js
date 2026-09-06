@@ -31,11 +31,15 @@ process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
 process.env.AGENT_WORKFORCE_PROJECTS = path.join(SANDBOX, 'kosmos-projects');
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = '/bin/echo';
+// A codex runner bin the create path treats as runnable under DRY_RUN, so a
+// LABELLED OpenAI member can actually be created (the model-validation test).
+process.env.AGENT_WORKFORCE_CODEX_BIN = '/bin/echo';
 process.env.AGENT_WORKFORCE_TMUX_BIN = path.join(__dirname, 'test-support', 'fake-tmux.sh');
 process.env.AGENT_WORKFORCE_DRY_RUN = '1';
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(os.tmpdir(), 'aw-team1279-claude-' + process.pid + '.json');
-// A clean sandbox has no codex home, so openaiaccounts.list() is empty and a
-// member created "on OpenAI" is a real dead account -- the deterministic dead arm.
+// A clean codex HOME (unset override) so a member on the DEFAULT OpenAI provider
+// with no sign-in is a real dead account -- the deterministic dead arm. A
+// LABELLED account (explicit dir, below) is driven separately for the model check.
 delete process.env.AGENT_WORKFORCE_CODEX_HOME;
 delete process.env.CODEX_HOME;
 
@@ -43,17 +47,25 @@ delete process.env.CODEX_HOME;
 // resolves it and the only variable is what the faked live check answers.
 fs.writeFileSync(path.join(HOME, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'default@example.com' } }));
 fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
+// A LABELLED OpenAI (codex apikey) account under the sandbox HOME, for the
+// per-model validation test. Its key is fixed; the only variable is what
+// openai.setFetcher makes /v1/models say. Same fixture shape as the #1329 e2e.
+const OPENAI_DIR = path.join(HOME, '.codex-work');
+fs.mkdirSync(OPENAI_DIR, { recursive: true });
+fs.writeFileSync(path.join(OPENAI_DIR, 'auth.json'), JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: 'sk-proj-workkeyworkkeyWORK' }));
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { start, server } = require('./server');
 const create = require('./engine/create');
+const openai = require('./engine/openaiaccounts');
 
 let base;
 test.before(async () => { await start(0); base = `http://127.0.0.1:${server.address().port}`; });
 test.after(() => {
   try { server.closeAllConnections(); server.close(); } catch { /* going away */ }
   create.setClaudeProbe(null);
+  openai.setFetcher(null);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -219,5 +231,79 @@ test('shape refusal is the engine core\'s own sentence, surfaced as 400: a team 
     assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
     assert.match(r.json.because || '', /stated purpose/i);
     assert.ok(!birthOf('nopurp'), 'a shape-refused team should create nothing');
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('a team needs a creator: the engine core\'s sentence, surfaced as 400', async () => {
+  create.setClaudeProbe(LIVE);
+  try {
+    const r = await postTeam({ purpose: 'no creator here', members: [{ name: 'noboss', role: 'pm' }] });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.match(r.json.because || '', /needs a creator/i);
+    assert.ok(!birthOf('noboss'));
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('a non-object member entry is refused by shape, not created', async () => {
+  create.setClaudeProbe(LIVE);
+  try {
+    const r = await postTeam({ creator: 'pmboss', purpose: 'bad member shape', members: [42] });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.equal(r.json.refused.length, 1);
+    assert.match(r.json.refused[0].because || '', /create spec object/i);
+  } finally { create.setClaudeProbe(null); }
+});
+
+test('#2140 parity: an OpenAI member whose account cannot run the chosen model is refused (born-broken); a runnable one is created', async () => {
+  create.setClaudeProbe(LIVE);
+  // The labelled OpenAI account can run gpt-4o only. A member asking for it is
+  // created; one asking for a model the account cannot run is refused BEFORE any
+  // write -- the #2140/#2191 rail, at parity with POST /api/agents.
+  openai.setFetcher(async () => ({ status: 200, body: { data: [{ id: 'gpt-4o' }] } }));
+  try {
+    const r = await postTeam({
+      creator: 'pmboss', purpose: 'model parity',
+      members: [
+        { name: 'goodmodel', role: 'pm', provider: 'openai', account: OPENAI_DIR, model: 'gpt-4o' },
+        { name: 'badmodel', role: 'pm', provider: 'openai', account: OPENAI_DIR, model: 'gpt-9-nonexistent' },
+      ],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'partial', JSON.stringify(r.json));
+    assert.deepEqual(r.json.created.map((c) => c.name), ['goodmodel']);
+    const bad = r.json.refused.find((x) => x.name === 'badmodel');
+    assert.ok(bad, 'the unrunnable-model member was not refused: ' + JSON.stringify(r.json));
+    assert.match(bad.because || '', /not a model this account can run/i);
+    assert.ok(!birthOf('badmodel'), 'a born-broken model member reached createAgent');
+    assert.ok(birthOf('goodmodel'), 'the runnable-model member should have been created');
+  } finally { create.setClaudeProbe(null); openai.setFetcher(null); }
+});
+
+test('merge arithmetic under BOTH a createTeam per-member refusal AND a liveness refusal: X of Y counts the original total', async () => {
+  create.setClaudeProbe(LIVE);
+  try {
+    // One live Claude member (created), one bad-name member (createTeam/createAgent
+    // refuses it), one dead OpenAI member (liveness refuses it). The merged report
+    // must be PARTIAL with created=1, refused=2, and the total counted as the
+    // ORIGINAL 3 -- the arithmetic the merge path stresses hardest.
+    const r = await postTeam({
+      creator: 'pmboss', purpose: 'mixed three',
+      members: [
+        { name: 'goodthree', role: 'pm' },
+        { name: 'bad name!', role: 'pm' },
+        { name: 'deadthree', role: 'pm', provider: 'openai' },
+      ],
+    });
+    assert.equal(r.status, 200, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'partial', JSON.stringify(r.json));
+    assert.deepEqual(r.json.created.map((c) => c.name), ['goodthree']);
+    assert.equal(r.json.refused.length, 2, 'both the bad-name and the dead member should be refused: ' + JSON.stringify(r.json));
+    const refusedNames = r.json.refused.map((x) => x.name);
+    assert.ok(refusedNames.includes('deadthree'), 'the dead member is missing from refused[]');
+    assert.match(r.json.because || '', /1 of 3 agents were created/, 'the total must be the ORIGINAL 3, not the post-liveness 2');
+    assert.match(r.json.because || '', /2 were refused/);
+    assert.ok(!birthOf('deadthree'), 'the dead member reached createAgent');
   } finally { create.setClaudeProbe(null); }
 });

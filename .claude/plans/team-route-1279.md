@@ -63,8 +63,12 @@ cap + the operator-only gate are the bound.
 - **No project ATTACH.** A member spec's `projects` still composes the managed
   block at birth (`createAgent`/#732), but `projects.addAgent` (the roster
   attach `/api/agents` runs after CREATED) is not run here.
-- **No OpenAI per-model validation** (#2140/#2191) and **no first-agent home
-  seed** (#166/#732) — neither is a team-creation concern in this slice.
+- **No first-agent home seed** (#166/#732), not a team-creation concern.
+  (The **OpenAI per-model validation** #2140/#2191 IS ported into the liveness
+  sweep at parity with the single route: an OpenAI member with an explicit
+  model the account cannot run is refused as born-broken, same class as the
+  #1903 rail. Added after iteration 2 of the challenge loop flagged porting the
+  account-liveness half but not the model half as a "half a rail" inconsistency.)
 
 ## Weakest premise
 I assume the HTTP-endpoint shape over a `kosmos` CLI verb because it matches
