@@ -1,32 +1,24 @@
 'use strict';
-/* #1652: the fresh-install "find my agents" affordance, checked in the real page.
+/* #1652 -> #5: the fresh-install create ending shows NO find-agents link.
  *
- * Root cause (traced on origin/main): the AUTO first-run scan (/api/scan-agents ->
- * discover.scan() bare) deliberately skips Documents/Downloads/Desktop to avoid a
- * TCC permission bombardment on a brand-new user (#2125). The path that DOES scan
- * those folders -- where people keep a sent/downloaded agent file -- is the create
- * import panel (populateFoundImports -> /api/scan-import -> scan({importScan:true})),
- * which a fresh user has no reason to open. So a fresh install found none of Josh's
- * files in Documents/Downloads and sent him straight to "Create an agent".
- *
- * The fix adds a CONTEXTUAL one-click on the first-run create ending: a quiet link
- * "I already have agent files here" that opens the create form on the IMPORT mode,
- * whose populateFoundImports() fires the on-demand TCC scan (the permission prompt
- * is expected because the person chose it). #2125's TCC-free auto scan is unchanged.
+ * The #1652 "Look in my Documents and Downloads" link was added to screen-9's
+ * create arm (Mona's mock) and then REMOVED after Josh's 0.6.39 fresh-account test:
+ * he saw the link on the empty screen and ruled it should not appear ("There is no
+ * link to appear, even"), all the more so because the permissions were never
+ * actually granted; and clicking it jumped him to create-agent instead of loading
+ * found agents onto screen 9. The fix for agents in Documents/Downloads belongs in
+ * DETECTION: once the permission flow (#1) grants access, a full scan of those
+ * folders runs and any agents load onto screen 9 via the found path, not a link.
  *
  * This drives the SHIPPED page, never a copy:
  *   1. Force the first-run create empty state (found() + scan() both empty) and
- *      assert the link + the Documents/Downloads copy render, alongside "Giddy Up".
- *   2. CONTROL: the adopt ending (a real fleet) does NOT get the import link -- the
- *      link is scoped to the create branch, the one with a free action slot.
- *   3. Click the link and assert it lands on the create tab, import mode selected,
- *      with the found-on-this-computer scan container present (the scan path fired).
- *   4. CONTROL: opening create with no mode (openCreate()) lands on 'pm', not
- *      import -- so the new mode threading cannot leak 'import' into the default.
+ *      assert the single "Giddy Up" primary, ONE fork button, and NO .fr-lookimport
+ *      link and NO "Documents and Downloads" copy.
+ *   2. CONTROL: the adopt ending (a real fleet) also has no link.
+ *   3. CONTROL: opening create with no mode (openCreate()) lands on 'pm', not
+ *      import -- the mode threading still works and does not leak 'import'.
  *
- * DOM-state assertions only (hidden flags, checked, text), so headless is fine and
- * mode-independent. The permission-flow itself (the real macOS TCC prompt) is NOT
- * asserted here -- that rides Josh's fresh-install verify (#2243).
+ * DOM-state assertions only (hidden flags, checked, text), so headless is fine.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-firstrun-import-1652.js
  */
@@ -101,8 +93,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     });
     if (createEnding.primaryShown && /giddy up/i.test(createEnding.primaryText)) ok('create ending keeps its single primary "Giddy Up"'); else bad('create ending primary', JSON.stringify(createEnding.primaryText));
     if (!createEnding.altShown) ok('the create ending keeps ONE fork button (Josh ruling), no second button'); else bad('create ending grew a second fork button', 'fr-alt is shown');
-    if (createEnding.linkPresent && /Documents and Downloads/i.test(createEnding.linkText)) ok('the inline "Look in my Documents and Downloads" link renders in the create-ending copy'); else bad('inline import link renders', 'present=' + createEnding.linkPresent + ' text=' + JSON.stringify(createEnding.linkText));
-    if (/Documents and Downloads/.test(createEnding.body) && /ask macOS for permission/.test(createEnding.body)) ok('the copy names the folders + the permission prompt'); else bad('affordance copy', createEnding.body.slice(0, 200));
+    // #5 (Josh's 0.6.39 ruling): the create ending (screen 9b) shows NO find-agents
+    // link and NO "Documents and Downloads" copy. His words: "There is no link to
+    // appear, even." Agents in Documents/Downloads are reached by the permission-
+    // granted scan loading them onto this screen via the found path, not a link.
+    if (!createEnding.linkPresent) ok('#5: the create ending shows NO find-agents link (Josh 0.6.39 ruling)'); else bad('#5 no find-agents link', 'a .fr-lookimport is present: ' + JSON.stringify(createEnding.linkText));
+    if (!/Documents and Downloads/i.test(createEnding.body)) ok('#5: the create ending has no "Documents and Downloads" find-agents copy'); else bad('#5 no find-agents copy', createEnding.body.slice(0, 200));
 
     // ── 2. CONTROL: the ADOPT ending (a real fleet) gets NO import link. ──
     await p.evaluate(() => {
@@ -114,43 +110,18 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const adoptHasLink = await p.evaluate(() => { const box = document.getElementById('fr-fleet'); return !!(box && box.querySelector('.fr-lookimport')); });
     if (!adoptHasLink) ok('CONTROL: the adopt ending shows no import link (scoped to the create ending)'); else bad('CONTROL adopt has no import link', 'a .fr-lookimport is present on the adopt ending');
 
-    // ── 3. Re-paint the create ending, CLICK the link, land on create+import. ──
-    await p.evaluate(() => {
-      FR = { path: 'create', fleetCount: 0 };
-      FR_FOUND = { ok: true, agents: [], adoptable: [] };
-      FR_SCAN = { ok: true, candidates: [] };
-      frPaintFleet();
-    });
-    // Record whether /api/scan-import is requested after the click (the TCC scan).
-    let scanImportHit = false;
-    p.on('request', (req) => { if (/\/api\/scan-import/.test(req.url())) scanImportHit = true; });
-    await p.click('#fr-fleet .fr-lookimport');
-    // The click runs frFinish(() => { openCreate(); pickMode('import'); }): completes first run, opens
-    // the create tab, selects import mode, and populateFoundImports fires the scan.
-    await p.waitForSelector('#importpick:not([hidden])', { timeout: 10000 }).catch(() => {});
-    const afterClick = await p.evaluate(() => ({
+    // ── 3. CONTROL: openCreate() with no mode lands on 'pm', not import. ──
+    // (The import panel + /api/scan-import are still available via openCreate('import'),
+    //  they are just no longer reached from a first-run link, per #5.)
+    await p.evaluate(() => openCreate());
+    // loadRoles is async on the first fetch (no section caches it now), so wait for
+    // pickMode('pm') to land rather than reading synchronously.
+    await p.waitForFunction(() => { const r = document.querySelector('input[name="rmode"][value="pm"]'); return !!(r && r.checked); }, { timeout: 8000 }).catch(() => {});
+    const control = await p.evaluate(() => ({
       importPanelShown: document.getElementById('importpick') ? !document.getElementById('importpick').hidden : false,
-      importRadioChecked: (() => { const r = document.querySelector('input[name="rmode"][value="import"]'); return !!(r && r.checked); })(),
-      foundContainer: (() => { const el = document.getElementById('import-found'); const panel = document.getElementById('importpick'); return !!(el && panel && panel.contains(el)); })(),
-      roleStepShown: document.getElementById('cstep-role') ? !document.getElementById('cstep-role').hidden : false,
+      pmChecked: (() => { const r = document.querySelector('input[name="rmode"][value="pm"]'); return !!(r && r.checked); })(),
+      importChecked: (() => { const r = document.querySelector('input[name="rmode"][value="import"]'); return !!(r && r.checked); })(),
     }));
-    if (afterClick.importPanelShown) ok('clicking the link opens the create IMPORT panel'); else bad('link opens import panel', JSON.stringify(afterClick));
-    if (afterClick.importRadioChecked) ok('the import mode radio is selected'); else bad('import radio selected', JSON.stringify(afterClick));
-    if (afterClick.foundContainer) ok('the found-on-this-computer scan container is present in the panel'); else bad('scan container present', JSON.stringify(afterClick));
-    // Give the async populateFoundImports a moment, then check the scan fired.
-    await p.waitForTimeout(800);
-    if (scanImportHit) ok('the on-demand TCC scan (/api/scan-import) fired on the import panel'); else bad('/api/scan-import fired', 'no request to /api/scan-import seen after the click');
-
-    // ── 4. CONTROL: openCreate() with no mode lands on 'pm', not import. ──
-    const control = await p.evaluate(() => {
-      openCreate();
-      return {
-        importPanelShown: document.getElementById('importpick') ? !document.getElementById('importpick').hidden : false,
-        pmChecked: (() => { const r = document.querySelector('input[name="rmode"][value="pm"]'); return !!(r && r.checked); })(),
-        importChecked: (() => { const r = document.querySelector('input[name="rmode"][value="import"]'); return !!(r && r.checked); })(),
-      };
-    });
-    // loadRoles is async on first fetch but the roles are cached from step 3, so pickMode('pm') is synchronous here.
     if (control.pmChecked && !control.importChecked && !control.importPanelShown) ok('CONTROL: openCreate() with no mode lands on prompt mode, not import'); else bad('CONTROL bare openCreate defaults pm', JSON.stringify(control));
 
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
@@ -162,7 +133,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 10) { console.log('firstrun-import: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 7) { console.log('firstrun-import: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('firstrun-import: ' + failures + ' FAILED'); process.exit(1); }
   console.log('firstrun-import: all good, ' + ran + ' checks');
 })();

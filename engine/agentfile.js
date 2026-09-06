@@ -128,12 +128,27 @@ function suggestName(displayName, deps) {
  * door (#1939). The WHOLE file is the instructions; the display name comes from the
  * body via the same parser adoption uses; the machine name is a derived suggestion.
  */
+/* #4: the same intro signal discovery uses (discover.js INTRODUCES). A file whose
+   text INTRODUCES an agent IS an agent file, even when the name is not cleanly
+   parseable. Anchored to a line start so a stray "you are welcome" mid-prose does
+   not match. */
+const INTRODUCES = /^[ \t]*(?:#+[ \t]*)?You are\s/mi;
+
 function importFromInstructions(src, deps) {
   const identity = deps.identityFromText(src);
   if (!identity || !identity.displayName) {
-    /* Genuinely not an agent file: no header AND nothing in the text introduces an
-       agent. Name the wrong KIND and point at the two real options, rather than the
-       old "it has no header" which invited a retry. */
+    /* #4 (Josh 0.6.39): being too strict on the exact format rejected real agent
+       files. If the text INTRODUCES an agent (a "You are ..." line) but the name is
+       not cleanly parseable -- a lowercase name ("You are angel"), or a role-first
+       intro ("You are a senior engineer named Krang") -- recognize it and let the
+       person name it, rather than rejecting a real agent for a format nit. This is
+       the import twin of discovery's introduces-but-unnamed rule. */
+    if (INTRODUCES.test(src)) {
+      return { ok: true, name: '', displayName: '', provider: null, body: src, recognizedFromContent: true, needsName: true };
+    }
+    /* Genuinely not an agent file: nothing introduces an agent. Name the wrong KIND
+       and point at the two real options, rather than the old "it has no header"
+       which invited a retry. */
     return { ok: false, because:
       'this file has no Kosmos header and its text does not introduce an agent. '
       + 'Choose the file you exported from Kosmos, or an instructions file whose text '

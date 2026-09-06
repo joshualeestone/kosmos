@@ -5857,19 +5857,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 }
 #firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
-/* #1652: the inline "Look in my Documents and Downloads" find-agents link in the
-   create-ending copy. An in-sentence, detection-EXTENDING action (it runs the
-   on-demand /api/scan-import of the TCC folders the #2125 auto-scan skips), so it
-   is a button styled as an underlined link -- the same quiet treatment as
-   #fr-alt.is-link -- sitting on the baseline of the note it lives in, NEVER a
-   second button competing with the single Giddy Up (Mona's ruling, 2026-09-06). */
-#firstrun .fr-lookimport {
-  background: transparent; border: 0; padding: 0; margin: 0;
-  font: inherit; color: var(--k-ink); cursor: pointer;
-  text-decoration: underline; text-underline-offset: 3px;
-}
-#firstrun .fr-lookimport:hover { color: var(--k-ink-2); }
-#firstrun .fr-lookimport:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; border-radius: 3px; }
+/* #1652/#5: the .fr-lookimport find-agents link CSS was removed with the link
+   itself (Josh's 0.6.39 ruling; see the frPaintFleet create arm). */
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
 #firstrun .fr-body h2:focus-visible { outline: none; }
@@ -27478,18 +27467,12 @@ function openCreate(initialMode) {
    (for the first-run import link); binding it directly would hand the click Event
    in as that arg. */
 document.getElementById('new-agent').addEventListener('click', () => openCreate());
-/* #1652: the first-run "look in my Documents and Downloads" find-agents link, in
-   frPaintFleet's create arm. DELEGATED on #fr-fleet so the create arm never
-   touches the node itself (frPaintFleet renders into a stub DOM in the node
-   tests, where a per-render querySelector would throw). An arrow wraps
-   openCreate('import') so the click Event is not passed as the mode. frFinish
-   leaves first-run, then openCreate('import') opens the create panel straight on
-   the import mode (threaded through loadRoles' async pickMode), which runs
-   populateFoundImports() -> the on-demand /api/scan-import of the TCC folders the
-   #2125 auto scan skips. */
-document.getElementById('fr-fleet').addEventListener('click', (e) => {
-  if (e.target.closest('.fr-lookimport')) frFinish(() => openCreate('import'));
-});
+/* #1652/#5: the first-run find-agents "look in my Documents and Downloads" link and
+   its delegated #fr-fleet handler were REMOVED on Josh's 0.6.39 ruling (see the
+   frPaintFleet create arm). Agents in Documents/Downloads are reached by the
+   permission-granted full scan loading them onto screen 9 via the found path, not a
+   link that jumped to create. openCreate still takes an optional initialMode, which
+   the import panel uses; nothing now calls it with 'import' from first-run. */
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
@@ -36155,32 +36138,51 @@ function frCheckRow(c, opts) {
     + '</div></div>';
 }
 
-/* install-flow-9screen: S2 Access's "Allow Access" button, delegated on the pane.
-   It opens System Settings -> Privacy -> Files & Folders (POST
-   /api/open-file-access-settings; the engine derives the URL). It cannot GRANT the
-   access (TCC), so the gate poll -- not this click -- flips the pill to granted and
-   unlocks Next. Only a failure speaks, in #fr-s2-msg; the Settings window itself is
-   the success feedback (same rule as S3's Turn-On buttons). */
+/* #1 (Josh 0.6.39): the grant buttons must FIRE the real macOS prompt, not open
+   System Settings. Josh's fresh-account test never got the "Terminal would like to
+   access your files" dialogs on the permission screens; they only appeared later at
+   Import. So a grant click now POSTs Kitty's native trigger, which fires the actual
+   prompt (fire-and-forget: the dialog appears, the user hits Allow, the gate poll
+   below detects the grant and unlocks Next). It falls back to opening System
+   Settings ONLY when the native trigger is unavailable ({ok:false}, e.g. a browser,
+   or before the endpoint has shipped) -- the old behaviour, so nothing regresses
+   during the native rollout. sleep is not a prompt category (pmset, programmatic),
+   so it keeps opening Settings and passes no trigger. */
+async function frFirePermission(triggerUrl, fallbackUrl, msg) {
+  if (msg) msg.textContent = '';
+  if (triggerUrl) {
+    try {
+      const res = await fetch(triggerUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+      const body = await res.json().catch(() => null);
+      // Prompt fired: the gate poll takes it from here. Nothing else to do.
+      if (res.ok && body && body.ok === true) return;
+      // {ok:false} or a non-ok status: the native mechanism is unavailable; fall
+      // back to opening Settings so the person is never left with a dead button.
+    } catch { /* endpoint missing / network error -> fall back */ }
+  }
+  // A category with no Settings fallback (a hypothetical trigger-only gate) simply
+  // stops after the trigger rather than fetching a null URL. Today S2 and S3-tmux
+  // always pass a fallback and S3-sleep is fallback-only, so this only hardens a
+  // future caller.
+  if (!fallbackUrl) return;
+  try {
+    const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    }
+  } catch {
+    if (msg) msg.textContent = 'we could not open System Settings';
+  }
+}
+
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   const b = e.target.closest('.s2-allow');
   if (!b) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
-  try {
-    const res = await fetch('/api/open-file-access-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }
+  finally { b.disabled = false; }
 });
 
 /* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
@@ -36198,26 +36200,19 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  const url = gate === 'sleep' ? '/api/open-sleep-settings'
+  /* #1: tmux fires the native Accessibility PROMPT (Kitty's /api/a11y-prompt, which
+     also injects tmux into the Accessibility list so it appears and is grantable -
+     the gap Josh hit, screenshot 9.51.30). sleep is programmatic (pmset), not a
+     prompt category, so it opens Settings and passes no trigger. Both fall back to
+     opening Settings when the native trigger is unavailable. */
+  const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
+  const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
     : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
-  if (!url) return;
+  if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;
-  try {
-    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' } });
-    if (!res.ok) {
-      const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
-    } else if (msg) {
-      // A retry that succeeds must not leave an earlier failure sentence standing
-      // beside an actually-open Settings window.
-      msg.textContent = '';
-    }
-  } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
-  } finally {
-    b.disabled = false;
-  }
+  try { await frFirePermission(trigger, fallback, msg); }
+  finally { b.disabled = false; }
 });
 
 // install-flow-9screen: frPaintMachine + the standalone machine-check screen
@@ -37078,19 +37073,30 @@ function frClaudeConfirmClose() {
   if (!btn.classList || !btn.classList.contains('is-connected')) btn.disabled = false;
 }
 
-document.getElementById('fr-pane-3').addEventListener('click', (e) => {
-  const b = e.target.closest('#fr-llm-connect');
-  if (!b) return;
-  /* A second press while the panel is open closes it again, which is the
-     behaviour the aria-expanded contract promises. Otherwise this is just the
-     gated entry; the confirm decision lives in frConnectStart. */
-  const box = document.getElementById('fr-claude-confirm');
-  if (box && !box.hidden) { frClaudeConfirmClose(); return; }
-  // The same one-press guard the primary has: start() is idempotent under
-  // it anyway, but the list button should not LOOK pressable twice.
-  b.disabled = true;
-  Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
-});
+/* 🛑 #fr-llm-connect LIVES IN #fr-pane-5, NOT #fr-pane-3 (Josh 0.6.39 #3: "Connect
+   Claude is dead"). This handler used to be DELEGATED on #fr-pane-3; when the
+   wizard grew screens and the connect step moved to pane-5, clicks stopped
+   bubbling to a pane-3 listener and the button became tappable-but-inert -- and no
+   test caught it. A DIRECT listener on the button itself (the same pattern the
+   sibling #fr-openai-connect already uses) cannot be broken by a future pane
+   renumber. A click on the button's child <span> (the button "grew a check")
+   still bubbles to the button, so currentTarget is correct. */
+(() => {
+  const connectBtn = document.getElementById('fr-llm-connect');
+  if (!connectBtn) return;
+  connectBtn.addEventListener('click', (e) => {
+    const b = e.currentTarget;
+    /* A second press while the panel is open closes it again, which is the
+       behaviour the aria-expanded contract promises. Otherwise this is just the
+       gated entry; the confirm decision lives in frConnectStart. */
+    const box = document.getElementById('fr-claude-confirm');
+    if (box && !box.hidden) { frClaudeConfirmClose(); return; }
+    // The same one-press guard the primary has: start() is idempotent under
+    // it anyway, but the list button should not LOOK pressable twice.
+    b.disabled = true;
+    Promise.resolve(frConnectStart({ opener: b })).finally(() => { b.disabled = false; });
+  });
+})();
 
 document.getElementById('fr-claude-confirm-go').addEventListener('click', (e) => {
   /* currentTarget, not target: the sibling handler already does this, and
@@ -37132,9 +37138,10 @@ document.getElementById('fr-claude-confirm-no').addEventListener('click', () => 
 });
 
 /* #944-adjacent: OpenAI's own reveal/submit. Each gets its own direct
-   listener rather than the delegated pattern fr-llm-connect uses above --
-   there is exactly one button per id here, so delegation would add
-   indirection with nothing to share it with. */
+   listener, the same pattern fr-llm-connect now uses above -- there is
+   exactly one button per id here, so delegation would add indirection with
+   nothing to share it with (and a per-pane delegated listener is exactly what
+   broke fr-llm-connect when the connect step moved panes; Josh 0.6.39 #3). */
 /* Which panel Connect opens depends on whether the runner is already here.
    ⚠️ ASKED EVERY TIME, not cached: a runner can arrive or leave between
    presses, and Settings' equivalent says the same in its own comment.
@@ -38392,20 +38399,20 @@ function frPaintFleet() {
        DETECTION, not in a sentence on this screen, and this arm stays silent
        until detection can no longer be wrong about it.
 
-       ⭐ RESOLUTION (2026-09-06, Mona's mock; Splinter verified in code). His
-       ruling above STILL HOLDS: a DISCLOSURE link explaining an empty list is
-       still out. The find-agents link that now renders below is NOT that -- it
-       is the detection-EXTENDING action his ruling DEFERRED TO ("the fix belongs
-       in DETECTION"). The premise changed under #2125, which made the AUTO scan
-       TCC-free so it deliberately skips Documents/Downloads/Desktop to avoid a
-       fresh-install permission ambush. Post-#2125 this empty arm CAN be wrong --
-       agents in those folders were never scanned -- so it is no longer true that
-       "detection can no longer be wrong about it". The link is the mechanism
-       that makes detection REACH those folders: the on-demand /api/scan-import,
-       where the macOS prompt is expected because the person just asked for it.
-       It is the "AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT" (below),
-       turned into an action. Josh can flip it on his morning test; his words
-       above are kept verbatim. */
+       ⭐ RESOLUTION SUPERSEDED (2026-09-06, Josh's 0.6.39 fresh-account test).
+       The find-agents link WAS added here (Mona's mock, Splinter-verified as the
+       detection-extending action the ruling deferred to). Josh's own install test
+       then RE-CONFIRMED his ruling above: on the empty screen he saw the "Look in
+       my Documents and Downloads" text and ruled it should NOT appear (all the
+       more so because the permissions were never actually granted, #1), and when
+       he clicked it, it jumped him to create-agent instead of loading found agents
+       onto this screen.
+       ⇒ THE LINK IS REMOVED and his original ruling holds verbatim: "There is no
+       link to appear, even. It just pulls them in." The fix for agents in
+       Documents/Downloads belongs in DETECTION after all: once the permission flow
+       (#1) actually grants access, a full scan of those folders runs and any
+       agents load onto THIS screen via the found path (frPaintFound), not a link
+       that jumps to create. So this arm is silent again. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -38464,14 +38471,7 @@ function frPaintFleet() {
        is expected because the person just asked for it. It is a link, NOT a
        second button: the single Giddy Up stays, frForkActions is unchanged. The
        permission sentence is load-bearing and stays up front. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>'
-      + '<p class="fr-foundnote">Already have an agent on this computer? '
-      + '<button type="button" class="fr-lookimport">Look in my Documents and Downloads</button>. '
-      + 'Kosmos will ask macOS for permission first.</p>';
-    /* The link's click is handled by the #fr-fleet DELEGATED listener (module-level,
-       registered once near the #new-agent handler), NOT bound here: frPaintFleet
-       renders into a stub DOM in the node tests, so a box.querySelector at render
-       time would throw. Delegation keeps this arm from touching the node at all. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;
   }

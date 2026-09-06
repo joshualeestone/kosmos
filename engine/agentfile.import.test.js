@@ -98,6 +98,28 @@ test('#1939 RED-CAPABLE CONTROL: the same file with a Kosmos export header still
   assert.equal(out.recognizedFromContent, undefined, 'the export path does not set the instructions flag');
 });
 
+test('#4: a file that introduces an agent with an UNPARSEABLE name is recognized, to be named', () => {
+  // Josh's 0.6.39 test: seed files whose intro the strict name-parser could not read
+  // (a lowercase name, or a role-first intro) were rejected as "not a Kosmos agent".
+  // Import now recognizes the intro and lets the person name the agent (offer-to-name),
+  // rather than rejecting a real agent for a format nit. Claude AND OpenAI files that
+  // introduce with "You are ..." are covered.
+  for (const src of ['You are angel, a project manager.\n', 'You are a senior engineer named Krang.\n']) {
+    const out = agentfile.importAgent(src, deps);
+    assert.equal(out.ok, true, 'an introduced agent must be recognized even with an unparseable name: ' + JSON.stringify(src) + ' -> ' + out.because);
+    assert.equal(out.recognizedFromContent, true, 'recognized as instructions, so the form can prompt for a name');
+    assert.equal(out.displayName, '', 'no name was parseable, so the form asks (offer-to-name)');
+  }
+});
+
+test('#4 CONTROL: a file that introduces NOBODY is still rejected (never accept arbitrary markdown)', () => {
+  // The loosening is gated on an intro line, not "any markdown": a file with no
+  // "You are ..." line and no header is genuinely not an agent and stays refused, so
+  // the loosening cannot over-accept a random note.
+  const out = agentfile.importAgent('# Project setup\n\nRun npm install, then npm test.\n', deps);
+  assert.equal(out.ok, false, 'a non-agent markdown file must not be accepted as an agent');
+});
+
 test('#1939: a display name that slugs to nothing returns an empty name for the form', () => {
   /* The create form requires a name; when the display name has no [a-z0-9] to slug
      (a non-Latin name here), import returns name:'' and lets the form ask, rather
