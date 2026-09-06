@@ -53,6 +53,23 @@ gate, the stray-comment scanner updated for multiple `<style>` blocks, and the
 forced-theme section regenerated. `lib-firstrun-steps.js` is identity-keyed, so the
 content-anchored browser checks auto-follow the renumber.
 
+### Merge sequence — CORRECTED (Splinter, 2026-09-05), do in THIS order
+
+On Splinter's post-serve browser CLEAR + his merge-order call (rebase onto a
+SETTLED main once, not repeatedly — install-flow + Angel's tell-copy + Pete's
+#2315 all want main):
+1. **Rebase onto latest main + resolve the 2 conflicts FIRST**: `tools/browser-checks.sh`
+   (my render-preflight-2163 runner-loop removal vs main's runner edits) and
+   `engine/machine.test.js` (the branch's S2/S3 gated-Next backend vs main).
+   web/index.html auto-merges clean (verified with git merge-tree).
+2. **THEN** the browser pass + full challenge-loop, on the rebased+resolved code.
+3. **THEN** PR → merge promptly.
+🛑 NOT browser→challenge→rebase: that ORPHANS the challenge proof
+(a-rebase-orphans-every-recorded-run). Worse here because `tools/browser-checks.sh`
+is IN the proof's executed set (the runner the proof runs WITH), so a pre-rebase
+proof would execute a different runner than what merges. The proof's inputs
+include its own runner + subject; it must be generated on the rebased code.
+
 ### Follow-ups (tracked, not in this PR)
 
 - Browser-checks: 5 checks for the retired screens are `KNOWN_STALE` and are
