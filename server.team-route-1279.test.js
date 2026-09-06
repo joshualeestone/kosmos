@@ -144,7 +144,7 @@ test('#1903 rail: a member on a dead account is refused BEFORE any write; live m
   } finally { create.setClaudeProbe(null); }
 });
 
-test('all members dead: no agent is created, and the reason names the sign-in, not an empty team', async () => {
+test('all members dead (no sign-in): no agent created; neutral summary, with the per-member sign-in remedy in refused[]', async () => {
   create.setClaudeProbe(LIVE);
   try {
     const r = await postTeam({
@@ -157,13 +157,43 @@ test('all members dead: no agent is created, and the reason names the sign-in, n
     assert.equal(r.status, 400, JSON.stringify(r.json));
     assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
     assert.equal(r.json.created.length, 0);
-    assert.match(r.json.because || '', /could not sign in/i, 'the all-dead reason should name the sign-in, not "a team with no members"');
+    // Top-level summary is NEUTRAL (a member can be dead for a sign-in OR a model
+    // reason, so the summary names neither), not "a team with no members".
+    assert.match(r.json.because || '', /no member could be created/i, 'the all-dead summary should be neutral and point at refused[]');
     assert.doesNotMatch(r.json.because || '', /no members/i);
     assert.equal(r.json.refused.length, 2);
+    // The specific remedy survives per-member: these were sign-in deaths.
+    assert.match(r.json.refused[0].because || '', /sign-in|OpenAI sign-in/i, 'the per-member sign-in remedy should survive in refused[]');
     // Schema parity: this route-built response carries `cap` like every
     // createTeam-produced outcome does.
     assert.equal(typeof r.json.cap, 'number', 'the all-dead response should carry the cap field for schema consistency');
   } finally { create.setClaudeProbe(null); }
+});
+
+test('all members dead via UNRUNNABLE MODEL on live accounts: the summary is neutral and does NOT misname it as a sign-in failure', async () => {
+  create.setClaudeProbe(LIVE);
+  // Live OpenAI account that can run gpt-4o only; both members ask for a model it
+  // cannot run, so both die for a MODEL reason, not a sign-in reason.
+  openai.setFetcher(async () => ({ status: 200, body: { data: [{ id: 'gpt-4o' }] } }));
+  try {
+    const r = await postTeam({
+      creator: 'pmboss', purpose: 'all bad model',
+      members: [
+        { name: 'badmodelone', role: 'pm', provider: 'openai', account: OPENAI_DIR, model: 'gpt-9-nonexistent' },
+        { name: 'badmodeltwo', role: 'pm', provider: 'openai', account: OPENAI_DIR, model: 'gpt-9-alsonope' },
+      ],
+    });
+    assert.equal(r.status, 400, JSON.stringify(r.json));
+    assert.equal(r.json.outcome, 'refused', JSON.stringify(r.json));
+    assert.equal(r.json.created.length, 0);
+    // The bug this guards: a hardcoded "could not sign in" would point at the
+    // WRONG remedy (re-authenticate) for a model failure. The summary must be
+    // neutral, and the per-member reason must be the MODEL remedy.
+    assert.doesNotMatch(r.json.because || '', /sign in|sign-in/i, 'a model-caused all-dead must NOT be misnamed a sign-in failure');
+    assert.match(r.json.because || '', /no member could be created/i);
+    assert.equal(r.json.refused.length, 2);
+    assert.match(r.json.refused[0].because || '', /not a model this account can run/i, 'the per-member model remedy should survive in refused[]');
+  } finally { create.setClaudeProbe(null); openai.setFetcher(null); }
 });
 
 test('all members dead AND a missing shape field: the higher-priority shape reason wins, not "could not sign in"', async () => {

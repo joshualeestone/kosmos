@@ -70,6 +70,18 @@ cap + the operator-only gate are the bound.
   #1903 rail. Added after iteration 2 of the challenge loop flagged porting the
   account-liveness half but not the model half as a "half a rail" inconsistency.)
 
+## By design (not gaps)
+- When a request is refused for a more fundamental shape reason (missing
+  creator/purpose) AND liveness had already filtered a dead member, the dead
+  member is not surfaced in the response: the higher-priority shape reason wins
+  and nothing was created, so the caller fixes that first and the next resubmit
+  surfaces the next issue. This is the refusal-priority convention, matched to
+  createTeam's own order.
+- The all-dead summary `because` is neutral ("no member could be created; see
+  refused[]") rather than naming a cause, because a member can be dead for a
+  sign-in reason OR an unrunnable-model reason; the specific per-member remedy
+  is in refused[].
+
 ## Weakest premise
 I assume the HTTP-endpoint shape over a `kosmos` CLI verb because it matches
 the report-hook auth chain and the existing `/api/agents` create surface. If a

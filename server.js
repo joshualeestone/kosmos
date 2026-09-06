@@ -3167,7 +3167,13 @@ const server = http.createServer((req, res) => {
            the true original count and creates nothing (its refuseAll fires before
            the member loop), rather than the count being silently reduced by
            liveness first. The effective cap is read from createTeam's own
-           resolveCap so the two never drift. */
+           resolveCap so the two never drift.
+           📌 The override in THIS slice is the operator env AGENT_WORKFORCE_TEAM_CAP
+           only: the route passes no `deps` to createTeam, so resolveCap's
+           `deps.cap` operator-config channel is unreachable over HTTP. Consistent
+           (route and engine both read the same env, no drift); wiring `deps.cap`
+           from a real operator-config source belongs with the agent-token slice,
+           where the cap story is finished. */
         const cap = team.resolveCap(undefined, process.env);
         const overCap = !!(members && members.length > cap);
 
@@ -3248,11 +3254,18 @@ const server = http.createServer((req, res) => {
           const shapeOk = typeof body.creator === 'string' && body.creator.trim() !== ''
             && typeof body.purpose === 'string' && body.purpose.trim() !== '';
           if (liveMembers.length === 0 && shapeOk) {
+            /* 🔑 NEUTRAL SUMMARY, keyed to NO cause. A member reaches the refused
+               set for TWO reasons now -- a dead account (accountConnectable) OR an
+               unrunnable OpenAI model (#2140) -- so a top-level "could not sign in"
+               would misname the all-model case and point at the wrong remedy
+               (re-authenticate vs. pick a valid model). The accurate per-member
+               reason (sign-in remedy or model remedy) rides in refused[], where a
+               caller reads why EACH failed; the summary only says none survived. */
             sendJson(res, 400, {
               outcome: 'refused',
               created: [],
               refused: livenessRefused,
-              because: "every member's account could not sign in; no agent was created (see refused[])",
+              because: 'no member could be created; every member was refused (see refused[])',
               creator: body.creator.trim(),
               purpose: body.purpose.trim(),
               cap,
