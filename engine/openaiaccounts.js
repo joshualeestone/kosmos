@@ -461,8 +461,15 @@ function addWithKey({ key, label, codexBin }) {
     if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
     spot = { label: clean, dir: path.join(homeDir(), `.codex-${clean}`) };
     if (fs.existsSync(authFile(spot.dir))) return { ok: false, because: 'there is already an OpenAI account by that name on this computer' };
+    // #2338: a live ChatGPT-subscription sign-in already owns this auth-less dir
+    // (its auth.json is not written yet). Refuse rather than write an api-key
+    // account into it -- the sign-in's anti-litter would later delete this account.
+    if (activeChatgptDirs.has(spot.dir)) return { ok: false, because: 'a sign-in for that name is already in progress' };
   } else {
-    spot = nextWorkDir();
+    // #2338: skip a slot a live ChatGPT sign-in is holding (auth.json not written
+    // yet, so nextWorkDir would otherwise judge it free and both flows would land
+    // on it), for the same reason.
+    spot = nextWorkDir(activeChatgptDirs);
     if (!spot) return { ok: false, because: 'we could not find a free spot for another account' };
   }
   const madeDir = !fs.existsSync(spot.dir);

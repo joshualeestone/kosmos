@@ -247,4 +247,21 @@ test('a REUSED auth-less slot where codex writes a non-subscription auth.json is
   delete process.env.FAKE_CODEX_APIKEY;
 });
 
+test('the api-key flow will not write into a slot a live ChatGPT sign-in holds (no cross-flow credential clobber)', async () => {
+  openai.setChatgptTimers({ timeout: 100000, ttl: 100000 });
+  delete process.env.FAKE_CODEX_APIKEY; delete process.env.FAKE_CODEX_FAIL;
+  process.env.FAKE_CODEX_SLEEP = '1'; // the chatgpt child stays pending, HOLDING .codex-crossflow
+  const cg = openai.startChatgptLogin({ codexBin: MOCK, label: 'crossflow' });
+  assert.equal(cg.ok, true, cg.because);
+  await waitFor(cg.sessionId, (x) => x.state !== 'starting'); // spawned + slot reserved
+  // Without the fix, addWithKey would write an api-key auth.json into .codex-crossflow,
+  // and the sign-in's later anti-litter would then destroy that api-key account.
+  const ak = openai.addWithKey({ key: 'sk-testkeytestkeytestkey', codexBin: MOCK, label: 'crossflow' });
+  assert.equal(ak.ok, false, 'the api-key add cannot target a name a live sign-in holds');
+  assert.match(ak.because, /in progress/);
+  assert.equal(fs.existsSync(nodePath.join(SANDBOX, '.codex-crossflow', 'auth.json')), false, 'no api-key credential was written into the reserved sign-in slot');
+  openai.cancelChatgptLogin(cg.sessionId);
+  delete process.env.FAKE_CODEX_SLEEP;
+});
+
 test.after(() => { openai.setChatgptTimers({ timeout: 5 * 60 * 1000, ttl: 2 * 60 * 1000 }); try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
