@@ -568,6 +568,23 @@ function installedCheck(opts) {
    * from whatever is in each bucket, rather than picking a winner and
    * returning.
    */
+  /* #2304 defect-2: the two FAILURE arms below carried macOS-only copy that a
+     win32 user meets first once `platform.js` SUPPORTED includes win32. Three
+     phrases read wrong on Windows and are platform-gated on the same injected
+     `platform`/`isWin` the required-part list uses (both branches assertable
+     from a Mac, the #570/#2312 pattern):
+       - the forbidden-character summary lists "a backslash", but on win32 a
+         backslash is the path SEPARATOR and `create.unusablePath` allows it
+         (#1889), so naming it would tell every Windows user their normal path is
+         the fault;
+       - "the parts of macOS that start an agent" names the wrong OS;
+       - the missing-remedy's "Download for macOS" points a Windows user at the
+         wrong build.
+     Josh owns the final Windows wording (copy is reversible, his ruling); this
+     ships the best honest platform-correct default. darwin is byte-identical. */
+  const badChars = isWin ? 'A quote or a line break' : 'A quote, a backslash or a line break';
+  const badCharsLower = isWin ? 'no quotes or line breaks' : 'no quotes, backslashes or line breaks';
+  const agentStarter = isWin ? 'the part of this computer that starts an agent' : 'the parts of macOS that start an agent';
   const problems = missing.length || unusable.length;
   const parts_ = [];
   if (missing.length) {
@@ -576,8 +593,8 @@ function installedCheck(opts) {
   if (unusable.length) {
     parts_.push('The path set for '
       + unusable.map((u) => `${u.label} is ${u.bin}`).join(', and the one for ')
-      + '. A quote, a backslash or a line break in a path is something we will not pass on to '
-      + 'the parts of macOS that start an agent, whatever is at the end of it.');
+      + '. ' + badChars + ' in a path is something we will not pass on to '
+      + agentStarter + ', whatever is at the end of it.');
   }
   if (unreadable.length) {
     parts_.push(`We could not check ${unreadable.map((u) => u.label).join(' or ')} at all.`);
@@ -622,11 +639,29 @@ function installedCheck(opts) {
      there would be advice that cannot work, which is the defect this card is
      about wearing different clothes. */
   const remedy = missing.length && !unusable.length
-    ? 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
-      + 'macOS. Your agents and settings stay on this computer; installing again does '
-      + 'not remove them.'
-    : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
-      + 'folder with no quotes, backslashes or line breaks in its name is what fixes this.';
+    ? (isWin
+      /* TODO(#2304/#570): the Windows install/download TARGET is a product
+         decision -- does installkosmos.com serve a Windows build yet? Until it
+         does, the honest remedy is framed around the runner, NOT a Kosmos
+         re-download: on win32 the required "part that runs agents" IS the runner
+         (Claude Code), so pointing a Windows user at a Kosmos reinstall would not
+         put back a missing runner. Josh owns the final Windows phrasing. */
+      ? 'Install the part that runs agents, then open Kosmos again. Your agents and '
+        + 'settings stay on this computer.'
+      : 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
+        + 'macOS. Your agents and settings stay on this computer; installing again does '
+        + 'not remove them.')
+    /* The UNUSABLE-path remedy is gated on the same reasoning as the missing one:
+       on win32 the part whose path is unusable is the RUNNER (the required part is
+       the runner, not tmux), so "reinstall Kosmos to a clean folder" would not move
+       the runner's path -- the same Kosmos-centric dishonesty the missing arm
+       avoids. darwin keeps the exact existing wording (its unusable part is the
+       installer's private tmux copy, so "reinstall Kosmos" is honest there). */
+    : (isWin
+      ? 'The part that runs agents is installed somewhere Kosmos cannot start it from. '
+        + 'Installing it again to a folder with ' + badCharsLower + ' in its name is what fixes this.'
+      : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
+        + 'folder with ' + badCharsLower + ' in its name is what fixes this.');
   return {
     key: 'installed',
     state: STATE.ATTENTION,
