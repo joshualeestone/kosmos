@@ -46,3 +46,51 @@ zero FAIL-shaped lines, hash matching this file's `diff_hash`.
 - The automated suite does not exercise the `-u` arm against a real tmux. **It has been measured by
   hand** (tmux 3.6a, cold and warm servers, each arm on equal footing, control returning the leaked
   value in both states) and that measurement is recorded in the PR body as manual, not as coverage.
+
+### Final Ledger
+
+Condensed from the per-iteration records in `.claude/plans/reauth-default-1922.md`, which carries the
+full text for rounds 1 to 37. Severity is as the reviewing agent reported it.
+
+#### Iteration 1-11 (code defects)
+- [BLOCKER] The fix alone opened a gate onto a flow that cannot repair a dead credential; bypass removed.
+- [BLOCKER] `env FOO=1 -u X` exits 127, so an assertion loosened on a "order-independent" rationale
+  passed on an argv that cannot launch at all.
+- [BLOCKER] `env <bin> -u X` exits 0, hands the CLI junk flags and NEVER strips the variable. The
+  silent form of the defect, passing green. Operand walk added; this is the assertion that still
+  catches the fifth mutation today.
+- [WARNING] Route arm and launch arm each needed a CONTROL to prove the guard was not vacuous.
+
+#### Iteration 12-20 (claim defects in shipped source)
+- [BLOCKER] The PR body shipped verbatim an absolute that iteration 15 had already retracted.
+- [BLOCKER] A false post-fix universal ("the gate holds shut on every default-account machine") that
+  this branch's own passing test refutes.
+- [WARNING] Five separate absolutes whose citation measured something narrower than the sentence.
+- [CONVENTION] Retraction archaeology in shipped source; deferred after measuring that 13 of 22 sites
+  were pre-existing house style.
+
+#### Iteration 21-29 (documentation accuracy)
+- [WARNING] Three `grep -n` citations that never reproduced, one because the anchor phrase spans a
+  hard wrap. A commit message had asserted they were "verified empty".
+- [BLOCKER] A recorded command was not the command executed: a pathspec dropped in transcription.
+- [BLOCKER] The PR body credited this branch with a test pre-existing on `origin/main`.
+- [BLOCKER] A stated remedy ("pin every figure to an immutable sha") falsified by its own prediction;
+  figures deleted rather than pinned again.
+- [WARNING] A repo-wide absolute sourced from a grep of one file.
+
+#### Iteration 30-37 (citations and bookkeeping)
+- [MEDIUM] A "reproducible command" that was itself case- and lexically narrow, undercounting ~7x.
+- [LOW] Citations pinned to commits reachable from no ref; disclaimer scoped to the sections above it.
+- [LOW] Live-tense claims ("the current hash") inside a permanent record.
+- [LOW] Two counts obtained by reading a printed list rather than running `grep -c`.
+- [STRENGTH] Reviewers independently reproduced all five mutation arms in every round from 30 onward.
+- [STRENGTH] One reviewer built the missing real-tmux experiment; a later round found its three arms
+  sat on different server states, and the like-for-like re-run closed the gap properly.
+
+#### Iteration 38
+No issues found in the code, tests or PR body. Asked to construct a mutation the suite does not catch,
+and could not. [STRENGTH] Every shape tried either reddens an arm or is behaviourally identical.
+
+#### Iteration 39
+No issues found. Neutral prompt, full scope, self-chosen priorities. [NIT] noted only that the proof
+file did not yet exist, which is expected process state and is this file.
