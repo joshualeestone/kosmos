@@ -161,10 +161,26 @@ function readToken() {
  * on win32 can only toggle the read-only attribute -- it cannot express "owner
  * only" -- so `chmodSync(path, 0o600)` returns success while changing NO ACL,
  * and the token inherits its parent's ACL (measured on Windows 11: SYSTEM,
- * Administrators and the user each Full Control, fully inherited). Another local
- * account can read it. The file-mode boundary does NOT exist there until a
- * Windows ACL restriction is added AND verified by reading the resulting ACL
- * (deferred; the card is #2040).
+ * Administrators and the user each Full Control, fully inherited). So the
+ * FILE-MODE boundary this function reports does not exist on win32.
+ *
+ * ⚖️ DECISION (#2040, ratified 2026-09-06): the token is NOT thereby exposed to
+ * other local users, and an explicit owner-only ACL was considered and DECLINED.
+ * The token lives under `%APPDATA%\AgentWorkforce` (`store.dataRootFor('win32', ...)`,
+ * pinned by `engine/store.dataroot-570.test.js`), a per-user PROFILE root whose
+ * inherited ACL is exactly SYSTEM + Administrators + the owning user, with NO
+ * `Users`/`Everyone` entry -- so another NON-admin local account already cannot read
+ * it. That location IS the Windows analog of the macOS 0600 boundary (POSIX needs
+ * the mode only because `$HOME` is group-traversable; win32 `%APPDATA%` is not). An
+ * Administrator can still read it, but a Windows admin bypasses ANY file DACL
+ * (take-ownership / SeBackupPrivilege), so an owner-only ACL removing Administrators
+ * would be cosmetic against the one threat that matters, and removing SYSTEM would
+ * risk the service -- it buys no real boundary the profile location does not already
+ * give.
+ * ⚠️ This holds only WHILE the data root stays profile-private: a move to a shared
+ * root (e.g. `C:\ProgramData`, whose default ACL grants `Users` read) would expose
+ * the token and make an explicit ACL necessary. `engine/store.dataroot-570.test.js`
+ * pins that precondition, so such a move trips a test rather than silently exposing.
  *
  * Pure and platform-injected so both branches are testable without a Windows
  * host; defaults to the real platform.
@@ -179,11 +195,13 @@ function ownerOnlyModeIsEnforced(platform = process.platform) {
  * (`ownerOnlyModeIsEnforced()` true) that owner-only mode is a real boundary
  * against another local account -- necessary because on macOS `$HOME` is
  * group-traversable (every local account shares primary gid `staff`), so
- * nothing weaker suffices. 🛑 On Windows the mode is a silent no-op and this
- * boundary does NOT hold (#2040; see `ownerOnlyModeIsEnforced`): the token is
- * written and read normally, but nothing restricts who else on the machine can
- * read it until an NTFS ACL restriction lands. Idempotent: a second call
- * returns the same token.
+ * nothing weaker suffices. 🛑 On Windows the FILE MODE is a silent no-op, so that
+ * mode-based boundary does NOT hold (#2040; see `ownerOnlyModeIsEnforced`) -- but
+ * the token is still not exposed to other non-admin local accounts, because it
+ * lives under the profile-private `%APPDATA%` data root whose inherited ACL
+ * excludes them (the #2040 decision: the boundary is provided by LOCATION, not by
+ * the mode, and an explicit ACL was declined -- see `ownerOnlyModeIsEnforced`).
+ * Idempotent: a second call returns the same token.
  *
  * 🔑 RACE-SAFE ON THE NORMAL PATH: it returns the token actually ON DISK, not
  * merely the one this call generated. Two boards on the same account (a same-port
