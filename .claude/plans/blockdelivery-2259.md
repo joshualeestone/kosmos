@@ -12,9 +12,11 @@ the specific failure this tool's own header warns against.
 ## Fix
 
 Resolve each agent's REAL brief per directory, rather than assuming CLAUDE.md:
-- New `briefPath(dir)` helper: `AGENTS.md` if present, else `CLAUDE.md`, else null.
-  This mirrors `engine/discover.js` (which prefers AGENTS.md to classify a codex
-  folder) and `engine/create.js` `briefFilename(runner)`.
+- New `briefPath(dir)` helper: `CLAUDE.md` if present, else `AGENTS.md`, else null.
+  CLAUDE.md-first mirrors `engine/discover.js` `connect()` ("CLAUDE.md wins when both
+  exist: a person who has both has a Claude agent that also carries codex notes") and
+  `engine/create.js` `briefFilename(runner)`. A codex-only dir (no CLAUDE.md) resolves
+  to AGENTS.md correctly.
 - The helper drives all three CLAUDE.md-only sites: the agent filter, the population
   floor message, and the per-agent text read.
 
@@ -25,10 +27,11 @@ brief the agent actually boots from is precise.
 
 ## Weakest premise
 
-The disk rule "AGENTS.md if present else CLAUDE.md" resolves a both-present migration
-dir the same way discover.js does (AGENTS.md wins). If a codex->claude migration ever
-left both, discover.js would also pick AGENTS.md, so the diagnostic stays consistent
-with how the agent actually boots. Dev-only diagnostic, low severity.
+A managed runner change MOVES the brief (create.js:1204-1233), so in the normal case
+exactly one file is present and precedence is moot. Only an ambiguous both-present
+folder turns on order, and CLAUDE.md-first matches discover.js connect() exactly, so
+the diagnostic reads the file that folder actually boots. Dev-only diagnostic, low
+severity.
 
 ## Tests (tools/test-block-delivery.sh, wired via package.json test:shell)
 

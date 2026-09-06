@@ -58,21 +58,23 @@ printf '# agent\n<!-- kosmos:colleagues:start -->\nx\n<!-- kosmos:colleagues:end
 printf '# agent\nnothing here\n' > "$T/codex/codexy/AGENTS.md"
 out="$(run "$T/codex")"
 case "$out" in
-  *"2 agents"*) ok "a codex agent (AGENTS.md, no CLAUDE.md) is SEEN, not silently omitted" ;;
+  *"(2 agents)"*) ok "a codex agent (AGENTS.md, no CLAUDE.md) is SEEN, not silently omitted" ;;
   *) bad "the codex agent was omitted; fleet count is not 2: $(printf '%s' "$out" | grep '^fleet:')" ;;
 esac
-case "$out" in
-  *"colleagues"*"UNDELIVERED to 1"*) ok "a block missing from a codex agent's AGENTS.md is caught, not false-cleaned" ;;
-  *) bad "codex undelivered misread (old CLAUDE.md-only code would say delivered-to-all): $(printf '%s' "$out" | grep colleagues)" ;;
+# Per-row, not a whole-output glob (the convention this file fixed for `projects`).
+row="$(printf '%s' "$out" | grep -E '^  colleagues ')"
+case "$row" in
+  *"UNDELIVERED to 1"*) ok "a block missing from a codex agent's AGENTS.md is caught, not false-cleaned" ;;
+  *) bad "codex undelivered misread (old CLAUDE.md-only code would say delivered-to-all): $row" ;;
 esac
 
 # --- a codex agent that HAS the block reads as delivered (AGENTS.md is READ) --
 mkdir -p "$T/codexfull/codexy"
 printf '# agent\n<!-- kosmos:colleagues:start -->\nx\n<!-- kosmos:colleagues:end -->\n' > "$T/codexfull/codexy/AGENTS.md"
-out="$(run "$T/codexfull")"
-case "$out" in
-  *"colleagues"*"delivered to all entitled"*) ok "a block present in a codex agent's AGENTS.md reads as delivered (the file is actually read)" ;;
-  *) bad "codex AGENTS.md content not read: $(printf '%s' "$out" | grep colleagues)" ;;
+row="$(run "$T/codexfull" | grep -E '^  colleagues ')"
+case "$row" in
+  *"delivered to all entitled"*) ok "a block present in a codex agent's AGENTS.md reads as delivered (the file is actually read)" ;;
+  *) bad "codex AGENTS.md content not read: $row" ;;
 esac
 
 # 🔑 THE DISTINCTION THIS TOOL EXISTS FOR. `you` has no record on this machine,

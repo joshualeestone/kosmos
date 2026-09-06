@@ -43,10 +43,16 @@ const WORKERS = process.env.KOSMOS_WORKERS_DIR || path.join(process.env.HOME || 
    CLAUDE.md (#2245), so reading only CLAUDE.md silently OMITS exactly the
    population #2245 added -- the most reassuring possible way to be blind, and
    the same false-clean this tool exists to prevent. Resolve the real brief per
-   agent: AGENTS.md if present (matching engine/discover.js, which prefers it),
-   else CLAUDE.md; null if the folder is not an agent. */
+   agent; null if the folder is not an agent.
+
+   ⚠️ CLAUDE.md WINS WHEN BOTH EXIST -- the same precedence engine/discover.js
+   connect() uses ("a person who has both has a Claude agent that also carries
+   codex notes"), so a both-present migration folder resolves to the file it
+   actually boots. A codex agent's runner change MOVES the brief (create.js), so
+   in the normal case exactly one file is present and order is moot; only the
+   ambiguous both-present case turns on it, and it must match discover.js. */
 function briefPath(dir) {
-  for (const fn of ['AGENTS.md', 'CLAUDE.md']) {
+  for (const fn of ['CLAUDE.md', 'AGENTS.md']) {
     const p = path.join(dir, fn);
     try { if (fs.statSync(p).isFile()) return p; } catch { /* try the next brief name */ }
   }
