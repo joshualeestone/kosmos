@@ -38,8 +38,15 @@ to PigeonPete's backend contract (kosmos#2338, branch openai-subscription-2338).
 
 ## Tests
 - `web.openai-subscription-picker-2338.test.js` (new): extract-and-run for
-  acctOpenaiChoose / acctOpenaiSubView / acctIsOpenaiSubscription; exact
-  route-path wiring; needsRunner routing; connected-paint wiring; close teardown.
+  acctOpenaiChoose (incl. idempotent sub-entry + stale-message clear),
+  acctOpenaiSubView (the poll state machine), and acctOpenaiSubReset (resting
+  state + button re-enable); source-pins for the exact route paths, needsRunner
+  routing, the 404-terminal vs 5xx-transient split, the terminal-error teardown,
+  the double-connect guard, the no-sessionId guard, and the connected-paint
+  mirror. (An earlier draft carried an acctIsOpenaiSubscription discriminator
+  helper; it was removed as unused - steady-state rows render via the email
+  fallback and a subscription badge is a deferred Josh UX call - so the plan no
+  longer lists it.)
 - `web.runner-first-979.test.js` (updated): present/unknown now land on the
   picker, not the key step; both flows hidden until chosen. #979 runner-first
   invariant preserved (missing -> install only).

@@ -16214,6 +16214,10 @@ function acctOpenaiChoose(which) {
   const keys = document.getElementById('acct-openai-key-step');
   const sub = document.getElementById('acct-openai-sub-step');
   if (!keys) return;
+  /* Clear a stale status line (e.g. a prior failed sign-in's error) so entering a
+     flow starts clean, the same way a fresh openAcctAdd does. */
+  const msg = document.getElementById('acct-openai-msg');
+  if (msg) msg.textContent = '';
   if (pick) pick.hidden = true;
   keys.hidden = which !== 'key';
   if (sub) sub.hidden = which !== 'sub';
@@ -16865,9 +16869,7 @@ function closeAcctAdd() {
      starts clean at the picker. */
   acctOpenaiSubStop();
   ACCT_OPENAI_SUB_SESSION = null;
-  acctOpenaiSubReset();
-  const subGo = document.getElementById('acct-openai-sub-go');
-  if (subGo) subGo.disabled = false;
+  acctOpenaiSubReset();   // hides the sub affordances and re-enables the Sign-in button
   /* kosmos#1656: return the modal to its form state on the way out, so the next
      open is clean: the success panel gone and the sign-in controls back. */
   const success = document.getElementById('acct-success');
@@ -16972,15 +16974,21 @@ function acctOpenaiSubShowStart(out) {
 function acctOpenaiSubStop() {
   if (ACCT_OPENAI_SUB_POLL) { clearInterval(ACCT_OPENAI_SUB_POLL); ACCT_OPENAI_SUB_POLL = null; }
 }
-/* #2338: hide the sign-in's live affordances (the open-page link, the device
-   code, the way out) and clear the code, back to the picker's resting state.
-   Shared by cancel, an expired session, and dialog close. */
+/* #2338: return the sub-step to its resting state -- hide the live affordances
+   (the open-page link, the device code, the way out), clear the code, and
+   re-enable the Sign-in button. Centralising the re-enable here (rather than in
+   each caller) is what keeps the button from sticking disabled after a path that
+   reaches the resting state without its own re-enable: the needsRunner reroute
+   and a provider switch-away both go through here on the way back to the picker.
+   Shared by cancel, an expired/failed session, entry, and dialog close. */
 function acctOpenaiSubReset() {
   ['acct-openai-sub-open-row', 'acct-openai-sub-cancel-row', 'acct-openai-sub-code'].forEach((id) => {
     const el = document.getElementById(id); if (el) el.hidden = true;
   });
   const code = document.getElementById('acct-openai-sub-code');
   if (code) code.textContent = '';
+  const go = document.getElementById('acct-openai-sub-go');
+  if (go) go.disabled = false;
 }
 /* #2338: poll the sign-in until a terminal state. The pure acctOpenaiSubView maps
    each state to what to show and whether to stop; this wrapper only fetches and
@@ -17002,10 +17010,8 @@ function acctOpenaiSubWatch() {
       // The session is gone host-side. Terminal -- do not keep polling a 404.
       acctOpenaiSubStop();
       ACCT_OPENAI_SUB_SESSION = null;
-      acctOpenaiSubReset();
+      acctOpenaiSubReset();   // also re-enables the Sign-in button
       if (msg) msg.textContent = 'That sign-in expired. Nothing changed; you can try again.';
-      const go = document.getElementById('acct-openai-sub-go');
-      if (go) go.disabled = false;
       return;
     }
     if (!r.ok) return;    // a 5xx or other non-404 error is transient: keep polling
@@ -17015,15 +17021,21 @@ function acctOpenaiSubWatch() {
     if (msg && view.say) msg.textContent = view.say;
     if (!view.done) return;
     acctOpenaiSubStop();
-    if (view.ok) { await acctOpenaiSubConnected(out.account); return; }
+    if (view.ok) {
+      /* Guard against two overlapping ticks (a slow status fetch under a 1200ms
+         interval) both seeing connected and double-painting success: the null is
+         synchronous with the check, so the second tick falls through. */
+      if (!ACCT_OPENAI_SUB_SESSION) return;
+      ACCT_OPENAI_SUB_SESSION = null;
+      await acctOpenaiSubConnected(out.account);
+      return;
+    }
     /* error / cancelled: drop the dead session and clear the live affordances (the
        stale open-page link points at a torn-down authUrl), leaving the error
        message and a re-enabled Sign-in button to retry with -- the same teardown
-       the 404 branch does. */
+       the 404 branch does (acctOpenaiSubReset re-enables the button). */
     ACCT_OPENAI_SUB_SESSION = null;
     acctOpenaiSubReset();
-    const go = document.getElementById('acct-openai-sub-go');
-    if (go) go.disabled = false;
   }, 1200);
 }
 /* #2338: the terminal success. Mirror the key path's connected paint -- the same
@@ -17091,11 +17103,10 @@ document.getElementById('acct-openai-sub-cancel').addEventListener('click', asyn
     } catch { /* the child is torn down host-side regardless; nothing to show */ }
   }
   if (msg) msg.textContent = '';
-  /* Back to the picker so the person can try again or switch to a key. */
+  /* Back to the picker so the person can try again or switch to a key.
+     acctOpenaiSubReset re-enables the Sign-in button. */
   acctOpenaiSubReset();
   acctOpenaiStep(ACCT_OPENAI_READY);
-  const go = document.getElementById('acct-openai-sub-go');
-  if (go) go.disabled = false;
 });
 document.getElementById('acct-code-go').addEventListener('click', async () => {
   const code = document.getElementById('acct-code').value.trim();

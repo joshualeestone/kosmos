@@ -34,6 +34,7 @@ function chooseFn() {
     'acct-openai-pick': { hidden: null },
     'acct-openai-key-step': { hidden: null },
     'acct-openai-sub-step': { hidden: null },
+    'acct-openai-msg': { textContent: 'a stale error from a prior sign-in' },
     'acct-openai-key': { focus() { this.focused = true; } },
     'acct-openai-sub-go': { focus() { this.focused = true; } },
   };
@@ -52,6 +53,7 @@ test('choosing the key flow shows the key step and hides the picker and the subs
   assert.equal(els['acct-openai-key-step'].hidden, false, 'the key flow did not open when it was chosen');
   assert.equal(els['acct-openai-sub-step'].hidden, true, 'the subscription flow opened even though the key flow was chosen');
   assert.equal(els['acct-openai-key'].focused, true, 'the key field did not take focus');
+  assert.equal(els['acct-openai-msg'].textContent, '', 'a stale status/error line was not cleared on entering a flow');
 });
 
 test('choosing the subscription flow shows the sub step and hides the picker and the key flow', () => {
@@ -107,29 +109,57 @@ test('a start that needs the runner routes to the install step in place, like th
   assert.match(body, /ACCT_OPENAI_READY = false; acctOpenaiStep\(false\)/, 'a needsRunner start does not reveal the install step in place');
 });
 
-test('the poll treats a 404 as terminal (stops and re-enables), not a transient skip', () => {
+test('the poll treats a 404 as terminal (stops + resets), not a transient skip', () => {
   const i = PAGE.indexOf('function acctOpenaiSubWatch()');
   assert.ok(i > -1, 'acctOpenaiSubWatch moved');
   const body = PAGE.slice(i, PAGE.indexOf('\nasync function acctOpenaiSubConnected', i));
   assert.match(body, /r\.status === 404/, 'a 404 is not distinguished, so an expired session polls forever');
-  // The 404 branch must stop the poll, drop the session, and re-enable the button.
+  // The 404 branch must stop the poll, drop the session, and reset (which re-enables the button).
   const four = body.slice(body.indexOf('r.status === 404'));
   const nextTerminal = four.slice(0, four.indexOf('if (!r.ok) return'));
   assert.match(nextTerminal, /acctOpenaiSubStop\(\)/, 'a 404 does not stop the poll');
   assert.match(nextTerminal, /ACCT_OPENAI_SUB_SESSION = null/, 'a 404 leaves the dead session id set');
-  assert.match(nextTerminal, /go\.disabled = false/, 'a 404 leaves the Sign-in button stuck disabled');
+  assert.match(nextTerminal, /acctOpenaiSubReset\(\)/, 'a 404 does not reset the sub-step (which re-enables the button)');
   // A non-404 non-ok must remain a transient skip (keep polling).
   assert.match(body, /if \(!r\.ok\) return;/, 'a 5xx is no longer treated as a transient skip');
 });
 
-test('a terminal error/cancelled tears down like the 404 branch (reset + null session + re-enable)', () => {
+test('a terminal error/cancelled tears down like the 404 branch (reset + null session)', () => {
   const i = PAGE.indexOf('function acctOpenaiSubWatch()');
   const body = PAGE.slice(i, PAGE.indexOf('\nasync function acctOpenaiSubConnected', i));
-  // The failure branch runs after the ok branch's early return.
-  const fail = body.slice(body.indexOf('if (view.ok)'));
+  // Isolate the error/cancelled branch (after the ok branch's early return).
+  const fail = body.slice(body.indexOf('error / cancelled'));
   assert.match(fail, /ACCT_OPENAI_SUB_SESSION = null/, 'a terminal error leaves the dead session id set');
-  assert.match(fail, /acctOpenaiSubReset\(\)/, 'a terminal error leaves the stale sign-in affordances showing');
-  assert.match(fail, /go\.disabled = false/, 'a terminal error leaves the Sign-in button stuck disabled');
+  assert.match(fail, /acctOpenaiSubReset\(\)/, 'a terminal error leaves the stale affordances showing / button disabled (reset handles both)');
+});
+
+test('overlapping ticks cannot double-invoke the connected handler', () => {
+  const i = PAGE.indexOf('function acctOpenaiSubWatch()');
+  const body = PAGE.slice(i, PAGE.indexOf('\nasync function acctOpenaiSubConnected', i));
+  const ok = body.slice(body.indexOf('if (view.ok)'), body.indexOf('error / cancelled'));
+  // The guard must null the session synchronously BEFORE the awaited connected call.
+  assert.match(ok, /if \(!ACCT_OPENAI_SUB_SESSION\) return;\s*ACCT_OPENAI_SUB_SESSION = null;\s*await acctOpenaiSubConnected/,
+    'a slow tick can double-paint success: the session is not nulled synchronously before the connected await');
+});
+
+test('acctOpenaiSubReset returns the sub-step to rest and re-enables the button', () => {
+  const a = PAGE.indexOf('function acctOpenaiSubReset()');
+  assert.ok(a > -1, 'acctOpenaiSubReset moved');
+  const src = PAGE.slice(a, PAGE.indexOf('\n/* #2338: poll', a));
+  const els = {
+    'acct-openai-sub-open-row': { hidden: false },
+    'acct-openai-sub-cancel-row': { hidden: false },
+    'acct-openai-sub-code': { hidden: false, textContent: 'code 1234' },
+    'acct-openai-sub-go': { disabled: true },
+  };
+  // eslint-disable-next-line no-new-func
+  const fn = new Function('document', src + '; return acctOpenaiSubReset;')({ getElementById: (id) => els[id] || null });
+  fn();
+  assert.equal(els['acct-openai-sub-open-row'].hidden, true, 'the open-page link stayed visible');
+  assert.equal(els['acct-openai-sub-cancel-row'].hidden, true, 'the cancel row stayed visible');
+  assert.equal(els['acct-openai-sub-code'].hidden, true, 'the device code row stayed visible');
+  assert.equal(els['acct-openai-sub-code'].textContent, '', 'the device code text was not cleared');
+  assert.equal(els['acct-openai-sub-go'].disabled, false, 'the Sign-in button was left stuck disabled');
 });
 
 test('a start with no sessionId does not strand a disabled button', () => {
