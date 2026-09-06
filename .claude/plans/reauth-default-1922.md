@@ -2245,3 +2245,50 @@ PR-body validation block matching the newest log row at `status: clean`.
 drop `-u` -> 53/1; `-u` unconditional -> LAUNCH control reds 52/2. Baselines 54/54, 40/40, 9/9.
 
 🛑 **NOT CONVERGED. But no BLOCKER, and the remaining findings are the plan describing itself.**
+
+### Iteration 30, 2026-09-06 00:30: CLEAN. The first round in thirty with no finding at any severity.
+
+Verdict: **no BLOCKER, no MAJOR, no MINOR.** Every checkable claim in the PR body and both plans
+verified true and reproducible; the internal-contradiction check returned nothing with a control that
+returns the dangerous answer; the bare-number self-check found zero defects.
+
+⭐ **THE MOST VALUABLE THING IN THE ROUND WAS A MUTATION THE REVIEWER INVENTED**, not one this plan
+prescribed: put the binary AHEAD of `-u`, producing `['env', <bin>, '-u', 'CLAUDE_CONFIG_DIR']`. That
+is the **silent** shape (exit 0, variable survives), and it passes the presence, no-re-assignment and
+ordering assertions by construction. **It reddens only at the operand walk**, which is the assertion
+added at iteration 11 for exactly this.
+
+✅ **I REPRODUCED IT INDEPENDENTLY, AND CONFIRMED IT REDDENS FOR THE RIGHT REASON.** The
+discriminator is that different mutations fail at different lines: dropping the push fails at
+`connect.test.js:704` (the presence assertion), the operand-first shape fails at `:752` (the walk).
+**Same suite, different assertion, so the walk is what rejects the silent shape** rather than an
+earlier assertion tripping first.
+
+🛑 **AND MY FIRST REPRODUCTION WAS WRONG IN A WAY I NEARLY REPORTED AS A DISCREPANCY.** I got 2
+failures where the reviewer reported 1, and the difference was mine: my mutation made the push
+UNCONDITIONAL as well as moving it, so it also reddened the labelled-account control. **Two defects in
+one mutation cannot attribute either.** The isolated form, preserving `if (!launchDir)` and inverting
+only the order, gives exactly **53 pass / 1 fail** at the walk. ⇒ **Before reporting a disagreement
+with a reviewer, check whether your reproduction is the same experiment.**
+
+✅ **A self-reverting harness, because the crude attempt left the tree dirty while I investigated.**
+The isolated run reverts in an EXIT trap, so a kill or a timeout cannot leave a mutated worktree.
+Confirmed: `REVERTED: 0 dirty entries`, HEAD unchanged, and a positive control (`touch .__p`) proving
+the cleanliness check can report dirt.
+
+**THREE BORDERLINE CALLS THE REVIEWER CONSIDERED AND REJECTED, recorded so they are visible rather
+than invisible** (I asked for them specifically; a reviewer that reports only findings hides its
+judgement):
+1. **`launchSignin`'s `owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`.** For the
+   default account `null` falls through to the seam, so a production-set seam would take the
+   assignment branch and reinstate the defect. **Rejected because no production setter exists**
+   (filtered sweep returns empty, unfiltered 17) **and both documents state the gap.** ⚠️ This is the
+   one to re-check if anyone ever sets that variable outside tests.
+2. "four places" against five grep hits: the fifth is a comment quoting the spelling.
+3. Mutation 2 reds three tests where the PR body names one: understatement, not error.
+
+⚠️ **ONE CAVEAT ON THIS RESULT, NAMED BY ME RATHER THAN BY THE REVIEWER: I changed the prompt for this
+round**, reordering it to put the PR body and the code first and telling it that a clean round was an
+acceptable outcome. **That framing could have produced the clean answer.** ⇒ **Iteration 31 is a
+CONTROL: the same branch, a neutral prompt without that framing.** A clean round after twenty-nine
+dirty ones is exactly the result that deserves a second instrument.
