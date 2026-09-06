@@ -19,8 +19,8 @@
 /**
  * The step number of the pane that contains `anchorSel`.
  *
- *   stepForAnchor(page, '#fr-fleet')  ->  7   (the "Your agents" ending)
- *   stepForAnchor(page, '#fr-you')    ->  6   (the "About you" step)
+ *   stepForAnchor(page, '#fr-fleet')  ->  9   (the "Your agents" ending)
+ *   stepForAnchor(page, '#fr-you')    ->  8   (the "About you" step)
  *
  * Reads the DOM as loaded -- every pane is present (hidden) from first paint, so
  * the page does not need to have navigated to that step first. Throws, rather
@@ -55,11 +55,11 @@ async function stepForAnchor(page, anchorSel) {
  * two disagree, instead of pinning a literal that goes stale on the next
  * insertion.
  *
- * 🔑 COUNTS ONLY fr-pane-<number>, MATCHING THE DOC ABOVE (#2163). The
- * pre-flight expectations interstitial (fr-pane-intro) carries the `.fr-pane`
- * class for its styling but is deliberately OUTSIDE the numbered step count
- * (like the Success screen conceptually is), so it must not inflate this. A bare
- * `.fr-pane` count included it and broke the segments==(panes-1) cross-check.
+ * 🔑 COUNTS ONLY fr-pane-<number>. The filter is kept defensive: install-flow-
+ * 9screen retired the #2163 pre-flight interstitial (fr-pane-intro), which carried
+ * the `.fr-pane` class but stood OUTSIDE the numbered count -- a bare `.fr-pane`
+ * count once included it and broke a cross-check. Any future non-numbered
+ * `.fr-pane` would do the same, so counting only fr-pane-<number> stays right.
  */
 async function paneCount(page) {
   return page.$$eval('.fr-pane', (panes) =>

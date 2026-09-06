@@ -44,11 +44,12 @@ const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf
    this file testing GPT, Gemini, Llama, Qwen or Mistral at all -- which is
    exactly what it did for one run, reporting "GPT is missing from the step".
 
-   `id="fr-pane-5"` is the next pane in FILE order (the panes are not in
-   numeric order; fr-pane-4 sits above fr-pane-3). The length guard below is
-   what protects this: a slice that runs into the rest of the page fails
-   loudly rather than passing on more text than it should. */
-const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-pane-5"'));
+   install-flow-9screen: the model step is now fr-pane-5 (was fr-pane-3), and the
+   panes are now in NUMERIC = FILE order (1..9), so `id="fr-pane-6"` (Self
+   improving) is the next pane in file order and is the slice's upper bound. The
+   length guard below is what protects this: a slice that runs into the rest of
+   the page fails loudly rather than passing on more text than it should. */
+const STEP = PAGE.slice(PAGE.indexOf('id="fr-pane-5"'), PAGE.indexOf('id="fr-pane-6"'));
 
 test('the step is a real slice of the model pane', () => {
   /* The whole file would satisfy every assertion below, since the slice
@@ -72,8 +73,13 @@ test('the step is a real slice of the model pane', () => {
      re-derive it: `id="create-model"` sits 48047 chars from the slice start
      against a slice of 24046, so 25000 is 23047 chars short of swallowing the
      create form. The tripwire still trips long before it stops meaning
-     anything. */
-  assert.ok(STEP.length > 200 && STEP.length < 25000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     anything.
+     ⚠️ RAISED 25000 -> 27000 (install-flow-9screen): the model step is now
+     fr-pane-5 with Mona's S5 eyebrow+h2 prepended, and the slice measures ~25.3k.
+     `id="create-model"` sits 62474 chars from the slice start, so 27000 is ~35k
+     short of swallowing the create form -- the tripwire still trips long before
+     it stops meaning anything. */
+  assert.ok(STEP.length > 200 && STEP.length < 27000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
@@ -308,7 +314,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
   assert.match(els['fr-openai-msg'].innerHTML, /OpenAI GPT Codex is connected/, 'the box reads "OpenAI GPT Codex is connected"');
   assert.match(els['fr-openai-msg'].innerHTML, /This computer is signed in/, 'the box says the computer is signed in');
   assert.match(els['fr-openai-msg'].innerHTML, /ab12/, 'the key tail stays as a secondary detail in the box');
-  assert.equal(cont && cont.label, 'Continue', '#2134: a connected OpenAI account (Claude not) offers Continue on the model step');
+  assert.equal(cont && cont.label, 'Next', '#2134: a connected OpenAI account (Claude not) offers Next on the model step (Continue->Next rename)');
 
   // Asked the machine (pane-3 entry, nothing known yet) -- an OpenAI account
   // already exists. The message reports the STATE, not a fictional action:
@@ -321,7 +327,7 @@ test('frPaintOpenai marks the row Connected, told directly or by asking the mach
     { getElementById: (id) => els[id] || null },
     fakeFetch, FR, frActions, frGo, frCheckRowStub,
   );
-  assert.equal(cont && cont.label, 'Continue', '#2134: an already-connected OpenAI account (Claude not) offers Continue');
+  assert.equal(cont && cont.label, 'Next', '#2134: an already-connected OpenAI account (Claude not) offers Next (Continue->Next rename)');
   assert.match(els['fr-openai-connect'].innerHTML, /Connected/);
   // #2241: the already-connected paint also renders the gold box (no fictional "Added" action).
   assert.equal(els['fr-openai-msg'].className, 'fr-connbox', 'already-connected -> the gold check-row box');

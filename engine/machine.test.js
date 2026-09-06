@@ -1236,3 +1236,46 @@ test('#2304 an empty or unknown platform falls back to the real platform', () =>
   const got = machine.installedCheck({ platform: '', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
   assert.equal(got.state, 'attention', 'a falsy platform must not slip into the win32 branch on a Mac');
 });
+/* ---------------------------------------------------------------------------
+   sleepGate: the Screen 3 (Automation) "Prevent sleep" gate verdict. Same
+   three-answers discipline as the a11y / file-access gates -- block ONLY on a
+   positive `checkable:true, prevented:false`; anything unreadable is
+   `checkable:false` and must never gate. Reuses the sleepCheck fixtures so the
+   gate mapping is pinned against the same captured/reconstructed pmset text the
+   advisory is.
+--------------------------------------------------------------------------- */
+
+test('sleepGate: a desktop that does not sleep -> checkable:true, prevented:true', () => {
+  assert.deepEqual(machine.sleepGate({ pmset: DESKTOP_AWAKE }), { checkable: true, prevented: true });
+});
+
+test('sleepGate: a desktop that sleeps -> checkable:true, prevented:false (THE state that gates)', () => {
+  const got = machine.sleepGate({ pmset: DESKTOP_SLEEPS });
+  assert.equal(got.checkable, true);
+  assert.equal(got.prevented, false);
+});
+
+test('sleepGate: a laptop awake on both power sources -> prevented:true', () => {
+  assert.deepEqual(machine.sleepGate({ pmset: LAPTOP_ALWAYS_AWAKE }), { checkable: true, prevented: true });
+});
+
+test('sleepGate: a laptop that sleeps on battery -> prevented:false (gates, per the flagged policy)', () => {
+  const got = machine.sleepGate({ pmset: LAPTOP_SLEEPS_ON_BATTERY });
+  assert.equal(got.checkable, true);
+  assert.equal(got.prevented, false, 'a machine that can sleep somewhere gates -- no silently-broken Kosmos');
+});
+
+test('sleepGate: THE DISCRIMINATOR -- not-prevented and uncheckable are different answers', () => {
+  const gated = machine.sleepGate({ pmset: DESKTOP_SLEEPS });
+  const uncheckable = machine.sleepGate({ pmset: 'pmset: command not found' });
+  assert.equal(gated.checkable && gated.prevented === false, true, 'this one gates');
+  assert.equal(uncheckable.checkable, false, 'this one does NOT gate (fail-safe)');
+});
+
+test('sleepGate: unreadable pmset (junk, empty, failed runner) -> checkable:false, never a throw', () => {
+  for (const junk of ['', 'pmset: command not found', 'AC Power:\n', '{"sleep": 0}']) {
+    assert.equal(machine.sleepGate({ pmset: junk }).checkable, false, `junk >>${junk}<< must be uncheckable`);
+  }
+  const deadRunner = () => ({ ok: false, stdout: '', stderr: 'boom' });
+  assert.equal(machine.sleepGate({ runner: deadRunner }).checkable, false, 'a failed pmset read is uncheckable, not a gate');
+});

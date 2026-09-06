@@ -252,6 +252,45 @@ function sleepCheck(text) {
   };
 }
 
+/**
+ * The gate verdict for Screen 3 (Automation)'s "Prevent sleep" row. Reuses
+ * sleepCheck's parsing rather than re-reading pmset a second way -- a second
+ * definition of "does this computer sleep" would drift from the advisory the
+ * "Checking this computer" step already shows (the installedCheck comment below
+ * makes exactly this argument). Returns the SAME three-answers shape as the
+ * a11y / file-access gates so one frontend poll fits all three:
+ *   { checkable: true,  prevented: true|false, because? }
+ *   { checkable: false, because }
+ *
+ * The mapping from sleepCheck's STATE is direct and positive-only:
+ *   OK        -> prevented:true   (it does not sleep)
+ *   ATTENTION -> prevented:false  (it sleeps somewhere -- THE state that gates)
+ *   UNKNOWN   -> checkable:false  (we could not read it -- fail-safe, never gate)
+ * pmset is a shell reading the engine runs itself, so -- unlike a11y and
+ * file-access -- this gate needs no native writer and functions at launch.
+ *
+ * ⚠️ WEAKEST PREMISE (flagged for Josh, not decided here): a LAPTOP that never
+ * sleeps plugged in but sleeps on battery is STATE.ATTENTION, so it GATES. That
+ * is the spec's "no silently-broken Kosmos" intent (unplug it and the agents
+ * stop), but it means a laptop user who will not prevent battery sleep is
+ * blocked at S3 with no skip. The launch target is desktop Macs (Mac mini
+ * prints AC-only and maps cleanly to OK/ATTENTION); the laptop-on-battery policy
+ * is a product call to confirm, not a detection bug.
+ */
+function sleepGate(opts) {
+  const runner = (opts && opts.runner) || run;
+  const pm = (opts && typeof opts.pmset === 'string')
+    ? { ok: true, stdout: opts.pmset }
+    : runner('/usr/bin/pmset', ['-g', 'custom']);
+  if (!pm.ok) {
+    return { checkable: false, because: 'we could not read this computer\'s sleep settings' };
+  }
+  const row = sleepCheck(pm.stdout);
+  if (row.state === STATE.OK) return { checkable: true, prevented: true };
+  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title };
+  return { checkable: false, because: row.title };
+}
+
 /* ===========================================================================
    The things it needs installed
    =========================================================================== */
@@ -1028,6 +1067,34 @@ function openAccessibilitySettings(runner, lister) {
 /* Test hook, same reason as its sibling's. */
 function resetA11yPaneCache() { A11Y_PANE_CACHE = undefined; }
 
+/* ── the Files & Folders pane (install-flow-9screen: Screen 2 "Allow Access") ──
+   The S2 Access screen's gold "Allow Access" button opens System Settings to the
+   Files & Folders privacy pane, the same door-not-claim contract as the
+   Accessibility button above: it OFFERS the setting; it never reads or claims
+   whether access was granted (that is a TCC fact only the native app can read,
+   #1344). The pane lives in the SAME Privacy & Security bundle the Accessibility
+   pane does, so this reuses that probe (bundle id moved between macOS versions;
+   a hardcoded one opens Settings to nowhere) and only swaps the anchor. */
+function fileAccessPaneUrl(runner, lister) {
+  const a11y = a11yPaneUrl(runner, lister);
+  if (!a11y) return null;
+  /* Same bundle, the Files & Folders anchor instead of Accessibility. */
+  return a11y.replace('?Privacy_Accessibility', '?Privacy_FilesAndFolders');
+}
+
+/** Open the Files & Folders pane. The URL is ALWAYS derived here, never taken
+    from a caller, for the same reason its sibling states: the route that fronts
+    this must not become a way for a page to `open` arbitrary URLs. */
+function openFileAccessSettings(runner, lister) {
+  const url = fileAccessPaneUrl(runner, lister);
+  if (!url) return { ok: false, because: 'we could not find the file-access screen on this computer' };
+  const r = runner || run;
+  const res = r('/usr/bin/open', [url]);
+  return res.ok
+    ? { ok: true }
+    : { ok: false, because: 'System Settings did not open' };
+}
+
 /* ── the label-truth check (#224's trap, found live 2026-08-23) ──────────
    launchd has no sandbox: a harness (or anything) can register a plist from
    a temp directory over a real Kosmos label, and every liveness probe stays
@@ -1134,4 +1201,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

@@ -1072,6 +1072,10 @@ if boot_board "$sb7" "$P8"; then
   # control, but it hardcoded port 4399 so it could never take the runner's
   # kernel-chosen one. It is the path every new person walks; it now runs here.
   run_one "render-first-run"    env KOSMOS_URL="$B8" node docs/browser-checks/render-first-run.js "$sb7/shots-firstrun"
+  # install-flow-9screen: the S2/S3 permission gates, driven for real (subsumes the
+  # retired render-a11y-gate-2125 tmux gate + render-sleep-button sleep gate). Mocks
+  # only the status endpoints, so a non-native board is fine.
+  run_one "render-gated-next"   env KOSMOS_URL="$B8" node docs/browser-checks/render-gated-next.js
   # #1553: the launch must not flash the agents view before the first-run gate
   # resolves. Proven green + fails-without-the-cover before wiring (the #812 rule).
   run_one "render-boot-no-flash" env KOSMOS_URL="$B8" node docs/browser-checks/render-boot-no-flash.js
@@ -1085,7 +1089,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those
@@ -1196,7 +1200,7 @@ fi
 # rejected account is excluded as a run target, an unchecked one stays offered+labelled). Proven RED
 # on the pre-fix page by observed behavior ("3 accounts connected", no move prompt for a rejected
 # account, rejected offered at create); no server, so it sits in this no-URL loop.
-for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-account-name-2095 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-a11y-copy-1940 render-a11y-gate-2125 render-engmode-gate-2131 render-preflight-2163 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-openai-connectbox-2241 render-settings-openai-goldbox render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks emoji-picker-2254 render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-subprojects-1994 render-worlds-switcher-1704 render-worldswitch-2238; do
+for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-account-name-2095 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-openai-connectbox-2241 render-settings-openai-goldbox render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks emoji-picker-2254 render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-subprojects-1994 render-worlds-switcher-1704 render-worldswitch-2238; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture

@@ -117,3 +117,53 @@ test('#1344: the sentence says why, and does not soften the app-control half', (
     assert.doesNotMatch(say, forbidden, 'the sentence claims a permission state nobody checked: ' + say);
   }
 });
+
+/* install-flow-9screen: the Files & Folders door (Screen 2 "Allow Access"). Same
+   door-not-claim contract as the Accessibility button, opening the Files & Folders
+   privacy pane in the SAME Privacy & Security bundle (so it reuses that probe and
+   only swaps the anchor). */
+test('9screen: with the pane present openFileAccessSettings opens, and the URL names Files & Folders', () => {
+  const w = world();
+  const out = machine.openFileAccessSettings(w.runner, w.lister);
+  assert.deepEqual(out, { ok: true }, JSON.stringify(out));
+  const opened = w.calls.find((c) => c.bin === '/usr/bin/open');
+  assert.ok(opened, 'open was never called, so the Allow Access button would do nothing');
+  const url = opened.args[0];
+  assert.match(url, /^x-apple\.systempreferences:/, url);
+  /* THE ANCHOR IS THE WHOLE POINT: Files & Folders, not Accessibility, and not
+     Privacy & Security generally (which would leave the person to find it). */
+  assert.match(url, /Privacy_FilesAndFolders/, url);
+  assert.doesNotMatch(url, /Privacy_Accessibility/, url);
+});
+
+test('9screen: with no pane openFileAccessSettings refuses honestly and NEVER calls open', () => {
+  const w = world({ ids: ['com.apple.something.else'] });
+  const out = machine.openFileAccessSettings(w.runner, w.lister);
+  assert.equal(out.ok, false);
+  assert.match(out.because, /could not find/i, out.because);
+  assert.equal(w.calls.filter((c) => c.bin === '/usr/bin/open').length, 0,
+    'it refused and opened something anyway');
+});
+
+test('9screen: when open itself fails, openFileAccessSettings says so rather than claiming success', () => {
+  const w = world({ openOk: false });
+  const out = machine.openFileAccessSettings(w.runner, w.lister);
+  assert.equal(out.ok, false);
+  assert.match(out.because, /System Settings did not open/, out.because);
+});
+
+test('9screen SECURITY: openFileAccessSettings derives its URL, so a caller cannot choose what opens', () => {
+  assert.equal(machine.openFileAccessSettings.length, 2,
+    'the signature grew a parameter; if one is a target, this route is now an open-anything');
+});
+
+/* install-flow-9screen: the Allow Access button exists AND is now wired -- a
+   labelled primary button that does nothing on the first permission screen was a
+   real defect (a blind review caught it). Assert both the markup and the handler. */
+test('9screen: the S2 Allow Access button is present and wired to open-file-access-settings', () => {
+  assert.match(PAGE, /class="s2-allow"[^>]*>Allow Access</, 'the S2 Allow Access button is gone');
+  const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-2').addEventListener"),
+    PAGE.indexOf("getElementById('fr-pane-2').addEventListener") + 900);
+  assert.match(handler, /closest\('\.s2-allow'\)/, 'nothing keys on the .s2-allow button');
+  assert.match(handler, /\/api\/open-file-access-settings/, 'the Allow Access click does not POST the file-access opener');
+});

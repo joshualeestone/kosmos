@@ -36,6 +36,11 @@ const PAGE = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
    Remove the entry when the check is restated; the test refuses an entry
    that is no longer stale, so the list cannot rot in the other direction. */
 const KNOWN_STALE = [
+  /* Empty again after install-flow-9screen finished its browser-checks pass: the
+     6->9 rework's retired-screen checks (render-a11y-copy-1940, render-a11y-gate-2125,
+     render-sleep-button, render-preflight-2163) were DELETED (gate concern subsumed
+     by render-gated-next), and render-first-run + click-first-run were rewritten to
+     the 9-screen flow, so none asks for a retired id anymore. */
 ];
 
 /* The ids a check asks for. Comments are stripped first (a comment quoting

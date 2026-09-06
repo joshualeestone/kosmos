@@ -1,21 +1,23 @@
 'use strict';
 
 /**
- * kosmos#1214: the first-run Accessibility offer.
+ * kosmos#1214 (as folded into install-flow-9screen): the Accessibility grant.
  *
- * Josh, main channel 2026-08-27, three screenshots: an agent's work triggered
- * the macOS "tmux wants access to control System Events / Accessibility" prompt
- * mid-task, and he wanted it turned on up front so the user is never ambushed.
- * The literal "grant it during install" cannot be built (TCC: only the user can
- * grant Accessibility, in System Settings). The achievable version, ruled by
- * Josh on 2026-09-01, is OFFER-not-require: a first-run step that explains it and
- * opens the setting, with Continue proceeding either way and a sentence pointing
- * at where to do it later.
+ * Josh, main channel 2026-08-27: an agent's work triggered the macOS "tmux wants
+ * to control System Events / Accessibility" prompt mid-task, and he wanted it
+ * turned on up front so the user is never ambushed. The literal "grant it during
+ * install" cannot be built (TCC: only the user can grant Accessibility, in System
+ * Settings). The achievable version is a first-run step that explains it and opens
+ * the setting.
  *
- * This pins the wiring and, most importantly, the LOCATION: the offer names the
- * Settings box that ACTUALLY holds the same button, so a Settings reorganisation
- * cannot leave the direction pointing at a pane that moved (Splinter: "pin the
- * LOCATION, not just the words").
+ * install-flow-9screen (Josh's signed-off 9-screen flow, 2026-09-05) RETIRED the
+ * standalone Accessibility step (old fr-pane-5) and folded the tmux/Accessibility
+ * concern into the new S3 "Automation" screen (fr-pane-3), as one of its two
+ * permission gates (data-gate="tmux"), alongside the sleep gate. So this file now
+ * pins the S3 tmux gate: the gate row, the "Turn On" -> open-accessibility-settings
+ * wiring, the gate poll that reads /api/a11y-status, and the Settings-side ground
+ * truth (unchanged). The old standalone-step assertions (fr-a11y-open, frPollA11y,
+ * FR_STEPS=7, the eyebrow map) are gone with the screen they tested.
  *
  *   node --test web.firstrun-a11y-1214.test.js
  */
@@ -24,55 +26,65 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const nodePath = require('node:path');
-const { scriptOf, lift } = require('./test-support/page');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-const SCRIPT = scriptOf(PAGE);
 
-/* The offer's own pane, sliced by the two panes that bracket it in FILE order:
-   the Accessibility pane is fr-pane-5 (placed right after the model pane), and
-   About-you is fr-pane-6. */
-const OFFER = PAGE.slice(PAGE.indexOf('id="fr-pane-5"'), PAGE.indexOf('id="fr-pane-6"'));
+/* The S3 Automation pane, sliced by the two panes that bracket it in file order:
+   S3 is fr-pane-3, and S4 (Notifications) is fr-pane-4. */
+const S3 = PAGE.slice(PAGE.indexOf('id="fr-pane-3"'), PAGE.indexOf('id="fr-pane-4"'));
 
-test('kosmos#1214/#1940/#2125: the first-run Accessibility pane offers the button, and Continue is now GATED', () => {
-  assert.ok(OFFER.indexOf('id="fr-pane-5"') > -1 && OFFER.length > 0, 'the offer pane exists');
-  assert.match(OFFER, /id="fr-a11y-open"/, 'it has its own Open Accessibility settings button');
-  // #1940 (Josh's copy, Mona Lisa's design): the copy names the exact action.
-  // Anchored on the second line of the copy (the first, "...Turn on", wraps in the
-  // source, so a single-space match across the newline would miss).
-  assert.match(OFFER, /'Tmux' in Accessibility to enable this/,
-    'the copy names the exact action -- turn on Tmux in Accessibility (Josh ruled the plain words, not the reassuring ones)');
-  // #2125 slice 3 (Josh, 2026-09-04) SUPERSEDES #1214's offer-not-require: step 5's
-  // Continue is now GATED on a real Accessibility check. It proceeds to frGo(6) ONLY
-  // when fr-next is not disabled; frPollA11y disables it on a POSITIVE not-trusted
-  // reading and re-enables it the instant the user grants -- a browser (uncheckable)
-  // and any read failure fail SAFE, so Continue stays live. Assert the GATED mechanism.
-  // Slice the step-5 branch and match within it -- robust to comment growth, unlike a
-  // fixed-distance `step === 5[\s\S]{0,N}` window (which a later comment can push past).
-  const step5 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 5) {'), SCRIPT.indexOf('} else if (step === 6) {'));
-  assert.match(step5, /frActions\(\{ label: 'Continue', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(6\); \} \}\)/,
-    'the Accessibility step Continue is GATED -- proceeds to step 6 only when not disabled by the check (#2125 supersedes offer-not-require)');
-  assert.match(step5, /frPollA11y\(/,
-    'step 5 starts the Accessibility gate poll (frPollA11y), which drives the disabled state');
-  assert.doesNotMatch(OFFER, /This one is optional/,
-    '#1940: the redundant in-pane optional line is gone');
+test('install-flow-9screen: the tmux/Accessibility concern is the S3 gate, with a sleep gate beside it', () => {
+  assert.ok(S3.indexOf('id="fr-pane-3"') > -1 && S3.length > 0, 'the S3 Automation pane exists');
+  assert.match(S3, /data-gate="tmux"/, 'S3 carries the tmux permission gate row');
+  assert.match(S3, /data-gate="sleep"/, 'S3 carries the sleep permission gate row beside it');
+  // Each gate row has a "Turn On" button and a red->green pill contract (Mona's S3).
+  assert.match(S3, /class="s3-on"[^>]*>Turn On</, 'the gate rows carry a Turn On button');
+  assert.match(S3, /Needs Activated/, 'the not-granted pill reads "Needs Activated"');
+  assert.match(S3, /Activated/, 'the granted pill reads "Activated"');
 });
 
-test('kosmos#1214: the offer reuses the SAME action as the Settings button, not a new mechanism', () => {
-  // The firstrun button and the Settings button both open the one endpoint.
-  const handler = SCRIPT.slice(SCRIPT.indexOf("getElementById('fr-a11y-open')"),
-    SCRIPT.indexOf("getElementById('fr-a11y-open')") + 800);
-  assert.match(handler, /fetch\('\/api\/open-accessibility-settings', \{ method: 'POST' \}\)/,
-    'the firstrun button POSTs the same open-accessibility-settings endpoint the Settings button does');
-  // And the Settings button still exists and uses the same endpoint (the source of truth).
-  assert.match(SCRIPT, /getElementById\('set-a11y-open'\)[\s\S]{0,400}\/api\/open-accessibility-settings/,
+test('install-flow-9screen: the gate poll reads /api/a11y-status for the tmux grant (fail-safe, positive-only)', () => {
+  // FR_GATES maps the tmux gate to the Accessibility status endpoint; a row is
+  // granted only on a measured trusted:true. This is the same reading the retired
+  // standalone step used, now driving the shared gate poll.
+  assert.match(PAGE, /'tmux':\s*\{\s*url:\s*'\/api\/a11y-status',\s*granted:\s*\(r\)\s*=>\s*r\.trusted === true\s*\}/,
+    'the tmux gate reads /api/a11y-status and grants only on trusted:true');
+  // And the sleep gate reads its own status endpoint.
+  assert.match(PAGE, /'sleep':\s*\{\s*url:\s*'\/api\/sleep-status',\s*granted:\s*\(r\)\s*=>\s*r\.prevented === true\s*\}/,
+    'the sleep gate reads /api/sleep-status and grants only on prevented:true');
+});
+
+test('install-flow-9screen: S3 Turn On reuses the SAME open-settings actions (tmux -> Accessibility, sleep -> Energy)', () => {
+  // The S3 delegated handler routes the tmux "Turn On" to the accessibility
+  // settings endpoint (the same one the Settings button uses) and the sleep one to
+  // the sleep settings endpoint -- reusing the existing mechanisms rather than a new
+  // one. It opens the setting; it cannot grant it (TCC), which is why the gate poll,
+  // not this click, unlocks Next.
+  const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-3').addEventListener"),
+    PAGE.indexOf("getElementById('fr-pane-3').addEventListener") + 1200);
+  assert.match(handler, /\/api\/open-accessibility-settings/,
+    'the tmux Turn On POSTs the same open-accessibility-settings endpoint');
+  assert.match(handler, /\/api\/open-sleep-settings/,
+    'the sleep Turn On POSTs the open-sleep-settings endpoint');
+  // And the Settings accessibility button still exists and uses the same endpoint
+  // (the source of truth).
+  assert.match(PAGE, /getElementById\('set-a11y-open'\)[\s\S]{0,400}\/api\/open-accessibility-settings/,
     'the Settings button is unchanged and shares the endpoint');
 });
 
-test('kosmos#1214/#2125: the Settings box name is stable; #2125 replaced the first-run pointer with what-to-toggle guidance', () => {
+test('install-flow-9screen: the S3 Continue/Next is GATED -- unlocks only when both gates are granted', () => {
+  const SCRIPT = PAGE.slice(PAGE.indexOf('<script'), PAGE.lastIndexOf('</script>'));
+  const step3 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 3) {'), SCRIPT.indexOf('} else if (step === 4) {'));
+  assert.match(step3, /frActions\(\{ label: 'Next', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(4\); \} \}\)/,
+    'the S3 Next is gated: it proceeds to S4 only when the check has not disabled it');
+  assert.match(step3, /frGateStart\(pane\)/,
+    'S3 starts the permission-gate poll (frGateStart), which drives the disabled state');
+});
+
+test('kosmos#1214: the Settings accessibility box name is stable ground truth', () => {
   // The Settings side is unchanged: the accessibility toggle still sits under the
-  // "Keeping agents running" box. This stays the ground truth for where you turn
-  // it on later.
+  // "Keeping agents running" box. This stays the ground truth for where you turn it
+  // on later.
   const btnIdx = PAGE.indexOf('id="set-a11y-open"');
   assert.ok(btnIdx > -1, 'the Settings accessibility button exists');
   const before = PAGE.slice(0, btnIdx);
@@ -80,44 +92,11 @@ test('kosmos#1214/#2125: the Settings box name is stable; #2125 replaced the fir
   assert.ok(hIdx > -1, 'the button sits under a labelled Settings box');
   const boxLabel = PAGE.slice(hIdx).match(/<h3 class="dlab"[^>]*>([^<]+)<\/h3>/)[1].trim();
   assert.equal(boxLabel, 'Keeping agents running',
-    'sanity: the box holding the button is the one this offer names');
-
-  // #2125 slice 3 SUPERSEDED the #1214 "point at the Settings box" out. The step is
-  // no longer optional-with-a-later-pointer (Continue is gated), so the "anytime in
-  // Settings, under Keeping agents running" sentence is GONE -- replaced by
-  // what-to-toggle guidance that names WHERE the toggle actually is (the Accessibility
-  // list) and the Automation grant macOS may also ask for. The Settings box itself,
-  // asserted above, is unchanged ground truth for turning it on later.
-  assert.match(OFFER, /Find <b>Tmux<\/b> in the Accessibility list/,
-    'the first-run offer names where the toggle actually is (the Accessibility list); #2125 replaced the old Settings-box pointer');
-  assert.match(OFFER, /control your computer/,
-    'the guidance also names the Automation grant macOS may ask for (both grants tmux needs)');
-  assert.doesNotMatch(OFFER, /This one is optional/,
-    '#1940: the pushy "optional / now-or-later" framing is gone');
+    'sanity: the box holding the accessibility button is "Keeping agents running"');
 });
 
-test('kosmos#1214/#2125: the step is wired -- 7 steps, Accessibility at 5, Continue GATED on the check', () => {
-  assert.match(SCRIPT, /const FR_STEPS = 7;/, 'the wizard now has 7 steps');
-  assert.match(SCRIPT, /const FR_STEP_YOU = 6;/, 'About-you moved to step 6');
-  assert.match(SCRIPT, /5: 'Accessibility', 6: 'About you', 7: 'Your agents'/,
-    'the eyebrows place Accessibility at 5, About-you at 6, the fleet at 7');
-  const step5 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 5) {'),
-    SCRIPT.indexOf('} else if (step === 6) {'));
-  assert.match(step5, /fr-title'\)\.textContent = '[^']*your other apps/i, 'step 5 sets its own title');
-  // #2125 slice 3 (Josh, 2026-09-04) SUPERSEDES the 09-01 offer-not-require: step 5's
-  // Continue is GATED on a real Accessibility check. It proceeds to frGo(6) ONLY when
-  // fr-next is not disabled, and frPollA11y drives that disabled state -- it disables
-  // on a POSITIVE not-trusted reading and re-enables on trusted; a browser
-  // (uncheckable) and any read failure fail SAFE (Continue stays live), so the gate
-  // never strands a browser tester or an unreadable machine.
-  assert.match(step5, /frActions\(\{ label: 'Continue', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(6\); \} \}\)/,
-    'Continue is gated: it proceeds to About-you (step 6) only when the check has not disabled it');
-  assert.match(step5, /frPollA11y\(/,
-    'step 5 starts the Accessibility gate poll (frPollA11y), the mechanism that drives the disabled state');
-});
-
-test('kosmos#1214: no em dashes in the offer copy (house rule)', () => {
+test('kosmos#1214: no em dashes in the S3 gate copy (house rule)', () => {
   for (const spelling of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u{2014}']) {
-    assert.ok(!OFFER.includes(spelling), 'an em dash (' + spelling + ') reached the offer copy');
+    assert.ok(!S3.includes(spelling), 'an em dash (' + spelling + ') reached the S3 copy');
   }
 });

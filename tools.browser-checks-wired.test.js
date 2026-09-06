@@ -219,10 +219,6 @@ const NOT_WIRED = {
     + 'line size, an install indicator revealed via evaluate, an indeterminate '
     + 'bar). Wiring needs the OpenAI step served with the confirm block. Do not '
     + 'cite as OpenAI-path coverage (#1315) until it runs.',
-  'render-sleep-button.js':
-    'never run, and costliest to wire: it opens System Settings on the host and '
-    + 'quits it (a real GUI side effect) and needs a Mac console plus the durable '
-    + 'pw-runtime, so it cannot run in the shared/headless browser gate.',
   'render-special-purpose.js':
     'never run: a Playwright visible-text sweep of the agent detail panel for a '
     + 'leaked filename (CLAUDE.md/AGENTS.md). Wiring needs the agent-detail panel '

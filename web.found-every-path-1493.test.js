@@ -60,7 +60,9 @@ function paint(FR, FR_FOUND, FR_SCAN) {
   fn({ getElementById: (id) => els[id] || mk(id) }, FR, FR_FOUND, scan, null, 6, 3,
     () => calls.push('PAINT-FOUND'), () => calls.push('PAINT-SCAN'), () => calls.push('actions'),
     () => calls.push('fork'), () => calls.push('SEARCH'), () => calls.push('SCAN-SEARCH'), String, String);
-  return { calls, title: (els['fr-title'] || {}).textContent || '' };
+  // install-flow-9screen: the fleet painters now write the heading into the
+  // pane-9 head (#fr-fleet-title), not the retired shell #fr-title.
+  return { calls, title: (els['fr-fleet-title'] || {}).textContent || '' };
 }
 
 const onDisk = { ok: true, agents: [{ name: 'Hers', dir: '/Users/x/work/hers' }] };

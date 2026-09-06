@@ -6166,6 +6166,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
+
+:root[data-theme="dark"] .s7-dock {background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
+:root[data-theme="dark"] .s7-app {background:linear-gradient(160deg,#4a4a4e,#333336)}
+:root[data-theme="dark"] .s7-arrow path {stroke:var(--gold-bright,#e3b341)}
 /* ===== END GENERATED ===== */
 
 /* #1553: an opaque cover shown from the first frame so no view paints before the
@@ -7678,410 +7682,650 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            whole-step rendering. -->
       <p class="vh">Press Escape to leave setup at any time; Kosmos will not show it again.</p>
       <div class="fc-head"><img class="fc-k" src="data:image/png;base64,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" alt="" width="42" height="42"></div>
-      <p class="crumb vh" id="fr-step">Step 1 of 6</p>
-      <div class="fr-segs" id="fr-segs" aria-hidden="true"></div>
-      <p class="fc-eyebrow" id="fr-eyebrow"></p>
-      <!-- ⚠️ `tabindex="-1"` so it can be FOCUSED without joining the tab
-           order. Without it `.focus()` here is a silent no-op and the step
-           change is announced to nobody -- the identical fix the `<h1>` at the
-           top of this file already carries, with the identical reason. -->
-      <h2 id="fr-title" tabindex="-1">Welcome</h2>
+      <!-- install-flow-9screen: the step indicators (crumb + segments) are GONE
+           by Josh's spec, and the persistent shell head is retired -- each pane
+           carries its own eyebrow + <h2> (Mona's snippets). #fr-eyebrow and
+           #fr-title are kept HIDDEN as vestigial anchors (a few JS sites still
+           read #fr-title; the live dialog name + focus target is the ACTIVE
+           pane's own <h2>, wired at runtime by frFocusActiveHead). -->
+      <p class="fc-eyebrow" id="fr-eyebrow" hidden></p>
+      <h2 id="fr-title" tabindex="-1" hidden></h2>
 
       <!-- 2. Welcome. No account, no email, and where the transcripts go —
            the last of which the requirements ask to be stated here rather than
            discovered later. -->
-      <div class="fr-pane" id="fr-pane-2">
-        <!-- ⚠️ THE PRIVACY SENTENCE ON THIS SCREEN HAS BEEN WRONG THREE TIMES,
-             and the pattern is recorded here because the paragraph keeps its
-             guardian even across a redesign: it does not go wrong by being
-             rewritten, it goes wrong when a FEATURE changes what is true.
-             (First: a transcript capability claim nothing implemented. Second:
-             "nothing of it is sent anywhere", false because agents think with
-             Claude. Third, 2026-08-17: About-you made the narrowed claim false
-             AGAIN without an edit -- the profile is prompt text in every boot
-             file.) The middle line below is Mona Lisa's RULED wording from the
-             first-run spec (kosmos-firstrun-spec.md): the pack's own Saturday
-             version predates About-you and must not ship. Re-read this
-             whenever anything new is added to what agents carry. -->
-        <p>Your agents live on this computer, and so does everything they
-           write.</p>
-        <!-- Josh's rewrite, verbatim, and RULED FINAL as written (2026-08-17,
-             "leave that one line the way that I wrote it"): provider-generic
-             so this screen survives new providers, and it reads BEFORE
-             Claude is chosen. The and-your-answers-here addition was offered
-             and declined; do not re-add it without his word. -->
-        <p>They're powered by an AI provider, so your requests are sent to
-           that provider to be answered.</p>
-        <!-- 🛑 A LINE ABOUT THE AGENT-CREATED PING WAS HERE FOR ONE RELEASE
-             (0.2.50) AND JOSH TOOK IT OUT, 2026-08-22 00:22: "I don't care and
-             don't want any nit picky in the weeds lawyer speak. They don't have
-             to notify us or use our service or pay. It's all optional and we
-             are not bringing it up."
-             📌 RECORDED RATHER THAN SILENTLY REVERTED, because the guardian
-             above says this paragraph goes wrong when a FEATURE changes what is
-             true, and a future reader who notices the ping and not this comment
-             would add the line back believing it an oversight. It is a ruling.
-             🔑 THE DISCLOSURE LIVES AT THE POINT OF THE ACT INSTEAD: the box on
-             the create-agent screen, ticked, with the words on it. His argument
-             is that a choice explained where it is made needs no preamble on a
-             screen three steps earlier, and that is a real position rather than
-             an omission.
-             ⚠️ WHAT IS THEREFORE TRUE OF THIS SCREEN, so nobody has to re-derive
-             it: it names the AI provider as the destination for an agent's work,
-             and does not name the one message Kosmos sends when an agent is
-             created. That message carries no content of the agent's. -->
-        <p>No account setup. No email needed.</p>
+      <!-- S1 Welcome (was fr-pane-2). Privacy copy staged, placement Josh's on review. -->
+      <div class="fr-pane" id="fr-pane-1">
+        <!-- ============================================================
+             SCREEN 1 - WELCOME   (spec letter C, edited)
+             Inner content of the screen container. Renet's shell owns the frame,
+             the flush-left gold mark, the Next/Back bar, and transitions.
+             Primary button label (shell parameter): "Get Started"
+             Gate: none.  Dynamic: none.  Screen-internal CSS namespace: s1-*
+             Copy is Josh's, verbatim (2026-09-05). Uses the existing first-run
+             typography (.fc-eyebrow / <h2> / .fr-body p) so it renders native.
+             ============================================================ -->
+        <p class="fc-eyebrow">Lets do it</p>
+        <h2>Welcome to Kosmos</h2>
+        <p>Create and manage a workforce of AI agents that work for you.</p>
+
+        <!-- No graphic, no gate, no dynamic content on this screen. This one is the
+             shape sample: if this seam is right (my inner content drops into your
+             #fr-screen-c and renders native), the rest follow the same pattern with
+             s1-* / s2-* screen CSS + the data-gate hooks where they apply. -->
+        <!-- 🛑 PRIVACY COPY, RULED-FINAL, STAGED HERE PENDING JOSH'S PLACEMENT (Splinter 2026-09-05).
+             These three lines MUST be preserved through the 9-screen redesign; PLACEMENT (which screen,
+             whether split) is Josh's on review. Staged in a hidden block so nothing is lost and the raw
+             markup still carries them, WITHOUT pre-placing them on this screen. Do NOT delete; Josh moves
+             them out of this staging block when he reviews the built flow.
+             ⚠️ Guardian (kept verbatim from old fr-pane-2): this paragraph does not go wrong by being
+             rewritten, it goes wrong when a FEATURE changes what is true. Middle line is Josh's verbatim,
+             RULED FINAL 2026-08-17 -- do not reword. Re-read whenever anything new is added to what agents
+             carry. -->
+        <div id="fr-privacy-staged" hidden>
+          <p>Your agents live on this computer, and so does everything they write.</p>
+          <p>They're powered by an AI provider, so your requests are sent to that provider to be answered.</p>
+          <p>No account setup. No email needed.</p>
+        </div>
       </div>
 
-      <!-- 4. The machine checks. Painted from /api/machine. -->
-      <div class="fr-pane" id="fr-pane-4" hidden>
-        <div id="fr-checks" role="status" aria-live="polite"></div>
-        <!-- ⚠️ Announced, like its sibling on the next step. This is the one
-             sentence that reconciles the three rows above it into an answer
-             ("1 thing needs your attention, and 1 thing we could not check"),
-             and it was the only message on the panel that was never spoken.
-             WCAG 2.1 SC 4.1.3, which is AA. -->
-        <div class="fr-msg" id="fr-machine-msg" role="status" aria-live="polite"></div>
+      <!-- S2 Access (new). Gate: data-gate="file-access". Next locked until granted. -->
+      <div class="fr-pane" id="fr-pane-2" hidden>
+        <!-- ============================================================
+             SCREEN 2 - ACCESS   (replaces spec screen B)
+             Primary button (shell param): "Next", GREYED until the gate is granted. No skip.
+             GATE: data-gate="file-access" on the status row. Renet's poll detects the grant
+               and sets `data-granted` on that row (my CSS then swaps red "Approval Required"
+               + the Allow button for green "Approval Granted"), and enables #fr-next.
+             Dynamic: none.  CSS namespace: s2-*
+             Copy is Josh's, verbatim. Graphic: the macOS file-access dialogs, reproduced (a real
+             framed screenshot can swap in if preferred; the reproduction is lightweight + theme-aware).
+             ============================================================ -->
+        <style>
+        /* S2 macOS permission-dialog reproduction + the file-access gate row */
+        .s2-dlg-fan{display:flex;gap:0;max-width:100%;overflow-x:auto;padding:2px 0 6px;margin:2px 0 14px}
+        .s2-dlg{flex:none;width:186px;text-align:center;border-radius:14px;padding:15px 16px;
+          background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;
+          box-shadow:0 8px 22px rgba(0,0,0,.16);transform:scale(.86);transform-origin:top center;margin-left:-30px}
+        .s2-dlg:first-child{margin-left:0}
+        .s2-fold{width:44px;height:34px;margin:2px auto 10px;border-radius:6px;position:relative;
+          background:linear-gradient(160deg,#7cc0ff,#3f92f0)}
+        .s2-fold::before{content:"";position:absolute;top:-5px;left:6px;width:18px;height:7px;border-radius:3px 3px 0 0;background:#3f92f0}
+        .s2-fold .s2-hand{position:absolute;right:-4px;bottom:-4px;font-size:15px}
+        .s2-say{font:600 .75rem/1.35 var(--font-ui,-apple-system,sans-serif);margin:0 0 12px;color:#1c1b19}
+        .s2-btns{display:flex;gap:8px;justify-content:center}
+        .s2-db{font:600 .6875rem var(--font-ui,-apple-system,sans-serif);border:1px solid #b9b7b2;border-radius:6px;padding:4px 12px;background:#f6f6f4;color:#1c1b19}
+        .s2-db.s2-hl{background:#e9e8e5}
+        /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
+        .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+          background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px}
+        .s2-gate-lbl{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        .s2-gate-rest{margin-left:auto;display:flex;align-items:center;gap:9px}
+        .s2-pill{font:650 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:3px 9px;border:1px solid}
+        .s2-pill-req{color:var(--attn,#b3261e);border-color:var(--attn,#b3261e)}
+        .s2-pill-ok{color:var(--green,#2f7d5a);border-color:var(--green,#2f7d5a)}
+        .s2-allow{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
+          color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        .s2-granted{display:none}
+        .s2-gate-row[data-granted] .s2-req{display:none}
+        .s2-gate-row[data-granted] .s2-granted{display:flex;align-items:center}
+        </style>
+
+        <p class="fc-eyebrow">Access</p>
+        <h2>Kosmos needs your permission</h2>
+        <p>In order to put agents to work, you will need to grant them access to files, apps, and other parts of your computer.</p>
+        <p>When prompted, click Allow.</p>
+
+        <div class="s2-dlg-fan" aria-hidden="true">
+          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+            <p class="s2-say">"Terminal" would like to access files in your Documents folder.</p>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+            <p class="s2-say">"Terminal" would like to access files in your Downloads folder.</p>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+          <div class="s2-dlg"><div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
+            <p class="s2-say">"Terminal" would like to access files in your Desktop folder.</p>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div></div>
+        </div>
+
+        <!-- GATE ROW: Renet's poll sets data-granted on this div when file access is confirmed. -->
+        <div class="s2-gate-row" data-gate="file-access">
+          <span class="s2-gate-lbl">File Access</span>
+          <span class="s2-gate-rest s2-req">
+            <span class="s2-pill s2-pill-req">Approval Required</span>
+            <button class="s2-allow" type="button">Allow Access</button>
+          </span>
+          <span class="s2-gate-rest s2-granted">
+            <span class="s2-pill s2-pill-ok">&#10003; Approval Granted</span>
+          </span>
+        </div>
+        <!-- install-flow-9screen: "Allow Access" opens System Settings -> Privacy ->
+             Files & Folders (the delegated handler is on this pane; the gate poll,
+             not this click, flips the pill to granted). Only a failure speaks here;
+             the Settings window itself is the success feedback (same rule as S3). -->
+        <p class="fr-msg" id="fr-s2-msg" role="status" aria-live="polite"></p>
       </div>
 
-      <!-- 3. Model. THREE answers, and the third must never render as the
-           second — see engine/subscription.js for what that costs. -->
+      <!-- S3 Automation (new). Gates: data-gate="sleep" + "tmux". Next locked until BOTH. -->
       <div class="fr-pane" id="fr-pane-3" hidden>
-        <!-- The pack's model list, as drawn and at Josh's explicit word
-             (2026-08-17: "Yes I want that picking a model in the app").
-             Claude and OpenAI both carry Connect now (#944-adjacent, Josh
-             asked why OpenAI still said Coming soon after it already worked
-             in Settings -- "coming soon" had gone false with no commit
-             marking the day it did, Splinter's finding); Gemini/Llama/Qwen/
-             Mistral are the genuine Coming soon. The verdict row (#fr-sub)
-             renders BENEATH the list, exactly where the pack draws its
-             could-not-tell chk row, for Claude only -- OpenAI's own row
-             carries its own state (#fr-openai-msg) since its connect shape
-             (a pasted key) has no equivalent poll to reconcile against.
-             Claude's Connect button re-checks before it does anything: a
-             CONNECTED verdict short-circuits to the green row, and an
-             unknown one enters a drive whose REPL detection says "we could
-             not confirm" rather than forcing credential entry (the painter
-             comment states the guarantee precisely). -->
-        <p>Your agents run on your own subscription, on this computer.</p>
-        <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
-             show all of the models. That's more important to me than having
-             the button above the fold. It's not like it's unreasonable to
-             have to scroll down." He was comparing the live app against this
-             exact row set, real vendor marks and all, from the design pack.
+        <!-- ============================================================
+             SCREEN 3 - AUTOMATION   (spec screen F + part of E)
+             Primary button (shell param): "Next", GREYED until BOTH gates granted. No skip.
+             GATES: data-gate="sleep" and data-gate="tmux" on the two status rows. Renet's poll
+               sets `data-granted` on each when detected (red "Needs Activated" -> green
+               "Activated"), and enables #fr-next only when both are granted.
+             Dynamic: none.  CSS namespace: s3-*
+             Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
+             TMUX permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
+             ============================================================ -->
+        <style>
+        .s3-win{background:#f7f7f5;border:1px solid #d8d6d2;border-radius:12px;overflow:hidden;
+          box-shadow:0 8px 22px rgba(0,0,0,.14);color:#1c1b19;margin:0 0 10px}
+        .s3-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#eceae7;border-bottom:1px solid #d8d6d2}
+        .s3-tl{width:11px;height:11px;border-radius:50%}
+        .s3-r{background:#ff5f57}.s3-y{background:#febc2e}.s3-g{background:#28c840}
+        .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
+        .s3-body{padding:12px 14px}
+        .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
+        .s3-mtxt{font:600 .75rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
+        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.6875rem}
+        .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
+        .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+        .s3-step-cap{font:600 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.1em;text-transform:uppercase;color:var(--k-ink-3,#8a857c);margin:2px 0 6px}
+        .s3-step-cap .s3-standin{color:var(--attn,#b3261e)}
+        /* gate rows (same contract as S2): red "Needs Activated" -> data-granted -> green "Activated" */
+        .s3-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+          background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px;margin:0 0 10px}
+        .s3-gate-lbl{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        .s3-gate-rest{margin-left:auto;display:flex;align-items:center;gap:9px}
+        .s3-pill{font:650 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:3px 9px;border:1px solid}
+        .s3-pill-req{color:var(--attn,#b3261e);border-color:var(--attn,#b3261e)}
+        .s3-pill-ok{color:var(--green,#2f7d5a);border-color:var(--green,#2f7d5a)}
+        .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
+          color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        .s3-granted{display:none}
+        .s3-gate-row[data-granted] .s3-req{display:none}
+        .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
+        </style>
 
-             ⚠️ #262 MEASURED SOMETHING REAL, AND IT STILL HOLDS: six full
-             rows put this card at 1003px, and Continue 300px below the fold
-             at 950/800/700 if the card just grows. What changed is not that
-             number, it is which fix it drives. #262 hid five rows to keep
-             Continue on-screen; that traded the thing Josh actually wants
-             (see all six) for the thing that was easy to fix (button
-             visible). The fix now is `#firstrun .fr-box`/`.fr-body` above:
-             Continue is a sticky footer on every step of this wizard, and
-             the body scrolls under it — so six rows and an always-visible
-             Continue are no longer in tension. (Splinter, 2026-08-25:
-             "#262's problem, solved by pinning instead of hiding.")
+        <p class="fc-eyebrow">Automation</p>
+        <h2>Kosmos never sleeps</h2>
+        <p>To get the most out of your agents we need to ensure they can stay awake and access the things they need to work for you.</p>
 
-             Real vendor marks, inlined SVG (nothing fetched at runtime) —
-             see `.pmark` above for why Claude is in colour and the rest are
-             monochrome by filter. -->
-        <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm" aria-label="Connect Claude">Connect</button></div>
-        <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
-             14:44, watching a fresh install: "it downloaded 231MB without asking...
-             total chaos". And 14:59: "I should be notified before an almost-quarter-
-             of-a-gig download that's about to happen."
-             ⚠️ Same reveal contract as #fr-openai-flow below (hidden, aria-expanded
-             on the button, aria-controls pointing here), because the two rows sit
-             next to each other and a person should not meet two different ideas of
-             what pressing Connect does. Josh described the behaviour as "it pops
-             down right below it" -- OpenAI already did that; Claude did not.
-             📌 THE SIZE IS ROUGH ON PURPOSE, and it is in the SENTENCE rather than
-             only on the bar. Being told how big it is once the bar is already
-             moving is being told too late to decline, which makes the confirm a
-             formality. But Josh, 15:27: "a white collar person doesnt care if its
-             108 or 127MB.. they just want to know its making progress installing."
-             ⇒ Say it is large, then show it moving. "Around 230MB" is enough to
-             decide whether to do this now or on better wifi, which is the decision
-             he described wanting to make. An exact figure serves nobody reading it
-             and is one more number that has to stay true.
-             ⚠️ No time estimate: dropped at 15:07 ("that seems hard"). We cannot
-             know somebody's connection, so any figure is a promise the product
-             breaks on the screen where trust is being decided.
-             ⚠️ STALENESS: the figure is hardcoded in frClaudeDownloadBytes, not
-             in this markup. It is rough, so a small drift in
-             the real artifact does not make it a lie, but a large one would. The
-             durable version reads the size the engine already knows before it
-             downloads; worth doing when that field exists rather than inventing a
-             second source of truth for it now. -->
-        <div id="fr-claude-confirm" class="fr-confirm" role="group" aria-labelledby="fr-claude-confirm-t" hidden>
-          <p class="fr-confirm-t" id="fr-claude-confirm-t">In order to connect to Claude, we need to install Claude Code first.</p>
-          <div class="frow">
-            <button class="btn uprime" type="button" id="fr-claude-confirm-go" aria-describedby="fr-claude-confirm-t">Confirm</button>
-            <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
-          </div>
+        <p class="s3-step-cap">1 &middot; keep this computer awake</p>
+        <div class="s3-win" aria-hidden="true">
+          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw"></span></div></div>
         </div>
-        <!-- 🛑 THE CONNECT PANEL LIVES UNDER CLAUDE, NOT UNDER THE WHOLE LIST
-             (Josh, 2026-08-26, items 8, 9 and 10). It used to sit after every
-             provider row, so pressing Confirm on Claude painted the progress bar,
-             every status line and finally the connected verdict at the BOTTOM of
-             the screen -- far from the thing he had just pressed, and below four
-             providers he had not. His words: "it is showing below all of the
-             models in the wrong spot".
-
-             ⚠️ ONE MOVE FIXES ALL THREE OF HIS ITEMS, because they were one bug
-             with three symptoms: the panel, the progress and the verdict all
-             render into #fr-sub. No JavaScript changed.
-
-             📌 If a future provider needs its own panel, give it its own
-             container rather than moving this one back down. -->
-        <div id="fr-sub"></div>
-        <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
-        <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
-             purpose. Each phase panel already says what is happening in its
-             title; speaking the change needs a live region, but rendering the
-             same sentence twice is the said-it-twice copy defect the
-             connection notice was already caught by once. -->
-        <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
-        <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
-             GPT under Claude, and then Gemini 3rd"). Beyond his preference it
-             is the right shape: Gemini is a `llm off` Coming soon row, and it
-             previously sat BETWEEN the only two providers that work, so the eye
-             hit a dead row on the way to the second live one. Both working rows
-             now come first. Move this only if a provider changes state. -->
-        <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
-          <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
-        <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
-             Claude, so it gets its own small reveal instead of reusing
-             fr-llm-connect. Shares Settings' #acct-openai-flow contract
-             (same endpoint, same copy, same "never shown again" promise) so a
-             person who has already done this once in Settings recognises it
-             here. Hidden until Connect is pressed; the row's own message line
-             (#fr-openai-msg) carries the outcome, same shape as Claude's
-             #fr-sub beneath it. -->
-        <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
-             item 7, from a live run: "it immediately jumped to asking me for an
-             API key"). Claude's row already said what it needed to install and
-             offered Not now; Settings' OpenAI flow already did the same. This
-             row was the one place the pattern was missing, so a person met the
-             requirement only AFTER finding and pasting a key.
-             ⚠️ Settings' own comment beside #acct-openai-install says "the
-             first-run wizard already learned this: prerequisites go before
-             credentials." It had -- for Claude. -->
-        <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
-          <p class="fr-confirm-t" id="fr-openai-confirm-t">In order to connect to OpenAI GPT we need to download the installer.</p>
-          <div class="frow">
-            <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Confirm</button>
-            <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
-          </div>
-          <div class="fr-progress fr-indet" id="fr-openai-confirm-bar" role="progressbar"
-               aria-label="Installing the OpenAI runner" hidden><i></i></div>
-          <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+        <div class="s3-gate-row" data-gate="sleep">
+          <span class="s3-gate-lbl">Prevent sleep</span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Needs Activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
-        <!-- 🛑 THE BOX IS `.fr-confirm`, THE SAME ONE THE STEP BEFORE THIS USES
-             (#1207, Josh: "all of it inside a bounding box, like the prior
-             step"). Reusing that class rather than a new one is what makes the
-             two steps match without a second set of rules to keep in sync.
-             ⚠️ THE "Get a key" LINK SITS IN A `.frow`, AND THAT IS LOAD-BEARING.
-             `.btn` sets padding and no `display`; a `<button>` is inline-block by
-             default but an `<a>` is plain inline, so its vertical padding
-             OVERLAPS the line above instead of pushing it -- exactly the
-             collision Josh photographed on the sign-in step (#1209). `.frow` is
-             `display: flex`, which blockifies its children, so the anchor's
-             padding behaves. This is the codebase's own row pattern; it is not a
-             new rule and it is not a coincidence that it works.
-             📌 Both paragraphs carry `.fr-confirm-t`, so the sizes MATCH BY
-             CONSTRUCTION rather than by two rules agreeing (Josh's follow-up:
-             "the font sizes should all match as well"). -->
-        <div id="fr-openai-flow" hidden class="fr-confirm">
-          <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
-          <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
-          <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
-               "We don't need this line at all for the openAI."
-               ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
-               flagged that "it stays on this Mac" spans two claims; measurement
-               showed `engine/openaiaccounts.js:242` sends the key to
-               api.openai.com to validate it, so the short form was not true and
-               the true form needed eleven words of qualification. NO CLAIM BEATS
-               A CLAIM YOU HAVE TO QUALIFY: there is now nothing here to keep true
-               when that validation call changes, and nothing for a reader to
-               catch us on.
-               📌 SETTINGS KEEPS ITS OWN SENTENCE. He was looking at first run and
-               ruled on first run; removing copy from a screen nobody raised is
-               scope this card was not given. `web.firstrun-model.test.js` guards
-               that Settings still carries it. -->
-          <p class="fr-confirm-t" id="fr-openai-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
-          <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
-               and Add together, no Show/Hide. Settings' own #acct-openai-key
-               keeps Show/Hide so a long pasted key can be checked before
-               pressing Add; first-run trades that check away on purpose for
-               a shorter row, his explicit call, not a case where the two
-               screens differ on the underlying risk. -->
-          <div class="frow">
-            <input type="password" id="fr-openai-key" autocomplete="new-password" spellcheck="false"
-                   aria-label="OpenAI API key" placeholder="sk-…">
-            <button class="btn uprime" id="fr-openai-go" type="button">Add</button>
-          </div>
+
+        <p class="s3-step-cap">2 &middot; when prompted, switch TMUX to On <span class="s3-standin">(stand-in graphic)</span></p>
+        <div class="s3-win" aria-hidden="true">
+          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Login Items &amp; Extensions</span></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Allow in the background</small></span><span class="s3-sw"></span></div></div>
         </div>
-        <!-- 🛑 OUTSIDE #fr-openai-flow ON PURPOSE. The connected paint hides
-             the whole form (flow.hidden = true) and then writes the outcome
-             here; caught in challenge-loop iteration 2 with this element
-             INSIDE the flow, where "Added: API key ending xxxx." landed in a
-             display:none subtree -- invisible, and the aria-live announcement
-             never fired. The message must survive the form it reports on. -->
-        <!-- #2241: a DIV (was a p) so the connected state can hold the .fr-check gold
-             check-row block, the same shape Claude's #fr-sub uses; stays a plain dhint
-             line for the not-yet-connected / dead-reason states. -->
-        <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite"></div>
-        <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
-             reorder moved it past the wrong closing tag, so the list showed five
-             rows instead of six: Gemini vanished until somebody pressed Connect on
-             GPT, appeared inside the API-key form, then vanished again when the
-             form hid itself on success. The order test still passed, because it
-             read source order and not whether a hidden container opened in between. -->
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
-        <p class="smore-t">Runs on this computer</p>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
-        <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
+        <div class="s3-gate-row" data-gate="tmux">
+          <span class="s3-gate-lbl">TMUX</span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Needs Activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
+        </div>
+        <!-- install-flow-9screen: the "Turn On" buttons open System Settings
+             (sleep row -> Energy; tmux row -> Accessibility). The delegated
+             handler is on this pane; only a failure speaks here, the Settings
+             window itself is the feedback (same rule as the retired sleep/a11y
+             buttons this reuses). The gate poll re-checks and flips the pill on
+             its own once granted. -->
+        <p class="fr-msg" id="fr-s3-msg" role="status" aria-live="polite"></p>
       </div>
 
-      <!-- 5. Accessibility (kosmos#1214). An OFFER, not a requirement (Josh ruled
-           offer-not-require, 2026-09-01): the button opens the setting, Continue
-           proceeds whether or not it was turned on, and the optional sentence
-           points at where to do it later. It reuses the SAME action the Settings
-           box uses (/api/open-accessibility-settings) and, like that box, does
-           NOT and CANNOT grant the permission itself (TCC), so it claims no state
-           and shows no tick. The named place ("Settings, under Keeping agents
-           running") is pinned by a test against the box that actually holds the
-           button, so a Settings reorganisation cannot leave this pointing at a
-           pane that has moved.
-           📌 Placed right after the model pane (pane-3) in FILE order on purpose:
-           web.firstrun-model.test.js slices pane-3 to pane-5 to isolate the model
-           step, so this pane must remain the one that follows pane-3. -->
+      <!-- S4 Notifications (new). -->
+      <div class="fr-pane" id="fr-pane-4" hidden>
+        <!-- ============================================================
+             SCREEN 4 - NOTIFICATIONS   (new screen; art from Josh's bash-notification screenshot)
+             Primary button (shell param): "Next".  Gate: none.  Dynamic: none.
+             CSS namespace: s4-*   Copy is Josh's, verbatim.
+             Graphic: the macOS "App Background Activity / bash can run in the background"
+             notification, reproduced (a real framed screenshot can swap in if preferred).
+             ============================================================ -->
+        <style>
+        .s4-notif{max-width:340px;margin:2px 0 0;display:flex;gap:11px;align-items:flex-start;
+          background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 14px;
+          box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
+        .s4-gear{width:30px;height:30px;border-radius:7px;flex:none;display:grid;place-items:center;font-size:16px;
+          background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
+        .s4-nt{font:700 .75rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
+        .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
+        .s4-x{margin-left:auto;color:#8a8a86;font-size:.9rem;flex:none;line-height:1}
+        </style>
+
+        <p class="fc-eyebrow">Notifications</p>
+        <h2>Random notifications may appear</h2>
+        <p>When using Kosmos you might notice random notifications to tell you things are working in the background.</p>
+        <p>This is totally normal.</p>
+
+        <div class="s4-notif" aria-hidden="true">
+          <span class="s4-gear">&#9881;</span>
+          <div>
+            <p class="s4-nt">App Background Activity</p>
+            <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
+          </div>
+          <span class="s4-x">&times;</span>
+        </div>
+      </div>
+
+      <!-- S5 Model (reuse old fr-pane-3 body). Mona S5 head prepended. -->
       <div class="fr-pane" id="fr-pane-5" hidden>
-        <p>Allow Kosmos agents to work in applications on this computer. Turn on
-           'Tmux' in Accessibility to enable this.</p>
-        <button class="btn fr-sleepbtn" id="fr-a11y-open" type="button">Open Accessibility settings</button>
-        <p class="fr-msg" id="fr-a11y-msg" role="status" aria-live="polite"></p>
-        <!-- #2125 slice 3 (Josh, 2026-09-04): GATE Continue until Accessibility is
-             actually enabled, verified, superseding the 09-01 offer-not-require.
-             So the old "you can turn this on anytime in Settings" skip-out is gone
-             (it is no longer optional at this step), replaced by what-to-toggle
-             guidance and a live status line the gate poll writes. The guidance
-             names BOTH grants tmux needs: Accessibility (the list) AND, when macOS
-             asks, Automation ("control your computer"). -->
-        <p class="fr-a11y-guide" id="fr-a11y-guide">Find <b>Tmux</b> in the Accessibility list and switch it on. If macOS also
-           asks to let Tmux control your computer, allow that too. Then come back to this window.</p>
-        <p class="fr-next" id="fr-a11y-status" role="status" aria-live="polite"></p>
+        <p class="fc-eyebrow">Model</p>
+        <h2>Choose a model.</h2>
+                <!-- The pack's model list, as drawn and at Josh's explicit word
+                     (2026-08-17: "Yes I want that picking a model in the app").
+                     Claude and OpenAI both carry Connect now (#944-adjacent, Josh
+                     asked why OpenAI still said Coming soon after it already worked
+                     in Settings -- "coming soon" had gone false with no commit
+                     marking the day it did, Splinter's finding); Gemini/Llama/Qwen/
+                     Mistral are the genuine Coming soon. The verdict row (#fr-sub)
+                     renders BENEATH the list, exactly where the pack draws its
+                     could-not-tell chk row, for Claude only -- OpenAI's own row
+                     carries its own state (#fr-openai-msg) since its connect shape
+                     (a pasted key) has no equivalent poll to reconcile against.
+                     Claude's Connect button re-checks before it does anything: a
+                     CONNECTED verdict short-circuits to the green row, and an
+                     unknown one enters a drive whose REPL detection says "we could
+                     not confirm" rather than forcing credential entry (the painter
+                     comment states the guarantee precisely). -->
+                <p>Your agents run on your own subscription, on this computer.</p>
+                <!-- ⭐ ALL SIX SHOWN, ALWAYS — Josh, 2026-08-25 21:08 CDT: "I want to
+                     show all of the models. That's more important to me than having
+                     the button above the fold. It's not like it's unreasonable to
+                     have to scroll down." He was comparing the live app against this
+                     exact row set, real vendor marks and all, from the design pack.
+
+                     ⚠️ #262 MEASURED SOMETHING REAL, AND IT STILL HOLDS: six full
+                     rows put this card at 1003px, and Continue 300px below the fold
+                     at 950/800/700 if the card just grows. What changed is not that
+                     number, it is which fix it drives. #262 hid five rows to keep
+                     Continue on-screen; that traded the thing Josh actually wants
+                     (see all six) for the thing that was easy to fix (button
+                     visible). The fix now is `#firstrun .fr-box`/`.fr-body` above:
+                     Continue is a sticky footer on every step of this wizard, and
+                     the body scrolls under it — so six rows and an always-visible
+                     Continue are no longer in tension. (Splinter, 2026-08-25:
+                     "#262's problem, solved by pinning instead of hiding.")
+
+                     Real vendor marks, inlined SVG (nothing fetched at runtime) —
+                     see `.pmark` above for why Claude is in colour and the rest are
+                     monochrome by filter. -->
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="claude" role="img" aria-label="Claude"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 125 125" fill="currentColor" aria-label="Claude"><path d="M54.375 118.75L56.125 111L58.125 101L59.75 93L61.25 83.125L62.125 79.875L62 79.625L61.375 79.75L53.875 90L42.5 105.375L33.5 114.875L31.375 115.75L27.625 113.875L28 110.375L30.125 107.375L42.5 91.5L50 81.625L54.875 76L54.75 75.25H54.5L21.5 96.75L15.625 97.5L13 95.125L13.375 91.25L14.625 90L24.5 83.125L49.125 69.375L49.5 68.125L49.125 67.5H47.875L43.75 67.25L29.75 66.875L17.625 66.375L5.75 65.75L2.75 65.125L0 61.375L0.25 59.5L2.75 57.875L6.375 58.125L14.25 58.75L26.125 59.5L34.75 60L47.5 61.375H49.5L49.75 60.5L49.125 60L48.625 59.5L36.25 51.25L23 42.5L16 37.375L12.25 34.75L10.375 32.375L9.625 27.125L13 23.375L17.625 23.75L18.75 24L23.375 27.625L33.25 35.25L46.25 44.875L48.125 46.375L49 45.875V45.5L48.125 44.125L41.125 31.375L33.625 18.375L30.25 13L29.375 9.75C29.0417 8.625 28.875 7.375 28.875 6L32.75 0.750006L34.875 0L40.125 0.750006L42.25 2.625L45.5 10L50.625 21.625L58.75 37.375L61.125 42.125L62.375 46.375L62.875 47.75H63.75V47L64.375 38L65.625 27.125L66.875 13.125L67.25 9.125L69.25 4.375L73.125 1.87501L76.125 3.25L78.625 6.875L78.25 9.125L76.875 18.75L73.875 33.875L72 44.125H73.125L74.375 42.75L79.5 36L88.125 25.25L91.875 21L96.375 16.25L99.25 14H104.625L108.5 19.875L106.75 26L101.25 33L96.625 38.875L90 47.75L86 54.875L86.375 55.375H87.25L102.125 52.125L110.25 50.75L119.75 49.125L124.125 51.125L124.625 53.125L122.875 57.375L112.625 59.875L100.625 62.25L82.75 66.5L82.5 66.625L82.75 67L90.75 67.75L94.25 68H102.75L118.5 69.125L122.625 71.875L125 75.125L124.625 77.75L118.25 80.875L109.75 78.875L89.75 74.125L83 72.5H82V73L87.75 78.625L98.125 88L111.25 100.125L111.875 103.125L110.25 105.625L108.5 105.375L97 96.625L92.5 92.75L82.5 84.375H81.875V85.25L84.125 88.625L96.375 107L97 112.625L96.125 114.375L92.875 115.5L89.5 114.875L82.25 104.875L74.875 93.5L68.875 83.375L68.25 83.875L64.625 121.625L63 123.5L59.25 125L56.125 122.625L54.375 118.75Z"/></svg></span><div class="llm-w"><b>Claude</b><small>Anthropic &middot; works today</small></div>
+                  <button class="connect-b" type="button" id="fr-llm-connect" aria-expanded="false" aria-controls="fr-claude-confirm" aria-label="Connect Claude">Connect</button></div>
+                <!-- 🛑 THE CONFIRM, and it is the point of this whole step. Josh, 2026-08-26
+                     14:44, watching a fresh install: "it downloaded 231MB without asking...
+                     total chaos". And 14:59: "I should be notified before an almost-quarter-
+                     of-a-gig download that's about to happen."
+                     ⚠️ Same reveal contract as #fr-openai-flow below (hidden, aria-expanded
+                     on the button, aria-controls pointing here), because the two rows sit
+                     next to each other and a person should not meet two different ideas of
+                     what pressing Connect does. Josh described the behaviour as "it pops
+                     down right below it" -- OpenAI already did that; Claude did not.
+                     📌 THE SIZE IS ROUGH ON PURPOSE, and it is in the SENTENCE rather than
+                     only on the bar. Being told how big it is once the bar is already
+                     moving is being told too late to decline, which makes the confirm a
+                     formality. But Josh, 15:27: "a white collar person doesnt care if its
+                     108 or 127MB.. they just want to know its making progress installing."
+                     ⇒ Say it is large, then show it moving. "Around 230MB" is enough to
+                     decide whether to do this now or on better wifi, which is the decision
+                     he described wanting to make. An exact figure serves nobody reading it
+                     and is one more number that has to stay true.
+                     ⚠️ No time estimate: dropped at 15:07 ("that seems hard"). We cannot
+                     know somebody's connection, so any figure is a promise the product
+                     breaks on the screen where trust is being decided.
+                     ⚠️ STALENESS: the figure is hardcoded in frClaudeDownloadBytes, not
+                     in this markup. It is rough, so a small drift in
+                     the real artifact does not make it a lie, but a large one would. The
+                     durable version reads the size the engine already knows before it
+                     downloads; worth doing when that field exists rather than inventing a
+                     second source of truth for it now. -->
+                <div id="fr-claude-confirm" class="fr-confirm" role="group" aria-labelledby="fr-claude-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-claude-confirm-t">In order to connect to Claude, we need to install Claude Code first.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-claude-confirm-go" aria-describedby="fr-claude-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-claude-confirm-no">Not now</button>
+                  </div>
+                </div>
+                <!-- 🛑 THE CONNECT PANEL LIVES UNDER CLAUDE, NOT UNDER THE WHOLE LIST
+                     (Josh, 2026-08-26, items 8, 9 and 10). It used to sit after every
+                     provider row, so pressing Confirm on Claude painted the progress bar,
+                     every status line and finally the connected verdict at the BOTTOM of
+                     the screen -- far from the thing he had just pressed, and below four
+                     providers he had not. His words: "it is showing below all of the
+                     models in the wrong spot".
+
+                     ⚠️ ONE MOVE FIXES ALL THREE OF HIS ITEMS, because they were one bug
+                     with three symptoms: the panel, the progress and the verdict all
+                     render into #fr-sub. No JavaScript changed.
+
+                     📌 If a future provider needs its own panel, give it its own
+                     container rather than moving this one back down. -->
+                <div id="fr-sub"></div>
+                <div class="fr-msg" id="fr-sub-msg" role="status" aria-live="polite"></div>
+                <!-- ⚠️ The connect flow's phase announcements, VISUALLY HIDDEN on
+                     purpose. Each phase panel already says what is happening in its
+                     title; speaking the change needs a live region, but rendering the
+                     same sentence twice is the said-it-twice copy defect the
+                     connection notice was already caught by once. -->
+                <div class="vh" id="fr-conn-say" role="status" aria-live="polite"></div>
+                <!-- ⚠️ ORDER IS CLAUDE, GPT, GEMINI (Josh, 2026-08-26 14:30: "lets put
+                     GPT under Claude, and then Gemini 3rd"). Beyond his preference it
+                     is the right shape: Gemini is a `llm off` Coming soon row, and it
+                     previously sat BETWEEN the only two providers that work, so the eye
+                     hit a dead row on the way to the second live one. Both working rows
+                     now come first. Move this only if a provider changes state. -->
+                <div class="llm on"><span class="llm-m pmark live" data-pmark="openai" role="img" aria-label="OpenAI"><svg viewBox="0 0 716 716" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M508.749 317.399C516.777 287.314 508.991 253.884 485.389 230.282C461.788 206.681 428.36 198.895 398.273 206.923C376.231 184.928 343.39 174.956 311.148 183.596C278.906 192.234 255.45 217.292 247.36 247.361C217.291 255.451 192.233 278.91 183.595 311.149C174.957 343.391 184.927 376.232 206.924 398.274C198.896 428.359 206.683 461.789 230.284 485.391C253.885 508.992 287.313 516.779 317.401 508.75C339.442 530.745 372.286 540.717 404.525 532.079C436.767 523.441 460.223 498.384 468.313 468.315C498.383 460.224 523.44 436.766 532.078 404.526C540.716 372.285 530.747 339.443 508.749 317.402V317.399ZM470.899 244.776C486.892 260.77 493.488 282.601 490.687 303.412L415.577 260.046C412.411 258.218 408.509 258.218 405.345 260.046L317.401 310.82V277.526C317.401 275.191 318.652 273.005 320.676 271.837L387.644 233.174C414.178 218.353 448.346 222.223 470.901 244.776H470.899ZM357.837 311.144L398.275 334.491V381.185L357.837 404.532L317.398 381.185V334.491L357.837 311.144ZM264.776 269.693C265.207 239.305 285.644 211.649 316.453 203.393C338.3 197.54 360.505 202.744 377.127 215.573L302.014 258.937C298.848 260.764 296.898 264.144 296.898 267.798V369.346L268.065 352.699C266.043 351.531 264.776 349.353 264.776 347.017V269.691V269.693ZM203.391 316.454C209.244 294.608 224.854 277.978 244.276 269.999V356.73C244.276 360.384 246.226 363.763 249.392 365.591L337.337 416.365L308.503 433.013C306.481 434.181 303.961 434.188 301.939 433.02L234.971 394.357C208.868 378.789 195.138 347.261 203.391 316.454ZM244.775 470.9C228.781 454.906 222.186 433.075 224.986 412.264L300.096 455.63C303.263 457.457 307.164 457.457 310.328 455.63L398.273 404.856V438.149C398.273 440.485 397.022 442.671 394.997 443.839L328.029 482.502C301.495 497.322 267.327 493.452 244.772 470.9H244.775ZM450.897 445.982C450.466 476.371 430.029 504.027 399.22 512.283C377.373 518.136 355.168 512.932 338.547 500.102L413.659 456.738C416.826 454.911 418.775 451.532 418.775 447.877V346.329L447.609 362.977C449.631 364.145 450.897 366.323 450.897 368.659V445.985V445.982ZM512.282 399.221C506.429 421.068 490.819 437.697 471.397 445.676V358.946C471.397 355.292 469.448 351.912 466.281 350.085L378.336 299.311L407.17 282.663C409.192 281.495 411.712 281.487 413.734 282.655L480.702 321.318C506.805 336.887 520.536 368.415 512.282 399.221Z" fill="currentColor"/> </svg></span><div class="llm-w"><b>GPT</b><small>OpenAI &middot; works today</small></div>
+                  <button class="connect-b" type="button" id="fr-openai-connect" aria-expanded="false" aria-controls="fr-openai-flow" aria-label="Connect OpenAI">Connect</button></div>
+                <!-- #944-adjacent: OpenAI is a pasted API key, not an OAuth popup like
+                     Claude, so it gets its own small reveal instead of reusing
+                     fr-llm-connect. Shares Settings' #acct-openai-flow contract
+                     (same endpoint, same copy, same "never shown again" promise) so a
+                     person who has already done this once in Settings recognises it
+                     here. Hidden until Connect is pressed; the row's own message line
+                     (#fr-openai-msg) carries the outcome, same shape as Claude's
+                     #fr-sub beneath it. -->
+                <!-- 🛑 PREREQUISITES BEFORE CREDENTIALS, for GPT too (Josh, 2026-08-26
+                     item 7, from a live run: "it immediately jumped to asking me for an
+                     API key"). Claude's row already said what it needed to install and
+                     offered Not now; Settings' OpenAI flow already did the same. This
+                     row was the one place the pattern was missing, so a person met the
+                     requirement only AFTER finding and pasting a key.
+                     ⚠️ Settings' own comment beside #acct-openai-install says "the
+                     first-run wizard already learned this: prerequisites go before
+                     credentials." It had -- for Claude. -->
+                <div id="fr-openai-confirm" class="fr-confirm" role="group" aria-labelledby="fr-openai-confirm-t" hidden>
+                  <p class="fr-confirm-t" id="fr-openai-confirm-t">In order to connect to OpenAI GPT we need to download the installer.</p>
+                  <div class="frow">
+                    <button class="btn uprime" type="button" id="fr-openai-confirm-go" aria-describedby="fr-openai-confirm-t">Confirm</button>
+                    <button class="btn" type="button" id="fr-openai-confirm-no">Not now</button>
+                  </div>
+                  <div class="fr-progress fr-indet" id="fr-openai-confirm-bar" role="progressbar"
+                       aria-label="Installing the OpenAI runner" hidden><i></i></div>
+                  <p class="dhint" id="fr-openai-confirm-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+                </div>
+                <!-- 🛑 THE BOX IS `.fr-confirm`, THE SAME ONE THE STEP BEFORE THIS USES
+                     (#1207, Josh: "all of it inside a bounding box, like the prior
+                     step"). Reusing that class rather than a new one is what makes the
+                     two steps match without a second set of rules to keep in sync.
+                     ⚠️ THE "Get a key" LINK SITS IN A `.frow`, AND THAT IS LOAD-BEARING.
+                     `.btn` sets padding and no `display`; a `<button>` is inline-block by
+                     default but an `<a>` is plain inline, so its vertical padding
+                     OVERLAPS the line above instead of pushing it -- exactly the
+                     collision Josh photographed on the sign-in step (#1209). `.frow` is
+                     `display: flex`, which blockifies its children, so the anchor's
+                     padding behaves. This is the codebase's own row pattern; it is not a
+                     new rule and it is not a coincidence that it works.
+                     📌 Both paragraphs carry `.fr-confirm-t`, so the sizes MATCH BY
+                     CONSTRUCTION rather than by two rules agreeing (Josh's follow-up:
+                     "the font sizes should all match as well"). -->
+                <div id="fr-openai-flow" hidden class="fr-confirm">
+                  <p class="fr-confirm-t" id="fr-openai-key-t">Download complete. You will need an OpenAI API key to finish. A key is a bit like a password that OpenAI issues for this computer. Getting one takes about 2 minutes on their site and you paste it here once you are done.</p>
+                  <div class="frow"><a class="btn" id="fr-openai-getkey" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">Get a key</a></div>
+                  <!-- 🛑 NO PROMISE ABOUT THE KEY ON THIS SCREEN. Josh, 2026-08-27:
+                       "We don't need this line at all for the openAI."
+                       ⭐ HE REMOVED THE CLAIM RATHER THAN WORDING IT. Ice Cream Kitty
+                       flagged that "it stays on this Mac" spans two claims; measurement
+                       showed `engine/openaiaccounts.js:242` sends the key to
+                       api.openai.com to validate it, so the short form was not true and
+                       the true form needed eleven words of qualification. NO CLAIM BEATS
+                       A CLAIM YOU HAVE TO QUALIFY: there is now nothing here to keep true
+                       when that validation call changes, and nothing for a reader to
+                       catch us on.
+                       📌 SETTINGS KEEPS ITS OWN SENTENCE. He was looking at first run and
+                       ruled on first run; removing copy from a screen nobody raised is
+                       scope this card was not given. `web.firstrun-model.test.js` guards
+                       that Settings still carries it. -->
+                  <p class="fr-confirm-t" id="fr-openai-key-back" style="margin-top:8px;">Then come back and paste it here.</p>
+                  <!-- Josh, 2026-08-26 07:01, from the options page: one row, key
+                       and Add together, no Show/Hide. Settings' own #acct-openai-key
+                       keeps Show/Hide so a long pasted key can be checked before
+                       pressing Add; first-run trades that check away on purpose for
+                       a shorter row, his explicit call, not a case where the two
+                       screens differ on the underlying risk. -->
+                  <div class="frow">
+                    <input type="password" id="fr-openai-key" autocomplete="new-password" spellcheck="false"
+                           aria-label="OpenAI API key" placeholder="sk-…">
+                    <button class="btn uprime" id="fr-openai-go" type="button">Add</button>
+                  </div>
+                </div>
+                <!-- 🛑 OUTSIDE #fr-openai-flow ON PURPOSE. The connected paint hides
+                     the whole form (flow.hidden = true) and then writes the outcome
+                     here; caught in challenge-loop iteration 2 with this element
+                     INSIDE the flow, where "Added: API key ending xxxx." landed in a
+                     display:none subtree -- invisible, and the aria-live announcement
+                     never fired. The message must survive the form it reports on. -->
+                <!-- #2241: a DIV (was a p) so the connected state can hold the .fr-check gold
+                     check-row block, the same shape Claude's #fr-sub uses; stays a plain dhint
+                     line for the not-yet-connected / dead-reason states. -->
+                <div class="dhint" id="fr-openai-msg" role="status" aria-live="polite"></div>
+                <!-- ⚠️ OUTSIDE #fr-openai-flow, and this row was briefly INSIDE it. The
+                     reorder moved it past the wrong closing tag, so the list showed five
+                     rows instead of six: Gemini vanished until somebody pressed Connect on
+                     GPT, appeared inside the API-key form, then vanished again when the
+                     form hid itself on success. The order test still passed, because it
+                     read source order and not whether a hidden container opened in between. -->
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="gemini" role="img" aria-label="Gemini"><svg viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#pmark-gemini-g)"/> <defs> <radialGradient id="pmark-gemini-g" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(2.77876 11.3795) rotate(18.6832) scale(29.8025 238.737)"> <stop offset="0.0671246" stop-color="#9168C0"/> <stop offset="0.342551" stop-color="#5684D1"/> <stop offset="0.672076" stop-color="#1BA1E3"/> </radialGradient> </defs> </svg></span><div class="llm-w"><b>Gemini</b><small>Google</small></div><span class="soon">Coming soon</span></div>
+                <p class="smore-t">Runs on this computer</p>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="meta" role="img" aria-label="Meta"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 25.6 17" fill="currentColor" aria-label="Meta"><path d="M18.4 0c-2.1 0-3.8 1.6-5.3 3.6v-.1l-.1-.1-.1-.2h-.1l-.1-.2-.1-.1-.1-.1-.1-.1-.1-.1a6.4 6.4 0 0 0-.1-.1v-.1H12l-.2-.2-.1-.2h-.1l-.1-.1-.1-.1-.1-.1-.1-.1-.2-.1v-.1H11v-.1l-.2-.1h-.1l-.1-.1V1h-.2V.8h-.2V.7H10L10 .6h-.1V.5h-.1L9.6.5h-.1L9.3.3h-.2L9 .2H9L8.7.1H8.4L8.4 0h-.8V0h-.2C3.2 0 0 5.4 0 11.1 0 14.7 1.7 17 4.6 17c2.1 0 3.6-1 6.3-5.7L12.8 8l.1.2v.1h.1l.1.2.1.2.1.2.1.1.1.2.1.2.2.3 1.1 1.8c2.4 4.1 3.8 5.5 6.3 5.5 2.8 0 4.4-2.3 4.4-6 0-6-3.3-11-7.2-11ZM8.9 10c-2.2 3.5-3 4.2-4.2 4.2-1.2 0-2-1-2-3 0-4.2 2.1-8.4 4.6-8.4H8.2V3H8.5V3h.2l.1.1h.1v.1H9l.2.1v.1h.1l.1.1.1.1h.1v.1h.1l.1.1V4h.1a5.6 5.6 0 0 1 .2.3h.1v.1h.1l.1.2.1.1.1.1v.1h.1l.1.2h.1l.1.3.2.2.1.2h.1l.1.2V6L9 10Zm12.3 4.2c-1.2 0-1.8-.8-4.1-4.6l-1.5-2.5-1.2-1.8c1.3-2 2.5-3.1 3.8-3.1 2.7 0 5 4 5 9 0 2-.7 3-2 3Z"/></svg></span><div class="llm-w"><b>Llama</b><small>Meta</small></div><span class="soon">Coming soon</span></div>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="qwen" role="img" aria-label="Qwen"><svg xmlns="http://www.w3.org/2000/svg" viewBox="218.8 129.4 354.4 354.4"><path fill="#0a2cff" d="M354.3,263.9h140.6c18,0,32.8-14.8,32.8-32.8v-10.2c0-18-14.8-32.8-32.8-32.8h-73c2.3-12.7-3.1-26.2-14.7-33.5l-8.6-5.5c-15.2-9.7-35.6-5.1-45.3,10.1l-26.2,41.2c-2.6,4.1-4.2,8.6-4.8,13.2-.5,2.4-.8,4.8-.8,7.3v10.2c0,18,14.8,32.8,32.8,32.8Z"/><path fill="#0a2cff" d="M308.6,247.6c-8.6-15.8-28.7-21.7-44.5-13.1l-9,4.9c-15.8,8.6-21.7,28.7-13.1,44.5l35,64.1c-12.2,4.1-21.5,15.3-22.4,28.9l-.7,10.2c-1.2,18,12.6,33.7,30.6,34.9l48.7,3.2c4.9.3,9.6-.5,13.9-2.1,2.3-.7,4.6-1.6,6.9-2.8l9-4.9c15.8-8.6,21.7-28.7,13.1-44.5l-67.4-123.4Z"/><path fill="#0a2cff" d="M550.8,348.4l-21.2-43.9c-2.1-4.4-5.1-8.1-8.7-11-1.7-1.7-3.7-3.3-5.8-4.6l-8.7-5.4c-15.3-9.5-35.7-4.7-45.2,10.6l-74.1,119.5c-9.5,15.3-4.7,35.7,10.6,45.2l8.7,5.4c15.3,9.5,35.7,4.7,45.2-10.6l38.5-62.1c9.6,8.6,23.9,11.1,36.2,5.2l9.2-4.5c16.2-7.8,23.1-27.5,15.3-43.8Z"/></svg></span><div class="llm-w"><b>Qwen</b><small>Alibaba</small></div><span class="soon">Coming soon</span></div>
+                <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
-      <!-- 4. About you. The pack's step, its copy verbatim: two required
-           answers and one genuinely optional one. ⚠️ NO SKIP, at Josh's call
-           ("if they don't want to tell what they wanna be called and who they
-           are then they have no purpose in using this") -- and removing the
-           skip only means something if Continue WAITS, so the first two
-           answers gate the button and the third stays optional, which is the
-           difference between asking and pretending to ask. The wizard's own
-           quiet exit stays: that is the trap-escape for a wrong detection,
-           not a skip of this question. -->
+      <!-- S6 Self improving (new). Switches fr-s6-feedback / fr-s6-createping = Angel wires behavior. -->
       <div class="fr-pane" id="fr-pane-6" hidden>
-        <div id="fr-you"></div>
-        <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
-      </div>
+        <!-- ============================================================
+             SCREEN 6 - SELF IMPROVING   (new screen)
+             Primary button (shell param): "Next".  Gate: none.  Dynamic: the switch state.
+             CSS namespace: s6-*   Copy is Josh's, verbatim.
+             SPLIT NOTE: Angel owns the two switches' BEHAVIOR (both default-ON): the daily
+             feedback report (#2037, already landed as PR-C1) and the create-agent ping (#2020).
+             This snippet is the VISUAL: eyebrow + headline + the two switch ROWS with the exact
+             copy. Angel wires the switch controls into these rows (ids fr-s6-feedback /
+             fr-s6-createping so her toggle handlers bind; fr- prefix = a wiring surface).
+             ============================================================ -->
+        <style>
+        .s6-switch-row{display:flex;align-items:flex-start;gap:12px;
+          background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:12px 14px;margin:0 0 10px}
+        .s6-sw{width:38px;height:22px;border-radius:99px;position:relative;flex:none;margin-top:1px;background:#2f7bf6}
+        .s6-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+        .s6-sw[aria-checked="false"]{background:#c9c7c2}
+        .s6-sw[aria-checked="false"]::after{right:auto;left:2px}
+        .s6-lbl{font:500 .9rem/1.45 var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        </style>
 
-      <!-- 5. The fork. ⚠️ "Adopting" is not an import: every agent already on
-           this machine is already on the board, because the board is built from
-           `tmux list-panes`. So this screen SHOWS them rather than migrating
-           them, and there is no progress bar here because there is no work. -->
-      <div class="fr-pane" id="fr-pane-7" hidden>
-        <div id="fr-fleet"></div>
-        <!-- ⚠️ THE WAY BACK, AND IT IS THE LAST STEP ON PURPOSE. It opened the
-             flow until 2026-08-22, which put an instruction in front of a
-             person before they had the motive for it: you drag something to
-             your Dock because you expect to want it again, and before they
-             have used it they do not know that yet. Two written rulings placed
-             it here (the orientation spec's Placement heading, and the PIN's
-             ordering ending on "getting back") and the comment justifying the
-             front position cited the spec as sanctioning the move, which it
-             does not.
-             🔑 The screen it sat on is NOT wrong to open the flow. Step 1
-             answers "did that work", which is the only question somebody has
-             coming out of a Terminal, and it is about the INSTALL. This line
-             is about RETURNING. They are two jobs, and only one of them
-             survives being moved, so the split is what resolved the placement
-             rather than either screen winning (Mona Lisa, 2026-08-22). -->
-      </div>
+        <p class="fc-eyebrow">Self improving</p>
+        <h2>Help make Kosmos work better for everyone</h2>
 
-      <!-- 1. Success. ⚠️ The one thing the install said only into
-           Terminal scrollback, now said where the person actually is. The
-           check row LOOKS (the app-location check in /api/machine) rather
-           than remembering where the installer meant to put the icon: the
-           icon legitimately lands in /Applications, ~/Applications, or
-           nowhere, and a screen claiming a location nobody checked is the
-           defect this codebase is built against. -->
-      <!-- #2163 (Josh, 2026-09-04, 0.6.28 fresh-install test): a pre-flight
-           expectations screen. Josh: "a screen that comes before basically
-           everything else that says: you're going to get warned by these sorts of
-           things because you're setting your agent up to help you run the computer."
-           🔑 AN INTERSTITIAL, DELIBERATELY OUTSIDE THE NUMBERED STEP COUNT, exactly
-           like the Success screen (step 1) is. It is NOT an fr-pane-N, so frGo's
-           numbered loop never touches it -- `frShowExplainer` shows it (from the
-           Success screen's button) and frGo hides it on entering any numbered step.
-           This was chosen over a numbered pane precisely to avoid renumbering the
-           whole 1..7 flow (+ its 7 browser-checks) for a copy screen, AND because
-           the two natural fold-hosts (Success, Welcome) are both Josh-RULED
-           scope-locked surfaces that must not carry this content.
-           ⚠️ SCOPE: this is for the LEGITIMATE, UNAVOIDABLE prompts (Accessibility,
-           background-activity notices). The prompts we CAN suppress -- the app
-           disk-scan Documents access -- STAY suppressed (#2148/#2125 slice 1); this
-           screen never excuses a prompt we could have avoided. -->
-      <div class="fr-pane" id="fr-pane-intro" hidden>
-        <p>You&rsquo;re setting up agents to work on this computer for you. As you
-           go, macOS will ask your permission for a few things: letting an agent
-           reach a folder, work in your other apps, or keep running in the
-           background.</p>
-        <p>That is expected, and it is how you stay in control: each prompt is
-           macOS asking whether to let your agents do the very thing you are setting
-           them up to do. Allow them and your agents can get to work.</p>
-      </div>
-      <div class="fr-pane" id="fr-pane-1" hidden>
-        <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
-             like step 4's #fr-checks: a region inserted and populated in one
-             innerHTML write is the documented way to get no announcement.
-             The write that matters (the engine answer arriving) lands in a
-             region that long predates it; the initial placeholder joins the
-             tree with the pane, the same shape as step 4's "Looking...". -->
-        <div id="fr-return">
-          <div id="fr-return-intro"></div>
-          <div id="fr-return-row" role="status" aria-live="polite"></div>
-          <!-- A live region: the reveal button's failure sentences land here
-               (frRevealSay), and a screen-reader user who fired that click
-               would otherwise never hear the refusal -- the same SC 4.1.3 call
-               as the check row above.
-               🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
-               below. This region is CLEARED and REWRITTEN by frRevealSay, so
-               static copy parked in it would vanish on the first failed
-               reveal click and be announced as a status change on every
-               repaint. The line below is static markup for that reason. -->
-          <div id="fr-return-msg" role="status" aria-live="polite"></div>
-          <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
-               reveal button, at Josh's ruling of 2026-08-27 16:08 after he
-               did a full wipe and screenshotted this screen: "somebody
-               elected to take the message out of this."
-               ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
-               two written rulings: step 1 answers "did the install work", and
-               the Dock line is about RETURNING, so it went to the last step.
-               HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
-               at the ending, and the two statements are coherent together:
-               on Success, not at the last step.
-               📌 The id here is deliberately NOT the one this region used to
-               carry. That retired id is asserted absent by server.test.js as
-               a stale-id guard, and the assertion greps the raw markup, so
-               even naming it in a comment would fail the check. Same line,
-               different anchor, and this note cannot spell the old one. -->
-          <p id="fr-return-keep" class="dhint">Kosmos is already in your Dock, the strip of icons along the edge of your screen. Drag its icon to the far left so it stays handy.</p>
+        <div class="s6-switch-row">
+          <span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-feedback-lbl"></span>
+          <span class="s6-lbl" id="fr-s6-feedback-lbl">Have an agent send a daily report with any bugs or improvement suggestions.</span>
         </div>
+        <div class="s6-switch-row">
+          <span class="s6-sw" id="fr-s6-createping" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-createping-lbl"></span>
+          <span class="s6-lbl" id="fr-s6-createping-lbl">Let Kosmos know when you create an agent.</span>
+        </div>
+      </div>
+
+      <!-- S7 Success (reuse old fr-pane-1 #fr-return region). Mona S7 prepended; fr-s7-showwhere wired to reveal. -->
+      <div class="fr-pane" id="fr-pane-7" hidden>
+        <!-- ============================================================
+             SCREEN 7 - SUCCESS   (spec screen A, edited)
+             Primary button (shell param): "Next".  Gate: none.
+             CSS namespace: s7-*   Copy is Josh's, verbatim.
+             WIRED CONTROL: "Show me where it is" reuses the existing app feature (appLocation /
+             the Settings "Show me where it is" handler). id="fr-s7-showwhere" = Renet/app binds it.
+             Graphic: the annotated dock, Josh's confirmed design (Kosmos mark on the right, a short
+             arrow sweeping it left). Works in light + dark.
+             REAL MARK: the gold "K" square is a stand-in ONLY for the standalone preview. For the
+             build, drop the app's existing Kosmos mark into the .s7-app.s7-k tile: it is the
+             <img class="fc-k"> PNG data URI already in web/index.html (the first-run card head,
+             ~line 7609). Reuse that exact asset rather than the "K" placeholder.
+             ============================================================ -->
+        <style>
+        .s7-showwhere{display:inline-flex;align-items:center;border-radius:8px;padding:8px 14px;margin:0 0 12px;
+          font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
+          background:var(--k-surface,#fff);color:var(--k-ink-2,#4a4f57);border:1px solid var(--k-rule,#e3e1dc)}
+        .s7-dock-wrap{position:relative;padding:34px 10px 8px;margin:8px auto 0;max-width:440px}
+        .s7-dock{display:flex;gap:12px;align-items:flex-end;justify-content:center;border-radius:20px;padding:11px 16px;
+          background:rgba(180,178,173,.28);border:1px solid rgba(160,158,152,.42);
+          box-shadow:0 8px 24px rgba(0,0,0,.10),inset 0 1px 0 rgba(255,255,255,.5);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+        .s7-app{width:40px;height:40px;border-radius:10px;background:linear-gradient(160deg,#d5d3ce,#a9a7a2);
+          box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.12)}
+        .s7-divider{width:1px;align-self:stretch;margin:4px 3px;background:rgba(120,118,112,.4)}
+        .s7-app.s7-k{background:linear-gradient(155deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920));
+          box-shadow:0 3px 10px rgba(184,137,32,.45),inset 0 1px 0 rgba(255,255,255,.35);display:grid;place-items:center;position:relative;z-index:2}
+        .s7-app.s7-k span{font:800 1.35rem var(--font-ui,-apple-system,sans-serif);color:#3a2c06;line-height:1}
+        .s7-arrow{position:absolute;top:0;left:14%;right:10%;height:34px;pointer-events:none}
+        .s7-cap{display:block;text-align:center;font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#4a4f57);margin-top:12px}
+        .s7-cap b{color:var(--gold-deep,#b88920)}
+        /* install-flow-9screen: only the system (prefers-color-scheme) dark rules
+           live here; the forced :root[data-theme="dark"] twins are GENERATED by
+           tools/sync-forced-theme.js (web.theme.test.js guards the pair against
+           the two-copy drift), so Mona's hand-written forced twins were removed to
+           avoid a second copy. Run `node tools/sync-forced-theme.js` after editing
+           any dark rule here. */
+        @media (prefers-color-scheme:dark){
+          :root:not([data-theme="light"]) .s7-dock{background:rgba(60,60,64,.5);border-color:rgba(120,118,112,.4)}
+          :root:not([data-theme="light"]) .s7-app{background:linear-gradient(160deg,#4a4a4e,#333336)}
+          :root:not([data-theme="light"]) .s7-arrow path{stroke:var(--gold-bright,#e3b341)}
+        }
+        .s7-arrow path{stroke:var(--gold-deep,#b88920)}
+        </style>
+
+        <p class="fc-eyebrow">Success</p>
+        <h2>Kosmos is now installed and configured.</h2>
+        <p>You can find Kosmos in your applications folder.</p>
+        <button class="s7-showwhere" id="fr-s7-showwhere" type="button">Show me where it is</button>
+        <p>It is already in the right of your dock, but move it to the left so it stays there permanently.</p>
+
+        <div class="s7-dock-wrap">
+          <svg class="s7-arrow" viewBox="0 0 300 34" fill="none" aria-hidden="true">
+            <path d="M232 26 C 190 2, 90 2, 40 20" stroke-width="2.4" stroke-linecap="round" fill="none"/>
+            <path d="M40 20 l 12 -8 M40 20 l 11 7" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+          </svg>
+          <div class="s7-dock" aria-hidden="true">
+            <span class="s7-app"></span><span class="s7-app"></span><span class="s7-app"></span>
+            <span class="s7-divider"></span>
+            <span class="s7-app"></span><span class="s7-app s7-k"><span>K</span></span>
+          </div>
+          <span class="s7-cap">Drag <b>Kosmos</b> to the left of the dock so it stays</span>
+        </div>
+                <!-- ⚠️ The live region is STATIC MARKUP the painter never recreates,
+                     like step 4's #fr-checks: a region inserted and populated in one
+                     innerHTML write is the documented way to get no announcement.
+                     The write that matters (the engine answer arriving) lands in a
+                     region that long predates it; the initial placeholder joins the
+                     tree with the pane, the same shape as step 4's "Looking...". -->
+                <div id="fr-return">
+                  <div id="fr-return-intro"></div>
+                  <div id="fr-return-row" role="status" aria-live="polite"></div>
+                  <!-- A live region: the reveal button's failure sentences land here
+                       (frRevealSay), and a screen-reader user who fired that click
+                       would otherwise never hear the refusal -- the same SC 4.1.3 call
+                       as the check row above.
+                       🛑 THE DOCK LINE DOES NOT GO IN HERE, though it sits directly
+                       below. This region is CLEARED and REWRITTEN by frRevealSay, so
+                       static copy parked in it would vanish on the first failed
+                       reveal click and be announced as a status change on every
+                       repaint. The line below is static markup for that reason. -->
+                  <div id="fr-return-msg" role="status" aria-live="polite"></div>
+                  <!-- 🔑 THE DOCK LINE LIVES HERE, on the Success screen, under the
+                       reveal button, at Josh's ruling of 2026-08-27 16:08 after he
+                       did a full wipe and screenshotted this screen: "somebody
+                       elected to take the message out of this."
+                       ⚠️ IT WAS DELIBERATELY MOVED OFF THIS SCREEN ON 2026-08-22, on
+                       two written rulings: step 1 answers "did the install work", and
+                       the Dock line is about RETURNING, so it went to the last step.
+                       HIS 16:08 INSTRUCTION OVERRIDES BOTH. He also does not want it
+                       at the ending, and the two statements are coherent together:
+                       on Success, not at the last step.
+                       📌 The id here is deliberately NOT the one this region used to
+                       carry. That retired id is asserted absent by server.test.js as
+                       a stale-id guard, and the assertion greps the raw markup, so
+                       even naming it in a comment would fail the check. Same line,
+                       different anchor, and this note cannot spell the old one. -->
+                  <p id="fr-return-keep" class="dhint">Kosmos is already in your Dock, the strip of icons along the edge of your screen. Drag its icon to the far left so it stays handy.</p>
+                </div>
+      </div>
+
+      <!-- S8 About you (reuse old fr-pane-6 #fr-you). Mona S8 head prepended. -->
+      <div class="fr-pane" id="fr-pane-8" hidden>
+        <p class="fc-eyebrow">About you</p>
+        <h2>Who are your agents working for?</h2>
+                <div id="fr-you"></div>
+                <div class="fr-msg" id="fr-you-msg" role="status" aria-live="polite"></div>
+      </div>
+
+      <!-- S9 Your agents (reuse old fr-pane-7 #fr-fleet fork). Mona S9a head + #fr-found-agents; fork picks found(S9a) vs create(S9b). -->
+      <div class="fr-pane" id="fr-pane-9" hidden>
+        <!-- ============================================================
+             SCREEN 9A - YOUR AGENTS (found)   (new screen; shown ONLY if agents were found)
+             Primary button (shell param): "Giddy Up".  Gate: none.
+             DYNAMIC: the found-agents list. id="fr-found-agents" = Renet populates the rows from
+               the detected agents; each row follows the template below (the .s9-row markup).
+               Giddy Up then drops the person onto the Agents dashboard with the added agents.
+             CSS namespace: s9-*   Copy is Josh's, VERBATIM (the headline reads as if a word is
+               missing, "agents"?; Josh signed off "roll with what you got", so shipped as written;
+               one-line copy change if he wants it later).
+             ============================================================ -->
+        <style>
+        .s9-list{margin:2px 0 0}
+        .s9-row{display:flex;align-items:center;gap:10px;background:var(--k-surface,#fff);
+          border:1px solid var(--k-rule,#e3e1dc);border-radius:9px;padding:8px 11px;margin:0 0 7px}
+        .s9-fk{width:24px;height:24px;border-radius:6px;flex:none;
+          background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        .s9-fn{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
+        .s9-fn small{display:block;font-weight:400;color:var(--k-ink-3,#8a857c);font-size:.6875rem}
+        .s9-add{margin-left:auto;border:0;border-radius:8px;padding:6px 12px;font:650 .75rem var(--font-ui,-apple-system,sans-serif);
+          color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        /* the Added state (row gets data-added; Renet flips it on select) */
+        .s9-added{margin-left:auto;border-radius:8px;padding:6px 12px;font:650 .75rem var(--font-ui,-apple-system,sans-serif);
+          background:var(--k-surface,#fff);color:var(--green,#2f7d5a);border:1px solid var(--green,#2f7d5a);display:none}
+        .s9-row[data-added] .s9-add{display:none}
+        .s9-row[data-added] .s9-added{display:inline-flex;align-items:center}
+        </style>
+
+        <p class="fc-eyebrow">Your agents</p>
+        <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
+             (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
+             text below is only the default; the live flow rewrites it per path:
+             found -> "We found N agents on this computer", adopt -> "You already
+             have N agents here.", create -> "Create your first agent." -->
+        <h2 id="fr-fleet-title">We found existing AGENTS on this computer</h2>
+        <!-- install-flow-9screen: the found/create/adopt fork renders into
+             #fr-fleet below (the existing, tested add/undo/adopt flow, which
+             already implements S9a's intent: "We found N agents..." + a per-row
+             Add list). Mona's static S9a template (#fr-found-agents + the
+             "You can easily add them" copy) was REMOVED here because it would
+             duplicate that live rendering; her .s9-* styling above is kept for a
+             follow-up visual-polish pass that swaps foundRowsHtml onto it
+             (coordinate with Angel's found-agents lane). S9b (create) is the
+             create-branch of frPaintFleet, reusing openCreate. -->
+        <div id="fr-fleet"></div>
+                <!-- ⚠️ THE WAY BACK, AND IT IS THE LAST STEP ON PURPOSE. It opened the
+                     flow until 2026-08-22, which put an instruction in front of a
+                     person before they had the motive for it: you drag something to
+                     your Dock because you expect to want it again, and before they
+                     have used it they do not know that yet. Two written rulings placed
+                     it here (the orientation spec's Placement heading, and the PIN's
+                     ordering ending on "getting back") and the comment justifying the
+                     front position cited the spec as sanctioning the move, which it
+                     does not.
+                     🔑 The screen it sat on is NOT wrong to open the flow. Step 1
+                     answers "did that work", which is the only question somebody has
+                     coming out of a Terminal, and it is about the INSTALL. This line
+                     is about RETURNING. They are two jobs, and only one of them
+                     survives being moved, so the split is what resolved the placement
+                     rather than either screen winning (Mona Lisa, 2026-08-22). -->
       </div>
 
       <!-- ⚠️ OUTSIDE THE PANES, and that is the whole point of it. This is the
@@ -35206,9 +35450,15 @@ setInterval(() => {
        thirteen running agents looks broken.
    ========================================================================== */
 
-// 7 since #1214 added the Accessibility offer (6 when About-you landed at slot 4; the PIN below predates both and counted five) (PIN-2026-08-14-1913CDT: "five setup
-// steps -- welcome, model, this computer, your agents, getting back").
-const FR_STEPS = 7;
+// install-flow-9screen: 9 since Josh's signed-off 9-screen flow (2026-09-05).
+// This is the number the frGo clamp and the pane show/hide loop key on, so it MUST
+// equal the count of fr-pane-N containers in the markup; if they drift, the tail
+// steps become unreachable (the clamp caps navigation and the loop never unhides
+// them). web.firstrun-panecount-9screen.test.js pins this against the DOM.
+// (History: 7 when #1214's Accessibility offer sat as a standalone step; 6 before
+// About-you; the flow is now Welcome/Access/Automation/Notifications/Model/Self-
+// improving/Success/About-you/Your-agents.)
+const FR_STEPS = 9;
 // The return pane's step number, named and used by the generation bump and
 // every navigation into the step. (The paint branch is the clamped chain's
 // final else, exhaustive by construction: step is clamped to [1, FR_STEPS],
@@ -35238,68 +35488,78 @@ const FR_STEPS = 7;
 // which is why only that is corrected here.
 //
 // The constant keeps its name so the generation-guard pins keep reading.
-const FR_STEP_RETURN = 1;
-// #1214 inserted the Accessibility offer as step 5, so About-you moved from 5 to
-// 6 (and the fleet ending from 6 to 7). These constants are the single source the
-// step guards and their "next step" reads read from, so moving a step is these
-// edits plus the eyebrow map and the frGo branch below.
-// #2125 slice 3: the Accessibility gate's step, named for the a11y-poll STOP guard
-// (frGo's `step !== FR_STEP_A11Y`, which tears down the poll on leaving the step),
-// the same way FR_STEP_YOU names the About-you guard. The ordered frGo if/else-if
-// ladder itself stays literal (1..7), matching every other branch.
-const FR_STEP_A11Y = 5;
-const FR_STEP_YOU = 6;
+// install-flow-9screen: the setup flow is now 9 screens (Welcome, Access,
+// Automation, Notifications, Model, Self-improving, Success, About-you, Your
+// agents). These constants are the single source the step guards and their
+// "next step" reads read from. Success (the return/dock/reveal screen) is now
+// step 7; About-you is step 8. The ordered frGo if/else-if ladder is literal
+// 1..9.
+const FR_STEP_RETURN = 7;
+const FR_STEP_YOU = 8;
 // ⚠️ The About-you step's generation, same contract as FR_RETURN_GEN: a
 // continuation captured under one generation must do NOTHING once the
 // generation moves -- a bare step-number check cannot tell "still here"
 // from "left and came back", and the stale save advancing a fresh entry
 // mid-typing is exactly the class the return step already solved.
 let FR_YOU_GEN = 0;
-// #2125 slice 3: the Accessibility-gate generation + poll timer. Same generation
-// contract as FR_YOU_GEN -- a poll captured on step 5 must do NOTHING once the step
-// moves (the user opened System Settings and wandered, or pressed Back).
-let FR_A11Y_GEN = 0;
-let FR_A11Y_TIMER = null;
-function frA11yStop() { if (FR_A11Y_TIMER) { clearInterval(FR_A11Y_TIMER); FR_A11Y_TIMER = null; } }
-/* Poll /api/a11y-status and gate the Continue button. The posture is FAIL-SAFE and
-   POSITIVE-ONLY, mirroring the engine: Continue is DISABLED only on positive
-   evidence the check ran and Accessibility is NOT trusted (checkable:true &&
-   trusted:false). Trusted, uncheckable (a browser, or no native reading yet), a
-   fetch failure -- all leave Continue ENABLED. So the gate can never strand a
-   browser tester or a user whose reading we cannot take; it only ever blocks when
-   we KNOW it is off. The user grants it in System Settings and the next poll
-   (1.5s) re-enables Continue, so no manual "check again" is needed. */
-async function frPollA11y(gen) {
-  if (gen !== FR_A11Y_GEN) return;
-  let r;
-  try { r = await (await fetch('/api/a11y-status')).json(); }
-  catch { r = { checkable: false }; }
-  if (gen !== FR_A11Y_GEN) return; // step moved while the fetch was in flight
+/* install-flow-9screen: the permission-gate poll. Replaces the old single-gate
+   Accessibility poll (frPollA11y) with a general poll over the data-gate rows in
+   the ACTIVE screen. S2 carries data-gate="file-access"; S3 carries
+   data-gate="sleep" + data-gate="tmux". A row is GREEN (data-granted) ONLY on a
+   measured grant; #fr-next is disabled ONLY when some row is measured-not-granted.
+   Posture is FAIL-SAFE and POSITIVE-ONLY, exactly like the engine: uncheckable (a
+   browser, no native reading yet) and any fetch failure NEVER block and NEVER show
+   a false green, so the gate can never strand a browser tester or an unreadable
+   machine; it blocks only when we KNOW a required grant is off. The user grants it
+   in System Settings and the next poll (1.5s) unlocks Next -- no manual re-check.
+   Generation-guarded: a poll captured on one screen does NOTHING once the step
+   moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md). */
+const FR_GATES = {
+  'file-access': { url: '/api/file-access-status', granted: (r) => r.granted === true },
+  'sleep':       { url: '/api/sleep-status',       granted: (r) => r.prevented === true },
+  'tmux':        { url: '/api/a11y-status',        granted: (r) => r.trusted === true },
+};
+let FR_GATE_GEN = 0, FR_GATE_TIMER = null;
+function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } }
+async function frReadGate(row) {
+  const spec = FR_GATES[row.getAttribute('data-gate')];
+  if (!spec) return 'uncheckable';
+  let r; try { r = await (await fetch(spec.url)).json(); } catch { r = { checkable: false }; }
+  if (r && r.checkable === true) return spec.granted(r) ? 'granted' : 'blocked';
+  return 'uncheckable';
+}
+async function frPollGates(screenEl, gen) {
+  if (gen !== FR_GATE_GEN) return;
+  const rows = Array.from(screenEl.querySelectorAll('[data-gate]'));
+  if (!rows.length) return;
+  const states = await Promise.all(rows.map(frReadGate));
+  if (gen !== FR_GATE_GEN) return;
+  let anyBlocked = false;
+  rows.forEach((row, i) => {
+    if (states[i] === 'granted') row.setAttribute('data-granted', '');
+    else row.removeAttribute('data-granted');
+    if (states[i] === 'blocked') anyBlocked = true;
+  });
   const next = document.getElementById('fr-next');
-  const status = document.getElementById('fr-a11y-status');
-  const notTrusted = !!(r && r.checkable === true && r.trusted !== true);
-  if (notTrusted) {
-    next.disabled = true;
-    next.setAttribute('aria-disabled', 'true');
-    if (status) status.textContent = 'Accessibility is not on yet. Turn on Tmux above, then this will unlock.';
-  } else {
-    next.disabled = false;
-    next.removeAttribute('aria-disabled');
-    if (status) status.textContent = (r && r.checkable === true && r.trusted === true)
-      ? 'Accessibility is on. You can continue.'
-      : '';
-  }
+  if (!next) return;
+  next.disabled = anyBlocked;
+  if (anyBlocked) next.setAttribute('aria-disabled', 'true'); else next.removeAttribute('aria-disabled');
+}
+function frGateStart(screenEl) {
+  frGateStop();
+  const gen = ++FR_GATE_GEN;
+  frPollGates(screenEl, gen);
+  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), 1500);
+  return gen;
 }
 let FR = null;            // what /api/first-run said
 let FR_STEP = 1;
 let FR_RETURN = null;     // where the keyboard was before this opened
 let FR_FORGOT = false;    // the completion flag did not stick, and we said so
 let FR_FINISHING = false; // a completion is in flight; guards Escape and Continue at once
-// ⚠️ Kept so the fork step cannot promise something step 4 just contradicted. Null
-// until the check screen has actually answered -- an empty array here would be
-// "we looked and found nothing wrong", which is not the same thing.
-let FR_MACHINE = null;
-let FR_CHECKING = 0;      // which machine-check request is the current one
+// install-flow-9screen: FR_MACHINE (the machine-check screen's result) is gone
+// with that screen and its snag-hedging reader (see frPaintFleet's create arm).
+let FR_CHECKING = 0;      // which machine-check request is the current one (frRecheck)
 
 /**
  * ⚠️ `.onclick`, NOT `addEventListener`. These two buttons change meaning on
@@ -35369,37 +35629,26 @@ function frActions(primary, alt) {
   }
 }
 
-// #2163: show the pre-flight expectations interstitial. It stands OUTSIDE the
-// numbered step count (exactly like the Success screen, step 1): no segment, the
-// "Kosmos setup" spoken label, and it is reached ONLY from the Success screen's
-// button. Its Continue enters the numbered flow at Welcome (frGo(2)), and frGo
-// hides this interstitial on the way in. Not deep-linkable and not counted -- a
-// reload returns to Success, which is the correct forward-only behaviour.
-// 📌 It deliberately does NOT set FR_STEP or bump FR_RETURN_GEN (unlike frGo):
-// FR_STEP stays 1 (the connect/recheck guards all key on `=== 3` and correctly
-// no-op), and a late frPaintReturn async repaint lands in the now-hidden fr-pane-1
-// and is re-guarded when the interstitial's Continue calls frGo(2) (which bumps the
-// generation). So leaving the return screen via the interstitial relies on that
-// frGo(2) to advance the generation, and that is safe here.
-function frShowExplainer() {
-  for (let i = 1; i <= FR_STEPS; i += 1) {
-    document.getElementById('fr-pane-' + i).hidden = true;
-  }
-  document.getElementById('fr-pane-intro').hidden = false;
-  document.getElementById('fr-eyebrow').textContent = 'What to expect';
-  document.getElementById('fr-title').textContent = 'A quick heads-up before we begin.';
-  document.getElementById('fr-step').textContent = 'Kosmos setup';
-  document.getElementById('fr-segs').innerHTML = '';
-  document.getElementById('fr-forgot').innerHTML = '';
-  FR_FORGOT = false;
-  frActions({ label: 'Continue', go: () => frGo(2) });
-  // #2163: focus the new screen's title, exactly as frGo does on every numbered
-  // step. #fr-title carries tabindex="-1" for this (WCAG 2.1 SC 4.1.3, the
-  // project floor): without it, "Set up Kosmos" moves a sighted user to a new
-  // screen but announces NOTHING to a screen-reader user -- the exact defect the
-  // focus line exists to prevent, which an interstitial that only rewrote the
-  // title text would reintroduce for the one new screen.
-  document.getElementById('fr-title').focus();
+// install-flow-9screen: focus the ACTIVE pane's own <h2> and make it the
+// dialog's accessible name. Each pane now carries its own eyebrow + <h2> (Mona's
+// snippets); the persistent shell #fr-title/#fr-eyebrow are retired (hidden). The
+// active <h2> is tracked by ELEMENT REFERENCE (FR_ACTIVE_H2) -- not a shared id --
+// so the focus-trap, the focusin backstop and frFinish can all reach it without
+// clobbering a pane's own id (pane-9's <h2> carries a stable #fr-fleet-title that
+// the fork painters write into, and must not be renamed). We give it tabindex=-1,
+// generate a per-pane id only if it has none (for aria-labelledby), point the
+// dialog's aria-labelledby at whatever id it now has, and focus it -- the same
+// WCAG 2.1 SC 4.1.3 move the shell #fr-title used to carry, now per-pane.
+let FR_ACTIVE_H2 = null;
+function frFocusActiveHead(paneEl) {
+  const h2 = paneEl && paneEl.querySelector('h2');
+  FR_ACTIVE_H2 = h2 || null;
+  if (!h2) return;
+  if (!h2.id) h2.id = paneEl.id + '-h2';   // stable + unique per pane, generated once
+  h2.setAttribute('tabindex', '-1');
+  const box = document.querySelector('#firstrun .fr-box');
+  if (box) box.setAttribute('aria-labelledby', h2.id);
+  h2.focus();
 }
 
 function frGo(step) {
@@ -35407,134 +35656,83 @@ function frGo(step) {
    * ⚠️ CLAMPED TO A WHOLE STEP THAT EXISTS, because `?fr-step=` is a deep link
    * and deep links arrive with whatever is typed into them. `frGo(3.7)` hid
    * EVERY pane — the loop asks `i !== step` and 3.7 equals none of them — then
-   * printed "Step 3.7 of 4" and painted step 4 into a pane it had just hidden.
-   * A titled, buttoned, completely empty dialog, which is the one shape this
-   * whole screen exists to avoid.
+   * painted step 4 into a pane it had just hidden. A buttoned, completely empty
+   * dialog, which is the one shape this whole screen exists to avoid.
    */
   step = Math.trunc(Number(step));
   if (!Number.isFinite(step) || step < 1) step = 1;
-
   if (step > FR_STEPS) step = FR_STEPS;
-  // ⚠️ Leaving the return step retires its pane: the machine look is async, and an
-  // answer landing after the person moved on must not repaint a pane they
-  // are no longer on. This bump makes the generation guard's premise REAL
-  // (round 6: without it the guard had no production trigger). AFTER BOTH
-  // clamps -- round 8 caught the round-7 comment claiming this while the
-  // bump sat between them -- so the bump and the paint branch agree about
-  // what `step` is, against the named constant rather than a bare 5.
+
+  // ⚠️ Leaving the Success (return) step retires its async machine look: an
+  // answer landing after the person moved on must not repaint a pane they are no
+  // longer on. AFTER the clamps, so the bump and the paint branch agree about
+  // what `step` is, against the named constant rather than a bare number.
   if (step !== FR_STEP_RETURN) FR_RETURN_GEN += 1;
-  // Same guard for the About-you step: its save and prefill both settle
-  // async, and a settlement landing after the person moved on must not
-  // advance a step or repaint a pane they are no longer on.
+  // Same guard for the About-you step: its save and prefill both settle async.
   if (step !== FR_STEP_YOU) FR_YOU_GEN += 1;
-  // #2125 slice 3: leaving the Accessibility step stops its gate poll and
-  // invalidates any in-flight one (bumping the generation), same contract as above.
-  if (step !== FR_STEP_A11Y) { FR_A11Y_GEN += 1; frA11yStop(); }
+  // install-flow-9screen: leaving a gated screen (S2 Access, S3 Automation)
+  // stops the permission-gate poll and invalidates any in-flight one (frGateStop
+  // bumps FR_GATE_GEN), the same generation contract as above.
+  if (step !== 2 && step !== 3) frGateStop();
   FR_STEP = step;
-  // The dot field warms from grey toward the golds as the steps advance
-  // (the pack's progression; only the colour survives of the old gather).
+  // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress((step - 1) / (FR_STEPS - 1));
-  // ⚠️ Cleared on every step change. It is written once when the completion
-  // flag will not stick, and without this it sat on screen for the rest of the
-  // session, describing a failure that happened three screens ago.
-  // ⚠️ And the FLAG with it. Clearing only the sentence left `FR_FORGOT` true,
-  // so the next exit took its "second click always proceeds" path and closed
-  // silently, with nothing on screen saying onboarding would be back.
+  // ⚠️ Cleared on every step change (and the FLAG with it): the completion-failed
+  // sentence is written once and must not sit on screen for the rest of the
+  // session, and a stale FR_FORGOT sends the next exit down the silent path.
   document.getElementById('fr-forgot').innerHTML = '';
   FR_FORGOT = false;
   for (let i = 1; i <= FR_STEPS; i += 1) {
     document.getElementById('fr-pane-' + i).hidden = (i !== step);
   }
-  // #2163: the pre-flight expectations interstitial is OUTSIDE the numbered loop
-  // above, so entering any numbered step must hide it explicitly (it is only ever
-  // shown by frShowExplainer, from the Success screen's button).
-  document.getElementById('fr-pane-intro').hidden = true;
-  // Spoken counts match the drawn segments: the intro stands outside the
-  // count (no segments), and Welcome..agents are six.
-  document.getElementById('fr-step').textContent =
-    (step === 1) ? 'Kosmos setup' : 'Step ' + (step - 1) + ' of ' + (FR_STEPS - 1);
-  // The intro carries no segments (the pack's Success screen stands outside
-  // the count it opens); steps 2..7 share six.
-  document.getElementById('fr-segs').innerHTML = (step === 1) ? '' :
-    Array.from({ length: FR_STEPS - 1 }, (_, i) => {
-      const n = i + 2;
-      return '<div class="fr-seg' + (n < step ? ' done' : (n === step ? ' now' : '')) + '"></div>';
-    }).join('');
 
-
-  // The pack's eyebrow, one per screen; the endings keep 'Your agents'.
-  const FR_EYEBROWS = { 1: 'Success', 2: 'Welcome', 3: 'Model', 4: 'This computer', 5: 'Accessibility', 6: 'About you', 7: 'Your agents' };
-  document.getElementById('fr-eyebrow').textContent = FR_EYEBROWS[step] || '';
+  // install-flow-9screen: the step indicators (crumb + segments) are GONE by
+  // Josh's spec, and the persistent shell head is retired -- each pane owns its
+  // own eyebrow + <h2>. So frGo no longer writes #fr-step/#fr-segs/#fr-eyebrow/
+  // #fr-title; it sets the primary button per step and focuses the active pane's
+  // own <h2> (frFocusActiveHead) at the end.
+  const pane = document.getElementById('fr-pane-' + step);
   if (step === 1) {
-    document.getElementById('fr-title').textContent = 'Kosmos is now installed on this computer.';
-    // The machine look paints the Applications-folder row; the actions are
-    // this branch's (the fork moved back to the endings with the spec).
-    // #2163: the Success screen leads into the pre-flight expectations
-    // interstitial (frShowExplainer), which then continues into the numbered
-    // flow (frGo(2), Welcome). "Set up Kosmos" is unchanged as the label.
-    frActions({ label: 'Set up Kosmos', go: () => frShowExplainer() });
-    frPaintReturn();
+    // S1 Welcome.
+    frActions({ label: 'Get Started', go: () => frGo(2) });
   } else if (step === 2) {
-    document.getElementById('fr-title').textContent = 'Create and manage AI agents that work for you.';
-    frActions({ label: 'Continue', go: () => frGo(3) });
+    // S2 Access: the file-access gate. Next is soft-open at entry and the poll
+    // (async) only disables it on a positive not-granted reading -- FAIL-SAFE, so
+    // a browser (uncheckable) and any read failure never block. The go() re-checks
+    // disabled to close the ~fetch-latency window before the first poll lands.
+    frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(3); } });
+    frGateStart(pane);
   } else if (step === 3) {
-    document.getElementById('fr-title').textContent = 'Choose a model.';
+    // S3 Automation: sleep + tmux gates. Next unlocks only when BOTH are granted;
+    // same FAIL-SAFE soft-open posture as S2.
+    frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(4); } });
+    frGateStart(pane);
+  } else if (step === 4) {
+    // S4 Notifications.
+    frActions({ label: 'Next', go: () => frGo(5) });
+  } else if (step === 5) {
+    // S5 Model: the existing model-connect UI (reused). Its painters set their
+    // own primary (Next / Skip) and advance to step 6; a connect flow already
+    // running server-side is repainted by frConnResume once its answer arrives.
     frPaintSubscription();
     frPaintOpenai();
-    // ⚠️ A connect flow may already be running (it keeps going server-side
-    // when somebody wanders to another step). If it is, this repaints the
-    // live flow over the static verdict once the answer arrives.
     frConnResume();
-  } else if (step === 4) {
-    document.getElementById('fr-title').textContent = 'Checking this computer.';
-    frActions({ label: 'Continue', go: () => frGo(5) },
-      { label: 'Check again', go: frPaintMachine });
-    frPaintMachine();
-  } else if (step === 5) {
-    // HISTORY (#1214/#1940, SUPERSEDED below by #2125 -- kept as the trail, not the
-    // current state): the Accessibility step was once offer-not-require. Josh ruled
-    // that 2026-09-01: Continue proceeded whether or not the person opened the setting,
-    // with an in-pane "anytime in Settings, under Keeping agents running" sentence as
-    // the where-to-do-it-later out (#1940 reworded that sentence via Mona Lisa). #2125
-    // REMOVED that sentence and that ruling; the live behavior is the gate below.
-    // #2125 slice 3 (Josh, 2026-09-04): SUPERSEDES the 09-01 offer-not-require.
-    // Continue is now GATED on a real Accessibility check (the native app writes an
-    // AXIsProcessTrusted reading, attributed to tmux; the engine surfaces it at
-    // /api/a11y-status). frPollA11y disables Continue ONLY on a positive
-    // not-trusted reading and re-enables the instant the user turns it on -- so a
-    // browser (uncheckable) and any read failure fail SAFE (Continue stays live).
-    document.getElementById('fr-title').textContent = 'Let your agents work in your other apps.';
-    // The gate is soft-open at entry BY DESIGN: frActions paints Continue enabled, and
-    // frPollA11y (async) only disables it once the first reading resolves as a positive
-    // not-trusted. So a not-trusted user can click Continue in the ~fetch-latency window
-    // before the first poll lands. That is the correct trade for a FAIL-SAFE gate -- the
-    // gate is soft-open at entry, never soft-closed (it never blocks on an unmeasured or
-    // unreadable state), and never false-blocks; a hard-close-at-entry would strand a
-    // browser tester and an unreadable machine. The 1.5s poll re-checks continuously.
-    frActions({ label: 'Continue', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(6); } });
-    frA11yStop();
-    const a11yGen = ++FR_A11Y_GEN;
-    frPollA11y(a11yGen);
-    FR_A11Y_TIMER = setInterval(() => frPollA11y(a11yGen), 1500);
   } else if (step === 6) {
-    document.getElementById('fr-title').textContent = 'Who are your agents working for?';
+    // S6 Self improving (Angel wires the two switches' behavior).
+    frActions({ label: 'Next', go: () => frGo(7) });
+  } else if (step === 7) {
+    // S7 Success: the app-location look + reveal + dock line (frPaintReturn).
+    frActions({ label: 'Next', go: () => frGo(8) });
+    frPaintReturn();
+  } else if (step === 8) {
+    // S8 About you: sets its own gated Next and advances to step 9.
     frPaintYou();
   } else {
+    // S9 Your agents: the found/create fork (frPaintFleet), ending in frFinish.
     frPaintFleet();
   }
 
-  /**
-   * ⚠️ THE HEADING TAKES FOCUS ON EVERY STEP CHANGE, and without this the model
-   * and About-you screens were announced to nobody at all. Step 4's check
-   * list is a live region; the others are not, and nothing moved the keyboard — so pressing Continue
-   * told a screen-reader user only that a button's label had changed. The
-   * subscription verdict and the fleet list were never spoken.
-   *
-   * Focus rather than more live regions, because a step change is a change of
-   * view, not a status message arriving in place. WCAG 2.1 SC 4.1.3, which is
-   * this project's floor.
-   */
-  document.getElementById('fr-title').focus();
+  frFocusActiveHead(pane);
 }
 
 /* --------------------------------------------------------------------------
@@ -35619,7 +35817,7 @@ async function frPaintYou() {
     next.disabled = !ready;
     next.setAttribute('aria-disabled', ready ? 'false' : 'true');
   };
-  frActions({ label: 'Continue', go: async () => {
+  frActions({ label: 'Next', go: async () => {
     if (next.disabled) return;
     saving = true;
     next.disabled = true;
@@ -35757,153 +35955,75 @@ function frCheckRow(c, opts) {
     + '</div></div>';
 }
 
-/* The sleep row's button: delegated on the container because the rows are
-   repainted wholesale by every check. Failure lands in the step's own
-   message line with the route's sentence; success needs no message, the
-   Settings window itself is the feedback. */
-document.getElementById('fr-checks').addEventListener('click', async (e) => {
-  const b = e.target.closest('.fr-sleepbtn');
+/* install-flow-9screen: S2 Access's "Allow Access" button, delegated on the pane.
+   It opens System Settings -> Privacy -> Files & Folders (POST
+   /api/open-file-access-settings; the engine derives the URL). It cannot GRANT the
+   access (TCC), so the gate poll -- not this click -- flips the pill to granted and
+   unlocks Next. Only a failure speaks, in #fr-s2-msg; the Settings window itself is
+   the success feedback (same rule as S3's Turn-On buttons). */
+document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
+  const b = e.target.closest('.s2-allow');
   if (!b) return;
+  const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
   try {
-    const res = await fetch('/api/open-sleep-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    const res = await fetch('/api/open-file-access-settings', { method: 'POST', headers: { 'content-type': 'application/json' } });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      document.getElementById('fr-machine-msg').textContent =
-        (body && body.error) || 'we could not open System Settings';
-    } else {
-      // A retry that succeeds must not leave the earlier failure sentence
-      // standing beside an actually-open Settings window.
-      document.getElementById('fr-machine-msg').textContent = '';
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    } else if (msg) {
+      // A retry that succeeds must not leave an earlier failure sentence standing
+      // beside an actually-open Settings window.
+      msg.textContent = '';
     }
   } catch {
-    document.getElementById('fr-machine-msg').textContent = 'we could not open System Settings';
+    if (msg) msg.textContent = 'we could not open System Settings';
   } finally {
     b.disabled = false;
   }
 });
 
-/* #1214: the Accessibility offer's button, wired once (the pane is always in the
-   DOM, just hidden). Same action as the Settings box's Open Accessibility
-   settings, and the same rule its siblings state: the pane opening IS the
-   feedback, so only a failure speaks, in the step's own message line. It opens
-   the setting; it cannot grant it (TCC), which is why Continue never waits on it. */
-document.getElementById('fr-a11y-open').addEventListener('click', async () => {
-  // Shaped exactly like the Settings sibling (set-a11y-open): it does not disable
-  // the button, so it never moves focus off it to <body>, and opening System
-  // Settings twice on a double-press just re-fronts the same window. Only a
-  // failure speaks, in the step's own message line.
-  const msg = document.getElementById('fr-a11y-msg');
+/* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
+   pane. This REPLACES the two retired top-level handlers (the machine-check
+   screen's #fr-checks sleep button and the standalone a11y step's #fr-a11y-open),
+   folding both open-settings actions into the S3 gate:
+     - a click inside the data-gate="sleep" row  -> /api/open-sleep-settings
+     - a click inside the data-gate="tmux" row    -> /api/open-accessibility-settings
+   The button opens System Settings; it cannot grant the permission (TCC), which
+   is why the gate poll (not this click) is what flips the pill and unlocks Next.
+   Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
+   itself is the success feedback. */
+document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  const b = e.target.closest('.s3-on');
+  if (!b) return;
+  const row = b.closest('[data-gate]');
+  const gate = row && row.getAttribute('data-gate');
+  const url = gate === 'sleep' ? '/api/open-sleep-settings'
+    : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
+  if (!url) return;
+  const msg = document.getElementById('fr-s3-msg');
+  b.disabled = true;
   try {
-    const r = await fetch('/api/open-accessibility-settings', { method: 'POST' });
-    msg.textContent = r.ok ? '' : 'We could not open the accessibility settings just now.';
+    const res = await fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' } });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+    } else if (msg) {
+      // A retry that succeeds must not leave an earlier failure sentence standing
+      // beside an actually-open Settings window.
+      msg.textContent = '';
+    }
   } catch {
-    msg.textContent = 'We could not open the accessibility settings just now.';
+    if (msg) msg.textContent = 'we could not open System Settings';
+  } finally {
+    b.disabled = false;
   }
 });
 
-async function frPaintMachine() {
-  const box = document.getElementById('fr-checks');
-  const msg = document.getElementById('fr-machine-msg');
-  /**
-   * ⚠️ "Check again" IS HELD DOWN WHILE THIS RUNS. The route behind it shells
-   * out twice with a five-second timeout each, on the server's event loop, so a
-   * person tapping the button four times can stall the board for everyone
-   * looking at it -- including the poll behind this overlay. (An earlier version
-   * of this comment called it "the only button in the product that costs a
-   * subprocess per press", which was false: this screen's "Check again" runs `tmux
-   * list-panes` and had no guard at all. It has one now.)
-   */
-  // ⚠️ A TOKEN, not a boolean. An unconditional re-enable in the `finally` let a
-  // STALE request hand the button back while a newer one was still running: fire
-  // step 4's Check again while a first press is still running, and request #1 finishing
-  // unlocks the button under request #2.
-  FR_CHECKING += 1;
-  const mine = FR_CHECKING;
-  const again = document.getElementById('fr-alt');
-  const wasAgain = !again.hidden;
-  if (wasAgain) again.disabled = true;
-  box.innerHTML = '<p>Looking&hellip;</p>';
-  msg.textContent = '';
-  let got;
-  try {
-    const res = await fetch('/api/machine', { cache: 'no-store' });
-    if (!res.ok) throw new Error('status ' + res.status);
-    got = await res.json();
-  } catch (err) {
-    /**
-     * ⚠️ NOT "everything looks fine". The route is written never to fail, so
-     * arriving here means something further out broke — and the honest thing to
-     * put on a screen headed "Checking your computer" when the check did not
-     * run is that it did not run.
-     */
-    box.innerHTML = '<div class="fr-check unknown"><div class="fr-mark">'
-      + '<span aria-hidden="true">?</span><span class="vh">could not check: </span></div>'
-      + '<div><div class="fr-ctitle">We could not check this computer</div>'
-      + '<div class="fr-cdetail">This is not saying anything is wrong with it. It is saying we '
-      + 'could not look. (' + esc(err.message) + ')</div></div></div>';
-    /**
-     * ⚠️ AND THE REMEMBERED ANSWER GOES WITH IT. The sibling empty-body path
-     * below clears this and the failure path did not — so pressing "Check
-     * again" on a clean machine and having THAT request fail left `FR_MACHINE`
-     * holding the earlier all-clear. Step 4 then printed the unhedged "It
-     * starts as soon as it is made…" over a screen that had just said it could
-     * not look.
-     */
-    FR_MACHINE = null;
-    return;
-  } finally {
-    // ⚠️ `finally`: the failure path returns early, and leaving the one button
-    // that retries permanently disabled by a failure is the worst possible time
-    // to lose it. Only the LATEST request may hand it back.
-    if (wasAgain && mine === FR_CHECKING) again.disabled = false;
-  }
-  /**
-   * ⚠️ GUARDED ONCE, PROPERLY. The first version tested `got` for null on this
-   * line and then dereferenced it bare five lines down (`got.attention ||
-   * got.unknown`) -- outside the try, so a 200 whose body is `null` threw an
-   * unhandled rejection and left step 4 saying "Looking…" forever. A body of
-   * `{}` or `[]` rendered a titled, buttoned, empty pane, which is the shape
-   * two other guards in this file were written against.
-   */
-  const checks = (got && Array.isArray(got.checks)) ? got.checks : [];
-  if (!checks.length) {
-    box.innerHTML = '<div class="fr-check unknown"><div class="fr-mark">'
-      + '<span aria-hidden="true">?</span><span class="vh">could not check: </span></div>'
-      + '<div><div class="fr-ctitle">We could not check this computer</div>'
-      + '<div class="fr-cdetail">Nothing came back from the check, so we have nothing to '
-      + 'tell you about this computer. That is not the same as it being fine.</div></div></div>';
-    FR_MACHINE = null;
-    return;
-  }
-  FR_MACHINE = got;
-  box.innerHTML = checks.map((c) => frCheckRow(c)).join('')
-    // ⚠️ Says what to do about it, and says it is not a wall. §125: guide, do
-    // not error — first run never blocks on anything it finds here.
-    /* 🛑 GONE (Josh, item 12): "Let's remove all of that as well as the bounding
-       box that that message is in."
-       The rule it served -- first run GUIDES, it never blocks -- is not carried
-       by a reassurance paragraph. It is carried by nothing on this screen
-       stopping you, which a person discovers by pressing Continue and having it
-       work. A sentence saying "this is not a wall" is only needed on a screen
-       that looks like one. */
-    + '';
-  /**
-   * ⚠️ COUNTED APART, never added together. "Two things need your attention"
-   * over one real problem and one thing we could not read is false about half
-   * of what it counts, and false in the direction that sends somebody looking
-   * for a problem that is not there.
-   */
-  // ⚠️ Counted off the CHECKS we actually rendered, not off two numbers the
-  // payload happened to carry. A body whose `attention` disagreed with its rows
-  // would otherwise put a sentence on screen that the list above it contradicts.
-  const attention = checks.filter((c) => c.state === 'attention').length;
-  const unknown = checks.filter((c) => c.state !== 'attention' && c.state !== 'ok').length;
-  const said = [];
-  if (attention) said.push(attention + (attention === 1 ? ' thing needs' : ' things need') + ' your attention');
-  if (unknown) said.push(unknown + (unknown === 1 ? ' thing we' : ' things we') + ' could not check');
-  msg.textContent = said.join(', and ');
-}
+// install-flow-9screen: frPaintMachine + the standalone machine-check screen
+// (step 4, #fr-checks) are RETIRED. The signed-off 9-screen flow has no
+// machine-check screen; its sleep/tmux concerns are the S2/S3 gates. The
+// function and its removed-id references are deleted rather than left dead.
 
 /* --------------------------------------------------------------------------
    Step 3 — Claude
@@ -35940,7 +36060,7 @@ async function frRecheck() {
      * agents" with a Continue that just re-ran step 4. The fresh answer is still
      * kept -- it is the PAINT that is out of date, not the data.
      */
-    if (FR_STEP !== 3) return true;
+    if (FR_STEP !== 5) return true;
     msg.textContent = '';
     frPaintSubscription();
     return true;
@@ -35954,11 +36074,11 @@ async function frRecheck() {
     if (next) next.disabled = false;
     return false;
   } finally {
-    // ⚠️ THE SAME TOKEN `frPaintMachine` USES, because it is the SAME BUTTON:
-    // `#fr-alt` is one element that both steps relabel. With a token on one side
-    // only, one screen's late response handed the button back while the other's request
-    // was still running -- and the comment claiming "only the latest request may
-    // hand it back" was true of one caller out of two.
+    // ⚠️ FR_CHECKING is a token guard on the shared #fr-alt button so a stale
+    // late response cannot hand the button back while a newer request is still
+    // running. (install-flow-9screen: this used to be shared with frPaintMachine's
+    // "Check again" on the retired machine-check step; that caller is gone, but the
+    // token guard stays correct for frRecheck's own re-entrancy.)
     if (wasAgain && mine === FR_CHECKING) again.disabled = false;
   }
 }
@@ -35998,7 +36118,7 @@ async function frConnResume() {
     if (!res.ok) return;
     const st = await res.json();
     if (seq !== FR_CONN_SEQ) return;
-    if (FR_STEP !== 3) return;
+    if (FR_STEP !== 5) return;
     /**
      * ⚠️ A CONNECTED VERDICT OUTRANKS A STALE FAILURE RECORD. A stuck or
      * interrupted record persists on disk indefinitely, and somebody who
@@ -36052,7 +36172,7 @@ function frConnWatch() {
        * of failures the screen says so honestly; the poll keeps trying, and
        * a success repaints reality.
        */
-      if (FR_STEP !== 3) { frConnStopWatch(); return; }
+      if (FR_STEP !== 5) { frConnStopWatch(); return; }
       FR_CONN_FAILS += 1;
       if (FR_CONN_FAILS === 10) {
         FR_CONN_LAST = null;
@@ -36069,7 +36189,7 @@ function frConnWatch() {
     // ⚠️ Only paint if they are still here — same rule as frRecheck. The flow
     // itself continues server-side; it is the PAINT that must not land on
     // another step's screen.
-    if (FR_STEP !== 3) { frConnStopWatch(); return; }
+    if (FR_STEP !== 5) { frConnStopWatch(); return; }
     if (st.phase === 'connected' || st.phase === 'idle') {
       /**
        * ⚠️ `idle` here means somebody ELSE ended the flow (a cancel from a
@@ -36184,7 +36304,7 @@ async function frConnectStartConfirmed(installConfirmed, opener) {
     });
     const st = await res.json();
     if (!res.ok) throw new Error(st.error || ('status ' + res.status));
-    if (FR_STEP !== 3) return;
+    if (FR_STEP !== 5) return;
     /* 🛑 #1574: THE SERVER REFUSED BECAUSE AN INSTALL WOULD HAVE STARTED UNCONFIRMED.
        Nothing has begun: `start()` refuses before it claims a driver, so the record
        is still idle and there is no flow to cancel. Our snapshot said no install was
@@ -36294,7 +36414,7 @@ async function frConnSubmitCode() {
  */
 async function frConnSettle() {
   const ok = await frRecheck();
-  if (!ok) setTimeout(() => { if (FR_STEP === 3) frRecheck(); }, 2000);
+  if (!ok) setTimeout(() => { if (FR_STEP === 5) frRecheck(); }, 2000);
 }
 
 function frMB(n) { return Math.max(0, Math.round(n / 1e6)) + 'MB'; }
@@ -36474,7 +36594,7 @@ function frPaintConnect(st) {
         + 'and follow its sign-in. Then come back and press Try again.</details>'
       : '')
     + '</div>';
-    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Try again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
     return;
   }
 
@@ -36501,7 +36621,7 @@ function frPaintConnect(st) {
       title: 'A connection attempt was interrupted',
       detail: 'Kosmos was closed while it was ' + frConnBefore(before) + '. ' + afterSentence,
     });
-    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(4) });
+    frActions({ label: 'Start again', go: (e) => frConnectStart({ opener: e && e.currentTarget }) }, { label: 'Continue anyway', go: () => frGo(6) });
     return;
   }
 
@@ -36572,8 +36692,11 @@ function frRevealSay(html) {
   if (!m) { dock.insertAdjacentHTML('afterbegin', '<p class="fr-msg"></p>'); m = dock.querySelector('.fr-msg'); }
   m.innerHTML = html;
 }
-document.getElementById('fr-pane-1').addEventListener('click', async (e) => {
-  const b = e.target.closest('#fr-reveal');
+// install-flow-9screen: the reveal handler now lives on the Success screen
+// (fr-pane-7) and fires for BOTH the app-location "Show me where it is" button
+// frPaintReturn paints (#fr-reveal) and Mona's static S7 button (#fr-s7-showwhere).
+document.getElementById('fr-pane-7').addEventListener('click', async (e) => {
+  const b = e.target.closest('#fr-reveal, #fr-s7-showwhere');
   if (!b) return;
   b.disabled = true;
   try {
@@ -37148,12 +37271,12 @@ async function frPaintOpenai(known) {
        AND a connected OpenAI at once, and the OpenAI-only-first-run case Josh hit
        has no Claude connect record so frConnResume is a no-op there. */
     const claudeConnected = FR && FR.subscription && FR.subscription.state === 'connected';
-    if (!claudeConnected) frActions({ label: 'Continue', go: () => frGo(4) }, null);
+    if (!claudeConnected) frActions({ label: 'Next', go: () => frGo(6) }, null);
   } else {
     /* 📌 The not-connected branch deliberately does NOT reset the actions: there
        is no in-wizard way to disconnect OpenAI (the forget-provider handlers are
        Settings-only), so a connected->none transition on THIS screen is not
-       reachable, and Skip already routes to frGo(4) if it ever were. */
+       reachable, and Skip already routes to frGo(6) if it ever were. */
     // Leave `flow.hidden` alone: a person mid-typing should not have the
     // form yanked shut under them by an unrelated repaint. A positively
     // dead key names itself (its because), so the person knows why the row
@@ -37225,7 +37348,7 @@ function frPaintSubscription() {
        the Claude binary, so a screen asserting that every agent thinks with
        Claude describes a product that had one provider. The same sentence is
        corrected in the `none` arm below. */
-    frActions({ label: 'Continue', go: () => frGo(4) },
+    frActions({ label: 'Next', go: () => frGo(6) },
       { label: 'Check again', go: frRecheck });
     return;
   }
@@ -37293,7 +37416,7 @@ function frPaintSubscription() {
      ⚠️ Removing it strands nobody: every provider row carries its own Connect
      (#fr-llm-connect for Claude, #fr-openai-connect for GPT), which is where a
      person actually starts. Checked before deleting it. */
-  frActions(null, { label: 'Skip connecting a model', go: () => frGo(4), link: true });
+  frActions(null, { label: 'Skip connecting a model', go: () => frGo(6), link: true });
 }
 
 /* --------------------------------------------------------------------------
@@ -37370,7 +37493,7 @@ function frScanOffer() {
  * handler reaches both.
  */
 function frPaintScan() {
-  const title = document.getElementById('fr-title');
+  const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
   const offer = frScanOffer();
   const n = offer.length;
@@ -37554,7 +37677,7 @@ function frFoundOffer() {
 }
 
 function frPaintFound() {
-  const title = document.getElementById('fr-title');
+  const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
   /* #1493: the OFFER, not everything on the disk. On the adopt path most of
      what `found()` returns is already in Kosmos, and a row with an "Add to
@@ -37947,7 +38070,7 @@ document.addEventListener('click', async (e) => {
 function frPaintFleet() {
   const box = document.getElementById('fr-fleet');
   const path = (FR && FR.path) || 'unknown';
-  const title = document.getElementById('fr-title');
+  const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
 
   /* 🛑 THE DOCK LINE IS GONE FROM THIS ENDING, at Josh's direct ruling
      2026-08-27: "I still don't want the ending of the install to talk about
@@ -38068,22 +38191,13 @@ function frPaintFleet() {
      * still outstanding from the check screen is repeated here rather than
      * quietly dropped.
      */
-    /**
-     * ⚠️ THREE CASES, NOT TWO, and the declaration of `FR_MACHINE` says so while
-     * the first version of this line collapsed them: `(FR_MACHINE && ...) || []`
-     * made "we never checked" identical to "we checked and it was fine". Somebody
-     * who arrived on `?fr-step=7`, or whose check route failed at step 4, got the
-     * unhedged promise.
-     *
-     * ⚠️ AND `unknown` COUNTS. Filtering only `attention` dropped three "we could
-     * not check" rows on the floor and made the same promise over the top of them
-     * -- the third state going missing from the very fix that was written for the
-     * first two.
-     */
-    const checked = FR_MACHINE && Array.isArray(FR_MACHINE.checks);
-    const snags = checked
-      ? FR_MACHINE.checks.filter((c) => c.state === 'attention' || c.state === 'unknown')
-      : null;
+    /* install-flow-9screen: the FR_MACHINE snag-hedging that used to live here is
+       gone. It read the machine-check screen's result (FR_MACHINE), which was
+       populated by frPaintMachine on the standalone "Checking this computer" step
+       -- both retired by the 9-screen rework. This arm no longer renders any
+       snag/hedge copy (see the ruling below: it stays silent), so the dead
+       `checked`/`snags` computation was removed rather than left reading a value
+       that is now permanently null. */
     /* 🛑 THIS COMMENT USED TO DESCRIBE COPY THAT NO LONGER RENDERS, AND IT WAS
        BELIEVED. It said this arm reports what the search did, "looked and found
        none, or could not look", and that neither arm claims the machine is
@@ -38514,7 +38628,7 @@ async function frFinish(then) {
    * `focusin`, so the backstop never recovers it. For up to eight seconds a
    * keyboard user would be nowhere, behind an inert page.
    */
-  if (document.activeElement === next) document.getElementById('fr-title').focus();
+  if (document.activeElement === next && FR_ACTIVE_H2) FR_ACTIVE_H2.focus();
   next.disabled = true;
   let ok = false;
   let why = '';
@@ -38605,13 +38719,15 @@ document.addEventListener('keydown', (e) => {
   const last = stops[stops.length - 1];
   if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
   else if (e.shiftKey && (document.activeElement === first
-    || document.activeElement === document.getElementById('fr-title'))) { e.preventDefault(); last.focus(); }
+    || document.activeElement === FR_ACTIVE_H2)) { e.preventDefault(); last.focus(); }
 });
 
 document.addEventListener('focusin', (e) => {
   const overlay = document.getElementById('firstrun');
   if (overlay.hidden || overlay.contains(e.target)) return;
-  document.getElementById('fr-title').focus();
+  // install-flow-9screen: pull focus back to the ACTIVE pane's own <h2> (the
+  // dialog's live accessible name), the shell #fr-title being retired.
+  if (FR_ACTIVE_H2) FR_ACTIVE_H2.focus();
 });
 
 /**
