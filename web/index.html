@@ -14416,7 +14416,12 @@ function showTab(tab) {
     t.classList.toggle('on', on);
     t.setAttribute('aria-selected', String(on));
   });
-  if (!btn && !BUTTONLESS.includes(tab)) return;
+  /* #1615: URL_TAB was already set above, so this early-return path must also
+     re-sync the Plus chrome (tear it down when leaving to a tab with no button),
+     symmetric with openDetail's guard. Not reachable today (the buttonless tabs
+     are handled elsewhere), closed so a future one cannot strand body.plus-active
+     and the canvas rAFs behind another screen. */
+  if (!btn && !BUTTONLESS.includes(tab)) { syncPlusChrome(); return; }
   syncUrl();
   const agents = tab === 'agents';
   // Tab first (boardbar is the tab's one honest witness), then the computed
