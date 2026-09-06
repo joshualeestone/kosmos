@@ -177,19 +177,22 @@ const SCAN_SOME = { ok: true, candidates: [
 const SHOTS = [
   // The pack's order (first-run spec): Success opens the flow and carries
   // the app-location look; the endings close it.
-  { name: 'firstrun-1-success-system', step: 1, machine: MACHINE_APP_SYS, first: FLEET_RETURN },
-  { name: 'firstrun-1-success-home', step: 1, machine: MACHINE_APP_HOME, first: FLEET_RETURN },
-  { name: 'firstrun-1-success-missing', step: 1, machine: MACHINE_APP_NONE, first: FLEET_RETURN },
-  { name: 'firstrun-1-success-unsure', step: 1, machine: MACHINE_APP_BLIND, first: FLEET_RETURN },
+  // install-flow-9screen: ALL content-anchored now (at:), not step numbers. The
+  // 6->9 renumber moved Success from step 1 to 7, Welcome to 1, Model to 5, and
+  // RETIRED the standalone machine-check screen (firstrun-4-checks-*). stepForAnchor
+  // moves each shot with its pane (kosmos#1801) -- the names describe content, so a
+  // renumber can never capture the wrong pane under a shot's name.
+  { name: 'firstrun-success-system', at: '#fr-return', machine: MACHINE_APP_SYS, first: FLEET_RETURN },
+  { name: 'firstrun-success-home', at: '#fr-return', machine: MACHINE_APP_HOME, first: FLEET_RETURN },
+  { name: 'firstrun-success-missing', at: '#fr-return', machine: MACHINE_APP_NONE, first: FLEET_RETURN },
+  { name: 'firstrun-success-unsure', at: '#fr-return', machine: MACHINE_APP_BLIND, first: FLEET_RETURN },
   // The look STILL IN PROGRESS: machine: 'hang' stalls the route so the
   // placeholder is what is measured and photographed.
-  { name: 'firstrun-1-success-checking', step: 1, machine: 'hang', first: FLEET_RETURN },
-  { name: 'firstrun-2-welcome', step: 2 },
-  { name: 'firstrun-3-model-connected', step: 3, first: FLEET_ADOPT },
-  { name: 'firstrun-3-model-none', step: 3, first: SUB_NONE },
-  { name: 'firstrun-3-model-unsure', step: 3, first: SUB_UNSURE },
-  { name: 'firstrun-4-checks-clear', step: 4, machine: MACHINE_CLEAR },
-  { name: 'firstrun-4-checks-attention', step: 4, machine: MACHINE_MIXED },
+  { name: 'firstrun-success-checking', at: '#fr-return', machine: 'hang', first: FLEET_RETURN },
+  { name: 'firstrun-welcome', at: '#fr-privacy-staged' },
+  { name: 'firstrun-model-connected', at: '#fr-sub', first: FLEET_ADOPT },
+  { name: 'firstrun-model-none', at: '#fr-sub', first: SUB_NONE },
+  { name: 'firstrun-model-unsure', at: '#fr-sub', first: SUB_UNSURE },
   // 🔑 KEYED BY CONTENT, NOT POSITION (kosmos#1801). The opening frames above
   // are numbered because their position is structurally fixed -- Success opens
   // and the count starts after it. The frames below MOVE: #1214 inserted
@@ -322,7 +325,11 @@ async function look(page, name) {
       if (!b.textContent.trim() && !b.getAttribute('aria-label')) bad.push('a visible button has no name');
       if (b.tabIndex < 0) bad.push(`button "${b.textContent.trim()}" is not focusable`);
     }
-    return { label, bad, heading: (document.getElementById('fr-title') || {}).textContent };
+    // install-flow-9screen: the shell #fr-title is retired; the heading is the
+    // VISIBLE pane's own <h2>.
+    const _vp = [...document.querySelectorAll('.fr-pane')].find((p) => !p.hidden);
+    const _h2 = _vp && _vp.querySelector('h2');
+    return { label, bad, heading: _h2 ? _h2.textContent : '' };
   }, name);
 }
 
@@ -425,40 +432,30 @@ async function look(page, name) {
       // could render any of the three depending on the real disk and timing.
       if (shot.expect) {
         const headline = await page.evaluate(() =>
-          (document.getElementById('fr-title') || {}).textContent || '');
+          (document.getElementById('fr-fleet-title') || {}).textContent || '');
         if (!shot.expect.test(headline)) {
           problems.push(`${shot.name} [${scheme}]: fleet ending headline `
             + `"${headline}" does not match ${shot.expect}`);
         }
       }
-      /**
-       * ⚠️ THE CLEAR SHOT ASSERTS ITS OWN PREMISE. Its payload is engine-
-       * generated now (no longer the live route), so the control's job moved:
-       * it holds the SCREEN to the fixture's name, catching a paint that
-       * renders a clear payload as anything but green rows.
-       */
-      if (shot.name === 'firstrun-4-checks-clear') {
-        const rows = await page.evaluate(() =>
-          Array.from(document.querySelectorAll('#fr-checks .fr-check')).map((el) => el.className));
-        if (!rows.length || rows.some((c) => !/\bok\b/.test(c))) {
-          problems.push(`firstrun-4-checks-clear [${scheme}]: this machine is NOT all-clear `
-            + `(${rows.join(' | ') || 'no rows'}), so the shot under that name would be a lie`);
-        }
-      }
+      // install-flow-9screen: the standalone machine-check screen (firstrun-4-checks-*,
+      // #fr-checks) is RETIRED; its sleep/tmux concerns are the S3 gates, covered by
+      // render-gated-next. No machine-check shot or handler here anymore.
 
       /* Each Success shot asserts the row it claims to depict, read from the
          fixture the engine generated -- and the drag-not-Keep-in-Dock guard
          is asserted on every one, because the Dock paragraph is static copy
          and any state could regress it. */
-      if (shot.name.startsWith('firstrun-1-success')) {
-        // The Success primary is Set up Kosmos on every state (the fork
-        // lives on the endings now).
+      if (shot.name.startsWith('firstrun-success')) {
+        // install-flow-9screen: Success is step 7 now (was step 1), and its primary
+        // is "Next" (the old step-1 "Set up Kosmos" that led into setup is gone --
+        // Success no longer opens the flow).
         const introLabel = await page.evaluate(() => (document.getElementById('fr-next') || {}).textContent || '');
-        if (!/set up kosmos/i.test(introLabel)) {
+        if (!/next/i.test(introLabel)) {
           problems.push(`${shot.name} [${scheme}]: the Success primary drifted ("${introLabel}")`);
         }
       }
-      if (shot.name === 'firstrun-1-success-checking') {
+      if (shot.name === 'firstrun-success-checking') {
         const text = await page.evaluate(() => document.getElementById('fr-return').textContent);
         const cls = await page.evaluate(() => {
           const el = document.querySelector('#fr-return-row .fr-check');
@@ -476,7 +473,7 @@ async function look(page, name) {
         if (checkingReveal !== 0) {
           problems.push(`${shot.name} [${scheme}]: a Show-me button rendered while the look was still checking`);
         }
-      } else if (shot.name.startsWith('firstrun-1-success')) {
+      } else if (shot.name.startsWith('firstrun-success')) {
         // Wait for the ANSWER, not a fixed delay: the pane paints instantly
         // with the checking placeholder, and a slow run would report the
         // placeholder as a rendering problem rather than a wait. (The
@@ -532,7 +529,7 @@ async function look(page, name) {
         // The failure path SPEAKS and the success path clears it: one shot
         // (system, light) exercises the click both ways so a broken handler
         // or a failure sentence outliving a success cannot pass the suite.
-        if (shot.name === 'firstrun-1-success-system' && scheme === 'light') {
+        if (shot.name === 'firstrun-success-system' && scheme === 'light') {
           await page.route('**/api/reveal-app', (r) => r.fulfill({
             status: 409, json: { error: 'we could not look just now, so we cannot say where the icon is' },
           }));
