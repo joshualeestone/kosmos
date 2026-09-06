@@ -11368,8 +11368,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
    TDZ) and every function is a declaration (hoisted), so settingsGo/showTab can
    call syncPlusChrome regardless of source order; it is defined here, above the
    rest of the script, so its assignments run before boot's showTab(BOOT_TAB). */
-var PLUS_DPR = Math.max(2, window.devicePixelRatio || 1);
-var plusReduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+/* Guarded so the top-level executes cleanly under the repo's headless page-eval
+   tests (web.post-receipt / web.quoteb eval this whole script in a Node scope
+   with no window/matchMedia); identical to the bare form in a real browser. */
+var PLUS_DPR = Math.max(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1);
+var plusReduce = (typeof matchMedia === 'function') && matchMedia('(prefers-reduced-motion: reduce)').matches;
 var plusMarkCv = null, plusMarkRaf = null, plusScene = null, plusMD = null;
 var plusStarsCv = null, plusStarsCtx = null, plusStarsRaf = null, plusParts = [], plusSW = 0, plusSH = 0;
 var plusMounted = false;
@@ -11417,13 +11420,14 @@ function plusMount() {
 }
 function plusTeardown() { plusMounted = false; cancelAnimationFrame(plusMarkRaf); cancelAnimationFrame(plusStarsRaf); plusMarkRaf = null; plusStarsRaf = null; }
 function syncPlusChrome() {
+  if (typeof document === 'undefined' || !document.body) return;
   var active = (typeof URL_TAB !== 'undefined' && URL_TAB === 'settings')
     && (typeof SETTINGS_SEC !== 'undefined' && SETTINGS_SEC === 'plus');
   document.body.classList.toggle('plus-active', active);
   if (active) { if (!plusMounted) plusMount(); }
   else if (plusMounted) plusTeardown();
 }
-window.addEventListener('resize', function () { if (plusMounted) { if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); } } });
+if (typeof window !== 'undefined') window.addEventListener('resize', function () { if (plusMounted) { if (plusReduce) plusPaintStatic(); else { plusStarsStart(); plusMarkBuild(); plusMarkDraw(null); } } });
 /* ================= end #1615 Plus canvases ================= */
 
 
