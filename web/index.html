@@ -5857,19 +5857,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 }
 #firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
-/* #1652: the inline "Look in my Documents and Downloads" find-agents link in the
-   create-ending copy. An in-sentence, detection-EXTENDING action (it runs the
-   on-demand /api/scan-import of the TCC folders the #2125 auto-scan skips), so it
-   is a button styled as an underlined link -- the same quiet treatment as
-   #fr-alt.is-link -- sitting on the baseline of the note it lives in, NEVER a
-   second button competing with the single Giddy Up (Mona's ruling, 2026-09-06). */
-#firstrun .fr-lookimport {
-  background: transparent; border: 0; padding: 0; margin: 0;
-  font: inherit; color: var(--k-ink); cursor: pointer;
-  text-decoration: underline; text-underline-offset: 3px;
-}
-#firstrun .fr-lookimport:hover { color: var(--k-ink-2); }
-#firstrun .fr-lookimport:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; border-radius: 3px; }
+/* #1652/#5: the .fr-lookimport find-agents link CSS was removed with the link
+   itself (Josh's 0.6.39 ruling; see the frPaintFleet create arm). */
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
    ring on it, and a heading is not interactive, so the ring goes. */
 #firstrun .fr-body h2:focus-visible { outline: none; }
@@ -27506,18 +27495,12 @@ function openCreate(initialMode) {
    (for the first-run import link); binding it directly would hand the click Event
    in as that arg. */
 document.getElementById('new-agent').addEventListener('click', () => openCreate());
-/* #1652: the first-run "look in my Documents and Downloads" find-agents link, in
-   frPaintFleet's create arm. DELEGATED on #fr-fleet so the create arm never
-   touches the node itself (frPaintFleet renders into a stub DOM in the node
-   tests, where a per-render querySelector would throw). An arrow wraps
-   openCreate('import') so the click Event is not passed as the mode. frFinish
-   leaves first-run, then openCreate('import') opens the create panel straight on
-   the import mode (threaded through loadRoles' async pickMode), which runs
-   populateFoundImports() -> the on-demand /api/scan-import of the TCC folders the
-   #2125 auto scan skips. */
-document.getElementById('fr-fleet').addEventListener('click', (e) => {
-  if (e.target.closest('.fr-lookimport')) frFinish(() => openCreate('import'));
-});
+/* #1652/#5: the first-run find-agents "look in my Documents and Downloads" link and
+   its delegated #fr-fleet handler were REMOVED on Josh's 0.6.39 ruling (see the
+   frPaintFleet create arm). Agents in Documents/Downloads are reached by the
+   permission-granted full scan loading them onto screen 9 via the found path, not a
+   link that jumped to create. openCreate still takes an optional initialMode, which
+   the import panel uses; nothing now calls it with 'import' from first-run. */
 /* Delegated: both live inside innerHTML the poll replaces wholesale, so a
    listener bound to the node would be thrown away on the next tick. */
 document.addEventListener('click', (e) => {
@@ -38484,20 +38467,20 @@ function frPaintFleet() {
        DETECTION, not in a sentence on this screen, and this arm stays silent
        until detection can no longer be wrong about it.
 
-       ⭐ RESOLUTION (2026-09-06, Mona's mock; Splinter verified in code). His
-       ruling above STILL HOLDS: a DISCLOSURE link explaining an empty list is
-       still out. The find-agents link that now renders below is NOT that -- it
-       is the detection-EXTENDING action his ruling DEFERRED TO ("the fix belongs
-       in DETECTION"). The premise changed under #2125, which made the AUTO scan
-       TCC-free so it deliberately skips Documents/Downloads/Desktop to avoid a
-       fresh-install permission ambush. Post-#2125 this empty arm CAN be wrong --
-       agents in those folders were never scanned -- so it is no longer true that
-       "detection can no longer be wrong about it". The link is the mechanism
-       that makes detection REACH those folders: the on-demand /api/scan-import,
-       where the macOS prompt is expected because the person just asked for it.
-       It is the "AN OUT FOR THE ONE PERSON THIS SCREEN IS WRONG ABOUT" (below),
-       turned into an action. Josh can flip it on his morning test; his words
-       above are kept verbatim. */
+       ⭐ RESOLUTION SUPERSEDED (2026-09-06, Josh's 0.6.39 fresh-account test).
+       The find-agents link WAS added here (Mona's mock, Splinter-verified as the
+       detection-extending action the ruling deferred to). Josh's own install test
+       then RE-CONFIRMED his ruling above: on the empty screen he saw the "Look in
+       my Documents and Downloads" text and ruled it should NOT appear (all the
+       more so because the permissions were never actually granted, #1), and when
+       he clicked it, it jumped him to create-agent instead of loading found agents
+       onto this screen.
+       ⇒ THE LINK IS REMOVED and his original ruling holds verbatim: "There is no
+       link to appear, even. It just pulls them in." The fix for agents in
+       Documents/Downloads belongs in DETECTION after all: once the permission flow
+       (#1) actually grants access, a full scan of those folders runs and any
+       agents load onto THIS screen via the found path (frPaintFound), not a link
+       that jumps to create. So this arm is silent again. */
     /* 🛑 ONE SENTENCE, AND FOUR THINGS DELETED (Josh, 2026-08-26 22:05, item 13).
        This screen was reporting on ITSELF rather than telling a person what to
        do next. What went:
@@ -38556,14 +38539,7 @@ function frPaintFleet() {
        is expected because the person just asked for it. It is a link, NOT a
        second button: the single Giddy Up stays, frForkActions is unchanged. The
        permission sentence is load-bearing and stays up front. */
-    box.innerHTML = '<p>Let\u2019s get started.</p>'
-      + '<p class="fr-foundnote">Already have an agent on this computer? '
-      + '<button type="button" class="fr-lookimport">Look in my Documents and Downloads</button>. '
-      + 'Kosmos will ask macOS for permission first.</p>';
-    /* The link's click is handled by the #fr-fleet DELEGATED listener (module-level,
-       registered once near the #new-agent handler), NOT bound here: frPaintFleet
-       renders into a stub DOM in the node tests, so a box.querySelector at render
-       time would throw. Delegation keeps this arm from touching the node at all. */
+    box.innerHTML = '<p>Let\u2019s get started.</p>';
     frForkActions();
     return;
   }
