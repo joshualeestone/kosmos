@@ -331,22 +331,35 @@ served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
 
-# #2159: a --promote is a version-moving PROD go-live (staging -> prod), so the build is now live to
-# users -- generate the release-notes social posts, exactly as a prod CUT does (release.sh's #2159
-# hook). A plain --publish is a same-version site-copy re-deploy (no new release to announce), so it
-# does NOT post -- only the PROMOTE path does. Like the cut hook, post-release-notes.sh is DRY-RUN by
-# default and CANNOT auto-publish without the deliberate multi-gate (--publish AND KOSMOS_SOCIAL_AUTOPOST=1
-# AND live @installkosmos creds in the secrets map), so a promote PREVIEWS the notes and a bad note can
-# never auto-publish. This closes the gap where a staging->prod promote (the launch flow) shipped a
-# release to users but never announced it, while a direct prod cut did. Best-effort: the release has
-# already shipped and been verified above, so a hook non-zero must never fail the promote.
+# #2159: a --promote that moves the prod pointer FORWARD is a new release going live to users, so
+# generate the release-notes social posts, exactly as a prod CUT does (release.sh's #2159 hook). A
+# plain --publish is a same-version site-copy re-deploy (no new release), so it does NOT post -- only
+# the PROMOTE path does. Like the cut hook, post-release-notes.sh is DRY-RUN by default and CANNOT
+# auto-publish without the deliberate multi-gate (--publish AND KOSMOS_SOCIAL_AUTOPOST=1 AND live
+# @installkosmos creds in the secrets map), so a promote PREVIEWS the notes and a bad note can never
+# auto-publish. This closes the gap where a staging->prod promote (the launch flow) shipped a release
+# to users but never announced it, while a direct prod cut did. Best-effort: the release has already
+# shipped and been verified above, so a hook non-zero must never fail the promote.
+#
+# 🛑 A --promote can also be a ROLLBACK to a PRIOR pointer (see the --promote docs at the top). A
+# rollback must NEVER announce "Kosmos <older> is out". So the hook fires only when the just-served
+# version ($sj) is strictly NEWER than the version that was live BEFORE this deploy ($LJ, fetched at
+# the top). A same-version re-point and a rollback both skip. `sort -V` is the version compare already
+# used in tools/dist-retention.sh. If $LJ's version is unreadable (an anomaly the top-of-script fetch
+# would normally have refused on), we fall through to announce -- the hook's own per-version
+# idempotency then prevents re-announcing a version already posted.
 if [ "$PROMOTE" = 1 ]; then
-  _pv="$(ptr_version "$sj")"
-  if [ -n "$_pv" ]; then
+  _pv="$(ptr_version "$sj")"   # the version this promote just made live
+  _lv="$(ptr_version "$LJ")"   # the version that was live BEFORE this deploy
+  if [ -z "$_pv" ]; then
+    echo "post-release-notes: could not read the promoted version from the served latest.json -- skipping the notes hook (the promote still shipped and was verified)."
+  elif [ "$_pv" = "$_lv" ]; then
+    echo "post-release-notes: promoted version $_pv matches the previously-live version -- not a new release, skipping the notes hook."
+  elif [ -n "$_lv" ] && [ "$(printf '%s\n%s\n' "$_lv" "$_pv" | sort -V | tail -1)" != "$_pv" ]; then
+    echo "post-release-notes: promoted version $_pv is not newer than the previously-live $_lv (a rollback) -- skipping the notes hook (a rollback must not announce)."
+  else
     echo ""
     KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$REPO/tools/post-release-notes.sh" "$_pv" --publish \
       || echo "post-release-notes: hook returned non-zero (the promote still shipped; this is best-effort)"
-  else
-    echo "post-release-notes: could not read the promoted version from the served latest.json -- skipping the notes hook (the promote still shipped and was verified)."
   fi
 fi
