@@ -10,9 +10,10 @@
  *
  * What this pins, and why each line can fail:
  *  - the automation nav pill puts #s-sec-automation on screen (height > 0),
- *  - the section's two control headings read exactly ["Auto-save", "Prompter"]
- *    in order -- so a future edit that drops the rename, or renames the wrong
- *    box, goes red,
+ *  - the section's control headings read exactly ["Auto-save", "Prompter",
+ *    "Agents talking to each other", "Daily report"] in order -- so a future edit
+ *    that drops the rename, renames the wrong box, or changes which controls the
+ *    section carries, goes red,
  *  - no visible text inside the section still reads "Heartbeat" (the old name),
  *  - the save button's accessible name is "Save prompter settings" (a screen
  *    reader says the new name too, not just a sighted reader).
