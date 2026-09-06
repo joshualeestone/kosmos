@@ -432,7 +432,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
      summary -- SHAPE finding-emit sites, confirmed quotable, a ` FAIL ` prefix the gate
      quotes) and DELETED render-a11y-copy-1940 / render-a11y-gate-2125 / render-sleep-button
      (their gate concern subsumed by render-gated-next). */
-  const EXPECTED_SITES = 52;
+  const EXPECTED_SITES = 53;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -534,7 +534,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   /* 29 after the #2241 SETTINGS sibling render-settings-openai-goldbox.js, one launch-failure
      catch (console.error('FAIL  render-settings-openai-goldbox: could not start a browser')),
      confirmed quotable (starts with FAIL). */
-  const EXPECTED_CATCH_SITES = 30;
+  const EXPECTED_CATCH_SITES = 31;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
