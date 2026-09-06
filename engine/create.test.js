@@ -4437,9 +4437,15 @@ test('#1315: the SUPERVISOR dismisses the update notice, in the codex branch onl
 
   /* 🔑 AND IT MUST NOT BE ABLE TO FAIL A LAUNCH. An agent that will not start
      because its update notice could not be dismissed is a far worse outcome
-     than the prompt. */
-  const line = sup.slice(sup.lastIndexOf('\n', at) + 1, sup.indexOf('\n', at) + 200);
-  assert.match(sup.slice(at, at + 200), /\|\| true/,
+     than the prompt. Anchor on the INVOCATION line (`if [ -f "$DISMISS" ]`), not a
+     fixed-offset slice from the `codex-dismiss-update.js` ASSIGNMENT above it: a
+     comment between the two (e.g. #1911's node-resolution note) must not be able to
+     slide `|| true` out of a fixed window. */
+  const invAt = sup.indexOf('if [ -f "$DISMISS" ]');
+  assert.ok(invAt > codexBranch && invAt < elseBranch,
+    'the dismissal invocation is not in the codex branch');
+  const invLine = sup.slice(invAt, sup.indexOf('\n', invAt));
+  assert.match(invLine, /\|\| true/,
     'the dismissal can fail a launch: it needs to be unconditional');
 });
 

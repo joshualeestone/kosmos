@@ -28,7 +28,7 @@ AGENT_WORKFORCE_DATA="$(mktemp -d)"; export AGENT_WORKFORCE_DATA
 # gets that far. `${VAR:-}` keeps `set -u` happy for the ones it never reaches.
 #
 # ⇒ ADD A NEW TEMP DIR TO THIS LINE. Do not write another trap.
-trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}"' EXIT
+trap 'rm -rf "$AGENT_WORKFORCE_DATA" "${SB:-}" "${SB2:-}" "${DATA2:-}" "${SB3:-}" "${DATA3:-}" "${SB4:-}" "${DATA4:-}"' EXIT
 
 set -u
 cd "$(dirname "$0")/.." || exit 1
@@ -142,6 +142,43 @@ if grep -qx 'KOSMOS_AGENT_TOKEN=deadbeef' "$ARGS3"; then
   ok "#1897: node derived from the engine pointer mints with NO node on PATH -- the layout every installed agent runs in"
 else
   bad "#1897: no token from the bundled node with node off PATH -- an installed agent still cannot identify itself: $(grep -c . "$ARGS3") args, $(tail -3 "$SB3/out.log")"
+fi
+
+# ---------------------------------------------------------------- #1911
+# THE CODEX-DISMISS SHIM must use the RESOLVED bundled node, never a bare `node`.
+# On a Kosmos-only host node is off the launchd PATH, so a bare call silently
+# no-ops (the shim is `|| true`) and a codex agent hits the update prompt the shim
+# exists to dismiss -- "started, reported healthy, and silently did nothing".
+# Same launchd-PATH + bundled-node fixture as #1897, but RUNNER=codex (arg 7) and a
+# codex-dismiss stub that writes a marker only if it actually RAN (i.e. node
+# resolved). Asserts the marker exists: FAILS on the old bare-`node` dismiss line.
+SB4="$(mktemp -d)"   # removed by the single trap above
+mkdir -p "$SB4/bin" "$SB4/work" "$SB4/root/app/engine" "$SB4/root/runtime/bin"
+cp bin/agent-supervisor.sh "$SB4/bin/agent-supervisor.sh"
+cp "$SB/tmux" "$SB4/tmux"
+cat > "$SB4/root/app/engine/sendertoken.js" <<'STUBJS'
+module.exports = { mint: () => ({ ok: true, token: 'deadbeef' }) };
+STUBJS
+ln -s "$(command -v node)" "$SB4/root/runtime/bin/node"
+printf '%s\n' "$SB4/root/app/engine" > "$SB4/bin/engine-path"
+# The shim writes a marker when it runs, so its running is observable. Its own
+# path to node does not matter -- what is under test is that the SUPERVISOR
+# invoked it with a node that resolves off PATH.
+cat > "$SB4/bin/codex-dismiss-update.js" <<'STUBJS'
+require('node:fs').writeFileSync(process.env.DISMISS_MARKER, 'ran');
+STUBJS
+DATA4="$(mktemp -d)"
+MARKER4="$SB4/dismiss-ran"
+(
+  export AGENT_WORKFORCE_DATA="$DATA4" STUB_DIR="$SB4" AGENT_WORKFORCE_WAIT_POLL_SECS=1
+  export DISMISS_MARKER="$MARKER4"
+  export PATH="/usr/bin:/bin:/usr/sbin:/sbin"
+  /bin/bash "$SB4/bin/agent-supervisor.sh" codextest "$SB4/work" /usr/bin/true "$SB4/tmux" "$SB4/start.log" "" codex
+) > "$SB4/out.log" 2>&1 || true
+if [ -f "$MARKER4" ]; then
+  ok "#1911: the codex-dismiss shim ran via the bundled node with node off PATH (a bare node would have silently no-op'd)"
+else
+  bad "#1911: the codex-dismiss shim did not run with node off PATH -- a bare node cannot resolve on a Kosmos-only host: $(tail -3 "$SB4/out.log")"
 fi
 
 [ "$FAILS" -eq 0 ] && echo "supervisor env handoff: all hold" || echo "supervisor env handoff: $FAILS FAILED"
