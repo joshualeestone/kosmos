@@ -229,12 +229,35 @@ EOFSIG
 head_ "The served installer matches the repo"
 curl -fsSL -o "$WORK/setup" "$SITE/setup" 2>/dev/null
 LIVE_SHA="$(shasum -a 256 "$WORK/setup" | awk '{print $1}')"
-if [ -f "$REPO/../chaoskosmos-site/setup" ]; then
-  REPO_SHA="$(shasum -a 256 "$REPO/../chaoskosmos-site/setup" | awk '{print $1}')"
-  [ "$LIVE_SHA" = "$REPO_SHA" ] && ok "served /setup is byte-identical to chaoskosmos-site/setup" \
-                                || bad "served /setup DIFFERS from chaoskosmos-site/setup (live $LIVE_SHA)"
+# #2360: compare the served /setup against the DEPLOY SOURCE (origin/main), NOT the local working-tree
+# /setup. The deploy ships from origin/main via the #2286 fresh-origin-main mechanism, so a local
+# checkout that lags origin (a /setup commit lands on origin during a cut; a shared checkout is
+# routinely behind) made this FALSE-RED "served /setup DIFFERS" with release-exit=1 even though the
+# served bytes were CORRECT. Measured on the 0.6.40 cut: served cdbce978 == origin/main:setup, but the
+# local working tree was 312cd7ed (1 commit behind) -> false exit=1, which an operator then had to rule
+# benign by hand. Comparing vs origin/main can't false-fail on a local lag AND still catches a real
+# served-vs-source mismatch. Fetch first so origin/main is current; write it to a temp FILE (never a
+# $(...) capture, which strips the trailing newline and so changes the sha); guard on git's own exit
+# (git show of a missing path prints nothing, and shasum of empty input is a fixed non-file hash that
+# would silently mis-compare). Fall back to the local working tree only if origin/main:setup is
+# unreadable, and only as UNPROVEN on a difference -- a stale local checkout must never hard-fail here.
+SITE_CO="$REPO/../chaoskosmos-site"
+SRC_SHA=""
+if [ -d "$SITE_CO/.git" ]; then
+  git -C "$SITE_CO" fetch -q origin 2>/dev/null || true
+  if git -C "$SITE_CO" show origin/main:setup > "$WORK/origin-setup" 2>/dev/null && [ -s "$WORK/origin-setup" ]; then
+    SRC_SHA="$(shasum -a 256 "$WORK/origin-setup" | awk '{print $1}')"
+  fi
+fi
+if [ -n "$SRC_SHA" ]; then
+  [ "$LIVE_SHA" = "$SRC_SHA" ] && ok "served /setup is byte-identical to origin/main:setup (the deploy source)" \
+                              || bad "served /setup DIFFERS from origin/main:setup -- the deploy source (live $LIVE_SHA, origin/main $SRC_SHA)"
+elif [ -f "$SITE_CO/setup" ]; then
+  REPO_SHA="$(shasum -a 256 "$SITE_CO/setup" | awk '{print $1}')"
+  [ "$LIVE_SHA" = "$REPO_SHA" ] && ok "served /setup is byte-identical to the LOCAL chaoskosmos-site/setup (origin/main unreadable)" \
+                               || unp "served /setup differs from the LOCAL chaoskosmos-site/setup and origin/main was unreadable -- cannot confirm against the deploy source (live $LIVE_SHA); a stale local checkout can cause this (#2360)"
 else
-  unp "no local chaoskosmos-site checkout to compare against (live $LIVE_SHA)"
+  unp "no chaoskosmos-site checkout to compare against (live $LIVE_SHA)"
 fi
 
 head_ "The installer's floor and the artifact's floor agree"
