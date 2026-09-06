@@ -2033,8 +2033,11 @@ EARLIEST of the four sites, which is the one a reader reaches first. I pinned th
 restatements and missed the original. (Control: the three pins DID reproduce exactly, so the
 mechanism worked and was under-applied.)
 
-✅ **THE PRE-COMMITMENT IS HONOURED: every self-referential figure in this plan is now DELETED**, at
-all five sites, replaced by the command and the phenomenon. Two `= 0` claims survive deliberately: one
+✅ **THE PRE-COMMITMENT IS HONOURED: the self-referential figures found so far are DELETED**,
+replaced by the command and the phenomenon. 🛑 **DO NOT READ THAT AS "ALL OF THEM". An earlier version
+of this line said "at all five sites", and the very commit asserting it introduced a SIXTH** (a sweep
+table, stale on arrival). ⇒ **The universal is the wrong shape for this claim. THE CHECK, which
+anybody can run, is: a bare number in this file with no command beside it is a defect.** Two `= 0` claims survive deliberately: one
 is SCOPED to `-- engine/connect.test.js`, a file this plan is not part of, so it is stable (verified 0,
 with `grep -c 1922` on the same scoped diff returning 6 as the control that it can be non-zero); the
 other is a verbatim quotation of the retracted claim.
@@ -2112,11 +2115,16 @@ retracting the same number two lines apart; that is resolved in favour of the me
 
 ✅ **AND I APPLIED THE LESSON TO THE NEIGHBOURING CLAIM OF THE SAME SHAPE RATHER THAN WAITING FOR THE
 NEXT ROUND TO FIND IT.** The sibling WARNING (the "4 in source" breakdown, also justified from two
-points) now has a full sweep behind it. Across all 36 branch commits the source-only count takes four
-values and **4 is never one of them**:
+points) now has a full sweep behind it, and **the conclusion is that `4` occurs at ZERO commits**,
+under both interpretations the WARNING names. 🛑 **THE DISTRIBUTION TABLE THAT USED TO SIT HERE HAS
+BEEN DELETED: it was swept before committing, so it was stale at the commit that carried it** (adding
+a commit adds a data point, because this plan is inside every branch commit's diff). Run the sweep,
+do not read a table:
 
 ```
-14 commits -> 1     11 -> 0     9 -> 3     2 -> 2        occurrences of "4": ZERO
+for s in $(git rev-list origin/main..HEAD); do
+  git diff "origin/main...$s" -- engine/connect.js server.js | grep -c 1560
+done | sort | uniq -c        # no bucket should be 4
 ```
 
 **Same shape, one false and one true, and only the sweep tells them apart.** Controls both ways: the
@@ -2127,9 +2135,54 @@ discriminates rather than agreeing with everything.
 reproduce and the only 2 zeros are the ones this plan explicitly documents as broken (its extractor
 flags a fabricated pattern as a control); `isDefault`=14, `assert`=638, `the seam`=5,
 `accounts.js:232`, `create.js` four code uses distinguished from five grep hits, the `status.test.js`
-behavioural pin; iteration-26's own figures (scoped `1560`=0 with control `1922`=6, 121 behind, both
+behavioural pin; iteration-26's own figures (scoped `1560`=0 with control `1922`=6, the behind count
+per `git rev-list --count HEAD..origin/main`, both
 merge-bases, source hits 3) all exact; the PR body's validation block agreeing with the log at
 `status: clean`. Baselines 40/40 and 54/54. Both production edits read correctly. Worktree pristine.
 
 🛑 **NOT CONVERGED, eighth round running. But one finding, not four, and it was found by a sweep the
 previous rounds would not have run.**
+
+### Iteration 28, 2026-09-06 00:05: the sweep that fixed the probe was stale at the commit that carried it
+
+Verdict: **NOT converged. 1 BLOCKER, 1 NIT.**
+
+🛑 **THE BLOCKER IS THE FOURTH OCCURRENCE OF THE SELF-REFERENTIAL CLASS, AND IT IS THE FIX FOR THE
+LAST ONE.** Iteration 27 replaced a two-point probe with a full sweep, and wrote the sweep's
+distribution table into the plan. **The sweep ran before the commit, so the table was stale the
+instant it was committed**: the parent has 36 branch commits, the carrying commit has 37, and one
+bucket moves. Adding a commit adds a data point, because this plan is inside every branch commit's
+diff.
+
+**Control, which is what makes this airtight rather than plausible: the identical sweep at the parent
+`01e7f956` reproduces the plan's table EXACTLY.** The only delta is the carrying commit itself, so
+`origin/main` moving is not the cause.
+
+🛑 **AND IT FALSIFIED A UNIVERSAL IN THE SAME COMMIT.** That commit asserted *"every self-referential
+figure in this plan is now DELETED, at all five sites"* while introducing a **sixth**. ⇒ **A universal
+about this file, written in this file, is defeated by the act of writing it.**
+
+✅ **So the universal has been replaced by a PROCEDURE rather than by a better universal:**
+**"a bare number in this file with no command beside it is a defect."** That is checkable by anyone,
+needs no maintenance, and cannot be falsified by the commit that states it. **Four attempts to state
+this as a fact have now failed; the procedural form is the first one that cannot.**
+
+✅ **The conclusion the table supported SURVIVES and is now properly controlled.** `4` occurs at zero
+commits under both interpretations. The table is deleted and replaced with the sweep itself, run
+verbatim before shipping. **The control that matters: the same sweep for `1922` DOES produce a
+4-bucket (6 commits), so the absent 4 for `1560` is a real absence and not an artifact of the method.**
+
+**NIT: "121 commits behind" is now 122.** An externally-moving quantity that no anchoring can fix,
+so it is stated as `git rev-list --count HEAD..origin/main` instead of a figure.
+
+**Reviewer found nothing else, with controls:** `70 + 27 = 97` reproduces at `148ff31a`/`1f3fcc27`
+with `63c4f389` giving 70+32 and the two merge-bases confirming the orphan story; the PR body's
+validation block agreeing with the log at `status: clean`; `create.js` four code uses distinguished
+from five grep hits; the setter sweep (unfiltered 17, filtered empty, control `require(` returning 149
+files); `assert`=638, `the seam`=5, `connect.start(`=4, `isDefault`=14, scoped `1560`=0 with control
+`1922`=6; tests 54/54, 40/40, 9/9; **the mutation control red at 39/1 with `actual: …/.claude,
+expected: null`**; and both production edits read correctly, including that `configDir: null`
+normalises to omitted at `connect.js:1079`.
+
+🛑 **NOT CONVERGED, ninth round running. One BLOCKER and one NIT, and the BLOCKER is bookkeeping about
+bookkeeping. The shipped behaviour has been stable and mutation-proven for seventeen rounds.**
