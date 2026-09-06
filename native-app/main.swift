@@ -428,6 +428,21 @@ func fileAccessStatusURL() -> URL? {
 // Josh's fresh-account test CAN verify it. The KOSMOS_FILEACCESS_FORCE_GRANTED override
 // exists ONLY for tests, to exercise the granted:false downstream (writer -> engine ->
 // gate) without a fresh install. The shipped app never sets it.
+//
+// 🛑 A SECOND UNKNOWN FOR THE SAME VERIFY: TIMING/REFRESH. This assumes the enumerate
+// BLOCKS until the user answers the TCC prompt (the usual behaviour for file-APIs, and
+// unlike AXIsProcessTrustedWithOptions, which returns immediately). If it blocks, the
+// one probe captures the grant and writes the true verdict. If instead it returns
+// immediately while the prompt is async, this writes granted:false at probe time and
+// there is NO periodic file-access refresh to correct it later -- unlike a11y, whose
+// 60s axcheck timer catches an eventual grant. A re-click recovers (macOS remembers the
+// answer, so the second probe reads the settled verdict without re-prompting), but the
+// pill would stay red until then. The refresh is deliberately absent: the file-access
+// probe IS the prompt, so running it periodically/at-launch would reintroduce the
+// fresh-install prompt burst that permflood-2125 (#2125 slice 1) fixed. The correct
+// hardening, IF the verify shows the call is async, is a bounded POST-CLICK re-probe
+// (never launch-time) with the measured timing -- deferred until the verify says it is
+// needed, because building it now needs that same fresh-Mac measurement.
 func fileAccessReading() -> Bool {
     if let forced = ProcessInfo.processInfo.environment["KOSMOS_FILEACCESS_FORCE_GRANTED"] {
         let v = forced.lowercased()

@@ -15,9 +15,12 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const path = require('node:path');
 
-const SRC = fs.readFileSync('native-app/main.swift', 'utf8');
-const ENGINE = fs.readFileSync('engine/fileaccessstatus.js', 'utf8');
+// __dirname-relative (this test lives at the repo root), so the suite does not depend
+// on the cwd being the repo root.
+const SRC = fs.readFileSync(path.join(__dirname, 'native-app', 'main.swift'), 'utf8');
+const ENGINE = fs.readFileSync(path.join(__dirname, 'engine', 'fileaccessstatus.js'), 'utf8');
 
 test('the instrument is reading something', () => {
   assert.ok(SRC.length > 40000, `main.swift read back only ${SRC.length} bytes; assertions would pass for the wrong reason`);

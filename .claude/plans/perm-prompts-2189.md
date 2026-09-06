@@ -56,14 +56,27 @@ engine signals; the native app fires.
 
 ## Weakest premise / what needs a fresh-Mac verify
 
-The under-tmux attribution — whether the read/prompt is attributed to tmux vs the app —
-is the SAME load-bearing unknown as #2125's a11y writer, unverifiable on a dev box
-(terminal already holds Full Disk Access, so the denied arm cannot be observed). The
-honest reading is emitted with no bias default precisely so Josh's next fresh-account
-test verifies it. **Prod-promote stays HELD** (feedback doc); this reaches Josh on
-staging, which is the verify. Rejected: letting the engine spawn tmux itself (option b)
-— fewer native changes but it adds a second unverified attribution variable; routing
-through the app keeps the spawn tree identical to the proven launch path.
+Two unknowns, both for the fresh-Mac verify, both unobservable on a dev box (terminal
+already holds Full Disk Access):
+
+1. **Attribution** — whether the under-tmux read/prompt is attributed to tmux vs the
+   app. Same load-bearing unknown as #2125's a11y writer. Routing through the app keeps
+   the spawn tree identical to the proven launch path. Rejected: letting the engine
+   spawn tmux (option b) — fewer native changes but a second unverified attribution
+   variable.
+
+2. **Timing / refresh (file-access only)** — the single-click "pill flips green" assumes
+   `contentsOfDirectory` BLOCKS until the user answers the prompt (usual for file-APIs;
+   unlike the async `AXIsProcessTrustedWithOptions`). If it is async instead, the probe
+   writes `granted:false` and there is no periodic file-access refresh to correct it (a
+   re-click recovers). The refresh is deliberately absent because the probe IS the
+   prompt, so a periodic/launch-time probe would reintroduce permflood-2125's
+   fresh-install prompt burst. If the verify shows the call is async, the fix is a
+   bounded POST-CLICK re-probe with the measured timing — deferred until then.
+
+The honest reading is emitted with no bias default precisely so Josh's fresh-account
+test verifies both. **Prod-promote stays HELD** (feedback doc); this reaches Josh on
+staging, which is the verify.
 
 ## Tests
 
