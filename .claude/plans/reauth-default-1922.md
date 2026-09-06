@@ -1518,10 +1518,17 @@ I was about to strip the retraction archaeology ("an earlier version said X") ou
 under this file's MOVE-THEN-TRIM rule, reasoning that my own additions were generating the findings.
 **Measured first:**
 
+🛑 **THE THREE FIGURES THAT USED TO SIT HERE ARE DELETED: the block never stated the PATTERN it
+counted, so it was unreproducible by construction** (found by executing this plan's own procedure at
+iteration 29). They are not recoverable: a concrete pattern gives different totals, so I will not
+launder the old numbers by attaching a command that did not produce them.
+
+**The conclusion survives on a pattern that IS reproducible, and the majority still is not mine:**
+
 ```
-sites matching that idiom in the four files:  22
-  added by this branch (mine):                 9
-  PRE-EXISTING:                               13
+grep -c 'an earlier version' engine/connect.js engine/connect.test.js server.js server.connect.test.js
+git diff origin/main...HEAD -- <those four> | grep '^+' | grep -c 'an earlier version'   # mine
+git grep -c 'an earlier version' origin/main -- <those four>                             # pre-existing
 ```
 
 ⇒ **The idiom is house style, by a majority I did not put there. Trimming mine would have made this
@@ -1907,7 +1914,8 @@ and re-run the pasted form once before committing.**
 **WARNING, in the PR body, the only artifact that leaves the repo.** The sentence said a signed-out
 user opens the gate "and a missing binary opens it too", then cited the `#1560` arm as asserting
 **that**. The arm asserts only the first clause (`loggedIn:false` -> `phase != CONNECTED`,
-`connect.test.js:1397`). The missing-binary case lives in a **different** pre-existing file,
+`grep -n '#1560: a connected-looking FILE' engine/connect.test.js`). The missing-binary case lives in
+a **different** pre-existing file,
 `engine/connect.nobinary-1580.test.js:137`. ⇒ **Source scope narrower than sentence scope**, the shape
 this branch has now produced at every level. Now cites both arms separately.
 
@@ -1969,7 +1977,8 @@ because one run was active. ⇒ **A fix that relocates a defect while appearing 
 than no fix, because it retires the question.**
 
 **Independently confirmed clean by the reviewer, with controls:** both cited arms (`#1560` at
-`origin/main:engine/connect.test.js:1397`, `#1580` in `connect.nobinary-1580.test.js`), neither added
+`git grep -n '#1560: a connected-looking FILE' origin/main -- engine/connect.test.js`, `#1580` in
+`connect.nobinary-1580.test.js`), neither added
 by this diff; the gate claim matching `connect.js:1107`; all 20 file-scoped citations executed; the
 five `the seam` hits; `--numstat` = 139; `create.js` four instances against five grep hits. It also
 caught its own dead instrument (a control returning the sha256 of empty input from a missing `--`)
@@ -2051,8 +2060,8 @@ merge-base(origin/main, f9134fc9)  = 5da3103e81e5    <- post-rebase commit
 merge-base(origin/main, 63c4f389)  = 36154ccdd2a0    <- pre-rebase commit
 ```
 
-⇒ **A figure "pinned" to a pre-rebase sha silently re-bases with it.** This branch is 121 commits
-behind and still owes a rebase, so every pin I added would have gone stale the moment I did it.
+⇒ **A figure "pinned" to a pre-rebase sha silently re-bases with it.** This branch is behind
+`origin/main` by `git rev-list --count HEAD..origin/main` and still owes a rebase, so every pin I added would have gone stale the moment I did it.
 **The remedy was doomed however completely I had applied it**, which the under-application concealed.
 
 **WARNING: a breakdown that was wrong when written, not stale.** The same line claimed the source
@@ -2172,8 +2181,10 @@ commits under both interpretations. The table is deleted and replaced with the s
 verbatim before shipping. **The control that matters: the same sweep for `1922` DOES produce a
 4-bucket (6 commits), so the absent 4 for `1560` is a real absence and not an artifact of the method.**
 
-**NIT: "121 commits behind" is now 122.** An externally-moving quantity that no anchoring can fix,
-so it is stated as `git rev-list --count HEAD..origin/main` instead of a figure.
+**NIT: a "commits behind" figure had gone stale.** ⭐ **The first version of THIS sentence quoted the
+corrected value, and that was stale within the hour too** (it moved again while iteration 29 was
+running). ⇒ **An externally-moving quantity cannot be stated as a number AT ALL, not even inside the
+sentence reporting that it moved.** Stated as `git rev-list --count HEAD..origin/main`.
 
 **Reviewer found nothing else, with controls:** `70 + 27 = 97` reproduces at `148ff31a`/`1f3fcc27`
 with `63c4f389` giving 70+32 and the two merge-bases confirming the orphan story; the PR body's
@@ -2186,3 +2197,51 @@ normalises to omitted at `connect.js:1079`.
 
 🛑 **NOT CONVERGED, ninth round running. One BLOCKER and one NIT, and the BLOCKER is bookkeeping about
 bookkeeping. The shipped behaviour has been stable and mutation-proven for seventeen rounds.**
+
+### Iteration 29, 2026-09-06 00:15: the procedure caught a defect on its first execution
+
+Verdict: **NOT converged. 1 WARNING, 2 NITs. Code and PR body clean under every check the reviewer
+ran.** No BLOCKER for the first time in five rounds.
+
+⭐ **THE HEADLINE IS THAT THE REMEDY WORKED AS A REMEDY.** Iteration 28 replaced a failing universal
+with a procedure: *"a bare number in this file with no command beside it is a defect."* Executed for
+the first time, **it found three, including one in the commit that introduced it.** A rule you can run
+produces a result; four earlier attempts to state the same thing as a fact produced only more text.
+
+**WARNING: the behind-count fix was applied to the recap sentence and not to the site carrying the
+number.** Partial sweep, the class this branch has produced at every level. ⭐ **And the sentence
+REPORTING the staleness quoted the corrected value, which was itself stale within the hour** (the
+count moved again while iteration 29 was running). ⇒ **An externally-moving quantity cannot be stated
+as a number at all, not even inside the sentence saying that it moves.** Both sites are now the
+command.
+
+**NIT: a line citation that pointed at the wrong line, with an `origin/main:` prefix that made it look
+reproducible.** The `#1560` arm was cited at `connect.test.js:1397`; it is at **1503** on
+`origin/main` and **1663** on the branch, and 1397 is an unrelated spinner assertion. Replaced with
+`grep -n '#1560: a connected-looking FILE'`, verified to return exactly one hit in each ref.
+
+**NIT: a count block that never stated the pattern it counted**, so it was unreproducible by
+construction. ⇒ **Deleted rather than reconstructed.** A concrete pattern gives different totals, and
+**attaching a command that did not produce the original numbers would launder them**, which is worse
+than deleting them. The load-bearing conclusion (the idiom is house style, the majority is not mine)
+now rests on a pattern that can be re-run.
+
+⚠️ **AND I HIT A DOCUMENTED FALSE ZERO WHILE MEASURING THAT, IN MY OWN HANDS.** I wrote
+`grep -c '<pat>' $F` with the four filenames in an unquoted variable. **zsh does not word-split**, so
+all four went through as ONE argument, ugrep warned `No such file or directory`, and the paired
+`git diff | grep -c` returned **0 added by this branch**. That zero was never a search, and it was
+about to become the evidence for a claim about my own diff. Caught because the warning was visible and
+the number was implausible. **Explicit arguments, not an unquoted variable.**
+
+**Reviewer found nothing else, with controls:** every command in both files run verbatim and agreeing
+(`connect.start(`=4, create.js 4 code uses vs 5 hits, `isDefault`=14 with bogus control 0, `assert`=638,
+setter sweep filtered EMPTY / unfiltered 17 / control `require(` = 149 files, `--numstat` 92+47 and the
+three historical pairs, scoped `1560`=0 with control `1922`=6, the 1560 sweep with no 4-bucket against
+a `1922` sweep that HAS one, iteration-28's blocker reproduced exactly at both parent and carrier);
+PR-body validation block matching the newest log row at `status: clean`.
+
+**CODE, mutation-proven again today by a third independent reviewer, all four arms:** revert route ->
+39/1 `actual: …/.claude, expected: null`; `configDir: null` unconditional -> ROUTE control reds 37/3;
+drop `-u` -> 53/1; `-u` unconditional -> LAUNCH control reds 52/2. Baselines 54/54, 40/40, 9/9.
+
+🛑 **NOT CONVERGED. But no BLOCKER, and the remaining findings are the plan describing itself.**
