@@ -130,3 +130,30 @@ test('consumeRequest consumes-before-firing, fires only on a successful delete, 
   assert.ok(/timeIntervalSince\([^)]*\)\s*>\s*30/.test(fn),
     'consumeRequest does not drop a >30s-stale request; a leftover from a prior run would fire a surprise prompt');
 });
+
+test('the bundled tmux is resolved at the bundle\'s REAL path (tmux/bin/tmux), not a path no install has', () => {
+  // kosmos#2347 REOPEN / Josh's 0.6.40 fresh-install re-test: the whole cascade
+  // (no a11y prompt, no Tmux in the Accessibility list, no file-access prompt on
+  // Allow Access) was one static path bug -- spawnAxHatchUnderTmux looked for tmux at
+  // `kosmosHome + "/bin/tmux"`, which exists on NO real install (the bundle stages
+  // tmux at tmux/bin/tmux; <home>/bin holds only `kosmos`), so every under-tmux hatch
+  // silently skipped. Measured on a real install: <home>/bin/tmux absent,
+  // <home>/tmux/bin/tmux present. These pins keep the resolution matched to the bundle.
+  assert.ok(SRC.includes('func resolveBundledTmux(kosmosHome:'),
+    'resolveBundledTmux is gone; tmux resolution must be one named helper the hatch and a test can both anchor on');
+  const fn = SRC.slice(SRC.indexOf('func resolveBundledTmux(kosmosHome:'), SRC.indexOf('func resolveBundledTmux(kosmosHome:') + 900);
+  assert.ok(fn.includes('kosmosHome + "/tmux/bin/tmux"'),
+    'resolveBundledTmux does not resolve the bundle\'s real path (tmux/bin/tmux); the hatch would skip on every real install');
+  assert.ok(fn.includes('AGENT_WORKFORCE_TMUX_BIN'),
+    'resolveBundledTmux does not honor AGENT_WORKFORCE_TMUX_BIN; it would resolve tmux differently from how the agents do');
+});
+
+test('spawnAxHatchUnderTmux resolves tmux via resolveBundledTmux and NOT the hardcoded bin/tmux', () => {
+  const fn = SRC.slice(SRC.indexOf('private func spawnAxHatchUnderTmux('), SRC.indexOf('private func spawnAxHatchUnderTmux(') + 900);
+  assert.ok(fn.includes('resolveBundledTmux(kosmosHome: kosmosHome)'),
+    'spawnAxHatchUnderTmux no longer resolves tmux via resolveBundledTmux; it may have regressed to a hardcoded path');
+  // The exact bug: the bare bin/tmux path. It must not reappear anywhere in the source,
+  // because it is a path no real install has.
+  assert.ok(!SRC.includes('kosmosHome + "/bin/tmux"'),
+    'the hardcoded `kosmosHome + "/bin/tmux"` is back -- that path exists on no real install and makes every under-tmux hatch skip (the #2347 root)');
+});

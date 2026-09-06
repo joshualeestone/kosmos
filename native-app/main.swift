@@ -412,6 +412,45 @@ func fileAccessStatusURL() -> URL? {
     storeFileURL("file-access-status.json")
 }
 
+// The bundled tmux the agents run under, resolved the SAME way the rest of the
+// system resolves it. The bundle stages tmux at <kosmosHome>/tmux/bin/tmux
+// (install/kosmos exports PATH="$KOSMOS_HOME/tmux/bin"; build-tmux-bundle.sh
+// stages the binary at <bundle>/bin/tmux, and that bundle is $KOSMOS_HOME/tmux).
+// An explicit AGENT_WORKFORCE_TMUX_BIN wins, matching how agent creation and the
+// first-run machine check pick their tmux, so a test seam or a non-default layout
+// is honoured identically for the app and the agents. Returns the first executable
+// candidate, or nil (the caller stays fail-safe: no reading rather than a crash).
+//
+// 🛑 #2189 / #2347 REOPEN, and the whole cascade of Josh's 0.6.40 fresh-install
+// re-test. This used to be the hardcoded bare bin/tmux path (kosmosHome plus
+// slash-bin-slash-tmux), a path that exists on NO real install -- the bundle puts
+// tmux at tmux/bin/tmux, and <kosmosHome>/bin holds only `kosmos`. (The literal is
+// spelled out in prose here, not as code, so the regression guard in the test --
+// which forbids that exact code literal anywhere in the source -- is not tripped by
+// this comment.) So spawnAxHatchUnderTmux's guard was FALSE
+// on every real install and EVERY under-tmux hatch silently skipped: the a11y
+// prompt never fired (tmux never landed in the Accessibility list -> "no Tmux to
+// enable"), a11y-status.json was never written (-> promptrequest.nativePresent()
+// false -> the on-demand a11y/file-access fires fell back to opening Settings), and
+// the file-access prompt never fired on Allow Access. Meanwhile the AGENTS resolve
+// tmux correctly (tmux/bin via PATH / AGENT_WORKFORCE_TMUX_BIN), so the prompt still
+// fired later at Import -- exactly Josh's "prompts only appear at Import" symptom.
+// Measured on a real install: <home>/bin/tmux ABSENT, <home>/tmux/bin/tmux PRESENT.
+// Masked on dev boxes (a11y granted broadly) and by tests using a controlled home
+// with tmux placed where they expect it. The path MUST match the bundle's real
+// layout, not a path no install has.
+func resolveBundledTmux(kosmosHome: String) -> String? {
+    let fm = FileManager.default
+    var candidates: [String] = []
+    let env = ProcessInfo.processInfo.environment
+    if let override = env["AGENT_WORKFORCE_TMUX_BIN"], !override.isEmpty {
+        candidates.append(override)
+    }
+    candidates.append(kosmosHome + "/tmux/bin/tmux")
+    for c in candidates where fm.isExecutableFile(atPath: c) { return c }
+    return nil
+}
+
 // The file-access reading (#1/#2189, kosmos#2336's sibling seam). "Does the process
 // macOS holds responsible for agent file access -- tmux, this hatch's parent -- hold
 // the folder grants Screen 2 asks for?" We answer by ATTEMPTING to enumerate the
@@ -943,9 +982,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("a11y: no executable path; cannot spawn \(hatch)")
             return
         }
-        let tmux = kosmosHome + "/bin/tmux"
-        guard FileManager.default.isExecutableFile(atPath: tmux) else {
-            logLine("a11y: no bundled tmux at \(tmux); skipping \(hatch) (gate stays fail-safe)")
+        guard let tmux = resolveBundledTmux(kosmosHome: kosmosHome) else {
+            logLine("a11y: no bundled tmux under \(kosmosHome) (looked at AGENT_WORKFORCE_TMUX_BIN and tmux/bin/tmux); skipping \(hatch) (gate stays fail-safe)")
             return
         }
         let p = Process()
