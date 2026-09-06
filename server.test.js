@@ -2917,7 +2917,15 @@ test('the suggested default role is the project manager, by name and not by posi
   assert.match(script, /PICKED = \(roleByKey\('pm'\)/,
     'the default assignment no longer picks by name; a positional default '
     + 'silently changes what Continue accepts when the catalogue reorders');
-  assert.match(script, /pickMode\('pm'\)/,
+  // #1652: the create mode is now threaded through loadRoles(initialMode) so the
+  // first-run "look in my Documents/Downloads" link can open the form straight on
+  // 'import'. The DEFAULT is still 'pm', pinned by the ternary's else, and
+  // pickMode(mode) arms it. Both halves are asserted so that neither a changed
+  // default (the mutation this test exists to stop) nor a dropped pickMode passes.
+  assert.match(script, /const mode = initialMode === 'import' \? 'import' : 'pm';/,
+    'the create-form default mode is no longer pinned to pm; a changed default '
+    + 'silently changes what mode the form opens on');
+  assert.match(script, /pickMode\(mode\)/,
     'nothing arms the recommended mode by default any more, so the screen '
     + 'opens on whatever mode survived the last edit');
 });

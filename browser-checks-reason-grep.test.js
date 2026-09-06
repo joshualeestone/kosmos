@@ -432,7 +432,13 @@ test('every emit site in every check prints a line the gate can quote', () => {
      summary -- SHAPE finding-emit sites, confirmed quotable, a ` FAIL ` prefix the gate
      quotes) and DELETED render-a11y-copy-1940 / render-a11y-gate-2125 / render-sleep-button
      (their gate concern subsumed by render-gated-next). */
-  const EXPECTED_SITES = 53;
+  /* 52 and 53: two prior increments (51->52 and 52->53) landed here WITHOUT trail
+     comments -- 52 predates this branch, and 53 was #2329's render-worldrename-1704,
+     undocumented at merge. Noted so the trail is honest, not this branch's sites. */
+  /* 54 after kosmos#1652: added render-firstrun-import-1652.js, whose `bad()` helper
+     prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
+     site, confirmed quotable (the same shape as render-reactions-2255's). */
+  const EXPECTED_SITES = 54;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
