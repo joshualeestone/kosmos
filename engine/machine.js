@@ -646,14 +646,22 @@ function installedCheck(opts) {
          re-download: on win32 the required "part that runs agents" IS the runner
          (Claude Code), so pointing a Windows user at a Kosmos reinstall would not
          put back a missing runner. Josh owns the final Windows phrasing. */
-      ? 'The part that runs agents is not installed where Kosmos can use it. '
-        + 'Installing it, then opening Kosmos again, is what fixes this. Your agents '
-        + 'and settings stay on this computer.'
+      ? 'Install the part that runs agents, then open Kosmos again. Your agents and '
+        + 'settings stay on this computer.'
       : 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
         + 'macOS. Your agents and settings stay on this computer; installing again does '
         + 'not remove them.')
-    : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
-      + 'folder with ' + badCharsLower + ' in its name is what fixes this.';
+    /* The UNUSABLE-path remedy is gated on the same reasoning as the missing one:
+       on win32 the part whose path is unusable is the RUNNER (the required part is
+       the runner, not tmux), so "reinstall Kosmos to a clean folder" would not move
+       the runner's path -- the same Kosmos-centric dishonesty the missing arm
+       avoids. darwin keeps the exact existing wording (its unusable part is the
+       installer's private tmux copy, so "reinstall Kosmos" is honest there). */
+    : (isWin
+      ? 'The part that runs agents is installed somewhere Kosmos cannot start it from. '
+        + 'Installing it again to a folder with ' + badCharsLower + ' in its name is what fixes this.'
+      : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
+        + 'folder with ' + badCharsLower + ' in its name is what fixes this.');
   return {
     key: 'installed',
     state: STATE.ATTENTION,

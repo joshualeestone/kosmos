@@ -1185,25 +1185,33 @@ test('#2304 Windows: a missing runner is attention and names the runner, never t
   assert.match(text, /the part that runs agents/,
     'the failure names the substrate a Windows box actually needs');
   // #2304 defect 2 (NOW FIXED, was a KNOWN FOLLOW-UP): the missing-runner remedy
-  // must not point a Windows user at the macOS build.
+  // must not point a Windows user at the macOS build, and it is framed around
+  // installing the runner rather than reinstalling Kosmos.
   assert.doesNotMatch(text, /Download for macOS|macOS/,
     'the Windows missing-runner remedy must not name the macOS download');
-  assert.match(text, /The part that runs agents is not installed where Kosmos can use it/,
-    'win32 frames the remedy around the runner, not a Kosmos re-download (a Kosmos reinstall would not put back a missing runner)');
+  assert.doesNotMatch(text, /Reinstalling Kosmos/,
+    'win32 does not tell the user to reinstall Kosmos (that would not put back a missing runner)');
+  assert.match(text, /Install the part that runs agents, then open Kosmos again\./,
+    'win32 frames the remedy around installing the runner');
 });
 
-test('#2304 defect-2 CONTROL: the macOS missing-runner remedy is byte-unchanged (still "Download for macOS")', () => {
+test('#2304 defect-2 CONTROL: the macOS missing-runner remedy is byte-unchanged (full string, not a substring)', () => {
   // The fix is win32-scoped; darwin must keep Josh's existing wording verbatim.
-  // If the win32 remedy had leaked to darwin, this reds.
-  const got = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  // Assert the WHOLE remedy sentence, so an edit to any part of it (not only the
+  // "Download for macOS" clause) reds -- the test name claims byte-unchanged, so
+  // the assertion pins the full bytes rather than a substring of them.
+  const DARWIN_MISSING_REMEDY = 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
+    + 'macOS. Your agents and settings stay on this computer; installing again does '
+    + 'not remove them.';
   // (On darwin, Claude Code is informational, not required, so a missing claude is
   // still OK -- #979. The remedy string only appears on a REAL macOS failure; assert
   // it via a genuinely-missing REQUIRED part: tmux.)
   const tmuxGone = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
   assert.equal(tmuxGone.state, 'attention');
-  assert.match(tmuxGone.detail, /open installkosmos\.com and click Download for macOS/,
-    'macOS keeps the exact existing remedy wording');
-  assert.equal(got.state, 'ok', 'a darwin GPT-only box is unaffected (#979 control)');
+  assert.ok(tmuxGone.detail.includes(DARWIN_MISSING_REMEDY),
+    'macOS keeps the exact existing remedy wording, in full');
+  const gpt = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  assert.equal(gpt.state, 'ok', 'a darwin GPT-only box is unaffected (#979 control)');
 });
 
 test('#2304 defect-2 Windows: the unusable-path arm names no macOS and no backslash', () => {
@@ -1220,13 +1228,24 @@ test('#2304 defect-2 Windows: the unusable-path arm names no macOS and no backsl
     'the win32 noun is platform-correct');
   assert.match(got.detail, /A quote or a line break/,
     'the win32 forbidden-character list omits the backslash');
+  // The unusable-path REMEDY is also runner-framed on win32, not Kosmos-framed:
+  // an unusable path on win32 is the RUNNER's path, so "reinstall Kosmos" would
+  // not move it (the same reasoning as the missing arm).
+  assert.doesNotMatch(got.detail, /Kosmos is installed somewhere it cannot start agents from/,
+    'the win32 unusable remedy is not the Kosmos-centric macOS sentence');
+  assert.match(got.detail, /The part that runs agents is installed somewhere Kosmos cannot start it from/,
+    'the win32 unusable remedy names the runner, whose path is the one that is unusable');
 });
 
-test('#2304 defect-2 CONTROL: the macOS unusable-path arm is byte-unchanged (macOS + backslash)', () => {
+test('#2304 defect-2 CONTROL: the macOS unusable-path arm is byte-unchanged (full detail + remedy)', () => {
   const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/opt/home"brew/bin/tmux' });
   assert.equal(got.state, 'attention', 'a quoted path is unusable on macOS too');
-  assert.match(got.detail, /A quote, a backslash or a line break in a path is something we will not pass on to the parts of macOS that start an agent/,
-    'macOS keeps the exact existing unusable-path wording');
+  // Full trailing clause pinned (not a substring): the detail sentence AND the
+  // Kosmos-framed remedy that a macOS user still correctly sees.
+  assert.ok(got.detail.includes('A quote, a backslash or a line break in a path is something we will not pass on to the parts of macOS that start an agent, whatever is at the end of it.'),
+    'macOS keeps the exact existing unusable-path detail, in full');
+  assert.ok(got.detail.includes('Kosmos is installed somewhere it cannot start agents from. Installing it again to a folder with no quotes, backslashes or line breaks in its name is what fixes this.'),
+    'macOS keeps the exact existing Kosmos-framed unusable remedy');
 });
 
 test('#2304 Windows: a backslash runner path is classified MISSING, not UNUSABLE (unusablePath is injected)', () => {
