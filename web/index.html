@@ -4011,8 +4011,9 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
    (.msg-b), via pjProse (#2239 wired the room, the surface #2067 deferred).
-   Everything here is INLINE so it coexists with .dm-b's pre-wrap; line breaks
-   are the <br>s the renderer emits, not block margins. strong/em/s need no rule
+   Everything here is INLINE so it coexists with the pre-wrap on .dm-b and (as
+   of #2294) .pj-msg-text; line breaks are the <br>s the renderer emits, not
+   block margins. strong/em/s need no rule
    (the UA already renders them). Colours ride the existing theme tokens, so
    they flip with light/dark like the rest. */
 .dm-b .mdh, .pj-msg-text .mdh, .msg-b .mdh { font-weight: 700; font-size: 1.0625rem; }
@@ -4557,9 +4558,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 /* #2294: `white-space: pre-wrap` so a PLAIN marker-less multi-line message renders its
    paragraph breaks instead of collapsing to one line. pjRich's fast path returns
    `esc(raw)` with literal `\n` (which `white-space: normal` collapsed -- the bug); the slow
-   path already joins lines with `<br>` and carries no literal `\n`, so pre-wrap does not
-   double a markdown message's breaks. Matches the `.dm-b` dialogue surface, which is
-   already pre-wrap. Fenced code keeps its own `.mdcb` pre-wrap regardless. */
+   path joins its lines with `<br>`, so its inter-line breaks are not literal `\n` and
+   pre-wrap does not double a markdown message's breaks. The one literal `\n` the slow path
+   emits is inside a `.mdcb` fenced-code span, which carries its OWN pre-wrap and is intended
+   to keep its newlines, so the parent pre-wrap changes nothing there. Matches the `.dm-b`
+   dialogue surface, which is already pre-wrap. */
 .pj-msg .pj-msg-text { display: block; font: var(--text-body) var(--font-ui); color: var(--label);
   white-space: pre-wrap; overflow-wrap: anywhere; }
 /* ⚠️ The verdict is a SENTENCE under every message, never a tick. A tick would
@@ -32007,9 +32010,10 @@ function pjRich(text) {
      while a message carrying any marker/URL/link takes the slow path and its
      breaks become `<br>`. Both now render as breaks on that surface, because
      `.pj-msg-text` is `white-space: pre-wrap` as of #2294 (it was `normal`
-     before, which collapsed the fast path's `\n` -- the bug). The slow path
-     carries no literal `\n` (it joins with `<br>`), so pre-wrap does not double
-     a markdown message's breaks. */
+     before, which collapsed the fast path's `\n` -- the bug). The slow path's
+     inter-line breaks are `<br>`, not literal `\n`, so pre-wrap does not double
+     a markdown message's breaks; the only literal `\n` it emits is inside a
+     `.mdcb` fenced-code span, which has its own pre-wrap and keeps them. */
   if (!/[*_`~]/.test(raw)
       && !/(^|\n)[ \t]*(#{1,6}[ \t]|>[ \t]?|[-+][ \t]|\d+\.[ \t]|-{3,}[ \t]*(\n|$))/.test(raw)
       && !/\[[^\]\n]+\]\([^)\n]+\)/.test(raw)

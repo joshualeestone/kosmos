@@ -61,13 +61,23 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       span.innerHTML = pjRich(raw);
       wrap.appendChild(span);
       host.appendChild(wrap);
-      return { h: span.getBoundingClientRect().height, ws: getComputedStyle(span).whiteSpace, html: span.innerHTML };
+      const mdcb = span.querySelector('.mdcb');
+      return {
+        h: span.getBoundingClientRect().height,
+        ws: getComputedStyle(span).whiteSpace,
+        html: span.innerHTML,
+        mdcb: mdcb ? { h: mdcb.getBoundingClientRect().height, ws: getComputedStyle(mdcb).whiteSpace } : null,
+      };
     };
     const one = render('one line here');
     const plainTwo = render('line one\nline two');
     const mdTwo = render('**line one**\n**line two**');   // markers -> slow path (<br>)
+    // A fenced code block: the slow path emits esc(body.join('\n')) inside a .mdcb span, the
+    // one place its output carries a literal \n. .mdcb has its OWN pre-wrap, so those
+    // newlines render there; the parent pre-wrap must not change that.
+    const codeFence = render('```\ncode one\ncode two\n```');
     host.remove();
-    return { one, plainTwo, mdTwo };
+    return { one, plainTwo, mdTwo, codeFence };
   });
 
   await browser.close();
@@ -84,6 +94,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // Sanity: the plain fast path kept the literal newline (no <br> injected).
     if (/<br>/i.test(r.plainTwo.html)) problems.push('the plain message unexpectedly went through the slow path (contains <br>): ' + r.plainTwo.html);
     if (!/<br>/i.test(r.mdTwo.html)) problems.push('the markdown message did not take the slow path (no <br>): ' + r.mdTwo.html);
+    // Fenced code: the .mdcb span exists, keeps its OWN pre-wrap, and renders its two code
+    // lines as two lines -- so the literal \n inside it is unaffected by the parent pre-wrap.
+    if (!r.codeFence.mdcb) problems.push('a fenced code block did not render a .mdcb span: ' + r.codeFence.html);
+    else {
+      if (r.codeFence.mdcb.ws !== 'pre-wrap') problems.push('the .mdcb fenced-code span should keep its own white-space: pre-wrap, got "' + r.codeFence.mdcb.ws + '"');
+      if (!(r.codeFence.mdcb.h > r.one.h * 1.5)) problems.push('the fenced code block did not render its two code lines (mdcb height ' + r.codeFence.mdcb.h + ' vs one-line ' + r.one.h + ')');
+    }
   }
 
   console.log('  ' + JSON.stringify(r));
