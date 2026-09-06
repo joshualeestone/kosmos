@@ -8283,21 +8283,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </style>
 
         <p class="fc-eyebrow">Your agents</p>
+        <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
+             (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
+             text below is only the default; the live flow rewrites it per path:
+             found -> "We found N agents on this computer", adopt -> "You already
+             have N agents here.", create -> "Create your first agent." -->
         <h2>We found existing AGENTS on this computer</h2>
-        <p>You can easily add them to Kosmos.</p>
-
-        <!-- DYNAMIC: Renet fills #fr-found-agents with one .s9-row per detected agent, using the
-             template below. Row template (name in .s9-fn, path in <small>, Add button + Added state
-             toggled by data-added on the row): -->
-        <div class="s9-list" id="fr-found-agents">
-          <div class="s9-row">
-            <span class="s9-fk"></span>
-            <span class="s9-fn">agent-name<small>~/.claude</small></span>
-            <button class="s9-add" type="button">Add Agent</button>
-            <span class="s9-added">&#10003; Added</span>
-          </div>
-        </div>
-                <div id="fr-fleet"></div>
+        <!-- install-flow-9screen: the found/create/adopt fork renders into
+             #fr-fleet below (the existing, tested add/undo/adopt flow, which
+             already implements S9a's intent: "We found N agents..." + a per-row
+             Add list). Mona's static S9a template (#fr-found-agents + the
+             "You can easily add them" copy) was REMOVED here because it would
+             duplicate that live rendering; her .s9-* styling above is kept for a
+             follow-up visual-polish pass that swaps foundRowsHtml onto it
+             (coordinate with Angel's found-agents lane). S9b (create) is the
+             create-branch of frPaintFleet, reusing openCreate. -->
+        <div id="fr-fleet"></div>
                 <!-- ⚠️ THE WAY BACK, AND IT IS THE LAST STEP ON PURPOSE. It opened the
                      flow until 2026-08-22, which put an instruction in front of a
                      person before they had the motive for it: you drag something to
@@ -37446,7 +37447,7 @@ function frScanOffer() {
  * handler reaches both.
  */
 function frPaintScan() {
-  const title = document.getElementById('fr-title');
+  const title = document.querySelector('#fr-pane-9 h2');  // install-flow-9screen: the visible pane head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
   const offer = frScanOffer();
   const n = offer.length;
@@ -37630,7 +37631,7 @@ function frFoundOffer() {
 }
 
 function frPaintFound() {
-  const title = document.getElementById('fr-title');
+  const title = document.querySelector('#fr-pane-9 h2');  // install-flow-9screen: the visible pane head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
   /* #1493: the OFFER, not everything on the disk. On the adopt path most of
      what `found()` returns is already in Kosmos, and a row with an "Add to
@@ -38023,7 +38024,7 @@ document.addEventListener('click', async (e) => {
 function frPaintFleet() {
   const box = document.getElementById('fr-fleet');
   const path = (FR && FR.path) || 'unknown';
-  const title = document.getElementById('fr-title');
+  const title = document.querySelector('#fr-pane-9 h2');  // install-flow-9screen: the visible pane head (shell #fr-title retired)
 
   /* 🛑 THE DOCK LINE IS GONE FROM THIS ENDING, at Josh's direct ruling
      2026-08-27: "I still don't want the ending of the install to talk about
