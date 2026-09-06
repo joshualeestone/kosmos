@@ -140,6 +140,23 @@ test('#2255: kosmos react surfaces a refusal (ok:false) as a non-zero exit with 
     }
   }));
 
+test('#2255: a refusal whose reason text contains `"ok":true,"op":"add"` still reads as NOT reacted (the anchored-glob guard)', () =>
+  // The comment in cmd_react claims the verdict globs are anchored on the leading
+  // keys so a `because` string cannot flip the verdict. This makes that a guard
+  // rather than prose: a refusal that embeds the exact success token in its reason
+  // must not be read as a success.
+  withStub(() => ({ ok: false, because: 'no: contains "ok":true,"op":"add" as bait' }), async (port, seen) => {
+    const { home } = makeHome();
+    try {
+      const bad = await react(port, seen, ['payroll-app', 'm3', THUMB], { KOSMOS_HOME: home });
+      assert.doesNotMatch(bad.stdout, /Reacted .* to that post\./, 'the embedded success token flipped the verdict -- the glob is not anchored');
+      assert.match(bad.stdout, /Not reacted:/, 'a refusal must read as not reacted');
+      assert.notEqual(bad.code, 0);
+    } finally {
+      fs.rmSync(home, { recursive: true, force: true });
+    }
+  }));
+
 test('#2255: kosmos react with a missing argument explains itself and does not call the route', () =>
   withStub(() => ({ ok: true, op: 'add', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home } = makeHome();

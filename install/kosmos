@@ -1008,13 +1008,26 @@ cmd_react() {
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
   body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/react" \
     -H 'content-type: application/json' \
-    --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || {
+    --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null)
+  rc=$?
+  # A react TOGGLES, so a response lost AFTER the server acted (a -m 15 timeout on
+  # a busy board -- curl exit 28) leaves the reaction APPLIED while a bare failure
+  # message would invite a retry, and the retry would toggle it back OFF, ending
+  # in the wrong state. Distinguish the timeout from unreachable and say the
+  # reaction may have landed -- the same care cmd_post takes with its delivery.
+  if [ "$rc" -eq 28 ]; then
+    say "Kosmos was slow to answer and we stopped waiting. Your reaction may have landed; check the room before reacting again, because reacting again takes it back off."
+    exit 3
+  elif [ "$rc" -ne 0 ]; then
     say "We could not reach Kosmos to keep that reaction. Is it running at $URL?"
     exit 1
-  }
+  fi
   # The route answers 200 even for a refusal (a room-state answer read off `ok`),
-  # and 400 {"error"} only for an unreadable request. Globs are ANCHORED on the
-  # top-level key so a `because` string cannot flip the verdict.
+  # and 400 {"error":...} only for an unreadable request. The globs are ANCHORED
+  # on the leading keys: the success shape is `{"ok":true,"op":...}` in that key
+  # order and a refusal is `{"ok":false,...}`, so a `because` string inside a
+  # refusal can never carry `"ok":true` and flip the verdict (the same anchored
+  # form cmd_post uses on its delivery states).
   case "$body" in
     '{"error":'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
@@ -1022,9 +1035,9 @@ cmd_react() {
       exit 1 ;;
   esac
   case "$body" in
-    *'"ok":true'*'"op":"add"'*)     say "Reacted $emoji to that post." ;;
-    *'"ok":true'*'"op":"remove"'*)  say "Took your $emoji back off that post." ;;
-    *'"ok":false'*)
+    '{"ok":true,"op":"add"'*)     say "Reacted $emoji to that post." ;;
+    '{"ok":true,"op":"remove"'*)  say "Took your $emoji back off that post." ;;
+    '{"ok":false'*)
       because=$(printf '%s' "$body" | sed -n 's/.*"because":"\([^"]*\)".*/\1/p')
       say "Not reacted: ${because:-we could not tell why}."
       exit 1 ;;
