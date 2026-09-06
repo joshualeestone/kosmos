@@ -178,7 +178,7 @@ and the credential would still go astray, one layer down.** Measured:
 
 | checked | result |
 |---|---|
-| setters anywhere in the repo | **one**, `grep -n AGENT_WORKFORCE_CLAUDE_CONFIG_DIR docs/browser-checks/live-connect.js` (a browser-check sandbox) |
+| production setters anywhere in the repo | **none.** `git grep -l 'AGENT_WORKFORCE_CLAUDE_CONFIG_DIR *=' \| grep -vE '\.test\.js$\|^docs/browser-checks/'` returns EMPTY. (17 files set it: 16 tests plus the `live-connect.js` browser-check sandbox. An earlier version of this row said "one setter anywhere in the repo" and cited a grep of a SINGLE FILE as its source, which is a scope mismatch: it was 17 when written, and 17 on `origin/main` already.) |
 | `install/`, `bin/`, `deploy/` | none |
 | launchd plists on this machine | none |
 | the ambient environment here | unset |
@@ -1888,8 +1888,11 @@ this branch with a pre-existing test. My fix for that recorded its evidence as
 `git diff origin/main...HEAD | grep -c 1560` = 0. **That command printed 20** at `f9134fc9`, the
 commit under review when it was measured (control there: `grep -c 1922` = 27, so the pipeline was
 live). 🛑 **Both figures are PINNED TO THAT COMMIT deliberately, and iteration 24 explains why: on
-HEAD they now read 26 and 30, because the commit that RECORDED the correction added six lines
-containing those very tokens.** Writing the number changed the number. What I actually RAN was scoped to `-- engine/connect.test.js`, which
+at `4969d638` they read 26 and 30, because the commit that RECORDED the correction added six lines
+containing those very tokens.** Writing the number changed the number. 🛑 **AND IT HAPPENED AGAIN
+IMMEDIATELY: this very sentence said "on HEAD" and was stale on arrival. At `7701fa07` the pair reads
+28 and 30, because the commit carrying this paragraph added two more `1560` tokens.** Every figure
+here is now pinned to an immutable commit, which is the only form that survives being written down. What I actually RAN was scoped to `-- engine/connect.test.js`, which
 does return 0. ⇒ **I ran a scoped command and wrote down an unscoped one.**
 
 ⭐ **Name the error precisely, because "be careful" does not catch it: THE RECORDED COMMAND WAS NOT
@@ -1949,8 +1952,8 @@ run silently returns the branch to unvalidated, with a green run still sitting i
 
 **The WARNING is the same thing one level in, and it is the sharpest instance this branch has
 produced.** My iteration-23 entry recorded `grep -c 1560` = 20 with control `grep -c 1922` = 27.
-On HEAD those now read **26 and 30**. Nothing was mismeasured: at `f9134fc9` they return exactly 20
-and 27. **The commit that WROTE the correction added six lines containing those tokens, so the act of
+At `4969d638` those read **26 and 30** (at `7701fa07`, 28 and 30: the pinning commit moved it
+again). Nothing was mismeasured: at `f9134fc9` they return exactly 20 and 27. **The commit that WROTE the correction added six lines containing those tokens, so the act of
 recording the number changed the number.** ⇒ A self-referential count in a document that is itself
 inside the diff it counts can never be stable. **Both figures are now pinned to the commit at which
 they were measured**, which is the only form that stays true.
@@ -1971,3 +1974,48 @@ caught its own dead instrument (a control returning the sha256 of empty input fr
 and said so.
 
 🛑 **NOT CONVERGED. Iteration 25 follows, and the validation after it must be the last action.**
+
+### Iteration 25, 2026-09-05 23:10: the same defect a third time, in the paragraph naming its remedy
+
+Verdict: **NOT converged. 1 BLOCKER, 1 WARNING.** Both confirmed with controls before fixing.
+
+🛑 **THE BLOCKER IS THE SELF-REFERENTIAL COUNT AGAIN, AND THE PARAGRAPH IT LIVES IN STATES THE CURE.**
+Iteration 24's entry says *"both figures are now pinned to the commit at which they were measured,
+which is the only form that stays true"*, applies that correctly to the 20/27 pair, **and in the same
+two sentences leaves 26/30 written as "on HEAD".** Measured: at `7701fa07` the pair reads **28 and
+30**, because the commit carrying that very paragraph added two more `1560` tokens. It was stale on
+arrival. (Control: `grep -c ZZZNOTATOKEN` on the same pipeline = 0; the `f9134fc9` pins still
+reproduce at 20 and 27, so the instrument discriminates.)
+
+⭐ **Three occurrences, each inside the fix for the last one. The lesson is not "pin figures", which I
+had already written down. It is that A REMEDY STATED IN A DOCUMENT IS NOT APPLIED BY BEING STATED,
+and the place it is least likely to be applied is the sentence that states it** - attention is on the
+explanation, not on the neighbouring text doing the same thing.
+
+✅ **Now pinned comprehensively, and here is a CHECKABLE PREDICTION rather than another assurance:**
+every count in this plan is anchored to an immutable sha (`f9134fc9`: 20/27; `4969d638`: 26/30;
+`7701fa07`: 28/30). A commit cannot change what an earlier commit's diff contains, so these cannot go
+stale. **If iteration 26 finds another stale self-referential figure, this remedy is wrong and the
+numbers should be deleted rather than pinned.**
+
+**WARNING, a scope mismatch in the FRONT MATTER (live guidance, not history).** The row read
+*"setters anywhere in the repo | **one**"* and cited as its source a grep of a **single file**.
+Measured: **17 files** set the variable at HEAD, and **17 on `origin/main` already**, so the row was
+false when written, not stale. ⇒ **Source scope one file, sentence scope the whole repo.**
+
+✅ **The conclusion survives and the absolute does not**, which is why the fix is a rewrite rather
+than a deletion: all 17 setters are 16 tests plus the `live-connect.js` browser-check sandbox, and
+**no production file sets it.** The row now states THAT, with the command that shows it:
+`git grep -l 'AGENT_WORKFORCE_CLAUDE_CONFIG_DIR *=' | grep -vE '\.test\.js$|^docs/browser-checks/'`
+returns empty. Three arms run: the filtered form empty, the unfiltered form 17, and a negative control
+(`git grep -l 'require('` through the same filter) still listing files, **which is the arm that proves
+the filter is not simply hiding everything.**
+
+**Independently confirmed clean by the reviewer, with controls:** the PR body's two validation commands
+run verbatim agree at `29ead312…` status `clean`; all 20 file-scoped citations executed; `connect.start(`
+= 4; `the seam` = 5; `--numstat` = 139; `known.isDefault` on `accounts.js:232`; the tmux two-`-c`
+evidence at `agent-supervisor.sh:413-417`; and **both mutation controls red** (reverting the route
+ternary reds `server.connect.test.js` with `actual: …/.claude, expected: null`; dropping the `-u` push
+gives 53 pass / 1 fail). Baselines 54/54, 40/40, 9/9. Worktree left pristine.
+
+🛑 **NOT CONVERGED. Sixth consecutive round in which the fix commit carried the next defect.**
