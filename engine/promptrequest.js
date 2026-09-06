@@ -50,6 +50,12 @@ const REQUEST_FILE = {
  * the app rewrites it on launch and every 60s (a11ystatus.STALE_AFTER_MS is 5 min), so
  * `checkable:true` means the app is currently running and maintaining it. This reuses
  * the exact presence signal the gates already trust, rather than inventing another.
+ *
+ * The coupling has one fail-safe edge worth naming: if the app is up but its a11y
+ * writer chain silently fails (e.g. the bundled tmux is missing, so `spawnAxHatchUnderTmux`
+ * skips), `a11y-status.json` goes stale, this reads false, and BOTH prompt requests fall
+ * back to opening Settings. That is fail-safe, not fail-dead -- the button opens Settings
+ * rather than doing nothing -- so it is the acceptable direction to err.
  */
 function nativePresent() {
   try { return a11ystatus.read().checkable === true; } catch { return false; }

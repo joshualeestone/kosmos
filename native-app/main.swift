@@ -327,13 +327,16 @@ func boardTokenValue() -> String? {
 // (impossible across languages) but a test that the two agree: a11ystatus.test.js
 // pins the reader path, and the native-writer test pins THIS one against store.ROOT.
 // One resolution of the shared store dir (engine/store.js's ROOT), so every file
-// the native app and engine pass between them -- a11y-status.json, file-access-
-// status.json, the prompt-request files -- lands in the SAME place. Adding a new
-// shared file must not re-implement (and risk mis-copying) the resolution; it names
-// the file here. AGENT_WORKFORCE_DATA override, else AGENT_WORKFORCE_HOME + Library/
-// Application Support, else the OS app-support dir -- plus the shared "AgentWorkforce/"
-// subpath. Mirrors engine/store.js; the seam is cross-language so the guard is a test
-// that the two agree, not code-sharing.
+// the native app and engine pass between them -- file-access-status.json and the
+// prompt-request files -- lands in the SAME place: a new shared file names itself here
+// rather than re-implementing (and risk mis-copying) the resolution. AGENT_WORKFORCE_DATA
+// override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
+// app-support dir -- plus the shared "AgentWorkforce/" subpath. Mirrors engine/store.js;
+// the seam is cross-language so the guard is a test that the two agree, not code-sharing.
+//
+// a11yStatusURL predates this helper and keeps its OWN inline copy of the same
+// resolution: its #2125 writer test pins that inline body, so it is a grandfathered
+// exception, not a pattern to copy. New code uses storeFileURL.
 func storeFileURL(_ name: String) -> URL? {
     let env = ProcessInfo.processInfo.environment
     let base: URL
@@ -433,20 +436,24 @@ func fileAccessReading() -> Bool {
     }
     let home = FileManager.default.homeDirectoryForCurrentUser
     // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
-    // TCC-protected trio agent files live in; enumerating each triggers its prompt and
-    // measures its grant.
+    // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
+    // and measures ITS grant -- they are three separate TCC services.
+    var allGranted = true
     for folder in ["Documents", "Downloads", "Desktop"] {
         let dir = home.appendingPathComponent(folder)
         do {
             _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
         } catch {
-            // A denial (or an unreadable folder) means the responsible process does not
-            // hold this grant. Enough to answer not-granted; the prompt has by now been
-            // shown for it, which is the on-demand trigger's whole job.
-            return false
+            // Not granted (or unreadable). Record it but KEEP PROBING the rest: each
+            // enumerate is what fires that folder's prompt, so a single grant-button
+            // click must attempt all three or the user sees only the first folder's
+            // prompt and has to click again for each remaining one -- the opposite of
+            // Josh's #1 ("fire the prompts one after another to hit Allow"). An early
+            // return here would surface exactly one of three prompts per click.
+            allGranted = false
         }
     }
-    return true
+    return allGranted
 }
 
 // Write {"granted":<bool>,"at":<ISO8601>} where fileaccessstatus.js reads it. Same
@@ -863,6 +870,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     private func consumeRequest(named name: String, fire: () -> Void) {
         guard let url = storeFileURL(name),
               FileManager.default.fileExists(atPath: url.path) else { return }
+        // Drop a request older than 30s rather than fire it. Such a request reflects a
+        // click from a PREVIOUS run: the app was up when the engine wrote it (so
+        // nativePresent passed), then quit before this watcher's next tick consumed it,
+        // and the file persisted to this launch. Firing a TCC prompt the user did not
+        // just ask for is surprising -- and unlike the live case there is no button
+        // click to explain it. 30s comfortably covers the POST -> 1.5s-tick latency of a
+        // real click. (a11y has a launch-time axprompt anyway; this matters most for the
+        // file-access request, which has no launch equivalent.)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let mtime = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mtime) > 30 {
+            try? FileManager.default.removeItem(at: url)
+            logLine("prompt-request: dropped stale \(name) (older than 30s)")
+            return
+        }
+        // Delete before firing (the consume): a hatch that takes a moment cannot be
+        // launched twice by successive ticks. A transient spawn failure loses this one
+        // request, but the button's gate poll never flips, so a re-click simply
+        // re-requests it -- recovery without a double-prompt, which is the safer default
+        // for a TCC prompt.
         try? FileManager.default.removeItem(at: url)
         logLine("prompt-request: consumed \(name); firing under tmux")
         fire()

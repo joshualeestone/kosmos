@@ -54,6 +54,17 @@ test('fileAccessReading has the test-only mock seam (both arms) AND falls throug
   for (const folder of ['Documents', 'Downloads', 'Desktop']) {
     assert.ok(fn.includes(`"${folder}"`), `fileAccessReading does not probe ${folder}; that TCC folder would go unchecked`);
   }
+  // It must probe ALL THREE unconditionally (accumulate, not early-return): each
+  // enumerate fires that folder's own prompt, so a `return` inside the loop would
+  // surface only the first ungranted folder's prompt per click. Scope the check to the
+  // loop body (the mock seam above legitimately `return false`s).
+  const loop = fn.slice(fn.indexOf('for folder in'), fn.indexOf('return allGranted'));
+  assert.ok(loop.length > 0, 'fileAccessReading no longer accumulates into allGranted; the all-three-probe guarantee is unpinned');
+  // A return STATEMENT (line-start), not the word "return" in a comment.
+  assert.ok(!/\n[ \t]*return\b/.test(loop),
+    'fileAccessReading returns from inside the folder loop; one click must attempt all three so every folder prompt fires');
+  assert.ok(loop.includes('allGranted = false'),
+    'fileAccessReading does not record a failed folder into allGranted');
 });
 
 test('writeFileAccessStatus emits EXACTLY the shape fileaccessstatus.js parses (boolean granted + ISO8601 at)', () => {
