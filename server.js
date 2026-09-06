@@ -2762,6 +2762,39 @@ const server = http.createServer((req, res) => {
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
   }
+  // #1704 item 14.1: rename a Kosmos. Body { id, name }. Changes only the display
+  // name; the world's id/base/data are untouched (see engine/worlds.renameWorld).
+  // Classified like the active route: missing id is a 400 (malformed request), a
+  // well-formed id naming no world is 404, the reserved default is 400, an empty name
+  // is 400, a held lock is a retryable 409. No restart is needed -- a name is display
+  // only, so the running board does not re-resolve any root.
+  if (pathname === '/api/worlds/rename' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        const name = typeof body.name === 'string' ? body.name : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to rename (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.renameWorld(base, id, name); }
+        catch (e) {
+          // Classify by the engine's typed error CODE, never its message text (see
+          // worlds.js / the active route above).
+          const code = e && e.code;
+          if (code === 'ERESERVED') { sendJson(res, 400, { ok: false, because: 'the first Kosmos keeps its name and cannot be renamed' }); return; }
+          if (code === 'EBADNAME') { sendJson(res, 400, { ok: false, because: 'give the Kosmos a name' }); return; }
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
+          sendJson(res, 500, { ok: false, because: 'we could not rename that Kosmos' }); return;
+        }
+        sendJson(res, 200, { ok: true, world });
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
   const globalSkillRm = pathname.match(/^\/api\/skills\/([^/]+)$/);
   if (globalSkillRm && req.method === 'DELETE') {
     const key = decodeSegment(globalSkillRm[1]);

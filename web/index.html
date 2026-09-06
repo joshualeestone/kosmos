@@ -1203,6 +1203,15 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
   min-width: 224px; max-width: 320px; padding: 6px; background: var(--bg-elevated);
   border: 0.5px solid var(--separator); border-radius: var(--radius-control); box-shadow: var(--shadow-card); }
 .worldsw-list { display: flex; flex-direction: column; }
+/* #1704 14.1: a world's row + its rename cog sit on one line; the row grows, the cog
+   is a fixed-width sibling on the right (a non-active row is a <button>, so the cog
+   cannot nest inside it). */
+.worldsw-entry { display: flex; align-items: center; gap: 2px; }
+.worldsw-entry > .worldsw-row { flex: 1; min-width: 0; }
+.worldsw-cog { flex: none; border: 0; background: none; cursor: pointer; color: var(--k-ink-2);
+  padding: 6px 7px; border-radius: 7px; font-size: 13px; line-height: 1; }
+.worldsw-cog:hover { background: var(--k-sunk); color: var(--k-ink); }
+.worldsw-cog:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 7px;
   font: var(--text-callout) var(--font-ui); color: var(--k-ink); }
 .worldsw-check { flex: none; width: 13px; height: 13px; color: var(--gold); visibility: hidden; }
@@ -7438,6 +7447,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
       <button class="btn uprime" id="world-add-go" type="button" disabled>Create Kosmos</button>
     </div>
     <div class="fmsg" id="world-add-msg" role="alert" aria-live="assertive"></div>
+  </div>
+</div>
+<!-- #1704 item 14.1: rename a Kosmos (name only; its structure is untouched). -->
+<div class="rm-back" id="world-rename-modal" hidden>
+  <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="world-rename-t" aria-describedby="world-rename-in">
+    <h2 class="rm-title" id="world-rename-t">Rename Kosmos</h2>
+    <p class="rm-small" id="world-rename-in">This changes the name only. Its agents, projects, files, and settings stay exactly where they are.</p>
+    <div class="field">
+      <label class="flabel tk-lab" for="world-rename-name">Name</label>
+      <input class="tk-inp" id="world-rename-name" type="text" maxlength="60" placeholder="e.g. Client work" autocomplete="off">
+    </div>
+    <div class="rm-acts" style="margin-top: var(--space-6);">
+      <button class="btn" id="world-rename-cancel" type="button">Cancel</button>
+      <button class="btn uprime" id="world-rename-go" type="button" disabled>Save name</button>
+    </div>
+    <div class="fmsg" id="world-rename-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
 <div class="rm-back" id="mem-modal" hidden>
@@ -16086,6 +16111,11 @@ function worldswRender(data) {
   for (const w of data.worlds) {
     const isActive = w.id === activeId;
     const wname = w.name || 'Kosmos';
+    // #1704 14.1: each world is an ENTRY = the switch row + (for a non-default world)
+    // a rename cog beside it. The cog is a SIBLING of the row, not nested, because a
+    // non-active row is a native <button> and a button cannot contain a button.
+    const entry = document.createElement('div');
+    entry.className = 'worldsw-entry';
     const row = document.createElement(isActive ? 'div' : 'button');
     row.className = 'worldsw-row';
     if (isActive) {
@@ -16103,7 +16133,20 @@ function worldswRender(data) {
     nm.className = 'worldsw-rowname';
     nm.textContent = wname;
     row.append(check, nm);
-    list.appendChild(row);
+    entry.appendChild(row);
+    // The default world ('default') keeps its fixed "Kosmos 1" name (#2317), so it
+    // gets no rename cog. Every other world does: tapping it opens the rename modal.
+    if (w.id !== 'default') {
+      const cog = document.createElement('button');
+      cog.type = 'button';
+      cog.className = 'worldsw-cog';
+      cog.setAttribute('aria-label', 'Rename ' + wname);
+      cog.title = 'Rename';
+      cog.textContent = '⚙︎';   // gear, text presentation (VS15); aria-label carries the meaning
+      cog.addEventListener('click', (e) => { e.stopPropagation(); worldRenameOpen(w.id, wname); });
+      entry.appendChild(cog);
+    }
+    list.appendChild(entry);
   }
   sw.hidden = false;
 }
@@ -16237,6 +16280,59 @@ async function worldAddSubmit() {
     go.disabled = false;
   }
 }
+/* #1704 item 14.1: rename a Kosmos. The cog on a world's row opens this modal
+   pre-filled with the current name; Save posts POST /api/worlds/rename { id, name }.
+   It changes ONLY the display name (the engine keeps the id/base/data), so no restart
+   is needed. On success the list is refetched and the menu reopened so the person sees
+   the new name land, mirroring the create flow (worldAdd*). */
+let WORLD_RENAME_ID = null;
+function worldRenameOpen(id, name) {
+  worldswClose();
+  WORLD_RENAME_ID = id;
+  const input = document.getElementById('world-rename-name');
+  input.value = name || '';
+  document.getElementById('world-rename-go').disabled = !input.value.trim();
+  document.getElementById('world-rename-msg').textContent = '';
+  document.getElementById('world-rename-t').textContent = 'Rename ' + (name || 'Kosmos');
+  document.getElementById('world-rename-modal').hidden = false;
+  input.focus();
+  input.select();
+}
+function worldRenameClose() {
+  document.getElementById('world-rename-modal').hidden = true;
+  WORLD_RENAME_ID = null;
+  document.getElementById('worldsw-btn').focus();
+}
+async function worldRenameSubmit() {
+  const input = document.getElementById('world-rename-name');
+  const go = document.getElementById('world-rename-go');
+  const msg = document.getElementById('world-rename-msg');
+  const id = WORLD_RENAME_ID;
+  const name = input.value.trim();
+  if (!id) { worldRenameClose(); return; }
+  if (!name) { msg.textContent = 'Give your Kosmos a name.'; input.focus(); return; }
+  go.disabled = true;
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/worlds/rename', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id, name }),
+    });
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      msg.textContent = (body && (body.because || body.error)) || 'Could not rename the Kosmos. Try a different name.';
+      go.disabled = false;
+      return;
+    }
+    worldRenameClose();
+    await worldsFetch().catch(() => {});
+    worldswOpen();
+  } catch {
+    msg.textContent = 'Could not reach Kosmos. Try again.';
+    go.disabled = false;
+  }
+}
 (function wireWorldsw() {
   const btn = document.getElementById('worldsw-btn');
   if (!btn) return;
@@ -16249,6 +16345,13 @@ async function worldAddSubmit() {
   input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && input.value.trim() && !document.getElementById('world-add-go').disabled) { e.preventDefault(); worldAddSubmit(); } });
   // Backdrop click closes the create modal, matching the other .rm-back modals.
   document.getElementById('world-add-modal').addEventListener('click', (e) => { if (e.target.id === 'world-add-modal') worldAddClose(); });
+  // #1704 14.1: the rename modal, wired the same way as the create modal.
+  document.getElementById('world-rename-cancel').addEventListener('click', worldRenameClose);
+  document.getElementById('world-rename-go').addEventListener('click', worldRenameSubmit);
+  const rin = document.getElementById('world-rename-name');
+  rin.addEventListener('input', () => { document.getElementById('world-rename-go').disabled = !rin.value.trim(); });
+  rin.addEventListener('keydown', (e) => { if (e.key === 'Enter' && rin.value.trim() && !document.getElementById('world-rename-go').disabled) { e.preventDefault(); worldRenameSubmit(); } });
+  document.getElementById('world-rename-modal').addEventListener('click', (e) => { if (e.target.id === 'world-rename-modal') worldRenameClose(); });
   // Outside-click closes the menu.
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('worldsw-menu');
@@ -16257,6 +16360,7 @@ async function worldAddSubmit() {
   // Escape closes the create modal first, then the menu.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!document.getElementById('world-rename-modal').hidden) { worldRenameClose(); return; }
     if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
     const menu = document.getElementById('worldsw-menu');
     if (menu && !menu.hidden) { worldswClose(); btn.focus(); }

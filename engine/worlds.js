@@ -275,6 +275,45 @@ function setActiveWorld(base, id) {
 }
 
 /*
+ * #1704 item 14.1 (Josh, 2026-09-05): rename a Kosmos WITHOUT breaking its
+ * file/folder/project/document structure. It changes ONLY the display `name`; the
+ * world's id and base are immutable (a world resolves BY id, never by name -- see
+ * worldBaseDir), so nothing on disk moves and every project/document keeps its home.
+ * That is the whole reason the rename is safe and does not need the fallback Josh
+ * offered ("you can't change the name once created").
+ *
+ * The DEFAULT world is refused: its display name is the fixed "Kosmos 1" constant
+ * (item 14.2 / DEFAULT_NAME, re-applied by readRegistry), so a rename could not
+ * persist anyway; refusing gives a clear reason instead of a silent no-op. Errors are
+ * TYPED (like setActiveWorld) so the route classifies on the code, not the message.
+ */
+function renameWorld(base, id, newName) {
+  if (id === DEFAULT_ID) {
+    const err = new Error('the default world cannot be renamed');
+    err.code = 'ERESERVED';
+    throw err;
+  }
+  const name = String(newName == null ? '' : newName).trim();
+  if (!name) {
+    const err = new Error('a world needs a name');
+    err.code = 'EBADNAME';
+    throw err;
+  }
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world) {
+      const err = new Error(`no such world "${id}"`);
+      err.code = 'ENOWORLD';
+      throw err;
+    }
+    world.name = name;
+    writeRegistry(base, reg);
+    return world;
+  });
+}
+
+/*
  * At board startup: mutate `env` in place so the active world's roots resolve for
  * the rest of the process. A no-op for the default world (no overrides). Returns
  * the applied overrides (empty for default) so a caller can log what it did.
@@ -301,6 +340,7 @@ module.exports = {
   worldBaseDir,
   envOverridesFor,
   createWorld,
+  renameWorld,
   setActiveWorld,
   applyActiveWorldEnv,
 };

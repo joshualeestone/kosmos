@@ -315,6 +315,37 @@ test('#1704 2b-ii: POST /api/worlds/active is 404 for an unknown id and 400 for 
   assert.equal(JSON.parse((await req('/api/worlds')).body).activeWorldId, 'default', 'a failed switch left the active world untouched');
 });
 
+test('#1704 14.1: POST /api/worlds/rename renames a named world; default reserved, unknown 404, missing id 400', async () => {
+  const made = await postJson('/api/worlds', { name: 'Rename Me' });
+  assert.equal(made.status, 200);
+  const id = JSON.parse(made.body).world.id;
+
+  const ok = await postJson('/api/worlds/rename', { id, name: 'Renamed' });
+  assert.equal(ok.status, 200, 'a valid rename succeeds');
+  assert.equal(JSON.parse(ok.body).world.name, 'Renamed', 'the response reports the new name');
+  const after = JSON.parse((await req('/api/worlds')).body);
+  const w = after.worlds.find((x) => x.id === id);
+  assert.ok(w, 'the id is unchanged by the rename (the world resolves under its original id)');
+  assert.equal(w.name, 'Renamed', 'GET /api/worlds reflects the rename');
+
+  const def = await postJson('/api/worlds/rename', { id: 'default', name: 'Nope' });
+  assert.equal(def.status, 400, 'the default world cannot be renamed');
+  assert.match(JSON.parse(def.body).because, /first Kosmos keeps its name/);
+
+  const empty = await postJson('/api/worlds/rename', { id, name: '   ' });
+  assert.equal(empty.status, 400, 'an empty/whitespace name is refused');
+
+  const unknown = await postJson('/api/worlds/rename', { id: 'no-such-world-xyz', name: 'X' });
+  assert.equal(unknown.status, 404, 'a well-formed id naming no world is not-found');
+
+  const missing = await postJson('/api/worlds/rename', { name: 'X' });
+  assert.equal(missing.status, 400, 'a missing id is a malformed request');
+
+  // The refusals did not corrupt the valid rename.
+  assert.equal(JSON.parse((await req('/api/worlds')).body).worlds.find((x) => x.id === id).name, 'Renamed',
+    'the world kept its valid renamed name through the refused attempts');
+});
+
 test('#1704 2b-ii: POST /api/worlds/active surfaces a held registry lock as a retryable 409', async () => {
   // Simulate another board holding the registry lock (a fresh-mtime lock dir at
   // the base the route resolves). setActiveWorld -> withRegistryLock then throws
