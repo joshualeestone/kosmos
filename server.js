@@ -2458,6 +2458,15 @@ const server = http.createServer((req, res) => {
            network hiccup. */
         updateLog: updates.installLog(),
         bootedAt: BOOTED_AT,
+        /* #2238: the world the LIVE board booted into (captured at boot in
+           engine/worldenv, NOT a live registry read). A world-switch reconnect
+           poll keys on this: it stays the OLD id through the restart window and
+           only flips once launchd relaunches the board onto the new world, so the
+           poll cannot false-succeed on the registry pointer (which flips the
+           instant POST /api/worlds/active writes it). Inline require is cached, so
+           this does not perturb the worldenv-require ordering the order test
+           guards. */
+        activeWorldId: require('./engine/worldenv').bootedWorld(),
         engine: engineFreshness(),
       });
     } catch (err) {
