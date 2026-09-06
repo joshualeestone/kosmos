@@ -131,13 +131,16 @@ function fileFor(agent) {
      folder may now come from a record, and the NAME must still never be able to
      build a path of its own. */
   /* #2245: the brief FILENAME is runner-aware -- a codex agent boots from
-     AGENTS.md, a claude agent from CLAUDE.md -- chosen from the RECORDED runner
-     (readJob's plist arg, never a live pane), defaulting to CLAUDE.md for any
-     agent without a job. Only the filename changes; the containment guard below
-     is unchanged, so a codex agent's block lands in the file it actually reads
-     without loosening the path check. */
+     AGENTS.md, a claude agent from CLAUDE.md -- chosen from the RECORDED runner.
+     #2250: via `create.recordedRunner`, which reads the plist first (never a live
+     pane) and falls back to the profile's `provider` when `readJob` refuses the
+     name (NAME_RE, its plist arg is a path) -- so a CONNECTED codex agent whose
+     name fails NAME_RE lands its block in AGENTS.md rather than CLAUDE.md. It
+     defaults to CLAUDE.md for any agent with neither. Only the filename changes;
+     the containment guard below is unchanged, so a codex agent's block lands in
+     the file it actually reads without loosening the path check. */
   const create = require('./create');
-  const fname = create.briefFilename((create.readJob(agent) || {}).runner);
+  const fname = create.briefFilename(create.recordedRunner(agent));
   const file = path.join(create.workerDir(key), fname);
 
   // Belt to safeKey's braces, and NOT load-bearing today: safeKey already

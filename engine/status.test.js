@@ -454,6 +454,31 @@ test('claudebot resolves to Splinter via explicit override', () => {
   assert.equal(id.derived, true);
 });
 
+test('#2250: readIdentity reads a NAME_RE-failing codex agent from AGENTS.md, not CLAUDE.md', () => {
+  // A connected codex agent whose name fails NAME_RE (uppercase + dot): readJob
+  // refuses it, so before #2250 readIdentity fell to CLAUDE.md -- the file a
+  // codex agent never wrote. It must now read AGENTS.md via recordedRunner's
+  // profile-provider fallback. A decoy in CLAUDE.md makes this discriminating:
+  // the pre-fix code returns 'Wrongly', the fixed code 'Codey'.
+  const store = require('./store');
+  const name = 'Codex.Agent';
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'AGENTS.md'), 'You are **Codey** (Codey Codex), the coding worker.\n', 'utf8');
+  fs.writeFileSync(nodePath.join(dir, 'CLAUDE.md'), 'You are **Wrongly** (Wrong Claude), the decoy worker.\n', 'utf8');
+  store.writeProfile(name, { provider: 'openai' }); // no displayName: identity comes from the file
+  const id = readIdentity(name);
+  assert.equal(id.displayName, 'Codey', 'the codex agent identity is read from AGENTS.md');
+
+  // CONTROL: no provider means claude, so the CLAUDE.md identity is read.
+  const cname = 'Claude.Agent';
+  const cdir = nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, cname);
+  fs.mkdirSync(cdir, { recursive: true });
+  fs.writeFileSync(nodePath.join(cdir, 'CLAUDE.md'), 'You are **Clyde** (Clyde Claude), the writing worker.\n', 'utf8');
+  store.writeProfile(cname, {}); // no provider
+  assert.equal(readIdentity(cname).displayName, 'Clyde', 'a non-codex agent still reads CLAUDE.md');
+});
+
 // ---------------------------------------------------------------------------
 // The roster: what tmux told us, and what we decided it meant
 // ---------------------------------------------------------------------------

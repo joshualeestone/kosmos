@@ -616,8 +616,36 @@ function briefFilename(runner) { return runner === 'codex' ? 'AGENTS.md' : 'CLAU
    omit it and the RECORDED runner is read from the plist (readJob, never a live
    pane), defaulting to claude/CLAUDE.md when there is no job -- the pre-#2245
    behaviour for every claude agent, unchanged. */
+/* #2250: the RECORDED runner for an agent, resolved the way the BOARD already
+   resolves it -- the launch job first, the profile's `provider` as the fallback.
+   `readJob` reads the runner from the plist but REFUSES a name outside NAME_RE,
+   because its argument becomes a filesystem path through `plistPath` (a
+   traversal surface), and it returns null. So a CONNECTED codex agent whose name
+   passes `nameUsable`/`safeKey` but fails NAME_RE (uppercase, a dot, a space, a
+   single char) had no readable runner, and its brief fell to CLAUDE.md -- the
+   file it does NOT boot from (a codex agent boots from AGENTS.md). The profile
+   is the same source `server.js` derives a card's runner from "whenever the pane
+   is not the source": `discover.connect` writes `provider: 'openai'` for a codex
+   agent, keyed by `safeKey`, so it is readable for a name `readJob` refuses.
+
+   Read as the FALLBACK only: a live plist stays authoritative (readJob truthy
+   wins), and `setProvider` writes the plist and the profile together, so they do
+   not disagree for a NAME_RE-passing agent. This never touches `readJob`'s
+   NAME_RE guard on `plistPath` -- the path check is unchanged. It never throws:
+   `readProfile` already swallows a missing or unreadable profile (including
+   `safeKey` throwing on an empty key) and returns `{}`, so `.provider` is
+   undefined and the result defaults to claude, the historical fail-closed
+   answer; the try/catch is a belt in case `readProfile` is ever changed to
+   throw. */
+function recordedRunner(name) {
+  const fromJob = (readJob(name) || {}).runner;
+  if (fromJob) return fromJob;
+  let provider;
+  try { provider = store.readProfile(name).provider; } catch { provider = null; }
+  return provider === 'openai' ? 'codex' : 'claude';
+}
 function instructionFile(name, runner) {
-  const r = runner || ((readJob(name) || {}).runner) || 'claude';
+  const r = runner || recordedRunner(name);
   return path.join(workerDir(name), briefFilename(r));
 }
 function logFile(name) { return path.join(workerDir(name), 'start.log'); }
@@ -3650,6 +3678,7 @@ module.exports = {
   homeDir,
   instructionFile,
   briefFilename,
+  recordedRunner,
   plistPath,
   plannedModelArg,
   forgetCodexFolder,
