@@ -34,6 +34,10 @@ const BASE = process.argv[2] || process.env.KOSMOS_URL || 'http://127.0.0.1:1746
 // boot-time refresh block, so it reads by id from any Settings view.
 const IDS = ['tell-toggle', 'notify-toggle', 'feedback-toggle'];
 const MSG = { 'tell-toggle': 'tell-msg', 'notify-toggle': 'notify-msg', 'feedback-toggle': 'feedback-msg' };
+// The descriptive-copy row each switch lives in, for the copy-vs-default
+// consistency check below (#2020: the tell row said "Off by default" after the
+// default was flipped ON).
+const ROW = { 'tell-toggle': 'tell-row', 'notify-toggle': 'notify-row', 'feedback-toggle': 'feedback-row' };
 
 const fails = [];
 function check(name, pass, detail) {
@@ -62,6 +66,16 @@ function readSwitch(pg, id) {
   }, [id, MSG[id]]);
 }
 
+// The row's DESCRIPTIVE copy (the `.dhint` inside the setrow, not the status
+// `-msg` line), for the copy-vs-default consistency check.
+function readRowCopy(pg, id) {
+  return pg.evaluate((rowId) => {
+    const row = document.getElementById(rowId);
+    const d = row && row.querySelector('.dhint');
+    return (d && d.textContent) || '';
+  }, ROW[id]);
+}
+
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
@@ -79,6 +93,15 @@ async function run() {
       check(id + ' [200 control]: renders when the setting reads', s.hidden === false, JSON.stringify(s));
       const want = DEFAULT_ON[id] ? 'true' : 'false';
       check(id + ' [200 control]: reads its ruled default (' + want + ')', s.checked === want, String(s.checked));
+      // #2020: a switch that DEFAULTS ON must not carry descriptive copy claiming
+      // it is "Off by default" - the exact stale-copy bug on the tell row (the
+      // default was flipped ON but the wording was not swapped). notify defaults
+      // OFF, so its "Off by default" copy is correct and not checked.
+      if (DEFAULT_ON[id]) {
+        const copy = await readRowCopy(p1, id);
+        check(id + ' [200 control]: default-ON copy does not claim "Off by default"',
+          !/off by default/i.test(copy), copy.slice(0, 90));
+      }
     }
     await p1.close();
 

@@ -10322,11 +10322,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            whether the person can ACT. Now they can: it installs, or it does
            not, and both are real. -->
       <!-- #2020: the two telemetry OPT-OUT rows, restored (Josh, 2026-09-03: "on,
-           and they can turn it off" needs the controls he removed 08-26). This
-           branch restores the CONTROLS only; the sends stay OFF by default (the
-           default flip is held for Josh - the irreversible half). So the copy says
-           "Off by default" honestly for now; it becomes "On by default" when Josh
-           flips the default and swaps the wording.
+           and they can turn it off" needs the controls he removed 08-26). That
+           branch restored the CONTROLS only and held the default flip for Josh -
+           the irreversible half - so the copy honestly said "Off by default" then.
+           Josh has since flipped the create-agent ping default ON (2026-09-05,
+           #2020/#2013: "we need that back in for sure", "I've never said flip it
+           off"; engine/ping.js defaults an absent setting to on:true). So the copy
+           now reads "On by default; this switch turns it off" - the wording swap
+           the note above said would follow the flip. This switch is the OPT-OUT.
+           (The phone-notification row below is engine/notify.js and stays OFF by
+           default - a different mechanism; do not sweep it with this one.)
            🛑 THREE STATES, NOT TWO (#2047): the paint below shows ON / OFF /
            COULD-NOT-READ. On a 403 board the GET is gated and the value is unknown;
            a telemetry opt-out that falsely reads OFF would tell a person "nothing is
@@ -10334,7 +10339,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
            position. -->
       <div class="setrow" id="tell-row" style="margin-top:12px;">
         <div><b>Let the Kosmos team know when you create an agent</b>
-          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">On by default; this switch turns it off. One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
         <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
       </div>
       <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>

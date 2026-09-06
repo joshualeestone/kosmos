@@ -9806,12 +9806,14 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
 
   /* 📌 THE TELL AND NOTIFY SWITCHES ARE BACK (#2020, Josh 2026-09-03: "on, and
      they can turn it off" needs the opt-out controls he removed 08-26). They are
-     restored as controls with the send still OFF by default (the default flip is
-     step 3, held for Josh), and they are tested here on the SAME three-state rule
-     as autoPaint - and it matters MORE for these two: they are the telemetry
-     opt-outs, so an unread setting drawing a confident Off would tell a person
-     nothing is sent while the engine may be (#2047). engine/notify.test.js pins
-     the rows present + the sends off by default. */
+     restored as controls; the create-ping (tell) default has SINCE been flipped
+     ON (#2020/#2013, Josh 2026-09-05) while notify stays OFF - so ping is an
+     on-by-default opt-out and notify an off-by-default opt-in. They are tested
+     here on the SAME three-state rule as autoPaint - and it matters MORE for
+     these two: they are the telemetry opt-outs, so an unread setting drawing a
+     confident Off would tell a person nothing is sent while the engine may be
+     (#2047). engine/notify.test.js pins the rows present + each send's default
+     (ping ON, notify OFF). */
   for (const [paint, toggle, msg] of [
     ['autoPaint', 'auto-toggle', 'auto-msg'],
     ['tellPaint', 'tell-toggle', 'tell-msg'],
