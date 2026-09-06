@@ -1184,8 +1184,55 @@ test('#2304 Windows: a missing runner is attention and names the runner, never t
     'the Windows failure must not name tmux or a Homebrew path (tmux is not probed on win32)');
   assert.match(text, /the part that runs agents/,
     'the failure names the substrate a Windows box actually needs');
-  // KNOWN FOLLOW-UP (#2304 defect 2): the remedy still reads "Download for
-  // macOS" here. Fixing it needs the Windows download target (a #570/product
-  // decision, possibly not published yet), so it is flagged, not invented. The
-  // reported bug (runner PRESENT -> ok) is fixed above without touching it.
+  // KNOWN FOLLOW-UP (#2304 defect 2, macOS product copy on BOTH failure arms):
+  // the missing-runner remedy still reads "Download for macOS", and the
+  // unusable-path arm's detail names "the parts of macOS" and lists "a
+  // backslash" as forbidden (wrong on win32, where a backslash is a normal
+  // separator). Fixing either needs a platform branch in the copy PLUS the
+  // Windows download target (a #570 / product decision, and Josh owns the final
+  // phrasing), so both are flagged, not invented. The reported bug (runner
+  // PRESENT -> ok) is fixed without touching them, and threading `platform` into
+  // create.unusablePath below means a NORMAL win32 backslash path no longer even
+  // reaches the unusable arm (see the backslash test).
+});
+
+test('#2304 Windows: a backslash runner path is classified MISSING, not UNUSABLE (unusablePath is injected)', () => {
+  // Before installedCheck threaded `platform` into create.unusablePath, a win32
+  // path with backslashes was judged by the darwin regex (which rejects `\`) and
+  // reported as an UNUSABLE path -- the wrong bucket and the wrong sentence. With
+  // create.unusablePath(bin, platform) it is not unusable on win32, so it reaches
+  // the runnability probe and a non-existent path is MISSING. Discriminating: it
+  // fails if create.unusablePath at the probe loop drops the injected platform.
+  // (The runnability probe runners.isRunnable stays host-platform by its
+  // single-argument array-callback contract; that is why this fixture path does
+  // not need to exist as a win32-runnable .exe.)
+  const got = machine.installedCheck({ platform: 'win32', claudeBin: 'C:\\Program Files\\claude\\claude.exe', tmuxBin: REAL_BIN });
+  assert.equal(got.state, 'attention', 'the file does not exist on this Mac, so it is missing');
+  assert.match(got.detail, /We looked for the part that runs agents at C:\\Program Files\\claude\\claude\.exe/,
+    'a win32 backslash path is reported MISSING at that path');
+  assert.doesNotMatch(got.detail, /a backslash|The path set for/,
+    'a normal win32 backslash path must NOT be misclassified as an unusable path');
+});
+
+test('#2304 Windows: tmux is not probed at all (present.tmux is undefined on win32)', () => {
+  const got = machine.installedCheck({ platform: 'win32', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
+  assert.equal(got.present.tmux, undefined, 'win32 does not probe tmux, so present carries no tmux key');
+  assert.equal(got.present.claude, true, 'the runner is the win32 substrate and is probed');
+});
+
+test('#2304 the platform threads through machine.check to the installed sub-check', () => {
+  const os2 = require('node:os'); const path2 = require('node:path'); const fs2 = require('node:fs');
+  const empty = fs2.mkdtempSync(path2.join(os2.tmpdir(), 'kosmos-2304-'));
+  const got = machine.check({ platform: 'win32', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux', pmset: 'System-wide power settings:\n', appDirs: [empty, empty] });
+  fs2.rmSync(empty, { recursive: true, force: true });
+  const installed = got.checks.find((c) => c.key === 'installed');
+  assert.equal(installed.state, 'ok', 'check({platform:win32}) reaches installedCheck: runner present -> ok, not a tmux attention');
+});
+
+test('#2304 an empty or unknown platform falls back to the real platform', () => {
+  // `(opts && opts.platform) || process.platform`: an empty string is falsy and
+  // falls back, so this box (darwin) still requires tmux -- absent tmux is
+  // attention, never a silent win32-shaped pass.
+  const got = machine.installedCheck({ platform: '', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
+  assert.equal(got.state, 'attention', 'a falsy platform must not slip into the win32 branch on a Mac');
 });

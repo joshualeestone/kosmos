@@ -301,15 +301,26 @@ function installedCheck(opts) {
      standing rulings are about. The Claude Code row beside this one has read
      "Claude Code" rather than "claude" since it was written; this is that. */
   /* #2304/#570: platform-injected like `create.unusablePath(bin, platform)` and
-     `ownerOnlyModeIsEnforced`, so BOTH branches are assertable from a Mac. The
-     required "part that runs agents" is tmux on macOS, but Windows has no tmux:
-     the #570 port runs agents THROUGH the Claude CLI (`claude agents --json` for
-     the roster/capture, `claude --session-id` for create), so on win32 the
-     required substrate is the runner itself. Before this, installedCheck required
-     tmux on every platform and told a Windows user -- who has no tmux and needs
-     none -- "Kosmos cannot start agents on this computer", pointed them at the
-     macOS download, and named a Homebrew tmux path. That was the sibling arm of
-     the same #570 defect `create.unusablePath` already narrowed. */
+     `ownerOnlyModeIsEnforced`. The required "part that runs agents" is tmux on
+     macOS, but Windows has no tmux: the #570 port runs agents THROUGH the Claude
+     CLI (`claude agents --json` for the roster/capture, `claude --session-id` for
+     create), so on win32 the required substrate is the runner itself. Before
+     this, installedCheck required tmux on every platform and told a Windows user
+     -- who has no tmux and needs none -- "Kosmos cannot start agents on this
+     computer", pointed them at the macOS download, and named a Homebrew tmux
+     path. That was the sibling arm of the same #570 defect `create.unusablePath`
+     already narrowed.
+
+     ⚠️ TWO OF THREE PLATFORM-DEPENDENT READS ARE INJECTED, THE THIRD CANNOT BE.
+     The injected `platform` drives the required-part list (here) AND the
+     unusable-path CHARACTER check (`create.unusablePath(bin, platform)` below,
+     so a normal win32 backslash path is not misread as unusable and the win32
+     arm is assertable from a Mac). The RUNNABILITY probe `runners.isRunnable`
+     is deliberately NOT threaded: it is used as an Array callback `(el, i, arr)`
+     and must stay single-argument (see `runners.runnableExactly`'s comment and
+     `engine.runnable-not-directory.test.js`), so it reads `process.platform`,
+     which is correct on the machine it actually runs on. Do not "complete" the
+     injection by adding a param to isRunnable -- it breaks the callback contract. */
   const platform = (opts && opts.platform) || process.platform;
   const isWin = platform === 'win32';
   const parts = isWin
@@ -378,7 +389,7 @@ function installedCheck(opts) {
      * the screen says it is not, and the actual cause -- a quote or a newline in
      * the path -- is never named anywhere.
      */
-    if (create.unusablePath(bin)) { present[key] = null; if (required) unusable.push({ label, bin }); continue; }
+    if (create.unusablePath(bin, platform)) { present[key] = null; if (required) unusable.push({ label, bin }); continue; }
 
     /**
      * ⚠️ TWO PROBES, BECAUSE `EACCES` MEANS TWO DIFFERENT THINGS HERE and
