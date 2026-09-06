@@ -1,5 +1,23 @@
 /**
  * Click the whole thing, like a person. Nothing here reads source.
+ *
+ * install-flow-9screen: rewritten for Josh's signed-off 9-screen flow (was the
+ * 6-screen driver). The flow is now LINEAR 1..9 -- Welcome, Access(gate),
+ * Automation(2 gates), Notifications, Model, Self-improving, Success, About-you,
+ * Your-agents -- opening on Welcome (not Success), with no step crumb / progress
+ * segments (Josh's spec), no standalone machine-check screen, and no #2163
+ * pre-flight interstitial. The persistent shell head (#fr-title/#fr-eyebrow) is
+ * retired: each pane owns its own <h2>, so heads are read off the VISIBLE pane's
+ * <h2> (activeHead), never #fr-title. The permission gates (S2 file-access, S3
+ * sleep+tmux) are mocked UNCHECKABLE in the walk-throughs so Next follows the
+ * fail-safe path (a browser is genuinely uncheckable); the gate's BLOCKING
+ * behaviour has its own check (render-gated-next). Retired the two machine-check
+ * sections with the screen they tested.
+ *
+ * 🛑 RUN IN THE BROWSER PASS: this driver was rewritten to match the new markup
+ * with the node selectors validated, but its RUNTIME timing/navigation is proven
+ * only when it actually runs against a served board. Validate + tune waits on the
+ * post-serve browser-quiet window.
  */
 const { chromium } = require('playwright');
 const fs = require('fs');
@@ -10,14 +28,25 @@ const { paneCount } = require('./lib-firstrun-steps.js');
 const BASE = process.env.KOSMOS_URL || 'http://127.0.0.1:4399';
 const FLAG = process.argv[2];   // the sandboxed first-run.json
 // The About-you record lives at the DATA root (the flag's grandparent, per
-// engine/you.js's BASE), and it is first-run state: left behind by an
-// earlier run it prefills the About-you step and arms the gate, so the "Continue waits"
-// assertions would measure the leftover, not the gate. Cleared everywhere
-// the flag is cleared.
+// engine/you.js's BASE), and it is first-run state: left behind by an earlier
+// run it prefills the About-you step and arms the gate, so the "Continue waits"
+// assertions would measure the leftover, not the gate. Cleared everywhere the
+// flag is cleared.
 const YOU = path.join(path.dirname(path.dirname(FLAG)), 'you.json');
 
 const fails = [];
 const ok = (cond, what) => { if (!cond) fails.push(what); console.log(`${cond ? '  ok  ' : ' FAIL '} ${what}`); };
+
+/* install-flow-9screen: the permission gates (S2/S3) disable Next until granted.
+   In a walk-through we mock them UNCHECKABLE so Next follows the fail-safe path
+   (never blocks) -- a real browser reports checkable:false anyway, so this models
+   the honest browser experience. The gate's positive-not-granted BLOCK is proven
+   by render-gated-next, not here. */
+async function mockGatesUncheckable(page) {
+  for (const url of ['**/api/file-access-status', '**/api/sleep-status', '**/api/a11y-status']) {
+    await page.route(url, (r) => r.fulfill({ json: { checkable: false } }));
+  }
+}
 
 async function fresh(browser, opts = {}) {
   fs.rmSync(FLAG, { force: true });
@@ -25,191 +54,125 @@ async function fresh(browser, opts = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
   const page = await ctx.newPage();
   page.on('pageerror', (e) => fails.push('JS ERROR: ' + e.message));
+  // Gates first, so an app route the caller adds can still override a specific one.
+  if (opts.gates !== false) await mockGatesUncheckable(page);
   if (opts.route) await page.route(...opts.route);
   await page.goto(`${BASE}/${opts.query || ''}`, { waitUntil: 'networkidle' });
   await page.waitForTimeout(500);
   return { ctx, page };
 }
 
-/* #1801: the wizard numbers its steps, and #1214 inserted Accessibility as
-   step 5 -- moving About-you from step 5 to 6 and the endings from 6 to 7, and
-   silently breaking every assertion here that had named a number (a walk that
-   clicked a fixed count landed a step short, and three waits named the old
-   About-you pane). These walk and wait by CONTENT instead: advance until the
-   About-you pane (#fr-you) is showing, and wait for it to leave -- so an
-   inserted step is walked through, never mis-counted. */
-async function advanceToAboutYou(page, max = 12) {
+/* The heading of whichever pane is showing. The shell #fr-title is retired; each
+   pane owns its <h2> (frFocusActiveHead focuses it), so "the current heading" is
+   the visible pane's own <h2>. */
+async function activeHead(page) {
+  return page.evaluate(() => {
+    const pane = [...document.querySelectorAll('.fr-pane')].find((p) => !p.hidden);
+    const h2 = pane && pane.querySelector('h2');
+    return h2 ? h2.textContent.trim() : '';
+  });
+}
+
+/* Walk forward by CONTENT until the pane holding `anchorSel` is showing, never by
+   a fixed click count (identity, not index -- an inserted/removed step is walked
+   through, never mis-counted; kosmos#1801). With the gates mocked uncheckable, no
+   step before the target disables Next; a disabled Next on a non-target step means
+   an intermediate step grew a required-answer gate this walk does not handle. */
+async function advanceToAnchor(page, anchorSel, max = 12) {
   for (let i = 0; i < max; i += 1) {
-    // Read both facts in ONE round-trip: are we at About-you yet, and is
-    // Continue clickable? On the path these callers drive -- a connected
-    // subscription is mocked, so the model step never opens its connect flow --
-    // no step before About-you disables Continue, so a disabled Continue on a
-    // step that is not About-you means an intermediate step grew a
-    // required-answer gate. Fail fast with that reason rather than letting
-    // page.click hang ~30s on Playwright's actionability wait for a button that
-    // will never enable itself.
-    const state = await page.evaluate(() => {
-      const you = document.querySelector('#fr-you');
-      const pane = you && you.closest('.fr-pane');
+    const state = await page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      const pane = el && el.closest('.fr-pane');
       const next = document.getElementById('fr-next');
-      return {
-        atAboutYou: !!(pane && !pane.hidden),
-        nextDisabled: !!(next && next.disabled),
-      };
-    });
-    if (state.atAboutYou) return;
+      return { atTarget: !!(pane && !pane.hidden), nextDisabled: !!(next && next.disabled) };
+    }, anchorSel);
+    if (state.atTarget) return;
     if (state.nextDisabled) {
-      throw new Error('Continue is disabled on a step before About-you -- an '
-        + 'intermediate step grew a required-answer gate. advanceToAboutYou '
-        + 'walks ungated steps; this one needs handling (kosmos#1801).');
+      throw new Error(`Continue is disabled on a step before ${anchorSel} -- an `
+        + 'intermediate step grew a required-answer gate this walk does not handle '
+        + '(gates are mocked uncheckable, so this is unexpected; kosmos#1801).');
     }
     await page.click('#fr-next');
     await page.waitForTimeout(150);
   }
-  throw new Error(`never reached About-you (#fr-you) in ${max} Continue clicks`);
+  throw new Error(`never reached ${anchorSel} in ${max} Next clicks`);
 }
 
-async function waitAboutYouLeft(page, timeout = 5000) {
-  await page.waitForFunction(() => {
-    const el = document.querySelector('#fr-you');
+async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
+  await page.waitForFunction((sel) => {
+    const el = document.querySelector(sel);
     const pane = el && el.closest('.fr-pane');
     return !!(pane && pane.hidden);
-  }, null, { timeout });
+  }, anchorSel, { timeout });
 }
 
 (async () => {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
 
-  /* ⚠️ A CHECKER THAT CANNOT REPORT ITS OWN FAILURE. Measured: section 12's
-     first click timed out after 30s, the rejection went unhandled, and the run
-     died WITHOUT its FAILURES line and without an exit code of its own -- so
-     eleven sections' worth of verdicts reached the screen with nothing
-     summarising them, and node's own stack was the last word. Every FAIL
-     printed above it became something a reader had to scroll for and total up
-     by hand. The throw is now a finding like any other, the summary always
-     prints, and the browser is always closed. This is the same fix
-     render-fields carries for the same reason. */
+  /* ⚠️ A CHECKER THAT CANNOT REPORT ITS OWN FAILURE. A section's first click
+     timing out after 30s used to kill the run WITHOUT its FAILURES line and
+     without an exit code of its own. The throw is now a finding like any other,
+     the summary always prints, and the browser is always closed. */
   try {
 
   /* ------------------------------------------------------------------ */
-  console.log('\n1. A machine that has never been through it opens ON first run');
+  console.log('\n1. A machine that has never been through it opens ON first run, at Welcome');
   {
     const { ctx, page } = await fresh(browser);
     ok(await page.isVisible('#firstrun'), 'the overlay is up with no ?first-run flag at all');
-    ok(await page.locator('#fr-title').textContent() === 'Kosmos is now installed on this computer.', 'on step 1, the Success screen');
-    ok((await page.locator('#fr-eyebrow').textContent()).trim() === 'Success', 'the Success eyebrow is up');
-    ok((await page.locator('#fr-segs .fr-seg').count()) === 0, 'the intro carries no progress segments');
-    // The app-location look lives HERE now (the pack's Success screen).
-    // Against this real machine any state is legitimate; what must be true is
-    // that a row rendered, the answer replaced the placeholder, and the Dock
-    // sentence is the ruled drag line, never the unreachable Keep in Dock.
-    await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
-    const introText = await page.locator('#fr-return').textContent();
-  /* 🔑 THE DOCK LINE IS BACK ON THIS SCREEN, at Josh's ruling of 2026-08-27
-     16:08. He did a full wipe, screenshotted this screen, and said "somebody
-     elected to take the message out of this."
-     ⚠️ THIS ASSERTION IS THE EXACT REVERSE OF WHAT IT SAID AN HOUR AGO, and
-     the history matters because it has been wrong in both directions. It was
-     moved OFF this screen on 2026-08-22 on two written rulings (step 1
-     answers "did the install work"; the Dock line is about RETURNING). His
-     16:08 instruction overrides those, and he does not want it at the ending
-     either, so the two statements are coherent: on Success, not at the last
-     step. render-first-run now asserts it ABSENT there, this asserts it
-     PRESENT here, and the pair is what stops it drifting or vanishing. */
-    // #2240: the line now tells the person the icon is ALREADY in the Dock
-    // (Kosmos auto-opens, so it is present) and to drag THAT to the far left,
-    // rather than "drag Kosmos onto the Dock" which sent people to find and
-    // drag a second copy. Both halves are asserted so neither drifts off.
-    ok(/Kosmos is already in your Dock, the strip of icons/.test(introText),
-      'the Success screen must say the icon is already in the Dock (it auto-opened), not tell the person to add it');
-    ok(/Drag its icon to the far left/.test(introText),
-      'the Dock drag line (now: drag the existing icon to the far left) is on the Success screen, which Josh asked for on 2026-08-27 after finding it gone');
-    ok(!/Checking where the Kosmos icon is/.test(introText), 'the live answer replaced the checking placeholder');
-    ok(!/right now/.test(introText), 'and it is the route\'s answer, not the could-not-ask fallback -- this walk is the one place the LIVE route is proven');
-    ok(!/Keep in Dock/.test(introText), 'and never the unreachable Keep in Dock');
+    ok((await activeHead(page)) === 'Welcome to Kosmos', 'on step 1, the Welcome screen');
+    // install-flow-9screen: the step crumb + progress segments are GONE (Josh's
+    // spec), so there is nothing to assert about a "Step N of M" indicator.
+    ok((await page.locator('#fr-step').count()) === 0, 'no step crumb (removed by spec)');
+    ok((await page.locator('#fr-segs .fr-seg').count()) === 0, 'no progress segments (removed by spec)');
+    // The ruled privacy copy is STAGED hidden on Welcome pending Josh's placement:
+    // present in the DOM, not visibly placed.
+    ok(await page.locator('#fr-privacy-staged').count() === 1, 'the staged privacy block is in the DOM');
+    ok(await page.locator('#fr-privacy-staged').isHidden(), 'and it is staged hidden, not yet placed');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === true),
       'the board behind it is inert');
-    // ⚠️ Asked, not assumed: what does a click at the middle of the screen hit?
     ok(await page.evaluate(() => document.querySelector('#firstrun')
       .contains(document.elementFromPoint(300, 400))), 'nothing behind it is clickable');
 
     console.log('   ...clicking through every step, in the pack\'s order');
-    ok(/Set up Kosmos/.test(await page.locator('#fr-next').textContent()), 'the Success primary is Set up Kosmos');
-    await page.click('#fr-next');
-    // #2163: the pre-flight expectations interstitial now sits between Success and
-    // Welcome (outside the numbered count). Click through it before Welcome.
-    ok(!(await page.locator('#fr-pane-intro').isHidden()), 'the pre-flight expectations interstitial shows after Success (#2163)');
-    ok(/Continue/.test(await page.locator('#fr-next').textContent()), 'the interstitial action is Continue');
-    await page.click('#fr-next');
-    ok(await page.locator('#fr-title').textContent() === 'Create and manage AI agents that work for you.', 'step 2, Welcome');
-    /* The segment count is (steps minus the intro), built dynamically by frGo
-       from FR_STEPS. Assert it against the STATIC pane count rather than a
-       literal: that cross-checks the two independent sources AND does not go
-       stale when a step is inserted -- this pinned 5 and #1214 made it 6
-       (kosmos#1801). */
-    const segCount = (await paneCount(page)) - 1;
-    ok((await page.locator('#fr-segs .fr-seg').count()) === segCount,
-      `${segCount} segments from Welcome on (steps minus the intro)`);
-    await page.click('#fr-next');
-    ok(await page.locator('#fr-title').textContent() === 'Choose a model.', 'step 3, Model');
-    ok((await page.locator('#fr-pane-3 .llm').count()) === 6, 'the six-provider list is drawn');
-    ok(await page.locator('#fr-sub .fr-ctitle').textContent().then((t) => /connected/.test(t)),
-      'the real subscription answer arrived: ' + await page.locator('#fr-sub .fr-ctitle').textContent());
-    await page.click('#fr-next');
-    ok(await page.locator('#fr-title').textContent() === 'Checking this computer.', 'step 4, This computer');
-    /* ⚠️ WAIT FOR THE THIRD, NOT THE FIRST. This waited on `.fr-check`, which
-       Playwright satisfies the moment ONE exists, and then asserted there were
-       THREE. Waiting for one and demanding three is fragile whatever else is
-       true, so this is worth keeping on its own.
-       🛑 AND IT DID NOT FIX THE FAILURE, WHICH IS WHY THIS COMMENT SAYS SO. I
-       predicted a race, made this change, and the count came back the same:
-       7 failures before, 7 after. THE CAUSE OF 'three checks painted' IS STILL
-       UNKNOWN. A comment claiming this fixed it would have been the third false
-       explanation attached to correct code on this file today. */
-    await page.waitForFunction(
-      () => document.querySelectorAll('#fr-checks .fr-check').length >= 3,
-      null, { timeout: 5000 },
-    ).catch(() => {});   // a timeout here is the ok() below's to report, not a throw
-    /* 🛑 THIS ASSERTED === 3 AND THE PRODUCT HAS RETURNED 4 SINCE 2026-08-23.
-       The assertion was written 2026-08-11 (cb28d7c2). `labelTruthCheck` was
-       added to `machine.check()` on 08-23 (ceb1380c, #468), making the array
-       installedCheck / sleepRow / restartCheck / labelTruthCheck. Twelve days
-       stale, and nobody saw it because this check is not wired into the suite.
-       ⭐ AND THE COUNT WAS ONLY EVER A PROXY. What its own parenthetical cares
-       about is that APP-LOCATION IS NOT ONE OF THESE ROWS -- machine.js returns
-       it as its own field, deliberately, because where the app sits has no
-       bearing on whether an agent runs, and folding it in once made the wizard
-       state a false cause. So the concern is asserted DIRECTLY, and a fifth
-       check landing tomorrow no longer reads as a defect.
-       📌 The floor stays: fewer than three rows means the live route did not
-       paint, which is the silent-skip this file rejects everywhere else. */
-    const rows = await page.locator('#fr-checks .fr-check').allTextContents();
-    ok(rows.length >= 3, `the live route painted its rows (saw ${rows.length})`);
-    ok(!rows.some((t) => /Kosmos icon/i.test(t)),
-      'app-location is NOT among the step-4 rows; it rides on the Success screen'
-      + ` (rows: ${rows.map((t) => t.replace(/\s+/g, ' ').trim().slice(0, 28)).join(' | ')})`);
-    // About you. #1214 inserted Accessibility ahead of it, so advance by
-    // CONTENT to whichever step now holds it rather than clicking a fixed count
-    // (kosmos#1801). The gate IS the design (no skip, at Josh's call): Continue
-    // WAITS on the two required answers, and the third is optional.
-    await advanceToAboutYou(page);
-    ok(await page.locator('#fr-title').textContent() === 'Who are your agents working for?', 'the About-you step, reached by content');
+    ok(/Get Started/.test(await page.locator('#fr-next').textContent()), 'the Welcome primary is Get Started');
+
+    // Walk to the Success screen (step 7) by content and prove the LIVE
+    // app-location route paints there (the reveal + the ruled Dock line).
+    await advanceToAnchor(page, '#fr-return');
+    ok((await activeHead(page)) === 'Kosmos is now installed and configured.', 'reached the Success screen (S7)');
+    await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
+    const successText = await page.locator('#fr-return').textContent();
+    /* 🔑 THE DOCK LINE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
+       render-first-run asserts it ABSENT on the fleet ending; this asserts it
+       PRESENT here, and the pair is what stops it drifting or vanishing. */
+    ok(/Kosmos is already in your Dock, the strip of icons/.test(successText),
+      'the Success screen says the icon is already in the Dock (it auto-opened)');
+    ok(/Drag its icon to the far left/.test(successText),
+      'the Dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
+    ok(!/Checking where the Kosmos icon is/.test(successText), 'the live answer replaced the checking placeholder');
+    ok(!/right now/.test(successText), 'and it is the route\'s answer, not the could-not-ask fallback');
+
+    // On to About-you (step 8), reached by content. The gate IS the design (no
+    // skip): Continue WAITS on the two required answers.
+    await advanceToAnchor(page, '#fr-you');
+    ok((await activeHead(page)) === 'Who are your agents working for?', 'the About-you step (S8), reached by content');
     ok(await page.locator('#fr-next').isDisabled(), 'Continue waits for the two required answers');
     await page.fill('#fr-you-name', 'Josh');
     ok(await page.locator('#fr-next').isDisabled(), 'one answer alone does not arm it');
     await page.fill('#fr-you-do', 'I run a company that builds AI tools');
-    ok(!(await page.locator('#fr-next').isDisabled()), 'both answers arm Continue; the third stays optional');
+    ok(!(await page.locator('#fr-next').isDisabled()), 'both answers arm Next; the third stays optional');
+    ok(/Next/.test(await page.locator('#fr-next').textContent()), 'the About-you primary is Next (Continue->Next rename)');
     await page.click('#fr-next');
-    // Continue SAVES before it advances (a real PUT on this live server), so
-    // wait for the About-you pane to LEAVE rather than reading the title
-    // mid-flight. Named by content (#fr-you's pane), not by pane number: the old
-    // wait named fr-pane-5, which is Accessibility now, so it resolved at once
-    // and never waited for the transition (kosmos#1801).
-    await waitAboutYouLeft(page);
-    ok(/already have/.test(await page.locator('#fr-title').textContent()), 'the adopt ending');
-    ok(/Take me to my agents/.test(await page.locator('#fr-next').textContent()),
-      'the adopt ending carries the pack\'s single action');
-    console.log('   ...and out the front door, through the adopt ending');
+    // Continue SAVES before it advances (a real PUT), so wait for the About-you
+    // pane to LEAVE rather than reading the head mid-flight.
+    await waitAnchorLeft(page, '#fr-you');
+    // The Your-agents fork (step 9). Against this real machine any of adopt /
+    // create / unknown is legitimate; what must be true is the fork rendered a
+    // real heading and a single onward action.
+    ok((await activeHead(page)).length > 0, 'the Your-agents fork rendered a heading');
+    ok((await page.locator('#fr-next').textContent()).trim().length > 0, 'and a single onward action');
+    console.log('   ...and out the front door, through the fork ending');
     await page.click('#fr-next');
     await page.waitForTimeout(600);
     ok(await page.isHidden('#firstrun'), 'the overlay closed');
@@ -217,7 +180,6 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
       'the board is interactive again');
     ok(fs.existsSync(FLAG), 'the flag was written, so it will not reappear');
-    // ⚠️ The control for that last one: it was NOT there a moment ago.
     ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
     await ctx.close();
   }
@@ -236,17 +198,15 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   }
 
   /* ------------------------------------------------------------------ */
-  console.log('\n3. Back, and Skip, and Escape');
+  console.log('\n3. No Back, no Skip, and Escape');
   {
     const { ctx, page } = await fresh(browser);
-    // #2163: Success -> the pre-flight interstitial -> Welcome -> Model is three
-    // clicks now (the interstitial sits between Success and Welcome).
-    await page.click('#fr-next');   // Success -> interstitial
-    await page.click('#fr-next');   // interstitial -> Welcome
-    await page.click('#fr-next');   // Welcome -> Model
+    // Welcome -> Access -> Automation (two clicks; gates mocked uncheckable so
+    // Next is live).
+    await page.click('#fr-next');   // Welcome -> Access
+    await page.click('#fr-next');   // Access -> Automation
     // ⚠️ NO BACK anywhere (Josh, 2026-08-17): the flow only moves forward.
     ok((await page.locator('#fr-back').count()) === 0, 'no Back button exists on any step');
-    ok(await page.locator('#fr-title').textContent() === 'Choose a model.', 'Continue advanced exactly one step');
     // The visible Skip died by the pack's ruling; Escape is the exit and it
     // carries the same contract (marks seen, so it does not nag).
     ok((await page.locator('#fr-skip').count()) === 0, 'no visible Skip link anywhere (pack decisions table)');
@@ -267,55 +227,39 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   }
 
   /* ------------------------------------------------------------------ */
-  console.log('\n4. The hand-off into making an agent actually lands there');
+  console.log('\n4. The hand-off into making an agent actually lands there (create fork)');
   {
     const { ctx, page } = await fresh(browser, {
       route: ['**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } })],
     });
-    // Success -> Welcome -> Model -> This computer -> (Accessibility) -> About
-    // you -> ending. Advance to About-you by content, so the Accessibility step
-    // #1214 inserted is walked through rather than leaving this a click short
-    // (kosmos#1801).
-    await advanceToAboutYou(page);
+    // Advance to About-you (step 8) by content, then through to the create fork.
+    await advanceToAnchor(page, '#fr-you');
     await page.fill('#fr-you-name', 'Josh');
     await page.fill('#fr-you-do', 'Testing the create path');
     await page.click('#fr-next');
-    await waitAboutYouLeft(page);
-    /* 🛑 THE CREATE ARM PAINTS TWICE AND THIS ASSERTED ON THE FIRST PAINT.
-       It renders "Looking for agents already here" and RETURNS while
-       frFindAgents() reads the disk, then repaints to the real ending. Reading
-       the title the moment the pane hides catches the interim screen.
-       ⭐ THE FAILURE SHAPE SAID SO AND I MISREAD IT ONCE ALREADY: the title and
-       the button failed while the CLICK immediately after them passed and
-       opened the create panel. A screen that is wrong and then right is a
-       race; a screen that is wrong throughout is a wrong screen. */
+    await waitAnchorLeft(page, '#fr-you');
+    /* 🛑 THE CREATE ARM PAINTS TWICE. It renders "Looking for agents already here"
+       and RETURNS while frFindAgents() reads the disk, then repaints to the real
+       ending. Wait past the interim screen before reading the heading. */
     await page.waitForFunction(
-      () => !/Looking for agents/i.test((document.querySelector('#fr-title') || {}).textContent || ''),
-      null, { timeout: 5000 });
-    const endTitle = await page.locator('#fr-title').textContent();
-    const endAction = await page.locator('#fr-next').textContent();
-    // The seen text rides the message: a future failure should say what it saw.
+      () => {
+        const pane = [...document.querySelectorAll('.fr-pane')].find((p) => !p.hidden);
+        const h2 = pane && pane.querySelector('h2');
+        return h2 && !/Looking for agents/i.test(h2.textContent || '');
+      }, null, { timeout: 5000 });
+    const endTitle = await activeHead(page);
+    const endAction = (await page.locator('#fr-next').textContent()).trim();
     ok(/Create your first agent/.test(endTitle), `on the create ending (saw ${JSON.stringify(endTitle)})`);
-    /* Josh, 2026-08-27: the label is "Giddy Up" (kosmos#1204).
-       ⚠️ THIS IS THE SECOND CONSUMER OF THAT STRING AND I MISSED IT. I changed
-       the page and server.test.js, both of which went green, and the 0.5.90 cut
-       aborted here because a browser check pins the same label. A unit suite and
-       a page check are two different populations, and searching one is not
-       searching the other. */
+    /* Josh, 2026-08-27: the create-fork label is "Giddy Up" (kosmos#1204). */
     ok(/Giddy Up/.test(endAction),
       `the create ending carries the pack's single action (saw ${JSON.stringify(endAction)})`);
     await page.click('#fr-next');
     await page.waitForTimeout(800);
     ok(await page.isHidden('#firstrun'), 'the overlay got out of the way');
     ok(await page.isVisible('#panel-create'), 'and the create panel is open');
-    // ⚠️ Not just open — usable. The deep-link version of this shipped with an
-    // empty role list and a dead Continue once.
-    // The picker is the three-radio shape now (pm / list / own since the
-    // write-my-own build): loaded means the radios are visible, which only
-    // the fetch un-hides.
+    // Not just open -- usable. The picker's radios are only un-hidden by the fetch.
     await page.waitForSelector('#roles-list .pick2', { state: 'visible', timeout: 5000 }).catch(() => {});
-    // Four since #1652 added "import an agent from a file" as a fourth .pick2
-    // (pick-import). Exact count, so an unloaded/short role list still reds.
+    // Four since #1652 added "import an agent from a file" as a fourth .pick2.
     ok((await page.locator('#roles-list .pick2:visible').count()) === 4, 'with its roles actually loaded');
     ok(await page.isVisible('#cstep-role'), 'on step one of creating, not somewhere mid-flow');
     await ctx.close();
@@ -338,18 +282,27 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   }
 
   /* ------------------------------------------------------------------ */
-  console.log('\n6. A machine check route that fails says so, rather than showing three ticks');
+  console.log('\n6. The S3 automation gate BLOCKS Next until a measured grant, then unblocks (fail-safe otherwise)');
   {
-    const { ctx, page } = await fresh(browser, {
-      route: ['**/api/machine', (r) => r.abort()],
-    });
-    // The machine step is 4 now: Success -> interstitial (#2163) -> Welcome -> Model -> here (four clicks).
-    await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
-    await page.waitForTimeout(800);
-    const text = await page.locator('#fr-checks').textContent();
-    ok(/could not check/i.test(text), 'it says it could not look: ' + text.slice(0, 60));
-    ok(!/&#10003;|✓/.test(await page.locator('#fr-checks').innerHTML()), 'and draws no ticks');
-    ok(await page.isEnabled('#fr-next'), 'and does not trap anybody there');
+    // A measured NOT-granted reading on either S3 gate must disable Next; the
+    // uncheckable/failure paths must NOT (fail-safe). This is the walk-through's
+    // view of the gate; render-gated-next pins the poll mechanics.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    // Both S3 gates measured-not-granted -> Next disabled on S3.
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    await advanceToAnchor(page, '.s3-gate-row');       // S2 file-access is granted, so we can reach S3
+    await page.waitForTimeout(400);
+    ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is disabled while sleep + tmux are measured-not-granted');
+    // Grant both -> the 1.5s poll re-enables Next.
+    await page.unroute('**/api/sleep-status');
+    await page.unroute('**/api/a11y-status');
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
+    await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 4000 })
+      .catch(() => {});
+    ok(!(await page.locator('#fr-next').isDisabled()), 'granting both gates unlocks Next (the poll re-enables it)');
     await ctx.close();
   }
 
@@ -364,8 +317,6 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     ok(await page.isVisible('#firstrun'), 'it stayed up long enough to say so');
     const said = await page.locator('#fr-forgot').textContent();
     ok(/could not remember/i.test(said), 'and it said it: ' + said.trim().slice(0, 60));
-    // ⚠️ Raised from step ONE, where the message used to be written into a
-    // hidden div and nobody ever saw it.
     ok(await page.locator('#fr-forgot').isVisible(), 'and the sentence is actually on screen');
     ok(await page.locator('#fr-next').textContent() === 'Carry on anyway', 'with a way onward');
     await page.click('#fr-next');
@@ -378,26 +329,15 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   console.log('\n8. A deep link with rubbish in it still renders a step');
   for (const bad of ['3.7', '2.5', '0', '99', 'banana', '-1', '<script>']) {
     const { ctx, page } = await fresh(browser, { query: '?first-run=1&fr-step=' + encodeURIComponent(bad) });
-    // ⚠️ The failure this is for drew a titled, buttoned, COMPLETELY EMPTY
-    // dialog: frGo(3.7) matched no pane, so it hid every one and painted a step
-    // into one it had just hidden. Count the panes that are SHOWING rather than
-    // naming an index range -- the old [1..6] omitted fr-pane-7 (the fleet #1214
-    // moved there), so a clamp onto step 7 read as zero panes showing and this
-    // arm failed (kosmos#1801).
+    /* ⚠️ The failure this is for drew a titled, buttoned, COMPLETELY EMPTY dialog:
+       frGo(3.7) matched no pane, hid every one, and painted a step into one it had
+       just hidden. Count the panes SHOWING rather than naming an index range. */
     const showing = await page.evaluate(() =>
       [...document.querySelectorAll('.fr-pane')].filter((p) => !p.hidden).length);
     ok(showing === 1, `fr-step=${bad} shows exactly one pane (showed ${showing})`);
-    const crumb = await page.locator('#fr-step').textContent();
-    // The crumb's total is (steps minus the intro); read it off the static pane
-    // count rather than pinning "of 5" (index.html builds it as FR_STEPS - 1,
-    // which #1214 made 6). A whole step is "Kosmos setup", or "Step N of TOTAL"
-    // with N in range -- so a stale total OR an out-of-range step both fail.
-    const total = (await paneCount(page)) - 1;
-    const m = /^Step (\d+) of (\d+)$/.exec(crumb || '');
-    ok(crumb === 'Kosmos setup'
-      || !!(m && Number(m[2]) === total && Number(m[1]) >= 1 && Number(m[1]) <= total),
-      `fr-step=${bad} prints a whole step ("${crumb}", of ${total})`);
-    ok((await page.locator('#fr-title').textContent()).trim().length > 0, `fr-step=${bad} has a heading`);
+    // install-flow-9screen: no step crumb anymore; the invariant is that the ONE
+    // showing pane has a non-empty heading (never the empty titled dialog).
+    ok((await activeHead(page)).length > 0, `fr-step=${bad} has a heading`);
     await ctx.close();
   }
 
@@ -409,6 +349,7 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => fails.push('JS ERROR: ' + e.message));
+    await mockGatesUncheckable(page);
     let posts = 0;
     await page.route('**/api/first-run/complete', async (r) => {
       posts += 1;
@@ -418,23 +359,19 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     await page.route('**/api/first-run', (r) => r.fulfill({ json: { done: false, fleetKnown: true, fleetCount: 0, fleetNames: [], path: 'create', subscription: { state: 'connected', plan: 'Claude Max', because: '' } } }));
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
-    // Success -> Welcome -> Model -> This computer -> (Accessibility) -> About
-    // you -> ending. Advance by content (kosmos#1801), so the inserted step is
-    // walked through, not counted past.
-    await advanceToAboutYou(page);
+    await advanceToAnchor(page, '#fr-you');
     await page.fill('#fr-you-name', 'Josh');      // About you gates Continue
     await page.fill('#fr-you-do', 'Testing');
     await page.click('#fr-next');                 // saves, then advances
-    await waitAboutYouLeft(page);
+    await waitAnchorLeft(page, '#fr-you');
     await page.click('#fr-next');                 // starts "Giddy Up"
     await page.waitForTimeout(150);
     await page.keyboard.press('Escape');          // ...and Escape mid-flight
     await page.keyboard.press('Escape');
     await page.waitForTimeout(2200);
     ok(posts === 1, `exactly one completion was written (saw ${posts})`);
-    // ⚠️ And the callback that won is the one they CHOSE. Two completions ran
-    // both callbacks, so openCreate() opened the panel and showTab('agents')
-    // took it straight back off.
+    // ⚠️ And the callback that won is the one they CHOSE. Two completions ran both
+    // callbacks, so openCreate() opened the panel and showTab('agents') took it off.
     ok(await page.isVisible('#panel-create'),
       'the create panel they asked for survived, rather than being closed by a second callback');
     await ctx.close();
@@ -448,8 +385,9 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 } });
     const page = await ctx.newPage();
     page.on('pageerror', (e) => fails.push('JS ERROR: ' + e.message));
-    // Never fulfilled. The overlay must degrade into its could-not-remember
-    // path rather than sitting disabled over an inert page forever.
+    await mockGatesUncheckable(page);
+    // Never fulfilled. The overlay must degrade into its could-not-remember path
+    // rather than sitting disabled over an inert page forever.
     await page.route('**/api/first-run/complete', () => {});
     await page.goto(BASE + '/', { waitUntil: 'networkidle' });
     await page.waitForTimeout(400);
@@ -469,26 +407,15 @@ async function waitAboutYouLeft(page, timeout = 5000) {
   console.log('\n11. The keyboard cannot get out of the dialog, in either direction');
   {
     const { ctx, page } = await fresh(browser);
-    // ⚠️ The two NEWEST safety mechanisms in this branch -- a Tab-wrap trap and
-    // a focusin backstop -- had no coverage of any kind. They are pure DOM
-    // behaviour, so this harness is the only thing that can exercise them.
     const inside = () => page.evaluate(() =>
       document.querySelector('#firstrun').contains(document.activeElement));
     const where = () => page.evaluate(() => (document.activeElement
       && (document.activeElement.id || document.activeElement.tagName)) || 'none');
 
-    /**
-     * ⚠️ `inert` IS TURNED OFF FIRST, AND WITHOUT THAT THIS WHOLE SECTION IS
-     * VACUOUS. Measured: with both focus mechanisms deliberately disabled, every
-     * assertion below still passed — because Chromium implements `inert`, and
-     * `inert` alone keeps Tab inside. The section was testing the browser, not
-     * the code.
-     *
-     * The Tab-wrap and the focusin backstop exist precisely FOR engines that do
-     * not implement `inert`, where `el.inert = true` is a property nobody reads.
-     * Clearing the attributes here reproduces exactly that machine, so what is
-     * measured below is the fallback rather than the thing it is a fallback for.
-     */
+    /* ⚠️ `inert` IS TURNED OFF FIRST, or this whole section is vacuous: Chromium
+       implements `inert`, which alone keeps Tab inside, so the Tab-wrap + focusin
+       backstop (the fallback FOR engines without inert) would be untested. Clearing
+       inert reproduces that machine. */
     await page.evaluate(() => {
       document.querySelectorAll('body > *').forEach((el) => { el.inert = false; el.removeAttribute('inert'); });
     });
@@ -497,7 +424,6 @@ async function waitAboutYouLeft(page, timeout = 5000) {
 
     ok(await inside(), 'focus starts inside the dialog (on ' + await where() + ')');
 
-    // Forward, well past the number of stops on any step.
     let escaped = null;
     for (let i = 0; i < 25 && escaped === null; i += 1) {
       await page.keyboard.press('Tab');
@@ -505,7 +431,6 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     }
     ok(escaped === null, escaped || 'Tab never leaves the dialog');
 
-    // And backward, which is the direction the focusin-only version could not do.
     escaped = null;
     for (let i = 0; i < 25 && escaped === null; i += 1) {
       await page.keyboard.press('Shift+Tab');
@@ -513,32 +438,29 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     }
     ok(escaped === null, escaped || 'Shift+Tab never leaves the dialog');
 
-    /**
-     * ⚠️ AND IT IS NOT A DEAD END EITHER. The focusin-only version pulled every
-     * escape back to the heading, so Shift+Tab could never REACH the action
-     * bar -- contained, but unusable. This asserts the buttons are actually
-     * reachable backwards.
-     */
+    /* ⚠️ AND NOT A DEAD END: the focusin-only version pulled every escape back to
+       the heading, so Shift+Tab could never REACH the action bar. Focus the active
+       pane's own <h2> (the shell #fr-title is retired) and prove the primary is
+       reachable backwards. */
     const seen = new Set();
-    await page.evaluate(() => document.getElementById('fr-title').focus());
+    await page.evaluate(() => {
+      const pane = [...document.querySelectorAll('.fr-pane')].find((p) => !p.hidden);
+      const h2 = pane && pane.querySelector('h2');
+      if (h2) h2.focus();
+    });
     for (let i = 0; i < 8; i += 1) { await page.keyboard.press('Shift+Tab'); seen.add(await where()); }
     ok(seen.has('fr-next'), 'Shift+Tab reaches the primary button (saw: ' + [...seen].join(', ') + ')');
-    // The way out is Escape; prove it WORKS from keyboard-land rather than
-    // asserting something tab-reachable that line above already proved.
     await page.keyboard.press('Escape');
     await page.waitForTimeout(500);
     ok(await page.isHidden('#firstrun'), 'Escape closes setup from anywhere in the trap');
 
-    // Every step, because the button set changes between them. The range is the
-    // steps after the intro (2..N), read from the pane count rather than a
-    // literal [2..6] that omitted the fleet step #1214 added -- so "every step"
-    // now actually means every step (kosmos#1801).
+    // Every step, because the button set changes between them. 1..N from the pane
+    // count (not a literal), so "every step" means every step even after a
+    // renumber. Gates mocked uncheckable so the gated steps are navigable/inert-safe.
     const lastStep = await paneCount(page);
-    for (let step = 2; step <= lastStep; step += 1) {
+    for (let step = 1; step <= lastStep; step += 1) {
       await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
       await page.waitForTimeout(500);
-      // Same reason as above: a reload restores inert, which would make the rest
-      // of this loop measure the browser again.
       await page.evaluate(() => {
         document.querySelectorAll('body > *').forEach((el) => { el.inert = false; el.removeAttribute('inert'); });
       });
@@ -552,28 +474,10 @@ async function waitAboutYouLeft(page, timeout = 5000) {
     await ctx.close();
   }
 
-  /* ------------------------------------------------------------------ */
-  console.log('\n12. A machine-check body with nothing in it is not an empty screen');
-  {
-    for (const [what, body] of [['null', null], ['{}', {}], ['[]', []], ['no checks', { attention: 0, unknown: 0 }]]) {
-      const { ctx, page } = await fresh(browser, {
-        route: ['**/api/machine', (r) => r.fulfill({ json: body })],
-      });
-      // The machine step is 4 now: Success -> interstitial (#2163) -> Welcome -> Model -> here (four clicks).
-      await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next'); await page.click('#fr-next');
-      await page.waitForTimeout(700);
-      const text = (await page.locator('#fr-checks').textContent()).trim();
-      ok(text.length > 0, `a ${what} body still says something (${text.slice(0, 40)})`);
-      ok(/could not check/i.test(text), `a ${what} body says we could not check, not nothing`);
-      ok(await page.isEnabled('#fr-next'), `a ${what} body does not strand anybody`);
-      await ctx.close();
-    }
-  }
-
   } catch (e) {
-    // Named as a THROW, not folded in as an ordinary ok() failure: a section
-    // that died tells you nothing about the assertions it never reached, and
-    // a reader must be able to tell "this went red" from "this stopped".
+    // Named as a THROW, not folded into an ordinary ok(): a section that died
+    // tells you nothing about the assertions it never reached, and a reader must
+    // be able to tell "this went red" from "this stopped".
     fails.push('THREW, so everything after it was never asked: ' + ((e && e.message) || e));
   } finally {
     await browser.close().catch(() => {});
