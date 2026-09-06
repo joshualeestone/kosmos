@@ -63,14 +63,29 @@ test('the loader never finishes into a checkmark on either ending -- neither is 
   assert.match(HTML, /stop: function \(\) \{ stopped = 1; \}/, 'the stop() capability this file adds on top of the ported source is gone');
 });
 
-test('a real link is offered, wired to the actual address, never auto-navigated', () => {
-  assert.match(HTML, /<a class="go" id="go" href="#">Open it anyway<\/a>/, 'the taken-branch link is gone');
-  assert.match(HTML, /getElementById\("go"\)\.href = base \+ "\/"/, 'the link is never pointed at the real address');
-  // The refusal to auto-navigate is the actual safety property (the
-  // installer's own BOARD_OURS gate makes the same call) and must survive:
-  // only a real person's click reaches base+"/" in the taken branch.
+test('#2363: the taken branch offers NO browser link, and never points anything at the board', () => {
+  // #2073 made Kosmos app-only (no browser surface). The old taken-branch "Open it
+  // anyway" link was then vestigial -- a click landed cookie-less on a 403/empty
+  // board, or on the FOREIGN board the copy itself calls "often THEIRS, not yours".
+  // #2363 removed it: the branch points at the app (Applications), not a dead URL.
+  // 🔑 THE RULE, NOT A SPELLING: the taken div must carry NO anchor at all. Pinning
+  // the exact old strings (below) documents what was removed, but a re-add in a NEW
+  // shape (a different id/text, a static href) would slip past those; the taken div
+  // is a small, fixed markup block that legitimately needs zero <a> tags, so guard
+  // the class (no browser link) rather than only the instance.
+  const takenDiv = HTML.slice(HTML.indexOf('<div id="taken">'), HTML.indexOf('</div>', HTML.indexOf('<div id="taken">')) + 6);
+  assert.doesNotMatch(takenDiv, /<a\b/i, 'the taken branch carries an anchor tag -- under #2073 (app-only) it must offer NO browser link, in ANY shape');   // /i: an uppercase <A ...> re-add must not false-pass (the fleet's most-repeated false-zero)
+  // The exact prior-shipped shape, pinned so a straight revert is caught by name too:
+  assert.doesNotMatch(HTML, /Open it anyway/, 'the vestigial "Open it anyway" browser link is back on the taken branch (#2073 app-only: it must not offer a board link)');
+  assert.doesNotMatch(HTML, /id="go"/, 'the #go link element is back -- the taken branch must not carry a browser board link under #2073');
+  assert.doesNotMatch(HTML, /getElementById\("go"\)\.href = base \+ "\/"/, 'the taken branch points a link at the bare board address again (removed by #2363)');
+  // The app IS the dashboard now: with the browser link gone, the taken branch's
+  // pointer to the user's own Kosmos (the muted "in Applications" line) must remain.
+  assert.match(HTML, /Your own copy of Kosmos is in Applications/, 'the taken branch no longer points the user at their own Kosmos app');
+  // The refusal to auto-navigate is the standing safety property and must survive:
+  // this page never sends anyone onto a board on its own.
   const takenBranch = HTML.slice(HTML.indexOf('if (first) {'), HTML.indexOf('return;\n      }\n      settle();'));
-  assert.doesNotMatch(takenBranch, /location\.replace/, 'the taken branch navigates on its own -- the whole point was that only a click should');
+  assert.doesNotMatch(takenBranch, /location\.replace/, 'the taken branch navigates on its own -- this page must never send anyone onto a board');
 });
 
 test('the taken branch is honest that the board answering is often someone else\'s, not a rare exception', () => {

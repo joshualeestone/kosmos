@@ -32,9 +32,8 @@
   .bar.settled>i{animation:none;width:100%;margin-left:0}
   #steps{font-variant-numeric:tabular-nums}
   #late,#taken{display:none}
-  .go{display:inline-block;margin-top:.25rem;padding:.6em 1.4em;border-radius:8px;background:#d6a62e;color:#1c1b19;
-    font-weight:600;text-decoration:none}
-  .go:hover{background:#e3b341}
+  /* #2363: the .go button rules were dropped with the taken-branch manual link they
+     styled (the only class="go" consumer, verified repo-wide) - dead under #2073. */
   @media (prefers-color-scheme:dark){body{background:#151412;color:#ece9e2}.muted{color:#a29e95}.bar{background:#3a3833}}
   @media (prefers-reduced-motion:reduce){.bar>i{animation:none}}
 </style></head>
@@ -104,9 +103,26 @@
          A real per-account ownership check (the isOwnAccount concept #664
          already carries server-side) is the real fix and is not this
          page's to build alone; it needs an endpoint this standalone file
-         does not have. Tracked separately rather than guessed at here. -->
+         does not have. Tracked separately rather than guessed at here.
+         🛑 SUPERSEDED for the LINK, kept for the RECORD (#2363, under #2073).
+         #867's "put a link to go ahead and open Kosmos" and its click-is-a-safe-act
+         argument no longer apply: #2073 made Kosmos app-only (no browser surface), so
+         a manual browser link here lands cookie-less on a 403/empty board or on that
+         FOREIGN board - never the reader's dashboard, which is the native app. The
+         link was removed by #2363; do NOT re-add it on the strength of #867 above.
+         What SURVIVES #867 is the still-true half: this page never navigates on its
+         own. The pointer to the reader's own Kosmos is the muted "in Applications"
+         line below. -->
     <p>Something is already running on this computer at the address Kosmos uses, so this page will not jump to it on its own. On a Mac with more than one person's account, this is often THEIRS, not yours.</p>
-    <p><a class="go" id="go" href="#">Open it anyway</a></p>
+    <!-- #2363: the manual browser link that used to sit here (a bare-URL anchor to
+         base+"/") is REMOVED. Under #2073 (app-only, no browser surface) it was
+         vestigial: clicking it lands cookie-less on a 403/empty board, or on the
+         FOREIGN board this very copy says is "often THEIRS, not yours" -- either way
+         not the user's dashboard. Their dashboard is the native app; the muted line
+         below already points there ("in Applications") and gives the safe-backout
+         for a wrong guess, so dropping the dead link leaves the branch complete
+         without a rewrite. (The wording of the old link is deliberately NOT quoted
+         here -- the install-page guard greps this file to prove the link is gone.) -->
     <p class="muted">If it is not yours, close it without changing anything. Your own copy of Kosmos is in Applications.</p>
   </div>
 </main>
@@ -362,7 +378,10 @@
         // A removal is two changes when a sentence has been split in two.
         document.getElementById("shape").style.display = "none";
         document.getElementById("hint").style.display = "none";
-        document.getElementById("go").href = base + "/";
+        // #2363: the manual browser link is gone (see the taken-branch markup), so
+        // there is no #go element to point at the bare board URL. Under #2073
+        // (app-only) that link was vestigial; the branch now points at the app, not
+        // a browser address, and this page never sends anyone onto a board.
         show("taken");
         return;
       }
