@@ -61,3 +61,30 @@ That un-collapsing the header into the consolidated grid's auto-row run does not
 tuned 100vh / 38-row layout in a way structural checks miss. The header is an auto-height full-width top
 row and the content row is `minmax(200px,1fr)` (flexes), so the math should absorb it -- but this is the
 part most wanting a headed eyeball.
+
+## Challenge-loop iteration 1 resolutions
+- **W1 (stale comments in the edited region)** FIXED: the "everything inside .apphead is
+  display:none / header 4px tall with every child hidden" comments were true of the OLD
+  collapsed header and false now; rewritten as history with a #2282 pointer, and the
+  margin:0-keeps-the-band-away reasoning marked as still-valid.
+- **W2 (notice slots grow/misalign the flex header when a notice shows)** FIXED: removed the
+  consolidated-only notice-slot `margin-bottom` rules. They were for the old collapsed-header
+  design; the header now has its own border-bottom and the notices ride inside it as in tab
+  view (consistent). A shown notice no longer grows the flex row. (Structural check has no
+  notice fixture, so this was review-only-catchable; noted for the headed pass to confirm the
+  notice reads right inline in the bar.)
+- **W3 (#checked "last refreshed" stamp now shows in the consolidated right cluster; not in
+  Mona's schematic mock)** DECIDED-KEEP: it shows in the tab/grid header too, and Josh's stated
+  goal is "matches the grid view" (consistency across views), so keeping it is MORE faithful to
+  the goal than matching the mock's schematic omission. Headed pass can hide it if it clutters.
+- **NIT1 (dead fold-a rule for .railme-theme/.railme-lay)** FIXED: trimmed (they are hidden in
+  all consolidated now); the fold-a rule folds only the name (.railme-b).
+- **NIT2 (.worldsw dropdown menu could be clipped by the consolidated `overflow-x:hidden`)**
+  HEADED-PASS ITEM: low risk, only multi-world installs; confirm the switcher menu is not clipped
+  in the headed pass.
+
+## Headed-visual-pass checklist (before this ships in a cut; it is NOT in 6.38)
+- The consolidated top bar reads right (left cluster + right cluster; grid 100vh row math OK).
+- A shown update/offline notice reads right inside the bar (W2).
+- #checked stamp placement in the consolidated right cluster (W3) -- keep or hide.
+- .worldsw dropdown menu is not clipped (NIT2).
