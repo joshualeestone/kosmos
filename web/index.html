@@ -7894,12 +7894,23 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         .s3-title{font:600 .75rem var(--font-ui,-apple-system,sans-serif);color:#3a3a38;margin-left:8px}
         .s3-body{padding:12px 14px}
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
-        .s3-mtxt{font:600 .75rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
-        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.6875rem}
+        .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
+        .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.625rem}
         .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
         .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
         .s3-step-cap{font:600 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.1em;text-transform:uppercase;color:var(--k-ink-3,#8a857c);margin:2px 0 6px}
         .s3-step-cap .s3-standin{color:var(--attn,#b3261e)}
+        /* #9 (0.6.39): the two numbered steps read gigantic + over-spaced. The
+           shared eyebrow/headline/intro are left alone (S4 uses the same and Josh
+           liked it); this brings down the STEP text and tightens the vertical
+           rhythm so the two steps sit comfortably without dominating. Scoped to
+           #fr-pane-3 so no other screen moves. Mona confirms the exact scale on
+           review. */
+        #fr-pane-3 .s3-gate-lbl{font-size:.75rem}
+        #fr-pane-3 .s3-win{margin:0 0 5px}
+        #fr-pane-3 .s3-gate-row{padding:8px 12px;margin:0 0 12px}
+        #fr-pane-3 .s3-step-cap{margin:0 0 4px}
+        #fr-pane-3 .s3-body{padding:10px 12px}
         /* gate rows (same contract as S2): red "Needs Activated" -> data-granted -> green "Activated" */
         .s3-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px;margin:0 0 10px}
