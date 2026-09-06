@@ -192,6 +192,11 @@ const BLOCK = [
   'your reply across for you: `kosmos post <project> "..."` for the room,',
   '`kosmos msg <name> "..."` for one person.',
   '',
+  '**You can also react to a room post** with `kosmos react <project> <postId>',
+  '<emoji>`, the way a thumbs up or a fire works in a chat. Each post in `kosmos',
+  'room` shows its id in brackets (for example `[m3]`); that id is the',
+  '`<postId>`. Reacting again with the same emoji takes it back.',
+  '',
   '**The same applies to the four events above.** A Stopped nobody receives is',
   'not a Stopped.',
   '',
@@ -430,8 +435,22 @@ function block() {
  *     NOT_TRIED). Where it could not, the path is absent; the copy covers that
  *     by telling the agent to ask which folder rather than guess, so a missing
  *     path degrades to a question, not a made-up path.
+ *
+ *   9. kosmos#2255 (agent-delivery half). The operator can react to a room post
+ *     with an emoji on the board; the agent surface (`kosmos react <project>
+ *     <postId> <emoji>`, and post ids now printed in `kosmos room`) landed with
+ *     no line telling an agent it exists. One line added, in the room-answering
+ *     section beside `kosmos post`, where an agent reading about how to reach a
+ *     room will find it.
+ *     ⚠️ WEAKEST PREMISE, NAMED: this is an edit INSIDE an existing section, not
+ *     a new heading, so `missingFrom` does not re-add it to agents already built
+ *     (the version 5/6/7/8 delivery lesson, accepted here on purpose). It is
+ *     acceptable because the capability is an enhancement, `kosmos react` works
+ *     whether or not an agent was told, and the post ids it needs are surfaced
+ *     at RUNTIME in every agent's `kosmos room` (not gated on this block), so an
+ *     existing agent can still discover and use it. A new agent gets the line.
  */
-const DOCTRINE_VERSION = 8;
+const DOCTRINE_VERSION = 9;
 
 /**
  * The block as named sections (#539): the `##` preamble first, then each

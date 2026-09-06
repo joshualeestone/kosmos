@@ -2561,10 +2561,20 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
     const posted = await post(`/api/project/${project.id}/room`, { text: 'trial length is 14 days' });
     assert.equal(posted.status, 200, posted.body);
     res = await req(`/api/project/${project.id}/room?as=text`);
-    assert.match(res.body, /\d\d:\d\d  operator -> zeta: trial length is 14 days/);
+    // #2255 (agent-delivery): the row now carries the post id in brackets before
+    // the sender, so an agent reading `kosmos room` can name which post to react
+    // to (`kosmos react <project> <id> <emoji>`).
+    assert.match(res.body, /\d\d:\d\d  \[m\d+\] operator -> zeta: trial length is 14 days/);
     // The JSON shape is untouched by the text arm.
     const asJson = await req(`/api/project/${project.id}/room`);
-    assert.equal(JSON.parse(asJson.body).ok, true);
+    const jrows = JSON.parse(asJson.body);
+    assert.equal(jrows.ok, true);
+    // The bracketed id in the text arm is the SAME id the JSON carries, or an
+    // agent would copy a token the react route cannot resolve.
+    const lastPost = jrows.rows.filter((r) => r.kind === 'post').slice(-1)[0];
+    assert.ok(lastPost && lastPost.id, 'the post did not land with an id');
+    assert.ok(res.body.includes('[' + lastPost.id + '] operator -> zeta: trial length is 14 days'),
+      'the text arm did not surface the post id an agent reacts against');
   });
 });
 
@@ -2587,7 +2597,7 @@ test('#2239: a multi-paragraph post stays ONE line per row in the text view, tho
       'the store dropped the paragraph breaks the HTML room needs');
     // The text arm flattens: one row line, no bare continuation line.
     const text = (await req(`/api/project/${project.id}/room?as=text`)).body;
-    assert.match(text, /\d\d:\d\d  operator -> zeta: Heading A first paragraph\. A second paragraph\./,
+    assert.match(text, /\d\d:\d\d  \[m\d+\] operator -> zeta: Heading A first paragraph\. A second paragraph\./,
       'the text row is not one flattened line');
     assert.ok(!/\n\s*A (first|second) paragraph/.test(text),
       'a paragraph spilled onto its own gutterless line in the text view');
@@ -2697,7 +2707,8 @@ test('#1895: the room text view renders a broadcast as "the room" in the operato
       const line = body.split('\n').find((l) => l.includes('to the whole room'));
       assert.ok(line, 'the appended broadcast did not render at all');
       // The empty-array fix: names the room, not "-> :". Reverting `&& m.to.length` reds this.
-      assert.match(line, /^\d\d:\d\d {2}splinter2 -> the room: to the whole room$/,
+      // #2255: the row now carries the post id in brackets before the sender.
+      assert.match(line, /^\d\d:\d\d {2}\[room-1895-broadcast\] splinter2 -> the room: to the whole room$/,
         'a to:[] broadcast must render "-> the room:", not the "splinter2 -> :" bug');
       // The zone wiring: rendered through roomClock in the operator's zone (04:50),
       // not the raw UTC slice (19:50). Reverting the roomClock wiring reds these.
