@@ -122,11 +122,17 @@ function entryFor(scriptPath, opts) {
  * if it is cmd.exe only. A backslash is excluded (the ordinary Windows
  * separator; the posix `\\` would refuse every real path). Type-safe: a
  * non-string is unsafe rather than throwing on `.test`.
+ *
+ * A raw CR/LF is refused on BOTH platforms: cmd.exe parses a command line
+ * line-by-line before quote state is considered, so an embedded newline could
+ * break out of even a quoted argument, and in sh it would likewise start a new
+ * command; no legitimate hook path contains one, so refusing it (degrading to
+ * scraping) is squarely the "over-refuse, never under-refuse" direction.
  */
 function unsafeForCommand(s, plat) {
   if (typeof s !== 'string') return true;
-  if (plat === 'win32') return /["%$`]/.test(s);
-  return /["\\$`]/.test(s);
+  if (plat === 'win32') return /["%$`\r\n]/.test(s);
+  return /["\\$`\r\n]/.test(s);
 }
 
 function entryIsOurs(entry) {

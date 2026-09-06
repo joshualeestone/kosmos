@@ -150,7 +150,12 @@ function buildBody(report, fromPane) {
  *  primary port, every other real uid -> a per-uid offset. A platform with no
  *  uid (win32 is -1) has no account to derive from and takes the primary port.
  *  In the actual win32 deployment this fallback is never taken -- uid is -1 and
- *  KOSMOS_PORT is baked -- so it is a documented default, not the hot path. */
+ *  KOSMOS_PORT is baked -- so it is a documented default, not the hot path.
+ *  NOTE a deliberate divergence: the CLI uses ${KOSMOS_PORT:-...} verbatim with
+ *  NO format check, whereas this requires a bare integer and otherwise falls to
+ *  the derivation -- a malformed port would build an unusable URL, and on win32
+ *  (single user) the derived fallback is the primary port, so failing to it is
+ *  safer than posting to http://127.0.0.1:<garbage>. */
 function resolvePort(env, uid) {
   const raw = env && env.KOSMOS_PORT;
   if (raw != null && /^\d+$/.test(String(raw))) return Number(raw);

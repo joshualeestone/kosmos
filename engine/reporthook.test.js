@@ -289,6 +289,10 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
     'the Program Files (x86) path must be allowed');
   assert.equal(reporthook.unsafeForCommand('C:\\a&b^c|d<e>f.js', 'win32'), false,
     'quote-protected cmd.exe metacharacters must not be refused');
+  // A raw CR/LF is refused on BOTH platforms (line-oriented parsing can break out
+  // of even a quoted argument); no legitimate hook path contains one.
+  assert.equal(reporthook.unsafeForCommand('C:\\a\nb.js', 'win32'), true, 'a newline must be refused on win32');
+  assert.equal(reporthook.unsafeForCommand('/a/b\rc.sh', 'linux'), true, 'a carriage return must be refused in sh');
   assert.equal(reporthook.unsafeForCommand(null, 'win32'), true, 'a non-string is unsafe, not a throw');
 });
 
