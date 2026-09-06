@@ -48,11 +48,10 @@ const KNOWN_STALE = [
   { check: 'render-a11y-copy-1940.js', id: 'fr-a11y-open' },
   { check: 'render-a11y-gate-2125.js', id: 'fr-a11y-open' },
   { check: 'render-sleep-button.js', id: 'fr-machine-msg' },
-  /* The 6->9 rework also retired the #2163 preflight interstitial. */
-  { check: 'render-preflight-2163.js', id: 'fr-step' },
-  /* click-first-run.js was REWRITTEN for the 9-screen flow (it no longer asks for
-     #fr-checks / #fr-segs / #fr-step except as absence assertions, which are
-     exempt), so its stale entries were removed rather than kept. */
+  /* The 6->9 rework retired the #2163 preflight interstitial (render-preflight-2163
+     is deleted, not just stale). click-first-run.js was REWRITTEN for the 9-screen
+     flow (it no longer asks for #fr-checks / #fr-segs / #fr-step except as absence
+     assertions, which are exempt), so its stale entries were removed. */
 ];
 
 /* The ids a check asks for. Comments are stripped first (a comment quoting

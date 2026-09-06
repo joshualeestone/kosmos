@@ -131,8 +131,11 @@ A non-technical tester must not be alarmed by the macOS permission gauntlet, and
 the accessibility gate must actually gate.
 
 **Automatable (existing browser-checks):**
-- `render-preflight-2163.js` - the pre-flight "you're going to get warned by these
-  sorts of things" interstitial renders and its Continue leads into the flow.
+- install-flow-9screen: the standalone pre-flight "you're going to get warned"
+  interstitial (#2163) is RETIRED - its expectations copy is folded into S2 (Access,
+  "when prompted click Allow") and S4 (Notifications, background-activity). The
+  permission behaviour is verified by the S2/S3 gate checks (click-first-run.js +
+  render-gated-next).
 - `render-a11y-gate-2125.js` - the Accessibility Continue-gate is fail-safe and
   positive-only (blocks Continue only on a definitive not-trusted reading; a
   browser with no native reading does NOT block).
@@ -181,8 +184,10 @@ If there is time for only one pass, do these five, on the **adopt** shape:
 
 1. First run walks to the board (Area 2, operator).
 2. "Getting started" is on the Projects tab with its room note (Area 1, #2279).
-3. The permission preflight + a11y gate behave (Area 3: `render-preflight-2163.js`
-   + `render-a11y-gate-2125.js`, plus the real dialogs if on fresh macOS).
+3. The S2/S3 permission gates behave (Area 3: `click-first-run.js` + the S3-gate
+   checks, plus the real dialogs if on fresh macOS). (install-flow-9screen: the
+   standalone preflight + a11y-step checks were retired/restated into the S2/S3
+   gates.)
 4. The found list shows the real fleet and an add lands on the board (Area 4).
 5. No console errors on the served board through the whole walk.
 
