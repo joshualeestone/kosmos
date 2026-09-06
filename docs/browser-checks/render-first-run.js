@@ -40,60 +40,12 @@ fs.mkdirSync(OUT, { recursive: true });
  * the product actually emits, by construction rather than by anyone remembering
  * to update two files at once.
  */
-const machineEngine = require('../../engine/machine');
-
-
-/* App-location fixtures for the return step and the machine payloads, each GENERATED
-   by the real engine against a scratch pair of folders rather than
-   hand-written, so the wording on the shots cannot drift from the engine's
-   (the same anti-drift property the MIXED fixture has, one step removed).
-   The dirs are built once and removed at exit. */
-const APPFIX = (() => {
-  const os = require('node:os');
-  const withApp = fs.mkdtempSync(path.join(os.tmpdir(), 'frshot-app-'));
-  fs.mkdirSync(path.join(withApp, 'Kosmos.app'));
-  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'frshot-empty-'));
-  const sealed = fs.mkdtempSync(path.join(os.tmpdir(), 'frshot-sealed-'));
-  fs.chmodSync(sealed, 0o000);
-  process.on('exit', () => {
-    try { fs.chmodSync(sealed, 0o755); } catch { /* gone */ }
-    for (const d of [withApp, empty, sealed]) {
-      try { fs.rmSync(d, { recursive: true, force: true }); } catch { /* gone */ }
-    }
-  });
-  return {
-    sys: [withApp, empty],
-    home: [empty, withApp],
-    none: [empty, empty],
-    blind: [path.join(sealed, 'Applications'), empty],
-  };
-})();
-
-const CLEAR_INPUTS = {
-  pmset: ['AC Power:', ' lidwake              1', ' sleep                0', ' disksleep            10', ''].join('\n'),
-  claudeBin: '/bin/sh',
-  tmuxBin: '/bin/sh',
-  runner: () => ({ ok: true, stdout: 'com.kosmos.agent.x' }),
-};
-
-const appFixture = (dirs, wantState, label) => {
-  // (Root note: mode-000 does not seal for root, so the blind fixture reads
-  // attention instead of unknown under sudo -- the throw below is loud but
-  // the cause is the runner's uid, not the engine.)
-  const got = machineEngine.check({ ...CLEAR_INPUTS, appDirs: dirs });
-  // Its own field now, never one of `checks`: folded into the rows, step 2
-  // counted it and step 4 captioned it as a reason an agent may not run.
-  const row = got.appLocation;
-  if (!row || row.state !== wantState) {
-    throw new Error(`the ${label} app fixture reads ${row && row.state}, wanted ${wantState}`);
-  }
-  return got;
-};
-const MACHINE_APP_SYS = appFixture(APPFIX.sys, 'ok', 'system');
-const MACHINE_APP_HOME = appFixture(APPFIX.home, 'ok', 'home');
-const MACHINE_APP_NONE = appFixture(APPFIX.none, 'attention', 'missing');
-const MACHINE_APP_BLIND = appFixture(APPFIX.blind, 'unknown', 'blind');
-
+/* #12 (0.6.39): the app-location fixtures (APPFIX, CLEAR_INPUTS, appFixture,
+   MACHINE_APP_SYS/HOME/NONE/BLIND) and the engine/machine require were removed.
+   They existed only to drive the Success screen's app-location look across four
+   machine states; that reveal subsystem is gone and the Success screen is now
+   fixed static markup with a single deterministic shot below. The engine module
+   is still exercised by its own engine/*.test.js. */
 
 const FLEET_REAL = null; // let the real server answer
 // Every shot PINS its /api/first-run payload: without this the action bar
@@ -142,13 +94,11 @@ const SHOTS = [
   // RETIRED the standalone machine-check screen (firstrun-4-checks-*). stepForAnchor
   // moves each shot with its pane (kosmos#1801) -- the names describe content, so a
   // renumber can never capture the wrong pane under a shot's name.
-  { name: 'firstrun-success-system', at: '#fr-return', machine: MACHINE_APP_SYS, first: FLEET_RETURN },
-  { name: 'firstrun-success-home', at: '#fr-return', machine: MACHINE_APP_HOME, first: FLEET_RETURN },
-  { name: 'firstrun-success-missing', at: '#fr-return', machine: MACHINE_APP_NONE, first: FLEET_RETURN },
-  { name: 'firstrun-success-unsure', at: '#fr-return', machine: MACHINE_APP_BLIND, first: FLEET_RETURN },
-  // The look STILL IN PROGRESS: machine: 'hang' stalls the route so the
-  // placeholder is what is measured and photographed.
-  { name: 'firstrun-success-checking', at: '#fr-return', machine: 'hang', first: FLEET_RETURN },
+  // #12 (0.6.39): Success is now a fixed static screen (no app-location look, no
+  // reveal, no machine dependency), so it collapses from five machine-state shots
+  // to ONE deterministic shot anchored on #fr-success in fr-pane-7. `first:
+  // FLEET_RETURN` still pins the action bar so the primary is a stable "Next".
+  { name: 'firstrun-success', at: '#fr-success', first: FLEET_RETURN },
   { name: 'firstrun-welcome', at: '#fr-privacy-staged' },
   { name: 'firstrun-model-connected', at: '#fr-sub', first: FLEET_ADOPT },
   { name: 'firstrun-model-none', at: '#fr-sub', first: SUB_NONE },
@@ -402,110 +352,49 @@ async function look(page, name) {
       // #fr-checks) is RETIRED; its sleep/tmux concerns are the S3 gates, covered by
       // render-gated-next. No machine-check shot or handler here anymore.
 
-      /* Each Success shot asserts the row it claims to depict, read from the
-         fixture the engine generated -- and the drag-not-Keep-in-Dock guard
-         is asserted on every one, because the Dock paragraph is static copy
-         and any state could regress it. */
-      if (shot.name.startsWith('firstrun-success')) {
-        // install-flow-9screen: Success is step 7 now (was step 1), and its primary
-        // is "Next" (the old step-1 "Set up Kosmos" that led into setup is gone --
-        // Success no longer opens the flow).
-        const introLabel = await page.evaluate(() => (document.getElementById('fr-next') || {}).textContent || '');
-        if (!/next/i.test(introLabel)) {
-          problems.push(`${shot.name} [${scheme}]: the Success primary drifted ("${introLabel}")`);
-        }
-      }
-      if (shot.name === 'firstrun-success-checking') {
-        const text = await page.evaluate(() => document.getElementById('fr-return').textContent);
-        const cls = await page.evaluate(() => {
-          const el = document.querySelector('#fr-return-row .fr-check');
-          return el ? el.className : null;
+      /* #12 (0.6.39): the Success screen is fixed static markup now -- no
+         app-location look, no reveal button, no machine dependency. So the one
+         success shot asserts the static content directly: the verbatim copy, the
+         real app icon in the dock tile, the "Next" primary, and the ABSENCE of
+         every piece of the removed reveal subsystem. The removed-id checks use
+         the !document.getElementById(...) absence form so the #758 selectors gate
+         reads them as absence assertions, not id requests. */
+      if (shot.name === 'firstrun-success') {
+        const info = await page.evaluate(() => {
+          const pane = document.getElementById('fr-pane-7');
+          const h2 = pane && pane.querySelector('h2');
+          return {
+            text: pane ? pane.textContent : '',
+            headline: h2 ? h2.textContent.trim() : '',
+            hasIcon: !!(pane && pane.querySelector('img.fc-k')),
+            noShowWhere: !document.getElementById('fr-s7-showwhere') && !document.getElementById('fr-reveal'),
+            noReturnRegion: !document.getElementById('fr-return'),
+            primary: (document.getElementById('fr-next') || {}).textContent || '',
+          };
         });
-        if (!/Checking where the Kosmos icon is/.test(text) || cls !== 'fr-check checking') {
-          problems.push(`${shot.name} [${scheme}]: the checking placeholder is not what rendered (${cls})`);
+        if (info.headline !== 'Kosmos is installed and configured.') {
+          problems.push(`${shot.name} [${scheme}]: the headline is "${info.headline}", not the ruled copy`);
         }
-        if (/right now/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the could-not-ask wording appeared while the route never answered`);
+        if (!/Kosmos is now in your applications folder, and you will see Kosmos in your dock\./.test(info.text)) {
+          problems.push(`${shot.name} [${scheme}]: the applications-folder body copy is missing`);
         }
-        // No Show-me button over a look still in progress: the checking
-        // placeholder has not earned the found row's promise.
-        const checkingReveal = await page.evaluate(() => document.querySelectorAll('#fr-reveal').length);
-        if (checkingReveal !== 0) {
-          problems.push(`${shot.name} [${scheme}]: a Show-me button rendered while the look was still checking`);
+        if (!/Drag the Kosmos icon to the far left so it stays there and is easy to find later\./.test(info.text)) {
+          problems.push(`${shot.name} [${scheme}]: the drag-to-the-left copy is missing`);
         }
-      } else if (shot.name.startsWith('firstrun-success')) {
-        // Wait for the ANSWER, not a fixed delay: the pane paints instantly
-        // with the checking placeholder, and a slow run would report the
-        // placeholder as a rendering problem rather than a wait. (The
-        // checking shot takes the branch above and never waits.)
-        await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
-        const want = shot.machine.appLocation;
-        const text = await page.evaluate(() => document.getElementById('fr-return').textContent);
-        if (!text.includes(want.title)) {
-          problems.push(`${shot.name} [${scheme}]: the row does not carry the fixture's title ("${want.title}")`);
+        if (!info.hasIcon) {
+          problems.push(`${shot.name} [${scheme}]: the real Kosmos app icon (img fc-k) is not in the pane`);
         }
-        // The fetched answer really landed: the pre-paint says "Checking" and
-        // the could-not-ask fallback says "right now", and neither may
-        // survive into a shot named for an engine state. (The old pre-paint
-        // was byte-identical to the engine's unknown row, so the unsure shot
-        // could not fail -- a picture of the placeholder passed as a picture
-        // of the answer.)
-        if (/Checking where the Kosmos icon is/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the checking placeholder is still on screen`);
+        if (!info.noShowWhere) {
+          problems.push(`${shot.name} [${scheme}]: a Show-me-where affordance is still on the Success screen`);
         }
-        if (/right now/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the could-not-ask fallback painted over the fixture's answer`);
+        if (!info.noReturnRegion) {
+          problems.push(`${shot.name} [${scheme}]: the removed reveal live-region is still in the pane`);
         }
-        /* 🔑 THE DOCK LINE IS BACK ON THIS SCREEN, AND THIS ASSERTION HAS NOW
-           POINTED BOTH WAYS INSIDE ONE DAY. It opened the flow until
-           2026-08-22, moved to the LAST step on two written rulings, and
-           returned here on Josh's ruling of 2026-08-27 16:08, made after he
-           wiped a machine and screenshotted this screen: "somebody elected to
-           take the message out of this."
-           ⚠️ THIS WAS THE SECOND ABSENCE GUARD AND IT WAS NOT IN THE ROUTED
-           SCOPE. The routing named click-first-run's guard and the last-step
-           one; this fired on 8 shots (4 app-location states x 2 schemes) the
-           first time the page layer ran. Its own comment is why it was easy
-           to miss: it reads as settled history rather than as a live rule.
-           ⇒ Asserted PRESENT here and ABSENT on the last step (below), which
-           is the reverse of what this file said an hour ago. */
-        if (!/Kosmos is already in your Dock, the strip of icons/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the Success screen has no Dock line; Josh asked for it back on 2026-08-27`);
+        if (/Checking where the Kosmos icon is/.test(info.text)) {
+          problems.push(`${shot.name} [${scheme}]: the removed app-location check row is still rendering`);
         }
-        if (/Keep in Dock/.test(text)) {
-          problems.push(`${shot.name} [${scheme}]: the unreachable Keep in Dock advice appeared`);
-        }
-        // RELIABILITY-OR-NO-BUTTON, the sleep row's rule: "Show me where it
-        // is" rides the FOUND row only. Asserted on every fetched state, so
-        // a button over a not-found answer, or a missing one over found,
-        // reds here instead of shipping.
-        const revealCount = await page.evaluate(() => document.querySelectorAll('#fr-reveal').length);
-        if (want.state === 'ok' && revealCount !== 1) {
-          problems.push(`${shot.name} [${scheme}]: the found row lost its Show-me button (${revealCount})`);
-        }
-        if (want.state !== 'ok' && revealCount !== 0) {
-          problems.push(`${shot.name} [${scheme}]: a Show-me button rendered over a ${want.state} answer`);
-        }
-        // The failure path SPEAKS and the success path clears it: one shot
-        // (system, light) exercises the click both ways so a broken handler
-        // or a failure sentence outliving a success cannot pass the suite.
-        if (shot.name === 'firstrun-success-system' && scheme === 'light') {
-          await page.route('**/api/reveal-app', (r) => r.fulfill({
-            status: 409, json: { error: 'we could not look just now, so we cannot say where the icon is' },
-          }));
-          await page.click('#fr-reveal');
-          await page.waitForFunction(
-            () => /could not look just now/.test((document.getElementById('fr-return-msg') || {}).textContent || ''),
-            null, { timeout: 4000 },
-          ).catch(() => problems.push(`${shot.name} [${scheme}]: a refused reveal said nothing in the dock`));
-          await page.unroute('**/api/reveal-app');
-          await page.route('**/api/reveal-app', (r) => r.fulfill({ json: { ok: true } }));
-          await page.click('#fr-reveal');
-          await page.waitForFunction(
-            () => !/could not look just now/.test((document.getElementById('fr-return-msg') || {}).textContent || ''),
-            null, { timeout: 4000 },
-          ).catch(() => problems.push(`${shot.name} [${scheme}]: the failure sentence outlived a reveal that worked`));
-          await page.unroute('**/api/reveal-app');
+        if (!/next/i.test(info.primary)) {
+          problems.push(`${shot.name} [${scheme}]: the Success primary drifted ("${info.primary}")`);
         }
       }
       const seen = await look(page, shot.name);
@@ -526,25 +415,14 @@ async function look(page, name) {
       await ctx.close();
     }
   }
-  /* 🛑 INVERTED 2026-08-27, AND THE OLD TEXT IS WHY IT NEEDED A RULING.
-     This block used to REQUIRE the Dock line on the last step, precisely so
-     that "not on step 1" could not pass on a product that had lost the
-     sentence altogether. Josh ruled it off the ending on 2026-08-27: "I
-     still don't want the ending of the install to talk about putting it in
-     the dock."
-     ⚠️ AN EARLIER VERSION OF THIS COMMENT SAID FIRST-RUN NOW CARRIES NO DOCK
-     GUIDANCE AT ALL. That was true of the intermediate state and is false
-     now, and it is corrected here rather than left for a later reader to
-     trust. He later ruled, 16:08, after a full wipe and a screenshot of the
-     Success screen: "somebody elected to take the message out of this."
-     ⇒ THE LINE MOVED TO THE SUCCESS SCREEN, not out of the product. It sits
-     under the reveal button (#fr-return-keep) and click-first-run.js asserts
-     it PRESENT there. This block asserts it ABSENT on the last step. The
-     pair is what stops it drifting back here or falling out of the flow.
-     📌 His stated premise for the original deletion, "we already told them
-     that on the very very very first step", was not true of the build when
-     he said it. It is true now, because of the move, and it was made true
-     deliberately rather than found to be so. */
+  /* 🛑 The Dock guidance belongs on the Success screen (fr-pane-7), NOT on the
+     last step. Josh ruled it off the ending on 2026-08-27: "I still don't want
+     the ending of the install to talk about putting it in the dock."
+     ⇒ #12 (0.6.39) rewrote the Success screen into fixed static markup carrying
+     the dock guidance ("...you will see Kosmos in your dock" / "Drag the Kosmos
+     icon to the far left..."); click-first-run.js asserts it PRESENT there. This
+     block asserts it ABSENT on the last step. The pair is what stops it drifting
+     back here or falling out of the flow. */
   {
     const lastCtx = await browser.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: 'light' });
     const pg = await lastCtx.newPage();

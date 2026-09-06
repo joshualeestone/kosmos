@@ -1,14 +1,15 @@
 'use strict';
 
 /**
- * kosmos#2037 + #2020 (PR-C2): the first-run wizard SCREEN 6 ("self improving")
- * consent switches must be real, keyboard-operable, default-ON opt-OUT controls.
+ * kosmos#2037 (+ #11, 0.6.39): the first-run wizard SCREEN 6 ("self improving")
+ * consent switch must be a real, keyboard-operable, default-ON opt-OUT control.
  *
- * Renet's markup ships two static role=switch spans (#fr-s6-feedback daily report,
- * #fr-s6-createping create ping), and PR-C2 wired the behavior: click AND Space/
- * Enter flip aria-checked and PUT the existing backends (/api/feedback-setting,
- * /api/ping-setting), the frGo step-6 branch refreshes on show, and a could-not-
- * read leaves the switch at its default-ON position (never a false Off).
+ * The markup ships a static role=switch span (#fr-s6-feedback, the daily report),
+ * and the behavior is wired: click AND Space/Enter flip aria-checked and PUT the
+ * backend (/api/feedback-setting), the frGo step-6 branch refreshes on show, and a
+ * could-not-read leaves the switch at its default-ON position (never a false Off).
+ * #11 (0.6.39) removed the second switch (#fr-s6-createping) from this screen per
+ * Josh; the create-agent-ping feature lives on the Create-an-Agent screen (#2020).
  *
  * ⚠️ WHY A BROWSER. The node test (web.firstrun-consent-prc2.test.js) lifts the S6
  * block and runs it against a DOM stub. THIS drives the REAL page: the real bound
@@ -48,15 +49,16 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
   const r = await page.evaluate(async () => {
     const fb = document.getElementById('fr-s6-feedback');
-    const pg = document.getElementById('fr-s6-createping');
-    if (!fb || !pg) return { error: 'S6 switch spans (#fr-s6-feedback / #fr-s6-createping) are missing' };
+    if (!fb) return { error: 'S6 switch span (#fr-s6-feedback) is missing' };
+    // #11 (0.6.39): the create-ping switch was removed from this screen; it must be gone.
+    const pgGone = !document.getElementById('fr-s6-createping');
     const rd = (el) => el.getAttribute('aria-checked');
-    const roles = { fb: fb.getAttribute('role'), pg: pg.getAttribute('role') };
-    const initial = { fb: rd(fb), pg: rd(pg) };
+    const roles = { fb: fb.getAttribute('role') };
+    const initial = { fb: rd(fb) };
 
     // Show step 6 (the pane is hidden until then) so we prove it is reachable and
-    // visible. frGo(6) also runs the refreshers, which fetch on file:// and fail
-    // -- their catch must leave the default-ON markup untouched (never a false Off).
+    // visible. frGo(6) also runs the refresher, which fetches on file:// and fails
+    // -- its catch must leave the default-ON markup untouched (never a false Off).
     let paneVisible = null;
     if (typeof frGo === 'function') {
       try { frGo(6); } catch (e) { /* keep going; the click arms are the core */ }
@@ -64,7 +66,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       const pane = fb.closest('.fr-pane');
       paneVisible = pane ? (!pane.hidden && getComputedStyle(pane).display !== 'none') : null;
     }
-    const afterShow = { fb: rd(fb), pg: rd(pg) };   // still default-ON after a failed refresh
+    const afterShow = { fb: rd(fb) };   // still default-ON after a failed refresh
 
     // Stub fetch AFTER the refresh, so we measure the toggle's own PUT. Capture the
     // calls and confirm the new state so the optimistic flip is not reverted.
@@ -79,31 +81,21 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       return Promise.resolve({ ok: true, json: async () => ({ on, ok: true }) });
     };
 
-    // Real bound CLICK on the feedback switch.
+    // Real bound CLICK on the feedback switch (role=switch, mouse modality).
     fb.click();
     await new Promise((res) => setTimeout(res, 0));
-    const afterFbClick = rd(fb);
+    const afterFbClick = rd(fb);          // -> "false"
 
-    // Real bound KEYDOWN (Space) on the create-ping switch (role=switch a11y).
-    pg.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }));
-    await new Promise((res) => setTimeout(res, 0));
-    const afterPgSpace = rd(pg);
-
-    // Cover the OTHER modality on EACH switch (both are bound by the same wire()
-    // helper, but a regression could break one modality on one switch). Toggle each
-    // back: feedback via Enter keydown, create-ping via a real click.
+    // The OTHER modality (keyboard) on the same switch: Enter toggles it back.
     fb.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
     await new Promise((res) => setTimeout(res, 0));
     const afterFbEnter = rd(fb);          // back to "true"
-    pg.click();
-    await new Promise((res) => setTimeout(res, 0));
-    const afterPgClick = rd(pg);          // back to "true"
 
     window.fetch = realFetch;
     const put = (u) => calls.some((c) => c.url.indexOf(u) !== -1 && c.method === 'PUT');
     return {
-      roles, initial, paneVisible, afterShow, afterFbClick, afterPgSpace, afterFbEnter, afterPgClick,
-      fbPut: put('/api/feedback-setting'), pgPut: put('/api/ping-setting'), calls,
+      roles, initial, pgGone, paneVisible, afterShow, afterFbClick, afterFbEnter,
+      fbPut: put('/api/feedback-setting'), calls,
     };
   });
 
@@ -113,17 +105,14 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   if (r.error) {
     problems.push(r.error);
   } else {
-    if (r.roles.fb !== 'switch' || r.roles.pg !== 'switch') problems.push('a S6 consent control is not role=switch (' + JSON.stringify(r.roles) + ')');
+    if (r.roles.fb !== 'switch') problems.push('the S6 consent control is not role=switch (' + JSON.stringify(r.roles) + ')');
+    if (!r.pgGone) problems.push('the create-ping switch (id fr-s6-createping) is still present -- #11 removed it from this screen');
     if (r.initial.fb !== 'true') problems.push('the feedback switch is not default-ON (#2037): aria-checked=' + r.initial.fb);
-    if (r.initial.pg !== 'true') problems.push('the create-ping switch is not default-ON (#2020): aria-checked=' + r.initial.pg);
     if (r.paneVisible === false) problems.push('frGo(6) did not show the Screen 6 pane (it stayed hidden)');
-    if (r.afterShow.fb !== 'true' || r.afterShow.pg !== 'true') problems.push('a switch flipped to Off after the on-show refresh failed to read -- a false Off (' + JSON.stringify(r.afterShow) + ')');
+    if (r.afterShow.fb !== 'true') problems.push('the switch flipped to Off after the on-show refresh failed to read -- a false Off (' + JSON.stringify(r.afterShow) + ')');
     if (r.afterFbClick !== 'false') problems.push('clicking the feedback switch did not toggle it (wiring absent?): aria-checked=' + r.afterFbClick);
     if (!r.fbPut) problems.push('clicking the feedback switch sent no PUT to /api/feedback-setting');
-    if (r.afterPgSpace !== 'false') problems.push('Space on the create-ping switch did not toggle it (keydown wiring absent?): aria-checked=' + r.afterPgSpace);
-    if (!r.pgPut) problems.push('Space on the create-ping switch sent no PUT to /api/ping-setting');
     if (r.afterFbEnter !== 'true') problems.push('Enter on the feedback switch did not toggle it back (the OTHER modality is unwired): aria-checked=' + r.afterFbEnter);
-    if (r.afterPgClick !== 'true') problems.push('clicking the create-ping switch did not toggle it back (the OTHER modality is unwired): aria-checked=' + r.afterPgClick);
   }
 
   console.log('  ' + JSON.stringify(r));
@@ -132,6 +121,6 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-firstrun-s6-2037: OK (Screen 6 consent switches default-ON, click + Space toggle and PUT their backends)');
+  console.log('render-firstrun-s6-2037: OK (Screen 6 feedback switch default-ON, click + Enter toggle and PUT /api/feedback-setting; create-ping switch removed per #11)');
   process.exit(0);
 })();
