@@ -721,10 +721,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // -- an abandoned start leaks its blocked drain thread and an orphan
     // child per attempt. Main-thread only, like every flag above.
     private var inFlightStart: (generation: Int, process: Process)?
-    // #2125 slice 3: the repeating Accessibility-refresh timer (held so it survives)
-    // and the one-shot guard for the launch-time Accessibility prompt.
+    // #2125 slice 3: the repeating Accessibility-refresh timer (held so it survives).
     private var a11yTimer: Timer?
-    private var a11yPromptFired = false
     // #1 / #2189: the watcher that turns a webview grant-button POST into a real,
     // under-tmux macOS prompt (see startPromptRequestWatcher).
     private var promptRequestTimer: Timer?
@@ -837,14 +835,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("a11y: could not resolve the install home; skipping Accessibility checks (gate stays fail-safe)")
             return
         }
-        // One prompt per launch, and only when we are not already trusted, so Tmux
-        // appears in the Accessibility list -- otherwise the Open-Accessibility button
-        // opens a list with nothing to enable (Josh's bug #2). The prompt itself is
-        // system-managed and non-blocking.
-        if !a11yPromptFired && !currentlyTrusted() {
-            a11yPromptFired = true
-            spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axprompt")
-        }
+        // #2347 (Josh's 0.6.41 fresh-install re-test): NO a11y PROMPT at launch. #2371
+        // fixed the bundled-tmux path so spawnAxHatchUnderTmux now actually fires; that
+        // turned this once-at-launch axprompt into the FIRST thing a user saw on
+        // install, before the Access screen -- and it activated accessibility at install
+        // time, so the later Access-screen tmux step read "Activated" and the person
+        // skipped the Turn-On flow. The prompt must fire ONLY on-demand: the Access
+        // screen's tmux Turn-On POSTs /api/a11y-prompt and startPromptRequestWatcher
+        // (below) fires the axprompt hatch then. So the launch-time axprompt is removed;
+        // the on-demand watcher owns it. (File-access already fires on-demand only.)
+        //
+        // The axCHECK stays at launch + on a timer: it only READS trust
+        // (AXIsProcessTrusted, no prompt) and writes a11y-status.json for the first-run
+        // Continue gate to poll. Reading is not prompting.
         // Refresh now, then on a repeating timer well inside a11ystatus's staleness
         // window (5 min) so the first-run screen always polls a fresh verdict.
         spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
@@ -853,26 +856,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    // The current on-file verdict, read synchronously to decide the one-shot prompt.
-    // Absent / unreadable / not-trusted / STALE all count as "not trusted" -- the
-    // prompt is only skipped on a POSITIVE and FRESH trusted reading, so a missing
-    // file, or a days-old trusted:true from a prior run whose state is now unknown,
-    // still prompts. The 300s freshness bound mirrors a11ystatus.STALE_AFTER_MS (5
-    // min): past it the engine treats the reading as uncheckable anyway, so trusting
-    // it here to suppress the prompt would trust data the reader has already
-    // discarded. Erring toward prompting is safe (an extra prompt is benign; a
-    // skipped one when actually not-trusted is not).
-    private func currentlyTrusted() -> Bool {
-        guard let url = a11yStatusURL(),
-              let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let t = obj["trusted"] as? Bool, t,
-              let at = obj["at"] as? String,
-              let when = ISO8601DateFormatter().date(from: at),
-              Date().timeIntervalSince(when) <= 300
-        else { return false }
-        return true
-    }
+    // (currentlyTrusted() was removed with the launch-time axprompt in #2347: it existed
+    // only to decide that one-shot launch prompt, which no longer fires. The on-demand
+    // axprompt is benign if the user is already trusted -- macOS no-ops it -- so no
+    // pre-check is needed on that path.)
 
     // Spawn a native hatch UNDER the bundled tmux via a PRIVATE tmux server socket
     // (-L kosmos-axcheck), so this never touches the user's own tmux sessions. The

@@ -75,11 +75,19 @@ test('the --kosmos-app-axprompt hatch shows the system prompt (adds Tmux to the 
     'axprompt does not call AXIsProcessTrustedWithOptions with the prompt option, so it neither prompts nor adds the process to the list');
 });
 
-test('the runtime wiring spawns the axcheck UNDER tmux, on launch and on a timer', () => {
+test('the runtime wiring spawns the axcheck UNDER tmux (launch + timer) and does NOT prompt at launch (#2347)', () => {
   assert.ok(SRC.includes('func startA11yTrustChecks()'), 'startA11yTrustChecks moved or was renamed');
-  const fn = SRC.slice(SRC.indexOf('func startA11yTrustChecks()'), SRC.indexOf('func currentlyTrusted()'));
+  const fn = SRC.slice(SRC.indexOf('func startA11yTrustChecks()'), SRC.indexOf('func startPromptRequestWatcher()'));
   assert.ok(fn.includes('--kosmos-app-axcheck'), 'the runtime wiring never spawns the axcheck, so the verdict is never refreshed and the gate is permanently inert');
   assert.ok(fn.includes('Timer.scheduledTimer'), 'there is no repeating refresh; a one-shot reading would go stale and the gate would fall back to fail-safe forever');
+  // #2347 (Josh's 0.6.41 fresh-install re-test): the a11y PROMPT must NOT fire at
+  // launch -- only on-demand via startPromptRequestWatcher (the Access-screen tmux
+  // Turn-On POSTs /api/a11y-prompt). Assert the CALL form is gone, not the bare
+  // string: the explanatory comment mentions "axprompt" in prose, so matching the
+  // spawn call form (hatch: "--kosmos-app-axprompt") avoids the guard-tripped-by-its-
+  // own-documentation trap.
+  assert.ok(!fn.includes('hatch: "--kosmos-app-axprompt"'),
+    'startA11yTrustChecks still fires the a11y prompt at launch; #2347 requires it to fire only on-demand (before the Access screen is the bug Josh hit)');
   // The under-tmux spawn is the whole attribution design: the AX read must be tmux's,
   // not the app's. Pin the private-socket spawn so a refactor to a bare spawn (which
   // would read the APP's trust -- a false reading) reds here.
@@ -96,20 +104,8 @@ test('applicationDidFinishLaunching starts the Accessibility checks', () => {
     'launch does not start the Accessibility checks, so nothing writes the verdict and the gate stays inert');
 });
 
-test('the one-shot prompt only fires when NOT already trusted (no repeated prompts)', () => {
-  const fn = SRC.slice(SRC.indexOf('func startA11yTrustChecks()'), SRC.indexOf('func currentlyTrusted()'));
-  assert.match(fn, /!a11yPromptFired\s*&&\s*!currentlyTrusted\(\)/,
-    'the prompt is not guarded by both the one-shot flag AND a not-trusted reading; an already-trusted user would be prompted, or it would prompt every launch');
-});
-
-test('currentlyTrusted requires a FRESH trusted reading (a stale trusted:true does not suppress the prompt)', () => {
-  const fn = SRC.slice(SRC.indexOf('func currentlyTrusted()'), SRC.indexOf('func spawnAxHatchUnderTmux('));
-  // Must gate on trusted === true AND a fresh timestamp, mirroring a11ystatus.STALE_AFTER_MS
-  // (300s). Without the freshness bound a days-old trusted:true from a prior run would
-  // suppress the launch prompt even when the current state is unknown -- and the engine
-  // already treats a reading that old as uncheckable, so trusting it here would trust
-  // data the reader has discarded.
-  assert.match(fn, /as\?\s*Bool,\s*t,/, 'currentlyTrusted does not require trusted === true (the `t,` guard)');
-  assert.match(fn, /ISO8601DateFormatter\(\)\.date\(from: at\)/, 'currentlyTrusted does not parse the reading timestamp for a staleness check');
-  assert.match(fn, /timeIntervalSince\(when\)\s*<=\s*300/, 'currentlyTrusted does not bound the reading freshness to 300s (a11ystatus.STALE_AFTER_MS); a stale trusted:true would suppress the prompt');
-});
+// #2347: the launch-time one-shot prompt and its currentlyTrusted() freshness guard
+// were REMOVED (the a11y prompt fires only on-demand now), so the two tests that
+// asserted their internals are gone with them. The on-demand axprompt firing is
+// covered by native-app.perm-prompts-2189.test.js (the watcher consumes the a11y
+// request and fires the axprompt hatch under tmux).
