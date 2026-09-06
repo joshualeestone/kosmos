@@ -8187,17 +8187,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                 <div class="llm off"><span class="llm-m pmark dim" data-pmark="mistral" role="img" aria-label="Mistral"><svg viewBox="0 0 21 15" fill="none" xmlns="http://www.w3.org/2000/svg"> <path d="M6 0H3V3H6V0Z" fill="#FFAF01"/> <path d="M6 9H3V12H6V9Z" fill="#E61300"/> <path d="M9 12H0V15H9V12Z" fill="#C4001D"/> <path d="M9 3H3V6H9V3Z" fill="#FF8204"/> <path d="M12 9H9V12H12V9Z" fill="#E61300"/> <path d="M18 6H3V9H18V6Z" fill="#FA500F"/> <path d="M18 3H12V6H18V3Z" fill="#FF8204"/> <path d="M18 0H15V3H18V0Z" fill="#FFAF01"/> <path d="M18 9H15V12H18V9Z" fill="#E61300"/> <path d="M21 12H12V15H21V12Z" fill="#C4001D"/> </svg></span><div class="llm-w"><b>Mistral</b><small>Open weights</small></div><span class="soon">Coming soon</span></div>
       </div>
 
-      <!-- S6 Self improving (new). Switches fr-s6-feedback / fr-s6-createping = Angel wires behavior. -->
+      <!-- S6 Self improving. One switch: fr-s6-feedback (Angel wires behavior). -->
       <div class="fr-pane" id="fr-pane-6" hidden>
         <!-- ============================================================
-             SCREEN 6 - SELF IMPROVING   (new screen)
+             SCREEN 6 - SELF IMPROVING
              Primary button (shell param): "Next".  Gate: none.  Dynamic: the switch state.
              CSS namespace: s6-*   Copy is Josh's, verbatim.
-             SPLIT NOTE: Angel owns the two switches' BEHAVIOR (both default-ON): the daily
-             feedback report (#2037, already landed as PR-C1) and the create-agent ping (#2020).
-             This snippet is the VISUAL: eyebrow + headline + the two switch ROWS with the exact
-             copy. Angel wires the switch controls into these rows (ids fr-s6-feedback /
-             fr-s6-createping so her toggle handlers bind; fr- prefix = a wiring surface).
+             #11 (0.6.39): reduced to ONE switch, the daily feedback report (#2037,
+             default-ON, the install-time opt-OUT). The create-agent ping switch
+             (#2020) was removed from this screen per Josh; that feature's control
+             lives on the Create-an-Agent screen and its backend is unchanged.
+             Angel wires the switch control (id fr-s6-feedback; fr- prefix = a
+             wiring surface).
              ============================================================ -->
         <style>
         .s6-switch-row{display:flex;align-items:flex-start;gap:12px;
@@ -8210,15 +8211,17 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         </style>
 
         <p class="fc-eyebrow">Self improving</p>
-        <h2>Help make Kosmos work better for everyone</h2>
+        <h2>Help make Kosmos better</h2>
 
+        <!-- #11 (0.6.39): Josh removed the second switch ("Let Kosmos know when you
+             create an agent") from this screen; it does not belong here. Only the
+             feedback switch remains, default on, its label the new body copy. The
+             create-agent-ping feature itself is unchanged (its control lives on the
+             Create-an-Agent screen, #2020); only its duplicate here is gone, and its
+             frPing wiring was removed from the script to match. -->
         <div class="s6-switch-row">
           <span class="s6-sw" id="fr-s6-feedback" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-feedback-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-feedback-lbl">Have an agent send a daily report with any bugs or improvement suggestions.</span>
-        </div>
-        <div class="s6-switch-row">
-          <span class="s6-sw" id="fr-s6-createping" role="switch" aria-checked="true" tabindex="0" aria-labelledby="fr-s6-createping-lbl"></span>
-          <span class="s6-lbl" id="fr-s6-createping-lbl">Let Kosmos know when you create an agent.</span>
+          <span class="s6-lbl" id="fr-s6-feedback-lbl">Send daily diagnostic information, bug reports, and improvement recommendations.</span>
         </div>
       </div>
 
@@ -35891,9 +35894,10 @@ function frGo(step) {
     frPaintOpenai();
     frConnResume();
   } else if (step === 6) {
-    // S6 Self improving (Angel wires the two switches' behavior).
+    // S6 Self improving: one consent switch (the daily feedback report). #11
+    // (0.6.39) removed the create-agent-ping switch from this screen.
     frActions({ label: 'Next', go: () => frGo(7) });
-    frRefreshFeedback(); frRefreshPing();   // PR-C2 (#2037 + #2020): paint persisted/default-ON state on show
+    frRefreshFeedback();   // #2037: paint persisted/default-ON state on show
   } else if (step === 7) {
     // S7 Success: the app-location look + reveal + dock line (frPaintReturn).
     frActions({ label: 'Next', go: () => frGo(8) });
@@ -35909,13 +35913,15 @@ function frGo(step) {
   frFocusActiveHead(pane);
 }
 
-/* PR-C2 (#2037 + #2020): behavior for install-flow Screen 6's two consent
-   switches. Renet's markup is static spans (#fr-s6-feedback / #fr-s6-createping,
-   role=switch, aria-checked, default-ON) present from first paint. Same backends
-   as the Settings switches (/api/feedback-setting, /api/ping-setting); both
-   default ON, so these are the install-time opt-OUT. Bound once at top level
-   because the spans exist before this script runs. A could-not-read leaves the
-   markup at its default-ON position, never painting a false Off. */
+/* #2037: behavior for install-flow Screen 6's consent switch (the daily feedback
+   report). Static span (#fr-s6-feedback, role=switch, aria-checked, default-ON)
+   present from first paint. Same backend as the Settings switch
+   (/api/feedback-setting); default ON, so this is the install-time opt-OUT. Bound
+   once at top level because the span exists before this script runs. A
+   could-not-read leaves the markup at its default-ON position, never a false Off.
+   #11 (0.6.39): the create-agent-ping switch was removed from this screen (it
+   belongs on the Create-an-Agent screen, #2020); its /api/ping-setting backend is
+   unchanged, only the install-flow control and wiring are gone. */
 function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
 function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
 
@@ -35923,7 +35929,7 @@ function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'
 // purpose: a user's toggle must supersede an in-flight on-show refresh, and a
 // later refresh must supersede a stale toggle response -- one counter, latest
 // action wins either way. FR_FB_SAVING blocks a second toggle while a PUT is in
-// flight. (frRefreshPing/frPingToggle mirror this with FR_PING_*.)
+// flight.
 let FR_FB_EPOCH = 0, FR_FB_SAVING = false;
 async function frRefreshFeedback() {
   const el = document.getElementById('fr-s6-feedback'); if (!el) return;
@@ -35950,34 +35956,8 @@ async function frFeedbackToggle() {
   finally { FR_FB_SAVING = false; }
 }
 
-let FR_PING_EPOCH = 0, FR_PING_SAVING = false;
-async function frRefreshPing() {
-  const el = document.getElementById('fr-s6-createping'); if (!el) return;
-  const mine = ++FR_PING_EPOCH;
-  try {
-    const res = await fetch('/api/ping-setting');
-    if (!res.ok) return;
-    const r = await res.json();
-    if (mine === FR_PING_EPOCH && typeof r.on === 'boolean') frSwSet(el, r.on);
-  } catch { /* leave the default */ }
-}
-async function frPingToggle() {
-  const el = document.getElementById('fr-s6-createping'); if (!el || FR_PING_SAVING) return;
-  FR_PING_SAVING = true; const mine = ++FR_PING_EPOCH;
-  const next = !frSwOn(el);
-  frSwSet(el, next);
-  try {
-    const res = await fetch('/api/ping-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: next }) });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== FR_PING_EPOCH) return;
-    if (!res.ok) { frSwSet(el, !next); return; }
-    if (typeof body.on === 'boolean') frSwSet(el, body.on);
-  } catch { if (mine === FR_PING_EPOCH) frSwSet(el, !next); }
-  finally { FR_PING_SAVING = false; }
-}
-
-// Static spans -> bind once at top level. Click AND Space/Enter (role=switch is
-// keyboard-operable). The spans exist before this script runs (markup ~line 8149).
+// Static span -> bind once at top level. Click AND Space/Enter (role=switch is
+// keyboard-operable). The span exists before this script runs.
 (function bindS6Switches() {
   const wire = (id, fn) => {
     const el = document.getElementById(id); if (!el) return;
@@ -35985,7 +35965,6 @@ async function frPingToggle() {
     el.addEventListener('keydown', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); fn(); } });
   };
   wire('fr-s6-feedback', frFeedbackToggle);
-  wire('fr-s6-createping', frPingToggle);
 })();
 
 /* --------------------------------------------------------------------------
