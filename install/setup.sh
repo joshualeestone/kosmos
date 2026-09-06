@@ -3917,9 +3917,11 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   # asuser promises. The one mechanism Apple supports for an installer reaching
   # the person's desktop is a LaunchAgent bootstrapped into gui/<uid>: launchd
   # runs it INSIDE the login session, where `open` is ordinary. So in pkg mode
-  # the open is a one-shot agent that launches the app and deletes its own
-  # plist (a RunAtLoad job that has exited stays idle until logout; with the
-  # plist gone it never runs again). The BOARD_OURS gate above still decides whether
+  # the open is a one-shot agent that launches the app, deletes its own plist,
+  # and boots ITSELF out of launchd (#2151). The plist delete alone left the job
+  # loaded-but-idle in launchd's registry until logout; the trailing `launchctl
+  # bootout gui/<uid>/<label>` removes that residue too, so nothing of the
+  # one-shot lingers. The BOARD_OURS gate above still decides whether
   # this runs at all; only the delivery changes. Everything else (paste
   # install, harness stub, sandbox) keeps the direct call.
   if [ "${KOSMOS_INSTALL_VIA:-}" = "pkg" ] && [ -z "${KOSMOS_OPEN_CMD:-}" ] && [ -z "${AGENT_WORKFORCE_LAUNCH:-}" ]; then
@@ -3950,7 +3952,7 @@ if [ "$BOARD_OURS" = "yes" ] && [ "$_open_gate" = "yes" ] && [ -z "${KOSMOS_NO_O
   <array>
     <string>/bin/sh</string>
     <string>-c</string>
-    <string>/usr/bin/open "\$0"; rm -f "\$1"</string>
+    <string>/usr/bin/open "\$0"; rm -f "\$1"; /bin/launchctl bootout "gui/$_open_uid/$_open_label" 2>/dev/null</string>
     <string>$_open_url</string>
     <string>$_open_plist</string>
   </array>
@@ -3965,7 +3967,7 @@ PLIST
       # secret; it is kept as cheap belt-and-braces on a $HOME-group-traversable
       # LaunchAgents dir. (It used to matter: #1946's plist carried the token in a
       # ?token= URL, which is exactly the argv exposure #2073 removes.) The plist
-      # self-removes after RunAtLoad regardless.
+      # self-removes (file + launchctl bootout) after RunAtLoad regardless (#2151).
       chmod 600 "$_open_plist" 2>/dev/null || true
       # The sandbox gate, restated within reach of the call (the sweep test
       # reads 12 lines above every launchctl): gui/<uid> is always the REAL
