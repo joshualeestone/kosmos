@@ -14,15 +14,19 @@ computer... A moment or two." with nothing moving.
 
 ## Fix
 
-Inject the existing `.kspin` breathing spinner (via `kGlyph()`) into the Choose-a-Model
+Inject the existing `.kspin` breathing spinner (its markup INLINED, not via `kGlyph()` -- the
+connect painters are extracted and eval'd in isolation by the test harnesses, which do not
+have `kGlyph` in scope) into the Choose-a-Model
 SYSTEM-working loading/waiting states:
 - `frPaintConnect` connect phases: `downloading` (beside the existing progress bar),
   `installing`, `signin-launching`, `signin-completing`.
 - The OpenAI "Adding..." validate state (`#fr-openai-msg`, while the key is checked against
   api.openai.com).
-- The initial connection check: `FR_GLYPH_LOCAL.checking` swapped from a static `…` to
-  `kGlyph()`, so the `checking` row's mark box shows the breathing spinner. `checking` is
-  only ever rendered via the first-run `allowLocal` path, so this is scoped to this screen.
+NOT shipped: an "initial connection check" spinner. Mona named it, but the only `checking`
+render path (`frCheckRow` with `opts.allowLocal`) has NO caller in production, so a spinner
+there would be dead code that never shows on Josh's screen. Left out with this note rather
+than shipped as false confidence; if a real checking state is wanted it needs the actual
+render site found first.
 
 Deliberately NOT on the USER-action waits, because a "working" spinner there would
 misrepresent who the screen is waiting on:
@@ -36,9 +40,9 @@ is `aria-hidden` (decorative); the wait text carries the meaning.
 ## Verification
 
 - `docs/browser-checks/render-model-spinners-2365.js`: drives the page's own painters and
-  asserts a `.kspin` in each system-working state (4 connect phases + OpenAI Adding + the
-  checking row), and asserts `signin-browser-open` (user-action wait) does NOT get one.
-  Control: the pre-fix page renders none of these `.kspin` and reds (6 arms). Registered in
+  asserts a `.kspin` in each system-working state (4 connect phases + OpenAI Adding), and
+  asserts `signin-browser-open` (user-action wait) does NOT get one. Control against
+  origin/main: the pre-fix page renders none of these `.kspin` and reds (5 arms). Registered in
   tools/browser-checks.sh + README; reason-grep counts bumped 64->65, 39->40.
 - Full node suite green. Challenge-loop converged.
 

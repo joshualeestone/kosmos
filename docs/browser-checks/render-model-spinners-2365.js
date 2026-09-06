@@ -5,11 +5,11 @@
  * Choose-a-Model screen's loading/waiting lines, so a person watching a connect step does not
  * see a still "Setting Claude up... A moment or two." with nothing moving.
  *
- * Uses the page's own painters (frPaintConnect into #fr-sub, and frCheckRow) in a real DOM:
+ * Uses the page's own painter (frPaintConnect into #fr-sub) plus the OpenAI connect handler
+ * in a real DOM:
  *  - the SYSTEM-working connect phases (downloading, installing, signin-launching,
  *    signin-completing) each render a `.kspin` spinner;
- *  - the initial connection check (frCheckRow state 'checking', allowLocal) renders a
- *    `.kspin` in its mark box;
+ *  - the OpenAI "Adding..." validate state renders a `.kspin`;
  *  - the CONTROL that keeps this honest: 'signin-browser-open' is waiting on the PERSON to
  *    sign in in their browser, NOT the system working, so it must NOT get a spinner.
  *
@@ -45,7 +45,6 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
   const r = await page.evaluate(() => {
     if (typeof frPaintConnect !== 'function') return { error: 'frPaintConnect is not a function' };
-    if (typeof frCheckRow !== 'function') return { error: 'frCheckRow is not a function' };
     const sub = document.getElementById('fr-sub');
     if (!sub) return { error: 'no #fr-sub connect box on the page' };
     const hasSpinner = () => !!sub.querySelector('.kspin');
@@ -65,12 +64,6 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       signinCompleting: paint('signin-completing'),
       signinBrowserOpen: paint('signin-browser-open'),   // control: waiting on the person, no spinner
     };
-    // The initial connection check row.
-    let checkingHtml = '';
-    try { checkingHtml = frCheckRow({ state: 'checking', title: 'Checking the connection', detail: 'One moment' }, { allowLocal: true }); }
-    catch (e) { checkingHtml = 'THREW: ' + String((e && e.message) || e); }
-    out.checkingHasSpinner = /class="kspin/.test(checkingHtml);
-
     // OpenAI "Adding..." validate state: stub the POST as never-resolving, put a key in the
     // field, click, and read #fr-openai-msg while the validation is in flight.
     out.openaiAdding = null;
@@ -107,8 +100,6 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // Control: the user-action wait must NOT get a spinner.
     if (r.signinBrowserOpen.threw) problems.push('phase signin-browser-open threw: ' + r.signinBrowserOpen.threw);
     else if (r.signinBrowserOpen.spinner) problems.push('phase signin-browser-open should NOT have a spinner (it waits on the person to sign in, not the system): ' + r.signinBrowserOpen.html);
-    // The initial connection check.
-    if (!r.checkingHasSpinner) problems.push('the initial connection check (frCheckRow checking) has no .kspin spinner in its mark');
     // The OpenAI "Adding..." validate state.
     if (!r.openaiAdding) problems.push('the OpenAI Adding probe did not run');
     else if (r.openaiAdding.threw) problems.push('the OpenAI Adding probe threw: ' + r.openaiAdding.threw);
@@ -122,5 +113,5 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-model-spinners-2365: the Choose-a-Model system-working waiting states (download/install/sign-in-completing + the initial check) show the .kspin spinner; the user-action wait (browser sign-in) correctly does not.');
+  console.log('render-model-spinners-2365: the Choose-a-Model system-working waiting states (download/install/sign-in-completing + the OpenAI Adding validate) show the .kspin spinner; the user-action wait (browser sign-in) correctly does not.');
 })();
