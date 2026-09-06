@@ -276,40 +276,50 @@ if [ -z "$adopt" ]; then
         if [ -n "$_cand" ] && [ -f "$_cand/sendertoken.js" ]; then _eng="$_cand"; fi
       fi
     fi
-    if [ -n "$_eng" ]; then
-      # The bundled node first, the same one install/kosmos uses; then whatever
-      # is on PATH, so a source checkout still works. Never a guess: each is
-      # tested for executability before it is run.
-      #
-      # \U0001f6d1 #1897: DERIVE NODE FROM $_eng, NOT $_app -- this is #1139 one
-      # variable over. $_app is `dirname($0)/..`, which is SUPPORT_DIR for every
-      # real agent (the supervisor is installed to SUPPORT_DIR/bin), so
-      # `$_app/../runtime/bin/node` pointed at ~/Library/Application Support/runtime,
-      # which does not exist. With no `node` on the agent's launchd PATH either
-      # (that PATH is only /usr/bin:/bin:/usr/sbin:/sbin), BOTH candidates were
-      # empty and the mint never ran -- no installed agent ever got a token, on
-      # any launch. $_eng is the engine the pointer already resolves correctly
-      # (KOSMOS_HOME/app/engine), and install/kosmos lays runtime beside app
-      # (setup.sh: `for part in bin app runtime`), so the bundled node is
-      # `$_eng/../../runtime/bin/node` -- true in the installed layout AND in the
-      # bundle (app/engine/../../runtime == bundle/runtime). A source checkout has
-      # no sibling runtime, so it still falls through to the PATH node below.
-      for _n in "$_eng/../../runtime/bin/node" "$(command -v node 2>/dev/null || true)"; do
-        [ -n "${_n:-}" ] && [ -x "$_n" ] || continue
-        # ⚠️ THE ROSTER NAME, NOT THE TMUX SESSION. Tokens are keyed on the name
-        # the board files an agent under, which `status.js` derives as the
-        # session minus its `-discord` suffix. Minting under the raw session
-        # name would key the file where `resolve` never looks.
-        _roster="${SESSION%-discord}"
-        KOSMOS_AGENT_TOKEN="$("$_n" -e '
-          try {
-            const s = require(process.argv[1]);
-            const r = s.mint(process.argv[2]);
-            if (r && r.ok) process.stdout.write(r.token);
-          } catch (e) { /* a mint is never worth a failed launch */ }
-        ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)"
-        break
-      done
+    # #1911: RESOLVE NODE ONCE, for every shell call below that needs it -- the
+    # mint (this block) and the codex-dismiss shim further down (both are in this
+    # same `if [ -z "$adopt" ]` scope, so NODE_BIN reaches both). The bundled node
+    # beside the engine is the ONLY node on a Kosmos-only host: no Homebrew, and
+    # the launchd PATH is just /usr/bin:/bin:/usr/sbin:/sbin. A source checkout
+    # falls through to the PATH node. A bare `node` fails on a user machine -- the
+    # #1911 class -- and the dismiss below used exactly that; one resolver, both
+    # callers, so the next shell wrapper cannot repeat it.
+    #
+    # The bundled node first, the same one install/kosmos uses; each candidate is
+    # tested -x before use, never a guess.
+    #
+    # \U0001f6d1 #1897: DERIVE NODE FROM $_eng, NOT $_app -- this is #1139 one
+    # variable over. $_app is `dirname($0)/..`, which is SUPPORT_DIR for every
+    # real agent (the supervisor is installed to SUPPORT_DIR/bin), so
+    # `$_app/../runtime/bin/node` pointed at ~/Library/Application Support/runtime,
+    # which does not exist. With no `node` on the agent's launchd PATH either,
+    # BOTH candidates were empty and the mint never ran -- no installed agent ever
+    # got a token, on any launch. $_eng is the engine the pointer already resolves
+    # correctly (KOSMOS_HOME/app/engine), and install/kosmos lays runtime beside
+    # app (setup.sh: `for part in bin app runtime`), so the bundled node is
+    # `$_eng/../../runtime/bin/node` -- true in the installed layout AND in the
+    # bundle (app/engine/../../runtime == bundle/runtime). $_eng may be empty (no
+    # engine, no pointer), in which case the bundled candidate expands away and
+    # only the PATH node is tried.
+    NODE_BIN=""
+    for _n in "${_eng:+$_eng/../../runtime/bin/node}" "$(command -v node 2>/dev/null || true)"; do
+      [ -n "${_n:-}" ] && [ -x "$_n" ] && { NODE_BIN="$_n"; break; }
+    done
+    # The mint needs BOTH the engine (for sendertoken.js) and a node. No engine
+    # means no token rather than a broken one (the control the test asserts).
+    if [ -n "$_eng" ] && [ -n "$NODE_BIN" ]; then
+      # ⚠️ THE ROSTER NAME, NOT THE TMUX SESSION. Tokens are keyed on the name
+      # the board files an agent under, which `status.js` derives as the session
+      # minus its `-discord` suffix. Minting under the raw session name would key
+      # the file where `resolve` never looks.
+      _roster="${SESSION%-discord}"
+      KOSMOS_AGENT_TOKEN="$("$NODE_BIN" -e '
+        try {
+          const s = require(process.argv[1]);
+          const r = s.mint(process.argv[2]);
+          if (r && r.ok) process.stdout.write(r.token);
+        } catch (e) { /* a mint is never worth a failed launch */ }
+      ' "$_eng/sendertoken.js" "$_roster" 2>/dev/null || true)"
     fi
     # Only a hex token is a token. Anything else -- a stray warning on stdout, a
     # partial write -- is discarded rather than exported, because a malformed
@@ -408,7 +418,12 @@ if [ -z "$adopt" ]; then
       # that will not start because its update notice could not be dismissed is a
       # far worse outcome than the prompt it exists to remove.
       DISMISS="$(cd "$(dirname "$0")" && pwd)/codex-dismiss-update.js"
-      if [ -f "$DISMISS" ]; then node "$DISMISS" "${CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
+      # #1911: the RESOLVED node from the mint block above, never a bare `node` --
+      # on a Kosmos-only host node is not on the launchd PATH, so a bare call would
+      # silently fail (|| true) and the codex agent would hit the update prompt this
+      # shim exists to dismiss. Empty NODE_BIN (no node anywhere) skips it, same
+      # best-effort posture.
+      if [ -f "$DISMISS" ] && [ -n "${NODE_BIN:-}" ]; then "$NODE_BIN" "$DISMISS" "${CODEX_HOME:-}" >/dev/null 2>&1 || true; fi
     if [ -n "$MODEL" ]; then
       "$TMUX_BIN" new-session -d -s "$SESSION" -c "$WORKDIR" ${PANE_ENV[@]+"${PANE_ENV[@]}"} \
         "$CLAUDE" --dangerously-bypass-approvals-and-sandbox -c "$NOTIFY_CFG" -m "$MODEL" || exit 1
