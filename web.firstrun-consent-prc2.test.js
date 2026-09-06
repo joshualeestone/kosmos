@@ -5,7 +5,7 @@
  * role=switch, aria-checked default-ON). This pins the BEHAVIOR wired in.
  *
  * #11 (0.6.39) removed the SECOND switch (#fr-s6-createping, "Let Kosmos know when
- * you create an agent") from this screen per Josh — it belongs on the
+ * you create an agent") from this screen per Josh; it belongs on the
  * Create-an-Agent screen (#2020). Its /api/ping-setting backend is unchanged; only
  * the install-flow control and its wiring are gone, so the ping assertions that
  * used to live here are gone with it.

@@ -1,4 +1,4 @@
-# Plan — 0.6.39 install-flow fixes (#9/#10/#11/#12)
+# Plan: 0.6.39 install-flow fixes (#9/#10/#11/#12)
 
 **Spec of record:** `~/work/Josh-Brain/Projects/kosmos-0.6.39-install-flow-fix-specs-2026-09-06.md`
 (Mona Lisa, design lead) + `kosmos-0.6.39-install-flow-test-feedback-2026-09-06.md` (Splinter, from

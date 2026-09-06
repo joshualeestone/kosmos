@@ -8257,8 +8257,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
         .s7-app{width:40px;height:40px;border-radius:10px;background:linear-gradient(160deg,#d5d3ce,#a9a7a2);
           box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 1px 2px rgba(0,0,0,.12)}
         .s7-divider{width:1px;align-self:stretch;margin:4px 3px;background:rgba(120,118,112,.4)}
+        /* #12 (0.6.39): a neutral drop shadow (was a gold-tinted glow + inset
+           highlight designed for the old gold-K placeholder; behind the real app
+           icon that left a gold halo). Keeps the featured-icon presence, no tint. */
         .s7-app.s7-k{background:transparent;
-          box-shadow:0 3px 10px rgba(184,137,32,.45),inset 0 1px 0 rgba(255,255,255,.35);display:grid;place-items:center;position:relative;z-index:2}
+          box-shadow:0 3px 10px rgba(0,0,0,.28);display:grid;place-items:center;position:relative;z-index:2}
         .s7-app.s7-k .fc-k{width:40px;height:40px;flex:0 0 40px;border-radius:10px;display:block}
         .s7-arrow{position:absolute;top:0;left:14%;right:10%;height:34px;pointer-events:none}
         /* install-flow-9screen: only the system (prefers-color-scheme) dark rules
