@@ -136,9 +136,11 @@ the accessibility gate must actually gate.
   "when prompted click Allow") and S4 (Notifications, background-activity). The
   permission behaviour is verified by the S2/S3 gate checks (click-first-run.js +
   render-gated-next).
-- `render-a11y-gate-2125.js` - the Accessibility Continue-gate is fail-safe and
-  positive-only (blocks Continue only on a definitive not-trusted reading; a
-  browser with no native reading does NOT block).
+- `render-gated-next.js` - the S2/S3 gated Next is fail-safe and positive-only
+  (blocks Next only on a definitive not-granted reading; a browser with no native
+  reading does NOT block, and never shows a false green). install-flow-9screen:
+  this subsumes the retired render-a11y-gate-2125 (the standalone Accessibility
+  step's gate) into the S3 tmux gate.
 
 **Operator-required (native, no browser-check can see it):** the real macOS
 permission dialogs fire, each paired with its explainer screen, and granting them

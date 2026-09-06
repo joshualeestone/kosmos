@@ -80,7 +80,9 @@ const THREE = { ok: true, agents: [agent('miles', 'researcher'), agent('nadia', 
       const rows = [...card.querySelectorAll('.fr-foundrow')];
       const go = rows[0] && rows[0].querySelector('.fr-foundgo');
       return {
-        heading: (document.getElementById('fr-title') || {}).textContent || '',
+        // install-flow-9screen: the fleet fork writes its heading into the pane's
+        // own #fr-fleet-title now (the shell #fr-title is retired).
+        heading: (document.getElementById('fr-fleet-title') || {}).textContent || '',
         rowsOnScreen: rows.length,
         rowsInDocument: document.querySelectorAll('.fr-foundrow').length,
         countLine: (document.getElementById('fr-foundcount') || {}).textContent || null,

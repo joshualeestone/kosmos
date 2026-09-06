@@ -427,7 +427,12 @@ test('every emit site in every check prints a line the gate can quote', () => {
      per-problem `for (const p of problems) console.error('  FAIL  ' + p)` loop is one more
      SHAPE-1 finding-emit site, confirmed quotable. Both #2255 and this branch bumped from 48
      to 49 independently; with both checks present the count is 50. */
-  const EXPECTED_SITES = 50;
+  /* 51 after install-flow-9screen: NET +1. It ADDED render-gated-next.js (whose `ok()`
+     helper prints `${cond ? '  ok  ' : ' FAIL '} ${what}` + the `${fails.length} FAILURES`
+     summary -- SHAPE finding-emit sites, confirmed quotable, a ` FAIL ` prefix the gate
+     quotes) and DELETED render-a11y-copy-1940 / render-a11y-gate-2125 / render-sleep-button
+     (their gate concern subsumed by render-gated-next). */
+  const EXPECTED_SITES = 51;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
