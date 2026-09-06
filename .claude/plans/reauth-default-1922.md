@@ -971,10 +971,11 @@ I measured with `git diff --numstat origin/main` -- **TWO dots** -- which compar
 current tip of main. Main has moved **12 commits** since my merge-base and **those commits touch
 `server.js`, which my branch also touches**, so the two-dot form folded another lane's changes into
 my count and read 30 for `server.js` instead of 27. The three-dot form
-(`origin/main...HEAD`, merge-base) was the right one to use. ⚠️ **The figure that used to be quoted
-here reproduced at NO commit and has been deleted** (at the sha this section names it gives a
-different second term, and at HEAD it is different again). Run
-`git diff --numstat origin/main...HEAD -- engine/connect.js server.js`.
+(`origin/main...HEAD`, merge-base) was the right one to use, and it gave `70 + 27 = 97` at the time.
+⚠️ **That figure was CORRECT WHEN WRITTEN and later went stale; the bare total has been removed from
+this heading anyway, because a figure here cannot be kept true.** It still reproduces exactly at
+`148ff31a` and `1f3fcc27`. Run
+`git diff --numstat origin/main...HEAD -- engine/connect.js server.js` for the current pair.
 
 ⭐ **So the entry written to correct an inflated number was itself inflated, by three lines, via the
 diff base rather than via the description.** ⇒ **A number is only as good as its BASE, and on a
@@ -2058,9 +2059,24 @@ justifying the headline figure.** Deleted with the rest; the surviving claim is 
 are all `#1560` COMMENTS rather than a test arm, which is verifiable by reading them (three comment
 lines, confirmed).
 
-**WARNING: `70 + 27 = 97` reproduced at no commit either.** At HEAD `--numstat` gives 92 + 47 = 139;
-at the sha that same section names it gives 70 + 32. The `70` reproduces, the `27` does not. Deleted
-and replaced with the command.
+**WARNING (RETRACTED at iteration 27, and the retraction is the interesting part): I claimed
+`70 + 27 = 97` "reproduced at no commit". IT REPRODUCES EXACTLY, at `148ff31a` and `1f3fcc27`.**
+
+🛑 **I PROBED TWO POINTS AND WROTE UP A UNIVERSAL.** I checked HEAD and `63c4f389`, "the sha this
+section names". **`63c4f389` is a PRE-REBASE ORPHAN**: `git merge-base origin/main 63c4f389` =
+`36154ccd`, while post-rebase commits base at `5da3103e`. So the one historical point I sampled was
+the one whose three-dot base had moved, and I generalised from it to every commit.
+
+⭐ **This is the SAME hazard the surrounding commit correctly diagnoses, committed while diagnosing
+it.** That commit's own argument is that `origin/main...<sha>` re-bases under a rebase; I then used a
+pre-rebase sha as though it were a stable historical probe.
+
+✅ **The deletion still stands, for the reason `:954` already gave and which this contradicted: the
+figure was CORRECT WHEN WRITTEN and went stale when iteration 11 added five comment lines to
+`server.js`.** Stale-and-unpinnable, not never-true. **Control that the instrument discriminates: the
+same sweep reproduces the plan's own HEAD figure (92 + 47) and returns other values at other commits.**
+
+⇒ **A two-point probe is not a survey. If a claim quantifies over "any commit", sweep the commits.**
 
 **Independently confirmed clean, with controls:** all four mutation arms red (revert ternary 39/1
 `actual: …/.claude, expected: null`; force null 37/3; drop `-u` 53/1; `-u` unconditional 53/1);
@@ -2071,3 +2087,49 @@ gave 13 where the plan's prefixed method gives 12, **and said the plan's was cor
 filing its own as a finding.
 
 🛑 **NOT CONVERGED. Seventh consecutive round in which the fix commit carried the next defect.**
+
+### Iteration 27, 2026-09-05 23:45: a two-point probe written up as a universal
+
+Verdict: **NOT converged. 1 BLOCKER and nothing else** (the narrowest round since 11).
+
+🛑 **THE BLOCKER RETRACTS MY OWN RETRACTION.** Iteration 26 recorded that `70 + 27 = 97` "reproduced
+at no commit". **It reproduces exactly, at `148ff31a` and `1f3fcc27`**, both verified here.
+
+⭐ **THE MECHANISM IS THE ONE THAT COMMIT WAS ABOUT.** I probed exactly two points: HEAD, and
+`63c4f389`, "the sha this section names". `63c4f389` is a **pre-rebase orphan** whose three-dot base
+is `36154ccd`, where post-rebase commits base at `5da3103e`. **The single historical point I sampled
+was the one whose base had moved**, and I generalised from it to every commit. The same commit
+correctly argues that `origin/main...<sha>` re-bases under a rebase; I then used a pre-rebase sha as a
+stable probe two paragraphs later.
+
+⇒ **A TWO-POINT PROBE IS NOT A SURVEY. If a claim quantifies over "any commit", SWEEP THE COMMITS.**
+It costs one loop over `git rev-list origin/main..HEAD`.
+
+✅ **The deletion still stands, but for the reason `:954` already gave and which my retraction
+contradicted:** the figure was **correct when written** and went stale when iteration 11 added five
+comment lines to `server.js`. **Stale-and-unpinnable, not never-true.** The file was asserting and
+retracting the same number two lines apart; that is resolved in favour of the measurement.
+
+✅ **AND I APPLIED THE LESSON TO THE NEIGHBOURING CLAIM OF THE SAME SHAPE RATHER THAN WAITING FOR THE
+NEXT ROUND TO FIND IT.** The sibling WARNING (the "4 in source" breakdown, also justified from two
+points) now has a full sweep behind it. Across all 36 branch commits the source-only count takes four
+values and **4 is never one of them**:
+
+```
+14 commits -> 1     11 -> 0     9 -> 3     2 -> 2        occurrences of "4": ZERO
+```
+
+**Same shape, one false and one true, and only the sweep tells them apart.** Controls both ways: the
+sweep reproduces the plan's own HEAD figure (92 + 47) and returns other values elsewhere, so it
+discriminates rather than agreeing with everything.
+
+**Reviewer found nothing else, with controls:** all 18 citations across both plan files executed, 16
+reproduce and the only 2 zeros are the ones this plan explicitly documents as broken (its extractor
+flags a fabricated pattern as a control); `isDefault`=14, `assert`=638, `the seam`=5,
+`accounts.js:232`, `create.js` four code uses distinguished from five grep hits, the `status.test.js`
+behavioural pin; iteration-26's own figures (scoped `1560`=0 with control `1922`=6, 121 behind, both
+merge-bases, source hits 3) all exact; the PR body's validation block agreeing with the log at
+`status: clean`. Baselines 40/40 and 54/54. Both production edits read correctly. Worktree pristine.
+
+🛑 **NOT CONVERGED, eighth round running. But one finding, not four, and it was found by a sweep the
+previous rounds would not have run.**
