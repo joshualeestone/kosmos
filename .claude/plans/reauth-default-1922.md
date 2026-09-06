@@ -1533,15 +1533,24 @@ draft", "earlier version of this comment", which are the same idiom). Totals acr
 reproducible one that undercounted by ~7x, in the round whose subject was unreproducible counts.**
 
 ```
-PAT='an earlier version|an earlier draft|a previous version|previously said|used to say|used to read|an earlier comment|earlier version of this'
+PAT='an earlier version|an earlier draft|a previous version|previously said|used to say|used to read|an earlier comment|earlier version of this|an earlier rationale|used to claim|for six iterations'
 grep -Eic "$PAT" engine/connect.js engine/connect.test.js server.js server.connect.test.js
-git diff origin/main...HEAD -- <those four> | grep '^+' | grep -Eic "$PAT"   # mine:         9
-git grep -Eic "$PAT" origin/main -- <those four>                            # pre-existing: 25
+git diff origin/main...HEAD -- <those four> | grep '^+' | grep -Eic "$PAT"   # mine:         >= 11
+git grep -Eic "$PAT" origin/main -- <those four>                            # pre-existing: >= 25
 ```
 
-**The conclusion is not merely preserved, it is STRONGER than the narrow form implied: 9 mine against
-25 pre-existing.** Controls: a bogus alternation returns 0 on both arms, so the instrument
-discriminates. ⭐ **A guard narrower than the class it names becomes the failure it was meant to
+🛑 **THESE ARE FLOORS, NOT TOTALS, AND THE PATTERN IS DELIBERATELY LABELLED AS ONE.** The class
+("retraction archaeology") is open-ended prose, so no alternation can be proven complete. Anyone
+re-running this should widen it further and expect the floor to rise.
+
+⭐ **THE REASON THAT CAUTION IS HERE IS THE SHARPEST MEASUREMENT OF THE ROUND, AND IT WOULD HAVE BEEN
+MISSED BY COMPARING TOTALS.** Two independent widenings, mine and the reviewer's, **BOTH RETURNED 34**
+and were NOT the same 34: each missed two instances the other caught (mine missed "An earlier
+rationale here said" and "what this comment said FOR SIX ITERATIONS"; theirs missed two spellings of
+"earlier version of this comment"). **Their union is 36.** ⇒ **Two instruments agreeing on a NUMBER
+while disagreeing on the SET reads exactly like corroboration.** Had we compared only the totals we
+would have called it confirmed and shipped a figure both of us knew was short. **Compare the HITS,
+not the count.** Controls: a bogus alternation returns 0 on both arms. ⭐ **A guard narrower than the class it names becomes the failure it was meant to
 prevent, and case is only ONE of the two axes on which a pattern can be too narrow.**
 
 ⇒ **The idiom is house style, by a majority I did not put there. Trimming mine would have made this
