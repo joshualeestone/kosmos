@@ -1006,10 +1006,16 @@ cmd_react() {
   esc_emoji=$(printf '%s' "$emoji" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  # rc is captured via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`. The shebang is
+  # /bin/bash (3.2 on macOS) under `set -euo pipefail`, where a failing command
+  # substitution in a bare assignment ABORTS the whole process at that line -- so
+  # the bare form would kill `kosmos` silently on a curl failure and never reach
+  # the messages below (measured: a destroyed socket gave exit 52 and no output).
+  # The `|| rc=$?` puts the assignment in an `||` list, which suppresses `set -e`.
+  local rc=0
   body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/react" \
     -H 'content-type: application/json' \
-    --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null)
-  rc=$?
+    --data "{\"project\":\"$esc_project\",\"of\":\"$esc_post\",\"emoji\":\"$esc_emoji\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
   # A react TOGGLES, so a response lost AFTER the server acted (a -m 15 timeout on
   # a busy board -- curl exit 28) leaves the reaction APPLIED while a bare failure
   # message would invite a retry, and the retry would toggle it back OFF, ending

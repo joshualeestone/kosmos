@@ -157,6 +157,33 @@ test('#2255: a refusal whose reason text contains `"ok":true,"op":"add"` still r
     }
   }));
 
+test('#2255: a curl failure on the POST is REPORTED, not a silent abort (set -e regression guard)', () => {
+  // The shebang is /bin/bash (3.2 under `set -euo pipefail`), where a bare
+  // `body=$(...); rc=$?` ABORTS at the assignment when curl fails -- printing
+  // nothing and exiting with curl's raw code -- so the "could not reach" arm
+  // never runs. cmd_react uses `body=$(...) || rc=$?` to keep the failure in
+  // hand. This drives a real curl failure (the stub destroys the socket AFTER
+  // healthy() has passed, so curl exits ~52) and proves the CLI still SPEAKS.
+  const server = http.createServer((req, res) => {
+    if (req.method === 'POST' && req.url.startsWith('/api/react')) { req.socket.destroy(); return; }
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<title>Kosmos</title>Agent Workforce');
+  });
+  return new Promise((resolve, reject) => {
+    server.listen(0, '127.0.0.1', async () => {
+      let failure = null;
+      try {
+        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
+        const out = await runCli(['react', 'proj', 'm1', THUMB], env);
+        assert.notEqual(out.stdout.trim(), '', 'a curl failure printed nothing -- the process aborted under set -e');
+        assert.match(out.stdout, /could not reach Kosmos|may have landed/, 'a curl failure must be reported to the agent');
+        assert.notEqual(out.code, 0, 'a curl failure must exit non-zero');
+      } catch (e) { failure = e; }
+      server.close(() => (failure ? reject(failure) : resolve()));
+    });
+  });
+});
+
 test('#2255: kosmos react with a missing argument explains itself and does not call the route', () =>
   withStub(() => ({ ok: true, op: 'add', emoji: THUMB, of: 'm3' }), async (port, seen) => {
     const { home } = makeHome();
