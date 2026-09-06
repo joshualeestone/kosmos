@@ -550,6 +550,44 @@ async function addWithKeyLive({ key, label, codexBin }) {
   return { ok: true, account: added.account };
 }
 
+/**
+ * #2338: validate a completed ChatGPT (subscription) sign-in in an isolated
+ * CODEX_HOME and produce its account row -- the "connected" GATE for the
+ * subscription connect flow, and the codex analog of addWithKey's finish half.
+ *
+ * The gate is the guide's rule: an account is a real subscription sign-in iff
+ * its auth.json parses to `auth_mode: 'chatgpt'` with a decodable identity
+ * (identityFromData already does exactly this). A launched browser, a shown
+ * device code, or a process exit status are NOT this gate -- only what codex
+ * actually WROTE counts. `codex login status` is never consulted here: it is
+ * local-only and lies (it reports "Logged in" for a fabricated key -- see the
+ * live-check note below), so it can no more confirm a subscription than a key.
+ *
+ * DELIBERATELY does NOT create or delete directories: the caller (the connect
+ * driver) owns the isolated CODEX_HOME's lifecycle and anti-litter, exactly as
+ * addWithKey/addWithKeyLive keep directory creation separate from the live
+ * check. This keeps the gate a pure read + (best-effort) name write, so it is
+ * unit-testable against a fixture CODEX_HOME with no spawn and no network.
+ *
+ * @param {{dir:string, label?:string}} args
+ * @returns {{ok:true, account:object} | {ok:false, because:string}}
+ */
+function finishChatgptLogin({ dir, label }) {
+  const who = identityOf(dir);
+  if (!who) return { ok: false, because: 'the ChatGPT sign-in did not complete' };
+  if (who.authMode !== 'chatgpt') {
+    // A completed sign-in, but an API key -- that is the SEPARATE connection
+    // type (addWithKey), never silently accepted as a subscription.
+    return { ok: false, because: 'that sign-in is an API key, not a ChatGPT subscription' };
+  }
+  // Persist the exact typed name before rowFor reads it (mirrors addWithKey #2095);
+  // best-effort, so a failed write leaves a working, unnamed subscription account.
+  if (label != null && String(label).trim()) writeName(dir, label);
+  const row = rowFor(dir, false);
+  if (!row) return { ok: false, because: 'the ChatGPT sign-in could not be read back' };
+  return { ok: true, account: row };
+}
+
 /* ── live check (#960) ───────────────────────────────────────────────────
    `codex login status` is LOCAL ONLY -- verified by pointing CODEX_HOME at a
    directory holding a fabricated, never-valid key and getting "Logged in
@@ -1076,7 +1114,7 @@ async function listLiveNow() {
 const listLive = inflight.collapse(listLiveNow);
 
 module.exports = {
-  list, identityOf, addWithKey, addWithKeyLive, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+  list, identityOf, addWithKey, addWithKeyLive, finishChatgptLogin, nextWorkDir, defaultDir, forgetAccount, removeAccount, FORGOTTEN_PREFIX, PROVIDER, PROVIDER_NAME, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); },
   checkLive, listLive, setFetcher, MISSING_RUNNER_SENTENCE,
   accountModels, chatModelsFromList, openaiSnapshotBase, chatRunnableIds, runnableAllowlist, openaiModelClass,
