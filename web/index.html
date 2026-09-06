@@ -16403,11 +16403,11 @@ async function worldswSwitch(id, name) {
     // Mark the new active world (list + promoted name) before branching on the outcome.
     await worldsFetch().catch(() => {});
 
-    if (noop) {
-      say(switchedName + ' is already your active Kosmos.');
-      focusTrigger();
-      return;
-    }
+    // Check restarting BEFORE noop. The valid server contract makes these mutually
+    // exclusive (restarting:true implies !isNoop implies restartRequired:true), so the
+    // order is invisible for any contract-valid response -- but a defensive board that
+    // ever sent restarting:true with restartRequired:false must still reconnect (the
+    // board IS restarting), never be mistaken for an already-active no-op.
     if (restarting) {
       // The board is restarting itself onto the new world; wait for it to come back
       // and reload. The WORLDSW_SWITCHING guard is held across the whole poll (this is
@@ -16417,6 +16417,11 @@ async function worldswSwitch(id, name) {
       // keyboard focus would sit on <body> for the whole ~150s reconnect.
       focusTrigger();
       await worldswReconnect(switchedId, switchedName, say);
+      return;
+    }
+    if (noop) {
+      say(switchedName + ' is already your active Kosmos.');
+      focusTrigger();
       return;
     }
     // A board that will not self-restart safely (from source / unmanaged): honest

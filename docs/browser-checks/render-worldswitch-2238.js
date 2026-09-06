@@ -95,6 +95,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         if (postMode === 'manual') {
           return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: true, restarting: false }) });
         }
+        if (postMode === 'restart-norequire') {
+          // Contract-INVALID shape (the server never sends restarting:true with
+          // restartRequired:false), used to prove the client checks restarting BEFORE
+          // noop: it must RECONNECT (the board is restarting), not treat it as a no-op.
+          pendingReboot = true;
+          return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: false, restarting: true }) });
+        }
         // restarting:true -- the board self-restarts; the reboot flips the BOOTED world
         // on a poll COUNT (see the status stub), not a wall-clock timer, so the "observed
         // the OLD id before the flip" control cannot flake on event-loop timing.
@@ -201,7 +208,23 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       reloaded: reloadCount > 0,
     };
 
-    return { before, afterRestarting, afterManual, afterNoop };
+    // ---- Scenario D: contract-invalid restarting:true + restartRequired:false ----
+    // The client must check restarting BEFORE noop, so this RECONNECTS (the board is
+    // restarting) rather than being mistaken for an already-active no-op.
+    registryActive = 'w1'; bootedActive = 'w1'; postMode = 'restart-norequire';
+    pendingReboot = false; rebootPollsSeen = 0;
+    reloadCount = 0; statusObserved.length = 0;
+    await worldsFetch(); await sleep(10);
+    const cD = await clickSide();
+    if (cD.error) return { error: cD.error };
+    const dReloaded = await waitFor(() => reloadCount > 0, 3000);
+    const afterInvalid = {
+      reloaded: dReloaded,
+      polled: statusObserved.length,
+      saidAlready: /already/i.test(bannerMsg()),
+    };
+
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid };
   });
 
   await browser.close();
@@ -236,6 +259,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!/already/i.test(c.msg)) problems.push('a no-op switch (restartRequired:false) should say the world is already active, got "' + c.msg + '"');
     if (c.reloaded) problems.push('a no-op switch must NOT reload');
     if (c.polled !== 0) problems.push('a no-op switch must NOT poll /api/status, but it polled ' + c.polled + ' time(s)');
+
+    // Scenario D: contract-invalid restarting:true + restartRequired:false -> reconnect, not no-op
+    const d = r.afterInvalid;
+    if (d.saidAlready) problems.push('restarting:true with restartRequired:false was mistaken for a no-op ("already active") -- the client must check restarting BEFORE noop');
+    if (!d.reloaded) problems.push('restarting:true (even with restartRequired:false) must RECONNECT and reload -- the board is restarting');
+    if (d.polled === 0) problems.push('restarting:true must poll /api/status to confirm the reboot, but it polled 0 times');
   }
 
   console.log('  ' + JSON.stringify(r));
