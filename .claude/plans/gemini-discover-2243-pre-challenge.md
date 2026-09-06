@@ -75,6 +75,49 @@ separate card).
   gate, not #708 contention; confirmed by re-run after the fix).
 - diff em-dash swept clean; engine-only change, no `web/` diff, so no #1720 gate.
 
+### Review output
+
+#### Iteration 1 (blind general-purpose reviewer, CTO lens)
+
+[STRENGTH] The #1500 sandbox guard is byte-for-byte foundCodex's discipline
+(`sandboxIsInconsistent()` first, empty answer under a fixture); `geminisession.HOME`
+honours `AGENT_WORKFORCE_GEMINI_HOME` so tests never touch the real `~/.gemini`.
+
+[STRENGTH] found() integration correct: `roster` in scope at the call site;
+collision order (gemini merged last) matches intent (Claude/Codex win); no `byDir`
+shadowing between foundGemini's local map and found()'s; `gemini.unreadable` summed.
+
+[STRENGTH] Robustness: malformed/missing/non-object `projects.json`, relative/empty
+cwd keys, missing GEMINI.md (skipped, not counted), un-named GEMINI.md (never
+guessed) all handled; `alreadyIn(cwd, undefined)` tolerated. All tests pass.
+
+[STRENGTH] The CONTROL test is discriminating, not vacuous: same fixture as the
+positive case, differing only in GEMINI.md content, so a weakening that offered a
+guessed name flips it to red.
+
+[NIT] foundGemini silently dropped an existing-but-unparseable GEMINI.md (no signal,
+`unreadable` stayed 0), diverging from foundCodex (`unreadable += 1`) and the Claude
+arm, reintroducing the #1527 "less discoverable than an empty folder" defect for
+Gemini. A real agent whose GEMINI.md reads `You are lilnacho, a pm.` (lowercase name
+the parser cannot read) would vanish with no "we skipped one" signal.
+
+RESOLVED: gated the count on `INTRODUCES` (correct semantics for Gemini, whose
+projects.json lists non-agents too, unlike codex rollouts). A file that introduces
+somebody but names nobody -> `unreadable += 1`; a file that introduces nobody -> not
+an agent, skipped silently. Added a discriminating twin-test pair
+(introduces-nobody -> unreadable 0, introduces-but-unnamed -> unreadable 1) that pins
+the gate in both directions. Verified `identityFromText` behaviour on both strings
+before writing the assertion, not trusting the reviewer's claim.
+
+### Final Ledger
+
+- BLOCKERs: 0
+- NITs: 1, resolved (INTRODUCES-gated unreadable counting + twin-test pair)
+- Additional self-found defect fixed: a check-frozen-roots (#1432) false positive the
+  original local `geminiHome()` triggered, resolved by extracting `geminisession.js`
+  (the foundCodex/codexsession architecture mirror). check-frozen-roots rc=0 after.
+- Converged: yes.
+
 ### Weakest premise (named)
 
 `projects.json` is the only enumeration source, so a Gemini-only agent that never
