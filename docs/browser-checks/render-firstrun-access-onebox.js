@@ -108,6 +108,8 @@ function isBlue(rgb) {
       const says = fan ? Array.from(fan.querySelectorAll('.s2-say')).map((p) => p.textContent.trim()) : [];
       const allow = fan ? Array.from(fan.querySelectorAll('.s2-db')).find((b) => /^Allow$/.test(b.textContent.trim())) : null;
       const deny = fan ? Array.from(fan.querySelectorAll('.s2-db')).find((b) => /Don't Allow/.test(b.textContent.trim())) : null;
+      const sayEl = fan ? fan.querySelector('.s2-say') : null;
+      const sayCs = sayEl ? getComputedStyle(sayEl) : null;
       let ring = null, allowBg = null, allowSized = false;
       if (allow) {
         const af = getComputedStyle(allow, '::after');
@@ -123,6 +125,8 @@ function isBlue(rgb) {
         oldFolderCopy: says.some((s) => /Documents folder|Downloads folder|Desktop folder/.test(s)),
         hasAllow: Boolean(allow),
         hasDeny: Boolean(deny),
+        sayPx: sayCs ? parseFloat(sayCs.fontSize) : null,
+        sayWeight: sayCs ? String(sayCs.fontWeight) : null,
         allowSized, allowBg, ring,
       };
     }, VERBATIM);
@@ -132,6 +136,13 @@ function isBlue(rgb) {
 
     check(`${engine}: the box carries the verbatim generalized copy, per-folder copy gone`,
       state.hasVerbatim && !state.oldFolderCopy, JSON.stringify(state.says));
+
+    // The box copy must render at the compact dialog size (~13px / .8125rem, weight 600),
+    // NOT the 17px/400 first-run body <p> that `#firstrun .fr-body p` imposes on a bare
+    // class. Reds if the .s2-say specificity is dropped back below (1,1,1).
+    check(`${engine}: the box copy is compact dialog-sized (~13px, weight 600), not the overlay 17px/400 body`,
+      state.sayPx !== null && state.sayPx >= 12 && state.sayPx <= 14 && state.sayWeight === '600',
+      `sayPx ${state.sayPx}, weight ${state.sayWeight}`);
 
     check(`${engine}: both Don't Allow and Allow buttons render`,
       state.hasDeny && state.hasAllow && state.allowSized,
