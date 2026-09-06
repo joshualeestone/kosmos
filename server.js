@@ -950,7 +950,12 @@ function activeAgentsCreatedBy(creator) {
   if (!Array.isArray(births)) return null;
   let gone;
   try {
-    gone = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name));
+    // cleanName both sides: the removed store already holds clean names, but
+    // normalising here keeps the comparison self-consistent with the cleanName
+    // applied to each birth below, rather than depending on that invariant.
+    gone = new Set(removal.removedAgents()
+      .filter((r) => r && r.stopped !== false)
+      .map((r) => { try { return create.cleanName(r.name); } catch { return String(r.name); } }));
   } catch { return null; }
   const seen = new Set();
   let n = 0;
@@ -964,14 +969,26 @@ function activeAgentsCreatedBy(creator) {
   return n;
 }
 
-/* #1279 TOCTOU guard for the global per-creator cap. The cap is check-then-act
-   (read activeAgentsCreatedBy, then createTeam writes births), so two concurrent
-   same-creator /api/team requests could each read the same stale count and each
-   pass, accumulating past the cap. The board is a SINGLE process (loopback), so
-   an in-process per-creator lock serializes the check+create for one creator,
-   closing the race; different creators never contend. Standard chained-promise
-   lock: each caller runs after the previous same-creator caller SETTLES, and the
-   map entry is dropped once it is the tail, so it does not grow across creators. */
+/* #1279 per-creator serialization for the global cap. The cap is check-then-act
+   (read activeAgentsCreatedBy, then createTeam writes births).
+   🔑 WHAT MAKES IT ATOMIC TODAY is NOT this lock: the route runs the count read
+   and createTeam ADJACENTLY with no `await` between them, and createTeam (and
+   create.createAgent under it) is fully SYNCHRONOUS, so under Node's single
+   thread the check+create cannot interleave -- whichever request runs its
+   critical section first finishes read+write before any other continuation runs.
+   🛡️ THIS LOCK IS FORWARD-PROTECTION, and that is the reason to keep it. The
+   moment createTeam (or createAgent) grows an `await` before it writes the birth,
+   the adjacency stops being atomic and two concurrent same-creator requests would
+   each read a stale count and both pass. The lock closes that future race by
+   serializing the check+create per creator; different creators never contend. So
+   do NOT remove it as "redundant" -- it is redundant only while the create stays
+   synchronous, and nothing enforces that invariant except this lock. Its
+   serialization is proven directly in the withCreatorLock unit tests (with an
+   async fn that DOES yield); the route's concurrency test proves the cap OUTCOME
+   holds, not the mechanism.
+   Standard chained-promise lock: each caller runs after the previous same-creator
+   caller SETTLES, and the map entry is dropped once it is the tail, so it does not
+   grow across creators. */
 const teamCreateLocks = new Map();
 function withCreatorLock(creator, fn) {
   const prev = teamCreateLocks.get(creator) || Promise.resolve();
@@ -3277,18 +3294,22 @@ const server = http.createServer((req, res) => {
 
         /* --- #1279 AUTH: identify the caller; the caller decides the creator ----
            This route is exempt from the board-token sensitive-gate
-           (LOOPBACK_AGENT_ROUTES), so it enforces auth HERE, exactly as report/
-           reply do. A NETWORK peer was already refused upstream by
-           remoteWriteGuard (this route is not in REMOTE_AGENT_ROUTES). Two
-           loopback paths:
-             AGENT   -- a valid agent token: the creator IS the authenticated
-                        caller (resolveAgentSender), never a self-declared
-                        body.creator, so an agent cannot spawn a team under
-                        another agent's name. denyPaneFallback refuses the
-                        no-credential loopback spoof on an enforcing board (#1968).
-             OPERATOR -- the board token (no agent token): slice-1 behaviour,
-                        createdBy = body.creator.
-           On an enforcing board, NEITHER credential is refused. */
+           (LOOPBACK_AGENT_ROUTES), so it enforces auth HERE. A NETWORK peer was
+           already refused upstream by remoteWriteGuard (this route is not in
+           REMOTE_AGENT_ROUTES). Two loopback paths, and NO third:
+             AGENT   -- an agent token is present: the creator IS the authenticated
+                        caller (resolveAgentSender resolves the token; an invalid
+                        one is refused 403), never a self-declared body.creator, so
+                        an agent cannot spawn a team under another agent's name.
+             OPERATOR -- no agent token: on an enforcing board the board token is
+                        required (the 403 just below), else refused; createdBy =
+                        body.creator (slice-1 behaviour).
+           🔑 THE NO-CREDENTIAL REFUSAL IS THE OPERATOR BRANCH'S BOARD-TOKEN 403,
+           not resolveAgentSender: a request with no token does not enter the AGENT
+           branch at all. resolveAgentSender is called here only WITH a token, so
+           its pane-fallback (the thing report/reply's denyPaneFallback guards) is
+           structurally unreachable on this path -- which is why this call does not
+           pass denyPaneFallback (it would be inert). */
         const presentedAgentToken = (req.headers && req.headers['x-kosmos-agent-token']) || body.token;
         const hasBoardToken = boardauth.tokenOk({ token: boardAuthState.token, req, routingBase: ROUTING_BASE });
         let effectiveCreator;
@@ -3299,11 +3320,7 @@ const server = http.createServer((req, res) => {
             sendJson(res, 503, { error: 'we could not check which agents are running, so we could not tell who this request is from' });
             return;
           }
-          const denyPaneFallback = boardAuthState.on && !hasBoardToken;
-          const sender = resolveAgentSender(req, body, authRoster, {
-            denyPaneFallback,
-            denyBecause: 'this board only builds a team for an agent it can identify; present a valid agent token',
-          });
+          const sender = resolveAgentSender(req, body, authRoster);
           if (!sender.ok) { sendJson(res, 403, { error: sender.because }); return; }
           effectiveCreator = sender.card.sessionName;
           callerKind = 'agent';
@@ -10043,9 +10060,12 @@ module.exports = {
      the allowlist under test. */
   remoteWriteGuard, isLoopbackPeer, bindHost, REMOTE_AGENT_ROUTES, LOOPBACK_AGENT_ROUTES,
   /* #1279: the global per-creator active-agent cap helpers, exported so a test can
-     pin the pure cap resolution (default / env override / hard ceiling) and the
-     active-count logic directly, without driving the whole route. */
-  activeAgentsCreatedBy, creatorAgentCap,
+     pin the pure cap resolution (default / env override / hard ceiling), the
+     active-count logic, and the per-creator serialization lock directly, without
+     driving the whole route. withCreatorLock is exported so its serialization can
+     be proven with an fn that actually YIELDS (the route's critical section is
+     synchronous, so it cannot). */
+  activeAgentsCreatedBy, creatorAgentCap, withCreatorLock,
   /* #1946: the board-auth module (its `decide`/`matches` are pinned directly as
      pure functions) and the live enforcement holder. `boardAuthState` is exported
      so a test can boot a SANDBOXED board (guard off, no real-store side effect)

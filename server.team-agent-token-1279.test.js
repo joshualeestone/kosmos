@@ -46,7 +46,7 @@ fs.mkdirSync(path.join(HOME, '.claude', 'projects'), { recursive: true });
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const srv = require('./server');
-const { start, server, boardAuthState, remoteWriteGuard, REMOTE_AGENT_ROUTES, LOOPBACK_AGENT_ROUTES, creatorAgentCap, activeAgentsCreatedBy } = srv;
+const { start, server, boardAuthState, remoteWriteGuard, REMOTE_AGENT_ROUTES, LOOPBACK_AGENT_ROUTES, creatorAgentCap, activeAgentsCreatedBy, withCreatorLock } = srv;
 const create = require('./engine/create');
 const sendertoken = require('./engine/sendertoken');
 const liveness = require('./engine/liveness');
@@ -114,6 +114,43 @@ test('creatorAgentCap: default 25, env override, hard ceiling 100', () => {
   assert.equal(creatorAgentCap({ AGENT_WORKFORCE_CREATOR_AGENT_CAP: '99999' }), 100, 'no override may exceed the hard ceiling');
   assert.equal(creatorAgentCap({ AGENT_WORKFORCE_CREATOR_AGENT_CAP: 'nonsense' }), 25, 'a garbage override falls back to the default');
   assert.equal(creatorAgentCap({ AGENT_WORKFORCE_CREATOR_AGENT_CAP: '0' }), 25, 'a non-positive override is ignored');
+});
+
+// ---- withCreatorLock (the forward-protection serialization primitive) -------
+// The route's critical section is synchronous, so a route test cannot prove the
+// lock serializes (it is atomic either way). These exercise the lock with an fn
+// that DOES yield, so a broken/absent lock would let the sections interleave.
+
+const tick = () => new Promise((r) => setTimeout(r, 5));
+
+test('withCreatorLock SERIALIZES same-creator calls (a yielding fn cannot interleave)', async () => {
+  const order = [];
+  const slow = (id) => async () => { order.push(id + '-start'); await tick(); order.push(id + '-end'); };
+  await Promise.all([withCreatorLock('lockx', slow('a')), withCreatorLock('lockx', slow('b'))]);
+  // Serialized: a fully finishes before b starts. If the lock were a no-op, the
+  // interleaving would be a-start, b-start, a-end, b-end.
+  assert.deepEqual(order, ['a-start', 'a-end', 'b-start', 'b-end'],
+    'same-creator calls interleaved -- the lock did not serialize: ' + JSON.stringify(order));
+});
+
+test('withCreatorLock does NOT serialize DIFFERENT creators (they may interleave)', async () => {
+  const order = [];
+  const slow = (id) => async () => { order.push(id + '-start'); await tick(); order.push(id + '-end'); };
+  await Promise.all([withCreatorLock('lockp', slow('p')), withCreatorLock('lockq', slow('q'))]);
+  // Different creators run concurrently: both start before either ends.
+  assert.ok(order.indexOf('p-start') < order.indexOf('p-end') && order.indexOf('q-start') < order.indexOf('q-end'));
+  assert.ok(order.indexOf('q-start') < order.indexOf('p-end') || order.indexOf('p-start') < order.indexOf('q-end'),
+    'different creators were serialized against each other: ' + JSON.stringify(order));
+});
+
+test('withCreatorLock: a thrown fn does not break the chain for the next same-creator caller', async () => {
+  const order = [];
+  const boom = async () => { order.push('boom'); throw new Error('kaboom'); };
+  const after = async () => { order.push('after'); return 'ok'; };
+  await withCreatorLock('lockz', boom).catch(() => order.push('caught'));
+  const r = await withCreatorLock('lockz', after);
+  assert.equal(r, 'ok', 'the next caller after a thrown fn was not run -- the chain broke');
+  assert.deepEqual(order, ['boom', 'caught', 'after']);
 });
 
 // ---- activeAgentsCreatedBy (birth log minus removed) --------------------
@@ -249,7 +286,7 @@ test('CAP: a REMOVED prior agent frees headroom (birth-minus-removed), so the sa
   } finally { board.restore(); create.setClaudeProbe(null); fs.rmSync(logFile, { force: true }); try { setRemoved([]); } catch { /* best effort */ } }
 });
 
-test('CAP: concurrent same-creator requests cannot BOTH pass a stale count (the TOCTOU race is closed by the lock)', async () => {
+test('CAP: the cap OUTCOME holds under two concurrent same-creator requests (end-to-end; the lock MECHANISM is proven by the withCreatorLock unit tests)', async () => {
   create.setClaudeProbe(LIVE);
   const logFile = create.createdLogFile();
   fs.mkdirSync(path.dirname(logFile), { recursive: true });
