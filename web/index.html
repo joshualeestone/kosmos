@@ -38663,10 +38663,17 @@ async function fetchImportScanComplete(onPartial) {
   }
   return out;   // retries exhausted while still scanning (rare; the engine normally resolves to tccUnavailable first)
 }
-// #3/#4 half (a): whether the last frScanAgents used the file-access-GRANTED route
-// (/api/scan-import, which reaches ~/Documents, ~/Downloads, ~/Desktop). false means it ran
-// the TCC-free /api/scan-agents route, so a grant that lands LATER warrants a re-scan.
+// #3/#4 half (a): whether the last frScanAgents used the file-access-GRANTED route AND DELIVERED a
+// complete result (/api/scan-import, which reaches ~/Documents, ~/Downloads, ~/Desktop). false means
+// it ran the TCC-free /api/scan-agents route, hiccuped, or is still a scanning:true partial -- so a
+// grant that lands LATER (or a retry) warrants another scan.
 let FR_SCAN_FULL = false;
+// #3/#4 half (b): whether the last scan was ATTEMPTED on the granted route (regardless of whether it
+// delivered). The grant-flip poll exists to catch an UNGRANTED->granted flip, so it must NOT arm when
+// the scan was already granted -- otherwise a granted-but-partial scan (scanning:true) would arm a
+// poll that immediately re-scans (grant already true), racing the two-phase retry. Distinct from
+// FR_SCAN_FULL, which is false during a granted partial while this stays true.
+let FR_SCAN_GRANTED = false;
 let FR_RESCAN_TIMER = null;
 let FR_RESCAN_GEN = 0;
 let FR_RESCAN_BUSY = false;   // a poll tick's granted re-scan is in flight; serialize the ticks
@@ -38695,7 +38702,12 @@ function frArmRescanOnGrant() {
   // EVERY S9 render -- which is what re-arms the poll on a Back -> forward RETURN to S9,
   // where FR_SCAN is already populated so no fresh scan (and thus no arm) would otherwise run.
   if (FR_STEP !== FR_STEP_YOU + 1) return;
-  if (FR_SCAN_FULL) return;        // the scan already used the granted route; nothing to retry
+  // #3/#4 half (b): never arm when the scan was already on the granted route. The poll watches for
+  // an UNGRANTED->granted flip; if grant is already true there is no flip, and a granted-but-partial
+  // scan (scanning:true) would otherwise arm a poll that immediately re-scans and races the two-phase
+  // retry inside frScanAgents. A granted scan's completion (or hiccup-retry) is handled there, not here.
+  if (FR_SCAN_GRANTED) return;
+  if (FR_SCAN_FULL) return;        // granted route already delivered; nothing to retry
   if (FR_RESCAN_TIMER) return;     // already polling
   const gen = ++FR_RESCAN_GEN;
   const poll = async () => {
@@ -38783,6 +38795,9 @@ async function frScanAgents(grantedHint) {
       full = !!(gr && gr.checkable === true && gr.granted === true);
     } catch { full = false; }
   }
+  // #3/#4 half (b): record the granted-route attempt BEFORE the fetch, so a partial repaint's
+  // frArmRescanOnGrant sees it and does not arm a redundant grant-flip poll (see that guard).
+  FR_SCAN_GRANTED = full;
   if (full) {
     // #3/#4 half (b): the granted /api/scan-import is two-phase; retry on scanning:true and paint
     // the non-TCC rows meanwhile (fetchImportScanComplete). The onPartial repaint is
