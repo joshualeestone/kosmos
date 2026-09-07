@@ -33,6 +33,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const codexupdate = require('./codexupdate');
+const trust = require('./trust');
 /* ⚠️ THE REASONS A PERSON READS ARE SHARED WITH THE CLAUDE PATH, never written
    here. A reason is about the AGENT, not about the runtime underneath it, so
    both providers say the same sentence about the same condition -- and nobody
@@ -105,12 +106,16 @@ function forWorkdir(dir) {
   for (const file of rollouts()) {
     const meta = metaOf(file);
     if (!meta || !meta.cwd) continue;
-    /* `realpathSync` on both sides, because /tmp is a symlink to /private/tmp
-       on macOS and a string compare misses every session started under it. */
-    let a = want; let b = path.resolve(meta.cwd);
-    try { a = fs.realpathSync(a); } catch { /* gone; compare the literal */ }
-    try { b = fs.realpathSync(b); } catch { /* gone; compare the literal */ }
-    if (a === b) return { file, meta };
+    /* #2417: canonicalOnDisk (realpathSync.native) on BOTH sides, not plain realpathSync.
+       `want` is the launch folder Kosmos DERIVES; `meta.cwd` is the ON-DISK spelling codex
+       wrote via std::fs::canonicalize. Plain realpathSync resolved the /private twin but
+       PRESERVED case on macOS, so a case-divergent launch folder (agent started in the
+       lowercase 'work' spelling, disk holds 'Work') never matched its rollout and the OpenAI
+       ring read "not yet" -- the #2257 symptom via this door, the reason this site was
+       deferred into #2417. realpathSync.native folds case + /private + unicode exactly as
+       codex's canonicalize did, so the two match by construction; both fall back to
+       path.resolve on an absent path, so the gone-folder behavior is unchanged. */
+    if (trust.canonicalOnDisk(want) === trust.canonicalOnDisk(meta.cwd)) return { file, meta };
   }
   return null;
 }
