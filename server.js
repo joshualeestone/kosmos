@@ -4767,21 +4767,22 @@ const server = http.createServer((req, res) => {
         // answer that does not confirm the key is bad.
         const live = await claudeAccounts.validateLive(String(body.key || '').trim());
         if (live.state === claudeAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
-        const prepared = accounts.prepare(body.label);
-        if (!prepared.ok) { sendJson(res, 400, { error: prepared.because }); return; }
-        const settingsPath = path.join(prepared.dir, 'settings.json');
-        // #2420 taken-label guard: NEVER write into an EXISTING account. accounts.prepare
-        // mkdir's an already-existing ~/.claude-<label> and returns ok, so without this a
-        // label matching a signed-in SUBSCRIPTION account (or an existing api-key account)
-        // would drop a key file + apiKeyHelper into it and SILENTLY switch its billing to
-        // the pasted key (Claude Code prefers apiKeyHelper over the OAuth subscription).
-        // prepare's only touch on a pre-existing Kosmos account is a no-op hooks re-merge,
-        // and this refuses BEFORE the key / apiKeyHelper (the billing-switch) is written.
-        // Mirrors openaiaccounts.addWithKey's taken-label refusal.
-        if (accounts.identityOf(prepared.dir) || fs.existsSync(claudeAccounts.keyFile(prepared.dir))) {
+        // #2420 taken-label guard, BEFORE prepare so a REFUSED add never touches an
+        // existing account (prepare would merge reporting hooks into its settings.json).
+        // NEVER write into an EXISTING account: a label matching a signed-in SUBSCRIPTION
+        // account (identityOf) or an existing api-key account (a stored key file) would drop
+        // a key file + apiKeyHelper into it and SILENTLY switch its billing to the pasted key
+        // (Claude Code prefers apiKeyHelper over the OAuth subscription). Mirrors
+        // openaiaccounts.addWithKey's taken-label refusal.
+        const named = accounts.dirForLabel(body.label);
+        if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+        if (accounts.identityOf(named.dir) || fs.existsSync(claudeAccounts.keyFile(named.dir))) {
           sendJson(res, 400, { error: 'there is already a Claude account by that name on this computer' });
           return;
         }
+        const prepared = accounts.prepare(body.label);
+        if (!prepared.ok) { sendJson(res, 400, { error: prepared.because }); return; }
+        const settingsPath = path.join(prepared.dir, 'settings.json');
         try {
           claudeAccounts.storeKey(prepared.dir, body.key);
           claudeAccounts.wireApiKeyHelper(settingsPath, prepared.dir);

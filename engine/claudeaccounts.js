@@ -44,10 +44,10 @@ function keyFile(dir) { return path.join(String(dir || ''), KEY_BASENAME); }
 
 /**
  * A shape complaint about a pasted key, or null if it looks usable. Mirrors
- * openaiaccounts.keyProblem, plus the Anthropic-specific `sk-ant-` prefix as a
- * SOFT hint (a warning-shaped refusal only when it is clearly not a key), because
- * the LIVE check is the real gate -- a shape check must never be the thing that
- * blocks a valid key whose prefix Anthropic later changes.
+ * openaiaccounts.keyProblem: empty / whitespace / too-short only. Deliberately
+ * NOT a prefix check (no `sk-ant-` assertion) -- the LIVE check is the real gate,
+ * and a shape check must never be the thing that blocks a valid key whose prefix
+ * Anthropic later changes.
  */
 function keyProblem(key) {
   const k = String(key == null ? '' : key).trim();

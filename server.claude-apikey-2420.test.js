@@ -114,6 +114,18 @@ test('re-adding the SAME label as an existing api-key account is refused (no sil
   assert.equal(stored, 'sk-ant-api03-first-longenoughkey', 'the first key is not silently overwritten by the second');
 });
 
+test('a label that sanitizes to empty is refused in words, and a key with surrounding whitespace is trimmed before storage', async () => {
+  claudeAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const empty = await post('/api/accounts/claude/apikey', { label: '!!!', key: 'sk-ant-api03-validlongkey' });
+  assert.equal(empty.status, 400);
+  assert.match((await empty.json()).error, /not a name we can use/);
+
+  const r = await post('/api/accounts/claude/apikey', { label: 'ws-key', key: '\n  sk-ant-api03-whitespace-wrapped  \n' });
+  assert.equal(r.status, 200);
+  const stored = fs.readFileSync(claudeAccounts.keyFile(nodePath.join(SANDBOX, '.claude-ws-key')), 'utf8');
+  assert.equal(stored, 'sk-ant-api03-whitespace-wrapped', 'the key is trimmed, so apiKeyHelper cats exactly the key with no stray whitespace');
+});
+
 test('runner missing -> needsRunner, before the key is even looked at', async () => {
   const savedResolve = runners.resolveBin;
   runners.resolveBin = () => ({ present: false });
