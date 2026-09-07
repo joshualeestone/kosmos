@@ -64,6 +64,28 @@ resolution/a dedup key, or the only reachable symptom is safe -> LEAVE with the 
 - **engine/projects.js 446** -- already prefers realpathSync.native (the canonicalOnDisk primitive).
 - **engine/status.js 3177/3186** (readTranscriptDir) -- already uses trust.canonicalOnDisk.
 
+- **engine/geminisession.js 62-65** (`projects()` de-dupe) -- a comment defers a symlink/case
+  normalization (`/tmp` vs `/private/tmp`) over byte-identical sources. Out of class, same dedup
+  family as the discover.js sites: a normalization over sources that are already the same spelling,
+  not a recorded-vs-getcwd match. Discovery-only (no forWorkdir-style context-fill).
+
+## The LEAVE class, stated once (so the next grep needs no per-site re-derivation)
+Every `realpathSync` in engine/ that is NOT `codexsession.forWorkdir` falls into one of four
+out-of-class shapes, all correctly LEFT:
+1. **Symmetric derived-vs-derived compare** -- the same `realpathSync` applied to both sides, both
+   built from `homeDir()`/config (accounts.js). Case folds identically on both, so a Kosmos-made
+   pair always matches; only a hand-wired divergent symlink diverges, and that reads as the safe
+   answer.
+2. **A DELETE or ESCAPE containment guard** (delete-leftover.js, workerfile.js) -- case-preservation
+   UNDER-matches (stricter); folding case would only LOOSEN the guard, the wrong direction.
+3. **A self-resolution** (reporthook.js) -- resolving a path to use it, not to compare it against a
+   recorded one.
+4. **A dedup key / normalization** (discover.js loose-file, geminisession.js projects) -- collapsing
+   aliases of ONE path, over sources that are the same spelling or already collapsed upstream
+   (#2408 keyed the dir side on dev+ino for exactly this reason).
+The recorded-vs-getcwd class -- a DERIVED path matched against a getcwd/canonicalize on-disk one --
+is the only one that needs canonicalOnDisk, and codexsession.forWorkdir was its only member.
+
 ## Bottom line
 One fix (codexsession.forWorkdir), everything else correctly leaves. The sweep's value is as much
 the documented LEAVE verdicts as the one fix: the next person who greps realpathSync in engine/ has
