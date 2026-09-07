@@ -144,6 +144,41 @@ test('defaultTccScan bridge: drops a nonce request, merges the matching result, 
   }
 });
 
+test('defaultTccScan give-up: an unanswered request past the threshold completes empty (never hangs)', () => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tccgiveup-'));
+  const prev = process.env.AGENT_WORKFORCE_DATA;
+  const prevGU = process.env.AGENT_WORKFORCE_TCC_GIVEUP_MS;
+  process.env.AGENT_WORKFORCE_DATA = dataDir;
+  const pr = require('./promptrequest');
+  const origNP = pr.nativePresent;
+  try {
+    const store = require('./store');
+    fs.mkdirSync(store.ROOT, { recursive: true });
+    pr.nativePresent = () => true;   // app present, but it will never answer
+    const walkRoot = tmpTree();
+    const tccRoot = { dir: '/nonexistent/Documents', maxDepth: 4, tcc: true };
+    const call = () => discover.scan({ roots: [{ dir: walkRoot, maxDepth: 3 }, tccRoot] });
+
+    // 1) A pending request exists (scanning), nothing has answered.
+    const r1 = call();
+    assert.strictEqual(r1.scanning, true, 'a pending unanswered request -> scanning:true');
+
+    // 2) Force the give-up threshold negative so the now-pending request is immediately "too old":
+    // the scan must COMPLETE (never poll scanning:true forever on a crashed hatch).
+    process.env.AGENT_WORKFORCE_TCC_GIVEUP_MS = '-1';
+    const r2 = call();
+    assert.strictEqual(r2.scanning, false, 'past give-up -> the scan completes, never hangs');
+    assert.strictEqual(r2.bounded.tccUnavailable, true, 'give-up surfaces bounded.tccUnavailable');
+
+    fs.rmSync(walkRoot, { recursive: true, force: true });
+  } finally {
+    pr.nativePresent = origNP;
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
+    if (prevGU === undefined) delete process.env.AGENT_WORKFORCE_TCC_GIVEUP_MS; else process.env.AGENT_WORKFORCE_TCC_GIVEUP_MS = prevGU;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('no tcc roots (the auto scan) never calls tccScan and reports scanning:false', () => {
   const walkRoot = tmpTree();
   let called = false;

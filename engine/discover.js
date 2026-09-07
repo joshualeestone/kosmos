@@ -914,7 +914,12 @@ function defaultTccScan(tccRoots, budgets) {
   try {
     reqPath = path.join(store.ROOT, 'scan-request.json');
     resPath = path.join(store.ROOT, 'scan-result.json');
-  } catch { return null; }
+  } catch {
+    // Resolve failure -> COMPLETE the scan empty, never null: a null here returns before
+    // tccPendingReq is set, so the give-up branch could never fire and scanning:true would persist
+    // across every retry. Resolved-empty preserves the never-hangs guarantee.
+    return TCC_UNAVAILABLE;
+  }
 
   // A fresh result that answers OUR request (nonce match), consumed on read so a later unrelated
   // session cannot pick up a stale answer.
@@ -935,7 +940,11 @@ function defaultTccScan(tccRoots, budgets) {
   // GIVE UP: the app is present but our request has gone unanswered too long (a crashed/failed
   // hatch). Stop reporting scanning:true forever -- complete the scan without TCC rows. getImportScan
   // then caches this complete result, so the front-end's retry stops rather than polling endlessly.
-  if (tccPendingReq && (Date.now() - tccPendingReq.at) > TCC_GIVE_UP_MS) {
+  // The threshold is overridable (read at call time) so a test can reach this branch without a
+  // 12s wait; an empty/absent value keeps the real bound.
+  const rawGiveUp = process.env.AGENT_WORKFORCE_TCC_GIVEUP_MS;
+  const giveUpMs = rawGiveUp !== undefined && rawGiveUp !== '' ? Number(rawGiveUp) : TCC_GIVE_UP_MS;
+  if (tccPendingReq && (Date.now() - tccPendingReq.at) > giveUpMs) {
     tccPendingReq = null;
     return TCC_UNAVAILABLE;
   }
@@ -1177,13 +1186,11 @@ function scan(opts) {
     const tccScan = typeof o.tccScan === 'function' ? o.tccScan : defaultTccScan;
     let hatch = null;
     try {
-      // Pass the ROW caps too, so the hatch stops emitting folder/loose rows the merge would only
-      // discard -- otherwise a huge Documents tree yields a multi-MB scan-result.json (up to maxDirs
-      // rows x readCap bytes) the engine mostly throws away.
-      hatch = tccScan(tccRoots, {
-        maxDirs, maxMdPerDir: SCAN.MAX_MD_PER_DIR, maxMdReads, readCap: SCAN.READ_CAP,
-        maxCandidates, maxImportable: SCAN.MAX_IMPORTABLE,
-      });
+      // The hatch emission is bounded by the READ budgets (maxDirs folder reads, maxMdReads loose
+      // reads) -- the same bound the engine walk uses -- NOT by the DETECTED-row caps: capping raw
+      // emission on a detected-equivalent would drop real agents enumerated after non-agent files.
+      // The DETECTED-row caps (maxCandidates/MAX_IMPORTABLE) are applied HERE, on the merge, below.
+      hatch = tccScan(tccRoots, { maxDirs, maxMdPerDir: SCAN.MAX_MD_PER_DIR, maxMdReads, readCap: SCAN.READ_CAP });
     } catch { hatch = null; }
     if (!hatch) {
       scanning = true;
