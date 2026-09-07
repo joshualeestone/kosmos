@@ -90,6 +90,15 @@ the display listing -- so the guard belongs at the room-post/react access bounda
 - engine/reactions-2255.test.js `#2442`: the same member, once removed, can no longer REACT
   (control: a live member can). All perturbation-verified (disabling `_roomMembers` reds them).
 
+## Known minor edge (deferred, not fixed here)
+When EVERY member of a project has been removed, an operator room post falls through to the existing
+#172 refusal "nobody is on that project yet, so there is no room to post to." After filtering,
+`recipients` is empty, so the operator sees a "no members yet" message when the accurate statement is
+"the members have all been removed." Deferred: it is a rare edge (whole team removed), operator-facing
+and harmless (the message still conveys the operative fact -- there is no agent to receive the post),
+and an accurate new sentence is user-facing COPY, which is Mona's / Josh's lane rather than something
+to invent inside a security fix. Flagged for a copy pass if wanted.
+
 ## Validation
 Fast: `node --test engine/messages.test.js engine/reactions-2255.test.js engine/projects.test.js
 server.projects.test.js`. Full suite via the box at merge time.
