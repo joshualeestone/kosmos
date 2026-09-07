@@ -174,12 +174,17 @@ test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + 
   const ambiguous = a11y.tmuxGrant({ tmuxBin: '/fake/other/tmux', tccDb: db });
   assert.equal(ambiguous.checkable, false, 'another-tmux-granted must be cannot-check, not a false green or a strand');
 
-  // No tmux granted at all -> trusted:false (fresh-install Turn On).
+  // No tmux granted at all -> trusted:false (fresh-install Turn On). A granted
+  // NON-tmux binary whose path merely CONTAINS "tmux" (tmuxinator) must NOT count
+  // as "another tmux granted" (#9): the query ends in '/tmux', so tmuxinator is
+  // excluded and the fresh path stays actionable (trusted:false), not ambiguous
+  // (checkable:false). A '%tmux%' substring match would fail this assertion.
   const emptyDb = path.join(SANDBOX, 'tcc-empty.db');
   execFileSync('/usr/bin/sqlite3', [emptyDb,
-    "CREATE TABLE access(service TEXT NOT NULL, client TEXT NOT NULL, client_type INTEGER NOT NULL, auth_value INTEGER NOT NULL);"]);
+    "CREATE TABLE access(service TEXT NOT NULL, client TEXT NOT NULL, client_type INTEGER NOT NULL, auth_value INTEGER NOT NULL);"
+    + "INSERT INTO access VALUES('kTCCServiceAccessibility','/opt/homebrew/bin/tmuxinator',1,2);"]);
   const none = a11y.tmuxGrant({ tmuxBin: '/fake/bundled/tmux', tccDb: emptyDb });
-  assert.equal(none.checkable, true);
+  assert.equal(none.checkable, true, 'a granted tmuxinator must not push a fresh install into ambiguous cannot-check');
   assert.equal(none.trusted, false);
 
   // Schema drift / wrong db shape -> checkable:false (the guard), never a verdict.

@@ -92,14 +92,18 @@ function read() {
   return { checkable: true, trusted: rec.trusted === true, at: rec.at };
 }
 
-/* Test seam: read the Accessibility grant rows for any tmux-shaped client from
-   the system TCC db. Returns { ok:true, rows:[{client, auth}] } or { ok:false,
-   because }. Never throws.
+/* Production reader (and test seam): read the Accessibility grant rows for any
+   tmux binary from the system TCC db. This is the DEFAULT runner server.js uses
+   via tmuxGrant() with no opts; a test can swap it via setSqliteRunner. Returns
+   { ok:true, rows:[{client, auth}] } or { ok:false, because }. Never throws.
    - `-readonly` so a locked live db still reads and this can NEVER mutate the
      system TCC store.
-   - The query is a FIXED literal (a `LIKE '%tmux%'` with no interpolated value),
+   - The query is a FIXED literal (a `LIKE '%/tmux'` with no interpolated value),
      so there is no injected path and nothing to escape -- the exact-binary match
-     is done in JS below against `client`, off the returned rows.
+     is done in JS below against `client`, off the returned rows. The pattern ends
+     in `/tmux` (not a bare `%tmux%`) so a granted non-tmux binary whose path merely
+     contains "tmux" (e.g. tmuxinator) cannot enter the ambiguity set; a real tmux
+     binary path always ends in `/tmux`.
    - `timeout` is short (2s): this is a local single-row read, and the caller runs
      on the board's HTTP thread, so a pathological lock must not pin the event loop
      for long; a timeout lands in { ok:false } -> checkable:false ("Checking...").
@@ -108,7 +112,7 @@ function read() {
      wrong grant verdict. */
 let sqliteRunner = (dbPath) => {
   try {
-    const q = "SELECT client, auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client LIKE '%tmux%';";
+    const q = "SELECT client, auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client LIKE '%/tmux';";
     const out = execFileSync('/usr/bin/sqlite3', ['-readonly', dbPath, q], {
       encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'pipe'],
     });
