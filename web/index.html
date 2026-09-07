@@ -7320,6 +7320,23 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </section>
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
 
+  <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
+       box (which hides when the capture cannot land) on purpose: an agent stuck at the
+       terminal trust question is exactly when the window is not showable and these are
+       most needed, so they must not live inside a box that hides in that state.
+       "Trust & Restart" -> POST /api/agent/<name>/trust-and-restart (Pete): writes the
+       folder-trust key then restarts, so it can start without hitting the terminal trust
+       menu. "Open Terminal" (added with Pete's second route) opens the real window.
+       Copy: Mona Lisa. -->
+  <section class="dbox" id="d-term-actions">
+    <h3 class="dlab">This agent&rsquo;s Terminal</h3>
+    <div class="freshstack">
+      <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
+    </div>
+    <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent folder so it can start without the Terminal question.</p>
+    <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
+  </section>
+
   <!-- The raw session, always offered on this page since agent-page-nav
        (the Engineering-mode switch governs project pages only). Same
        viewport-not-transcript honesty as the project page's block. The box
@@ -24849,6 +24866,39 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     go.textContent = wasGo;
     go.disabled = false;
     document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
+  }
+});
+
+/* #5 insurance (Josh 0.6.44): Trust & Restart. POST /api/agent/<name>/trust-and-restart
+   (Pete's route) writes the folder-trust key for this agent's own folder+account, then
+   restarts it, so an agent stuck at the terminal trust question can be unblocked from
+   here. The restart is the verdict; the route hands back a friendly `because` on 200
+   (restarted) AND on a 400 refusal (not started by Kosmos / not running), so we show
+   that; a bad-name or 500 has only `error`. `trusted.wrote===false` on a 200 is fine
+   (the trust write is best-effort and non-gating, per Pete's contract) and is not
+   surfaced. Capture-and-recheck like d-save below, so the receipt cannot land under a
+   different agent if the person switches while the POST is in flight. */
+document.getElementById('d-trust-restart').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-trust-restart');
+  const msg = document.getElementById('d-trust-restart-msg');
+  btn.disabled = true;
+  msg.textContent = 'Trusting and restarting…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/trust-and-restart',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = r.because || r.error
+        || (res.ok ? 'Restarting.' : 'We could not trust and restart this agent.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
+    }
+  } finally {
+    btn.disabled = false;
   }
 });
 
