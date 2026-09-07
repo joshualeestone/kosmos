@@ -44,41 +44,27 @@ function homeDir() { return os.homedir(); }
 /**
  * The ON-DISK canonical spelling of a path -- the exact case (and unicode
  * normalization) the filesystem stores. This is what the RUNNER looks up: both
- * Claude Code (via process.cwd()) and codex (via std::fs::canonicalize) resolve
- * their working directory to the on-disk spelling before matching the trust key.
+ * Claude Code (via process.cwd() = getcwd()) and codex (via
+ * std::fs::canonicalize) resolve their working directory to the on-disk spelling
+ * before matching the trust key.
  *
- * 🛑 fs.realpathSync IS NOT THIS, and #2129's first fix wrongly assumed it was.
- * Measured on macOS: realpathSync resolves symlinks and `..` but returns the
- * INPUT case -- realpathSync('~/work/x') on a disk holding '~/Work/x' gives
- * '~/work/x', NOT '~/Work/x'. But process.cwd() after chdir('~/work/x') returns
- * '~/Work/x' (the on-disk case). So an agent LAUNCHED in the lowercase spelling
- * (workersDir() hardcodes 'work') LOOKS UP the capital one, a realpath-keyed
- * trust missed it, and the runner's directory-trust menu fired on a fresh macOS
- * user -- Josh's 0.6.42 re-test, both runners. This walks the path from the
- * realpath root, reading each directory to recover the entry's real stored name,
- * so the key equals what the runner will actually look up. Never throws: on any
- * unreadable/absent component it degrades to the best absolute spelling it has.
+ * 🛑 fs.realpathSync (the JS variant) IS NOT THIS, and #2129's first fix wrongly
+ * assumed it was. Measured on macOS: `fs.realpathSync('~/work/x')` on a disk
+ * holding '~/Work/x' returns the INPUT case '~/work/x'. `fs.realpathSync.native`
+ * -- the OS realpath(3) -- returns '~/Work/x'. That is the SAME OS call the runner
+ * uses (getcwd / std::fs::canonicalize), so keying on it matches the runner's
+ * lookup BY CONSTRUCTION, in one syscall, folding case AND unicode exactly as the
+ * filesystem does (a hand-rolled JS toLowerCase/normalize only approximates it).
+ * Verified: realpathSync.native(lowercase) === process.cwd()-after-chdir. The repo
+ * already proved this property in `projects.js` resolveReal (measured 2026-08-13).
+ * So an agent launched in the lowercase spelling (workersDir hardcodes 'work')
+ * looks up the capital one; a plain-realpath key missed it and the runner's
+ * trust menu fired on a fresh macOS user (Josh's 0.6.42 re-test, both runners).
+ * Falls back to path.resolve on an absent path so callers never throw.
  */
 function canonicalOnDisk(p) {
-  let real;
-  try { real = fs.realpathSync(p); } // resolves symlinks + .., but NOT case
+  try { return fs.realpathSync.native(p); }
   catch { return path.resolve(String(p)); }
-  const parts = real.split(path.sep); // absolute -> parts[0] === ''
-  let cur = path.sep;
-  for (let i = 1; i < parts.length; i += 1) {
-    const want = parts[i];
-    if (!want) continue;
-    let entries;
-    try { entries = fs.readdirSync(cur); }
-    catch { return path.join(cur, ...parts.slice(i)); } // unreadable: keep the rest as handed
-    // The real stored name: exact bytes first, then case- AND unicode-insensitive
-    // (macOS stores NFD; a caller/lookup may present NFC), so the recovered name
-    // is what the filesystem actually holds.
-    const match = entries.find((e) => e === want)
-      || entries.find((e) => e.normalize('NFC').toLowerCase() === want.normalize('NFC').toLowerCase());
-    cur = path.join(cur, match || want);
-  }
-  return cur;
 }
 
 /**
@@ -215,19 +201,17 @@ function trustFolder(dir, opts) {
     return { ok: false, because: 'that is not an absolute folder path' };
   }
 
-  // The key is the path the RUNNER will look up, which is the ON-DISK canonical
-  // spelling (case + unicode as the filesystem stores it), NOT fs.realpathSync's
-  // output. #2129/#5: realpathSync resolves symlinks but returns the INPUT case,
-  // while the runner resolves its cwd to the on-disk case (process.cwd() /
-  // std::fs::canonicalize) -- so a realpath key written for a lowercase launch
-  // path missed the runner's capital-cased lookup and the trust menu fired on a
-  // fresh macOS user. canonicalOnDisk recovers the stored spelling (it still
-  // resolves symlinks first, so the earlier "a symlinked spelling is never read"
-  // property holds). The existence check stays: canonicalOnDisk degrades quietly
-  // on an absent folder, but this function must still refuse one.
-  try { fs.realpathSync(dir); }
+  // The key is the path the RUNNER will look up: the ON-DISK canonical spelling
+  // (case + unicode as the filesystem stores it), which fs.realpathSync.native
+  // -- the OS realpath(3) -- returns exactly, being the same call the runner uses
+  // (process.cwd() / std::fs::canonicalize). See canonicalOnDisk. #2129/#5: the
+  // plain fs.realpathSync did NOT case-fold, so a lowercase-launch key missed the
+  // runner's capital lookup and the trust menu fired on a fresh macOS user. One
+  // call does both the existence check (it throws on an absent/unreachable dir)
+  // and the key, closing the check-then-resolve TOCTOU.
+  let key;
+  try { key = fs.realpathSync.native(dir); }
   catch { return { ok: false, because: 'that folder is not there' }; }
-  const key = canonicalOnDisk(dir);
 
   // ⚠️ A SYMLINKED CONFIG IS SOMEBODY'S ARRANGEMENT. Renaming over it replaces
   // the link with a file — the same severing the installer refuses for
