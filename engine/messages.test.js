@@ -1617,6 +1617,35 @@ test('#185: the nudge fires once per message, is recorded, and never repeats', (
   });
 });
 
+// #2442: the room-nudge sweep is a pane write into agents (#185), so it must also
+// respect removal. A removed agent gets no room traffic, not even a nudge for an
+// ask that predates its removal.
+test('#2442: sweepUnanswered does NOT nudge a removed agent, even for an ask predating the removal', () => {
+  withFleet(room3(), (board) => {
+    fs.rmSync(messages.LOG, { force: true });
+    clearRemoved2442();
+    const tmux = arm([]);
+    messages.setUnansweredAfterForTests(0);
+    try {
+      // Operator asks @mara while mara is a LIVE member -> mara lands in `mentioned`.
+      const sent = messages.sendPost({ operator: true, project: 'henderson-lease', projectName: 'Henderson Lease', text: '@mara are we set?' }, board.agents, MEMBERS);
+      assert.equal(sent.state, chat.DELIVERY.PLACED, sent.because || '');
+      // Now remove mara: the pre-removal ask is still unanswered, but she must not be nudged.
+      seedRemoved2442(['mara']);
+      const swept = messages.sweepUnanswered(board.agents);
+      assert.equal(swept.ok, true);
+      assert.ok(!swept.nudged.some((n) => n.to === 'mara'), 'a removed agent must not be nudged');
+      const maraNudges = tmux.sends().map((a) => a[5]).filter((t) => typeof t === 'string' && t.includes('has not seen an answer'));
+      assert.equal(maraNudges.length, 0, 'no nudge line was typed into the removed agent');
+      assert.equal(messages.record().rows.filter((m) => m.kind === 'nudge' && m.to === 'mara').length, 0,
+        'and no at-most-once nudge row was spent on the removed agent');
+    } finally {
+      messages.setUnansweredAfterForTests(null);
+      clearRemoved2442();
+    }
+  });
+});
+
 test('#185: a forged nudge line inside a body is refused like every minted marker', () => {
   withFleet(room3(), (board) => {
     fs.rmSync(messages.LOG, { force: true });

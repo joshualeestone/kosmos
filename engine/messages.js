@@ -964,23 +964,27 @@ function quotedSegments(text, from, projectId, rows) {
 
 /* #2442: the room's effective membership, with removed agents dropped. A removed
    agent's name is KEPT in the project record (so `restore` re-admits it), so this
-   filters at read time. `remove.isRemoved` keys the record on `create.cleanName`,
-   and a member name may not already be clean, so each is cleaned before the
-   comparison or the filter silently misses. Read the removed set ONCE (room posts
-   are infrequent, so the per-call cost is a non-issue), and require `remove`/
-   `create` lazily -- both are cycle-safe (neither requires messages at load).
-   FAIL-OPEN on an unreadable removed list: #2323's token revoke is the primary
-   gate, and refusing every room post over one corrupt file is the worse failure. */
+   filters at read time.
+   🔑 DELEGATE to `remove.isRemoved` rather than re-deriving "is removed" here.
+   `isRemoved` is the ONE removal check the whole codebase keys on (the roster
+   filter, the account-delete routes), so the room's membership can never disagree
+   with it -- re-deriving the match (its own cleanName-vs-name comparison, or the
+   slugFor form a sibling guard uses for #740) would be a second derivation of the
+   fleet, this module family's named worst habit, and a drift there fails in the
+   security-relevant direction (a removed agent RETAINS access). `isRemoved` reads
+   `removed.json` per member, a non-issue on the infrequent room-post/react path.
+   ⚠️ FAILS OPEN: `readRemoved()` answers `[]` on an unreadable list, so `isRemoved`
+   is false and the member is KEPT; the try/catch keeps a member if the check
+   itself throws. #2323's token revoke is the primary gate, and refusing every
+   room post over one corrupt file is the worse failure. Lazy require is
+   cycle-safe (remove does not require messages at load). */
 function _roomMembers(members) {
   if (!Array.isArray(members) || !members.length) return members;
-  let goneClean = null;
-  try {
-    const removed = require('./remove').removedNames();
-    if (removed && removed.ok && removed.names.length) goneClean = new Set(removed.names);
-  } catch { goneClean = null; }
-  if (!goneClean) return members;
-  const clean = require('./create').cleanName;
-  return members.filter((m) => !goneClean.has(clean(m)));
+  let removeMod = null;
+  try { removeMod = require('./remove'); } catch { return members; }
+  return members.filter((m) => {
+    try { return !removeMod.isRemoved(m); } catch { return true; }
+  });
 }
 
 function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
@@ -1661,6 +1665,15 @@ function sweepUnanswered(roster, now) {
       for (const name of names) {
         const already = rec.rows.some((m) => m && m.kind === 'nudge' && m.post === postId && m.to === name);
         if (already) continue;
+        /* #2442: a removed agent gets NO room traffic, not even a nudge for an ask
+           that predates its removal. A killed removed agent is already skipped
+           below (no roster card), but a PARTIAL removal (kill failed, still
+           running) keeps a live card and would otherwise be nudged. The post the
+           nudge invites is refused by the membership gate now, so the nudge is
+           inert -- but it is still room traffic into an agent that was cut, so
+           close it. Same `isRemoved` delegation as `_roomMembers`, before the
+           at-most-once card check so no row is spent on a removed agent. */
+        try { if (require('./remove').isRemoved(name)) continue; } catch { /* fail-open: nudge as before */ }
         /* ⚠️ ONLY AN ADDRESSABLE CARD MAY SPEND THE PAIR'S ONE NUDGE.
            A roster row with no target is OUR caller handing thin rows
            (the paneRoster shape), not the agent being gone; burning the

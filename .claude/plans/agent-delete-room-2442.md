@@ -38,12 +38,21 @@ in `sendPost` (right after the members-shape validation, so it gates BOTH the ag
 and the recipient list) and in `react` (the agent-reactor membership gate). Both room-post routes
 and the react route derive `members` from `describe()` and pass it to these two functions, so this
 is the one place the room ACCESS decision is made. Details:
-- read the removed set ONCE (room posts/reactions are infrequent -> per-call cost is a non-issue);
-- require `remove`/`create` lazily (both cycle-safe -- neither requires messages at load);
-- `remove.isRemoved` keys the record on `create.cleanName`, and a member name may not already be
-  clean, so each is cleaned before the comparison or the filter silently misses;
-- FAIL-OPEN on an unreadable removed list (#2323's token gate still holds; refusing every room
-  post over one corrupt file is the worse failure).
+- DELEGATE to `remove.isRemoved` rather than re-deriving the match here. `isRemoved` is the one
+  removal check the whole codebase keys on (roster filter, delete routes), so the room's membership
+  can never disagree with it -- re-deriving the cleanName/slugFor comparison would be a second
+  derivation of the fleet whose drift fails in the security-relevant direction (a removed agent
+  RETAINS access). It reads `removed.json` per member, a non-issue on the infrequent room path.
+- FAIL-OPEN on an unreadable removed list: `readRemoved()` answers `[]` -> `isRemoved` false -> the
+  member is kept, and the try/catch keeps a member if the check throws (#2323's token gate still
+  holds; refusing every room post over one corrupt file is the worse failure).
+- lazy require is cycle-safe (remove does not require messages at load).
+
+Also `sweepUnanswered` (the #185 room-nudge sweep, another pane-write path into agents): it
+re-nudges agents named in a pre-removal operator post's `mentioned` array. A killed removed agent
+is already skipped (no roster card), but a PARTIAL removal (still running) would be nudged, so the
+same `isRemoved` skip is applied before the at-most-once card check. The nudge is inert (the post
+it invites is refused by the membership gate now), but it is still room traffic into a cut agent.
 
 ## Why NOT filter in describe() (an approach tried and reverted)
 Filtering in `describe()` also drops the removed agent from the board's project-row DISPLAY, which
