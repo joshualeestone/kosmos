@@ -67,6 +67,17 @@ test('the imperative reaches a reader nowhere on the page', () => {
   /* ⚠️ The disclosures are BUILT as concatenated strings too, so strip that
      shape as well or the connect step's own hatch reads as an offender. */
   text = text.replace(/'<details[\s\S]{0,600}?<\/details>'/g, ' ');
+  /* #d-term-actions (Josh 0.6.44): the View-Agent terminal-window ACTION buttons Josh
+     explicitly asked for -- "Open Terminal" opens the real window FOR the person (Kosmos
+     runs launch-terminal, they do not go find a terminal), and "Trust & Restart" clears the
+     terminal trust question. These are ACTIONS Kosmos performs on one click, NOT a standing
+     instruction telling a reader to go open a terminal themselves -- the imperative #996
+     forbids. So this section is a sanctioned home for the word, the same category as the
+     disclosures above: a button that SPARES a non-technical person the terminal is the goal
+     of #996, not a violation of it. It is a fixed literal block (no concatenation), so a
+     section-strip is exact. (Angel, routed by Splinter; flagged to Josh for the rule's own
+     record, since it widens #996's sanctioned homes by one.) */
+  text = text.replace(/<section[^>]*id="d-term-actions"[\s\S]*?<\/section>/g, ' ');
   /* 🛑 NORMALISE BEFORE MATCHING, OR A TAG OR A LINE WRAP HIDES THE PHRASE.
      Measured 2026-08-27, both directions, on this file: `open <b>Terminal</b>`
      and `open\n      Terminal` BOTH slipped past the un-normalised scan --

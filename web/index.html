@@ -7320,6 +7320,32 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   </section>
   <section class="dsec" id="d-sec-term" data-sec="term" tabindex="-1" aria-label="Terminal" data-tied="1" hidden>
 
+  <!-- #5 insurance + terminal-window actions (Josh 0.6.44). These sit ABOVE the window
+       box (which hides when the capture cannot land) on purpose: an agent stuck at the
+       terminal trust question is exactly when the window is not showable and these are
+       most needed, so they must not live inside a box that hides in that state.
+       "Trust & Restart" -> POST /api/agent/<name>/trust-and-restart (Pete): writes the
+       folder-trust key then restarts, so it can start without hitting the terminal trust
+       menu. "Open Terminal" (added with Pete's second route) opens the real window.
+       Copy: Mona Lisa. -->
+  <section class="dbox" id="d-term-actions">
+    <h3 class="dlab">This agent&rsquo;s Terminal</h3>
+    <!-- Two grouped actions. "Open Terminal" first: it is the lighter, read-only one (it
+         only attaches a viewer to the live tmux session; it does NOT restart the agent).
+         "Trust & Restart" is the heavier one (it restarts). Each carries its own hint +
+         receipt line so the association is unambiguous. -->
+    <div class="field">
+      <button class="btn" id="d-open-terminal" type="button">Open Terminal</button>
+      <p class="fhint" id="d-open-terminal-hint" style="margin-top:8px;">Opens this agent&rsquo;s Terminal window on this computer.</p>
+      <p class="fmsg" id="d-open-terminal-msg" role="status" aria-live="polite"></p>
+    </div>
+    <div class="field" style="margin-top:14px;">
+      <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
+      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent folder so it can start without the Terminal question.</p>
+      <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
+    </div>
+  </section>
+
   <!-- The raw session, always offered on this page since agent-page-nav
        (the Engineering-mode switch governs project pages only). Same
        viewport-not-transcript honesty as the project page's block. The box
@@ -21161,6 +21187,19 @@ function openDetail(sessionName, section) {
   renderAvatar(a);
   document.getElementById('d-msg').textContent = '';
   document.getElementById('d-role-msg').textContent = '';
+  /* #149/#150: the Terminal-tab action receipts clear on switch for the same reason as
+     the ones above -- #d-term-actions is never rebuilt per agent, so a receipt that landed
+     correctly for agent A ("That agent is not running...") would otherwise stand under
+     agent B, a wrong-agent provenance claim. The handlers' capture-and-recheck only covers
+     an in-flight POST; a receipt that already landed for A persists until cleared here. */
+  document.getElementById('d-trust-restart-msg').textContent = '';
+  document.getElementById('d-open-terminal-msg').textContent = '';
+  /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
+     left them disabled; re-enable for the agent we are opening. The leaving agent's own
+     `finally` re-enable is then a harmless no-op, and its late receipt is dropped by the
+     capture-and-recheck above, so re-enabling here cannot cross agents. */
+  document.getElementById('d-trust-restart').disabled = false;
+  document.getElementById('d-open-terminal').disabled = false;
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its
@@ -24849,6 +24888,73 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     go.textContent = wasGo;
     go.disabled = false;
     document.getElementById('rst-msg').textContent = 'We could not reach Kosmos to restart them.';
+  }
+});
+
+/* #5 insurance (Josh 0.6.44): Trust & Restart. POST /api/agent/<name>/trust-and-restart
+   (Pete's route) writes the folder-trust key for this agent's own folder+account, then
+   restarts it, so an agent stuck at the terminal trust question can be unblocked from
+   here. The restart is the verdict; the route hands back a friendly `because` on 200
+   (restarted) AND on a 400 refusal (not started by Kosmos / not running), so we show
+   that; a bad-name or 500 has only `error`. `trusted.wrote===false` on a 200 is fine
+   (the trust write is best-effort and non-gating, per Pete's contract) and is not
+   surfaced. Capture-and-recheck like d-save below, so the receipt cannot land under a
+   different agent if the person switches while the POST is in flight. */
+document.getElementById('d-trust-restart').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-trust-restart');
+  const msg = document.getElementById('d-trust-restart-msg');
+  btn.disabled = true;
+  msg.textContent = 'Trusting and restarting…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/trust-and-restart',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = r.because || r.error
+        || (res.ok ? 'Restarting.' : 'We could not trust and restart this agent.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
+   attaches a Terminal.app window to the agent's live tmux session so the person can watch
+   it or answer a prompt. READ-ONLY about the agent -- it only adds a tmux viewer, it does
+   NOT restart it or touch what it is doing. On 200 {ok:true} the window opens on this
+   computer, so there is nothing more to show than a brief confirmation. On a 400 refusal
+   the route hands back `because` (agent not running, or a HEADLESS board with no desktop
+   to open a window on -- expected, not a bug); show it. A bad name or 500 has only
+   `error`. Capture-and-recheck like the handlers around it, so a receipt cannot land under
+   a different agent if the person switches while the POST is in flight. */
+document.getElementById('d-open-terminal').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-open-terminal');
+  const msg = document.getElementById('d-open-terminal-msg');
+  btn.disabled = true;
+  msg.textContent = 'Opening the Terminal window…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/launch-terminal',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = (res.ok && r.ok)
+        ? 'Opening the Terminal window on this computer.'
+        : (r.because || r.error || 'The Terminal window could not be opened for this agent.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'Kosmos could not be reached, so the Terminal window did not open.';
+    }
+  } finally {
+    btn.disabled = false;
   }
 });
 
