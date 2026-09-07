@@ -151,6 +151,25 @@ So this card is **partially** discharged: it closes the highest-risk state (the
 running turn) with a live capture and a real defect, and it does not close the
 other three. Do not read the merge as the card being done.
 
+### 🔒 THE THREE UNCAPTURED STATES ARE CLAIMED. Renet Tilley, 2026-09-07 14:49 CDT.
+
+**PERMISSION PROMPT, TRUST DIALOG and USAGE LIMIT are hers**, taken as their own
+card and fixtures, built against `origin/main` and rebased onto this reader once it
+merges. **Do not pick them up**, and do not re-derive them into this branch.
+
+She is driving trust-dialog and permission-prompt in an ISOLATED throwaway tmux
+session (own folder, torn down after) rather than interrupting a working agent,
+which is the path this plan declined and named. Usage-limit stays opportunistic and
+documented as not-on-demand, which is the honest status rather than a gap.
+
+⚠️ **HANDED HER TWO WARNINGS THIS BRANCH PAID FOR, recorded so the next person gets
+them without asking:**
+- **A CONSTANT IS A CLASS, AND TESTING ONE MEMBER PROVES NOTHING ABOUT THE OTHERS.**
+  Seven glyphs correct, one wrong, only the working one tested, and both a blind
+  round and the constant owner's independent re-measurement passed over it.
+- **DO NOT REUSE NUMBERS FROM THIS PLAN.** Every suite figure here has been orphaned
+  by rebases at least three times. Cite a figure with its sha or not at all.
+
 ## Verification
 
 - New test pinned from the verbatim live line, plus the plural form.
