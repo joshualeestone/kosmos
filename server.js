@@ -278,6 +278,11 @@ const boardAuthState = { on: false, token: null };
   }
 }
 const create = require('./engine/create');
+/* #2129 fallback: the trust-and-restart route writes the Claude-side folder-trust
+   key through the same writer the create path uses (native-realpath-keyed since
+   #2382), so the one-click escape and the automatic create-time write can never
+   disagree about the spelling. The codex-side writer lives in create. */
+const trust = require('./engine/trust');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
@@ -3836,6 +3841,79 @@ const server = http.createServer((req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #2129 fallback -- the one-click escape from the fresh-macOS trust menu.
+   *
+   * The keystone fix (#2382) makes a fresh agent trust its own folder
+   * automatically, by keying the trust write on the on-disk realpath the
+   * runner itself looks up. This route is the insurance for the case that fix
+   * cannot reach: a silent write failure, or a runner that changes its trust
+   * format, where the agent still lands on the terminal trust question a
+   * white-collar user cannot answer (Enter picks "No, exit" and ends it). One
+   * click writes the trust key for the agent's OWN folder and account, then
+   * restarts it so it comes back past the menu.
+   *
+   * 🔑 THE TRUST WRITE IS BEST-EFFORT AND NON-GATING, exactly as it is on the
+   * create path (create.js: "Best-effort / non-gating, as trustFolder is
+   * here"). A failed or refused write is a menu the person still has to
+   * answer, not a reason to withhold the restart -- and the restart is the
+   * half that unbricks the agent. Its result rides back in `trusted` so the
+   * screen can say what happened; the restart's outcome is the route's verdict.
+   *
+   * ⚠️ PER RUNNER, keyed off the agent's OWN launch job, never the request: a
+   * codex agent's trust lives in its CODEX_HOME's config.toml
+   * (trustCodexFolder), a claude agent's in its account's .claude.json
+   * (trustFolder). `readJob` carries the runner and the account dir. With no
+   * job there is no folder to key a trust write on, so it is skipped and
+   * `restart` gives its own friendly "not started by Kosmos" refusal -- the
+   * same shape the plain /restart route above returns.
+   *
+   * The trust WRITERS are the create path's, unchanged: the escape and the
+   * automatic write can never disagree about the on-disk spelling, which is
+   * the exact divergence #2382 was about.
+   */
+  const tr = pathname.match(/^\/api\/agent\/([^/]+)\/trust-and-restart$/);
+  if (tr && req.method === 'POST') {
+    const name = decodeSegment(tr[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let trusted;
+    let job = null;
+    try { job = create.readJob(name); } catch { job = null; }
+    if (!job) {
+      trusted = { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
+    } else {
+      const folder = create.workerDir(create.cleanName(name));
+      if (!folder) {
+        trusted = { wrote: false, because: 'we could not resolve this agent\'s folder' };
+      } else if (job.runner === 'codex') {
+        try { create.trustCodexFolder(folder, job.configDir, !job.configDir); trusted = { wrote: true, runner: 'codex' }; }
+        catch (err) { trusted = { wrote: false, runner: 'codex', because: String(err && err.message || err) }; }
+      } else {
+        /* trustFolder soft-fails (returns {ok:false, because}) rather than
+           throwing, so read ok -- do not rely on a catch. createIfAbsent
+           matches the create path: on a truly fresh user the file may not
+           exist yet. */
+        let t = null;
+        try { t = trust.trustFolder(folder, { configDir: job.configDir, createIfAbsent: true, agentDefaultAccount: !job.configDir }); }
+        catch (err) { t = { ok: false, because: String(err && err.message || err) }; }
+        trusted = t && t.ok
+          ? { wrote: true, runner: 'claude', already: !!t.already }
+          : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
+      }
+    }
+    /* The restart is genuine, so it carries the honest generic 'restart'
+       cause: the board renders "Restarting agent" from it. A dedicated 'trust'
+       cause would need a matching sentence on the frontend (disruption.CAUSES
+       is a machine token the page renders copy from, #2019); adding one
+       without that copy shows a blank state, so this route stays cause-neutral
+       and leaves a nicer label as a frontend follow-up. */
+    let out;
+    try { out = removal.restart(name, 'restart'); }
+    catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err), trusted }); return; }
+    sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ...out, trusted });
     return;
   }
 
