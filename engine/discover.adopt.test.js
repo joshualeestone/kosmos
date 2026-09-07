@@ -261,7 +261,11 @@ test('#1159: an adopted Codex agent gets the same first-run setup as a created o
      ⇒ Anchored on the section header for THIS agent's worker directory, which
      is the fact the message is about. */
   const trusted = codexState().toml;
-  const folder = create.workerDir('scoutsetup');
+  // #2129/#5: the trust key is the ON-DISK canonical spelling the runner looks up
+  // (canonicalOnDisk = realpathSync.native), not the raw workerDir -- the sandbox
+  // is under /var -> /private/var and codex canonicalizes its cwd, so the key is
+  // the resolved spelling or codex's lookup misses it.
+  const folder = require('./trust').canonicalOnDisk(create.workerDir('scoutsetup'));
   assert.ok(trusted.includes(`[projects."${folder}"]`),
     `the adopted agent will stop at the trust prompt: no entry for ${folder}`);
   /* THE CONTROL: a folder that was never adopted must NOT be trusted, or the
