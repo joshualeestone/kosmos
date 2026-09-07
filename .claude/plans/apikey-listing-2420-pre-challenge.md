@@ -2,17 +2,25 @@
 pre_challenge: true
 method: challenge-loop
 branch: apikey-listing-2420
-diff_hash: bffdb1a7f238f1d90d992d6d2ad0c0cfde068ce918e180da2803d9d67494b5c2
+diff_hash: 939bcadbd66377265156595f51ee91b6e7cf0f60c7c1215551d2f498cf8dd8e6
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-07T19:18:09Z
-iterations: 5
+timestamp: 2026-09-07T19:34:49Z
+iterations: 6
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5 (converged; iteration 5 produced zero blocking findings)
+**Iterations:** 6 (converged; iterations 5 and 6 produced zero blocking findings)
+
+> **Iteration 6 note:** the hook requires a plan file (`.claude/plans/apikey-listing-2420.md`)
+> distinct from this proof; night-shift work skipped `/pplan`, so a plan file was added and the
+> loop re-run so the plan is part of the reviewed diff and this hash covers it (not a hand-edited
+> hash). The re-run's fresh blind pass reviewed the full diff (unchanged code + the new plan file)
+> and returned **No issues found** — confirming the plan accurately describes the code, no em
+> dashes, and no `list()`/`listLive()` consumer breaks on a null-email/apiKey row. The diff hash
+> above covers the plan file.
 **Converged:** Yes
 **Total findings:** 4 actionable (0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs excl. plan-file, 3 NITs)
 **Fixed:** 3 WARNINGs handled (2 fixed, 1 deferred to slice 2) + 1 NIT fixed | **Deferred:** 1 WARNING (removal slice) + 2 NITs (default-edge, frontend) + plan-file CONVENTION
