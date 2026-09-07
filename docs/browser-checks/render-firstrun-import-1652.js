@@ -76,6 +76,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       FR_FOUND = { ok: true, agents: [], adoptable: [] };
       FR_SCAN = { ok: true, candidates: [] };
       frPaintFleet();
+      // #3/#4(a): frPaintFleet's create/unknown arms now arm the grant-flip re-scan poll
+      // (frArmRescanOnGrant). This check drives frPaintFleet directly, with no frGo navigation
+      // to retire it, so stop the poll explicitly -- otherwise a leaked setInterval fires
+      // background /api/file-access-status GETs (benign while the server returns checkable:false,
+      // but a latent flake if that ever changes).
+      if (typeof frRescanStop === 'function') frRescanStop();
     });
     const createEnding = await p.evaluate(() => {
       const box = document.getElementById('fr-fleet');
@@ -106,6 +112,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       FR_FOUND = { ok: true, agents: [{ dir: '/x/a', name: 'Ada', role: 'r', already: true }, { dir: '/x/b', name: 'Bo', role: 'r', already: true }], adoptable: [] };
       FR_SCAN = { ok: true, candidates: [] };
       frPaintFleet();
+      // #3/#4(a): frPaintFleet's create/unknown arms now arm the grant-flip re-scan poll
+      // (frArmRescanOnGrant). This check drives frPaintFleet directly, with no frGo navigation
+      // to retire it, so stop the poll explicitly -- otherwise a leaked setInterval fires
+      // background /api/file-access-status GETs (benign while the server returns checkable:false,
+      // but a latent flake if that ever changes).
+      if (typeof frRescanStop === 'function') frRescanStop();
     });
     const adoptHasLink = await p.evaluate(() => { const box = document.getElementById('fr-fleet'); return !!(box && box.querySelector('.fr-lookimport')); });
     if (!adoptHasLink) ok('CONTROL: the adopt ending shows no import link (scoped to the create ending)'); else bad('CONTROL adopt has no import link', 'a .fr-lookimport is present on the adopt ending');
