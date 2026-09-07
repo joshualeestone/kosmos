@@ -30,6 +30,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const connect = require('./connect');
 const subscription = require('./subscription');
+const store = require('./store');
 
 /* ── fixture pane text ─────────────────────────────────────────────────────
    ⚠️ FIXTURE-DISCIPLINE: every screen below is CAPTURED text from a real
@@ -197,7 +198,7 @@ test('a checksum mismatch is refused, and nothing runnable is kept', async (t) =
 
   await assert.rejects(() => connect.download(), /did not match its checksum/);
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
     .filter((f) => f.includes('9.9.8'));
   assert.deepEqual(leftovers, [], `the unverified download survived: ${leftovers.join(', ')}`);
@@ -264,7 +265,7 @@ test('#875: a stuck install KEEPS the verified download so a retry reuses it', a
   assert.match(connect.state().because, /did not finish setting itself up/,
     `because=${JSON.stringify(connect.state().because)} tail=${JSON.stringify(connect.state().tail)}`);
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const kept = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
     .filter((f) => f.includes('9.9.7'));
   assert.deepEqual(kept, [`claude-9.9.7-${connect.platformKey()}`],
@@ -432,7 +433,7 @@ test('cancel mid-download aborts the stream and leaves nothing behind', async (t
   await new Promise((r) => setTimeout(r, 400));
   assert.equal(connect.state().phase, connect.PHASE.IDLE,
     'something overwrote the cancel after the fact');
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })();
   assert.deepEqual(leftovers, [], `the cancelled download left: ${leftovers.join(', ')}`);
 });
@@ -502,7 +503,7 @@ test('cancel while the part-file open is still queued leaves nothing behind (#45
     return st.phase === connect.PHASE.DOWNLOADING && st.progress && st.progress.got > 0;
   }, 10000);
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const listing = () => {
     try { return fs.readdirSync(dir); } catch { return []; }
   };
@@ -541,7 +542,7 @@ test('a fresh download sweeps other versions\' leftovers', async (t) => {
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.5', binary, checksum });
   t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, `claude-0.0.1-${connect.platformKey()}`), 'stale corpse');
   fs.writeFileSync(nodePath.join(dir, 'claude-0.0.2-x.part'), 'stale partial');

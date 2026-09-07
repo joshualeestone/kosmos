@@ -22,9 +22,14 @@ const path = require('node:path');
 // require here would hand ping a half-built exports object and ROOT would
 // be undefined at its BASE line. Same pattern discover.js uses for create.
 
-const APP = 'AgentWorkforce';
-/* `engine/commitments.js` honours the same variable, so this is two modules
-   agreeing rather than a new convention. */
+/* #2439: the on-disk store leaf. Renamed AgentWorkforce -> Kosmos for branding
+   (Josh, 2026-09-07). `engine/commitments.js` and every other consumer route
+   through `store.ROOT` (the ONE data-root derivation, #1848/#1856), so renaming
+   this constant moves them all; there is no second copy to keep in sync.
+   LEGACY_APP is the old leaf, kept so an existing install's data can be migrated
+   to the new leaf rather than orphaned (see maybeMigrateLegacyStore below). */
+const APP = 'Kosmos';
+const LEGACY_APP = 'AgentWorkforce';
 /**
  * The per-user application-data directory for ONE platform, as a pure function
  * of the things that decide it (#570).
@@ -79,12 +84,16 @@ const APP = 'AgentWorkforce';
  */
 function joinerFor(platform) { return platform === 'win32' ? path.win32 : path.posix; }
 
-function dataRootFor(platform, home, env) {
+/* #2439: `app` defaults to APP (the live leaf) so every existing caller is
+   unchanged; the migration passes LEGACY_APP to compute the OLD leaf with the
+   exact same platform logic, so the two roots can never drift in how they are
+   derived (only in the leaf name). */
+function dataRootFor(platform, home, env, app = APP) {
   const e = env || {};
   const p = joinerFor(platform);
   let root;
   if (e.AGENT_WORKFORCE_DATA) {
-    root = p.join(e.AGENT_WORKFORCE_DATA, APP);
+    root = p.join(e.AGENT_WORKFORCE_DATA, app);
   } else if (platform === 'win32') {
     /* ROAMING, not Local: this is a person's own configuration and it should
        follow them to another machine on a domain. `APPDATA` is set on every
@@ -110,10 +119,10 @@ function dataRootFor(platform, home, env) {
        data root beats an explicit home), and with no override APPDATA still wins
        over the derived path, so nothing changes for a normal Windows install. */
     root = e.AGENT_WORKFORCE_HOME
-      ? p.join(home, 'AppData', 'Roaming', APP)
-      : p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), APP);
+      ? p.join(home, 'AppData', 'Roaming', app)
+      : p.join(e.APPDATA || p.join(home, 'AppData', 'Roaming'), app);
   } else {
-    root = p.join(home, 'Library', 'Application Support', APP);
+    root = p.join(home, 'Library', 'Application Support', app);
   }
   /* #1820: the same posture #1798 took shell-side on the uninstall (DELETE) path,
      here on the READ/WRITE path. A non-absolute final answer means the store
@@ -176,7 +185,55 @@ function dataRootFor(platform, home, env) {
    resolves through, redirected with one setting instead of AGENT_WORKFORCE_DATA plus
    AGENT_WORKFORCE_WORKERS. (Not every root: projectsRoot has its own var,
    AGENT_WORKFORCE_PROJECTS.) Resolved per call (#1443), so the seam after require still takes. */
-function root() { return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env); }
+/* #2439: one-time move of an existing install's data from the old leaf
+   (LEGACY_APP) to the new one (APP), so the rename never orphans a person's
+   agents / profiles / avatars. Attempted lazily on first store access and at
+   most once PER RESOLVED ROOT (not once per process): keying on `newRoot` keeps
+   production at a single attempt while letting each test sandbox re-attempt, so
+   no test-only reset hook is needed.
+
+   🛑 IT NEVER CLOBBERS AND NEVER THROWS. It moves ONLY when the new leaf does
+   not yet exist, and every failure is swallowed and left non-destructive:
+     - new leaf already exists     -> keep it, migrate nothing (dual-existing:
+                                      the new one wins, the legacy one is left
+                                      untouched, never merged/deleted)
+     - legacy leaf does not exist  -> fresh install, nothing to move
+     - ENOENT / EEXIST / ENOTEMPTY -> another process migrated first, or the new
+                                      leaf appeared between the check and rename
+     - EXDEV (cross-device rename) -> the one real limit: the legacy store is
+                                      LEFT in place and the app reads the new
+                                      (empty) leaf, so the person re-signs-in.
+                                      A move is preferred, but never at the cost
+                                      of a destructive cross-device copy.
+   A bad env (dataRootFor's non-absolute guard) is caught here and ignored; the
+   real error still surfaces from root()'s own dataRootFor call below. */
+const migrationAttempted = new Set();
+function maybeMigrateLegacyStore() {
+  try {
+    const platform = process.platform;
+    const home = process.env.AGENT_WORKFORCE_HOME || os.homedir();
+    const env = process.env;
+    const newRoot = dataRootFor(platform, home, env, APP);
+    if (migrationAttempted.has(newRoot)) return;
+    migrationAttempted.add(newRoot);
+    const legacyRoot = dataRootFor(platform, home, env, LEGACY_APP);
+    if (newRoot === legacyRoot) return;      // APP === LEGACY_APP: nothing to do
+    if (fs.existsSync(newRoot)) return;      // new store present: never clobber
+    if (!fs.existsSync(legacyRoot)) return;  // fresh install: nothing to move
+    fs.mkdirSync(path.dirname(newRoot), { recursive: true });
+    fs.renameSync(legacyRoot, newRoot);      // atomic when target absent + same fs
+  } catch {
+    /* Never crash the app and never destroy data over a migration; the block
+       above enumerates why each failure is safe to swallow. */
+  }
+}
+
+function root() {
+  /* Migrate BEFORE resolving, so the very first store access (a read as often as
+     a write) moves the legacy data before anything reads an empty new root. */
+  maybeMigrateLegacyStore();
+  return dataRootFor(process.platform, process.env.AGENT_WORKFORCE_HOME || os.homedir(), process.env);
+}
 function avatarsDir() { return path.join(root(), 'avatars'); }
 function profilesDir() { return path.join(root(), 'profiles'); }
 
@@ -413,7 +470,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId, readSettings, writeSettings };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId, readSettings, writeSettings };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers

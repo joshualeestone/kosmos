@@ -1109,13 +1109,14 @@ _kosmos_data_root() {
   # THE WORD FIVE. Every one is a delete that a bad input would have steered, and
   # each was found by construction:
   #   1 not absolute    `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd
-  #   2 no /AgentWorkforce leaf   every rm below is bounded by that leaf; a consult
-  #                    answer of "/" or "$HOME" would have made "$_support/bin"
+  #   2 no store leaf   every rm below is bounded by the store leaf (/AgentWorkforce
+  #                    OR /Kosmos -- both accepted during the #2439 migration window);
+  #                    a consult answer of "/" or "$HOME" would have made "$_support/bin"
   #                    mean /bin or ~/bin. The trust boundary moved from a literal
   #                    to whatever the installed store.js returns, so the leaf is
-  #                    checked here rather than assumed. (`/AgentWorkforce` directly
-  #                    under the root has the leaf and no parent, and is refused by
-  #                    the same rule.)
+  #                    checked here rather than assumed. (`/AgentWorkforce` or `/Kosmos`
+  #                    directly under the root has the leaf and no parent, and is refused
+  #                    by the same rule.)
   #   3 the system Library   HOME="" (set -u does not catch empty), HOME=/ and
   #                    HOME=// all resolve to /Library/Application Support, which no
   #                    per-user install owns. Refused by RESULT, and compared by
@@ -1162,10 +1163,10 @@ _kosmos_data_root() {
         _kdr_why="the folder it names sits in the system-wide Library, which no per-user install owns (an empty or / HOME, or a link there, resolves here)"
       else
         case "$_kdr_canon" in
-          "/Library/Application Support/AgentWorkforce")
+          "/Library/Application Support/AgentWorkforce"|"/Library/Application Support/Kosmos")
             _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
-          /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
-          /*) _kdr_why="it does not end in /AgentWorkforce with a parent folder above it, the shape every removal below is bounded by" ;;
+          /*/AgentWorkforce|/*/Kosmos) printf '%s' "$_kdr"; return 0 ;;
+          /*) _kdr_why="it does not end in /AgentWorkforce or /Kosmos with a parent folder above it, the shape every removal below is bounded by" ;;
           *)  _kdr_why="it is not an absolute path" ;;
         esac
       fi ;;
@@ -3454,10 +3455,25 @@ fi
 # AGENT_WORKFORCE_HOME arm is load-bearing: root() reads AGENT_WORKFORCE_HOME||os.homedir(),
 # so a bare $HOME here would write under a different root than the board reads when that seam
 # is set (DATA unset), and the badge would silently never light.
+# #2439: the store leaf is 'Kosmos' now (engine/store.js APP), migrated from the
+# legacy 'AgentWorkforce' leaf by maybeMigrateLegacyStore() at the top of store.root()
+# on the board's first access. 🛑 THIS WRITE RUNS BEFORE `kosmos start`, so a naive
+# mkdir of the NEW leaf here would create it before the board migrates -- and the
+# migration NEVER CLOBBERS an existing new root (store.js:221), so the person's OLD
+# AgentWorkforce data (agents, profiles, chats) would be orphaned, unread, on every
+# update. So write to the CURRENT root: the legacy leaf when it exists and the new one
+# does not (the pre-migration update case), else the new leaf. The board's migration
+# then renames legacy -> new with this source-channel file inside it, and reads it
+# correctly. Fresh install (neither leaf yet) writes straight to the new leaf.
 if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then
-  _wf_data_root="$AGENT_WORKFORCE_DATA/AgentWorkforce"
+  _wf_base="$AGENT_WORKFORCE_DATA"
 else
-  _wf_data_root="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support/AgentWorkforce"
+  _wf_base="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support"
+fi
+if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then
+  _wf_data_root="$_wf_base/AgentWorkforce"
+else
+  _wf_data_root="$_wf_base/Kosmos"
 fi
 if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
 if mkdir -p "$_wf_data_root" 2>/dev/null; then

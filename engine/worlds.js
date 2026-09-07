@@ -150,15 +150,16 @@ function worldBaseDir(base, world) {
  * The AGENT_WORKFORCE_* env overrides for a world. EMPTY for the default world
  * (the migration guarantee -- legacy roots, untouched). For a named world, the
  * three data roots point under its base, matching each root function's own
- * semantics: AGENT_WORKFORCE_DATA has `AgentWorkforce` appended by dataRootFor,
- * while AGENT_WORKFORCE_PROJECTS / _WORKERS are used verbatim.
+ * semantics: AGENT_WORKFORCE_DATA has the store leaf (`store.APP`, `Kosmos`
+ * since #2439) appended by dataRootFor, while AGENT_WORKFORCE_PROJECTS /
+ * _WORKERS are used verbatim.
  * AGENT_WORKFORCE_LAUNCH is deliberately NOT overridden (see SCOPE above).
  */
 function envOverridesFor(base, world) {
   const dir = worldBaseDir(base, world);
   if (!dir) return {};
   return {
-    AGENT_WORKFORCE_DATA: dir, // dataRootFor appends AgentWorkforce -> <dir>/AgentWorkforce
+    AGENT_WORKFORCE_DATA: dir, // dataRootFor appends store.APP -> <dir>/Kosmos (#2439)
     AGENT_WORKFORCE_PROJECTS: path.join(dir, 'projects'),
     AGENT_WORKFORCE_WORKERS: path.join(dir, 'workers'),
   };
@@ -238,7 +239,10 @@ function createWorld(base, name) {
     if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
     const dir = path.join(base, WORLDS_SUBDIR, id);
     // Make the world's subtrees up front so a switch never lands on a missing dir.
-    fs.mkdirSync(path.join(dir, 'AgentWorkforce'), { recursive: true });
+    // #2439: the store leaf MUST match what dataRootFor appends for this world
+    // (envOverridesFor sets AGENT_WORKFORCE_DATA=dir -> dataRootFor -> <dir>/store.APP),
+    // so derive it from store.APP rather than hardcoding, or create and read drift.
+    fs.mkdirSync(path.join(dir, store.APP), { recursive: true });
     fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
     // `base` is INFORMATIONAL (what worldBaseDir derives from the id); it is never

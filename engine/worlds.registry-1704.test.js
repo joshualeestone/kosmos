@@ -71,7 +71,7 @@ test('createWorld makes the subtrees, appends to the registry, does not switch',
   assert.equal(w.id, 'acmecorp', 'safeKey lowercases + strips spaces');
   assert.equal(w.name, 'Acme Corp');
   assert.ok(w.createdAt, 'createdAt is stamped');
-  assert.ok(fs.existsSync(path.join(base, 'worlds', 'acmecorp', 'AgentWorkforce')));
+  assert.ok(fs.existsSync(path.join(base, 'worlds', 'acmecorp', store.APP)));
   assert.ok(fs.existsSync(path.join(base, 'worlds', 'acmecorp', 'projects')));
   assert.ok(fs.existsSync(path.join(base, 'worlds', 'acmecorp', 'workers')));
   const reg = worlds.readRegistry(base);
@@ -119,7 +119,7 @@ test('applyActiveWorldEnv sets the named world env after a switch', () => {
   assert.equal(env.AGENT_WORKFORCE_PROJECTS, path.join(base, 'worlds', 'acme', 'projects'));
   assert.equal(applied.AGENT_WORKFORCE_DATA, env.AGENT_WORKFORCE_DATA);
   // And the store root for the switched world nests under its base (APP appended).
-  assert.equal(store.dataRootFor('darwin', '/Users/x', env), path.join(base, 'worlds', 'acme', 'AgentWorkforce'));
+  assert.equal(store.dataRootFor('darwin', '/Users/x', env), path.join(base, 'worlds', 'acme', store.APP));
 });
 
 // ---- registry lock (#1704 slice 2): serialize the read-modify-write ----

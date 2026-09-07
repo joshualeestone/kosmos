@@ -102,7 +102,7 @@ function seedRegistryAndAvatar(name) {
     'utf8',
   );
 
-  const avatars = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatars = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fs.mkdirSync(avatars, { recursive: true });
   fs.writeFileSync(nodePath.join(avatars, `${name}.png`), 'not-a-real-png', 'utf8');
   return file;
@@ -128,6 +128,7 @@ const {
   rank,
   paneOrder,
 } = require('./status');
+const store = require('./store');
 
 // A pane as the engine sees it. `command` is a version string when Claude Code
 // is running and a shell name when it is not.

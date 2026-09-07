@@ -3602,7 +3602,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   assert.match(toml, /trust_level = "trusted"/);
   /* And the notify bridge is installed beside the supervisor by the same
      refresh, so the launch line's -c notify=[bridge] points at something. */
-  const bridge = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'bin', 'codex-report-bridge.js');
+  const bridge = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'bin', 'codex-report-bridge.js');
   assert.ok(fs.existsSync(bridge), 'the codex notify bridge was not installed with the supervisor');
   // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin,
   // 5 tmux, 6 log, 7 model (empty, codex's own default), 8 runner.

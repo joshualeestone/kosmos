@@ -23,6 +23,7 @@ const { spawnSync, spawn } = require('node:child_process');
 
 const REPO = __dirname;
 const SOURCE = path.join(REPO, 'bin', 'agent-supervisor.sh');
+const store = require('./engine/store');
 
 function boot(sandbox, extraEnv) {
   /* PORT=0 binds a free port, so a suite run cannot collide with a board the
@@ -55,7 +56,7 @@ function boot(sandbox, extraEnv) {
 
 test('starting the board puts the current script where the jobs point', async () => {
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sup-'));
-  const dest = path.join(sb, 'data', 'AgentWorkforce', 'bin', 'agent-supervisor.sh');
+  const dest = path.join(sb, 'data', store.APP, 'bin', 'agent-supervisor.sh');
   assert.equal(fs.existsSync(dest), false, 'the control is not a control: it was there before we started');
   await boot(sb);
   assert.equal(fs.existsSync(dest), true, 'the board started without installing the script its agents run');
@@ -67,7 +68,7 @@ test('starting the board puts the current script where the jobs point', async ()
 test('an old copy is replaced, which is the whole point', async () => {
   /* The update case: a previous version's script is already sitting there. */
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sup-'));
-  const dest = path.join(sb, 'data', 'AgentWorkforce', 'bin', 'agent-supervisor.sh');
+  const dest = path.join(sb, 'data', store.APP, 'bin', 'agent-supervisor.sh');
   fs.mkdirSync(path.dirname(dest), { recursive: true });
   fs.writeFileSync(dest, '#!/bin/bash\n# a version from before the fix\n', { mode: 0o755 });
   const before = fs.statSync(dest).ino;
@@ -85,7 +86,7 @@ test('a refresh it cannot do is said, and does not stop the board', async () => 
      refresh a script is strictly worse than one running with the previous copy,
      which is the state every install is in today. */
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-sup-'));
-  const binDir = path.join(sb, 'data', 'AgentWorkforce', 'bin');
+  const binDir = path.join(sb, 'data', store.APP, 'bin');
   fs.mkdirSync(binDir, { recursive: true });
   fs.chmodSync(binDir, 0o500);
   const { out, err } = await boot(sb);
@@ -114,7 +115,7 @@ test('requiring the module writes nothing', () => {
     encoding: 'utf8',
   });
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(fs.existsSync(path.join(sb, 'data', 'AgentWorkforce', 'bin', 'agent-supervisor.sh')), false,
+  assert.equal(fs.existsSync(path.join(sb, 'data', store.APP, 'bin', 'agent-supervisor.sh')), false,
     'importing the server installed a file');
   fs.rmSync(sb, { recursive: true, force: true });
 });
