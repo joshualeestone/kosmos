@@ -128,6 +128,100 @@ test('#1659: a .claude-* directory that is NOT signed in is refused, and survive
   assert.equal(accounts.forgetAccount(real, []).forgotten, true);
 });
 
+/* ---- #2420: an api-key Claude account is forgettable ----------------------
+   An api-key account is a `.claude-*` dir carrying the stored key file
+   (claudeaccounts.KEY_BASENAME) and NO oauthAccount, so identityOf is null for
+   it. Before this slice, forgetAccount's identity guard refused it with a false
+   "not a Claude account". It must forget it AND take back the raw key + the
+   apiKeyHelper pointer (#2420 item 4: mirror forgetCodexFolder's clean removal),
+   while the transcripts move aside like any forgotten account. */
+const claudeaccounts = require('./claudeaccounts');
+
+/* A signed-in api-key account: a stored key file + a wired apiKeyHelper (the two
+   artifacts the connect route writes), plus a projects tree that must survive. */
+function apiKeyAcct(label) {
+  const dir = nodePath.join(SANDBOX, '.claude-' + label);
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'projects', 'a-transcript.jsonl'), 'kept history');
+  claudeaccounts.storeKey(dir, 'sk-ant-' + label);
+  claudeaccounts.wireApiKeyHelper(nodePath.join(dir, 'settings.json'), dir);
+  return dir;
+}
+
+test('#2420: forgetting an api-key account moves it aside, ERASES the raw key, and unwires the pointer', () => {
+  const dir = apiKeyAcct('keyforget');
+  /* Seed a stray key .tmp -- the crash-residue a partial storeKey leaves (its
+     writeFileSync/renameSync failing part-way), which forgetKey's second rmSync
+     exists to take back. storeKey's happy path renames .tmp->final atomically, so
+     without this seed the .tmp assertion below is vacuous: no .tmp ever exists to
+     survive, and the arm that cleans it is never exercised. */
+  fs.writeFileSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME + '.tmp'), 'sk-ant-stray-tmp', { mode: 0o600 });
+  assert.ok(accounts.list().some((a) => a.dir === dir && a.apiKey === true),
+    'it must be listed as an api-key account FIRST, or the removal proves nothing');
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.forgotten, true);
+
+  assert.ok(!accounts.list().some((a) => a.dir === dir), 'it is gone from the list');
+  assert.ok(nodePath.basename(got.movedTo).startsWith(accounts.FORGOTTEN_PREFIX),
+    'the dir was renamed aside with the engine\'s prefix, not deleted');
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, 'projects', 'a-transcript.jsonl')),
+    'THE HISTORY SURVIVES: forget moves the dir aside, it does not delete it');
+
+  /* 🛑 THE POINT OF THE SLICE: no live raw key is left behind in the forgotten
+     dir -- neither the key file NOR the seeded crash-residue .tmp -- and the
+     apiKeyHelper pointer that read it is gone from settings.json. */
+  assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME)),
+    'the raw api key was erased from the moved-aside dir');
+  assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME + '.tmp')),
+    'the seeded crash-residue .tmp was erased too (forgetKey takes back both)');
+  const settings = JSON.parse(fs.readFileSync(nodePath.join(got.movedTo, 'settings.json'), 'utf8'));
+  assert.ok(!('apiKeyHelper' in settings), 'the apiKeyHelper pointer was unwired from settings.json');
+});
+
+/* CONTROL that the erase is GATED on hadKey, and it must be able to RED on the
+   exact perturbation it names (removing the `if (hadKey)` gate). An oauth account
+   with only a .claude.json cannot show that: forgetKey rms a nonexistent file and
+   unwireApiKeyHelper no-ops on an absent settings.json, so the control would stay
+   green with the gate gone. So this oauth account carries a HAND-SET apiKeyHelper
+   in its settings.json and NO Kosmos key file (apiKeyStored false -> hadKey false).
+   With the gate, the erase is skipped and the apiKeyHelper survives; drop the gate
+   and unwireApiKeyHelper would strip an entry this slice never owned -- which is
+   the real-world protection the gate provides, now exercised. */
+test('#2420 CONTROL: the key-erase is gated on hadKey -- an oauth forget does NOT strip a hand-set apiKeyHelper it never owned', () => {
+  const dir = acct('oauthwithhelper');
+  fs.writeFileSync(nodePath.join(dir, 'settings.json'),
+    JSON.stringify({ apiKeyHelper: 'cat /some/unrelated/key', keepThis: 'setting' }, null, 2));
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.forgotten, true);
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
+    'the oauth sign-in survives the forget');
+
+  const settings = JSON.parse(fs.readFileSync(nodePath.join(got.movedTo, 'settings.json'), 'utf8'));
+  assert.equal(settings.apiKeyHelper, 'cat /some/unrelated/key',
+    'a hand-set apiKeyHelper survives an oauth forget: the erase is gated on hadKey, so it never runs here');
+  assert.equal(settings.keepThis, 'setting', 'the rest of settings.json is untouched');
+});
+
+/* The dual-marker sweep (an oauth dir that ALSO carries a stray Kosmos key file):
+   hadKey is true, so the erase DOES run and takes the stray key back, while the
+   oauth sign-in still moves aside. Prevented at creation per list()'s comment, but
+   the forget path handles it as the safe direction, so pin it. */
+test('#2420: forgetting a DUAL-MARKER dir (an oauth account with a stray key file) sweeps the key and keeps the sign-in', () => {
+  const dir = acct('dualmarker');
+  claudeaccounts.storeKey(dir, 'sk-ant-stray');
+  assert.ok(fs.existsSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME)), 'the stray key is present first');
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.forgotten, true);
+  assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME)),
+    'the stray key was swept from the forgotten dir (hadKey true -> the erase runs)');
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
+    'the oauth sign-in still survives the forget');
+});
+
 test('#1659: refused while agents are on it, and the agents are NAMED', () => {
   const dir = acct('busy');
 
