@@ -90,15 +90,19 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       // project -> the picker would go empty if repainted while open).
       const realFetch = window.fetch;
       let loadCalledWithModalHidden = null;
+      let addPosted = false;   // key the ordering recorder to the add flow, not a background poll
       window.fetch = (url, opts) => {
         const u = String(url);
         if (/\/api\/project\/demo\/agent\/a1$/.test(u) && opts && opts.method === 'POST') {
+          addPosted = true;
           return Promise.resolve(new Response(JSON.stringify({ ok: true }), { status: 200, headers: { 'content-type': 'application/json' } }));
         }
         if (/\/api\/projects$/.test(u)) {
           // Record whether the modal is already hidden when the refresh fetch fires
-          // (loadProjects is what issues it), then return the updated roster.
-          if (loadCalledWithModalHidden === null) loadCalledWithModalHidden = modal.hidden;
+          // AFTER the add POST (loadProjects is what issues it). Gating on addPosted
+          // stops a background projects poll firing before the add from recording a
+          // spurious "modal still open" -- a latent flake a reviewer flagged.
+          if (addPosted && loadCalledWithModalHidden === null) loadCalledWithModalHidden = modal.hidden;
           return Promise.resolve(new Response(JSON.stringify({ projects: [{ id: 'demo', name: 'Demo project', archived: false, agents: [{ sessionName: 'a1', name: 'Ada' }] }] }), { status: 200, headers: { 'content-type': 'application/json' } }));
         }
         return realFetch(url, opts);
