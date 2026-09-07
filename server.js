@@ -5854,8 +5854,14 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* #2085: tmux's REAL grant (tmuxGrant reads its path-keyed row from the
+       system TCC db), NOT read() -- read() surfaced the native app's own
+       AXIsProcessTrusted, which is the false "TMUX ACTIVATED" pill (it answered
+       about the app, not tmux). Same {checkable, trusted} shape, so the S3 tmux
+       gate poll consumes it unchanged; any read failure -> checkable:false ->
+       the neutral "Checking..." pill, never a false green. */
     let reading;
-    try { reading = a11ystatus.read(); }
+    try { reading = a11ystatus.tmuxGrant(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
     sendJson(res, 200, reading);
     return;

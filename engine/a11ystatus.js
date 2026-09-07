@@ -44,9 +44,18 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const store = require('./store');
 
 const FILE = path.join(store.ROOT, 'a11y-status.json');
+
+/* #2085: the system TCC database that holds Accessibility grants. Accessibility
+   is a SYSTEM-domain TCC service, so its grants live in the system db (not the
+   per-user one), path-keyed on the granted binary. Reading it needs Full Disk
+   Access; the engine runs under the board (which holds FDA on a real install),
+   and every failure path below falls to checkable:false, so a box that cannot
+   read it degrades to "Checking..." rather than a wrong verdict. */
+const TCC_DB = '/Library/Application Support/com.apple.TCC/TCC.db';
 
 /* How long the native app's verdict is believed before it is treated as stale.
    The app refreshes it on launch and on demand (the Open-Accessibility button,
@@ -83,4 +92,79 @@ function read() {
   return { checkable: true, trusted: rec.trusted === true, at: rec.at };
 }
 
-module.exports = { FILE, STALE_AFTER_MS, read };
+/* SQL single-quote escaping for the client path. The path comes from the
+   install layout / config, not from a network caller, but the sqlite3 CLI takes
+   no bound parameters, so the literal is escaped rather than trusted. */
+function sqlQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
+
+/* Test seam: read tmux's Accessibility auth_value(s) from the system TCC db.
+   Returns { ok:true, authValues:[int,...] } or { ok:false, because }. Never
+   throws. `-readonly` so a locked live db still reads and this can never mutate
+   the system TCC store. The schema (service/client/auth_value) is Apple-private
+   and can drift across macOS versions; any drift makes the query error, which
+   lands in { ok:false } and thus checkable:false -- never a wrong grant verdict. */
+let sqliteRunner = (dbPath, clientPath) => {
+  try {
+    const q = "SELECT auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client=" + sqlQuote(clientPath) + ';';
+    const out = execFileSync('/usr/bin/sqlite3', ['-readonly', dbPath, q], {
+      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const authValues = String(out).split('\n').map((s) => s.trim()).filter(Boolean).map(Number).filter(Number.isFinite);
+    return { ok: true, authValues };
+  } catch (e) { return { ok: false, because: String((e && e.message) || e) }; }
+};
+function setSqliteRunner(fn) { sqliteRunner = fn; }
+
+/**
+ * #2085: tmux's REAL Accessibility grant, read from the system TCC db, in the
+ * SAME three-answer shape as read().
+ *
+ * 🛑 THIS EXISTS BECAUSE read() ABOVE ANSWERS ABOUT THE WRONG SUBJECT. read()
+ * surfaces the native app's own AXIsProcessTrusted (the CALLING binary), so a
+ * `trusted:true` there meant "the app is trusted", NOT "tmux is granted" -- the
+ * false "TMUX ACTIVATED" pill Josh flagged (0.6.42 fresh-account: the pill read
+ * ACTIVATED while tmux was ungranted and absent from the Accessibility list). AX
+ * is keyed on the calling binary and there is no clean API to ask "is tmux
+ * trusted" from another process, so this reads tmux's OWN path-keyed grant row
+ * directly. (tmux appearing in the db is real and path-keyed -- measured on the
+ * fleet, `.../tmux -> auth_value 2`; that is orthogonal to tmux disclaiming
+ * responsibility for its CHILDREN, which is why the under-tmux re-exec in #2125
+ * still returned the app's state.)
+ *
+ * Dispositions (never a false green is the load-bearing invariant):
+ *   auth_value >= 2 for THIS tmux binary -> { checkable:true, trusted:true }
+ *   no row / auth_value < 2              -> { checkable:true, trusted:false }
+ *       tmux was never granted (or the path does not match) -> the actionable
+ *       "Not activated, Turn On" state; safe, never claims a grant it did not see.
+ *   any read failure (no FDA, missing/locked db, schema drift, no sqlite3,
+ *   unresolvable tmux path) -> { checkable:false, because } -> "Checking..."
+ *
+ * @returns {{checkable:true,trusted:boolean,at:string}|{checkable:false,because:string}}
+ */
+function tmuxGrant(opts) {
+  // The tmux binary Kosmos actually runs, then its realpath: TCC keys on the
+  // real path, and the resolved bin is commonly a symlink (Homebrew's
+  // bin/tmux -> Cellar/.../tmux, or the bundled tmux/bin/tmux). Lazy require of
+  // create so a11ystatus carries no load-time dependency on it (no cycle).
+  let tmuxBin;
+  try { tmuxBin = (opts && opts.tmuxBin) || require('./create').binPaths(opts).tmuxBin; }
+  catch { tmuxBin = null; }
+  if (!tmuxBin) return { checkable: false, because: 'could not resolve the tmux binary path' };
+  let real;
+  try { real = fs.realpathSync(tmuxBin); } catch { real = tmuxBin; }
+
+  const runner = (opts && opts.sqliteRunner) || sqliteRunner;
+  const dbPath = (opts && opts.tccDb) || TCC_DB;
+  let res;
+  try { res = runner(dbPath, real); } catch (e) { res = { ok: false, because: String((e && e.message) || e) }; }
+  if (!res || res.ok !== true) {
+    return { checkable: false, because: 'the accessibility database was not readable (no access, missing, locked, or a changed format)' };
+  }
+  const vals = Array.isArray(res.authValues) ? res.authValues : [];
+  // auth_value 2 (allowed) / 3 (allowed, limited) => granted; 0/1 => denied; no
+  // row => never requested => not granted. Only a real >=2 shows the green pill.
+  const trusted = vals.some((v) => v >= 2);
+  return { checkable: true, trusted, at: new Date().toISOString() };
+}
+
+module.exports = { FILE, STALE_AFTER_MS, read, tmuxGrant, setSqliteRunner };
