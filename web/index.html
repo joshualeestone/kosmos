@@ -8350,7 +8350,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
         /* 🛑 #768-batch (Josh, 5.44.01, said THREE times) -- and the reason it kept
            regressing: a BARE `.s4-nt` (0,1,0) LOSES to `#firstrun .fr-body p`
-           (0,1,1,1), which sets 400/1.0625rem on every first-run <p>. So every past
+           (0,1,1,1), which sets 400/1.0625rem on every first-run p element. So every past
            "make it 700" edit to a bare `.s4-nt` was silently overridden to weight 400
            -- the computed weight was 400 no matter what the rule said, which a source
            read (and a casual screenshot) cannot see. Scope it `#firstrun .fr-body
