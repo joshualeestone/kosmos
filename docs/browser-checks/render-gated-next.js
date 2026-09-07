@@ -266,6 +266,35 @@ async function fresh(browser) {
     await ctx.close();
   }
 
+  /* ---------- #2085: the cannot-check state shows the neutral "Checking..." pill ---------- */
+  console.log('\n#2085 -- an uncheckable tmux grant shows the neutral "Checking..." pill, never a false green, never blocks');
+  {
+    const { ctx, page } = await fresh(browser);
+    // sleep granted (so only tmux is in question); tmux uncheckable (checkable:false) --
+    // exactly what tmuxGrant() returns when the system TCC db cannot be read.
+    await gotoGate(page, '[data-gate="tmux"]', {
+      sleep: { checkable: true, prevented: true },
+      tmux: { checkable: false, because: 'the accessibility database was not readable' },
+    });
+    const st = await page.evaluate(() => {
+      const row = document.querySelector('[data-gate="tmux"]');
+      const disp = (sel) => { const e = row && row.querySelector(sel); return e ? getComputedStyle(e).display : 'missing'; };
+      const checkPill = row && row.querySelector('.s3-checking .s3-pill-wait');
+      return {
+        hasChecking: !!(row && row.hasAttribute('data-checking')),
+        hasGranted: !!(row && row.hasAttribute('data-granted')),
+        reqDisp: disp('.s3-req'), grantedDisp: disp('.s3-granted'), checkingDisp: disp('.s3-checking'),
+        checkText: checkPill ? checkPill.textContent.trim() : null,
+      };
+    });
+    ok(st.hasChecking && !st.hasGranted, 'the uncheckable tmux row is data-checking, not data-granted (never a false green)');
+    ok(st.checkingDisp !== 'none' && st.reqDisp === 'none' && st.grantedDisp === 'none',
+      `only the neutral pill shows (checking=${st.checkingDisp}, req/TurnOn=${st.reqDisp}, granted=${st.grantedDisp})`);
+    ok(/Checking/i.test(st.checkText || ''), `the neutral pill reads "Checking..." (got: ${JSON.stringify(st.checkText)})`);
+    ok(!(await nextDisabled(page)), 'an uncheckable tmux grant does NOT block Next (fail-safe invariant preserved)');
+    await ctx.close();
+  }
+
   /* ---------- CONTROL: the reader discriminates ---------- */
   console.log('\nCONTROL -- the harness reads a real, discriminating verdict');
   {

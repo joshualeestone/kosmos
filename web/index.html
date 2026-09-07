@@ -8155,8 +8155,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              SCREEN 3 - AUTOMATION   (spec screen F + part of E)
              Primary button (shell param): "Next", GREYED until BOTH gates granted. No skip.
              GATES: data-gate="sleep" and data-gate="tmux" on the two status rows. Renet's poll
-               sets `data-granted` on each when detected (red "Needs Activated" -> green
-               "Activated"), and enables #fr-next only when both are granted.
+               sets `data-granted` on each when granted (green "Activated"), `data-checking` on the
+               cannot-check state (neutral "Checking...", #2085), else the red "Not activated" + Turn
+               On default; #fr-next is enabled only when neither gate is measured-not-granted.
              Dynamic: none.  CSS namespace: s3-*
              Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
              TMUX permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
@@ -8196,7 +8197,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         #fr-pane-3 .s3-gate-row{padding:8px 12px;margin:0 0 12px}
         #fr-pane-3 .s3-step-cap{margin:0 0 4px}
         #fr-pane-3 .s3-body{padding:10px 12px}
-        /* gate rows (same contract as S2): red "Needs Activated" -> data-granted -> green "Activated" */
+        /* gate rows: red "Not activated" + Turn On (default) -> data-checking neutral "Checking..."
+           (#2085) -> data-granted green "Activated" */
         .s3-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
           background:var(--k-surface,#fff);border:1px solid var(--k-rule,#e3e1dc);border-radius:10px;padding:10px 12px;margin:0 0 10px}
         .s3-gate-lbl{font:650 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#14161a)}
@@ -8204,11 +8206,24 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-pill{font:650 .625rem var(--font-ui,-apple-system,sans-serif);letter-spacing:.06em;text-transform:uppercase;border-radius:99px;padding:3px 9px;border:1px solid}
         .s3-pill-req{color:var(--attn,#b3261e);border-color:var(--attn,#b3261e)}
         .s3-pill-ok{color:var(--green,#2f7d5a);border-color:var(--green,#2f7d5a)}
+        /* #2085: the NEUTRAL "Checking..." pill (Mona's 3rd state, cannot-check /
+           checkable:false). Muted grey, deliberately NOT red or green -- it makes
+           no claim, so it must not read as an alarm or a pass. No button. */
+        .s3-pill-wait{color:var(--k-ink-3,#8a857c);border-color:var(--k-rule,#c9c6c0)}
         .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
           color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
         .s3-granted{display:none}
         .s3-gate-row[data-granted] .s3-req{display:none}
         .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
+        /* #2085: the third (cannot-check) state. The poll sets exactly one of
+           data-granted / data-checking (or neither = the red "Not activated" +
+           Turn On default). data-checking shows only the neutral "Checking..."
+           pill and hides both the req (Turn On) and granted rows. */
+        .s3-checking{display:none}
+        .s3-gate-row[data-granted] .s3-checking{display:none}
+        .s3-gate-row[data-checking] .s3-req{display:none}
+        .s3-gate-row[data-checking] .s3-granted{display:none}
+        .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
         </style>
 
         <p class="fc-eyebrow">Automation</p>
@@ -8222,7 +8237,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         </div>
         <div class="s3-gate-row" data-gate="sleep">
           <span class="s3-gate-lbl">Prevent sleep</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Needs Activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
 
@@ -8238,7 +8254,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         </div>
         <div class="s3-gate-row" data-gate="tmux">
           <span class="s3-gate-lbl">TMUX</span>
-          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Needs Activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
+          <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
         <!-- install-flow-9screen: the "Turn On" buttons open System Settings
@@ -37035,8 +37052,16 @@ async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
   rows.forEach((row, i) => {
-    if (states[i] === 'granted') row.setAttribute('data-granted', '');
-    else row.removeAttribute('data-granted');
+    // #2085: three visual states, exactly one attribute set (or neither = the
+    // red "Not activated" + Turn On default for 'blocked'). granted -> green
+    // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
+    // fail-safe invariant is unchanged: only 'blocked' gates Next (below).
+    // NOTE: data-checking is set on ANY uncheckable data-gate row, but only the
+    // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
+    // (that row keeps its default red state, unchanged) -- harmless, not a regression.
+    if (states[i] === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
+    else if (states[i] === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
+    else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
     if (states[i] === 'blocked') anyBlocked = true;
   });
   const next = document.getElementById('fr-next');
