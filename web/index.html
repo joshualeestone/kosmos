@@ -10895,7 +10895,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="setrow" id="snd-row" style="margin-top:14px;">
         <div><b>Play a sound for new messages</b>
           <p class="dhint" style="margin:2px 0 0;">A soft pop when a new message lands on one of your projects, so you notice without watching. On by default. Turn it off to silence it everywhere; you can also mute a single project in its own settings.</p></div>
-        <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound when a new message lands on one of your projects"><i></i></button>
+        <!-- ⚠️ WCAG 2.5.3 Label in Name (Level A): the accessible name must CONTAIN the
+             visible label ("Play a sound for new messages"), so a speech-input user can
+             activate the control by the words they see. The sibling per-project toggle
+             keeps the same discipline (its visible label is a substring of its aria-label). -->
+        <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
       </div>
     </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): "Agents talking to each other" moved

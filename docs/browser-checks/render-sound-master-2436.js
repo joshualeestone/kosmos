@@ -79,6 +79,7 @@ function check(name, pass, detail) {
     const row = document.getElementById('snd-row');
     const label = row ? (row.querySelector('b') || {}).textContent : null;
     const hint = row ? (row.querySelector('.dhint') || {}).textContent : null;
+    const ariaLabel = tog.getAttribute('aria-label') || '';
 
     // 2. Click OFF: accessible state flips AND the preference persists.
     tog.click();
@@ -94,7 +95,7 @@ function check(name, pass, detail) {
     const repaint = { ...read(), masterOn: soundMasterOn() };
     try { window.localStorage.removeItem('kosmos.sound.master'); } catch { /* cleanup */ }
 
-    return { initial, label, hint, afterOff, afterOn, repaint };
+    return { initial, label, hint, ariaLabel, afterOff, afterOn, repaint };
   });
 
   if (r.error) { console.error('render-sound-master-2436: ' + r.error); await browser.close(); process.exit(1); }
@@ -108,6 +109,11 @@ function check(name, pass, detail) {
       && /A soft pop when a new message lands on one of your projects/.test(r.hint || '')
       && /On by default\. Turn it off to silence it everywhere/.test(r.hint || ''),
     JSON.stringify({ label: r.label, hint: (r.hint || '').slice(0, 60) }));
+  // WCAG 2.5.3 Label in Name (Level A): the accessible name must CONTAIN the visible
+  // label, or a speech-input user cannot activate the control by the words they see.
+  check('the accessible name contains the visible label (WCAG 2.5.3)',
+    !!(r.label && r.ariaLabel && r.ariaLabel.indexOf((r.label || '').trim()) !== -1),
+    JSON.stringify({ visible: (r.label || '').trim(), aria: r.ariaLabel }));
   check('clicking OFF flips the accessible state AND persists the preference (localStorage → off)',
     r.afterOff.aria === 'false' && r.afterOff.on === false && r.afterOff.masterOn === false && r.afterOff.stored === 'off',
     JSON.stringify(r.afterOff));
