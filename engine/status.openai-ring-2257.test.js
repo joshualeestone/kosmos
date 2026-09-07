@@ -115,3 +115,36 @@ test('#2257: a rollout with a window but no token_count yet is not a wrong numbe
   assert.equal(ctx.tokens, null, 'a window with no usage is not a fill');
   assert.equal(ctx.percent, null, 'no usage -> no %');
 });
+
+test('#2257: usage past the window caps the ring at 100% and flags overCeiling', () => {
+  reset();
+  // A tiny window with a larger prompt -- the pathological over-full case.
+  writeRollout(WORKDIR, 10000, [12000]);
+  store.writeProfile(NAME, { dir: WORKDIR, provider: 'openai' });
+  const ctx = status.readCodexContext(NAME);
+  assert.equal(ctx.tokens, 12000);
+  assert.equal(ctx.percent, 100, 'a fill over the window is clamped to 100%, never shown as 120%');
+  assert.equal(ctx.overCeiling, true, 'overCeiling is flagged so the surface can say it is over');
+});
+
+test('#2257: measured usage with no window reported yields a number without a % (noCeiling)', () => {
+  reset();
+  // A rollout with a token_count but NO task_started window (an older/odd session).
+  const day = path.join(CODEX_HOME, 'sessions', '2026', '09', '07');
+  fs.mkdirSync(day, { recursive: true });
+  fs.writeFileSync(path.join(day, 'rollout-2026-09-07T11-00-00-01a0abcd-0000-7000-8000-000000000009.jsonl'), [
+    JSON.stringify({ type: 'session_meta', payload: { session_id: 's9', cwd: WORKDIR, model_provider: 'openai' } }),
+    JSON.stringify({ timestamp: '2026-09-07T11:01:01Z', type: 'event_msg', payload: {
+      type: 'token_count',
+      info: { total_token_usage: { input_tokens: 9000, total_tokens: 9005 },
+              last_token_usage: { input_tokens: 9000, total_tokens: 9005 } } } }),
+  ].join('\n') + '\n', 'utf8');
+  store.writeProfile(NAME, { dir: WORKDIR, provider: 'openai' });
+  const r = codexsession.read(WORKDIR);
+  assert.equal(r.contextWindow, null, 'no task_started -> no window');
+  assert.equal(r.contextUsed, 9000, 'usage is still read from the token_count');
+  const ctx = status.readCodexContext(NAME);
+  assert.equal(ctx.tokens, 9000, 'the number is reported');
+  assert.equal(ctx.percent, null, 'without a window there is no % to show');
+  assert.equal(ctx.noCeiling, true, 'noCeiling flags "read but cannot scale", distinct from "could not read"');
+});

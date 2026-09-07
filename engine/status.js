@@ -3352,6 +3352,58 @@ function headBytes(file, bytes) {
  * the agent's age. Age would have been a threshold wearing a dimension's
  * clothes: it looks principled, and the number is somebody's guess.
  */
+
+/**
+ * #2257: the context-ring result SHAPES, shared by the Claude reader
+ * (`readContext`) and the Codex reader (`readCodexContext`) so both providers say
+ * the SAME sentence about the same condition -- the `NO_READING` principle,
+ * extended to the not-started / never-recorded / measured / unscaled cases. A
+ * single source is also what the memory-panel wording pins protect: a second
+ * inline copy of a sentence drifts, and the pin fires precisely to stop that.
+ */
+const NONE_BASE = { tokens: null, percent: null, confidence: CONFIDENCE.NONE };
+function notYetResult() {
+  /* ⚠️ NOT "it has not started a session yet" -- "session" is agent vocabulary;
+     this sentence is read by the person on the Memory panel (Mona Lisa's jargon
+     rule). Nobody needs to know a session exists to understand nothing has
+     happened yet. */
+  return { ...NONE_BASE, notYet: true, because: 'it has not done anything yet' };
+}
+function neverRecordedResult() {
+  return { ...NONE_BASE, notYet: false, neverRecorded: true,
+           because: 'made before Kosmos recorded this, so there is no record to read' };
+}
+function measuredResult(tokens, ceiling, assumed) {
+  const percent = Math.round((tokens / ceiling) * 100);
+  return {
+    tokens,
+    percent: Math.min(100, percent),
+    overCeiling: percent > 100,
+    notYet: false,
+    ceiling,
+    ceilingAssumed: assumed,
+    confidence: CONFIDENCE.STRUCTURED,
+    because: assumed
+      ? 'measured, against a limit we have assumed rather than watched'
+      : 'measured, against a limit we have watched it hit',
+  };
+}
+function noCeilingResult(tokens, model) {
+  /* ⚠️ `noCeiling` is an EXPLICIT flag, not a null the UI has to infer: the
+     surfaces need to tell "we read it and cannot scale it" from "we could not
+     read it", and every other shape leaves `ceiling` undefined rather than null. */
+  return {
+    tokens,
+    percent: null,
+    ceiling: null,
+    ceilingSource: null,
+    notYet: false,
+    noCeiling: true,
+    confidence: CONFIDENCE.STRUCTURED,
+    because: `measured, but we do not know how much ${model || 'this model'} can hold`,
+  };
+}
+
 function readContext(agentName, model, exactSession) {
   const file = transcriptFor(agentName, exactSession);
   if (!file) {
@@ -3417,32 +3469,15 @@ function readContext(agentName, model, exactSession) {
      * ninety minutes earlier: `sessionIdsFor` returning nothing used to mean
      * "never registered" and now means "this is a normal machine".
      */
-    if (notYetStarted(agentName)) {
-      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: true,
-               /* ⚠️ NOT "it has not started a session yet", which is what this said
-                  when it shipped in 0.2.23 and which Mona Lisa's jargon check
-                  caught within minutes. "Session" is agent vocabulary; this
-                  sentence is read by the person, on the Memory panel. The word
-                  arrived from the LAYER the fact was computed in, which is how
-                  most of these get in.
-                  📌 And the fact is easier to say than the mechanism: nobody
-                  needs to know a session exists to understand that nothing has
-                  happened yet. Beside `lead: 'memory has nothing recorded yet.'`
-                  the pair reads as one thought rather than two vocabularies. */
-               because: 'it has not done anything yet' };
-    }
+    if (notYetStarted(agentName)) return notYetResult();
     /* #149/#150: the no-plist case CAN be separated, by the same bookkeeping
        fact the notYet gate above trusts. "We cannot find a transcript" reads
        as a fault somebody should fix; for an agent Kosmos never recorded a
        launch file for, the truth is there was never anywhere to look, and no
        amount of restarting fills it in. Only reached for a TIED pane: the
        untied refusal returns before readContext is called. */
-    if (neverRecorded(agentName)) {
-      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false, neverRecorded: true,
-               because: 'made before Kosmos recorded this, so there is no record to read' };
-    }
-    return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
-             because: NO_READING.NO_TRANSCRIPT };
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
   }
   const { text, whole } = tailBytes(file);
   // ⚠️ `text === null` AND `text === ''` ARE NOT THE SAME ANSWER, and `if
@@ -3474,9 +3509,8 @@ function readContext(agentName, model, exactSession) {
        admission, because it could have run anywhere. Same gate as the
        no-transcript branch above, same reason. */
     return notYetStarted(agentName)
-      ? { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: true,
-          because: 'it has not done anything yet' }
-      : { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
+      ? notYetResult()
+      : { ...NONE_BASE, notYet: false,
           because: 'its transcript is empty, which tells us about the file rather than the agent' };
   }
 
@@ -3553,36 +3587,10 @@ function readContext(agentName, model, exactSession) {
     // the card still shows the unknown badge, since pctOf is null. Whether
     // Unknown is the right WORD for a measured-but-unscaled agent is a
     // separate question and belongs with the unknown-model cards (#149/#150).
-    return {
-      tokens,
-      percent: null,
-      ceiling: null,
-      ceilingSource: null,
-      notYet: false,
-      // ⚠️ AN EXPLICIT FLAG, not a null the UI has to infer. The surfaces need
-      // to tell "we read it and cannot scale it" from "we could not read it",
-      // and `ceiling === null` distinguishes those only if you also know that
-      // every other shape leaves the field UNDEFINED rather than null. That is
-      // a rule nothing states and a test fixture broke within an hour.
-      noCeiling: true,
-      confidence: CONFIDENCE.STRUCTURED,
-      because: `measured, but we do not know how much ${model || 'this model'} can hold`,
-    };
+    return noCeilingResult(tokens, model);
   }
 
-  const percent = Math.round((tokens / ceiling) * 100);
-  return {
-    tokens,
-    percent: Math.min(100, percent),
-    overCeiling: percent > 100,
-    notYet: false,
-    ceiling,
-    ceilingAssumed: found.assumed,
-    confidence: CONFIDENCE.STRUCTURED,
-    because: found.assumed
-      ? 'measured, against a limit we have assumed rather than watched'
-      : 'measured, against a limit we have watched it hit',
-  };
+  return measuredResult(tokens, ceiling, found.assumed);
 }
 
 /**
@@ -3620,41 +3628,39 @@ function readCodexContext(agentName) {
   try { sess = dir ? require('./codexsession').read(dir) : { found: false }; }
   catch { sess = { found: false }; }
 
-  // No rollout for this folder, or a session that has reported no usage yet: the
-  // same three-way split `readContext` makes for a missing/empty Claude transcript.
+  // A rollout that EXISTS but could not be read is a genuine read failure, not a
+  // fresh agent -- keep that admission rather than collapsing it into "not yet".
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+
+  // No rollout matched this folder, or a session that has reported no usage yet:
+  // the same not-started / never-recorded / admission split `readContext` makes
+  // for a missing Claude transcript, via the shared result builders.
+  //
+  // 🛑 RESIDUAL, STATED RATHER THAN HIDDEN (#2257 scope): `notYetStarted` reads
+  // `byWorkdirDetailed`, which looks for a Claude `.jsonl` -- a Codex agent never
+  // writes one, so `sawTranscripts` is always false and, for a Kosmos-managed
+  // (plist) Codex agent, this resolves to `notYet` before the admissions are
+  // reached. So a Codex agent that HAS run but whose rollout `forWorkdir` fails to
+  // MATCH (a case-divergent workdir -- the same class as #2406, deferred to the
+  // canonicalOnDisk sweep #2417) re-presents "Not yet read" rather than admitting
+  // a fault. It fails SOFT (never a wrong number), and the common matched case is
+  // the one this card fixes; the match-miss is the sweep's to close.
   if (!sess.found || sess.contextUsed == null) {
-    if (notYetStarted(agentName)) {
-      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: true,
-               because: 'it has not done anything yet' };
-    }
-    if (neverRecorded(agentName)) {
-      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false, neverRecorded: true,
-               because: 'made before Kosmos recorded this, so there is no record to read' };
-    }
-    return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
-             because: NO_READING.NO_TRANSCRIPT };
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
   }
 
   const tokens = sess.contextUsed;
-  if (!sess.contextWindow) {
-    // Measured usage but no window (task_started never carried one): report the
-    // number without a percentage -- the same seventh case `readContext` has.
-    return { tokens, percent: null, ceiling: null, ceilingSource: null, notYet: false,
-             noCeiling: true, confidence: CONFIDENCE.STRUCTURED,
-             because: 'measured, but we do not know how much this model can hold' };
-  }
-  const percent = Math.round((tokens / sess.contextWindow) * 100);
-  return {
-    tokens,
-    percent: Math.min(100, percent),
-    overCeiling: percent > 100,
-    notYet: false,
-    ceiling: sess.contextWindow,
-    // Measured from `task_started`, not assumed like Claude's ceiling.
-    ceilingAssumed: false,
-    confidence: CONFIDENCE.STRUCTURED,
-    because: 'measured, against a limit we have watched it hit',
-  };
+  // No window means task_started carried none: measured usage, no percentage --
+  // the same seventh case readContext has. `model` is null here (the Codex model
+  // id is out of scope, #12), which the shared builder renders as "this model".
+  if (!sess.contextWindow) return noCeilingResult(tokens, null);
+  // The Codex window is MEASURED (task_started), not assumed like Claude's -- so
+  // `assumed` is false and the ring rests on a firmer footing.
+  return measuredResult(tokens, sess.contextWindow, false);
 }
 
 /**

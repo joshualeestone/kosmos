@@ -157,7 +157,14 @@ function read(dir) {
          event; a session with no completed turn has none, and `contextUsed` stays null.
          Measured against six real gpt-5.6-sol rollouts, 2026-09-07 (window 258400):
          last_token_usage.input_tokens ~11.7k held steady while total_tokens climbed
-         23k -> 39k, which is what settled the "one real session decides this" note. */
+         23k -> 39k, which is what settled the "one real session decides this" note.
+         📌 `input_tokens` already INCLUDES the cached prefix (adding
+         `cached_input_tokens` would double-count), and it is the input to the LAST
+         request -- so it omits that turn's own `output_tokens`, which the next
+         prompt re-sends. That output is small next to the prompt (5 tokens in the
+         measured runs) and reasoning tokens are dropped from later context, so the
+         prompt size is the right stable proxy for occupancy; Codex's own TUI may
+         read a hair differently, which is expected. */
       if (p.type === 'token_count' && p.info && p.info.last_token_usage
           && typeof p.info.last_token_usage.input_tokens === 'number') {
         contextUsed = p.info.last_token_usage.input_tokens;
