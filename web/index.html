@@ -28431,12 +28431,37 @@ async function importFoundFile(file, btn) {
   await finishImport(data, gen, btn || document.getElementById('import-load'));
 }
 
-document.getElementById('import-found').addEventListener('click', (e) => {
+/* #4: import a loose agent FILE straight off the find-agents screen (#fr-fleet).
+   On that screen first-run is still overlaid and the create form is neither open
+   nor loaded, so a bare importFoundFile would pre-fill a form nobody can see with
+   empty provider/account/model menus. Mirror what "Giddy Up" does from this same
+   screen -- frFinish(then) ends first-run and reveals the board -- then, in order:
+   show the create tab, AWAIT loadRoles (so CREATE_MODELS/CREATE_ACCOUNTS exist
+   before finishImport's loadCreateExtras reads them), then import the chosen file.
+   Awaiting loadRoles first is what makes this race-free: no fire-and-forget from
+   openCreate competing with finishImport's cstep('name'). */
+async function frImportFromScan(file, btn) {
+  frFinish(async () => {
+    showTab('create');
+    try { await loadRoles(); } catch { /* finishImport still fills the words; menus degrade, not crash */ }
+    await importFoundFile(file, btn);
+  });
+}
+
+/* #4: delegated on `document`, not on #import-found, because these rows now render
+   on TWO surfaces -- the create form's import panel (#import-found) AND the
+   find-agents screen (#fr-fleet, via frPaintScan). One handler serves both. From
+   the find-agents screen the import goes through frImportFromScan (end first-run,
+   open + load the create form, then import); on #import-found the form is already
+   open and loaded, so importFoundFile runs directly. */
+document.addEventListener('click', (e) => {
   const btn = e.target.closest('.fr-importgo');
-  if (!btn) return;
+  if (!btn || btn.disabled) return;
   const row = btn.closest('.fr-importrow');
   const file = row && row.getAttribute('data-import-file');
-  if (file) importFoundFile(file, btn);
+  if (!file) return;
+  if (btn.closest('#fr-fleet')) { frImportFromScan(file, btn); return; }
+  importFoundFile(file, btn);
 });
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
@@ -38386,23 +38411,41 @@ function frScanOffer() {
   return FR_SCAN.candidates;
 }
 
+/* #4 (Josh 0.6.42 re-test): the LOOSE agent FILES the scan found, offered on THIS
+   screen. Josh loaded 7 agent files into Documents/Downloads; the import scan
+   returned them (FR_SCAN.importable), but this screen only rendered `candidates`
+   (agent FOLDERS with a CLAUDE.md) and routed the loose files to the create form's
+   import mode -- a DIFFERENT screen. So find-agents "found nothing" and dumped him
+   to "Create your first agent," while the separate Import screen found them. His
+   words: "it never showed me the agents on the path ... it was supposed to
+   automatically pull them in." This surfaces them here, completing the 0.6.39
+   ruling ("It just pulls them in") the folder-only wiring left half-done. */
+function frImportOffer() {
+  if (!FR_SCAN || FR_SCAN.ok !== true || !Array.isArray(FR_SCAN.importable)) return [];
+  if (FR_SCAN.dismissed === true) return [];
+  return FR_SCAN.importable;
+}
+
 /**
  * First run's scan screen: the same rows as the board panel, so a person meeting
  * them in setup and a person meeting them later see one thing, and every Add/Skip
- * handler reaches both.
+ * handler reaches both. #4: it now shows BOTH agent FOLDERS (candidates, added in
+ * place) and loose agent FILES (importable, imported through the create form), so
+ * every agent the scan finds appears on this one screen with a one-click action.
  */
 function frPaintScan() {
   const title = document.getElementById('fr-fleet-title');  // install-flow-9screen: the visible pane-9 head (shell #fr-title retired)
   const box = document.getElementById('fr-fleet');
-  const offer = frScanOffer();
-  const n = offer.length;
+  const cand = frScanOffer();
+  const imp = frImportOffer();
+  const n = cand.length + imp.length;
   title.textContent = n === 1 ? 'We found an agent on this computer.' : 'We found ' + n + ' agents on this computer.';
-  box.innerHTML = '<p>Each of these has a CLAUDE.md, but Kosmos has no record of ever '
-    + 'running it. Look at what it says and add the ones that are yours. Adding one '
-    + 'leaves it exactly where it is, in its own folder with its own instructions.'
-    + (FR_SCAN && FR_SCAN.bounded && (FR_SCAN.bounded.count || FR_SCAN.bounded.dirs) ? ' There may be more than shown here.' : '')
-    + '</p>'
-    + '<div class="fr-found">' + scanRowsHtml(offer) + '</div>';
+  const more = FR_SCAN && FR_SCAN.bounded
+    && (FR_SCAN.bounded.count || FR_SCAN.bounded.dirs || FR_SCAN.bounded.importable);
+  box.innerHTML = '<p>These are on this computer but not yet in Kosmos. Add the ones '
+    + 'that are yours.' + (more ? ' There may be more than shown here.' : '') + '</p>'
+    + (cand.length ? '<div class="fr-found">' + scanRowsHtml(cand) + '</div>' : '')
+    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp) + '</div>' : '');
   /* 🛑 `Continue`, NOT "Take me to my agents" -- the same reason `frPaintFound` gives:
      nothing is added until a button is pressed, so the board still shows what tmux
      shows, and a person who added nothing must not be promised a fleet. */
@@ -39071,7 +39114,7 @@ function frPaintFleet() {
       frActions();
       return;
     }
-    if (frScanOffer().length) { frPaintScan(); return; }
+    if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
     title.textContent = 'Create your first agent.';
     /**
      * ⚠️ IT DOES NOT PROMISE OVER THE TOP OF STEP 2. The first version said "It

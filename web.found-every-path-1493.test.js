@@ -38,8 +38,11 @@ const SCRIPT = scriptOf(fs.readFileSync('web/index.html', 'utf8'));
 /* #1938: frPaintFleet now also references the disk-scan state (FR_SCAN) and helpers.
    frScanOffer is lifted (it is a pure read of FR_SCAN, so the real function is what we
    want to exercise); frScanAgents and frPaintScan are injected as stubs, the same way
-   frFindAgents and frPaintFound are. */
-const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') + '\n' + lift(SCRIPT, 'frPaintFleet');
+   frFindAgents and frPaintFound are.
+   #4 (0.6.42): frPaintFleet's create-arm gate now also reads frImportOffer (the loose
+   agent FILES the scan found), so lift it too -- another pure read of FR_SCAN. Without
+   it the gate call throws and every empty-answer control errors instead of asserting. */
+const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') + '\n' + lift(SCRIPT, 'frImportOffer') + '\n' + lift(SCRIPT, 'frPaintFleet');
 
 /* ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE AND CANNOT SEE AN INTEGRATION
    DEFECT (Splinter, 2026-09-02): a test of an extracted copy measures the branch logic,

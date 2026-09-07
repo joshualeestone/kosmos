@@ -5367,6 +5367,11 @@ function firstRunHarness(name, state, opts = {}) {
     let FR_SCAN_GEN = 0;
     function frScanAgents() {}
     const frScanOffer = ${pageFunction('frScanOffer').toString()};
+    /* #4 (0.6.42): frPaintFleet's create-arm gate and frPaintScan now also read
+       frImportOffer (the loose agent FILES the scan found). Lift it as the REAL
+       function too -- another pure read of FR_SCAN -- or frPaintFleet throws a
+       ReferenceError and every first-run render path errors instead of asserting. */
+    const frImportOffer = ${pageFunction('frImportOffer').toString()};
     ${name === 'frPaintScan' ? '' : 'function frPaintScan() {}'}
     /* frPaintSubscription closes the install confirm on every repaint, so a
        verdict flipping to connected while the panel is open cannot leave a live
