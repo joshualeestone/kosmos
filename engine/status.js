@@ -3172,16 +3172,18 @@ function byWorkdirDetailed(agentName) {
      and the macOS `/private` twin, and falls back to path.resolve when the folder
      is gone. Strictly additive: with no divergence canon is the resolved raw path,
      flatten(canon) === flatten(dir), and nothing changes for the common case. */
+  const trust = require('./trust');
   const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');
-  const canon = require('./trust').canonicalOnDisk(dir);
+  const canon = trust.canonicalOnDisk(dir);
   // Both spellings, deduped: the canonical folder the runner actually wrote into,
   // and the raw recorded one (identical when there is no case/symlink divergence).
   const flats = [...new Set([flatten(canon), flatten(dir)])];
   // A transcript is this agent's when its recorded cwd is the same real folder.
   // The two-paths-flatten-to-one collision guard is preserved: distinct real
-  // paths stay distinct under canonicalOnDisk.
+  // paths stay distinct under canonicalOnDisk. The direct `=== dir`/`=== canon`
+  // arms short-circuit the common case before any per-candidate realpath syscall.
   const belongs = (cwd) => cwd != null
-    && (cwd === dir || cwd === canon || require('./trust').canonicalOnDisk(cwd) === canon);
+    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
   let sawTranscripts = false;
 
   for (const root of configRoots()) {

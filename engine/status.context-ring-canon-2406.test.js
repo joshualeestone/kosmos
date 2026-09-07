@@ -116,19 +116,35 @@ test('#2406: a case-variant recorded folder resolves (Josh’s "Work")',
     assert.ok(foundFor(lower), 'the "Work" vs "work" divergence Josh hit must resolve');
   });
 
-test('#2406: the collision guard survives — a transcript for a different real folder is refused', () => {
-  const dir = path.join(SB, 'Downloads', 'mine');
-  fs.mkdirSync(dir, { recursive: true });
-  reset();
-  store.writeProfile(NAME, { dir });
-  // A transcript recorded for a genuinely DIFFERENT real directory.
-  const other = path.join(SB, 'Downloads', 'not-mine');
+test('#2406: the collision guard survives INSIDE one flattened folder — belongs() refuses the foreign cwd and picks the matching one', () => {
+  // 🛑 THE HARD CASE, and the whole reason the cwd VERIFY exists: two DISTINCT
+  // real directories that flatten to the SAME projects folder. `mine.x` and
+  // `mine-x` both flatten to `...-mine-x`, so both transcripts land in one
+  // folder and the search physically encounters BOTH — folder-name isolation
+  // cannot save us here, so this exercises belongs() itself rather than the
+  // directory lookup. A weaker fixture (two folders that do not collide) passes
+  // even with belongs() broken, which is the gap this replaces.
+  const mine = path.join(SB, 'Downloads', 'mine.x');
+  const other = path.join(SB, 'Downloads', 'mine-x');
+  fs.mkdirSync(mine, { recursive: true });
   fs.mkdirSync(other, { recursive: true });
-  const c = canonOf(other);
-  const d = path.join(PROJECTS, flatten(c));
-  fs.mkdirSync(d, { recursive: true });
-  fs.writeFileSync(path.join(d, 's.jsonl'),
-    JSON.stringify({ cwd: c, message: { usage: { input_tokens: 9 } } }) + '\n', 'utf8');
+  assert.equal(flatten(canonOf(mine)), flatten(canonOf(other)),
+    'fixture is vacuous unless both real dirs flatten to one projects folder');
+  reset();
+  store.writeProfile(NAME, { dir: mine });
+  const shared = path.join(PROJECTS, flatten(canonOf(mine)));
+  fs.mkdirSync(shared, { recursive: true });
+  // A FOREIGN transcript (belongs to the other real dir) sitting in the very
+  // folder the search reads — must be refused, not used.
+  fs.writeFileSync(path.join(shared, 'foreign.jsonl'),
+    JSON.stringify({ cwd: canonOf(other), message: { usage: { input_tokens: 9 } } }) + '\n', 'utf8');
   assert.equal(status.transcriptFor(NAME), null,
-    'a transcript for another directory must never be used — the one outcome worse than none');
+    'a foreign transcript sharing the flattened folder must be refused — the one outcome worse than none');
+  // Now the agent's OWN transcript in the SAME folder must be chosen over the
+  // foreign one, proving belongs() discriminates rather than merely rejecting.
+  fs.writeFileSync(path.join(shared, 'ours.jsonl'),
+    JSON.stringify({ cwd: canonOf(mine), message: { usage: { input_tokens: 9 } } }) + '\n', 'utf8');
+  const got = status.transcriptFor(NAME);
+  assert.ok(got && got.endsWith('ours.jsonl'),
+    'the transcript whose cwd matches must win over a foreign one in the same folder');
 });
