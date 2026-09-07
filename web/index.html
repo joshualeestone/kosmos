@@ -39543,6 +39543,22 @@ function frPaintFleet() {
        📌 Fire-and-forget + generation-guarded + grant-flip re-scan, identical to
        the create/unknown arms. Reuses frPaintScan (one painter, so there is no
        second copy of the Add/Skip rows to keep right). */
+    /* 🛑 WAIT FOR THE FOUND SEARCH TO SETTLE BEFORE SCANNING, exactly as the create
+       arm does (its FR_FOUND===null early return above). frFindAgents() fires at the
+       top of this function for every path, and frFoundOffer() reads empty while
+       FR_FOUND is still null -- so scanning straight on FR_SCAN===null without this
+       gate fires frScanAgents ONCE now (FR_FOUND null) and AGAIN on the found-settle
+       repaint (FR_SCAN still null, the scan being the slower fetch): two
+       /api/scan-import TCC walks and a possible double macOS permission prompt, the
+       "second fetch the generation guard then threw away" class the create arm's own
+       39594 comment removed. Gating on FR_FOUND makes the found-settle repaint the
+       single trigger that starts the scan, so it fires once. */
+    if (FR_FOUND === null) {
+      box.innerHTML = '<p>They are already here. Checking this computer for any '
+        + 'others to add\u2026</p>';
+      frForkActions();
+      return;
+    }
     if (FR_SCAN === null) {
       frScanAgents();
       box.innerHTML = '<p>They are already here. Checking this computer for any '

@@ -181,6 +181,22 @@ test('#2389: while the adopt scan is in flight the screen does NOT assert "nothi
     'the running-fleet acknowledgment was dropped during the scan');
 });
 
+test('#2389: the adopt scan waits for the found search to settle, so it fires ONCE not twice', () => {
+  /* frFindAgents() fires at the top of frPaintFleet for every path, and frFoundOffer()
+     reads empty while FR_FOUND is still null. If the adopt arm scanned straight on
+     FR_SCAN===null it would fire frScanAgents once at first render (FR_FOUND null) and
+     again on the found-settle repaint (FR_SCAN still null) -- two /api/scan-import TCC
+     walks and a possible double permission prompt. The FR_FOUND===null gate (mirroring
+     the create arm) defers the scan until the found search settles, so it fires once. */
+  const r = paint({ path: 'adopt', fleetCount: 2 }, null, null);
+  assert.ok(r.calls.includes('SEARCH'), 'the found search did not fire at the top');
+  assert.ok(!r.calls.includes('SCAN-SEARCH'),
+    'the adopt arm scanned the disk before the found search settled -- the double-fire the FR_FOUND gate prevents');
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the false "nothing to import" sentence is shown before the found search even settled');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet acknowledgment was dropped');
+});
+
 test('#2389: when the adopt scan finds a folder candidate, it hands to the scan screen', () => {
   const scan = { ok: true, candidates: [{ dir: '/Users/x/work/hers', name: 'Hers', preview: 'You are **Hers**.' }] };
   const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, scan);
