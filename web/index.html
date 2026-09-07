@@ -37388,9 +37388,9 @@ function frPaintConnect(st) {
   const urlLine = '<div id="fr-conn-url"></div>';
 
   if (phase === 'downloading') {
-    // #11 (Josh 0.6.40): the existing .kspin breathing spinner on this loading title,
-    // beside the live progress bar, so the "working on it" motion is consistent with the
-    // other waiting states on this screen.
+    // #2236 (0.6.42): the .spin-sweep loading dots on this loading title, beside the live
+    // progress bar, so the "working on it" motion is consistent with the other waiting
+    // states on this screen.
     box.innerHTML = '<div class="fr-ctitle">' + spin + ' Downloading Claude&#8230;</div>'
       // Static progressbar semantics, no live chatter: the phase change was
       // announced once; a screen reader can QUERY the value without being
@@ -37405,8 +37405,8 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'installing' || phase === 'signin-launching') {
-    // #11: these were text-only with no motion; add the .kspin spinner so the person sees
-    // it is working ("A moment or two." with nothing moving read as stalled).
+    // #2236 (0.6.42): these were text-only with no motion; add the .spin-sweep loading dots
+    // so the person sees it is working ("A moment or two." with nothing moving read as stalled).
     box.innerHTML = '<div class="fr-ctitle">' + spin + ' '
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
