@@ -798,11 +798,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // The engine cannot read Accessibility trust (#1344); the native app does it via
     // AXIsProcessTrusted and writes the verdict where engine/a11ystatus.js reads it,
     // and the first-run Continue gate consumes it (fail-safe: it only ever BLOCKS on a
-    // positive checkable:true+trusted:false). For that verdict to reflect TMUX's trust
-    // -- the responsible process that owns the folder-TCC grant, and the process the
-    // copy already tells the user to grant ("Turn on Tmux in Accessibility") -- the AX
-    // read must run UNDER tmux, not as the kosmos-app (whose own trust is a false
-    // reading). So the hatches are spawned under the bundled tmux.
+    // positive checkable:true+trusted:false). The hatches are spawned under the bundled
+    // tmux on the BELIEF that this would make the verdict reflect TMUX's trust -- tmux
+    // being the responsible process that owns the folder-TCC grant, and the process the
+    // copy tells the user to grant ("Turn on Tmux in Accessibility"). ⚠️ THAT BELIEF IS
+    // VERIFIED WRONG (see the correction below): accessibility is keyed on the CALLING
+    // BINARY, so the under-tmux read reports the kosmos-APP's trust, not tmux's. The
+    // spawn-under-tmux is retained only because the axPROMPT half still needs it (it is
+    // what lands an entry in the Accessibility list); the axCHECK's verdict does not
+    // describe tmux and must not be read as if it does.
     //
     // 🛑 THE ATTRIBUTION IS VERIFIED WRONG (2026-09-06, #2125), AND THE HARM WAS THE
     // OPPOSITE DIRECTION FROM WHAT THIS COMMENT ORIGINALLY ANTICIPATED. It read: the
@@ -881,9 +885,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // launch-time axcheck uses. Firing through the app rather than letting the engine
     // spawn tmux keeps the spawn tree IDENTICAL to the proven launch (axcheck) path,
     // adding no new attribution assumption to the #2125 seam. (The attribution the
-    // Accessibility API actually reports is the #2125/#2347-item-B question -- the AX
-    // call is labelled by the calling binary, the kosmos-app, not tmux -- tracked
-    // separately; this watcher's job is only the on-demand FIRING, timing fixed in #2347.)
+    // Accessibility API actually reports is now RESOLVED, not an open question: the AX
+    // call is labelled by the calling binary, the kosmos-app, not tmux -- verified by
+    // Josh's 0.6.42 fresh-account re-test, see the startA11yTrustChecks correction. This
+    // watcher's job is only the on-demand FIRING, timing fixed in #2347.)
     private func startPromptRequestWatcher() {
         checkPromptRequests()
         // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
@@ -2451,7 +2456,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
              polling /api/status every two seconds and repainting a hidden
              panel. Pressing ⌘, mid-agent-creation would reintroduce that
              through a new door the existing guard does not cover.
-           · `burgerClose()` — on the narrow layout the burger nav otherwise
+           · `burgerClose()` -- on the narrow layout the burger nav otherwise
              stays open over the Settings screen.
 
            The page states the rule itself: go through the real control "so
