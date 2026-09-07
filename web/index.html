@@ -1578,6 +1578,41 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    same mark -- never dropping to a bare "gone". Same still frame the reduced-
    motion rule uses: full opacity, no shrink, so it does not read as frozen. */
 .kspin-still img { animation: none; opacity: 1; transform: none; }
+/* #2236 Sweep spinner (Mona Lisa's dots-trail loading indicator -- the "Sweep" take Josh
+   chose 2026-09-05 over the retired "Lively"; source: installkosmos.com/design/loading-indicators,
+   variant D). This is the loading mark for the connect/first-run waiting moments (downloading,
+   checking this computer, signing in) -- distinct from .kspin above, which is the Kosmos MARK
+   used for agent restart, not a loader. ONE markup shape sized by --sz:
+   <span class="spin spin-sweep" style="--sz:16px"> with eight <i></i>. Each <i> is a rotator;
+   its ::before is the dot on the ring, and the dots light one after another around it. Gold by
+   default; on a gold .btn it flips to ink so it stays visible. Kept byte-faithful to the design
+   page so the app and the design record cannot drift. Reduced motion calms to one slow pulse
+   (no travel), so it still says "working" without the movement. */
+.spin { position: relative; display: inline-block; width: var(--sz); height: var(--sz); flex: none;
+        vertical-align: -0.18em; --sz: 16px; --dot: calc(var(--sz)*0.19); --spin-dot: var(--gold); }
+.spin i { position: absolute; inset: 0; }
+.spin i::before { content: ""; position: absolute; top: 0; left: 50%; width: var(--dot); height: var(--dot);
+        margin-left: calc(var(--dot)/-2); border-radius: 50%; background: var(--spin-dot); }
+.spin i:nth-child(1) { transform: rotate(0deg); }   .spin i:nth-child(2) { transform: rotate(45deg); }
+.spin i:nth-child(3) { transform: rotate(90deg); }  .spin i:nth-child(4) { transform: rotate(135deg); }
+.spin i:nth-child(5) { transform: rotate(180deg); } .spin i:nth-child(6) { transform: rotate(225deg); }
+.spin i:nth-child(7) { transform: rotate(270deg); } .spin i:nth-child(8) { transform: rotate(315deg); }
+/* on the gold button, dots read as ink so they show on the gold */
+.btn .spin { --spin-dot: #231b06; }
+/* Take D SWEEP: the dots light one after another around the ring. */
+.spin-sweep i::before { animation: sweepLite 1.2s ease-in-out infinite; opacity: .2; }
+.spin-sweep i:nth-child(1)::before { animation-delay: -1.200s; } .spin-sweep i:nth-child(2)::before { animation-delay: -1.050s; }
+.spin-sweep i:nth-child(3)::before { animation-delay: -.900s; }  .spin-sweep i:nth-child(4)::before { animation-delay: -.750s; }
+.spin-sweep i:nth-child(5)::before { animation-delay: -.600s; }  .spin-sweep i:nth-child(6)::before { animation-delay: -.450s; }
+.spin-sweep i:nth-child(7)::before { animation-delay: -.300s; }  .spin-sweep i:nth-child(8)::before { animation-delay: -.150s; }
+@keyframes sweepLite { 0%, 72%, 100% { opacity: .2; transform: scale(.6); } 20% { opacity: 1; transform: scale(1.08); } }
+/* Accessibility: honour reduced-motion. Keep ONE calm pulse so the "working" signal
+   survives, but stop the travel that can bother a motion-sensitive reader. */
+@media (prefers-reduced-motion: reduce) {
+  .spin i::before { animation: calmPulse 1.6s ease-in-out infinite !important;
+     transform: none !important; opacity: .85; }
+  @keyframes calmPulse { 0%, 100% { opacity: .85; } 50% { opacity: .4; } }
+}
 /* The heat wash is a GROUND, not a border: borders already mean "needs you". */
 .acard.hot { background: linear-gradient(180deg, rgba(179,38,30,.16) 0%, rgba(179,38,30,0) 42%), var(--k-surface); }
 /* Surface and ink flip TOGETHER, both on k-tokens (the dark-tokens set):
@@ -37304,12 +37339,16 @@ function frPaintConnect(st) {
   const box = document.getElementById('fr-sub');
   const msg = document.getElementById('fr-sub-msg');
   const phase = st && st.phase;
-  // #11 (Josh 0.6.40): the existing .kspin breathing spinner, INLINED as a literal rather
-  // than calling kGlyph() -- the connect painters are extracted and eval'd in isolation by
-  // the test harnesses (server.connect.test.js pageFunction), which do not have kGlyph in
-  // scope, so a kGlyph() call here throws ReferenceError. The markup mirrors kGlyph() with
-  // no args; .kspin pins static under prefers-reduced-motion and the img is aria-hidden.
-  const spin = '<span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span>';
+  // #2236 (Josh 0.6.42 re-test): Mona Lisa's "Sweep" loading spinner (the dots-trail she
+  // designed and Josh chose 2026-09-05; installkosmos.com/design/loading-indicators, variant D).
+  // #11 wrongly used the .kspin Kosmos MARK here (a tiny Kosmos icon), which Josh flagged as the
+  // wrong asset -- .kspin is the restart mark, not a loader. This is the real loading dots.
+  // INLINED as a literal (eight <i></i>, no helper call) because the connect painters are
+  // extracted and eval'd in isolation by the test harnesses (server.connect.test.js
+  // pageFunction), which have no kGlyph/component fn in scope; the .spin/.spin-sweep CSS lives
+  // in the page <style>. aria-hidden because the visible title + the hidden #fr-conn-say live
+  // region already carry the state; .spin-sweep calms to a single pulse under reduced motion.
+  const spin = '<span class="spin spin-sweep" style="--sz:16px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>';
 
   /**
    * ⚠️ REPAINT ONLY WHEN THE SCREEN'S MEANING CHANGES. This runs every
@@ -37349,9 +37388,9 @@ function frPaintConnect(st) {
   const urlLine = '<div id="fr-conn-url"></div>';
 
   if (phase === 'downloading') {
-    // #11 (Josh 0.6.40): the existing .kspin breathing spinner on this loading title,
-    // beside the live progress bar, so the "working on it" motion is consistent with the
-    // other waiting states on this screen.
+    // #2236 (0.6.42): the .spin-sweep loading dots on this loading title, beside the live
+    // progress bar, so the "working on it" motion is consistent with the other waiting
+    // states on this screen.
     box.innerHTML = '<div class="fr-ctitle">' + spin + ' Downloading Claude&#8230;</div>'
       // Static progressbar semantics, no live chatter: the phase change was
       // announced once; a screen reader can QUERY the value without being
@@ -37366,8 +37405,8 @@ function frPaintConnect(st) {
   }
 
   if (phase === 'installing' || phase === 'signin-launching') {
-    // #11: these were text-only with no motion; add the .kspin spinner so the person sees
-    // it is working ("A moment or two." with nothing moving read as stalled).
+    // #2236 (0.6.42): these were text-only with no motion; add the .spin-sweep loading dots
+    // so the person sees it is working ("A moment or two." with nothing moving read as stalled).
     box.innerHTML = '<div class="fr-ctitle">' + spin + ' '
       + (phase === 'installing' ? 'Setting Claude up on this computer&#8230;' : 'Getting the sign-in ready&#8230;')
       + '</div>'
@@ -37985,13 +38024,14 @@ document.getElementById('fr-openai-go').addEventListener('click', async () => {
   // the told-directly paint on success corrects it. Narrow and
   // self-correcting, accepted.
   frPaintOpenai.seq = (frPaintOpenai.seq || 0) + 1;
-  // #11: the .kspin spinner beside "Adding..." while the key is validated against
-  // api.openai.com. innerHTML (not textContent) so the decorative spinner can ride along;
-  // the text is static so there is nothing to escape. Error/receipt paths below stay on
-  // textContent, which clears this spinner when they land. The spinner markup is inlined
-  // (not kGlyph()) for the same reason as frPaintConnect: this handler is eval-extractable
-  // and kGlyph is defined elsewhere. Mirrors kGlyph() with no args.
-  msg.innerHTML = '<span class="kspin" aria-hidden="true"><img src="/icons/kosmos-32.png" alt="" width="16" height="16"></span> Adding&#8230;';
+  // #2236 (Josh 0.6.42 re-test): Mona Lisa's "Sweep" loading spinner beside "Adding..." while
+  // the key is validated against api.openai.com. #11 used the .kspin Kosmos mark here (the wrong
+  // asset Josh flagged); this is the real loading dots. innerHTML (not textContent) so the
+  // decorative spinner can ride along; the text is static so there is nothing to escape.
+  // Error/receipt paths below stay on textContent, which clears this spinner when they land.
+  // Inlined (eight <i></i>, no helper call) for the same reason as frPaintConnect: this handler
+  // is eval-extractable; the .spin/.spin-sweep CSS lives in the page <style>.
+  msg.innerHTML = '<span class="spin spin-sweep" style="--sz:16px" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> Adding&#8230;';
   try {
     // Same endpoint Settings uses (#540) -- no new backend for this screen.
     const res = await fetch('/api/accounts/openai', {
