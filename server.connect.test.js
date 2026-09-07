@@ -606,6 +606,46 @@ test('#2420: signing in again is REFUSED for an api-key account (no OAuth sign-i
   }
 });
 
+/**
+ * #2420: the connect-start guard keys on the KEY FILE, not list()'s `apiKey` flag,
+ * and THIS is the scenario that proves why. A dual-marker dir carries BOTH an
+ * oauthAccount and a stored key; list() classifies it `apiKey:false` (the oauth
+ * identity wins), yet an OAuth reauth there still writes over a stored key and
+ * muddies billing. A flag-keyed guard would let it through; the file-keyed guard
+ * refuses it. Without this arm, a refactor to `known.apiKey` would silently reopen
+ * the contamination with nothing to catch it -- the one scenario justifying the
+ * whole file-vs-flag choice, otherwise left untested.
+ */
+test('#2420: the connect-start guard refuses a DUAL-MARKER dir (oauth + key) that list() calls apiKey:false', async () => {
+  const claudeaccounts = require('./engine/claudeaccounts');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  // A dir carrying BOTH markers: an oauthAccount .claude.json AND a stored key.
+  const dual = path.join(HOME, '.claude-dualmarker');
+  fs.mkdirSync(dual, { recursive: true });
+  fs.writeFileSync(path.join(dual, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'dual@example.com' } }), 'utf8');
+  fs.writeFileSync(path.join(dual, claudeaccounts.KEY_BASENAME), 'sk-ant-dualkey', { mode: 0o600 });
+  try {
+    /* list() classifies it as a SUBSCRIPTION account (oauth identity wins), so a
+       flag-keyed guard would NOT fire here -- this is the exact gap the file check
+       closes, and asserting apiKey:false is what makes the 400 below meaningful. */
+    const row = accounts.list().find((a) => a.dir === dual);
+    assert.ok(row, 'the dual-marker dir must be listed');
+    assert.equal(row.apiKey, false,
+      'oauth identity wins, so list() classifies it apiKey:false -- the flag a guard must NOT trust here');
+
+    const got = await post('/api/connect/start', { accountDir: dual });
+    assert.equal(got.status, 400, got.body);
+    assert.match(json(got).error, /API key|how it is billed/,
+      'the file-keyed guard must still refuse a dual-marker dir; a flag-keyed guard would have let this OAuth-over-key through');
+  } finally {
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(dual, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
 test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
   /* Josh's sister, first outside install: her Claude login expired, Settings
      correctly said not connected, and the ONLY affordance was "add a provider".
