@@ -567,6 +567,45 @@ test('#1922 CONTROL: signing in again to a LABELLED account still targets that a
   }
 });
 
+/**
+ * #2420: REFUSE an OAuth sign-in ("Sign in again") into an api-key Claude account.
+ * The listing slice made api-key dirs visible to list(), so `known` can now BE one
+ * and this route would otherwise run the OAuth flow into it -- writing an
+ * oauthAccount beside the stored key + apiKeyHelper, which Claude Code prefers, so
+ * billing would silently stay on the key while the row reclassified as a
+ * subscription. This is the MIRROR of the create route's taken-label guard (which
+ * blocks a key over an existing oauth); here we block an oauth over an existing key.
+ * The refusal must be MY guard, not the earlier `!known` arm (both return 400), so
+ * the fixture is a KNOWN api-key account and the assertion keys on the billing
+ * message, not a generic one.
+ */
+test('#2420: signing in again is REFUSED for an api-key account (no OAuth sign-in over a stored key)', async () => {
+  const claudeaccounts = require('./engine/claudeaccounts');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  // An api-key account: a stored key file, NO .claude.json (so identityOf is null).
+  const keyacct = path.join(HOME, '.claude-apikeyacct');
+  fs.mkdirSync(keyacct, { recursive: true });
+  fs.writeFileSync(path.join(keyacct, claudeaccounts.KEY_BASENAME), 'sk-ant-storedkey', { mode: 0o600 });
+  try {
+    /* Precondition: list() must surface it as an api-key account, or the guard is
+       untested -- an unknown dir is refused by the earlier `!known` arm for a
+       different reason. */
+    const row = accounts.list().find((a) => a.dir === keyacct);
+    assert.ok(row && row.apiKey === true,
+      'the fixture is not seen as an api-key account, so this would test the wrong refusal');
+
+    const got = await post('/api/connect/start', { accountDir: keyacct });
+    assert.equal(got.status, 400, got.body);
+    assert.match(json(got).error, /API key|how it is billed/,
+      'the refusal must name the billing reason (my guard), not the generic "we do not know that account"');
+  } finally {
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(keyacct, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
 test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
   /* Josh's sister, first outside install: her Claude login expired, Settings
      correctly said not connected, and the ONLY affordance was "add a provider".

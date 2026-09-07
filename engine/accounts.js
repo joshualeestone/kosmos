@@ -250,10 +250,12 @@ function list() {
        oauthAccount only) cannot see. The default account is never one of these
        -- it is the subscription account Claude Code uses with no override -- and
        the `!who` guard means a directory somehow carrying BOTH markers is
-       surfaced as its subscription account: the more informative identity, and
-       the state the connect route's guards prevent anyway (a stored key would
-       silently switch a subscription's billing, which is exactly what those
-       guards refuse). `apiKeyStored` is only reached when `identityOf` is null,
+       surfaced as its subscription account: the more informative identity. That
+       dual-marker state is now prevented at CREATION from both directions -- the
+       create route's taken-label guard blocks a key over an existing oauth, and
+       (added with this slice, because making api-key dirs visible here is what
+       made it reachable) the /api/connect/start guard blocks an OAuth reauth over
+       an existing key. `apiKeyStored` is only reached when `identityOf` is null,
        so the fast 5-second tick pays no extra stat for a real oauth account. */
     const apiKey = !who && isDefault !== true && apiKeyStored(dir);
     if (!who && !apiKey) return;
@@ -351,9 +353,12 @@ async function listLiveNow() {
            unreachable is UNKNOWN. Shape-matched with `plan: null` so every row's
            connection carries the same fields (the subscription arm and the catch
            arm below both do), and the badge overlay in server.js reads one
-           vocabulary regardless of how the row was checked. */
+           vocabulary regardless of how the row was checked. `plan: null` is
+           written AFTER the spread on purpose: an api-key account has no
+           subscription plan, so plan is null regardless of anything checkLive
+           might one day return. */
         const c = await claudeaccounts.checkLive(row.dir);
-        connection = { plan: null, ...c };
+        connection = { ...c, plan: null };
       } else {
         connection = await subscription.checkLive({ configDir: row.dir });
       }
