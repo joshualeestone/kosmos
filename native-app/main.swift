@@ -553,10 +553,6 @@ private let kScanSkip: Set<String> = [
     "Library", "Applications", "Music", "Movies", "Pictures", "Downloads",
     "Public", "Desktop", "Documents", "Photos Library.photoslibrary",
 ]
-// The instruction files an agent FOLDER is recognised by (the engine reads these heads and
-// decides whether they "introduce somebody"; the hatch only supplies the head bytes).
-private let kInstrFiles = ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]
-
 private struct ScanBudgets {
     var maxDirs = 8000
     var maxMdPerDir = 40
@@ -636,32 +632,36 @@ func scanUnderGrant() -> Bool {
         do { entries = try fm.contentsOfDirectory(atPath: dir) }
         catch { return }   // unreadable (e.g. TCC not granted) -> no rows from here
 
-        // Folder-agent material: the instruction files, if present.
-        for name in kInstrFiles {
-            let file = (dir as NSString).appendingPathComponent(name)
+        // Folder-agent material: the folder's CLAUDE.md head (engine parity -- the connect
+        // scan's byDir path reads CLAUDE.md only; AGENTS.md/GEMINI.md folder-agents are owned
+        // by found()/foundCodex/foundGemini, which do NOT walk here). Non-importOnly roots
+        // only, matching the engine's `!cur.importOnly` gate.
+        if !importOnly {
+            let file = (dir as NSString).appendingPathComponent("CLAUDE.md")
             var isDir: ObjCBool = false
             if fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue,
-               mdReads < budgets.maxMdReads, let head = headBytes(file, cap: budgets.readCap) {
-                mdReads += 1
+               let head = headBytes(file, cap: budgets.readCap) {
                 dirsOut.append(["dir": dir, "instr": ["file": file, "head": head]])
-                break   // one instruction file per dir is enough for the engine to judge
             }
         }
 
-        // Importable loose .md material (importOnly roots only, e.g. Downloads/Desktop).
-        if importOnly {
-            var perDir = 0
-            for name in entries where name.hasSuffix(".md") {
-                if perDir >= budgets.maxMdPerDir { boundedImportable = true; break }
-                if mdReads >= budgets.maxMdReads { boundedImportable = true; break }
-                let file = (dir as NSString).appendingPathComponent(name)
-                var isDir: ObjCBool = false
-                guard fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue else { continue }
-                if let head = headBytes(file, cap: budgets.readCap) {
-                    mdReads += 1
-                    perDir += 1
-                    looseOut.append(["file": file, "head": head])
-                }
+        // Importable loose agent FILES -- runs on BOTH normal and importOnly roots (engine
+        // parity, #1652). `.md`/`.markdown`, excluding the folder-agent markers claude.md and
+        // agents.md (lowercased), bounded per-dir and by the global head-read budget.
+        var perDir = 0
+        for name in entries {
+            let lower = name.lowercased()
+            guard lower.hasSuffix(".md") || lower.hasSuffix(".markdown") else { continue }
+            if lower == "claude.md" || lower == "agents.md" { continue }
+            if perDir >= budgets.maxMdPerDir { boundedImportable = true; break }
+            if mdReads >= budgets.maxMdReads { boundedImportable = true; break }
+            let file = (dir as NSString).appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue else { continue }
+            if let head = headBytes(file, cap: budgets.readCap) {
+                mdReads += 1
+                perDir += 1
+                looseOut.append(["file": file, "head": head])
             }
         }
 
