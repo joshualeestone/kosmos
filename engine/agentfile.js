@@ -232,6 +232,25 @@ function safeValue(v) {
   return s;
 }
 
+/* Read a single `key: value` line out of a `---` front-matter block, safeValue-cleaned.
+ * Shared by importAgent's strict path and geminiIdentity (#2410) so the two cannot drift
+ * on the line-terminator hardening below.
+ *   `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would cross the
+ *   break and adopt the NEXT line's text as the value. A value is always on its key's own
+ *   line (matches importAgent's `namePresent` guard).
+ *   `[^\n]+`, NOT `.+`: in JS regex `.` does not match a line terminator (U+2028, U+2029,
+ *   or a lone CR that survives \r\n normalisation) and, under /m, `$` matches BEFORE one --
+ *   so `.+` truncates a value at the terminator and hands safeValue only the prefix,
+ *   letting a `name: ang<U+2028>evil` through as "ang" instead of refusing the whole file,
+ *   even though safeValue refuses all three (U+2028/9 explicitly, CR as a C0 control).
+ *   `[^\n]` matches them, so the full value reaches safeValue, which refuses it. (Found by
+ *   Shredder, #1652 audit.) */
+function frontmatterField(head, key) {
+  if (!head) return null;
+  const f = head.match(new RegExp('^' + key + ':[ \\t]*([^\\n]+)$', 'm'));
+  return f ? safeValue(f[1]) : null;
+}
+
 /**
  * Build the portable file for one agent.
  *
@@ -339,22 +358,7 @@ function importAgent(text, deps) {
   // (1) the `---` frontmatter block, the same shape `skills.readMeta` reads.
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
   const head = m ? m[1] : '';
-  const field = (key) => {
-    if (!head) return null;
-    // `[ \t]*`, NOT `\s*`: `\s` matches a newline, so an empty `key:` line would
-    // cross the break and adopt the NEXT line's text as the value. A value is
-    // always on its key's own line (matches the `namePresent` guard below).
-    // `[^\n]+`, NOT `.+`: in JS regex `.` does not match a line terminator
-    // (U+2028, U+2029, or a lone CR that survives the \r\n normalisation above)
-    // and, under /m, `$` matches BEFORE one -- so `.+` truncates a value at the
-    // terminator and hands safeValue only the prefix, letting a
-    // `name: ang<U+2028>evil` through as "ang" instead of refusing the whole file,
-    // even though safeValue refuses all three (U+2028/9 explicitly, CR as a C0
-    // control). `[^\n]` matches them, so the full value reaches safeValue, which
-    // refuses it. (Found by Shredder, #1652 audit.)
-    const f = head.match(new RegExp('^' + key + ':[ \\t]*([^\\n]+)$', 'm'));
-    return f ? safeValue(f[1]) : null;
-  };
+  const field = (key) => frontmatterField(head, key);
 
   // A file with NO `---` header is not a Kosmos export. It may still be agent
   // INSTRUCTIONS a person made with Claude (a raw CLAUDE.md, #1939). Recognize that
@@ -367,8 +371,39 @@ function importAgent(text, deps) {
     return importFromInstructions(src, { identityFromText, nameUsable, nameProblem });
   }
 
-  // (2) the self-identifying marker. A `---` header that is not ours; refuse whole.
+  // (2) the self-identifying marker. A `---` header that is not ours.
   if (field('kosmos') !== KIND) {
+    /* #2410: before refusing, check whether this is a Gemini CLI custom-agent file
+       (front-matter name:/description:, no kosmos: marker). Those are real agents with
+       a front-matter identity; recognizing one lets by-file import create it with the
+       right name and the Gemini provider hint, rather than bouncing on "not a Kosmos
+       file". geminiIdentity refuses a kosmos-marked file, so this never steals the
+       strict path's input. */
+    const g = geminiIdentity(src);
+    if (g) {
+      const gname = suggestName(g.displayName, { nameUsable, nameProblem });
+      return {
+        ok: true,
+        // A derived slug that the create form will accept, or '' so the form asks --
+        // the same needsName discipline the #1939 recognized-instructions path uses.
+        name: gname,
+        displayName: g.displayName,
+        /* provider: null, NOT 'gemini'. Gemini is not a runnable provider yet
+           (createAgent refuses anything but anthropic/openai), so a 'gemini' hint would
+           dead-end the create happy-path on a clean refusal. Null is the same choice the
+           #1939 recognized-instructions path makes for a raw non-Kosmos file: the
+           front-matter gives us the NAME, the body is generic instructions that run under
+           any runner, and the create form lets the person pick a runnable provider -- so
+           the import completes end-to-end instead of stopping at "pick a provider". Re-add
+           the origin hint if/when Gemini becomes runnable. */
+        provider: null,
+        // The instructions body (front-matter stripped) is what the agent reads; the
+        // name lived in the front-matter and is now displayName.
+        body: src.slice(m[0].length),
+        recognizedFromContent: true,
+        needsName: !gname,
+      };
+    }
     return { ok: false, because: 'this file is not a Kosmos agent file' };
   }
   // (3) a name present and usable.
@@ -425,4 +460,59 @@ function importAgent(text, deps) {
   return { ok: true, name, displayName, provider: provider || null, body };
 }
 
-module.exports = { exportAgent, importAgent, headingName, IMPORT_CONTRACT, MARK, KIND };
+/**
+ * #2410: recognize a Gemini CLI custom-agent file by its front-matter identity.
+ *
+ * The Gemini CLI stores custom agents as markdown with a YAML front-matter block:
+ *   ---
+ *   name: code-reviewer
+ *   description: Reviews code for style and best practices.
+ *   ---
+ *   You are a helpful assistant that reviews code ...
+ * The identity is the front-matter `name:`; the body is a generic "You are a helpful
+ * assistant ..." that `identityFromText` reads as naming NOBODY (returns null). And the
+ * front-matter is NOT a Kosmos export (no `kosmos:` marker), so `importAgent`'s strict
+ * path refuses it and the disk scan's looseRow would offer it with an EMPTY name. This
+ * reads the front-matter as the identity source for that specific shape.
+ *
+ * Returns `{displayName, role}` or null. SPECIFIC on purpose so it does not widen into
+ * an over-eager "any front-matter is an agent" rule:
+ *   - requires a COMPLETE `---\n...\n---` front-matter block,
+ *   - requires BOTH `name:` and `description:` (the Gemini contract; the 3 seed
+ *     fixtures and Josh's real files all carry both),
+ *   - refuses a file that carries a `kosmos:` marker (a Kosmos export, handled by the
+ *     strict path), so the two paths never both claim one file.
+ * The #7 negative control (a plain notes file, no front-matter) returns null here.
+ */
+function geminiIdentity(text) {
+  // BOM/CRLF hygiene before parsing, as importAgent does. The BOM is matched by the
+  // escaped \uFEFF, never a literal BOM char in source, which is invisible on screen and
+  // easy to mangle in a later edit.
+  const src = String(text == null ? '' : text).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return null;
+  const head = m[1];
+  // A Kosmos file owns the strict path; never double-claim it here. Match ANY `kosmos:`
+  // line, empty value included -- a malformed export must not fall through to Gemini.
+  if (/^kosmos:/m.test(head)) return null;
+  // `frontmatterField` already ran safeValue, so these are clean-or-null.
+  const name = frontmatterField(head, 'name');
+  const description = frontmatterField(head, 'description');
+  if (!name || !description) return null;
+  if (name.length > MAX_DISPLAY) return null;
+  /* 🛑 THE BODY MUST INTRODUCE AN AGENT ("You are ..."), which is what a Gemini custom
+     agent's body actually is. This is the discriminator against a Claude Code SKILL file
+     (engine/skills.js readMeta) or a Jekyll/markdown doc: those ALSO carry `name:` +
+     `description:` front-matter, but their body describes a skill or a page, not an agent.
+     Without this check, the by-file import path would newly RECOGNIZE those
+     previously-refused files as importable agents -- a widening of an untrusted-input
+     surface. Requiring the introducing body keeps recognition to the genuine Gemini shape
+     (front-matter identity AND an agent body). The identity still comes from the
+     front-matter, not this line -- identityFromText cannot read a name out of the generic
+     "You are a helpful assistant ..." body, which is the whole #2410 premise. */
+  const body = src.slice(m[0].length);
+  if (!INTRODUCES.test(body)) return null;
+  return { displayName: name, role: description };
+}
+
+module.exports = { exportAgent, importAgent, geminiIdentity, headingName, IMPORT_CONTRACT, MARK, KIND };

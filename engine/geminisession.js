@@ -104,4 +104,45 @@ function projects() {
   return out;
 }
 
-module.exports = { HOME, projects };
+/**
+ * The Gemini CLI's CUSTOM AGENT DEFINITION files (#2410). Distinct from projects()
+ * above: those are project cwds whose <cwd>/GEMINI.md may introduce an agent; these
+ * are the agent DEFINITIONS the Gemini CLI stores as markdown-with-YAML-front-matter
+ * under <HOME()>/agents/*.md (measured shape: `---\nname: <name>\ndescription: <role>\n---\n`
+ * then a generic body). foundGemini/the disk scan never reached them: the location is a
+ * dotdir the scan skips, and their identity is in the front-matter, not a "You are <Name>"
+ * prose line.
+ *
+ * Returns absolute file paths, sorted for a stable order, [] on a missing/unreadable
+ * agents dir. NEVER throws: the caller decides what each file means (a Gemini agent
+ * file is offered by front-matter identity; a non-front-matter .md falls back to the
+ * generic loose-file rule). Bounded by MAX so a pathological agents dir cannot make the
+ * scan read thousands of files -- Gemini agents are few in practice.
+ */
+const MAX_AGENT_FILES = 200;
+function agentFiles() {
+  let entries;
+  try { entries = fs.readdirSync(path.join(HOME(), 'agents'), { withFileTypes: true }); }
+  catch { return []; }
+  const names = [];
+  for (const e of entries) {
+    /* A regular file named *.md / *.markdown. Directories under agents/ are not agent
+       definitions; a dotfile (e.g. .DS_Store) is skipped. withFileTypes lets us skip
+       directories without a stat. A symlink is passed through here, but the caller's head
+       reader (readClaudeHead) lstats and refuses ANY non-regular-file -- a symlink to a
+       file included -- so symlinks are ultimately not offered; that is the same
+       no-symlink-escape contract the disk walk keeps, enforced at read time. */
+    if (e.isDirectory()) continue;
+    const name = e.name;
+    if (name.startsWith('.')) continue;
+    const lower = name.toLowerCase();
+    if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
+    names.push(name);
+  }
+  // Sort BEFORE the cap so a pathological (>MAX) agents dir truncates to a STABLE set --
+  // capping in readdir order would keep a non-deterministic subset and only then sort it.
+  names.sort();
+  return names.slice(0, MAX_AGENT_FILES).map((name) => path.join(HOME(), 'agents', name));
+}
+
+module.exports = { HOME, projects, agentFiles };
