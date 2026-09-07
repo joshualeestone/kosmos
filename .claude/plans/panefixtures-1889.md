@@ -187,6 +187,36 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## A SHA POINTER ORPHANED FOUR MINUTES AFTER I WARNED ABOUT IT
+
+The #2378 owner asked me to keep commit `6008120d` in the #1889 PR and parked her
+needs-release check against that sha. **I did not just agree.** The branch was 41
+ahead / 71 behind, so a rebase was certain before the PR, and a rebase rewrites
+every sha on the branch. An orphaned sha reads exactly like a live one until
+somebody looks it up, so she would have kept a promise and still ended with a
+broken reference.
+
+Told her, gave her content-based checks instead, and she re-measured my tokens
+before citing them (`INTERRUPT_LINE_LIVE` 2 and `hasLiveInterruptLine` 3 on the
+branch, **both 0 on main**, so the check discriminates rather than merely matching).
+
+**Then it happened, four minutes later.** Rebased onto main; `6008120d` is no
+longer an ancestor of HEAD, verified with `merge-base --is-ancestor` and a control
+(HEAD is an ancestor of itself). The guard itself survived by content at exactly
+those token counts.
+
+⭐ **THE GENERAL FORM, and it is the same bulletin one level up.**
+`a-rebase-orphans-every-recorded-run` is written about test runs. It applies
+identically to a RELEASE POINTER, an issue reference, a handoff note, or anything
+else that names a commit on a live branch. ✅ **Track by CONTENT on any branch that
+is still moving**, and prefer a check that fails loudly: a test that reds is a
+better release gate than a sha that exists, because the sha's absence is silent.
+
+⚠️ **And the honest note about my own prediction:** I was right, but four minutes is
+not foresight, it is arithmetic. 71 behind plus a stated intent to rebase is not a
+forecast. What made it worth sending was not the prediction, it was that **the
+failure mode is invisible** - she would have had no signal at all.
+
 ## kosmos#2378 LANDED HERE, AND THE OWNER'S MECHANISM DID NOT SURVIVE THE FIXTURES
 
 Ice Cream Kitty owns `INTERRUPT_LINE` and ruled on the residual I raised: **fix
