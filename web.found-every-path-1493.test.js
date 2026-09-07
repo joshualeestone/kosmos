@@ -52,13 +52,18 @@ const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') +
    to an empty-but-loaded answer here, so every pre-#1938 assertion below reads the same
    branch it always did; the scan-offer branch is exercised by the one test that passes a
    non-empty FR_SCAN. */
-function paint(FR, FR_FOUND, FR_SCAN) {
+function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
   const scan = FR_SCAN === undefined ? { ok: true, candidates: [] } : FR_SCAN;
+  // #2389 (iter 3): frPaintFleet reads FR_SCAN_INFLIGHT (a global on the real page) to
+  // keep the adopt "checking" copy up while a granted two-phase scan is mid-flight, so
+  // it must be a declared param here or the lifted function throws a ReferenceError.
+  // Defaults falsy (settled) for every existing caller.
+  const inflight = FR_SCAN_INFLIGHT === undefined ? false : FR_SCAN_INFLIGHT;
   const els = {};
   const mk = (id) => (els[id] = { id, textContent: '', innerHTML: '', hidden: false, focus() {} });
   const calls = [];
   const fn = new Function('document', 'FR', 'FR_FOUND', 'FR_SCAN', 'FR_MACHINE', 'FR_STEP', 'FR_STEP_YOU',
-    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'frArmRescanOnGrant', 'esc', 'pjSentence',
+    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'frArmRescanOnGrant', 'esc', 'pjSentence', 'FR_SCAN_INFLIGHT',
     BODY + '\nreturn frPaintFleet();');
   fn({ getElementById: (id) => els[id] || mk(id) }, FR, FR_FOUND, scan, null, 6, 3,
     () => calls.push('PAINT-FOUND'), () => calls.push('PAINT-SCAN'), () => calls.push('actions'),
@@ -66,7 +71,7 @@ function paint(FR, FR_FOUND, FR_SCAN) {
     // #3/#4(a): frPaintFleet's create arm now calls frArmRescanOnGrant() (arms the grant-flip
     // re-scan poll on S9). This harness lifts frPaintFleet out of its module, so inject it as a
     // no-op stub -- the poll's real behaviour is covered in render-firstrun-scan-on-grant-1652.js.
-    () => calls.push('ARM-RESCAN'), String, String);
+    () => calls.push('ARM-RESCAN'), String, String, inflight);
   // install-flow-9screen: the fleet painters now write the heading into the
   // pane-9 head (#fr-fleet-title), not the retired shell #fr-title.
   // #2389: also return the body copy so the adopt-arm tests can assert the
@@ -216,6 +221,21 @@ test('#2389: loose importable FILES on the adopt path also route to the scan scr
   const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, filesOnly);
   assert.ok(r.calls.includes('PAINT-SCAN'),
     'adopt arm: loose importable files did not route to the scan screen (fell through to "nothing to import")');
+});
+
+test('#2389 (iter 3): a still-scanning granted partial does NOT flash the verbatim false claim', () => {
+  /* The granted two-phase scan (frScanAgents -> fetchImportScanComplete) sets FR_SCAN to a
+     scanning:true partial with no rows yet (the TCC folders land last, and those are exactly
+     the #2389 target's) and repaints. FR_SCAN is then non-null with both offers empty, but the
+     scan is STILL RUNNING (FR_SCAN_INFLIGHT set). The adopt arm must keep the "checking" copy,
+     not render the verbatim "nothing to import" -- that would flash the exact #2389 false claim,
+     to the exact target user, for as long as the scan takes. */
+  const partial = { ok: true, scanning: true, candidates: [], importable: [] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, partial, true);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim flashed while a granted two-phase scan was still in flight');
+  assert.match(r.box, /Checking this computer/, 'the checking copy was not held during the in-flight partial');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet acknowledgment was dropped');
 });
 
 test('#2389 CONTROL: with a running fleet and a genuinely empty disk, the verbatim pack copy still renders', () => {

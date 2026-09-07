@@ -39569,6 +39569,26 @@ function frPaintFleet() {
     frArmRescanOnGrant();
     if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
 
+    /* 🛑 #2389 (iter 3): A GRANTED TWO-PHASE SCAN sets FR_SCAN to a scanning:true
+       partial with no rows yet (frScanAgents -> fetchImportScanComplete onPartial) and
+       repaints, so FR_SCAN is non-null here with both offers empty WHILE THE SCAN IS
+       STILL RUNNING -- and the TCC folders (Documents/Downloads/Desktop), where the
+       #2389 target's agents are, are delivered LAST. The same window opens when a late
+       file-access grant flips and frArmRescanOnGrant re-scans over a stale settled-empty
+       FR_SCAN. Rendering the verbatim "nothing to import" on either would flash the exact
+       false claim this fix removes, for as long as the scan takes, in front of the one
+       person it is wrong about. The create arm is immune ONLY because its empty state is
+       silent copy ("Create your first agent."), not a machine claim -- so mirroring its
+       STRUCTURE is not enough; the empty state must also stay silent until the scan has
+       SETTLED. Keep the "checking" copy while FR_SCAN_INFLIGHT is set; do NOT re-fire the
+       scan (it is already running -- that is exactly why the flag is set). */
+    if (FR_SCAN_INFLIGHT) {
+      box.innerHTML = '<p>They are already here. Checking this computer for any '
+        + 'others to add\u2026</p>';
+      frForkActions();
+      return;
+    }
+
     /**
      * ⚠️ NOT AN IMPORT, AND THIS SCREEN MUST NOT MIME ONE. The board is built
      * from `tmux list-panes`, so every one of these was already on it before

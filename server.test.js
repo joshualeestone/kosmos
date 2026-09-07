@@ -5365,6 +5365,13 @@ function firstRunHarness(name, state, opts = {}) {
        docs/browser-checks/render-scan-board.js and render-first-run.js. */
     let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
     let FR_SCAN_GEN = 0;
+    /* #2389: frPaintFleet's adopt arm now reads FR_SCAN_INFLIGHT to hold the "checking"
+       copy while a granted two-phase scan is mid-flight (so it never flashes the verbatim
+       "nothing to import" over a scanning:true partial). Default false (settled), so every
+       existing ending assertion reads its usual branch; a caller wanting the in-flight
+       state passes it explicitly. Without this declaration the adopt arm throws a
+       ReferenceError, exactly as the frImportOffer note below warns. */
+    let FR_SCAN_INFLIGHT = ${JSON.stringify(state.FR_SCAN_INFLIGHT === undefined ? false : state.FR_SCAN_INFLIGHT)};
     function frScanAgents() {}
     /* #3/#4(a): frPaintFleet's create AND unknown arms now call frArmRescanOnGrant() (arms
        the S9 grant-flip re-scan poll). Stubbed here like frScanAgents -- this harness tests
