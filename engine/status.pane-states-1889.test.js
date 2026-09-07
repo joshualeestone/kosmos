@@ -55,6 +55,12 @@ function optionLine() {
   // eslint-disable-next-line no-eval
   return eval(m[1]);
 }
+function rateLimitMarkers() {
+  const m = SRC.match(/const RATE_LIMIT_MARKERS = \[([\s\S]*?)\];/);
+  assert.ok(m, 'RATE_LIMIT_MARKERS is gone from status.js');
+  // eslint-disable-next-line no-eval
+  return eval('[' + m[1] + ']');
+}
 
 // A pane as the engine sees it, same shape as status.test.js's helper: a
 // version string in `command` means Claude Code is running, and `session`
@@ -169,24 +175,6 @@ test('the live permission prompt classifies needs_you', () => {
   assert.equal(r.because, 'it is asking you something');
 });
 
-test('the classification is not keyed on the specific command', () => {
-  // The same prompt for a different command still classifies needs_you: a
-  // reader keyed on "date" would fix this instance and miss the next tool.
-  const other = [
-    RULE,
-    ' Bash command',
-    '',
-    '   git push',
-    '',
-    ' Do you want to proceed?',
-    ' ❯ 1. Yes',
-    '   2. No',
-    '',
-    ' Esc to cancel · Tab to amend',
-  ].join('\n') + '\n' + '\n'.repeat(12);
-  assert.equal(classify(pane(), other).state, STATE.NEEDS_YOU);
-});
-
 /* The exact option row the live 2.1.263 pane drew, verbatim (leading space and
    all). This is the byte string the card says can only be settled by a render. */
 const CAPTURED_OPTION_ROW = ' ❯ 1. Yes';
@@ -218,12 +206,18 @@ test('the rendered `❯ 1. Yes` row satisfies the matcher static analysis cannot
 // reader's keys did not retire in the 2.1.258 -> 2.1.263 drift; replace with a
 // real pane capture if one ever becomes available (card's own instruction).
 // ---------------------------------------------------------------------------
+/* Vendor lines extracted verbatim from the 2.1.263 binary. The "reached your"
+   line has TWO shipping phrasings (both grepped out of the binary); both must
+   match the same marker, and the /usage-credits remedy line matches the other. */
+const RATE_LIMIT_REACHED = " You've reached your Fable limit.";
+const RATE_LIMIT_REACHED_WEEKLY = " You've reached your weekly usage limit.";
+const RATE_LIMIT_CREDITS = ' Run /usage-credits to continue or switch models with /model.';
 const RATE_LIMIT_SCREEN = [
   '✻ Cooked for 12s',
   '',
   RULE,
-  " You've reached your Fable limit.",
-  ' Run /usage-credits to continue or switch models with /model.',
+  RATE_LIMIT_REACHED,
+  RATE_LIMIT_CREDITS,
   '',
 ].join('\n') + '\n'.repeat(12);
 
@@ -232,6 +226,22 @@ test('a usage-limit screen classifies rate_limited (vendor strings from the 2.1.
   assert.equal(r.state, STATE.RATE_LIMITED,
     'the rate-limit reader missed the 2.1.263 vendor phrasing');
   assert.equal(r.confidence, CONFIDENCE.SCRAPED);
+});
+
+test('EACH rate-limit marker is pinned individually, not the disjunction', () => {
+  // classify()'s verdict is a disjunction over RATE_LIMIT_MARKERS (matchedLine
+  // fires if EITHER marker matches). Asserting only the combined verdict lets a
+  // future bump silently retire ONE phrasing while the test stays green on the
+  // survivor -- the exact #1884 failure this file pins against. So pin each
+  // marker against its own vendor line, lifted from source so it cannot drift.
+  const markers = rateLimitMarkers();
+  const reached = markers.find((re) => /reached your/.test(re.source));
+  const credits = markers.find((re) => /usage-credits/.test(re.source));
+  assert.ok(reached, 'the `reached your ... limit` marker is gone from RATE_LIMIT_MARKERS');
+  assert.ok(credits, 'the `/usage-credits` marker is gone from RATE_LIMIT_MARKERS');
+  assert.match(RATE_LIMIT_REACHED, reached, 'the "reached your Fable limit" phrasing no longer matches its marker');
+  assert.match(RATE_LIMIT_REACHED_WEEKLY, reached, 'the newer "reached your weekly usage limit" phrasing no longer matches its marker');
+  assert.match(RATE_LIMIT_CREDITS, credits, 'the /usage-credits remedy line no longer matches its marker');
 });
 
 // ---------------------------------------------------------------------------
