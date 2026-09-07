@@ -123,8 +123,12 @@ test('one button, two requests, and never a plain start', () => {
   const build = new Function('ACCT_REAUTH_DIR', 'installConfirmed', 'return ' + m[1] + ';');
 
   const reauth = build('/Users/x/.claude-account-b', true);
-  assert.deepEqual(reauth, { accountDir: '/Users/x/.claude-account-b', installConfirmed: true },
-    'an aimed sign-in does not ask for that account');
+  /* #1937: the aimed ("Sign in again") arm now also carries `reauth: true`, the
+     explicit signal the server threads to connect.start so it skips the
+     already-connected short-circuit and runs a real login. The fresh/another arm
+     below deliberately does NOT carry it. */
+  assert.deepEqual(reauth, { accountDir: '/Users/x/.claude-account-b', reauth: true, installConfirmed: true },
+    'an aimed sign-in does not ask for that account, and carries the #1937 reauth flag');
 
   const fresh = build(null, true);
   assert.deepEqual(fresh, { another: true, installConfirmed: true },

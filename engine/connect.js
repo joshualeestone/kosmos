@@ -947,6 +947,15 @@ function validCode(code) {
 
 async function start(opts) {
   const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
+  /* #1937: an EXPLICIT re-auth ("Sign in again" on a specific account) means the
+     person is deliberately repairing a login the file may still call good. The
+     CONNECTED short-circuit below runs `checkLive`, which reports that a login
+     EXISTS, never that it WORKS (#874/#1916) -- so on a dead-but-present
+     credential it would refuse to re-auth the very account the button targets.
+     This flag skips that one early exit; every other guard on the flow (install
+     confirm, binary probe, the launch itself) is unchanged, and a non-reauth
+     start still refuses exactly what it refused before. */
+  const reauth = opts != null && opts.reauth === true;
   /* A relative path here is a caller bug, and quietly resolving it against
      an unknowable cwd would sign somebody in to a directory nobody can
      name. Loud, before any state moves. */
@@ -989,7 +998,7 @@ async function start(opts) {
      account connected and a fresh directory requested, an unscoped check
      would early-exit every add-another-account attempt as already done. */
   const sub = subscription.check(configDir ? { configDir } : undefined);
-  if (sub.state === subscription.STATE.CONNECTED) {
+  if (sub.state === subscription.STATE.CONNECTED && !reauth) {
     /**
      * 🛑 THE FILE SAYING CONNECTED IS NOT ENOUGH TO REFUSE TO CONNECT (#1560).
      * `check()` reads `oauthAccount.organizationType` out of a local file and
@@ -1340,7 +1349,7 @@ async function start(opts) {
    * cannot distinguish "cancelled" from "replaced"; `driver !== owner` can.
    */
   flowDir = configDir;
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir };
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, reauth };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -1821,7 +1830,15 @@ async function runFlow(owner, haveBinary) {
    *                  start() applies must apply here, or the guard is decorative.
    * Caught by the #1562 matrix cells, not by the suite, which stayed green.
    */
-  if (!haveBinary) {
+  /* #1937: `!owner.reauth` is the FOURTH stale-file finish this card gates, the
+     one on the binary-just-installed path. An explicit re-auth must run the login
+     it was asked for -- and `checkLive` here is the same expiry-blind
+     `claude auth status` (#874/#1916), so on a dead-but-present credential this
+     gate would otherwise finish connected and never launch the login, the exact
+     symptom on the missing-binary path. The plan flagged this site. Mirror the
+     start() bypass: a re-auth always falls through to launchSignin; non-reauth is
+     byte-identical. */
+  if (!haveBinary && !owner.reauth) {
     const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (already.state === subscription.STATE.CONNECTED) {
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
@@ -1934,6 +1951,32 @@ async function launchSignin(owner) {
     cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   cmd.push(claudeBinPath());
+
+  /* #1937: an EXPLICIT re-auth must run a REAL login, not a bare `claude`. A cold
+     bare `claude` against a dead-but-present credential drops into the REPL
+     ("Not logged in - Run /login"): no walkable chooser, the tick re-reads the
+     same config that already said CONNECTED, and the press ends where it started.
+     `auth login --claudeai` is a login the CLI cannot ignore.
+
+     ⚠️ MULTI-ARG AND BARE, like every argument this function pushes: this tmux
+     (3.6a) runs multiple arguments as argv, so `'auth', 'login', '--claudeai'`
+     are three separate elements -- NOT a single quoted string, which the LIVE
+     check upstream measured killing the launch outright.
+
+     ✅ The driver's `classifyPane` already walks the whole flow this produces:
+     measured in a throwaway pane (#1937 Measurement B), `claude auth login
+     --claudeai` prints "Opening browser to sign in..." (-> browser-open) then
+     "Paste code here if prompted >" (-> awaiting-code), both existing recognizers;
+     `--claudeai` skips the login-method chooser, which is harmless. No recognizer
+     widening was needed.
+
+     📌 Only for `owner.reauth`. The first-run/add-another launch is left byte-
+     identical (a bare `claude` on a machine with no credential opens its own
+     onboarding); this changes only the deliberate re-auth of an existing account,
+     which is the one path the bare launch could not repair. */
+  if (owner.reauth) {
+    cmd.push('auth', 'login', '--claudeai');
+  }
 
   /* 📌 The `-u` pushed above sits AFTER `env` in the tmux argv, so it is part of
      the shell-command tmux runs and not an option tmux itself consumes. That
@@ -2058,7 +2101,12 @@ async function tickBody(owner) {
        * this only prevents the false failure.
        */
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
-      if (sub.state === subscription.STATE.CONNECTED) {
+      /* #1937: a re-auth may finish off the file only once login-done has proven
+         the login landed; the file was stale-connected from the start, so an
+         unrecognised screen with no completion evidence is a genuine "we could
+         not confirm", not a silent success on the old credential. Non-reauth is
+         unchanged (`!owner.reauth` short-circuits true). */
+      if ((!owner.reauth || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
       }
@@ -2075,6 +2123,14 @@ async function tickBody(owner) {
     owner.blankTicks = 0;
     if (seen.kind !== 'unknown') owner.everSaw = true;
   }
+  /* #1937: remember the CLI's own "Login successful" evidence. For an explicit
+     re-auth the config file was ALREADY connected at flow start (the stale,
+     expiry-blind read this card exists to defeat), so the file-outranks-screen
+     arms below cannot treat "the file says connected" as proof the NEW login
+     landed -- doing so finishes instantly off the stale file and kills the login
+     mid-flow. login-done is the CLI reporting the login actually completed; a
+     re-auth is only allowed to finish off the file once it has been seen. */
+  if (seen.kind === 'login-done') owner.sawLoginDone = true;
   /**
    * ⚠️ ACTIONS PER CONTINUOUS SCREEN-KIND ARE BOUNDED. The act-once guard is
    * keyed on the pane TEXT, so an animated screen (a spinner frame in the
@@ -2144,10 +2200,17 @@ async function tickBody(owner) {
    * cross-tick bookkeeping to shrink further.
    */
   if (seen.kind === 'browser-open' || seen.kind === 'awaiting-code') {
-    const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
-    if (sub.state === subscription.STATE.CONNECTED) {
-      await finishConnected(owner, sub);
-      return;
+    /* #1937: these screens appear BEFORE a login completes, so for a re-auth the
+       only "connected" the file can report here is the STALE one from flow start
+       -- finishing on it kills the still-running `claude auth login` and reports
+       success with no credential repaired. Require login-done first for a
+       re-auth; a normal flow (file starts signed-out) is unchanged. */
+    if (!owner.reauth || owner.sawLoginDone) {
+      const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
+      if (sub.state === subscription.STATE.CONNECTED) {
+        await finishConnected(owner, sub);
+        return;
+      }
     }
     /**
      * ⚠️ #727 item 4: AN ABANDONED BROWSER LEG shows the exact same pane
@@ -2384,7 +2447,21 @@ async function tickBody(owner) {
         // a late-flipping config finished on the next tick and killed the
         // session mid-onboarding, skipping the walk-forward this comment
         // promises.
-        if (seen.kind === 'repl' || (owner.settleTicks || 0) > 4) {
+        /* #1937: the THIRD file-outranks-screen finish, and the same stale-file
+           hazard as the two arms above. `repl` is a live, logged-in session -- a
+           genuine completion signal, safe to finish on even for a re-auth. But the
+           `settleTicks` path also fires on `press-enter`, which this file's own
+           note (below, on the second `press-enter` handler) says is NOT login
+           evidence: a pre-login notice screen carries no login. For a re-auth the
+           config is stale-CONNECTED from flow start, so finishing on a pre-login
+           press-enter after settleTicks would be the exact false success the two
+           arms above were hardened against. Require login evidence for a re-auth's
+           settle finish -- owner.sawLoginDone is set (line ~2125) whenever a real
+           "Login successful" (login-done) screen appears, including this tick. The
+           repl path and every non-reauth flow are unchanged. A re-auth stuck on a
+           pre-login press-enter instead falls to the never-moves becomeStuck. */
+        if (seen.kind === 'repl'
+          || ((owner.settleTicks || 0) > 4 && (!owner.reauth || owner.sawLoginDone))) {
           await finishConnected(owner, sub);
           return;
         }

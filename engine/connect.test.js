@@ -1814,6 +1814,194 @@ driverTest('#1560 CONTROL: an UNVERIFIABLE live check keeps the old behaviour ra
   } finally { subscription.setRunner(null); }
 });
 
+/**
+ * #1937: an EXPLICIT re-auth must run a REAL login, even when the file AND
+ * `claude auth status` both say connected.
+ *
+ * 🛑 THE DANGEROUS ANSWER THIS ARM REJECTS. Ben's state was: the local file
+ * names a paid plan (`check()` -> CONNECTED) and `claude auth status` reports
+ * `loggedIn: true`. That status is expiry-blind (#874/#1916): it says a login
+ * EXISTS, never that it WORKS, so it answers connected for a DEAD credential.
+ * With that state and no reauth flag, `start()` takes the already-connected
+ * short-circuit and never launches a sign-in -- so the one button that repairs
+ * the account (its "Sign in again") does nothing, which is the lockout the card
+ * is about. The CONTROL below is exactly that state without the flag, proving the
+ * flag is the discriminant: before this fix, THIS arm behaved like the control.
+ *
+ * 🔑 THE SEAM IS `subscription.setRunner`, the same one #1560's tests use: without
+ * a live runner `checkLive()` answers UNKNOWN in the sandbox and the CONNECTED
+ * arm is never entered, so replacing the reauth bypass with `if (false)` would
+ * leave every OTHER test green. This arm drives the runner to `loggedIn: true` so
+ * the short-circuit is live and the bypass is actually exercised.
+ */
+driverTest('#1937: an EXPLICIT re-auth runs a REAL login even when file + auth-status say connected', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start({ reauth: true });
+    assert.notEqual(st.phase, connect.PHASE.CONNECTED,
+      'an explicit re-auth was answered "already connected" and never ran the sign-in -- the #1937 lockout');
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'the re-auth launched no sign-in session at all, so nothing repairs the credential');
+    /* The launch must run a REAL login. `launchSignin` pushes the login
+       subcommand LAST, as three bare argv elements (multi-arg, never a quoted
+       string -- the tmux 3.6a invariant this file's #1922 arms measure), so the
+       final three tokens of the new-session argv are the login command. A bare
+       `claude` (the pre-fix launch) would end at the binary and re-read the same
+       config that already said CONNECTED. */
+    assert.deepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      're-auth did not launch `claude auth login --claudeai`; argv was ' + JSON.stringify(made.slice(-6)));
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * ⭐ THE CONTROL. Without it the arm above is satisfied by a change that simply
+ * stops short-circuiting for EVERYONE -- which would drag every genuinely
+ * connected person through a needless sign-in. Same connected state, no reauth
+ * flag: the short-circuit must still hold and nothing may open.
+ */
+driverTest('#1937 CONTROL: WITHOUT the reauth flag, a connected account still short-circuits and opens nothing', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start();
+    assert.equal(st.phase, connect.PHASE.CONNECTED,
+      'a normal start on a connected account must still report connected, not run a sign-in');
+    assert.equal(term.made, 0,
+      'a sign-in session was opened for somebody already signed in -- the non-reauth path must be byte-identical');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * ⭐ THE SECOND CONTROL, on the LAUNCH rather than the gate. The login arguments
+ * are scoped to `owner.reauth`, so an ordinary (non-reauth) sign-in that DOES
+ * launch -- the first-run path, reached here by a signed-out world -- must remain
+ * a bare `claude` with no login subcommand appended. Without this, a change that
+ * appended the login args unconditionally would pass the arm above.
+ */
+driverTest('#1937 CONTROL: a NON-reauth sign-in launch does NOT append the login subcommand', async () => {
+  // World says signed out, so start() falls through and launches the first-run
+  // sign-in -- the byte-identical bare-`claude` path.
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start();
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'the first-run sign-in launched no session, so this control asserts nothing');
+    assert.notDeepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      'a non-reauth launch appended the login subcommand -- the change is meant to be scoped to an explicit re-auth');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937 END-TO-END: the fix cannot stop at start() + the launch argv. Once the
+ * re-auth launches, the driver's tick loop meets the "config outranks screen"
+ * guards (browser-open/awaiting-code and the unknown-escalation arm). Both call
+ * the FILE-based `subscription.check()`, which is stale-CONNECTED for Ben's
+ * account from the first tick -- so before the tick-loop fix the flow finished
+ * instantly off the stale file and `killSession()`'d the still-running
+ * `claude auth login`, reporting success with nothing repaired. This arm drives
+ * the real tick loop and proves the re-auth WAITS for login-done.
+ */
+driverTest('#1937 END-TO-END: a re-auth waits for login-done, not the stale file, before finishing', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  /* Measurement B: `claude auth login --claudeai` opens straight on the browser
+     screen (no theme/login-method chooser). Hold there -- the person has not yet
+     finished authenticating -- while the file keeps reading its stale CONNECTED. */
+  term.screen = SCREEN_SPINNER;
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const killsAfterLaunch = term.killed;
+    /* Let the tick loop run many times on the browser screen with the stale
+       file. Before the fix, the FIRST browser-open tick finished off the file. */
+    await new Promise((resolve) => setTimeout(resolve, 15 * 15));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'the re-auth finished off the STALE file before login-done -- the #1937 blocker, moved into the tick loop');
+    assert.equal(term.killed, killsAfterLaunch,
+      'the re-auth tore down the running `claude auth login` session before the login completed');
+    /* Now the browser auth completes and the CLI prints "Login successful". */
+    term.screen = SCREEN_LOGIN_DONE;
+    await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+    assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+      'after a genuine login-done the re-auth still did not finish');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937: the SECOND file-outranks-screen arm -- the unknown-escalation path --
+ * carries the identical stale-file hazard and its own gate. This arm covers it
+ * so a future refactor that drops the `(!owner.reauth || owner.sawLoginDone)`
+ * condition there reds instead of silently re-opening the blocker. Without the
+ * gate, a re-auth that sits on an UNRECOGNISED screen past the unknown grace
+ * finishes off the stale-CONNECTED file; with it, and no login-done evidence, it
+ * becomes stuck with an honest "we do not recognise" rather than a false success.
+ */
+driverTest('#1937 CONTROL: an UNRECOGNISED screen with no login-done makes a re-auth stuck, not falsely connected', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  // An unrecognised screen throughout -- the login-done signal never appears.
+  term.screen = 'Something entirely new that no version has shown before';
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    // Drive past the unknown grace (UNKNOWN_GRACE / TICK) into the escalation arm.
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.equal(connect.state().phase, connect.PHASE.STUCK,
+      'a re-auth on an unrecognised screen with no login-done finished off the STALE file (unknown-escalation arm) instead of becoming stuck -- #1937, second arm');
+    assert.match(connect.state().because, /do not recognise/,
+      'the re-auth became stuck for the wrong reason');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937: the THIRD file-outranks-screen arm (the login-done/press-enter/repl
+ * switch case). `login-done`/`repl` are genuine login evidence, but `press-enter`
+ * is not -- a PRE-login notice screen ("Press Enter to continue" with no "Login
+ * successful") carries no login. This arm covers that gap: a re-auth sitting on a
+ * pre-login press-enter with the file stale-CONNECTED must NOT finish off it via
+ * the settleTicks path, because sawLoginDone was never set. Without the arm-3
+ * gate it finishes after ~5 settle ticks -- the same false success as the other
+ * two arms.
+ */
+driverTest('#1937 CONTROL: a re-auth on a PRE-login press-enter screen does NOT finish off the stale file', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  // Classifies as press-enter (NOT login-done: no "Login successful"), so the
+  // login-evidence flag owner.sawLoginDone is never set. File stays stale-CONNECTED.
+  term.screen = 'A security notice you should read first.\n\n Press Enter to continue';
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    // Run the tick loop well past settleTicks>4. Before the arm-3 gate, the
+    // re-auth finished off the stale file after ~5 settle ticks with no login-done.
+    await new Promise((resolve) => setTimeout(resolve, 15 * 18));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'a re-auth finished off the STALE file on a PRE-login press-enter screen (no login-done seen) -- #1937 arm 3');
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('cancel stops the flow and reports idle', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);

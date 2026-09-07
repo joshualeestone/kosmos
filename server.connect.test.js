@@ -319,6 +319,16 @@ test('a body that is not JSON is a 400, not a crash', async () => {
   assert.match(json(got).error, /could not read/);
 });
 
+test('#1937: a non-boolean reauth is a 400, not a silent falsy', async () => {
+  // Validated like its `installConfirmed`/`another` siblings so a mangled value
+  // is refused loudly rather than coerced to a falsy that would run the wrong
+  // flow (a re-auth silently downgraded to a plain start would take the
+  // already-connected short-circuit this flag exists to skip).
+  const got = await post('/api/connect/start', { reauth: 'yes' });
+  assert.equal(got.status, 400, got.body);
+  assert.match(json(got).error, /reauth must be true or false/);
+});
+
 test('start on an already-connected machine answers connected and runs nothing', async () => {
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
   try {

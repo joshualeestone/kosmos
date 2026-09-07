@@ -6215,6 +6215,17 @@ const server = http.createServer((req, res) => {
            this card is about. */
         if ('installConfirmed' in body && typeof body.installConfirmed !== 'boolean') { sendJson(res, 400, { error: 'installConfirmed must be true or false' }); return null; }
         const installConfirmed = body.installConfirmed === true;
+        /* #1937: the "Sign in again" button sends `reauth: true`, an explicit
+           signal that the person is repairing a login the file may still call
+           good. Validated like its siblings so a mangled value is a 400 rather
+           than a silent falsy, then passed to `connect.start`, where it skips the
+           already-connected short-circuit `checkLive` cannot see past.
+           📌 Threaded ONLY into the known-account (accountDir) start below; the
+           `another`/default branches deliberately never receive it, because a
+           re-auth only makes sense for an existing account. A client sending it on
+           those shapes has it ignored, not leaked into a new-account flow. */
+        if ('reauth' in body && typeof body.reauth !== 'boolean') { sendJson(res, 400, { error: 'reauth must be true or false' }); return null; }
+        const reauth = body.reauth === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
            this the only two shapes were "the default account" and `another:true`,
            which picks a FREE spot and makes a NEW record. So a person whose login
@@ -6317,6 +6328,7 @@ const server = http.createServer((req, res) => {
             configDir: known.isDefault ? null : known.dir,
             requireInstallConfirm: true,
             installConfirmed,
+            reauth,
           });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
