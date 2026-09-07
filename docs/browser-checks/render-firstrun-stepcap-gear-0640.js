@@ -16,7 +16,9 @@
  * bare class losing to an id-scoped rule), not a declared value; only reading the
  * computed font size tells the 17px bug from the 10px fix apart.
  *
- * Arms 1-3 red against the pre-0.6.40 page; arms 4-6 (0.6.42 #1) red against the pre-0.6.42 page:
+ * Arms 1-3 red against the pre-0.6.40 page; arms 4-5 (0.6.42 #1) red against the pre-0.6.42
+ * page; arm 6 is a scope CONTROL and stays GREEN on both (it verifies the change was scoped,
+ * not that behavior flipped):
  *  1. S3: both `.s3-step-cap` render compact (<= 12px, weight 600), NOT 17px/400.
  *  2. S3: no `.s3-standin` element exists (the dev-note leak is removed).
  *  3. S4: `.s4-gear` is ~2x (box 70-82px, glyph 40-48px), NOT the old 38px/22px.
