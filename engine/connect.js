@@ -1830,7 +1830,15 @@ async function runFlow(owner, haveBinary) {
    *                  start() applies must apply here, or the guard is decorative.
    * Caught by the #1562 matrix cells, not by the suite, which stayed green.
    */
-  if (!haveBinary) {
+  /* #1937: `!owner.reauth` is the FOURTH stale-file finish this card gates, the
+     one on the binary-just-installed path. An explicit re-auth must run the login
+     it was asked for -- and `checkLive` here is the same expiry-blind
+     `claude auth status` (#874/#1916), so on a dead-but-present credential this
+     gate would otherwise finish connected and never launch the login, the exact
+     symptom on the missing-binary path. The plan flagged this site. Mirror the
+     start() bypass: a re-auth always falls through to launchSignin; non-reauth is
+     byte-identical. */
+  if (!haveBinary && !owner.reauth) {
     const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (already.state === subscription.STATE.CONNECTED) {
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);

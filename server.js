@@ -6219,7 +6219,11 @@ const server = http.createServer((req, res) => {
            signal that the person is repairing a login the file may still call
            good. Validated like its siblings so a mangled value is a 400 rather
            than a silent falsy, then passed to `connect.start`, where it skips the
-           already-connected short-circuit `checkLive` cannot see past. */
+           already-connected short-circuit `checkLive` cannot see past.
+           📌 Threaded ONLY into the known-account (accountDir) start below; the
+           `another`/default branches deliberately never receive it, because a
+           re-auth only makes sense for an existing account. A client sending it on
+           those shapes has it ignored, not leaked into a new-account flow. */
         if ('reauth' in body && typeof body.reauth !== 'boolean') { sendJson(res, 400, { error: 'reauth must be true or false' }); return null; }
         const reauth = body.reauth === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without

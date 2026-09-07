@@ -249,6 +249,51 @@ test('#1580 part 2: installing the missing binary FINISHES the job for a signed-
   assert.equal(fs.existsSync(bin), true, 'the install did not actually produce a binary');
 });
 
+test('#1937: a RE-AUTH whose binary was just installed RUNS the login, not a false finish off the stale file', async (t) => {
+  /**
+   * The FOURTH stale-file finish this card gates: runFlow's post-install gate. Its
+   * setup is the part-2 cell EXACTLY -- no binary, a paid-plan file, checkLive
+   * loggedIn:true -- the shape where the gate finishes connected. The only change
+   * is `reauth: true`. checkLive is the expiry-blind `claude auth status`
+   * (#874/#1916), so for a dead-but-present credential this gate would report
+   * connected and never launch the login. The reauth gate makes the flow fall
+   * through to launchSignin instead. Without it, this settles CONNECTED (part-2's
+   * behaviour) -- the exact false success, on the missing-binary path.
+   */
+  const binary = crypto.randomBytes(16 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, binary, checksum);
+  const bin = nodePath.join(SANDBOX, `claude-reauth-${Math.random().toString(36).slice(2, 8)}`);
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = bin;                     // ABSENT
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(PAID_FILE));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  connect.setRunner((file, args) => {
+    if (args && args[0] === 'install') { fs.writeFileSync(bin, '#!/bin/sh\nexit 0\n'); fs.chmodSync(bin, 0o755); }
+    return { ok: true, stdout: '' };
+  });
+  connect.setDryRun(false);
+  connect.setTickInterval(60);
+  t.after(() => {
+    connect.setRunner(null); subscription.setRunner(null); connect.resetForTests();
+    connect.setDryRun(true); connect.setTickInterval(700);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+  });
+
+  await connect.start({ reauth: true });
+  const deadline = Date.now() + 9000;
+  while (Date.now() < deadline) {
+    if (connect.state().phase !== connect.PHASE.DOWNLOADING
+      && connect.state().phase !== connect.PHASE.INSTALLING) break;
+    await new Promise((r) => setTimeout(r, 80));
+  }
+  /* Equality, not notEqual(CONNECTED), for the same reason as #1580 above: a
+     sabotaged install reaching STUCK would satisfy the negative form. */
+  assert.equal(connect.state().phase, connect.PHASE.SIGNIN_LAUNCHING,
+    'a re-auth whose binary was just installed finished off the STALE file instead of running the login -- #1937, the post-install gate');
+  assert.equal(fs.existsSync(bin), true, 'the install did not actually produce a binary');
+});
+
 test('#1580 part 2: an UNANSWERABLE post-install probe must not declare a stale file connected', async (t) => {
   /**
    * 🛑 THE PROBE IS AT ITS LEAST RELIABLE EXACTLY HERE: it runs against a binary
