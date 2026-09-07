@@ -281,6 +281,34 @@ test('SCAN_ROOTS is split on path.delimiter, so several roots in one env var eac
    The behavioural arm above is kept because it is genuine coverage the ratchet
    does not provide (that the split actually walks both roots). */
 
+test('#2408: two case-variant roots at one physical dir de-dupe to ONE candidate (case-insensitive fs)', () => {
+  /* The bug: SCAN_DEEP_NAMES ships `projects`/`Projects` and `Kosmos`/`kosmos`, which on a
+     case-insensitive volume (the macOS default, the target) are the SAME physical directory
+     reached as two differently-cased paths. The seenDirs de-dup was keyed on fs.realpathSync,
+     which on macOS PRESERVES the input case (it does not canonicalize it), so the two case
+     variants were not collapsed and one agent was emitted as two candidate rows. The (dev,ino)
+     key collapses them.
+     🔑 This can only manifest on a case-INSENSITIVE fs, so detect it and skip on a case-
+     sensitive one (Linux/CI), where the two paths are genuinely distinct directories and no
+     dedup is wanted -- keying on (dev,ino) keeps them correctly distinct there. That is also
+     why a symlink-alias test would not perturbation-distinguish this fix: realpathSync already
+     collapsed symlink aliases; only the CASE behavior changed. */
+  const lower = path.join(DISK, 'casevar', 'bot');
+  fs.mkdirSync(lower, { recursive: true });
+  fs.writeFileSync(path.join(lower, 'CLAUDE.md'), 'You are **Case Bot**, a project manager.\n');
+  const lowerRoot = path.join(DISK, 'casevar');
+  const upperRoot = path.join(DISK, 'CASEVAR');   // same physical dir on a case-insensitive fs
+  let insensitive = false;
+  try { insensitive = fs.statSync(lowerRoot).ino === fs.statSync(upperRoot).ino; } catch { insensitive = false; }
+  if (!insensitive) return;   // case-sensitive fs: the two roots are distinct dirs; the bug cannot occur here
+  const r = discover.scan({ roots: [
+    { dir: lowerRoot, maxDepth: 4 },
+    { dir: upperRoot, maxDepth: 4 },
+  ] });
+  const hits = r.candidates.filter((c) => c.name === 'Case Bot');
+  assert.equal(hits.length, 1, `one physical agent reached via two case-variant roots was offered ${hits.length} times (dedup by realpath instead of dev+ino?)`);
+});
+
 test('CONTROL: the sandbox disk is really being scanned', () => {
   /* Without this, every absence above could pass on a scan that found nothing at
      all -- the shape of a test that stopped exercising its subject. */
