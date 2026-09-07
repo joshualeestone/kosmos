@@ -187,6 +187,41 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## THE SWEEP I HAD BEEN PUTTING ON SOMEONE ELSE, RUN
+
+Verified state on `06b649d3`: full suite **`SUITE_EXIT=0`, 4828/4828**, terminal
+verdict present, lane GATED this time (the check refuses to start rather than
+warning and running anyway, which is what it failed to do the day before).
+
+I had asked a reviewer which tests my three-file habit cannot see. Rather than
+wait, I ran it. **Every test file in the repo that reads a symbol this diff
+changes:**
+
+| symbol | test files that read it |
+|---|---|
+| `waitingNote` | 2 |
+| `stateBackgroundWait` | 1 |
+| `AGENT_FINISHED_LINE` / `AGENT_WAIT_CLEARED_BANNER` / `BACKGROUND_AGENT_WAIT` | 1 each |
+| **`reconcileReport`** | **7** |
+| `backgroundAgentWaitCount` | **0** |
+
+🛑 **I had never run five of the seven `reconcileReport` files, and I changed
+`reconcileReport` TWICE today**, after the last full-suite green. All five pass, so
+nothing was broken. **But "nothing is broken" was not something I knew until I
+looked**, and the three-file habit had no path to finding out. That is the same gap
+that produced the previous day's red, now measured rather than guessed at.
+
+📌 **`backgroundAgentWaitCount` has NO test naming it directly.** It is covered only
+indirectly through `classify`, which is a thinner guard than the count of tests
+around this feature suggests. Recorded rather than fixed, because indirect coverage
+is real coverage; the point is that nobody should read the surrounding density as
+if it applied here.
+
+⭐ **The general form, which is the reusable part:** before trusting a per-file run
+as verification, list every test that reads the symbols you touched and run THOSE.
+It is one `grep -rl` per symbol and it answers a question that a green per-file run
+cannot even ask.
+
 ## ITERATION 24: THE FLAG WAS DROPPED IN THE ONE ARM THE FEATURE IS FOR
 
 `reconcileReport`'s fresh-`working` branch builds a NEW object instead of
