@@ -309,6 +309,15 @@ test('#2408: two case-variant roots at one physical dir de-dupe to ONE candidate
   assert.equal(hits.length, 1, `one physical agent reached via two case-variant roots was offered ${hits.length} times (dedup by realpath instead of dev+ino?)`);
 });
 
+/* NOTE (#2408): a loose-importable-file case-variant test is deliberately NOT added.
+   The dir-level seenDirs (dev+ino) already skips the re-walk of a case-variant root, so a
+   loose file under it is never re-collected -- the loose path shares the folder path's guard,
+   and the folder test above perturbation-proves that mechanism. A loose-specific test keyed on
+   the seenFiles change would be vacuous (it passes with seenFiles on realpath OR dev+ino,
+   because seenDirs catches the case variant first); the only scenario that would isolate
+   seenFiles is a hardlinked .md across two distinct real dirs, which is not a shape agent files
+   occur in. seenFiles stays on realpath (unchanged from #1652). */
+
 test('CONTROL: the sandbox disk is really being scanned', () => {
   /* Without this, every absence above could pass on a scan that found nothing at
      all -- the shape of a test that stopped exercising its subject. */

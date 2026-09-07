@@ -1059,8 +1059,12 @@ function scan(opts) {
   let hitDepth = false;
 
   /* #1652: loose importable agent FILES, keyed by canonical realpath so the same file
-     reached through two aliased roots is offered once. Bounded by MAX_IMPORTABLE (rows)
-     and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
+     reached through two aliased roots is offered once. #2408: the CASE-variant alias is
+     already collapsed upstream by seenDirs (dev+ino), which skips the re-walk of a
+     case-variant root entirely, so a loose file under it is never re-collected; realpath
+     here still collapses a symlink alias, and a hardlinked .md across two distinct real
+     dirs is not a scenario agent files occur in. Bounded by MAX_IMPORTABLE (rows) and
+     MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
   const byFile = new Map();
   const seenFiles = new Set();
   let mdReads = 0;
@@ -1153,21 +1157,16 @@ function scan(opts) {
           if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
           if (lower === 'claude.md' || lower === 'agents.md') continue;  // folder-agent markers, not import files
           const file = path.join(cur.dir, name);
-          /* #2408: de-dup on the file's physical identity (dev+ino), NOT realpathSync --
-             same case bug as seenDirs (realpathSync preserves case on macOS, so two
-             case-variant paths to one file were counted twice). statSync throwing (a
-             vanished file) skips it. readClaudeHead below lstat-refuses a symlinked .md,
-             so only regular files ever produce a row. */
-          let fidkey;
-          try { const fst = fs.statSync(file); fidkey = fst.dev + ':' + fst.ino; } catch { continue; }
-          if (seenFiles.has(fidkey)) continue;
-          seenFiles.add(fidkey);
+          let freal;
+          try { freal = fs.realpathSync(file); } catch { freal = file; }
+          if (seenFiles.has(freal)) continue;
+          seenFiles.add(freal);
           perDir += 1;
           mdReads += 1;
           // regular-file + symlink-safe + byte-bounded, same as CLAUDE.md; looseRow applies
           // the identical detection + row shape the hatch merge uses (#3/#2125, #8).
           const row = looseRow(file, readClaudeHead(file));
-          if (row) byFile.set(fidkey, row);
+          if (row) byFile.set(freal, row);
         }
       }
 
