@@ -42,7 +42,11 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
 /* Route the permission/scan endpoints for one context. `fileAccessGranted` toggles
    the S2 gate (and, when granted, the scan route my #1652/#2349 detection uses). */
 async function routeFlow(page, { fileAccessGranted, completeHit }) {
-  await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: fileAccessGranted, at: Date.now() } }));
+  // nativePresent:true -- this flow drives a real install, where the native app is
+  // present, so the S2 gate keys on nativePresent + !granted (kosmos#2347). Without
+  // it the NOT-GRANTED arm would no longer block, since file-access blocks on the
+  // presence signal now, not on checkable alone.
+  await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: fileAccessGranted, nativePresent: true, at: Date.now() } }));
   await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
   await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: true } }));
   await page.route('**/api/found-agents', (r) => r.fulfill({ json: { ok: true, agents: [], adoptable: [] } }));

@@ -45,13 +45,20 @@ test('install-flow-9screen: the tmux/Accessibility concern is the S3 gate, with 
 
 test('install-flow-9screen: the gate poll reads /api/a11y-status for the tmux grant (fail-safe, positive-only)', () => {
   // FR_GATES maps the tmux gate to the Accessibility status endpoint; a row is
-  // granted only on a measured trusted:true. This is the same reading the retired
-  // standalone step used, now driving the shared gate poll.
-  assert.match(PAGE, /'tmux':\s*\{\s*url:\s*'\/api\/a11y-status',\s*granted:\s*\(r\)\s*=>\s*r\.trusted === true\s*\}/,
+  // granted only on a measured trusted:true. Each gate now owns a granted(r) and a
+  // blocked(r) predicate (kosmos#2347): tmux/sleep are pure reads (checkable+grant),
+  // so the regexes tolerate the checkable-gating prefix and the added blocked line
+  // while still pinning the endpoint + grant condition.
+  assert.match(PAGE, /'tmux':\s*\{[\s\S]*?url:\s*'\/api\/a11y-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.trusted === true/,
     'the tmux gate reads /api/a11y-status and grants only on trusted:true');
   // And the sleep gate reads its own status endpoint.
-  assert.match(PAGE, /'sleep':\s*\{\s*url:\s*'\/api\/sleep-status',\s*granted:\s*\(r\)\s*=>\s*r\.prevented === true\s*\}/,
+  assert.match(PAGE, /'sleep':\s*\{[\s\S]*?url:\s*'\/api\/sleep-status',[\s\S]*?granted:\s*\(r\)\s*=>[\s\S]*?r\.prevented === true/,
     'the sleep gate reads /api/sleep-status and grants only on prevented:true');
+  // file-access reads its status endpoint and BLOCKS on the prompt-free presence
+  // signal (nativePresent && !granted), because reading it fires the TCC prompt so
+  // there is no entry-time verdict (kosmos#2347). This is the S2 gate.
+  assert.match(PAGE, /'file-access':\s*\{[\s\S]*?url:\s*'\/api\/file-access-status',[\s\S]*?blocked:\s*\(r\)\s*=>[\s\S]*?r\.nativePresent === true && r\.granted !== true/,
+    'the file-access gate reads /api/file-access-status and blocks on nativePresent && !granted');
 });
 
 test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back to open-settings', () => {
