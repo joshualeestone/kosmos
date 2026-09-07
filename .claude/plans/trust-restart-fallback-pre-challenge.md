@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: trust-restart-fallback
-diff_hash: 5fc3d6d119b5ec33a5d35876da43cfcdbfe5421ef88c410b8dab3b67e545ca02
+diff_hash: 437d13e3dfc165ab0f2054c5b6f5c2ec8c5bc4387c2911073a65ace4075e36f3
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-07T06:57:39Z
