@@ -8144,9 +8144,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         </div>
 
         <p class="s3-step-cap">2 &middot; when prompted, switch TMUX to On</p>
+        <!-- #2236/0.6.42 #1 (Josh): the tmux grant is Privacy & Security > Accessibility
+             ("control your computer"), NOT Login Items. The old mock showed the Login Items
+             pane, which sent Josh to the wrong Settings pane. Depict Accessibility here.
+             (S4's s4-* pane keeps "Login Items" -- that is correct, for bash background
+             activity, a different grant. Do not conflate the two.) Copy: Mona Lisa. -->
         <div class="s3-win" aria-hidden="true">
-          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Login Items &amp; Extensions</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Allow in the background</small></span><span class="s3-sw"></span></div></div>
+          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
         </div>
         <div class="s3-gate-row" data-gate="tmux">
           <span class="s3-gate-lbl">TMUX</span>

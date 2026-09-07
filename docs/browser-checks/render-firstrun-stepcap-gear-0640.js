@@ -16,10 +16,15 @@
  * bare class losing to an id-scoped rule), not a declared value; only reading the
  * computed font size tells the 17px bug from the 10px fix apart.
  *
- * Arms, each reds against the pre-0.6.40 page:
+ * Arms 1-3 red against the pre-0.6.40 page; arms 4-6 (0.6.42 #1) red against the pre-0.6.42 page:
  *  1. S3: both `.s3-step-cap` render compact (<= 12px, weight 600), NOT 17px/400.
  *  2. S3: no `.s3-standin` element exists (the dev-note leak is removed).
  *  3. S4: `.s4-gear` is ~2x (box 70-82px, glyph 40-48px), NOT the old 38px/22px.
+ *  4. S3: the tmux window titles "Accessibility", NOT "Login Items" (0.6.42 #1: the tmux
+ *     grant is Privacy & Security > Accessibility, not Login Items). Copy: Mona Lisa.
+ *  5. S3: the tmux row sub-text is "Control your computer", NOT "Allow in the background".
+ *  6. S4 CONTROL: S4 (bash) still says "Login Items" -- the move is scoped to S3's tmux
+ *     window, not an over-removal of "Login Items" from the file.
  *
  * HERMETIC: loads web/index.html over file://, boots no server. Static markup +
  * computed style only, so it sits in the browser-checks.sh no-URL loop.
@@ -74,7 +79,22 @@ function unhide(id) {
         const c = getComputedStyle(e);
         return { text: e.textContent.trim().slice(0, 40), px: parseFloat(c.fontSize), wt: String(c.fontWeight) };
       });
-      return { caps, standinPresent: Boolean(pane.querySelector('.s3-standin')) };
+      // #2236/0.6.42 #1: the tmux window must depict Privacy & Security > Accessibility,
+      // NOT Login Items. There are two .s3-win blocks (Energy step 1, tmux step 2); pick
+      // the tmux one by its "tmux" main label so this is robust to reordering.
+      let tmuxTitle = null, tmuxSub = null;
+      for (const w of pane.querySelectorAll('.s3-win')) {
+        const mt = w.querySelector('.s3-mtxt');
+        const mainLabel = mt && mt.childNodes[0] ? mt.childNodes[0].textContent.trim().toLowerCase() : '';
+        if (mainLabel === 'tmux') {
+          const titleEl = w.querySelector('.s3-title');
+          const subEl = mt.querySelector('small');
+          tmuxTitle = titleEl ? titleEl.textContent.trim() : null;
+          tmuxSub = subEl ? subEl.textContent.trim() : null;
+          break;
+        }
+      }
+      return { caps, standinPresent: Boolean(pane.querySelector('.s3-standin')), tmuxTitle, tmuxSub };
     }, unhide.toString());
 
     if (s3.noPane) {
@@ -85,6 +105,14 @@ function unhide(id) {
         capsOk, JSON.stringify(s3.caps));
       check(`${engine}: the "(stand-in graphic)" dev note is removed (no .s3-standin)`,
         s3.standinPresent === false, `standinPresent ${s3.standinPresent}`);
+      // #2236/0.6.42 #1: the tmux window depicts Accessibility, not Login Items. Reds on the
+      // pre-fix page (title "Login Items & Extensions", sub "Allow in the background").
+      check(`${engine}: the tmux window titles "Accessibility", NOT "Login Items"`,
+        s3.tmuxTitle === 'Accessibility' && !/login items/i.test(s3.tmuxTitle || ''),
+        `tmuxTitle ${JSON.stringify(s3.tmuxTitle)}`);
+      check(`${engine}: the tmux row sub-text is "Control your computer", NOT "Allow in the background"`,
+        s3.tmuxSub === 'Control your computer' && !/allow in the background/i.test(s3.tmuxSub || ''),
+        `tmuxSub ${JSON.stringify(s3.tmuxSub)}`);
     }
 
     const s4 = await page.evaluate((unhideSrc) => {
@@ -96,7 +124,12 @@ function unhide(id) {
       if (!gear) return { noGear: true };
       const c = getComputedStyle(gear);
       const r = gear.getBoundingClientRect();
-      return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize) };
+      // #2236/0.6.42 #1 CONTROL: S4 (bash background activity) must STILL say "Login Items" --
+      // that pane is correct for the bash background grant; only S3's tmux window moved to
+      // Accessibility. This guards against over-removing "Login Items" from the whole file.
+      const nb = pane.querySelector('.s4-nb');
+      return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
+        s4Text: nb ? nb.textContent : null };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
@@ -105,6 +138,8 @@ function unhide(id) {
       const gearOk = s4.w >= 70 && s4.w <= 82 && s4.h >= 70 && s4.h <= 82 && s4.font >= 40 && s4.font <= 48;
       check(`${engine}: the S4 notification cog is ~2x (box 70-82px, glyph 40-48px), not the old 38/22`,
         gearOk, JSON.stringify(s4));
+      check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
+        /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
     }
 
     await browser.close();
