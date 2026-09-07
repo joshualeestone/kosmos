@@ -760,9 +760,11 @@ const SCAN = Object.freeze({
 const SCAN_SKIP = new Set([
   'node_modules', 'target', 'vendor', 'dist', 'build',
   'Library', 'Applications', 'Music', 'Movies', 'Pictures', 'Downloads',
-  // #2125: Documents is skipped by the shallow $HOME walk too (HOME_DEPTH would
-  // otherwise descend into it), not just dropped from SCAN_DEEP_NAMES -- entering
-  // ~/Documents at all fires the macOS Documents-access prompt on a fresh install.
+  // #2125: Documents must never be walked by the auto scan -- entering ~/Documents
+  // at all fires the macOS Documents-access prompt on a fresh install. It is kept
+  // off both discovery (isScanSkip filters it out of the promoted roots) and the
+  // descent (isScanSkip in scan()'s child loop), not just dropped from
+  // SCAN_DEEP_NAMES. It re-enters a scan only via the explicit importScan TCC hatch.
   'Public', 'Desktop', 'Documents', 'Photos Library.photoslibrary',
 ]);
 
@@ -770,11 +772,19 @@ const SCAN_SKIP = new Set([
    case-INSENSITIVE (the macOS default), so `~/downloads` and `~/Downloads` are the
    SAME physical directory, and a case-sensitive `SCAN_SKIP.has(name)` would MISS a
    non-canonically-cased TCC folder -- letting `~/downloads` through as a scan root or
-   a descended child and firing the exact macOS access prompt #2125 removed. Case
-   is the fleet's most-repeated false-zero, and the invariant this guards is
-   load-bearing, so the skip is lower-cased on both sides. (`node_modules` etc. are
-   already lower-case; matching them case-insensitively too only skips more build
-   noise, never less.) */
+   a descended child and firing the exact macOS access prompt #2125 removed. Case is
+   the fleet's most-repeated false-zero, and the TCC invariant this guards is
+   load-bearing, so the skip is lower-cased on both sides.
+   ⚠️ TRADEOFF, STATED HONESTLY: this also case-folds the build/vendor and macOS
+   names, so a folder whose name CASE-COLLIDES with a skip word (e.g. an agent folder
+   literally named `Build` or `Dist`) is now skipped where an exact match would have
+   walked it. That is a real, if tiny, narrowing against #2414's widen-coverage goal
+   -- accepted because those names are build/system output that essentially never hold
+   an agent, and a single case-insensitive set is a more robust guard than a two-set
+   split that could let case-sensitivity creep back into the TCC subset that must have
+   it. It is NOT true that this "only ever skips more" -- it can skip a case-variant
+   legit folder; the judgement is that the probability is negligible and the TCC
+   correctness is not. */
 const SCAN_SKIP_LOWER = new Set(Array.from(SCAN_SKIP, (n) => n.toLowerCase()));
 function isScanSkip(name) { return SCAN_SKIP_LOWER.has(name.toLowerCase()); }
 
@@ -866,22 +876,25 @@ function discoverHomeParents(home) {
 function defaultScanRoots(opts) {
   const importScan = !!(opts && opts.importScan);
   const home = os.homedir();
-  /* 🔑 THE DEEP CURATED PARENTS FIRST, `$HOME` LAST. Agents live under `work`,
-     `projects` and the like; `$HOME` is a shallow catch-all. Ordering them first,
-     plus the shared visited-set in `scan()`, means the directory-visit budget is
-     spent where agents actually are before the shallow home walk (which re-reaches
-     those same parents) can consume it. */
   const roots = [];
-  /* #2414: $HOME ITSELF FIRST, AT DEPTH 0. This reads `~/CLAUDE.md` and the loose
-     `~/*.md` import files at the top of $HOME (one directory visit) BEFORE any deep
-     root can spend the MAX_DIRS budget. The user home root is one of Josh's seeded
-     locations, and promoting every top-level folder to a deep root (below) means a
-     single heavyweight non-agent tree (`~/go/pkg/mod`, `~/anaconda3`) could exhaust
-     the budget before a $HOME-last walk ever ran -- so the home root is read up
-     front and never starved. maxDepth 0 = read this folder, do not descend: the
-     descent it used to do (HOME_DEPTH grandchildren) is now fully covered by the
-     discovered deep roots, which reach FURTHER (DEEP_DEPTH), so nothing is lost and
-     the redundant shallow re-walk is dropped. */
+  /* 🔑 #2414: $HOME ITSELF FIRST, AT DEPTH 0. (Before #2414 this function put the
+     curated parents first and a SHALLOW $HOME walk LAST; that ordering is gone --
+     see below.) This reads `~/CLAUDE.md` and the loose `~/*.md` import files at the
+     top of $HOME (one directory visit) BEFORE any deep root can spend the MAX_DIRS
+     budget. The user home root is one of Josh's seeded locations, and promoting every
+     top-level folder to a deep root (below) means a single heavyweight non-agent tree
+     (`~/go/pkg/mod`, `~/anaconda3`) could exhaust the budget before a $HOME-last walk
+     ever ran -- so the home root is read up front and never starved. maxDepth 0 =
+     read this folder, do not descend: the descent the old shallow walk did (two
+     levels of grandchildren) is now fully covered by the discovered deep roots, which
+     reach FURTHER (DEEP_DEPTH), so nothing is lost and the redundant shallow re-walk
+     is dropped.
+     ⚠️ RESIDUAL, bounded not eliminated: starvation is fixed for the home root, but
+     among the discovered deep roots (walked in arbitrary readdirSync order) a
+     heavyweight early tree can still consume MAX_DIRS before a later arbitrary-named
+     agent folder is reached. That is bounded by MAX_DIRS and surfaced honestly via
+     bounded.dirs ("there may be more"), which is why it is accepted rather than
+     chased with a per-root fairness scheme. */
   roots.push({ dir: home, maxDepth: 0 });
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
   /* #2414: arbitrary-named top-level folders, discovered and walked DEEP -- so an
