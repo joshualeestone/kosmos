@@ -28841,12 +28841,12 @@ async function addImportedInPlace(file, btn, row) {
      state, and the row is marked done. No sentence on success: the button says it. */
   btn.textContent = 'Added to Kosmos';
   /* 🔑 THE ACCESSIBLE NAME TRACKS THE VISIBLE ONE. Without this the button keeps its
-     "Add to Kosmos, <name>" label, so a screen reader still hears "Add to Kosmos"
-     after the add and the visible "Added to Kosmos" is no longer contained in the
-     accessible name (WCAG 2.5.3 label-in-name). Updating it here IS the AT receipt --
-     the same role the visible text plays -- so the success needs no separate live-region
-     sentence (Josh's "no sentence on success" ruling for these rows still holds). The
-     visible words stay first for label-in-name. */
+     "Add to Kosmos, <name>" label, so the visible "Added to Kosmos" would no longer be
+     contained in the accessible name (WCAG 2.5.3 label-in-name). This keeps the STATIC
+     name correct for anyone who lands on the button again; it is not an announcement
+     (the button is left disabled, so this change is not spoken on its own). Success is
+     shown, not announced -- the same as the sibling found/scan Add rows, and Josh's "no
+     sentence on success" ruling for these rows. The visible words stay first. */
   btn.setAttribute('aria-label', 'Added to Kosmos, ' + name);
   btn.classList.add('added');
   if (row) row.classList.add('done');
