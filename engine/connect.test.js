@@ -1972,6 +1972,36 @@ driverTest('#1937 CONTROL: an UNRECOGNISED screen with no login-done makes a re-
   } finally { subscription.setRunner(null); }
 });
 
+/**
+ * #1937: the THIRD file-outranks-screen arm (the login-done/press-enter/repl
+ * switch case). `login-done`/`repl` are genuine login evidence, but `press-enter`
+ * is not -- a PRE-login notice screen ("Press Enter to continue" with no "Login
+ * successful") carries no login. This arm covers that gap: a re-auth sitting on a
+ * pre-login press-enter with the file stale-CONNECTED must NOT finish off it via
+ * the settleTicks path, because sawLoginDone was never set. Without the arm-3
+ * gate it finishes after ~5 settle ticks -- the same false success as the other
+ * two arms.
+ */
+driverTest('#1937 CONTROL: a re-auth on a PRE-login press-enter screen does NOT finish off the stale file', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  // Classifies as press-enter (NOT login-done: no "Login successful"), so the
+  // login-evidence flag owner.sawLoginDone is never set. File stays stale-CONNECTED.
+  term.screen = 'A security notice you should read first.\n\n Press Enter to continue';
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    // Run the tick loop well past settleTicks>4. Before the arm-3 gate, the
+    // re-auth finished off the stale file after ~5 settle ticks with no login-done.
+    await new Promise((resolve) => setTimeout(resolve, 15 * 18));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'a re-auth finished off the STALE file on a PRE-login press-enter screen (no login-done seen) -- #1937 arm 3');
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('cancel stops the flow and reports idle', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);

@@ -2439,7 +2439,21 @@ async function tickBody(owner) {
         // a late-flipping config finished on the next tick and killed the
         // session mid-onboarding, skipping the walk-forward this comment
         // promises.
-        if (seen.kind === 'repl' || (owner.settleTicks || 0) > 4) {
+        /* #1937: the THIRD file-outranks-screen finish, and the same stale-file
+           hazard as the two arms above. `repl` is a live, logged-in session -- a
+           genuine completion signal, safe to finish on even for a re-auth. But the
+           `settleTicks` path also fires on `press-enter`, which this file's own
+           note (below, on the second `press-enter` handler) says is NOT login
+           evidence: a pre-login notice screen carries no login. For a re-auth the
+           config is stale-CONNECTED from flow start, so finishing on a pre-login
+           press-enter after settleTicks would be the exact false success the two
+           arms above were hardened against. Require login evidence for a re-auth's
+           settle finish -- owner.sawLoginDone is set (line ~2125) whenever a real
+           "Login successful" (login-done) screen appears, including this tick. The
+           repl path and every non-reauth flow are unchanged. A re-auth stuck on a
+           pre-login press-enter instead falls to the never-moves becomeStuck. */
+        if (seen.kind === 'repl'
+          || ((owner.settleTicks || 0) > 4 && (!owner.reauth || owner.sawLoginDone))) {
           await finishConnected(owner, sub);
           return;
         }
