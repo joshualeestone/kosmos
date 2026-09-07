@@ -137,7 +137,15 @@ function getImportScan() {
   const now = Date.now();
   if (importScanCache.result && now - importScanCache.at < SCAN_CACHE_MS) return importScanCache.result;
   let out = null;
-  try { out = discover.scan({ importScan: true }); importScanCache = { at: now, result: out }; } catch { out = null; }
+  try {
+    out = discover.scan({ importScan: true });
+    /* #3/#2125: do NOT cache a PARTIAL result. scan() returns scanning:true when the TCC-root
+       rows are not ready yet (the app-identity hatch has been asked and has not answered); caching
+       that would keep serving the TCC-less list for SCAN_CACHE_MS. Leaving it uncached means the
+       front-end's retry re-runs scan(), which picks up the scan-result.json the hatch has since
+       written and returns the complete list. A complete result (scanning falsey) caches normally. */
+    if (out && !out.scanning) importScanCache = { at: now, result: out };
+  } catch { out = null; }
   return out;
 }
 const connect = require('./engine/connect');
