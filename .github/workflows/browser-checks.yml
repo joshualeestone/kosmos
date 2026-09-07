@@ -1,0 +1,120 @@
+# The page-layer gate, at PR time (#2445).
+#
+# 🛑 WHY THIS EXISTS. tools/browser-checks.sh (the 63 page-layer checks under
+# docs/browser-checks/) runs at RELEASE CUT step 3b (tools/release.sh) and NOT in
+# the per-PR gate. So a change to a gate's rendered behavior can pass its own PR
+# (green test.yml, green challenge-loop) and only fail WEEKS LATER at cut, blocking
+# a release for a reason invisible when the change merged. Measured 2026-09-07:
+# #2085 added a `data-checking` state that hid the S3 button on an uncheckable gate
+# row; the click-first-run check clicks that button, so post-#2085 it waited on a
+# permanently-hidden element and timed out. #2085 was green through its own PR and
+# only red at the 0.6.47 cut, flaking it twice. Had the browser checks run in
+# #2085's PR gate, its author would have updated click-first-run.js in the same PR
+# (they already updated the sibling render-gated-next.js). This job closes that gap:
+# a gate-behavior change and the checks that assert it fail together, in the PR.
+#
+# 🔑 WHY A CI JOB, NOT A LOCAL challenge-loop STEP. The page gate MUST NOT run while
+# other Playwright boards run on the same machine: browser-checks.sh's own header
+# records that concurrent boards starved a cut's page layer and produced HARD errors
+# indistinguishable from real defects (2026-08-26). Running the full suite in the
+# LOCAL per-PR gate would reintroduce exactly that starvation across the agent fleet.
+# A GitHub Actions runner is a SEPARATE machine, so this pays the browser cost off
+# the fleet's box entirely -- the load concern that makes a local run unsafe does not
+# exist here. That is also why this runs the FULL suite rather than a leaky
+# per-changed-check subset: the PATHS filter below does the scoping (only PRs that
+# touch the rendered surface pay the cost), so no subset is needed.
+#
+# ADVISORY, like test.yml: kosmos has no required branch protection (a deliberate
+# beta "merge fast" call, #835), so this cannot block a merge. It is the second
+# visible signal create-pr's CI-watch already honors, and it is the signal a page
+# change should read before merging. macos-latest matches test.yml AND the cut's own
+# 3b environment.
+#
+# ⚠️ TWO WAYS A CI-GREEN IS NOT IDENTICAL TO A CUT-TIME 3b GREEN (Baron, #2444/#2445,
+# eyes-open -- neither blocks this, both are honest limits to carry):
+#   1) INTRA-RUN contention still exists. CI-isolation removes the CROSS-AGENT
+#      starvation that flaked the cut (a build box at load 13.87 with other agents'
+#      Playwright competing), but browser-checks.sh's own header (#1079) records that
+#      the checks' OWN concurrent board servers starve the HEAVIEST check within a
+#      single run, and that heaviest check is click-first-run -- the exact one that
+#      flaked the 0.6.47 cut. A macos-latest runner is SMALLER than the 10-core build
+#      box, so click-first-run could still exceed its ~30s page.click timeout with
+#      zero other agents present. Mitigated by run_one's retry-once (in the harness)
+#      and this job's generous timeout; if it flakes persistently the fix is a
+#      HARNESS-side intra-run board-concurrency reduction (a separate card), not this
+#      workflow. Watch the first real runs for a click-first-run timeout.
+#   2) HEADLESS CI is SwiftShader SOFTWARE rendering, not the console box's real GPU
+#      compositor. The DOM/STATE checks that matter for the #2085 class (click-first-run,
+#      gate rendering -- element present/hidden/clickable) are fully covered headless.
+#      But any compositor / paint-geometry / screenshot check in the suite is WEAKER
+#      headless than the HEADED cut-time 3b on real hardware (org BROWSER_TESTING note).
+#      So a green here catches the rendered-BEHAVIOR regressions the card is about; it
+#      is NOT a replacement for the cut's headed 3b on paint-level checks.
+
+name: browser-checks
+
+# Only PRs that touch the rendered surface or the check tooling. web/index.html is
+# the page the checks drive; docs/browser-checks/ holds the 63 assertions;
+# browser-checks.sh is the driver and provision-pw.sh pins the runtime. The workflow
+# file itself is included so a change to THIS job re-runs it (and so this PR, which
+# adds the file, runs it -- the only way to verify the job end to end).
+#
+# 🔑 PATH FILTER, NOT A per-check subset, is the load control: a PR that changes no
+# rendered surface pays nothing; one that does pays the full ~15-20 min, on a
+# separate runner. #2085 touched web/index.html, so it WOULD have triggered here.
+on:
+  pull_request:
+    paths:
+      - 'web/index.html'
+      - 'docs/browser-checks/**'
+      - 'tools/browser-checks.sh'
+      - 'tools/provision-pw.sh'
+      - '.github/workflows/browser-checks.yml'
+
+# Least privilege: reads the repo, runs the checks, needs no write scope. Uses
+# pull_request (not pull_request_target), so untrusted PR code never runs elevated.
+permissions:
+  contents: read
+
+# Cancel a superseded run of the same PR: a re-sync cancels its in-flight
+# predecessor rather than queuing a redundant browser run (which is the expensive
+# kind). Same shape as test.yml's concurrency group, keyed on this workflow.
+concurrency:
+  group: browser-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-checks:
+    # 🛑 macos-latest, matching test.yml AND the cut's 3b: a green here must mean
+    # what a green 3b means, so it runs in the same OS family the release gate does.
+    runs-on: macos-latest
+    # provision-pw (npm i + two browser builds) is ~2-4 min; the 63 checks are
+    # ~15-20 min, one headless Chromium each, and a macOS runner is slower than a
+    # dev Mac. 40 bounds a hung run without clipping an honest slow one.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # Match test.yml's node pin: the checks boot node fixture servers, and the
+      # suite is written for node 26 (the developer Macs). Drift arrives here as a
+      # legible line rather than later as an unrelated red.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        run: |
+          echo "node: $(node --version 2>&1 || echo ABSENT)"
+          echo "npm:  $(npm --version 2>&1 || echo ABSENT)"
+      # Pin + install Playwright the blessed way (tools/provision-pw.sh, #1594):
+      # exact playwright@1.62.1 + chromium/webkit builds into ~/work/pw-runtime,
+      # where browser-checks.sh finds it with no env needed. No tmux install (unlike
+      # test.yml): the checks use test-support/fake-tmux.sh, so a real tmux is not
+      # needed. Idempotent, non-interactive -- CI-safe.
+      - name: provision the pinned Playwright runtime (#1594)
+        run: bash tools/provision-pw.sh
+      # The page gate itself, exactly as the cut runs it at 3b: strict version so a
+      # drifted runtime is a hard stop, not a silent lie. Its exit code gates this
+      # job -- non-zero fails the PR check, which is the whole point. 126/127 means
+      # bash/node/a program is missing (the runner is broken, not the page), and it
+      # is still correct for the job to go red so the breakage is visible.
+      - name: the page layer, headless (tools/browser-checks.sh, #39)
+        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
