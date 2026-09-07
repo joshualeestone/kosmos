@@ -733,11 +733,15 @@ function forgetAccount(dir, usedBy) {
      Surfacing it would also mean logging around a credential, which this module
      family avoids on purpose -- openaiaccounts' codex login drops stdout/stderr so
      a pasted key cannot echo into a log.
-     📌 Only when the account HAD a key (`hadKey`): an oauth forget has no key
-     file (forgetKey would rm a nonexistent path) and no apiKeyHelper (unwire is a
-     no-op), so gating keeps the oauth path byte-for-byte unchanged. A dual-marker
-     dir (both an oauth token and a stray key -- prevented at creation now, per
-     list()'s comment) still gets its stray key swept, which is the safe way. */
+     📌 Only when the account HAD a key (`hadKey`), and the gate is PROTECTIVE
+     rather than cosmetic. forgetKey on an oauth dir would rm a nonexistent key
+     file (a no-op), but unwireApiKeyHelper strips ANY `apiKeyHelper` -- so running
+     the erase unconditionally would clobber a hand-set apiKeyHelper an oauth
+     account may legitimately carry, a setting this slice never wrote. Gating on
+     hadKey is what keeps that oauth path unchanged; the CONTROL test builds exactly
+     that oauth-with-a-hand-set-helper case and reds if the gate is removed. A
+     dual-marker dir (both an oauth token and a stray key -- prevented at creation
+     now, per list()'s comment) has hadKey true, so its stray key is still swept. */
   if (hadKey) {
     let ca = null;
     try { ca = require('./claudeaccounts'); } catch { ca = null; }
