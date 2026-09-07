@@ -429,8 +429,10 @@ func fileAccessStatusURL() -> URL? {
 // which forbids that exact code literal anywhere in the source -- is not tripped by
 // this comment.) So spawnAxHatchUnderTmux's guard was FALSE
 // on every real install and EVERY under-tmux hatch silently skipped: the a11y
-// prompt never fired (tmux never landed in the Accessibility list -> "no Tmux to
-// enable"), a11y-status.json was never written (-> promptrequest.nativePresent()
+// prompt never fired (so nothing landed in the Accessibility list -> "no Tmux to
+// enable"; note that even when it DOES fire it registers the kosmos-app, not tmux, per
+// the #2125 attribution correction in startA11yTrustChecks, so "no Tmux to enable" has
+// that second cause too), a11y-status.json was never written (-> promptrequest.nativePresent()
 // false -> the on-demand a11y/file-access fires fell back to opening Settings), and
 // the file-access prompt never fired on Allow Access. Meanwhile the AGENTS resolve
 // tmux correctly (tmux/bin via PATH / AGENT_WORKFORCE_TMUX_BIN), so the prompt still
@@ -798,23 +800,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // The engine cannot read Accessibility trust (#1344); the native app does it via
     // AXIsProcessTrusted and writes the verdict where engine/a11ystatus.js reads it,
     // and the first-run Continue gate consumes it (fail-safe: it only ever BLOCKS on a
-    // positive checkable:true+trusted:false). For that verdict to reflect TMUX's trust
-    // -- the responsible process that owns the folder-TCC grant, and the process the
-    // copy already tells the user to grant ("Turn on Tmux in Accessibility") -- the AX
-    // read must run UNDER tmux, not as the kosmos-app (whose own trust is a false
-    // reading). So the hatches are spawned under the bundled tmux.
+    // positive checkable:true+trusted:false). The hatches are spawned under the bundled
+    // tmux on the BELIEF that this would make the verdict reflect TMUX's trust -- tmux
+    // being the responsible process that owns the folder-TCC grant, and the process the
+    // copy tells the user to grant ("Turn on Tmux in Accessibility"). ⚠️ THAT BELIEF IS
+    // VERIFIED WRONG (see the correction below): accessibility is keyed on the CALLING
+    // BINARY, so the under-tmux read reports the kosmos-APP's trust, not tmux's. The
+    // spawn-under-tmux is retained only because the axPROMPT is the mechanism that
+    // surfaces an Accessibility entry at all -- but by the SAME calling-binary rule that
+    // entry is the kosmos-APP's, NOT tmux's, which is exactly why #2189 sees "no Tmux to
+    // enable" when the pane opens Accessibility. The axCHECK's verdict likewise does not
+    // describe tmux and must not be read as if it does. Check and prompt use the same AX
+    // API family in the same binary; neither can be attributed to tmux.
     //
-    // 🛑 THE ONE WAY THIS CAN FALSE-BLOCK A USER, STATED PLAINLY. The frontend gate is
-    // fail-safe for every UNCHECKABLE state (browser/no-file/stale/malformed/fetch-error
-    // all leave Continue live). The single exception is a POSITIVE checkable:true +
-    // trusted:false, which BLOCKS -- correctly if it is tmux's real trust, but a
-    // FALSE-BLOCK if the under-tmux attribution reads the APP's trust instead (app
-    // ungranted, tmux granted -> trusted:false -> the user grants Tmux as the pane says
-    // and Continue stays stuck). Whether an under-tmux re-exec reports tmux's trust or
-    // the app's is the LOAD-BEARING UNKNOWN of #2125, UNVERIFIED on a dev box (a11y
-    // granted broadly -> AXIsProcessTrusted true either way). #2189 confirms the
-    // under-tmux surface has real fresh-install trouble (the Open-Accessibility button
-    // surfaces no Tmux to enable), which is the axprompt half of exactly this seam.
+    // 🛑 THE ATTRIBUTION IS VERIFIED WRONG (2026-09-06, #2125), AND THE HARM WAS THE
+    // OPPOSITE DIRECTION FROM WHAT THIS COMMENT ORIGINALLY ANTICIPATED. It read: the
+    // one risk is a FALSE-BLOCK (app ungranted, tmux granted -> trusted:false ->
+    // Continue stuck). Josh's 0.6.42 fresh-account re-test showed the real failure is a
+    // FALSE-GREEN: the under-tmux AXIsProcessTrusted reports the APP's trust (accessibility
+    // is keyed on the CALLING BINARY, not the responsible process), so on a fresh account
+    // the tmux gate read ACTIVATED on arrival while tmux was ungranted and absent from the
+    // Accessibility list. So the LOAD-BEARING UNKNOWN of #2125 is now resolved: an
+    // under-tmux re-exec reports the APP's trust, NOT tmux's. This verdict therefore does
+    // not describe tmux at all. #2189 (Open-Accessibility surfaces no Tmux to enable) is
+    // the same seam. Fix = the pending #2125 keep/drop fork (KEEP: one-identity routing;
+    // DROP: remove the ask, no synthetic-input API is used). Do not re-assume the tmux
+    // attribution. Root: ~/work/Josh-Brain/Projects/kosmos-tcc-identity-root-2378-1-3-2026-09-06.md
     //
     // ⚠️ THE PROTECTION IS THE RELEASE PROCESS, NOT THIS CODE. There is no in-code guard
     // here (no feature flag, no channel check, no bias-to-trusted default): this writer
@@ -879,9 +890,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // launch-time axcheck uses. Firing through the app rather than letting the engine
     // spawn tmux keeps the spawn tree IDENTICAL to the proven launch (axcheck) path,
     // adding no new attribution assumption to the #2125 seam. (The attribution the
-    // Accessibility API actually reports is the #2125/#2347-item-B question -- the AX
-    // call is labelled by the calling binary, the kosmos-app, not tmux -- tracked
-    // separately; this watcher's job is only the on-demand FIRING, timing fixed in #2347.)
+    // Accessibility API actually reports is now RESOLVED, not an open question: the AX
+    // call is labelled by the calling binary, the kosmos-app, not tmux -- verified by
+    // Josh's 0.6.42 fresh-account re-test, see the startA11yTrustChecks correction. This
+    // watcher's job is only the on-demand FIRING, timing fixed in #2347.)
     private func startPromptRequestWatcher() {
         checkPromptRequests()
         // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
@@ -2449,7 +2461,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
              polling /api/status every two seconds and repainting a hidden
              panel. Pressing ⌘, mid-agent-creation would reintroduce that
              through a new door the existing guard does not cover.
-           · `burgerClose()` — on the narrow layout the burger nav otherwise
+           · `burgerClose()` -- on the narrow layout the burger nav otherwise
              stays open over the Settings screen.
 
            The page states the rule itself: go through the real control "so
@@ -2991,24 +3003,35 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
 //
 // --kosmos-app-axcheck: read AXIsProcessTrusted() (or the KOSMOS_AXCHECK_FORCE_TRUSTED
 // mock) and write the verdict where engine/a11ystatus.js reads it. Spawned UNDER the
-// bundled tmux (see applicationDidFinishLaunching) so macOS attributes the AX read to
-// tmux -- the responsible process that owns the folder-TCC grant -- not to the
-// kosmos-app, whose own trust would be a FALSE reading.
+// bundled tmux (see applicationDidFinishLaunching) on the BELIEF that macOS would then
+// attribute the AX read to tmux -- the responsible process that owns the folder-TCC
+// grant -- not to the kosmos-app.
 //
-// 🛑 THE ATTRIBUTION IS THE LOAD-BEARING UNKNOWN (#2125). Whether an under-tmux re-exec
-// reports TMUX's trust or the APP's is UNVERIFIED on a dev box (Accessibility granted
-// broadly -> AXIsProcessTrusted true either way, so it cannot be discriminated here).
-// It MUST be verified on a fresh macOS install -- that granting Tmux flips this to
-// trusted and unblocks Continue -- BEFORE this gates for real. See the deferred
-// verification gate flagged on #2125. The FORCE-mock exercises the trusted:false
-// path's downstream (writer -> engine -> gate) without needing that fresh install.
+// 🛑 THE ATTRIBUTION IS VERIFIED WRONG (2026-09-06, #2125). It was the load-bearing
+// UNKNOWN; Josh's 0.6.42 fresh-account re-test resolved it the WRONG way. An under-tmux
+// re-exec does NOT report tmux's trust -- accessibility is keyed on the CALLING BINARY,
+// so AXIsProcessTrusted here reports the kosmos-APP's trust regardless of the tmux
+// parent. Observed harm is the OPPOSITE of the false-BLOCK the startA11yTrustChecks
+// comment anticipated: it FALSE-GREENED -- the tmux gate read ACTIVATED on arrival on a
+// fresh account while tmux was ungranted and absent from the Accessibility list (writing
+// trusted:true = the app's state). So this hatch cannot answer "is tmux trusted"; the
+// verdict it writes is the app's. Do not re-assume the tmux attribution. The fix is the
+// pending #2125 fork: KEEP -> route the AX check + grant through one identity; DROP ->
+// remove the accessibility ask (no synthetic-input API is used anywhere; agents run on
+// tmux send-keys IPC). Root writeup:
+// ~/work/Josh-Brain/Projects/kosmos-tcc-identity-root-2378-1-3-2026-09-06.md
+// The FORCE-mock still exercises the trusted:false downstream (writer -> engine -> gate).
 if CommandLine.arguments.contains("--kosmos-app-axcheck") {
     exit(writeA11yStatus(trusted: axTrustReading()) ? 0 : 1)
 }
-// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds the
-// responsible process to the Accessibility list -- so the Open-Accessibility button
-// then "gives something to enable" (Josh's bug #2). Fired once (under tmux) when the
-// last reading is not-trusted/absent, so it is Tmux that lands in the list.
+// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds an entry
+// to the Accessibility list -- so the Open-Accessibility button then "gives something to
+// enable" (Josh's bug #2). Fired once (under tmux) when the last reading is
+// not-trusted/absent. ⚠️ CORRECTED (#2125, 2026-09-06): the entry it adds is the CALLING
+// BINARY's (the kosmos-app), NOT tmux's -- accessibility is keyed on the calling binary,
+// not the responsible process, and this prompt uses the same AX API family as the
+// axcheck. That is exactly #2189's "no Tmux to enable": the prompt registers the app, so
+// no tmux row appears to toggle.
 if CommandLine.arguments.contains("--kosmos-app-axprompt") {
     let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     _ = AXIsProcessTrustedWithOptions(opts)
@@ -3018,9 +3041,13 @@ if CommandLine.arguments.contains("--kosmos-app-axprompt") {
 // fires the Files-and-Folders prompt for tmux (this hatch's responsible process) on
 // the first undecided access, and write the resulting grant verdict where
 // fileaccessstatus.js reads it. Spawned UNDER the bundled tmux (see the prompt-request
-// watcher) so the grant is attributed to tmux -- the same responsible process the a11y
-// seam and the running agents use -- not to the kosmos-app. One hatch does both the
-// prompt and the verdict, exactly as attempting the access does both in macOS.
+// watcher) so the grant is attributed to tmux -- the responsible process the running
+// agents use -- not to the kosmos-app. One hatch does both the prompt and the verdict,
+// exactly as attempting the access does both in macOS. (Folder-TCC uses the
+// responsible-process model, which is why the under-tmux spawn works HERE. The
+// Accessibility seam does NOT -- it is keyed on the calling binary, so its under-tmux
+// read reports the app, not tmux; see the startA11yTrustChecks correction. Do not read
+// this file-access attribution as evidence the a11y seam attributes to tmux too.)
 if CommandLine.arguments.contains("--kosmos-app-fileaccessprompt") {
     exit(writeFileAccessStatus(granted: fileAccessReading()) ? 0 : 1)
 }
