@@ -83,6 +83,37 @@ test('a shape-bad key is refused in words before any network call', async () => 
   assert.equal(called, false, 'a shape-bad key never reaches the network');
 });
 
+test('a label matching an existing SUBSCRIPTION account is refused, and that account is NOT switched to the key (#2420 BLOCKER)', async () => {
+  // Plant a signed-in subscription account (a .claude.json with an oauthAccount) at
+  // the dir the label maps to. accounts.prepare would mkdir it and return ok, so the
+  // guard must refuse before any key/apiKeyHelper touches it.
+  const dir = nodePath.join(SANDBOX, '.claude-sub-acct');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, '.claude.json'), JSON.stringify({ oauthAccount: { emailAddress: 'sub@example.com' } }));
+  claudeAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const r = await post('/api/accounts/claude/apikey', { label: 'sub-acct', key: 'sk-ant-would-switch-billing' });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /already a Claude account/);
+  assert.equal(fs.existsSync(claudeAccounts.keyFile(dir)), false, 'no key file dropped into the subscription account');
+  const cfg = JSON.parse(fs.readFileSync(nodePath.join(dir, '.claude.json'), 'utf8'));
+  assert.equal(cfg.oauthAccount.emailAddress, 'sub@example.com', 'the subscription account is untouched');
+  // And settings.json (if prepare created one) must NOT carry an apiKeyHelper.
+  let settings = {};
+  try { settings = JSON.parse(fs.readFileSync(nodePath.join(dir, 'settings.json'), 'utf8')); } catch { /* none */ }
+  assert.equal('apiKeyHelper' in settings, false, 'the subscription account was never repointed to the key');
+});
+
+test('re-adding the SAME label as an existing api-key account is refused (no silent overwrite)', async () => {
+  claudeAccounts.setFetcher(async () => ({ status: 200, body: {} }));
+  const first = await post('/api/accounts/claude/apikey', { label: 'dup-acct', key: 'sk-ant-api03-first-longenoughkey' });
+  assert.equal(first.status, 200);
+  const second = await post('/api/accounts/claude/apikey', { label: 'dup-acct', key: 'sk-ant-api03-second-longenoughkey' });
+  assert.equal(second.status, 400);
+  assert.match((await second.json()).error, /already a Claude account/);
+  const stored = fs.readFileSync(claudeAccounts.keyFile(nodePath.join(SANDBOX, '.claude-dup-acct')), 'utf8');
+  assert.equal(stored, 'sk-ant-api03-first-longenoughkey', 'the first key is not silently overwritten by the second');
+});
+
 test('runner missing -> needsRunner, before the key is even looked at', async () => {
   const savedResolve = runners.resolveBin;
   runners.resolveBin = () => ({ present: false });

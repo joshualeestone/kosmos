@@ -50,6 +50,8 @@ const EXCUSED = {
   setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file (feedbacksend.js\'s equivalent, setSender, escapes only by a name-collision); production pull() uses the default fetch transport.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
+  forgetKey: 'engine/claudeaccounts.js (#2420): the forget half of the api-key Claude account. Dormant until the api-key-account removal route lands (the next #2420 slice); built with its storeKey partner in slice 1 so an add-without-take-back cannot repeat the #1414 leak (every add appended a credential and nothing ever removed one). Named here because "forgetKey" is unique to this file.',
+  unwireApiKeyHelper: 'engine/claudeaccounts.js (#2420): removes the apiKeyHelper pointer, the inverse of wireApiKeyHelper. Same reason as forgetKey -- built with its add partner so the forget slice takes back exactly what add wrote; wired by the removal route in the next #2420 slice. Unique to this file.',
 };
 
 const engineDir = path.join(__dirname, 'engine');

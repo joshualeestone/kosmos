@@ -56,7 +56,29 @@ test('storeKey writes mode 0600 without a trailing newline, and readKey round-tr
   const mode = fs.statSync(ca.keyFile(dir)).mode & 0o777;
   assert.equal(mode, 0o600, 'the key file must be owner-only (0600)');
   assert.equal(fs.readFileSync(ca.keyFile(dir), 'utf8'), 'sk-ant-secret-123', 'stored trimmed, no trailing newline, so apiKeyHelper cats exactly the key');
-  assert.equal(ca.readKey(dir), 'sk-ant-secret-123');
+});
+
+test('apiKeyHelperCommand is shell-safe against a home path with metacharacters, and resolves to exactly the key', () => {
+  // A home dir carrying $, backtick, ", space and a single quote: the label is
+  // sanitized by prepare, but homeDir() is interpolated too, so the command must
+  // not let any of these break out. The command must still cat exactly the key.
+  const hostile = freshDir(nodePath.join('h$(touch PWNED)`x`"q\'z', 'acct'));
+  ca.storeKey(hostile, 'sk-ant-metachar-key');
+  const cmd = ca.apiKeyHelperCommand(hostile);
+  const out = require('node:child_process').execSync(cmd, { encoding: 'utf8', cwd: SANDBOX });
+  assert.equal(out, 'sk-ant-metachar-key', 'the helper resolves to exactly the key despite metacharacters in the path');
+  assert.equal(fs.existsSync(nodePath.join(SANDBOX, 'PWNED')), false, 'no command substitution executed: the path never breaks out of the single quotes');
+});
+
+test('wireApiKeyHelper on a non-object settings.json replaces it with a fresh one carrying only the pointer', () => {
+  const dir = freshDir('nonobj1');
+  const settings = nodePath.join(dir, 'settings.json');
+  fs.writeFileSync(settings, '[1,2,3]'); // an array is not a usable Claude Code settings object
+  ca.storeKey(dir, 'sk-ant-nonobj');
+  ca.wireApiKeyHelper(settings, dir);
+  const obj = JSON.parse(fs.readFileSync(settings, 'utf8'));
+  assert.equal(Array.isArray(obj), false, 'the array is replaced with an object');
+  assert.equal(obj.apiKeyHelper, ca.apiKeyHelperCommand(dir), 'the fresh object carries the pointer');
 });
 
 test('the raw key is NEVER written into settings.json: wireApiKeyHelper stores only the cat-the-file POINTER', () => {
@@ -94,7 +116,7 @@ test('forget takes back BOTH the key file and the apiKeyHelper entry, leaving ot
   fs.writeFileSync(settings, JSON.stringify({ theme: 'dark' }, null, 2));
   ca.storeKey(dir, 'sk-ant-todelete');
   ca.wireApiKeyHelper(settings, dir);
-  assert.equal(ca.readKey(dir), 'sk-ant-todelete');
+  assert.equal(fs.readFileSync(ca.keyFile(dir), 'utf8'), 'sk-ant-todelete');
 
   assert.equal(ca.forgetKey(dir), true);
   assert.equal(fs.existsSync(ca.keyFile(dir)), false, 'the key file is gone');

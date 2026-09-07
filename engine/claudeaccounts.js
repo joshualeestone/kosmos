@@ -139,26 +139,37 @@ async function checkLive(dir) {
 function storeKey(dir, key) {
   const file = keyFile(dir);
   const tmp = file + '.tmp';
+  // Unlink any stale temp from a prior crash first, so the write below CREATES
+  // the file and its 0600 create-mode applies from the first byte (a reused temp
+  // would keep its old, possibly looser mode for the pre-rename window).
+  try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
   fs.writeFileSync(tmp, String(key || '').trim(), { mode: 0o600 });
   fs.renameSync(tmp, file);
   try { fs.chmodSync(file, 0o600); } catch { /* best effort; create mode already set */ }
-}
-
-function readKey(dir) {
-  try { return fs.readFileSync(keyFile(dir), 'utf8').trim() || null; } catch { return null; }
 }
 
 function forgetKey(dir) {
   try { fs.rmSync(keyFile(dir), { force: true }); return true; } catch { return false; }
 }
 
+/* Single-quote a string for a POSIX shell: everything inside single quotes is
+   literal except a single quote itself, which is closed / escaped / reopened as
+   '\''. Robust against spaces AND $, backtick, ", \ -- so even a home directory
+   carrying shell metacharacters cannot break out of the apiKeyHelper command
+   (the label component is already sanitized to [a-z0-9-] by accounts.prepare,
+   but homeDir() is interpolated too and is not). */
+function shSingleQuote(s) {
+  return "'" + String(s == null ? '' : s).replace(/'/g, "'\\''") + "'";
+}
+
 /**
  * The apiKeyHelper command string for an account's settings.json. It cats the
  * mode-600 key file, so settings.json carries this POINTER and never the key.
- * The path is quoted so a space in a config dir cannot split the command.
+ * Single-quoted so no character in the path can be reinterpreted by the shell
+ * that runs it.
  */
 function apiKeyHelperCommand(dir) {
-  return 'cat "' + keyFile(dir) + '"';
+  return 'cat ' + shSingleQuote(keyFile(dir));
 }
 
 /**
@@ -200,5 +211,5 @@ function unwireApiKeyHelper(settingsPath) {
 
 module.exports = {
   STATE, KEY_BASENAME, keyFile, keyProblem, setFetcher, askModels, validateLive,
-  checkLive, storeKey, readKey, forgetKey, apiKeyHelperCommand, wireApiKeyHelper, unwireApiKeyHelper,
+  checkLive, storeKey, forgetKey, apiKeyHelperCommand, wireApiKeyHelper, unwireApiKeyHelper,
 };
