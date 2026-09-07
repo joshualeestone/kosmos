@@ -3152,32 +3152,71 @@ function byWorkdirDetailed(agentName) {
   let dir;
   try { dir = require('./create').workerDir(agentName); } catch { return nothing; }
   if (!dir) return nothing;
-  const flat = dir.replace(/[^A-Za-z0-9]/g, '-');
+
+  /* 🔑 #2406: FLATTEN AND COMPARE THE ON-DISK CANONICAL SPELLING, NOT THE RAW
+     RECORDED PATH. The agent is launched through the launchd `WorkingDirectory =
+     workerDir(name)` key (create.js), and Claude Code writes its transcript under
+     `projects/<flatten(process.cwd())>/` -- and process.cwd() is the path getcwd
+     hands back, which resolves CASE and SYMLINKS. So a folder recorded as
+     `.../work` but stored on disk as `.../Work` (exactly Josh's imported seed
+     agents, 2026-09-07, whose "Work" folder he named himself) has its transcript
+     under `projects/<flatten("...Work...")>/`, while this reader used
+     `flatten("...work...")` -- a DIFFERENT directory, because flatten is
+     case-sensitive -- and found nothing, so a running agent read as "we cannot
+     find a transcript". It is a property of the PATH, not the runtime, which is
+     why the Claude and OpenAI context rings broke together.
+
+     This is the SAME divergence already fixed for the codex trust key in #2129/#5
+     (create.js trustCodexFolder), so it reuses the SAME helper rather than growing
+     a second answer. `canonicalOnDisk` recovers the stored case, resolves symlinks
+     and the macOS `/private` twin, and falls back to path.resolve when the folder
+     is gone. Strictly additive: with no divergence canon is the resolved raw path,
+     flatten(canon) === flatten(dir), and nothing changes for the common case. */
+  const trust = require('./trust');
+  const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');
+  const canon = trust.canonicalOnDisk(dir);
+  // Both spellings, deduped: the canonical folder the runner actually wrote into,
+  // and the raw recorded one (identical when there is no case/symlink divergence).
+  const flats = [...new Set([flatten(canon), flatten(dir)])];
+  // A transcript is this agent's when its recorded cwd is the same real folder.
+  // The two-paths-flatten-to-one collision guard is preserved: distinct real
+  // paths stay distinct under canonicalOnDisk. The direct `=== dir`/`=== canon`
+  // arms short-circuit the common case before any per-candidate realpath syscall.
+  const belongs = (cwd) => cwd != null
+    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
   let sawTranscripts = false;
 
+  // Gather candidates from EVERY searched folder first, then rank globally.
+  // ⚠️ Collecting across the (canon, raw) folders before sorting keeps the
+  // "newest first" invariant honest: were both folders populated, a per-folder
+  // return would hand back the first folder's newest rather than the newest
+  // overall. In practice getcwd canonicalizes, so real transcripts only land in
+  // `flatten(canon)` and the two folders do not both fill -- but the ranking
+  // must not depend on that being true.
+  const candidates = [];
   for (const root of configRoots()) {
-    const projects = path.join(root, 'projects', flat);
-    let names;
-    try { names = fs.readdirSync(projects); } catch { continue; }
-    const jsonl = names.filter((n) => n.endsWith('.jsonl'));
-    if (!jsonl.length) continue;
-    // Something has been written for this agent, whether or not it turns out to
-    // be readable. That fact is what separates "has not started" from "broken".
-    sawTranscripts = true;
-    // Newest first: a running agent is writing to its current session, and an
-    // agent that has been restarted has older ones beside it.
-    const byNewest = jsonl
-      .map((n) => {
+    for (const flat of flats) {
+      const projects = path.join(root, 'projects', flat);
+      let names;
+      try { names = fs.readdirSync(projects); } catch { continue; }
+      const jsonl = names.filter((n) => n.endsWith('.jsonl'));
+      if (!jsonl.length) continue;
+      // Something has been written for this agent, whether or not it turns out to
+      // be readable. That fact is what separates "has not started" from "broken".
+      sawTranscripts = true;
+      for (const n of jsonl) {
         const full = path.join(projects, n);
         let mtime = 0;
-        try { mtime = fs.statSync(full).mtimeMs; } catch { /* skip below */ }
-        return { full, mtime };
-      })
-      .filter((f) => f.mtime > 0)
-      .sort((a, b) => b.mtime - a.mtime);
-    for (const f of byNewest) {
-      if (transcriptCwd(f.full) === dir) return { file: f.full, sawTranscripts };
+        try { mtime = fs.statSync(full).mtimeMs; } catch { continue; }
+        if (mtime > 0) candidates.push({ full, mtime });
+      }
     }
+  }
+  // Newest first ACROSS every candidate folder: a running agent is writing to
+  // its current session, and a restarted one has older ones beside it.
+  candidates.sort((a, b) => b.mtime - a.mtime);
+  for (const f of candidates) {
+    if (belongs(transcriptCwd(f.full))) return { file: f.full, sawTranscripts };
   }
   return { file: null, sawTranscripts };
 }
