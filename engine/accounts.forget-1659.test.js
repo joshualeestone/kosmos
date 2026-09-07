@@ -173,16 +173,46 @@ test('#2420: forgetting an api-key account moves it aside, ERASES the raw key, a
   assert.ok(!('apiKeyHelper' in settings), 'the apiKeyHelper pointer was unwired from settings.json');
 });
 
-/* CONTROL that the erase is GATED on the account having had a key: an oauth
-   forget must be byte-for-byte unchanged -- no attempt to read a settings.json
-   it never had, and its sign-in still survives. This reds if the erase block
-   stops gating on hadKey and runs unconditionally in a way that disturbs oauth. */
-test('#2420 CONTROL: an oauth forget still keeps its sign-in and is untouched by the key-erase path', () => {
-  const dir = acct('oauthstillforgets');
+/* CONTROL that the erase is GATED on hadKey, and it must be able to RED on the
+   exact perturbation it names (removing the `if (hadKey)` gate). An oauth account
+   with only a .claude.json cannot show that: forgetKey rms a nonexistent file and
+   unwireApiKeyHelper no-ops on an absent settings.json, so the control would stay
+   green with the gate gone. So this oauth account carries a HAND-SET apiKeyHelper
+   in its settings.json and NO Kosmos key file (apiKeyStored false -> hadKey false).
+   With the gate, the erase is skipped and the apiKeyHelper survives; drop the gate
+   and unwireApiKeyHelper would strip an entry this slice never owned -- which is
+   the real-world protection the gate provides, now exercised. */
+test('#2420 CONTROL: the key-erase is gated on hadKey -- an oauth forget does NOT strip a hand-set apiKeyHelper it never owned', () => {
+  const dir = acct('oauthwithhelper');
+  fs.writeFileSync(nodePath.join(dir, 'settings.json'),
+    JSON.stringify({ apiKeyHelper: 'cat /some/unrelated/key', keepThis: 'setting' }, null, 2));
+
   const got = accounts.forgetAccount(dir, []);
   assert.equal(got.forgotten, true);
   assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
-    'the oauth sign-in survives the forget, exactly as before this slice');
+    'the oauth sign-in survives the forget');
+
+  const settings = JSON.parse(fs.readFileSync(nodePath.join(got.movedTo, 'settings.json'), 'utf8'));
+  assert.equal(settings.apiKeyHelper, 'cat /some/unrelated/key',
+    'a hand-set apiKeyHelper survives an oauth forget: the erase is gated on hadKey, so it never runs here');
+  assert.equal(settings.keepThis, 'setting', 'the rest of settings.json is untouched');
+});
+
+/* The dual-marker sweep (an oauth dir that ALSO carries a stray Kosmos key file):
+   hadKey is true, so the erase DOES run and takes the stray key back, while the
+   oauth sign-in still moves aside. Prevented at creation per list()'s comment, but
+   the forget path handles it as the safe direction, so pin it. */
+test('#2420: forgetting a DUAL-MARKER dir (an oauth account with a stray key file) sweeps the key and keeps the sign-in', () => {
+  const dir = acct('dualmarker');
+  claudeaccounts.storeKey(dir, 'sk-ant-stray');
+  assert.ok(fs.existsSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME)), 'the stray key is present first');
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.forgotten, true);
+  assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME)),
+    'the stray key was swept from the forgotten dir (hadKey true -> the erase runs)');
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
+    'the oauth sign-in still survives the forget');
 });
 
 test('#1659: refused while agents are on it, and the agents are NAMED', () => {
