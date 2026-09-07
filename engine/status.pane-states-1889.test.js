@@ -50,10 +50,14 @@ function needsYouMarkers() {
   return eval('[' + m[1] + ']');
 }
 function optionLine() {
-  const m = SRC.match(/const OPTION_LINE = (\/.*?\/[a-z]*);/);
+  // End-anchored + greedy so a future OPTION_LINE with an internal `/` (e.g. a
+  // character class) is captured whole, not silently truncated by a lazy match.
+  const m = SRC.match(/^const OPTION_LINE = (\/.*\/[a-z]*);\s*$/m);
   assert.ok(m, 'OPTION_LINE is gone from status.js');
   // eslint-disable-next-line no-eval
-  return eval(m[1]);
+  const re = eval(m[1]);
+  assert.ok(re instanceof RegExp, 'OPTION_LINE did not lift to a RegExp');
+  return re;
 }
 function rateLimitMarkers() {
   const m = SRC.match(/const RATE_LIMIT_MARKERS = \[([\s\S]*?)\];/);
@@ -128,8 +132,10 @@ test('trustPrompt reads the dialog directly, padding and all', () => {
   // shared tail lives in classify (exercised by Test 1 above); this test drives
   // trustPrompt's OWN blank-row walk-back (its `while (raw[last] === '')` loop),
   // a distinct mechanism -- so the two tests cover the two layers, not one twice.
-  assert.notEqual(trustPrompt(TRUST_SCREEN), null,
-    'trustPrompt lost the top-of-pane dialog under the blank padding');
+  // Tighter than a null-check: assert it returns THIS dialog's question row, so
+  // the test also fails if the walk-back ever returned some other row's text.
+  assert.match(trustPrompt(TRUST_SCREEN) || '', /^Quick safety check:/,
+    'trustPrompt did not return the Quick safety check question row');
 });
 
 // ---------------------------------------------------------------------------
