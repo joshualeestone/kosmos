@@ -21,8 +21,9 @@
  *      would pass a modal whose id merely appears near an unrelated handler,
  *      which is the same "matches anywhere" hole #1387 has.
  *   "at least two buttons"                       -> OVER-EAGER. It flags
- *      `acct-add-modal` ("Close") and `am-modal` ("Cancel"), whose SINGLE
- *      button IS the way out.
+ *      `acct-add-modal` ("Close") and, before 0.6.45, `am-modal` ("Cancel"),
+ *      whose SINGLE way out IS the way out. (am-modal now closes via a corner
+ *      X instead of a Cancel button; the close-X is recognised below.)
  *
  * ✅ The rule that survives both: **at least one action that is not the
  * primary or destructive one.** A single "Close" passes, because closing is
@@ -40,21 +41,34 @@ const nodePath = require('node:path');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
-/** Every modal wrapper, and the actions row belonging to it. */
+/** Every modal wrapper, its actions row, and any corner close-X belonging to it. */
 function modalsIn(html) {
   const out = [];
-  for (const w of html.matchAll(/<div class="rm-back"[^>]*id="([a-z0-9-]+)"/g)) {
+  const backs = [...html.matchAll(/<div class="rm-back"[^>]*id="([a-z0-9-]+)"/g)];
+  for (let i = 0; i < backs.length; i += 1) {
+    const w = backs[i];
+    // The modal's own region ends where the next modal begins, so an rm-acts or
+    // close-X found here belongs to THIS modal and not the one after it.
+    const end = i + 1 < backs.length ? backs[i + 1].index : html.length;
     const ai = html.indexOf('class="rm-acts"', w.index);
-    if (ai < 0) { out.push({ id: w[1], acts: null, buttons: [] }); continue; }
-    const acts = html.slice(ai, html.indexOf('</div>', ai));
-    const buttons = [...acts.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
-    out.push({ id: w[1], acts, buttons });
+    let acts = null; let buttons = [];
+    if (ai >= 0 && ai < end) {
+      acts = html.slice(ai, html.indexOf('</div>', ai));
+      buttons = [...acts.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
+    }
+    // 0.6.45: a corner close-X (an aria-label="Close" button whose glyph is a ×)
+    // is a way out on its own, even without an rm-acts row -- the add-member
+    // modal (am-modal) now closes that way. Precise, so a primary "Quit" alone
+    // still counts as no way out: the button must be Close-labelled AND a ×.
+    const hasCloseX = /<button[^>]*aria-label="Close"[^>]*>\s*(?:&times;|×|✕)\s*<\/button>/i
+      .test(html.slice(w.index, end));
+    out.push({ id: w[1], acts, buttons, hasCloseX });
   }
   return out;
 }
 
 const isPrimary = (cls) => /uprime|danger/.test(cls);
-const wayOut = (m) => m.buttons.some((c) => !isPrimary(c));
+const wayOut = (m) => m.hasCloseX || m.buttons.some((c) => !isPrimary(c));
 
 test('#1438: every modal has an action that is not the primary one', () => {
   const modals = modalsIn(PAGE);
@@ -66,17 +80,18 @@ test('#1438: every modal has an action that is not the primary one', () => {
     'these modals offer no way out except the action itself, which is what Josh hit twice');
 });
 
-test('#1438: every modal has an actions row at all', () => {
-  /* A modal with no `rm-acts` has no buttons to reason about, and the check
-     above would pass it vacuously on an empty list. */
-  const missing = modalsIn(PAGE).filter((m) => m.acts === null).map((m) => m.id);
-  assert.deepEqual(missing, [], 'a modal with no actions row cannot offer a way out');
+test('#1438: every modal has an actions row OR a corner close-X', () => {
+  /* A modal with no `rm-acts` AND no corner close-X has nothing to reason about,
+     and the check above would pass it vacuously. The close-X is a real way out
+     (0.6.45's am-modal uses it), so a modal is only "missing" when it has neither. */
+  const missing = modalsIn(PAGE).filter((m) => m.acts === null && !m.hasCloseX).map((m) => m.id);
+  assert.deepEqual(missing, [], 'a modal with neither an actions row nor a close-X cannot offer a way out');
 });
 
 test('#1438 DEAD arm: the rule passes a modal whose only button IS the exit', () => {
-  /* `acct-add-modal` is a single "Close" and `am-modal` a single "Cancel".
-     A rule demanding two buttons would flag both, and they are correct. This
-     arm exists because that was my first rule and it was wrong. */
+  /* `acct-add-modal` is a single "Close" (and am-modal, before 0.6.45, a single
+     "Cancel"). A rule demanding two buttons would flag both, and they are correct.
+     This arm exists because that was my first rule and it was wrong. */
   const one = '<div class="rm-back" id="only-close-modal" hidden>'
     + '<div class="rm-box" role="dialog" aria-modal="true">'
     + '<div class="rm-acts"><button class="btn" type="button">Close</button></div></div></div>';

@@ -127,6 +127,39 @@ const chk = (ok, label, extra) => {
       await page.click('#am-modal .rm-box');
       await page.waitForTimeout(400);
       chk((await box()) !== null, 'clicking inside the box does NOT close it');
+
+      /* 0.6.45 (Josh): the way out is an X in the corner (not a Cancel button that
+         crowded the dropdown), and the go button reads "Add to project". The modal
+         is open here. */
+      const goText = await page.$eval('#pj-one-add-go', (el) => el.textContent.trim()).catch(() => '');
+      chk(goText === 'Add to project', 'the go button reads "Add to project"', goText);
+      chk(!/\bCancel\b/.test(await page.$eval('#am-modal', (el) => el.innerText).catch(() => '')),
+        'the Cancel button is gone (replaced by the corner X)');
+      const x = await page.$eval('#am-keep', (el) => {
+        const r = el.getBoundingClientRect(); const bx = el.closest('.rm-box').getBoundingClientRect();
+        return { txt: el.textContent.trim(), nearTop: Math.round(r.top - bx.top), nearRight: Math.round(bx.right - r.right) };
+      }).catch(() => null);
+      chk(!!x && x.txt === '×' && x.nearTop < 26 && x.nearRight < 26,
+        'the close is an X in the top-right corner', JSON.stringify(x));
+
+      /* Way out 4: the corner X. */
+      await page.click('#am-keep');
+      await page.waitForTimeout(400);
+      chk((await box()) === null, 'the corner X closes it');
+
+      /* 0.6.45 (Josh) close-on-add: adding a member CLOSES the modal (no lingering
+         "everyone is already on it" empty state) AND the member is really added. */
+      await (await page.$('#pj-add-member')).click();
+      await page.waitForTimeout(400);
+      chk((await box()) !== null, 'it reopens for the add-then-close test');
+      await page.selectOption('#pj-one-add', { label: 'Mikey' }).catch(() => page.selectOption('#pj-one-add', { index: 0 }));
+      await page.click('#pj-one-add-go');
+      await page.waitForTimeout(900);
+      chk((await box()) === null, 'clicking Add to project closes the modal (Josh item 5)');
+      const gotMikey = await page.waitForFunction(
+        () => { const el = document.getElementById('pj-one-agents'); return el && /Mikey/.test(el.innerText || ''); },
+        null, { timeout: 6000 }).then(() => true).catch(() => false);
+      chk(gotMikey, 'the member was actually added (Mikey now shows in Project Members)');
     }
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
