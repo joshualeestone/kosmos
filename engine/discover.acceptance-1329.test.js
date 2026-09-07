@@ -228,8 +228,8 @@ test('#1329 #2410: Gemini agents surface by front-matter name, and vanish when t
   // A non-agent loose file present too, so the scan has real work and the count is meaningful.
   loose(DISK, 'proj/notes.md', CORPUS.notes);
 
-  const withHome = withGeminiHome(home, () => discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] }));
-  const gnames = (withHome.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-')).map((c) => c.name).sort();
+  const geminiScan = withGeminiHome(home, () => discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] }));
+  const gnames = (geminiScan.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-')).map((c) => c.name).sort();
   assert.deepEqual(gnames, ['code-reviewer', 'project-explainer', 'sarah'], 'the 3 Gemini agents did not all surface by front-matter name');
 
   // PERTURBATION: drop the gemini-home override and re-run with the same explicit roots.
@@ -339,4 +339,148 @@ test('#1329 OpenAI pre-existing: an AGENTS.md agent is found through foundCodex,
     if (prevData === undefined) delete process.env.AGENT_WORKFORCE_DATA;
     else process.env.AGENT_WORKFORCE_DATA = prevData;
   }
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════════════
+   PART F - LOCATION reach (#2414 + #2125). The other half of "find all ten".
+   Parts A-E prove CLASSIFICATION: given the files are REACHED, each is named/offered/
+   refused correctly. This part proves REACH: the seed agents, in the real spread of
+   places Josh dropped them, are actually FOUND by a scan - an arbitrary-named folder, the
+   user home root, and (only via a granted TCC scan) Documents/Downloads. Together the two
+   halves are Josh's whole test: "can we find all ten from an import perspective."
+
+   🛑 SANDBOXED VIA A *CONSISTENT* FIXTURE HOME, exactly as discover.location-2414.test.js.
+   These tests exercise defaultScanRoots (which only runs on a BARE scan, no explicit roots),
+   so they cannot point an explicit root at a corpus dir the way Parts A-E do. Instead each
+   sets process.env.HOME under the temp root; os.homedir() follows it, and because the module
+   already put AGENT_WORKFORCE_DATA under temp too, the sandbox is CONSISTENT
+   (status.sandboxIsInconsistent() stays false), so the bare scan walks the FIXTURE home and
+   never the operator's real machine. HOME is restored in finally.
+   ═══════════════════════════════════════════════════════════════════════════════════ */
+
+/** A CLAUDE.md folder agent at HOME/<rel>. Returns its dir (a scan `candidate`). */
+function homeFolder(home, rel, body) {
+  const dir = rel === '.' ? home : path.join(home, rel);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), body);
+  return dir;
+}
+/** A loose agent .md at HOME/<rel> (a scan `importable`). Returns the file path. */
+function homeLoose(home, rel, body) {
+  const abs = path.join(home, rel);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  fs.writeFileSync(abs, body);
+  return abs;
+}
+/** Seed the 3 Gemini agents into the fixture home's real store: <home>/.gemini/agents. */
+function homeGemini(home) {
+  const agents = path.join(home, '.gemini', 'agents');
+  fs.mkdirSync(agents, { recursive: true });
+  for (const [name, body] of Object.entries(GEMINI)) fs.writeFileSync(path.join(agents, `gemini-${name}.md`), body);
+}
+/** Run fn with process.env.HOME pointed at a fixture home (os.homedir follows it), restored after.
+ *  Part F is the FIRST section to run a BARE scan under a CONSISTENT sandbox, which makes
+ *  status.sandboxIsInconsistent() false - so unlike Parts A-E, found()/foundCodex/foundGemini
+ *  actually RUN here rather than early-returning. Every home-derived read must therefore be pinned
+ *  to the fixture home, or a bare scan reads the operator's real machine:
+ *   - HOME -> os.homedir() (covers Claude's CONFIG_ROOT default and .codex/.gemini defaults);
+ *   - CODEX_HOME / AGENT_WORKFORCE_CODEX_HOME -> foundCodex's codex home. The fleet's codex
+ *     supervisor exports CODEX_HOME, so leaving it would make a bare scan read ~/.codex/sessions.
+ *   - AGENT_WORKFORCE_SCAN_ROOTS -> scanRootsFromEnv wins BEFORE defaultScanRoots, so an ambient
+ *     value would bypass the whole #2414/#2125/importScan machinery under test (a false RED).
+ *  (The Gemini home vars are cleared separately by the withNoGeminiHome the tests wrap, which is
+ *  where the "reach ~/.gemini by default" semantics live.) The os.homedir() assert is INSIDE the
+ *  try so an abort still restores the env; it fails loud if the HOME override did not take, rather
+ *  than letting sandboxIsInconsistent() flip true and the scan silently early-return empty. */
+// AGENT_WORKFORCE_HOME is the SHARED third fallback of BOTH codexupdate.defaultHome() and
+// geminisession.HOME() (each is `... || (AGENT_WORKFORCE_HOME || os.homedir())/.codex|.gemini`).
+// It is cleared here too so withHome is SELF-SUFFICIENT for the codex read - not merely hermetic
+// because both tests happen to nest withNoGeminiHome (which also clears it). A future withHome-only
+// Part F test on a box that exports AGENT_WORKFORCE_HOME would otherwise route foundCodex to a real
+// <AGENT_WORKFORCE_HOME>/.codex.
+const HOME_CLEAR_VARS = ['AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'AGENT_WORKFORCE_HOME'];
+const HOME_DERIVED_VARS = ['HOME', ...HOME_CLEAR_VARS];
+function withHome(home, fn) {
+  const prev = HOME_DERIVED_VARS.map((v) => [v, process.env[v]]);
+  process.env.HOME = home;
+  for (const v of HOME_CLEAR_VARS) delete process.env[v];
+  try {
+    assert.equal(os.homedir(), home, 'the HOME override did not take - the fixture sandbox is unsafe, aborting');
+    return fn();
+  } finally {
+    for (const [v, val] of prev) { if (val === undefined) delete process.env[v]; else process.env[v] = val; }
+  }
+}
+const candByDir = (r, dir) => (r.candidates || []).find((c) => c.dir === dir);
+
+test('#1329/#2414 LOCATION: every auto-reachable seed agent is FOUND by a bare scan in its real spread', () => {
+  const HOME = fs.mkdtempSync(path.join(SB, 'loc-home-'));
+  // Two CLAUDE.md-shape agents as folder candidates: one at the USER HOME ROOT, one nested
+  // DEEP under an ARBITRARY-named top-level folder (#2414's "could have been called anything").
+  const novaDir = homeFolder(HOME, '.', CORPUS.nova);                       // HOME/CLAUDE.md
+  // Distinctive leaf name: reach is decided via alreadyIn->runningUnderName(basename, roster),
+  // and roster is the operator's REAL tmux (the one Part F input not pinned to the fixture); a
+  // generic 'proj' could collide with a live session name and spuriously exclude the candidate.
+  const work1Dir = homeFolder(HOME, 'Freelance/client-x/findall10-work1', CORPUS.work1); // arbitrary, depth 3
+  // The rest as loose importable files under another arbitrary top-level folder.
+  const codex = homeLoose(HOME, 'ClientStuff/imported/4-codex.md', CORPUS.codex);
+  const pip = homeLoose(HOME, 'ClientStuff/imported/5-pip.md', CORPUS.pip);
+  const rust = homeLoose(HOME, 'ClientStuff/imported/7b-rust.md', CORPUS.rust);
+  const baron = homeLoose(HOME, 'ClientStuff/imported/1-baron.md', CORPUS.baron);
+  const notes = homeLoose(HOME, 'ClientStuff/imported/7-notes.md', CORPUS.notes); // negative control
+  homeGemini(HOME);
+
+  // Bare scan (no roots) exercises defaultScanRoots + #2414 candidate-parent discovery.
+  // withNoGeminiHome clears the override vars so geminisession.HOME() resolves to the DEFAULT
+  // os.homedir()/.gemini = this fixture home's .gemini - i.e. the real "a person's ~/.gemini is
+  // found by a bare scan" path, not an injected override.
+  const r = withHome(HOME, () => withNoGeminiHome(() => discover.scan()));
+  assert.equal(r.ok, true);
+
+  // The two folder agents, reached at the home root and under an arbitrary deep parent.
+  assert.equal((candByDir(r, novaDir) || {}).name, 'Fixture Nova', 'the home-root agent was not reached');
+  assert.equal((candByDir(r, work1Dir) || {}).name, 'Fixture Work1', 'the deeply-nested arbitrary-folder agent was not reached (#2414)');
+  // The loose agents, reached under an arbitrary top-level folder.
+  for (const [abs, name] of [[codex, 'Fixture Codex'], [pip, 'pip'], [rust, 'Rust starter template'], [baron, 'Fixture Baron']]) {
+    const row = impByBase(r, path.basename(abs));
+    assert.ok(row, `${path.basename(abs)} was not reached under an arbitrary folder`);
+    assert.equal(row.name, name, `${path.basename(abs)} reached under the wrong name`);
+  }
+  // The 3 Gemini agents, reached in the fixture home's real .gemini/agents store.
+  for (const g of ['code-reviewer', 'project-explainer', 'sarah']) {
+    assert.ok(impByBase(r, `gemini-${g}.md`), `Gemini agent ${g} was not reached in ~/.gemini/agents`);
+  }
+  // The negative control: reached folder, refused content (not an unscanned location).
+  assert.ok(!impByBase(r, path.basename(notes)), 'the negative control was offered');
+});
+
+test('#1329/#2125 LOCATION: a seed agent in ~/Documents is NOT ambushed by the auto scan, but IS found via a granted TCC scan', () => {
+  const HOME = fs.mkdtempSync(path.join(SB, 'loc-tcc-home-'));
+  // Josh put some files in Documents/Downloads - the TCC-protected folders. A loose seed agent there.
+  const inDocs = homeLoose(HOME, 'Documents/downloaded/2-nova.md', CORPUS.nova);
+  // POSITIVE CONTROL for this fixture home: a seed agent in an ordinary arbitrary folder that the
+  // auto scan MUST reach. Its presence proves the bare scan actually walked THIS fixture home, so
+  // the ~/Documents absence below is a real TCC skip, not a dead/unscanned scan.
+  const reachable = homeFolder(HOME, 'SideWork/findall10-reachable', CORPUS.work1); // distinctive leaf (see the reach note above)
+
+  // 🛑 #2125 no-ambush: a BARE (auto, first-run) scan must NOT walk ~/Documents, or it fires the
+  // macOS access prompt on a fresh install. The seed agent there must stay ABSENT.
+  const auto = withHome(HOME, () => withNoGeminiHome(() => discover.scan()));
+  assert.ok(candByDir(auto, reachable), 'positive control: the auto scan did not walk this fixture home at all');
+  assert.ok(!impByBase(auto, path.basename(inDocs)), 'the auto scan reached ~/Documents (TCC ambush, #2125)');
+
+  // ✅ Reached only via the GRANTED import scan: importScan adds Documents/Downloads/Desktop as
+  // tcc:true roots, walked by the app-identity hatch (tccScan), NOT the engine. The stub stands in
+  // for a granted hatch that read the folder and returns the seed agent's loose row - so asserting
+  // it surfaces proves scan() MERGES a granted-TCC find into the import list (the "via grant" path).
+  const head = fs.readFileSync(inDocs, 'utf8');
+  const stub = (tccRoots) => {
+    // Only ever handed the tcc:true roots, and only under importScan.
+    assert.ok(tccRoots.every((rt) => rt.tcc === true), 'a non-tcc root was routed to the hatch');
+    return { dirs: [], loose: [{ file: inDocs, head }], bounded: { dirs: false, importable: false, visited: 1 } };
+  };
+  const granted = withHome(HOME, () => withNoGeminiHome(() => discover.scan({ importScan: true, tccScan: stub })));
+  const row = impByBase(granted, path.basename(inDocs));
+  assert.ok(row, 'the seed agent in ~/Documents was not found even via a granted TCC scan');
+  assert.equal(row.name, 'Fixture Nova', 'the granted-TCC seed agent surfaced under the wrong name');
 });
