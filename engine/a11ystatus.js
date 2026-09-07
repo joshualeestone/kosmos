@@ -1,13 +1,13 @@
 'use strict';
 /**
- * "Does the process macOS holds responsible for agent app-control (tmux) have
- * Accessibility trust?" -- read from a file the NATIVE app writes. (#2125 slice 3)
+ * The native app's Accessibility trust reading -- read from a file the NATIVE app
+ * writes. (#2125 slice 3)
  *
- * 🛑 CORRECTED 2026-09-06 (#2125): the headline question is what this SEAM was
- * meant to answer, but the reading below does NOT actually answer it for tmux.
- * See the attribution note in the next paragraph -- accessibility is keyed on the
- * CALLING BINARY (the kosmos-app), not the responsible process, so the verdict is
- * the APP's trust, not tmux's. Left unresolved pending the #2125 keep/drop fork.
+ * 🛑 IT WAS BUILT TO ANSWER "does the process macOS holds responsible for agent
+ * app-control (tmux) have Accessibility trust?" -- BUT IT DOES NOT (corrected
+ * 2026-09-06, #2125). Accessibility is keyed on the CALLING BINARY (the kosmos-app),
+ * not the responsible process, so the verdict is the APP's trust, not tmux's. The
+ * subject is the app, not tmux. Left unresolved pending the #2125 keep/drop fork.
  *
  * 🔑 WHY A FILE THE NATIVE APP WRITES, AND NOT AN ENGINE CHECK. Accessibility
  * trust is a TCC fact, reachable only from a native macOS call (AXIsProcessTrusted)

@@ -3041,9 +3041,13 @@ if CommandLine.arguments.contains("--kosmos-app-axprompt") {
 // fires the Files-and-Folders prompt for tmux (this hatch's responsible process) on
 // the first undecided access, and write the resulting grant verdict where
 // fileaccessstatus.js reads it. Spawned UNDER the bundled tmux (see the prompt-request
-// watcher) so the grant is attributed to tmux -- the same responsible process the a11y
-// seam and the running agents use -- not to the kosmos-app. One hatch does both the
-// prompt and the verdict, exactly as attempting the access does both in macOS.
+// watcher) so the grant is attributed to tmux -- the responsible process the running
+// agents use -- not to the kosmos-app. One hatch does both the prompt and the verdict,
+// exactly as attempting the access does both in macOS. (Folder-TCC uses the
+// responsible-process model, which is why the under-tmux spawn works HERE. The
+// Accessibility seam does NOT -- it is keyed on the calling binary, so its under-tmux
+// read reports the app, not tmux; see the startA11yTrustChecks correction. Do not read
+// this file-access attribution as evidence the a11y seam attributes to tmux too.)
 if CommandLine.arguments.contains("--kosmos-app-fileaccessprompt") {
     exit(writeFileAccessStatus(granted: fileAccessReading()) ? 0 : 1)
 }
