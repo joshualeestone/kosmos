@@ -322,6 +322,7 @@ const observed = require('./engine/observed');
    derivation as the fallback for an agent it cannot see. */
 const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
+const claudeAccounts = require('./engine/claudeaccounts');
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -4727,6 +4728,77 @@ const server = http.createServer((req, res) => {
         });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         sendJson(res, 200, { account: out.account });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #2420: connect a CLAUDE account via a pasted ANTHROPIC_API_KEY. The Claude analog
+     of POST /api/accounts/openai above. Claude Code's login chooser has no paste-a-key
+     option (both its options are OAuth account logins), so an api-key Claude account is
+     CONFIGURED: the account dir is prepared, the key is validated live with Anthropic,
+     stored in a mode-600 file, and settings.json gets an apiKeyHelper POINTER (never the
+     raw key). The subscription connect flow (/api/connect/*) is unchanged and remains the
+     SEPARATE connection type. */
+  if (pathname === '/api/accounts/claude/apikey' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Runner check first, same ordering as the OpenAI route: install the runner
+        // before the credential, so a bad key with no Claude Code answers needsRunner.
+        const resolved = runners.resolveBin('claude');
+        const liveJob = (runners.status().claude || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
+          sendJson(res, 400, {
+            error: 'we could not find Claude Code on this computer, so there is nothing to sign in to',
+            needsRunner: true,
+            provider: 'claude',
+          });
+          return;
+        }
+        const shape = claudeAccounts.keyProblem(body.key);
+        if (shape) { sendJson(res, 400, { error: shape }); return; }
+        // #2420 taken-label guard, BEFORE the live check and BEFORE prepare. Before the
+        // live check so a doomed add on an existing label does not waste a round-trip
+        // sending the key to Anthropic (mirrors openaiaccounts.addWithKeyLive's label-first
+        // order); before prepare so a REFUSED add never merges hooks into an existing
+        // account's settings.json. NEVER write into an EXISTING account: a label matching a
+        // signed-in SUBSCRIPTION account (identityOf) or an existing api-key account (a
+        // stored key file) would drop a key file + apiKeyHelper into it and SILENTLY switch
+        // its billing to the pasted key (Claude Code prefers apiKeyHelper over the OAuth
+        // subscription).
+        const named = accounts.dirForLabel(body.label);
+        if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+        if (accounts.identityOf(named.dir) || fs.existsSync(claudeAccounts.keyFile(named.dir))) {
+          sendJson(res, 400, { error: 'there is already a Claude account by that name on this computer' });
+          return;
+        }
+        // #1315 discipline: validate LIVE at ADD time. Refuse ONLY a positively-rejected
+        // key (Anthropic's authentication_error); accept CONNECTED and also UNKNOWN
+        // (unreachable / a non-attributed refusal), never blocking a good key on an
+        // answer that does not confirm the key is bad.
+        const live = await claudeAccounts.validateLive(String(body.key || '').trim());
+        if (live.state === claudeAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+        const prepared = accounts.prepare(body.label);
+        if (!prepared.ok) { sendJson(res, 400, { error: prepared.because }); return; }
+        const settingsPath = path.join(prepared.dir, 'settings.json');
+        try {
+          claudeAccounts.storeKey(prepared.dir, body.key);
+          claudeAccounts.wireApiKeyHelper(settingsPath, prepared.dir);
+        } catch {
+          // Anti-litter (mirrors openaiaccounts.addWithKeyLive's undo): take back the
+          // sensitive artifacts we may have written, so a failed add leaves no orphaned
+          // key file or dangling apiKeyHelper pointer behind.
+          try { claudeAccounts.forgetKey(prepared.dir); } catch { /* best effort */ }
+          try { claudeAccounts.unwireApiKeyHelper(settingsPath); } catch { /* best effort */ }
+          sendJson(res, 400, { error: 'we could not store that key on this computer' });
+          return;
+        }
+        // Never the key: the row carries the label + the live connection verdict only.
+        sendJson(res, 200, { account: { label: prepared.label, connection: { state: live.state } } });
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

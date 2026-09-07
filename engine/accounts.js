@@ -348,10 +348,25 @@ async function listLiveNow() {
  * `status.configRoots()` scans, so a directory named anything else is invisible
  * to the memory reading even with the tree shared.
  */
-function prepare(label) {
+/**
+ * The sanitized label and the config dir it maps to, WITHOUT any side effect
+ * (#2420). `prepare` uses this and then creates the dir; a caller that must
+ * decide something about the dir BEFORE creating it (e.g. refuse a taken label
+ * without prepare's hooks-merge touching an existing account) uses it alone.
+ * Returns `{ ok:true, clean, dir }` or `{ ok:false, because }`, the same label
+ * validation prepare has always applied.
+ */
+function dirForLabel(label) {
   const clean = String(label == null ? '' : label).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
-  const dir = path.join(homeDir(), `.claude-${clean}`);
+  return { ok: true, clean, dir: path.join(homeDir(), `.claude-${clean}`) };
+}
+
+function prepare(label) {
+  const named = dirForLabel(label);
+  if (!named.ok) return { ok: false, because: named.because };
+  const clean = named.clean;
+  const dir = named.dir;
   const shared = path.join(homeDir(), '.claude', 'projects');
 
   try { fs.mkdirSync(dir, { recursive: true }); }
@@ -400,6 +415,15 @@ function prepare(label) {
  * would then refuse forever.
  */
 function nextWorkDir() {
+  /* #2420: the basename an api-key Claude account stores its key under. Resolved
+     ONCE (require caches, but hoisting reads cleaner than a per-iteration call) and
+     runtime, so claudeaccounts -> subscription -> (lazy) accounts never re-enters
+     this module mid-load. If the module cannot load, this is null and the occupancy
+     check below is skipped -- failing OPEN, which is SAFE here: a claudeaccounts that
+     will not load means the api-key feature never ran, so no key files exist to
+     contaminate a reused slot. */
+  let apiKeyBasename = null;
+  try { apiKeyBasename = require('./claudeaccounts').KEY_BASENAME; } catch { apiKeyBasename = null; }
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(homeDir(), `.claude-${label}`);
@@ -422,6 +446,15 @@ function nextWorkDir() {
       } catch { cfgFree = false; }
     } catch (err) { cfgFree = Boolean(err && err.code === 'ENOENT'); }
     if (!cfgFree) continue;
+    /* #2420: an api-key Claude account writes NO oauthAccount -- only a
+       settings.json apiKeyHelper and a mode-600 key file -- so the cfg check
+       above reads it as free. It is NOT free: handing its slot to a
+       subscription "add another account" would leave both an apiKeyHelper and
+       an oauthAccount in the dir, and Claude Code prefers apiKeyHelper, so the
+       subscription's billing would silently switch to the stored key (the
+       inverse of the taken-label guard the api-key connect route applies). A
+       stored key file means occupied. */
+    if (apiKeyBasename && fs.existsSync(path.join(dir, apiKeyBasename))) continue;
     /* And freeness demands exactly what preparability demands, or a
        half-formed spot is offered forever while prepare refuses it
        forever: the projects entry must be absent, or a symlink that
@@ -681,5 +714,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

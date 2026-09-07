@@ -243,6 +243,19 @@ test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, s
   assert.equal(accounts.nextWorkDir().label, 'work5');
 });
 
+test('#2420: nextWorkDir skips a slot already holding an api-key Claude account (no oauthAccount, but a stored key)', () => {
+  const home = accounts.HOME_FOR_TEST;
+  // Clean the work slots so this test is independent of earlier ones.
+  for (let n = 1; n <= 8; n += 1) { try { fs.rmSync(nodePath.join(home, `.claude-work${n}`), { recursive: true, force: true }); } catch { /* none */ } }
+  // work1 is an api-key account: NO .claude.json (so the oauthAccount check reads it
+  // "free"), but a mode-600 key file. It must be treated as OCCUPIED, or a subscription
+  // add would land on it and switch its billing to the key.
+  const w1 = nodePath.join(home, '.claude-work1');
+  fs.mkdirSync(w1, { recursive: true });
+  fs.writeFileSync(nodePath.join(w1, require('./claudeaccounts').KEY_BASENAME), 'sk-ant-stored', { mode: 0o600 });
+  assert.equal(accounts.nextWorkDir().label, 'work2', 'the api-key slot is skipped, not offered to a subscription');
+});
+
 /* ---- #881: listLive() ---------------------------------------------------
    Injected runner throughout (subscription.js's own test seam), never a
    real `claude auth status` call. */
