@@ -37,7 +37,9 @@
  *   5. #3/#4 half (b): the import scan is two-phase. Scenario 9: a scanning:true response shows the
  *      partial (non-TCC) rows immediately, not marked full, and the retry lands the complete set
  *      (TCC rows) and marks it full. Scenario 10: bounded.tccUnavailable is a COMPLETE scan (full,
- *      single call, no retry loop) that shows a "could not scan Documents" hint.
+ *      single call, no retry loop) that shows a "could not scan Documents" hint. Scenario 11: a
+ *      GRANTED scan that hiccups at S9 ENTRY still ARMS the poll (retry not foreclosed) and recovers
+ *      -- the in-flight guard blocks arming during a scan but must allow it once one settles not-full.
  *
  * DOM-state + which-route assertions only, so headless is fine.
  *
@@ -439,6 +441,36 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (s10.full && hits.scanImport === 1) ok('#3/#4(b): tccUnavailable is a COMPLETE scan (full, single call, no retry loop)'); else bad('#3/#4(b) tccUnavailable complete', JSON.stringify({ s10, scanImport: hits.scanImport }));
     if (s10.hint && s10.offer === 1) ok('#3/#4(b): tccUnavailable shows the "could not scan Documents" hint alongside the rows found'); else bad('#3/#4(b) tccUnavailable hint', JSON.stringify(s10));
 
+    // ── 11. #3/#4(b) BLOCKER guard: a GRANTED scan that hiccups at S9 ENTRY still arms the poll. ──
+    // Grant is already true when the person reaches S9 (synchronous grant). The initial granted scan
+    // hiccups (out=null). FR_SCAN_FULL is false -> the grant-flip poll must ARM (grant already true,
+    // so it re-scans every tick until it delivers) and NOT be foreclosed. The in-flight guard blocks
+    // arming DURING the scan but must allow it once the scan has SETTLED not-delivered. Then recover.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    expect500 = true;                                              // this scenario's 500s are expected noise
+    grant = { checkable: true, granted: true, at: Date.now() };    // granted AT ENTRY (synchronous)
+    scanImportFail = true;                                          // the granted scan hiccups
+    scanImportScanningLeft = 0; importBounded = {};
+    importCandidates = [{ dir: '/Users/x/Documents/entry-agent', name: 'Entry agent', role: 'r', preview: 'p' }];
+    importFiles = [];
+    await p.evaluate(() => { FR_RESCAN_INTERVAL_MS = 20; FR_IMPORT_RETRY_MS = 20; });
+    await p.evaluate(async () => {
+      FR = { path: 'create', fleetCount: 0 };
+      FR_FOUND = { ok: true, agents: [], adoptable: [] };
+      FR_SCAN = null; FR_SCAN_GEN = 0; FR_SCAN_FULL = false;
+      frRescanStop();
+      await frScanAgents();                                        // granted-at-entry scan; hiccups
+    });
+    const armed11 = await p.evaluate(() => ({ armed: FR_RESCAN_TIMER !== null, full: FR_SCAN_FULL, inflight: FR_SCAN_INFLIGHT }));
+    if (armed11.armed && !armed11.full && !armed11.inflight)
+      ok('#3/#4(b): a granted scan that hiccups at S9 entry ARMS the poll (retry not foreclosed)');
+    else bad('#3/#4(b) granted-entry hiccup arms poll', JSON.stringify({ armed11, scanImport: hits.scanImport }));
+    // The scan recovers: the armed poll re-scans (grant already true) and delivers.
+    scanImportFail = false;
+    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 3000 }).catch(() => {});
+    const rec11 = await p.evaluate(() => ({ full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null, offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1 }));
+    if (rec11.full && rec11.stopped && rec11.offer === 1) ok('#3/#4(b): the armed poll recovers a granted-entry hiccup (re-scans, delivers, stops)'); else bad('#3/#4(b) granted-entry recovers', JSON.stringify(rec11));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -448,7 +480,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 28) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 28), so a check was skipped -- proving nothing'); process.exit(1); }
+  if (ran < 30) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 30), so a check was skipped -- proving nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or
