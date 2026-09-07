@@ -6037,7 +6037,53 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
             return null;
           }
-          return connect.start({ configDir: known.dir, requireInstallConfirm: true, installConfirmed });
+          /* 🛑 #1922: THE DEFAULT ACCOUNT IS ADDRESSED BY OMITTING configDir, NOT
+             BY PASSING ITS DIR. Its config is `<HOME>/.claude.json`, a file
+             BESIDE `<HOME>/.claude` -- and `CLAUDE_CONFIG_DIR=<HOME>/.claude`
+             makes the real `claude` binary read and write
+             `<HOME>/.claude/.claude.json` instead, a different file holding a
+             different account. Passing `known.dir` here therefore ran the whole
+             OAuth flow and landed the refreshed credential where nothing reads
+             it. ⚠️ ON A MACHINE WHOSE DECOY READS SIGNED-OUT -- the qualifier
+             belongs on this half too, and an earlier version put it only on the
+             paragraph below. Where the decoy reads CONNECTED the flow never ran
+             at all, so the symptom differs by machine. **And the green check is
+             #1916, not evidence for this defect: it would have gone green even
+             if this write had succeeded.**
+             `accounts.listLive` and `/api/agent/:name/account-status` already
+             scope the default this way and say why; this route did not, which is
+             the asymmetry the card is about. Omitting it lets the CLI use its own
+             default resolution, which is what finds the real account.
+
+             ⚠️ WHAT THIS FIX DOES NOT DO, RECORDED HERE BECAUSE THE RESIDUAL IS
+             QUIETER THAN THE DEFECT AND WILL OTHERWISE BE RE-FILED AS A FRESH
+             REGRESSION. On a machine whose stored default reads CONNECTED, the
+             press now returns almost immediately and paints a green
+             "Successfully connected" (`acctFlowPaint` -> `acctShowSuccess` on
+             `phase: connected`), having opened nothing -- where it used to run
+             the whole OAuth flow into the wrong file. **It reports SUCCESS on a
+             dead credential; it does not merely appear to do nothing.** And the
+             population MAY widen, and pre-fix behaviour is MACHINE-DEPENDENT
+             rather than uniform: pre-fix `checkLive` read the decoy, so the flow
+             ran only where that decoy answered NONE specifically -- the gate is
+             `state === NONE`, so an UNKNOWN decoy (unparseable, ENOENT, timeout)
+             took the connected exit too. Post-fix it reads the real file,
+             `claude auth status` answers loggedIn (#874/#1916), and the #1560
+             gate holds shut WHEREVER THAT STATUS REPORTS A LOGIN EXISTS -- the
+             dead-but-present population this card is about. **Not every
+             default-account machine:** `checkLive` returns NONE on a recognised
+             `loggedIn: false`, so a genuinely signed-out user still opens the
+             gate and the flow runs (asserted by the `#1560` "world says signed
+             out" arm), and a missing binary opens it too. Both are broken; the routing is no longer
+             the reason, and the repair is #1937. **The flow
+             behind the #1560 gate still cannot repair a dead credential: the
+             launch is a bare `claude` with no login argument. That is kosmos#1937
+             and it is not fixed here.** */
+          return connect.start({
+            configDir: known.isDefault ? null : known.dir,
+            requireInstallConfirm: true,
+            installConfirmed,
+          });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory

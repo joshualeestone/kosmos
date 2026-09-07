@@ -652,6 +652,272 @@ function driverTest(name, fn) {
   });
 }
 
+/**
+ * #1922: THE DEFAULT-ACCOUNT LAUNCH MUST UNSET `CLAUDE_CONFIG_DIR`, NOT MERELY
+ * DECLINE TO SET IT.
+ *
+ * 🛑 THE HOLE. A launch that merely OMITS the assignment still lets an ambient
+ * `CLAUDE_CONFIG_DIR` reach the CLI. ⚠️ It arrives from the TMUX SERVER **when
+ * one is already running** -- `tools/witness-pane-env.sh` records as measured on
+ * tmux 3.6a that tmux does not hand a client's environment to a session on an
+ * already-running server, and this launch uses the shared socket with no `-e`.
+ * **On a COLD server it arrives from THIS process instead**, because
+ * `new-session` starts the server and a fresh server inherits its launching
+ * client's environment. The witness seeds a server first, so it measures only
+ * the warm case. **The cold case is plausibly the first-run path, and that too is
+ * unmeasured** -- nobody here has counted how often a Kosmos machine has no tmux
+ * server when this launch runs.
+ * ⚠️ THAT WITNESS RUNS ON A **PRIVATE** SOCKET WITH `-f /dev/null`, deliberately
+ * (its header says a config extending `update-environment` would hide the
+ * mechanism), so applying it to this launch's SHARED socket is an INFERENCE from
+ * the mechanism, not a second measurement. The same qualifier is on the source
+ * comment in `engine/connect.js`; it was added there first and not here, which
+ * is the partial-sweep shape this branch keeps producing.
+ * So on a warm server the pane inherits whichever account started it, and the
+ * sign-in would write the refreshed credential there instead of into the default
+ * account the person asked to repair. ⚠️ An earlier version ended this paragraph
+ * "routinely a DIFFERENT one on a Kosmos machine". **Two problems: on the COLD
+ * path the server was started by this very process, so it is not a different
+ * account at all; and "routinely" was an unmeasured claim about typical machine
+ * state, asserted flatly inside a comment whose whole subject is the
+ * measured/unmeasured distinction.** The correction had been applied to the
+ * premise paragraph above and not to the paragraph drawing the conclusion from
+ * it, three lines later, in the same comment.
+ *
+ * ⭐ `env -u` is the right instrument precisely BECAUSE it runs inside the pane:
+ * it strips the variable whatever its source, so it does not depend on knowing
+ * which layer leaked it.
+ *
+ * ⭐ `subscription.checkLive` already defends the READ side and states the rule:
+ * it builds its env and `delete env.CLAUDE_CONFIG_DIR` "rather than trusting it
+ * to be unset". These arms are the WRITE side of the same guarantee.
+ *
+ * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE, STATED AS A HARNESS FACT
+ * RATHER THAN AN IMPOSSIBILITY. `server.connect.test.js` sets
+ * `AGENT_WORKFORCE_DRY_RUN = '1'` at MODULE SCOPE, so `start()` returns at the
+ * install-confirm guard and never reaches a launch decision **as that harness is
+ * currently configured**.
+ *
+ * 🛑 IT IS NOT AN IMPOSSIBILITY, AND TWO EARLIER VERSIONS OF THIS PARAGRAPH SAID
+ * IT WAS, IN THE SAME WAY, ONE ROUND APART:
+ *   1. "both route harnesses SET `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`" -- wrong
+ *      (12 of 44 `server.*.test.js` files set THAT variable, which is NOT the
+ *      dry-run seam named above; the two were both called "the seam" here and
+ *      that collision is the whole reason this row was misread. **The ratio goes
+ *      stale silently, so re-count rather than trusting it:**
+ *      `find . -maxdepth 1 -name 'server.*.test.js' -exec grep -l AGENT_WORKFORCE_CLAUDE_CONFIG_DIR {} + | wc -l`),
+ *      not the blocker, and self-defeating, since THIS ARM DELETES THAT VARIABLE
+ *      (see the `delete process.env...` below).
+ *   2. "a launch arm CANNOT live there whatever the seam does" -- **carries the
+ *      identical flaw**. `connect.setDryRun` is exported and the arm below
+ *      escapes the dry run with it; the route suite already requires the same
+ *      module and calls `resetForTests()`, so it could do exactly that.
+ * ⇒ **Each replacement diagnosed its predecessor's absolute and then asserted a
+ * new one.** The honest form names the configuration, not a law.
+ *
+ * ⚠️ WHAT THAT FORECLOSES, SO THE GAP IS VISIBLE RATHER THAN IMPLIED: **nothing
+ * exercises the route's `known.isDefault ? null : known.dir` through to the
+ * launch argv.** Route arms stop at the install-confirm guard; these engine arms
+ * call `connect.start()` directly. Both halves are covered, their composition is
+ * not. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
+ * IT WAS NOT -- but not for the reason an earlier version of this docblock gave.
+ * It said the fix was to observe the ARGV "rather than to remove the condition
+ * that hides it". **This arm DOES remove it** (`delete
+ * process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, below), and must: the `else`
+ * branch is unreachable while the seam is set. What was actually wrong was the
+ * belief that removing it would not be ENOUGH. It is enough, once the
+ * observation point is the launch ARGV via `connect.setRunner` rather than a
+ * config file. **"Unguardable" was "I picked the harder observation point."**
+ */
+driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CLI', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  /* `setDryRun(false)` is this file's universal convention for `driverTest`.
+     ⚠️ NOT because "a dry run does not make a launch" -- with an injected runner
+     it would: `run()` returns `runner(...)` BEFORE it consults DRY_RUN, so the
+     `new-session` is recorded either way. `driverTest` clears the config, so
+     `start()` falls through rather than taking the connected early exit. */
+  connect.setDryRun(false);
+  /* 🛑 THE WARNING IS CAPTURED AND ASSERTED, NOT LEFT TO PRINT. Removing the
+     DIR seam while AGENT_WORKFORCE_CLAUDE_CONFIG stays set is exactly the
+     mismatch launchSignin warns about, and this file's header says a warning
+     firing on every green run trains people to ignore it. Deleting BOTH seams
+     was tried and breaks the arm (the flow never reaches a launch), so the
+     warning is turned into coverage instead: it MUST fire here, and asserting
+     that also guards the warning itself against silent removal.
+
+     📌 KEPT DELIBERATELY, THOUGH IT COUPLES A #1922 ARM TO A WARNING THAT IS NOT
+     #1922's SUBJECT (so a legitimate future removal of that warning reddens this
+     arm). The coupling is load-bearing rather than incidental: deleting the DIR
+     seam is HOW this arm reaches the no-launch-dir branch at all, and the
+     warning firing is the only observable proving it got there. Without it the
+     arm could silently start exercising the assignment branch and still pass its
+     other assertions. If the warning is ever removed, replace this assertion
+     with another positive signal that the branch was taken -- do not simply
+     delete it. */
+  const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  const warned = [];
+  const realWarn = console.warn;
+  /* Records and RE-EMITS: replacing console.warn globally while the driver tick
+     is running would otherwise swallow any unrelated warning in this window. */
+  console.warn = (...a) => {
+    const line = a.join(' ');
+    warned.push(line);
+    /* Swallow ONLY the mismatch warning this arm deliberately provokes and
+       asserts below; anything else still reaches the run, so replacing a global
+       here cannot hide an unrelated warning. */
+    if (!line.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')) realWarn.apply(console, a);
+  };
+  try {
+    await connect.start();
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'no session was made, so this arm asserts nothing about the launch');
+    const i = made.indexOf('env');
+    assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form this assertion reads');
+    /* Order-independent for DETECTION, and the `-u` SEARCH is bounded to the
+       `env` slice like its sibling in the control: an unrelated `-u` elsewhere
+       in the tmux invocation is not this card's business. (The
+       no-re-assignment assertion below deliberately scans the WHOLE argv, not
+       the slice. ⚠️ An earlier version justified that with "a tmux-level
+       `-e CLAUDE_CONFIG_DIR=...` would put the value back". **It would not:**
+       `-e` populates the SESSION environment and the `env -u` runs INSIDE the
+       pane afterwards, so the key is still stripped before `claude` is exec'd.
+       The wider scan is kept because it is fail-safe and costs nothing, not
+       because that shape defeats the fix.)
+
+       🛑 BUT ORDER IS NOT FREE, AND THE VERSION OF THIS COMMENT THAT SHIPPED
+       FIRST SAID IT WAS -- it called an assignment ahead of `-u` a reddening
+       "for a reason unrelated to this card". That is measurably false. `env`
+       stops option parsing at its first operand, so an assignment pushed AHEAD
+       of `-u` does not reorder the launch, it KILLS it. Measured, three arms:
+
+         env -u LEAK sh -c ...        -> LEAK=[UNSET]                  exit 0
+         env FOO=1 -u LEAK sh -c ...  -> env: -u: No such file or dir  exit 127
+         env -u LEAK FOO=1 sh -c ...  -> LEAK=[UNSET] FOO=[1]          exit 0
+
+       The middle arm is the one that matters: WITHOUT the ordering assertion
+       below, this test passes on an argv that cannot launch at all. */
+    const envSlice = made.slice(i);
+    /* 📌 FIRST `-u` ONLY. `indexOf` stops at the first, so the
+       "order-independent" claim above holds while the slice carries at most one
+       `-u`; `['env','-u','OTHER','-u','CLAUDE_CONFIG_DIR',bin]` reddens this arm.
+       The launch emits one, and the direction is fail-safe (false red, never
+       false pass) -- same convention as the grammar walk's unrecognised
+       options. */
+    const u = envSlice.indexOf('-u');
+    assert.ok(u >= 0 && envSlice[u + 1] === 'CLAUDE_CONFIG_DIR',
+      'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '
+      + '(from the tmux server, which this arm cannot see) reaches the CLI and the '
+      + 'credential lands on another account');
+    assert.ok(!made.some((a) => typeof a === 'string' && a.startsWith('CLAUDE_CONFIG_DIR=')),
+      'the default launch both unsets and re-assigns CLAUDE_CONFIG_DIR, so the unset is undone');
+    /* The ordering half of the pair above: `-u` must precede EVERY assignment in
+       the `env` slice, or `env` treats it as a file to execute and exits 127. */
+    const firstAssign = envSlice.findIndex(
+      (a) => typeof a === 'string' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(a));
+    assert.ok(firstAssign === -1 || u < firstAssign,
+      'an assignment sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
+      + '`env` stops option parsing at its first operand, so this launch exits 127 with '
+      + '"env: -u: No such file or directory" instead of signing anyone in');
+    /* 🛑 THE ASSIGNMENT IS NOT THE ONLY OPERAND, AND THE OTHER ONE FAILS SILENTLY. The binary
+       path is an operand too, so `['env', <bin>, '-u', 'CLAUDE_CONFIG_DIR']` satisfies every
+       assertion above -- `-u` is present, followed by the right name, and there is no `NAME=`
+       token anywhere -- while doing the opposite of what this arm exists to check.
+
+       ⚠️ AND IT IS WORSE THAN THE ASSIGNMENT CASE, WHICH IS WHY IT NEEDS ITS OWN ASSERTION.
+       Measured, both bad forms:
+         env FOO=1 -u LEAK sh -c ...   -> "env: -u: No such file..."   exit 127   LOUD
+         env sh -c '...' -u LEAK       -> LEAK=[present]               exit 0     SILENT
+       The operand form LAUNCHES. `claude` receives `-u CLAUDE_CONFIG_DIR` as junk argv and the
+       variable is never stripped, so the sign-in runs and writes to the leaked account -- exactly
+       the #1922 defect, wearing a green test. */
+    /* 🔑 WALK `env`'s ARGUMENT GRAMMAR TO FIND THE FIRST OPERAND, rather than assuming
+       the operand is the last element. An earlier version asserted
+       `u + 1 < envSlice.length - 1`, which says "the `-u` pair is not the final two
+       elements". That equals the property we want ONLY while the launch pushes exactly
+       one operand and pushes it last -- and **kosmos#1937's stated remedy is to add a
+       login argument after the binary**, which would break that invariant and leave this
+       arm passing on `['env', bin, '-u', 'CLAUDE_CONFIG_DIR', '<arg>']` while it leaks.
+       Assert the property directly instead. ⚠️ THE WALK RECOGNISES EXACTLY TWO
+       TOKEN KINDS: `-u NAME` and `NAME=value`. Any other legal `env(1)` option
+       (`-i`, `-0`, `-v`, `-C`, `-P`, `-S`, `--`; macOS's synopsis is
+       `env [-0iv] [-C workdir] [-P utilpath] [-S string]`) is classified as the OPERAND, so an
+       argv using one would redden this arm. **The launch emits neither today, and
+       the direction is fail-safe** (a false red, never a false pass), so this is
+       a maintenance signal rather than a hole: whoever adds such an option must
+       teach the walk about it. */
+    let opIdx = 1;
+    while (opIdx < envSlice.length) {
+      const tok = envSlice[opIdx];
+      if (tok === '-u') { opIdx += 2; continue; }
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) { opIdx += 1; continue; }
+      break;
+    }
+    assert.ok(u < opIdx,
+      'the command operand sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
+      + '`env` stops option parsing at its first operand, so this argv EXITS 0, launches the CLI '
+      + 'with `-u CLAUDE_CONFIG_DIR` as junk flags, and never unsets the variable -- the defect '
+      + 'this arm exists to catch, passing silently');
+    assert.ok(warned.some((w) => w.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')),
+      'the config/dir mismatch warning did not fire, so either the arm is no longer '
+      + 'exercising the no-launch-dir path or the warning has been removed');
+  } finally {
+    console.warn = realWarn;
+    if (saved !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = saved;
+  }
+});
+
+/**
+ * ⭐ THE CONTROL. Without it the arm above is satisfied by pushing `-u` on EVERY
+ * launch, which would strip a labelled account's own directory and send its
+ * sign-in to the ambient default -- a worse bug than the one being fixed.
+ */
+driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_DIR to that account', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  const dir = nodePath.join(SANDBOX, 'labelled-acct');
+  await connect.start({ configDir: dir });
+  await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+  const made = term.all.find((a) => a[0] === 'new-session');
+  assert.ok(made, 'no session was made, so this control asserts nothing');
+  const i = made.indexOf('env');
+  assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form');
+  assert.equal(made[i + 1], `CLAUDE_CONFIG_DIR=${dir}`,
+    'a labelled account lost its own config dir, so its sign-in would write to the ambient default');
+  /* ⚠️ PRESENCE IS NOT ENOUGH: `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR
+     <bin>` satisfies the assertion above. Assert nothing follows it.
+
+     🛑 AND THE MECHANISM IS NOT WHAT THIS COMMENT SAID FOR SIX ITERATIONS. It
+     claimed that argv "still strips the variable". It does not strip anything:
+     `env` stops option parsing at its first operand, so `-u` after an assignment
+     is read as a FILE TO EXECUTE. Measured, `env FOO=dir -u FOO /bin/sh -c ...`
+     -> `env: -u: No such file or directory`, **exit 127**. The launch dies before
+     `claude` is exec'd. Same table as the sibling arm above; the assertion was
+     always right and only its reason was wrong. */
+  /* Bounded to the `env` slice, like its sibling in the default arm: an
+     unrelated `-u` elsewhere in the tmux invocation is not this card's business.
+
+     📌 WHY THIS ARM IS POSITIONAL (`made[i + 1]`) WHILE ITS SIBLING IS NOT.
+     ⚠️ An earlier rationale here said "an assignment MAY sit first, so pinning it
+     at i+1 costs nothing". **That argues for PERMITTING other assignments, not
+     for pinning THIS one**, and the sibling arm was deliberately made
+     order-independent against exactly that hypothetical. The honest reason is
+     narrower: this control exists to prove the labelled account's OWN directory
+     is passed, the launch emits it as the first token after `env`, and pinning
+     the position is the strictest available statement of that. If the launch
+     ever emits another assignment first, this arm goes RED and a red here is
+     fail-safe -- it is a false alarm, never a false pass. */
+  assert.ok(!made.slice(i).includes('-u'),
+    'a `-u` follows the assignment in the labelled launch\'s `env` slice. `env` stops option '
+    + 'parsing at its first operand, so BOTH shapes are broken and they fail DIFFERENTLY: '
+    + '`env VAR=x -u OTHER <bin>` exits 127 ("env: -u: No such file or directory") and opens '
+    + 'nothing, while `env VAR=x <bin> -u OTHER` exits 0 and hands `-u OTHER` to the CLI as '
+    + 'junk argv. This assertion catches both; do not assume the loud one');
+});
+
 driverTest('the driver walks the measured flow end to end', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);

@@ -1116,6 +1116,32 @@ async function start(opts) {
     const live = binaryOnDisk
       ? await subscription.checkLive(configDir ? { configDir } : undefined)
       : { state: subscription.STATE.UNKNOWN };
+    /* 📌 #1922 CONSIDERED AND REJECTED BYPASSING THIS GATE FOR AN EXPLICIT
+       RE-AUTH. Kept short deliberately, per the MOVE-THEN-TRIM rule this file
+       states above: the retraction history lives on #1922 and #1937, not here.
+
+       `checkLive` reports that a login EXISTS, never that it WORKS (#874), so a
+       person repairing a dead credential is refused by a check that cannot see
+       it is dead. Opening the gate looks like the fix. It is not, on its own:
+       `launchSignin` launches a bare `claude` with no login argument, and the
+       repl arm re-reads the same config that already said CONNECTED, so the
+       press ends where it started. That is #1937, and the gate and the launch
+       have to change together.
+
+       🔑 THE PREMISE THIS TURNS ON IS NOW MEASURED, AND IT CAME BACK THE WAY
+       THAT KEEPS THE GATE SHUT. A cold bare `claude` against an already-dead
+       credential DROPS INTO THE REPL ("Not logged in - Run /login"): no
+       auto-prompt, no walkable chooser, so the pane does not classify as
+       login-method and the driver has nothing to walk. Measured cold on a
+       fabricated account, #1937. (Consistent with the RUNNING-session case:
+       AUTH_FRIENDLY_MESSAGE in `engine/status.js` (#1884). It is NOT exported,
+       so the NAME greps to zero in the test; the strings are pinned
+       behaviourally: `grep -n 'the evidence must name the remedy' engine/status.test.js`.)
+
+       ⇒ **Opening this gate alone buys NOTHING** -- the tick re-reads the
+       still-CONNECTED file and finishes connected. The gate and the launch have
+       to change together, which is #1937, and `/login` from that REPL does yield
+       the chooser and the browser-open OAuth this driver already walks. */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
@@ -1868,8 +1894,74 @@ async function launchSignin(owner) {
   const launchDir = owner.configDir || process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
   if (launchDir) {
     cmd.push(`CLAUDE_CONFIG_DIR=${launchDir}`);
+  } else {
+    /* 🛑 #1922: UNSET IT, DO NOT MERELY DECLINE TO SET IT. No launch dir means
+       "the true default account", NOT "whatever CLAUDE_CONFIG_DIR the pane
+       happens to inherit", and an omitted assignment is NOT an unset variable.
+
+       ⚠️ THE LEAK HAS TWO SOURCES AND THE WITNESS ONLY MEASURES ONE.
+       **WARM SERVER (measured):** #586, `tools/witness-pane-env.sh`, tmux 3.6a.
+       tmux does NOT hand a client's environment to a session made on an
+       ALREADY-RUNNING server, so the pane inherits whichever account STARTED the
+       server -- a value this process cannot inspect. The witness seeds a server
+       before measuring, so this is the only case it can answer.
+       **COLD SERVER (not measured, and PLAUSIBLY the first-run path -- nobody
+       here has counted how often a Kosmos machine has no tmux server when this
+       launch runs, so that frequency is unmeasured too):** this
+       launch uses the DEFAULT socket with no `-L`, so when no server is running
+       `new-session` STARTS one, and a fresh server inherits its launching
+       client's environment -- meaning the leaked value is THIS process's own and
+       IS inspectable.
+       ⇒ An earlier version asserted only the first and called the value
+       uninspectable full stop. **The evidence was scoped to a warm server and
+       the sentence was not.** ⚠️ That witness runs on a PRIVATE socket with
+       `-f /dev/null`, deliberately, so no config can mask the mechanism; this
+       launch uses the SHARED socket, so applying it here is an inference from
+       the mechanism, not a second measurement. It does not change the fix:
+       `env -u` strips the variable inside the pane whatever leaked it.
+
+       `subscription.checkLive` already defends the READ side of exactly this
+       and states the rule: it builds its env and `delete env.CLAUDE_CONFIG_DIR`
+       "rather than trusting it to be unset". This is the WRITE side of the same
+       guarantee, which had been left to trust.
+
+       📌 ONE KEY, DELIBERATELY -- THIS IS NOT PANE SANITISATION. `-u` strips
+       `CLAUDE_CONFIG_DIR` and nothing else, mirroring the single `delete` on the
+       read side. Other inherited variables that steer the CLI (`ANTHROPIC_*`,
+       for instance) still reach the pane. Matching the reader's scope is the
+       right scope for #1922; a general scrub is a different card and would need
+       its own evidence about what each variable does. */
+    cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   cmd.push(claudeBinPath());
+
+  /* 📌 The `-u` pushed above sits AFTER `env` in the tmux argv, so it is part of
+     the shell-command tmux runs and not an option tmux itself consumes. That
+     holds because the `getopt` tmux is built against does not permute: the first
+     operand (`env`) ends option parsing. ⚠️ **PERMUTATION IS A libc PROPERTY, NOT
+     A tmux ONE** -- glibc's `getopt` permutes by default, BSD's does not -- so
+     this is a claim about the platform this ships on (macOS), which is where the
+     standing evidence below was taken. On a permuting libc the reasoning would
+     need re-checking.
+
+     ✅ THE EVIDENCE IS STANDING AND IN THIS REPO, not an unrepeatable manual
+     run. `bin/agent-supervisor.sh` launches every codex pane with TWO `-c`
+     flags around the operand -- tmux's own before it, the runner's after it:
+
+       tmux new-session -d -s <s> -c "$WORKDIR" ... "$CLAUDE" ... -c "$NOTIFY_CFG"
+
+     `-c` IS a real `tmux new-session` flag (`[-c start-directory]`). If tmux
+     permuted, the second would be swallowed and the notify config would never
+     reach the child. It reaches it, in production, on every codex agent.
+
+     ⚠️ NOTHING EXERCISES THE `-u` ARM AGAINST A REAL TMUX. The suite replays
+     argv and cannot see tmux's parser, and `docs/browser-checks/live-connect.js`
+     -- the only real-tmux real-CLI exerciser -- sets
+     `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, so it takes the ASSIGNMENT branch every
+     time. (That seam is set nowhere outside tests and `docs/browser-checks`.
+     Both arms ARE production-reachable; only the coverage is one-sided.) Stated
+     because a reader cannot otherwise tell a guarded property from an unguarded
+     one. */
 
   const made = await tmux(['new-session', '-d', '-s', SESSION, '-x', '220', '-y', '50', ...cmd]);
   if (!made.ok) {

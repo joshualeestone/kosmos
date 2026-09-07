@@ -411,6 +411,162 @@ test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forc
   }
 });
 
+/**
+ * #1922: RE-AUTH ON THE DEFAULT ACCOUNT MUST NOT PASS A `configDir`.
+ *
+ * 🛑 THE DEFECT. `/api/connect/start` with an `accountDir` passed
+ * `connect.start({ configDir: known.dir })` UNCONDITIONALLY. For a LABELLED
+ * account that is right. For the DEFAULT account it is the one thing the rest of
+ * this codebase deliberately never does, and it sent the refreshed credential to
+ * a file nothing reads.
+ *
+ * ⭐ WHY THE DEFAULT IS DIFFERENT, and the measurement is `accounts.js`'s own at
+ * its `listLive`: the default account's config is `<HOME>/.claude.json`, a file
+ * BESIDE `<HOME>/.claude` -- but `CLAUDE_CONFIG_DIR=<HOME>/.claude` makes the
+ * real `claude` binary read and write `<HOME>/.claude/.claude.json` INSTEAD. Two
+ * files, two accounts. `accounts.listLive` and `/api/agent/:name/account-status`
+ * both scope the default with NO configDir for this reason; this route did not.
+ *
+ * 🔑 BOTH ARMS INSTALL A SIGNED-OUT LIVE CHECK VIA `subscription.setRunner`,
+ * BECAUSE THAT IS THE STATE THE CARD IS ABOUT -- a person whose credential is
+ * dead, asking to repair it. **INSTALLED IS NOT INVOKED, and only the default
+ * arm invokes it:** the labelled arm's fixture writes `work1/.claude.json` with
+ * only `oauthAccount.emailAddress`, so `subscription.check` never returns
+ * CONNECTED, and that arm's injected runner is never called at all. ⚠️ An
+ * earlier version said `start()` "never enters the block holding the sole
+ * `checkLive` call". **There are TWO `checkLive` calls in `engine/connect.js`**
+ * (one in `start()`, one in `runFlow()`), so "sole" was wrong; the conclusion
+ * holds for a different reason, which is that these arms return at the
+ * install-confirm guard before `runFlow` is entered at all.
+ *
+ * ⚠️ WHAT IT DOES NOT BUY, STATED BECAUSE AN EARLIER VERSION OF THIS BLOCK
+ * CLAIMED IT DID. These arms do NOT reach a launch decision either way: the
+ * harness sets `AGENT_WORKFORCE_DRY_RUN=1`, so `start()` returns at the
+ * install-confirm guard before claiming a driver. ⚠️ NOT because of `/bin/echo`:
+ * that makes `claudeResolved.present` TRUE, and `haveBinary` starts as exactly
+ * that. It is the dry-run probe refusal that flips it
+ * (`if (!probe.ok || probe.dryRun) haveBinary = false`); the test that pins this
+ * is `'a dry-run probe does not score the binary as working (#1568/#1571)'`
+ * BELOW in this file. ⚠️ An earlier version cited "the header of this file, 400
+ * lines above". **The header says no such thing** -- it says only that
+ * `/bin/echo` is all "Claude is installed" means to `start` -- and the passage
+ * that does state the mechanism is BELOW, not above. Cited by test name rather
+ * than by a line offset, since the offset is what drifted. An earlier version of this block
+ * credited `/bin/echo` and contradicted its own file. The routing value they assert is written by
+ * `writeState({phase: IDLE})` ABOVE both gates, so it is reachable regardless --
+ * mutation-proven: with the pre-fix route and `setRunner` removed, the routing
+ * arm is still RED. **`setRunner` is load-bearing only for the connected-gate
+ * behaviour, not for the routing assertion.** The launch itself is covered in
+ * `engine/connect.test.js`, which intercepts the tmux runner.
+ *
+ * 📌 THE GREEN CHECK IS A SEPARATE DEFECT (#1916) AND IS NOT EVIDENCE HERE.
+ * `checkLive` shells `claude auth status --json`, which reports that a login
+ * EXISTS and never that it WORKS, so it would have gone green even if this
+ * write had succeeded.
+ *
+ * 🛑 NOTHING HERE MINTS, CAPTURES OR PRINTS A CREDENTIAL. The assertion is which
+ * directory the route TARGETS.
+ *
+ * 📌 FIXTURE LIMIT, INHERITED FROM THIS HARNESS RATHER THAN INTRODUCED HERE. The
+ * sandbox splits across two files what production keeps in one:
+ * `subscription.check()` reads `AGENT_WORKFORCE_CLAUDE_CONFIG` while
+ * `accounts.identityOf()` reads `<HOME>/.claude.json`, whereas in production
+ * `configFile()` resolves both to the same file. It does not affect the routing
+ * conclusion, but the arm's premise is carried by the harness seam rather than
+ * by the default account's own record.
+ */
+test('#1922: signing in again to the DEFAULT account does not aim the CLI at the decoy config', async () => {
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const defaultDir = path.join(HOME, '.claude');
+  /* The default account's record lives BESIDE the dir, not inside it -- the very
+     asymmetry under test, so the fixture must use the real shape or it would
+     exercise a labelled account wearing the default's name. */
+  const defaultConfig = path.join(HOME, '.claude.json');
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  try {
+    fs.mkdirSync(defaultDir, { recursive: true });
+    fs.writeFileSync(defaultConfig,
+      JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' } }), 'utf8');
+
+    const row = accounts.list().find((a) => a.dir === defaultDir);
+    assert.ok(row, 'the fixture did not produce a default account, so this would test nothing');
+    assert.equal(row.isDefault, true, 'the fixture account is not the DEFAULT one, the only case under test');
+
+    const got = await post('/api/connect/start', { accountDir: defaultDir });
+    assert.equal(got.status, 200, got.body);
+
+    /* 🔑 THE ROUTING ASSERTION. `publicView` reports `configDir: s.configDir ||
+       null`, so null means the flow was started with none -- which is what lets
+       `claude` use its own default resolution and land on the REAL account. A
+       path here means the CLI was aimed at `<HOME>/.claude`, whose config file
+       is the decoy. */
+    assert.equal(json(got).configDir, null,
+      're-auth on the DEFAULT account passed a configDir, so the CLI writes '
+      + '<HOME>/.claude/.claude.json while every reader looks at <HOME>/.claude.json');
+
+    /* 🛑 AND IT MUST ACTUALLY RUN THE SIGN-IN. Routing correctly to "no
+       configDir" is worthless if the person clicks Sign in again and nothing
+       happens; with the world signed out, #1560 requires the flow to run. */
+    /* ⚠️ A NEGATIVE ASSERTION, AND ITS MESSAGE SAYS ONLY WHAT IT CAN SEE. This
+       passes on `idle` as readily as on a launched flow, so it establishes that
+       the connected early exit was NOT taken -- nothing more. It is deliberately
+       not named "a sign-in ran", because it cannot see one. */
+    assert.notEqual(json(got).phase, 'connected',
+      'the world says signed out and the route still answered connected, so the '
+      + 'connected early exit swallowed a press that named a dead account');
+  } finally {
+    subscription.setRunner(null);
+    /* Cancel before resetForTests, matching the #1585 arm's order. ⚠️ NOT for
+       the reason that arm gives: MEASURED, these arms return at the
+       install-confirm guard BEFORE a driver is claimed, so there is no
+       un-awaited runFlow here and the cancel is a no-op. Kept for consistency
+       with the file, and the reason is stated correctly so a reader does not
+       inherit a false one. */
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(defaultDir, { recursive: true, force: true });
+    fs.rmSync(defaultConfig, { force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
+/**
+ * ⭐ THE CONTROL, AND WITHOUT IT THE ARM ABOVE IS SATISFIED BY DELETING THE
+ * FEATURE. A labelled account MUST still be targeted by its own directory; a fix
+ * that simply stopped passing `configDir` would make re-auth sign in to whatever
+ * the ambient default is, which is a worse bug than the one being fixed.
+ */
+test('#1922 CONTROL: signing in again to a LABELLED account still targets that account', async () => {
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  const work1 = path.join(HOME, '.claude-work1');
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  try {
+    await post('/api/connect/start', { another: true });
+    await post('/api/connect/cancel');
+    assert.ok(fs.existsSync(work1), 'the fixture never made the labelled account');
+    fs.writeFileSync(path.join(work1, '.claude.json'),
+      JSON.stringify({ oauthAccount: { emailAddress: 'work1@example.com' } }), 'utf8');
+    assert.ok(accounts.list().some((a) => a.dir === work1 && a.isDefault !== true),
+      'the fixture account is not a labelled one, so this control proves nothing');
+
+    const got = await post('/api/connect/start', { accountDir: work1 });
+    assert.equal(got.status, 200, got.body);
+    assert.equal(json(got).configDir, work1,
+      'a labelled account lost its own configDir, so re-auth would sign in to the ambient default instead');
+  } finally {
+    subscription.setRunner(null);
+    /* Cancel before resetForTests, matching the file's order. As above, this
+       arm returns at the install-confirm guard before claiming a driver, so the
+       cancel is a no-op rather than the window #1585 describes. */
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(work1, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
 test('#1492: start with accountDir signs in to an EXISTING account instead of making a second one', async () => {
   /* Josh's sister, first outside install: her Claude login expired, Settings
      correctly said not connected, and the ONLY affordance was "add a provider".
