@@ -20,6 +20,17 @@ pass() { printf 'ok   %s\n' "$*"; }
 [ -f "$WF" ] || fail "browser-checks.yml is missing"
 pass "browser-checks.yml exists"
 
+# 0. It is PARSEABLE YAML. The string greps below catch a silent mis-scoping (valid
+#    YAML, wrong config); a broken-indentation edit is a DIFFERENT un-gating this
+#    guard would otherwise miss (it reds only at GitHub's own parser on the PR run).
+#    ruby ships on macOS (dev Macs + the macos-latest runner test:shell runs on); if
+#    it is somehow absent, skip -- GitHub still catches malformed YAML loudly.
+if command -v ruby >/dev/null 2>&1; then
+  ruby -ryaml -e "YAML.load_file(ARGV[0])" "$WF" >/dev/null 2>&1 \
+    || fail "browser-checks.yml is not parseable YAML (a broken-indentation edit would un-gate it silently in test:shell)"
+  pass "browser-checks.yml parses as YAML"
+fi
+
 # CONTROL: the grep instrument works, so a clean run below means the assertion
 # found a populated line rather than an empty file. A known-present string must hit.
 grep -q '^name: browser-checks' "$WF" || fail "the workflow is not named browser-checks (or the file is empty; the grep instrument is dead)"
@@ -59,11 +70,11 @@ grep -qE "^[[:space:]]*paths:" "$WF" || fail "the workflow has no paths filter"
 # (a change there can alter what the checks see), and the self-path re-runs the job
 # when the workflow itself changes (also how THIS PR triggers it). Pinning every
 # entry means a dropped path reds here rather than silently narrowing the trigger.
-for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'tools/provision-pw\.sh' '\.github/workflows/browser-checks\.yml'; do
+for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'tools/provision-pw\.sh' 'test-support/' '\.github/workflows/browser-checks\.yml'; do
   grep -qE "^[[:space:]]*-[[:space:]]*'${p}" "$WF" \
     || fail "the paths filter has no list entry for '${p}'; a change there would not trigger the gate (the #2445 defect)"
 done
-pass "the paths filter LISTS every trigger surface (rendered page, checks, driver, runtime pin, self)"
+pass "the paths filter LISTS every trigger surface (rendered page, checks, driver, runtime pin, test-support deps, self)"
 
 # 5. It runs where a green means what a green 3b means: macos-latest, matching
 #    test.yml and the cut's own 3b environment.

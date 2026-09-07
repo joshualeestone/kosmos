@@ -71,7 +71,10 @@
 #      oversight: it catches the DIRECT-page-change class (the measured #2085 incident,
 #      which touched web/index.html) early, and the cut's headed 3b stays the backstop
 #      for the server/engine-data-driven render changes this trigger cannot see. Do not
-#      read a green here as full render coverage.
+#      read a green here as full render coverage. The CHEAP dependency leaks ARE closed
+#      (test-support/, which fleet.js/fake-tmux.sh live in, is in the filter -- it is
+#      rarely touched, so covering it does not fire on most PRs the way engine/** would);
+#      only the engine/server-DATA leak is left open, deliberately, on the cost trade.
 
 name: browser-checks
 
@@ -91,6 +94,13 @@ on:
       - 'docs/browser-checks/**'
       - 'tools/browser-checks.sh'
       - 'tools/provision-pw.sh'
+      # test-support/ is a HARD dependency of the checks (fleet.js builds the board
+      # the checks assert against; fake-tmux.sh is the tmux the driver + ~30 checks
+      # use), so a change there can break a check the same way a page change can. It
+      # is CHEAP to cover (test-support is rarely touched, so it does not fire on most
+      # PRs the way engine/** would -- see caveat 3), so unlike engine/server this leak
+      # is closed rather than documented.
+      - 'test-support/**'
       - '.github/workflows/browser-checks.yml'
 
 # Least privilege: reads the repo, runs the checks, needs no write scope. Uses
