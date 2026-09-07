@@ -20,6 +20,14 @@
  *  - restartRequired:false -> a no-op switch to the already-booted world: "already your
  *    active Kosmos", NO reload.
  *
+ * #6 EXTENSION: a row click now opens a switch-CONFIRM modal (Josh: switching a Kosmos is
+ * not silent/inline) and only "Restart Kosmos" runs the real switch. Scenario G asserts the
+ * modal appears (Josh-verbatim title, no POST on open), Cancel does not switch and leaves the
+ * menu open, and -- the regression guard -- the #worldsw-restart banner (which lives INSIDE
+ * the switcher menu) survives the Restart click: the modal sits OUTSIDE #worldsw, so without
+ * excluding it from the switcher's outside-click handler that click ran worldswClose() and
+ * cleared the banner mid-switch, hiding the manual/fallback guidance the person needs.
+ *
  * The CONTROL that proves the probe can see a real switch: the pre-fix page has no click
  * handler on .worldsw-row, so the POST-called + marker-moved + reload assertions red on it.
  *
@@ -63,6 +71,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const bannerMsg = () => (document.getElementById('worldsw-restart-msg').textContent || '');
     const bannerHidden = () => document.getElementById('worldsw-restart').hidden;
+    const menuHidden = () => document.getElementById('worldsw-menu').hidden;
 
     // Stub state. registryActive is what the SWITCH flips instantly (GET /api/worlds
     // reflects it, so the rendered marker moves at once). bootedActive is what a LIVE
@@ -140,12 +149,24 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     WORLDSW_RECONNECT_TIMEOUT_MS = 4000;
     worldswReload = () => { reloadCount += 1; };
 
-    const clickSide = async () => {
+    // #6: a row click no longer switches inline -- it opens the switch-CONFIRM modal
+    // (worldswConfirmSwitch), and only "Restart Kosmos" (world-switch-go) runs the real
+    // switch. So the row-invokes-the-switch proof is now two steps: click the row, then
+    // confirm. clickSide does both so the downstream scenarios (banner/POST/reload) still
+    // exercise the whole flow; clickRowOnly stops at the modal for the #6 modal scenario.
+    const clickRowOnly = async () => {
       const rows = [...document.querySelectorAll('#worldsw-list .worldsw-row')];
       const side = rows.find((el) => /Side Project/.test(el.textContent || ''));
       if (!side) return { error: 'no Side Project row rendered' };
-      side.click();  // proves the row (not a direct call) invokes the switch
+      side.click();  // proves the row (not a direct call) opens the confirm modal
       return { rows };
+    };
+    const confirmSwitchGo = () => document.getElementById('world-switch-go').click();
+    const clickSide = async () => {
+      const r = await clickRowOnly();
+      if (r.error) return r;
+      confirmSwitchGo();  // confirm the modal -> worldswSwitch runs
+      return r;
     };
     const waitFor = async (pred, capMs) => {
       const end = Date.now() + capMs;
@@ -191,7 +212,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await worldsFetch(); await sleep(10);
     const cB = await clickSide();
     if (cB.error) return { error: cB.error };
-    await waitFor(() => /restart kosmos/i.test(bannerMsg()), 500);
+    await waitFor(() => /quit and reopen kosmos/i.test(bannerMsg()), 500);
     await sleep(60);  // give any (wrongly-fired) reconnect a chance to poll
     const afterManual = {
       msg: bannerMsg(),
@@ -274,7 +295,54 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const menuClosedAfterTimeout = !!menuEl && menuEl.hidden === true;
     const afterMenuClose = { menuOpenBeforeClose, menuStillOpenAfterClose, bannerVisibleAfterClose, menuClosedAfterTimeout };
 
-    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose };
+    // ---- Scenario G: #6 the switch-CONFIRM modal, and the banner survives Restart ----
+    // A row click opens a confirm modal (Josh's requirement: switching is not silent/inline);
+    // Cancel does not switch and leaves the menu open; "Restart Kosmos" runs the real switch.
+    // THE REGRESSION GUARD: the modal lives OUTSIDE #worldsw but is left open over the menu,
+    // and the #worldsw-restart banner lives INSIDE the menu. A click on Restart bubbles to the
+    // switcher's outside-click document handler; without the modal exclusion that handler ran
+    // worldswClose() (hiding the menu + clearing the banner) while the switch's fetch was still
+    // in flight, so the fallback/manual guidance was written into a hidden menu and never seen.
+    // On a MANUAL switch (no reload), assert the menu is still open and the guidance is visible.
+    registryActive = 'w1'; bootedActive = 'w1'; postMode = 'manual';
+    pendingReboot = false; rebootPollsSeen = 0; reloadCount = 0; statusObserved.length = 0;
+    WORLDSW_RECONNECT_SLOW_MS = 20000; WORLDSW_RECONNECT_TIMEOUT_MS = 150000;
+    await worldsFetch(); await sleep(10);
+    if (typeof worldswOpen === 'function') worldswOpen();      // menu open behind the modal
+    const postsBeforeModal = calls.length;
+    const cG1 = await clickRowOnly();
+    if (cG1.error) return { error: cG1.error };
+    const modalOnRowClick = {
+      visible: !document.getElementById('world-switch-modal').hidden,
+      title: (document.getElementById('world-switch-t').textContent || ''),
+      go: (document.getElementById('world-switch-go').textContent || ''),
+      postedOnOpen: calls.length - postsBeforeModal,     // must be 0: opening the modal is not a switch
+      menuOpen: !menuHidden(),
+    };
+    // Cancel: no switch, menu stays open (matching Escape).
+    document.getElementById('world-switch-cancel').click();
+    const afterCancel = {
+      modalHidden: document.getElementById('world-switch-modal').hidden === true,
+      posted: calls.length - postsBeforeModal,           // still 0
+      menuOpen: !menuHidden(),
+    };
+    // Confirm on a manual switch: the switch fires AND the banner survives the click.
+    const cG2 = await clickRowOnly();
+    if (cG2.error) return { error: cG2.error };
+    confirmSwitchGo();
+    const sawManual = await waitFor(() => /quit and reopen kosmos/i.test(bannerMsg()), 500);
+    await sleep(30);
+    const afterConfirm = {
+      modalHidden: document.getElementById('world-switch-modal').hidden === true,
+      posted: calls.some((c) => c.url === '/api/worlds/active' && c.id === 'w2'),
+      sawManual,
+      guidance: bannerMsg(),
+      bannerVisible: !bannerHidden(),
+      menuStillOpen: !menuHidden(),                       // THE regression guard
+    };
+    const afterConfirmModal = { modalOnRowClick, afterCancel, afterConfirm };
+
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal };
   });
 
   await browser.close();
@@ -300,7 +368,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
     // Scenario B: manual -> honest banner, no reconnect/reload
     const b = r.afterManual;
-    if (!/restart kosmos/i.test(b.msg)) problems.push('on restarting:false the banner should give the manual "restart Kosmos" guidance, got "' + b.msg + '"');
+    if (!/quit and reopen kosmos/i.test(b.msg)) problems.push('on restarting:false the banner should give the softened manual "quit and reopen Kosmos" guidance (Josh scrapped the "run kosmos restart" CLI copy), got "' + b.msg + '"');
     if (b.reloaded) problems.push('a manual (restarting:false) switch must NOT auto-reload');
     if (b.polled !== 0) problems.push('a manual (restarting:false) switch must NOT poll /api/status (no reconnect), but it polled ' + b.polled + ' time(s)');
 
@@ -330,6 +398,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!f.menuStillOpenAfterClose) problems.push('closing the switcher menu DURING a reconnect must keep it open (the guidance banner lives inside it) -- worldswClose should no-op while WORLDSW_RECONNECTING');
     if (!f.bannerVisibleAfterClose) problems.push('the reconnect guidance banner must stay visible after a mid-reconnect menu close');
     if (!f.menuClosedAfterTimeout) problems.push('after the reconnect ends, the menu must be closable again (worldswClose no longer no-ops)');
+
+    // Scenario G: the #6 confirm modal, and the banner survives the Restart click
+    const g = r.afterConfirmModal;
+    if (!g.modalOnRowClick.visible) problems.push('#6: a row click must open the switch-confirm modal (Josh: switching is not silent/inline), but the modal did not appear');
+    if (!/restart kosmos in order to switch to a different kosmos/i.test(g.modalOnRowClick.title)) problems.push('#6: the confirm modal should show Josh\'s verbatim title, got "' + g.modalOnRowClick.title + '"');
+    if (!/restart kosmos/i.test(g.modalOnRowClick.go)) problems.push('#6: the confirm button should read "Restart Kosmos", got "' + g.modalOnRowClick.go + '"');
+    if (g.modalOnRowClick.postedOnOpen !== 0) problems.push('#6: opening the confirm modal must NOT switch yet (POSTed ' + g.modalOnRowClick.postedOnOpen + ' time(s) on open)');
+    if (!g.modalOnRowClick.menuOpen) problems.push('#6: the switcher menu must stay open behind the modal (the status banner lives inside it)');
+    if (!g.afterCancel.modalHidden) problems.push('#6: Cancel must close the confirm modal');
+    if (g.afterCancel.posted !== 0) problems.push('#6: Cancel must NOT switch (POSTed ' + g.afterCancel.posted + ' time(s))');
+    if (!g.afterCancel.menuOpen) problems.push('#6: button/backdrop Cancel must leave the menu open, matching the Escape-cancel path (it tripped the outside-click handler and closed the menu)');
+    if (!g.afterConfirm.modalHidden) problems.push('#6: "Restart Kosmos" must close the confirm modal');
+    if (!g.afterConfirm.posted) problems.push('#6: "Restart Kosmos" must run the real switch (POST /api/worlds/active {id:w2}), but it did not');
+    if (!g.afterConfirm.sawManual || !/quit and reopen kosmos/i.test(g.afterConfirm.guidance)) problems.push('#6: on a manual switch the banner should give the softened "quit and reopen Kosmos" guidance, got "' + g.afterConfirm.guidance + '"');
+    if (!g.afterConfirm.bannerVisible) problems.push('#6 REGRESSION: the #worldsw-restart banner is hidden after clicking Restart -- the outside-click handler cleared it mid-switch');
+    if (!g.afterConfirm.menuStillOpen) problems.push('#6 REGRESSION: the switcher menu is closed after clicking Restart, so the banner (nested inside it) is invisible -- the modal was not excluded from the outside-click handler and worldswClose() ran mid-switch');
   }
 
   console.log('  ' + JSON.stringify(r));
@@ -338,5 +422,5 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-worldswitch-2238: switcher rows switch the active Kosmos (POST /api/worlds/active); restarting:true shows "Switching...", polls the BOOTED world (race-safe), and reloads on the confirmed flip; restarting:false gives honest manual guidance with no reconnect; a no-op switch says already-active. None false-succeed.');
+  console.log('render-worldswitch-2238: a switcher row opens the #6 confirm modal (Josh-verbatim, no switch on open); Cancel leaves the menu open and does not switch; "Restart Kosmos" runs the real switch (POST /api/worlds/active) and the banner survives the click; restarting:true shows "Switching...", polls the BOOTED world (race-safe), and reloads on the confirmed flip; restarting:false gives honest manual guidance with no reconnect; a no-op switch says already-active. None false-succeed.');
 })();

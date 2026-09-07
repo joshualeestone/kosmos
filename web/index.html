@@ -16808,7 +16808,7 @@ function worldswConfirmSwitch(id, name) {
      to a different Kosmos [name]". One line, no reassurance (Josh scrapped the old
      inline copy that carried it). */
   document.getElementById('world-switch-t').textContent =
-    'Restart Kosmos in order to switch to a different Kosmos ' + (name || '');
+    'Restart Kosmos in order to switch to a different Kosmos' + (name ? ' ' + name : '');
   document.getElementById('world-switch-modal').hidden = false;
   document.getElementById('world-switch-go').focus();
 }
@@ -16902,7 +16902,16 @@ async function worldRenameSubmit() {
   // Outside-click closes the menu.
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('worldsw-menu');
-    if (menu && !menu.hidden && !(e.target.closest && e.target.closest('#worldsw'))) worldswClose();
+    // #6: the switch-confirm modal lives OUTSIDE #worldsw but is left OPEN over the menu
+    // (worldswConfirmSwitch keeps the menu up so worldswSwitch's #worldsw-restart banner,
+    // which is nested INSIDE the menu, shows once the modal closes). Without this second
+    // exclusion a click on Restart/Cancel/backdrop bubbles here, matches neither #worldsw
+    // nor the menu-hidden guard, and runs worldswClose() -- hiding the menu and clearing
+    // the banner while the switch's fetch is still in flight (WORLDSW_RECONNECTING not yet
+    // set), so every later say() writes into a hidden menu and the fallback/no-op/error
+    // guidance is never seen. Excluding the modal also makes button/backdrop Cancel leave
+    // the menu open, matching the Escape-cancel path.
+    if (menu && !menu.hidden && !(e.target.closest && (e.target.closest('#worldsw') || e.target.closest('#world-switch-modal')))) worldswClose();
   });
   // Escape closes the create modal first, then the menu.
   document.addEventListener('keydown', (e) => {
@@ -31227,6 +31236,11 @@ document.addEventListener('keydown', (e) => {
        while it is disabled on an empty name, so Tab cycles name<->Cancel until a
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
+    /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap over its
+       two buttons (Cancel, Restart Kosmos), in DOM order. Home is Cancel -- the safe/back
+       choice, matching doc-keep -- though worldswConfirmSwitch opens initial focus on
+       Restart (the primary confirm action). */
+    ['world-switch-modal', ['world-switch-cancel', 'world-switch-go'], 'world-switch-cancel'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
