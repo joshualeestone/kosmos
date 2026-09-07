@@ -12,7 +12,9 @@
  * the gate label, never the caption font. Fix: scope to `#firstrun .fr-body p.s3-step-cap`
  * (1,2,1) so the intended .625rem/600 wins (10px, a small caption). Plus remove the
  * "(stand-in graphic)" `.s3-standin` span that leaked a build note to the user.
- * #10: `.s4-gear` was 38px box / 22px glyph; Josh wants ~2x -> 76px / 44px.
+ * #10: `.s4-gear` was 38px box / 22px glyph; Josh wanted ~2x -> 76px / 44px. Then
+ * 0.6.45 (Josh): the 76px box was too big for the cog (the cog size was right), so
+ * the BOX was tightened to hug it -> ~52px box, glyph stays 44px.
  *
  * WHY A SOURCE READ CANNOT SEE #9: the caption size is a computed cascade result (a
  * bare class losing to an id-scoped rule), not a declared value; only reading the
@@ -23,7 +25,7 @@
  * not that behavior flipped):
  *  1. S3: both `.s3-step-cap` render compact (<= 12px, weight 600), NOT 17px/400.
  *  2. S3: no `.s3-standin` element exists (the dev-note leak is removed).
- *  3. S4: `.s4-gear` is ~2x (box 70-82px, glyph 40-48px), NOT the old 38px/22px.
+ *  3. S4: `.s4-gear` box hugs the cog (box 48-58px, glyph 40-48px), NOT the old 76px box or 38px/22px.
  *  4. S3: the tmux window titles "Accessibility", NOT "Login Items" (0.6.42 #1: the tmux
  *     grant is Privacy & Security > Accessibility, not Login Items). Copy: Mona Lisa.
  *  5. S3: the tmux row sub-text is "Control your computer", NOT "Allow in the background".
@@ -139,8 +141,12 @@ function unhide(id) {
     if (s4.noPane || s4.noGear) {
       check(`${engine}: fr-pane-4 gear reachable`, false, JSON.stringify(s4));
     } else {
-      const gearOk = s4.w >= 70 && s4.w <= 82 && s4.h >= 70 && s4.h <= 82 && s4.font >= 40 && s4.font <= 48;
-      check(`${engine}: the S4 notification cog is ~2x (box 70-82px, glyph 40-48px), not the old 38/22`,
+      // 0.6.45 (Josh): the box was tightened to HUG the cog (was 76px, too big);
+      // the cog glyph stayed 44px (Josh: the cog size was right). So the box is
+      // ~52px now, the glyph still 40-48px, and it must NOT be the old 76px box
+      // nor the original 38/22.
+      const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.font >= 40 && s4.font <= 48;
+      check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px, glyph 40-48px), not the old 76px or 38/22`,
         gearOk, JSON.stringify(s4));
       check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
         /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
