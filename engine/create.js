@@ -1539,7 +1539,10 @@ trust_level = "trusted"
     try { fs.unlinkSync(tmp); } catch { /* the rename never happened */ }
     return { ok: false, removed: false, because: 'we could not update the codex config' };
   }
-  return { ok: true, removed: true, because: null };
+  // #2129/#5: if the OTHER spelling's block was present but hand-edited, we removed
+  // the clean one and (correctly) left theirs -- say so rather than reporting a
+  // plain "took it back" that hides the residue.
+  return { ok: true, removed: true, because: handEdited ? 'one entry for that folder had been changed by hand, so it was left alone; the rest was taken back' : null };
 }
 
 /**
