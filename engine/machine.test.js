@@ -941,11 +941,12 @@ test('the sleep-pane capability: derived from disk by id, refusing honestly, nev
 test('the sleep-pane filter matches STEM names a whole-word filter misses (0.6.41 robustness)', () => {
   const machine = require('./machine');
   try {
-    // `Batteries.appex` contains `batter` but NOT the whole word `battery`, and
-    // `PowerManagement.appex` contains `power`: both are the battery/power pane
-    // on some macOS layouts and must still be probed. The old whole-word filter
-    // dropped `Batteries.appex` before the id check ever ran, which is exactly
-    // how a real macOS could leave the button unable to find its pane.
+    // The discriminating case is `Batteries.appex`: it contains `batter` but NOT
+    // the whole word `battery`, so the OLD `/power|energy|battery/` dropped it
+    // before the id check ever ran -- exactly how a real macOS could leave the
+    // button unable to find its pane. `PowerManagement.appex` (has `power`) and
+    // `EnergySaver.appex` (has `energy`) already matched the old substring filter;
+    // they stay here as belt-and-suspenders coverage, not as proof of the widening.
     for (const name of ['Batteries.appex', 'PowerManagement.appex', 'EnergySaver.appex']) {
       machine.resetSleepPaneCache();
       const url = machine.sleepPaneUrl(
