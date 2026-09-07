@@ -187,6 +187,31 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## VERIFIED STATE (the figure that goes in the proof file)
+
+**`a015f6c7`, rebased to 0 behind, tree clean, pushed.**
+
+    full suite   SUITE_EXIT=0   5030 / 5030   terminal verdict present   lane GATED
+    per-file     status 185/185 · chat 120/120 · observed 6/6
+                 codex-authfailed 13/13 · paneless-roster 10/10
+
+⚠️ **Every earlier suite figure in this file is orphaned by the rebases and is
+historical.** 5029 was `0e64bde1`, three commits back; the +1 is the no-count
+fallback pin. Read any number here with the sha beside it or not at all.
+
+📌 **The lane gate refused a run today and that is it working.** It printed
+`LANE BUSY (34420) - not starting` rather than warning and proceeding, which is the
+lapse I recorded against myself two days ago. The follow-up queued behind it with an
+`until` loop instead of polling, so the suite started the moment the lane cleared.
+✅ **A gate that can refuse is worth more than a probe that reports**, and the
+difference is one `if`.
+
+⛔ **NOT CONVERGED, AND NO PROOF FILE.** Iteration 25 is running. Twenty-four rounds
+in, every round after the first has found a defect introduced by the previous
+round's fix, so a round that returns nothing is a result I have not yet had. The
+brief for 25 says so explicitly and asks it to show what it tried, because a clean
+round and a shallow round are indistinguishable from the outside.
+
 ## FINDINGS 4 AND 5: MY OWN CONVENTIONS, TURNED ON MY OWN CODE
 
 Both arrived from the blind reviewer, both verified here, and both are cases where
