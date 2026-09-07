@@ -1980,6 +1980,11 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
  * carry. Killing it would need the timer too, and the old Claude UI's own line
  * has no timer, so that would drop a real working pane.
  */
+/* 🛑 NO CALLERS. Superseded by `INTERRUPT_LINE_LIVE` below (kosmos#2378) and kept
+   only so this comment has somewhere to live: an unanchored match for the phrase
+   anywhere in a 25-row tail is what read a QUOTED `esc to interrupt` as a live
+   turn. Do not reintroduce a use of it. Verified dead: the only occurrences of
+   this identifier are this definition and prose about it. */
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
 /* #2378. The same phrase, required to sit on a row SHAPED like a live status row
@@ -2004,11 +2009,28 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    new constant, and is independent of pane geometry. The ruling's DECISION (fix
    it, here, not on main) stands; only its mechanism changed, and #2378 says so.
 
-   📌 GLYPH CLASS: `WORKING_LINE`'s, plus `•` for codex's progress line, MINUS `*`.
-   That exclusion is deliberate and its reason is already recorded at
-   `WORKING_LINE`: `*` makes an ordinary markdown bullet read as a working agent,
-   which is the same quotation hazard this constant exists to close. */
-const INTERRUPT_LINE_LIVE = /^\s*[·•✢✳✶✻✽]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)/i;
+   📌 GLYPH CLASS: `WORKING_LINE`'s, plus `•` for codex's progress line. INCLUDING
+   `*`, and an earlier version of this comment excluded it while claiming to be
+   "carrying `WORKING_LINE`'s own recorded reason across".
+   🛑 THAT CITATION WAS INVERTED, WHICH IS WORSE THAN HAVING NO REASON AT ALL.
+   `WORKING_LINE` KEEPS `*`, and says why: "`*` IS a real frame and also a markdown
+   bullet; it stays in because an echoed line would need the ellipsis AND a live
+   timer to slip through, and dropping it would misread every poll that samples
+   that frame." I cited that paragraph as authority for doing the opposite of what
+   it says, and a reviewer endorsed the change partly on the strength of the
+   citation. A false citation reads as diligence; an absent one at least reads as
+   a gap.
+   ⇒ MEASURED CONSEQUENCE, and it is the exact inversion this module's own five-row
+   table says must never happen: on a `*` frame a LIVE spinner stopped being
+   recognised, so the flag survived and a person was told "it can pick this up now"
+   about a pane whose turn is in flight and whose composer QUEUES. The spinner
+   cycles, so that is roughly one capture in seven of any pane both mid-turn and
+   holding a frozen wait row.
+   ✅ AND RESTORING IT COSTS NOTHING, which is the tell that the exclusion was never
+   load-bearing: this constant additionally requires a PARENTHESISED
+   `esc to interrupt` on the row, which a markdown bullet does not carry. The
+   `*`-bullet quotation fixture is rejected by that requirement, not by the glyph. */
+const INTERRUPT_LINE_LIVE = /^\s*[·•✢✳✶✻✽*]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)/i;
 
 /* #2378. True when the tail carries a LIVE interrupt line on its own row. Shared
    by both call sites (Claude and codex) so the two cannot drift apart, which is
@@ -3303,44 +3325,29 @@ function classify(pane, paneText) {
    * not the truth. Do not widen this without a live capture of the shape you are
    * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
    */
-  /* 🛑 THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT HAPPENS. It claimed that a
-     pane carrying both this row and a live spinner shows "the wait line rather
-     than the spinner" as its evidence, and called the trade "a reporting nicety,
-     not a correctness question". BOTH HALVES WERE FALSE, and the second one
-     mattered. `INTERRUPT_LINE` (`/\([^)]*esc to interrupt[^)]*\)/i`) is tested
-     TWO CHECKS ABOVE this one, and Claude Code's live spinner row carries
-     `esc to interrupt`. Re-measured on this tree:
+  /* ⚠️ THIS READER SITS BELOW `hasLiveInterruptLine`, AND THAT ORDER IS CORRECT.
+     A live spinner carrying a parenthesised `esc to interrupt` means a turn really
+     is in flight, so the composer QUEUES a message rather than reading it, and
+     `it is mid-task` is the true sentence. The flag is deliberately NOT carried
+     there; carrying it would produce the false sentence in the other direction.
+     Every spinner frame is pinned in `status.test.js`, both ways.
 
-       wait only                          working  bgWait=true       ev=the wait line
-       wait + live spinner (esc)          working  bgWait=undefined  ev=undefined
-       spinner above wait, NO esc         working  bgWait=true       ev=the wait line
-       wait above spinner (esc)           working  bgWait=undefined  ev=undefined
-       wait + a QUOTED esc in transcript  working  bgWait=undefined  ev=undefined
-
-     ⇒ With a real spinner the card carries NO evidence at all, not the wait line,
-     and the FLAG is lost with it. The flag drives `chat.waitingNote` and the #1966
-     badge gate, so it was never a reporting nicety.
-
-     ✅ ROWS 2 AND 4 ARE CORRECT BEHAVIOUR AND MUST NOT BE "FIXED". `esc to
-     interrupt` means a turn really is in flight, so the composer QUEUES a message
-     rather than reading it, and "it is mid-task" is the true sentence. Carrying
-     the flag there would produce the false one in the other direction.
-
-     🛑 ROW 5 IS A REAL DEFECT AND IT IS NOT TAKEN HERE. `INTERRUPT_LINE` is
-     unanchored and tested against the whole 25-row tail, so an ordinary sentence
-     of transcript containing the phrase in parentheses suppresses the flag with no
-     turn in flight. That is the same quotation residual this reader has a composer
-     anchor and a reach budget for, in a constant that has neither.
-     ⇒ WHY IT IS RAISED RATHER THAN TAKEN: the discriminator is proximity to the
-     composer, which means giving `INTERRUPT_LINE` the reach treatment. That
-     constant is shared by every Claude pane AND the codex path at the other call
-     site, so narrowing it changes precedence fleet-wide for agents that have
-     nothing to do with this card. Same reasoning that kept rule 6 out of this
-     branch, where upstream #1995 later resolved it properly.
-     📌 It predates this branch: without #1889 the same quotation already forced
-     `mid-task`. What is new is that a consumer now ACTS on the flag, so a residual
-     that was cosmetic has a user-visible consequence. Pinned below so the current
-     behaviour is visible and any future narrowing reds. */
+     📌 THE PARAGRAPH THAT USED TO SIT HERE IS DELETED, AND ITS ABSENCE IS THE
+     POINT. It carried a five-row table, a statement that a quoted
+     `esc to interrupt` was a REAL DEFECT NOT TAKEN HERE, and an argument for why
+     narrowing must not be done fleet-wide. All of that was true when written and
+     ALL OF IT WAS FALSE THREE COMMITS LATER, because kosmos#2378 took exactly that
+     narrowing. It named `INTERRUPT_LINE` as tested two checks above (it has no
+     callers left at all now), and its row 5 asserted `bgWait=undefined` where the
+     tree returns `true`.
+     🛑 A READER TRUSTING IT WOULD EITHER REDO WORK ALREADY DONE, OR REVERT #2378 ON
+     THE STRENGTH OF A STANDING OBJECTION TO IT. The test that replaced that row
+     carried the instruction to delete this paragraph when the narrowing landed. I
+     flipped the expectation one step later and left the paragraph, so my own note
+     was addressed to me and I did not read it.
+     ⭐ A COMMENT ARGUING AGAINST A CHANGE THAT SHIPPED IS WORSE THAN A STALE
+     MEASUREMENT: a stale number misleads about the past, a standing objection
+     misleads about what should be done next. */
   const bgWaitLine = backgroundAgentWait(tail);
   if (bgWaitLine !== null) {
     return {

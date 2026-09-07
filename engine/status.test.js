@@ -2350,6 +2350,59 @@ test('#1889: the evidence contract for the background-agent wait line', () => {
   assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
 });
 
+test('#2378: EVERY spinner frame is a live turn, and the anchor is behaviour', () => {
+  /**
+   * 🛑 THE FRAME THAT WAS MISSING WAS `*`, AND EXCLUDING IT INVERTED THE SENTENCE.
+   *
+   * `INTERRUPT_LINE_LIVE` shipped without `*` in its glyph class, on a comment that
+   * claimed to be carrying `WORKING_LINE`'s recorded reason across. `WORKING_LINE`
+   * KEEPS `*` and says why: it "IS a real frame", and "dropping it would misread
+   * every poll that samples that frame". The citation was inverted.
+   *
+   * ⇒ Measured consequence: on a `*` frame a LIVE spinner stopped being recognised,
+   * the flag survived, and a person was told "it can pick this up now" about a pane
+   * whose turn is in flight and whose composer QUEUES. That is precisely the
+   * inversion the five-row test below says must never happen. The spinner cycles,
+   * so it was roughly one capture in seven of any pane both mid-turn and holding a
+   * frozen wait row.
+   *
+   * ⭐ ONE FRAME WAS TESTED AND SEVEN WERE NOT, which is why a defect in the class
+   * survived a round that perturbed the constant. Testing a class needs every
+   * member, not a representative.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const W = '✻ Waiting for 1 background agent to finish';
+  const flagOf = (body) => classify(pane, body + footer).backgroundWait === true;
+
+  for (const frame of ['·', '•', '✢', '✳', '✶', '✻', '✽', '*']) {
+    assert.equal(flagOf(frame + ' Improvising… (35s · ↓ 1.5k tokens · esc to interrupt)\n' + W), false,
+      'a LIVE spinner on frame ' + JSON.stringify(frame) + ' was not recognised, so a queued message is described as read immediately');
+  }
+
+  /* 🛑 AND THE QUOTATIONS MUST STILL BE REJECTED, including the markdown bullet
+     that the `*` exclusion was wrongly justified by. It is rejected by the REQUIRED
+     PARENTHESISED phrase, which a bullet does not carry, never by the glyph. */
+  for (const quoted of [
+    '  * (esc to interrupt) in a markdown bullet',
+    '  - note: (esc to interrupt) cancels',
+    'the docs say (esc to interrupt) works',
+    '  he said (press esc to interrupt) earlier',
+  ]) {
+    assert.equal(flagOf(quoted + '\n' + W), true,
+      'a quotation was read as a live turn: ' + quoted.trim());
+  }
+
+  /* 🛑 THE `^` ANCHOR IS BEHAVIOUR AND NOTHING PINNED IT. Dropping it left the whole
+     5030-test suite byte-identical, because every quotation fixture above happens to
+     carry NO glyph from the class anywhere in the row, so all four are rejected by
+     the glyph requirement alone and none can tell whether the anchor exists. This
+     row carries a real frame MID-ROW, so only the anchor can reject it. */
+  assert.equal(flagOf('he said · Working (esc to interrupt) yesterday\n' + W), true,
+    'a glyph appearing mid-row was read as a live status row, so the ^ anchor is gone');
+});
+
 test('#1889: INTERRUPT_LINE outranks this reader, and the five rows say exactly how', () => {
   /**
    * 🛑 THE COMMENT ABOVE THIS BLOCK IN status.js USED TO CLAIM THE OPPOSITE.
