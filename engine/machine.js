@@ -28,8 +28,31 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
 const runners = require('./runners');
+/* #2397: the from-source detector, borrowed rather than re-derived, so the
+   board-autostart check agrees with the updater about what "an installed
+   bundle" is. update.js does not require machine.js, so this pulls in no
+   cycle (verified). */
+const update = require('./update');
 
 const STATE = { OK: 'ok', ATTENTION: 'attention', UNKNOWN: 'unknown' };
+
+/* #2397: the board's own login-job label. Bare for every real install -- the
+   #883 hash suffix is added ONLY for a non-default KOSMOS_HOME (a sandbox/walk
+   convention that must never touch launchd), so a real user's board is always
+   this literal, the same assumption boardrestart.js's BOARD_LABEL makes. */
+const BOARD_LABEL = 'com.kosmos.board';
+
+/* #2397: the macOS LaunchAgents dir, honouring the #332 launch-dir seam (a
+   sandboxed suite sets AGENT_WORKFORCE_LAUNCH so a check reads ITS dir, never
+   the operator's real LaunchAgents). ONE definition, shared by labelTruthCheck
+   and boardAutostartCheck, so the `process.env.HOME` fallback (a macOS-only
+   branch -- HOME is USERPROFILE on Windows) lives in a single place: the #1732
+   Windows-coupling audit counts it once, and there is no second site to drift.
+   Both callers are macOS-only paths (launchd has no Windows analogue). */
+function launchAgentsDir() {
+  return process.env.AGENT_WORKFORCE_LAUNCH
+    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+}
 
 /**
  * ⚠️ Injectable so the tests never depend on the power settings of whatever
@@ -1150,12 +1173,10 @@ function openFileAccessSettings(runner, lister) {
    OTHER than the one in the real LaunchAgents folder". Reads only; fails
    soft to unknown, never to a false alarm. */
 function labelTruthCheck(runner) {
-  /* The product's own launch-dir seam, the same one the installer honours:
-     a sandboxed suite sets AGENT_WORKFORCE_LAUNCH and this check then reads
-     ITS dir, never the operator's real LaunchAgents (#332's law: a test must
-     not be green or red by what the operator's machine happens to hold). */
-  const launchDir = process.env.AGENT_WORKFORCE_LAUNCH
-    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+  /* The product's own launch-dir seam, the same one the installer honours
+     (#332's law: a test must not be green or red by what the operator's machine
+     happens to hold). Shared with boardAutostartCheck via launchAgentsDir(). */
+  const launchDir = launchAgentsDir();
   let labels = [];
   try {
     labels = fs.readdirSync(launchDir)
@@ -1201,6 +1222,133 @@ function labelTruthCheck(runner) {
       + 'Restarting this computer puts the real one back; if this keeps happening, tell us.' };
 }
 
+/* #2397: does the board's OWN login job exist, and will it come back after a
+   restart? Josh 2026-09-07: "make sure we remember that we do that so it
+   doesn't later on get accidentally deleted and screw white-collar workers who
+   are wondering why it didn't start up."
+
+   THIS IS THE ARM labelTruthCheck DELIBERATELY OMITS. That row asks "does any
+   registered label point at the WRONG file" (an impostor) and returns OK when a
+   job is simply GONE -- the exact `a-guard-that-only-checks-too-many-cannot-see-
+   zero` failure class this card is about. This row asks the zero question: is
+   com.kosmos.board's login job present, and is it enabled.
+
+   THE FORK IS REAL AND MUST NOT COLLAPSE (Josh 2026-09-07, folding #2395):
+     - plist FILE missing (accidental deletion) -> a fault we name plainly.
+     - plist present but the login item TURNED OFF (a standing `disable`
+       override -- exactly what the System Settings > Login Items toggle writes)
+       -> the user's own choice. Surfaced plainly, NEVER fought: force-re-enabling
+       every launch is user-hostile and can get Kosmos flagged by Background Task
+       Management. Two states, two rows.
+
+   WHY PRESENCE (not "loaded right now") IS THE SIGNAL. The board plist carries
+   RunAtLoad, so macOS loads it at the next login from the file's mere presence,
+   UNLESS a standing `disable` override says otherwise. So "present + not
+   disabled" already answers "will it come back": yes. A board that is present
+   but not currently loaded (started by hand this session, or run from source
+   with a plist beside it) still RunAtLoads next login and must not alarm -- which
+   is why the only runtime probe here is `print-disabled`, not `print`.
+
+   DETECTION ONLY, BY DESIGN. Re-creating a deleted plist is safe in the abstract
+   (Josh's comment #1), but at the file layer a deleted file and a user-disabled
+   job are two different faults with two different right answers, and this check
+   never mutates launchd (the same conservatism boardrestart.js is built on). A
+   heal/notify arm is a deliberate follow-up, tracked on #2397.
+
+   Returns null on non-darwin (no launchd login-job concept); check() filters it.
+   @returns {{key,state,title,detail}|null} */
+function boardAutostartCheck(runner, opts) {
+  const platform = opts && opts.platform || process.platform;
+  if (platform !== 'darwin') return null;
+
+  /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
+     darwin path this early-returns above, process.getuid is always a function,
+     so this branch is not reachable here today -- kept (not dropped) so the
+     three launchd-reading checks read identically, and so it stays correct if
+     the platform gate above is ever relaxed. */
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (uid === null) {
+    return { key: 'autostart', state: STATE.UNKNOWN,
+      title: 'We could not check whether Kosmos starts at login',
+      detail: 'Not the same as it being wrong. We could not tell which user this computer runs Kosmos as.' };
+  }
+
+  /* The product's launch-dir seam (#332), shared with labelTruthCheck via
+     launchAgentsDir(): a sandboxed suite sets AGENT_WORKFORCE_LAUNCH so this
+     reads ITS dir, never the operator's real LaunchAgents. */
+  const launchDir = launchAgentsDir();
+  /* ⚠️ statSync + an ENOENT split, NOT fs.existsSync. existsSync NEVER throws, so
+     it collapses "the LaunchAgents dir is unreadable" (EACCES, or a stat error
+     that is not "not found") into "the file is not there" -- turning a
+     could-not-look into a checked negative that would render ATTENTION "Kosmos
+     will not start". So a NON-ENOENT error fails SOFT to unknown here, the same
+     could-not-look discipline installedCheck (ENOENT-vs-EACCES) and
+     labelTruthCheck (unreadable dir -> unknown/OK) already keep.
+     A genuine ENOENT is a real absence and is treated as "no login job" (below),
+     which is deliberately NOT what labelTruthCheck does with a missing
+     LaunchAgents dir (it reports unknown): for "will the board autostart", a
+     missing plist -- whether the file or its whole dir is gone -- is the honest
+     answer that it will not, so this check reports it rather than declining to. */
+  let present;
+  try {
+    fs.statSync(path.join(launchDir, `${BOARD_LABEL}.plist`));
+    present = true;
+  } catch (e) {
+    if (e && e.code === 'ENOENT') {
+      present = false; // genuinely absent (the file, or a parent dir, does not exist)
+    } else {
+      return { key: 'autostart', state: STATE.UNKNOWN,
+        title: 'We could not check whether Kosmos starts at login',
+        detail: 'Not the same as it being wrong. We could not read the folder this computer keeps login jobs in.' };
+    }
+  }
+
+  if (!present) {
+    /* A from-source checkout legitimately has no login job and must not alarm
+       (matching labelTruthCheck's fresh-machine OK). update.installedRoot() is
+       the codebase's own from-source detector; opts.installedRoot overrides it
+       for tests without mutating update's global seam. */
+    const installed = (opts && 'installedRoot' in opts) ? opts.installedRoot : update.installedRoot();
+    if (!installed) {
+      return { key: 'autostart', state: STATE.OK,
+        title: 'Kosmos is running from source',
+        detail: 'There is no login job to check: a from-source checkout is started by hand, not by macOS at login.' };
+    }
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos will not start itself when you log in',
+      detail: 'The login job that brings Kosmos back after a restart is missing, so your agents will not '
+        + 'come back on their own until it is restored. Reinstalling Kosmos puts it back.' };
+  }
+
+  /* File present. The only thing that stops RunAtLoad from bringing it back is a
+     standing `disable` override, whose `launchctl print-disabled` line reads
+     `"com.kosmos.board" => disabled` (the format launchctl prints on current
+     macOS; a label with no override does not appear and defaults to enabled). A
+     read failure here is not a disable -- fall through to OK, since
+     the file's presence is the reboot-bearing fact and we simply could not read
+     the toggle.
+     ⚠️ MATCH BOTH TOKENS. Current macOS prints `=> disabled`/`=> enabled`, but
+     older `print-disabled` emitted `=> true`/`=> false` (true == disabled). If a
+     supported-floor macOS uses the older token, matching only `disabled` would
+     let a genuinely disabled board fall through to OK -- a false reassurance in
+     exactly the cannot-see-zero direction this check exists to fight. `true`
+     never means enabled in print-disabled (the value IS the disabled boolean),
+     so matching both is safe; the trailing boundary keeps `disabledx`/`truex`
+     from matching. The closing quote after the label still blocks a suffixed
+     `com.kosmos.board.<hash>` from matching the bare label. */
+  const dis = runner('/bin/launchctl', ['print-disabled', `gui/${uid}`]);
+  const disabledRe = new RegExp('"' + BOARD_LABEL.replace(/\./g, '\\.') + '"\\s*=>\\s*(?:disabled|true)\\b');
+  if (dis && dis.ok && typeof dis.stdout === 'string' && disabledRe.test(dis.stdout)) {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos is set up to start at login, but it is turned off',
+      detail: 'Its login job is on this computer but switched off right now, so Kosmos will not start on its '
+        + 'own after a restart. You can turn it back on in System Settings, under General then Login Items.' };
+  }
+  return { key: 'autostart', state: STATE.OK,
+    title: 'Kosmos starts itself when you log in',
+    detail: 'Its login job is in place, so Kosmos and your agents come back on their own after this computer restarts.' };
+}
+
 function check(opts) {
   const runner = (opts && opts.runner) || run;
 
@@ -1226,7 +1374,10 @@ function check(opts) {
     sleepRow,
     restartCheck(runner),
     labelTruthCheck(runner),
-  ];
+    // #2397: the board's own login job -- present + enabled? Returns null on
+    // non-darwin (no launchd), so filter falsy rather than render an empty row.
+    boardAutostartCheck(runner, opts),
+  ].filter(Boolean);
 
   return {
     checks,
@@ -1247,4 +1398,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
