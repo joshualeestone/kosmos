@@ -3879,13 +3879,18 @@ const server = http.createServer((req, res) => {
   if (tr && req.method === 'POST') {
     const name = decodeSegment(tr[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* One cleaned spelling for all three uses below (readJob, workerDir and the
+       restart), so the trust-write target and the restart target cannot diverge
+       -- cleanName is only a trim, but keeping the three name forms identical
+       removes the one place they could drift. */
+    const clean = create.cleanName(name);
     let trusted;
     let job = null;
-    try { job = create.readJob(name); } catch { job = null; }
+    try { job = create.readJob(clean); } catch { job = null; }
     if (!job) {
       trusted = { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
     } else {
-      const folder = create.workerDir(create.cleanName(name));
+      const folder = create.workerDir(clean);
       if (!folder) {
         trusted = { wrote: false, because: 'we could not resolve this agent\'s folder' };
       } else if (job.runner === 'codex') {
@@ -3911,7 +3916,7 @@ const server = http.createServer((req, res) => {
        without that copy shows a blank state, so this route stays cause-neutral
        and leaves a nicer label as a frontend follow-up. */
     let out;
-    try { out = removal.restart(name, 'restart'); }
+    try { out = removal.restart(clean, 'restart'); }
     catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err), trusted }); return; }
     sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ...out, trusted });
     return;
