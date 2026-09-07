@@ -76,11 +76,25 @@ const INHERITED_MARKERS = Object.freeze([
  * 🔑 A PURE FUNCTION OVER AN ENV OBJECT, so the stripping is assertable from a
  * Mac without spawning anything.
  */
-function childEnv(baseEnv, token) {
+function childEnv(baseEnv, token, configDir) {
   const env = Object.assign({}, baseEnv || {});
   for (const k of INHERITED_MARKERS) delete env[k];
   if (token) env.KOSMOS_AGENT_TOKEN = token;
   else delete env.KOSMOS_AGENT_TOKEN;   // never inherit somebody else's credential
+  /* 🔑 THE ACCOUNT, THE WAY THIS PLATFORM CARRIES IT. On the Mac a non-default
+     account rides in the plist's EnvironmentVariables as CLAUDE_CONFIG_DIR;
+     there is no plist here, so it rides in the child's environment instead --
+     the same variable Claude Code reads, just delivered by the substrate this
+     platform has.
+
+     ⚠️ AND ABSENT MEANS THE DEFAULT ACCOUNT, WHICH IS WHY IT IS DELETED RATHER
+     THAN LEFT. This process may itself be running under a CLAUDE_CONFIG_DIR
+     (the board inherits the app's launch environment), and #2129 is the whole
+     card about that leaking: an agent meant for the DEFAULT account would
+     silently inherit the engine's account instead. A default-account agent must
+     start with no CLAUDE_CONFIG_DIR at all. */
+  if (configDir) env.CLAUDE_CONFIG_DIR = String(configDir);
+  else delete env.CLAUDE_CONFIG_DIR;
   return env;
 }
 
@@ -110,7 +124,7 @@ function spawner() { return spawnFn || spawn; }
  * { ok:false, because } -- never throws, because a failed launch must leave the
  * caller able to say why rather than unwind.
  *
- * @param {{name:string, runner?:string, cwd:string, claudeBin?:string,
+ * @param {{name:string, runner?:string, cwd:string, claudeBin?:string, configDir?:string,
  *          model?:string, platform?:string}} spec
  */
 function launch(spec) {
@@ -126,7 +140,14 @@ function launch(spec) {
   /* 1. TRUST, AND IT GATES. See the header: an untrusted spawn hangs on a dialog
         in a hidden console, forever, invisibly. Refusing is the kinder failure. */
   let trusted;
-  try { trusted = trust.trustFolder(s.cwd, { createIfAbsent: true }); }
+  /* ⚠️ TRUST GOES IN THE CONFIG THE AGENT WILL READ, not ours. Claude Code
+     records trust PER CONFIG DIR (#1629, measured: one folder, three configs,
+     TRUE in one and FALSE in the other two), so writing it into the engine's
+     config while the agent starts under another account leaves the agent facing
+     the dialog with the flag written somewhere it never looks. `configDir` is
+     the same value that goes into the child's environment below, so the write
+     and the read cannot disagree. */
+  try { trusted = trust.trustFolder(s.cwd, { configDir: s.configDir || null, createIfAbsent: true, agentDefaultAccount: !s.configDir }); }
   catch (e) { trusted = { ok: false, because: 'we could not write the trust entry (' + ((e && e.code) || 'unknown') + ')' }; }
   if (!trusted.ok) {
     return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
@@ -149,7 +170,7 @@ function launch(spec) {
   try {
     child = spawner()('cmd.exe', ['/c', 'start', '', '/min', bin].concat(argv), {
       cwd: s.cwd,
-      env: childEnv(process.env, prepared.token),
+      env: childEnv(process.env, prepared.token, s.configDir),
       detached: true,
       windowsHide: true,
       stdio: 'ignore',

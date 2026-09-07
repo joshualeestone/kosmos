@@ -2096,6 +2096,61 @@ function installJob(name, opts) {
       ? 'we could not find Codex on this computer, so a job made now would never start'
       : 'we could not find Claude on this computer, so a job made now would never start' };
   }
+  const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
+  const configDirWin = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
+  /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
+     The rest of this function installs the supervisor script, writes a `.plist`,
+     `launchctl enable`s the label and `bootstrap`s it. None of those exist on
+     win32. `engine/win32launch.js` is that substrate for this platform -- it
+     writes the trust entry, mints the session id + ownership record + sender
+     token through win32create.prepareSession, and spawns an interactive,
+     TOP-LEVEL, hidden-console agent pinned to the recorded id.
+
+     ⚠️ IT RETURNS THE SAME SHAPE, deliberately, so every caller and every
+     `steps` record above reads identically on both platforms. What differs is
+     only `because`, which must not say "at every login" here: there is no
+     launchd job, so a Windows agent does NOT come back by itself yet. Saying it
+     would claim a durability this substrate does not have -- keep-alive is the
+     next slice, and the honest sentence is the one that says so.
+
+     📌 DRY_RUN still spawns nothing: it short-circuits before the launch, the
+     same way it skips the plist write and lets the stubbed `run` stand in for
+     launchctl. */
+  /* ⚠️ THE PLATFORM IS INJECTED, not read, and that is not decoration. A branch
+     that hard-reads `process.platform` cannot be asserted from the fleet's Macs,
+     which is precisely how every defect in this lane survived -- the win32 arm
+     stays unexercised and a green suite says nothing about it. `opts.platform`
+     defaults to the real one, so production is unchanged and a Mac can still
+     drive both sides. Same shape as store.dataRootFor and platform.isSupported. */
+  const jobPlatform = (opts && opts.platform) || process.platform;
+  if (jobPlatform === 'win32') {
+    if (DRY_RUN) {
+      return { ok: true, started: true, model: modelArgWin,
+        guessed: { model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
+          account: configDirWin ? null : 'it will run on your main Claude account' },
+        because: 'set up and started now' };
+    }
+    const launched = require('./win32launch').launch({
+      name: clean,
+      runner: runner || 'claude',
+      cwd: workerDir(clean),
+      claudeBin: runnerBin,
+      configDir: configDirWin,
+      model: modelArgWin,
+      platform: jobPlatform,
+    });
+    if (!launched.ok) return { ok: false, because: launched.because };
+    return {
+      ok: true,
+      started: true,
+      model: modelArgWin,
+      guessed: {
+        model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        account: configDirWin ? null : 'it will run on your main Claude account',
+      },
+      because: 'started now',
+    };
+  }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
   if (!installed.ok) {
     return { ok: false, because: installed.missingFile
