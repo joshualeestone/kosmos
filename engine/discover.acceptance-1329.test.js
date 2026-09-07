@@ -378,12 +378,22 @@ function homeGemini(home) {
   fs.mkdirSync(agents, { recursive: true });
   for (const [name, body] of Object.entries(GEMINI)) fs.writeFileSync(path.join(agents, `gemini-${name}.md`), body);
 }
-/** Run fn with process.env.HOME pointed at a fixture home (os.homedir follows it), restored after. */
+/** Run fn with process.env.HOME pointed at a fixture home (os.homedir follows it), restored after.
+ *  Also clears AGENT_WORKFORCE_SCAN_ROOTS for the duration: a bare discover.scan() reads that env
+ *  var (scanRootsFromEnv) BEFORE defaultScanRoots, so an ambient value on a CI box would bypass the
+ *  whole #2414/#2125/importScan machinery these tests exist to guard - a false RED. Cleared here
+ *  exactly as discover.location-2414.test.js does at setup. And asserts the HOME override actually
+ *  took: if it did not, sandboxIsInconsistent() flips true and the bare scan early-returns empty,
+ *  which would otherwise read as a silent miss rather than a loud abort. */
 function withHome(home, fn) {
-  const prev = process.env.HOME;
+  const prevHome = process.env.HOME;
+  const prevRoots = process.env.AGENT_WORKFORCE_SCAN_ROOTS;
   process.env.HOME = home;
+  delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  assert.equal(os.homedir(), home, 'the HOME override did not take - the fixture sandbox is unsafe, aborting');
   try { return fn(); } finally {
-    if (prev === undefined) delete process.env.HOME; else process.env.HOME = prev;
+    if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
+    if (prevRoots === undefined) delete process.env.AGENT_WORKFORCE_SCAN_ROOTS; else process.env.AGENT_WORKFORCE_SCAN_ROOTS = prevRoots;
   }
 }
 const candByDir = (r, dir) => (r.candidates || []).find((c) => c.dir === dir);
@@ -430,10 +440,15 @@ test('#1329/#2125 LOCATION: a seed agent in ~/Documents is NOT ambushed by the a
   const HOME = fs.mkdtempSync(path.join(SB, 'loc-tcc-home-'));
   // Josh put some files in Documents/Downloads - the TCC-protected folders. A loose seed agent there.
   const inDocs = homeLoose(HOME, 'Documents/downloaded/2-nova.md', CORPUS.nova);
+  // POSITIVE CONTROL for this fixture home: a seed agent in an ordinary arbitrary folder that the
+  // auto scan MUST reach. Its presence proves the bare scan actually walked THIS fixture home, so
+  // the ~/Documents absence below is a real TCC skip, not a dead/unscanned scan.
+  const reachable = homeFolder(HOME, 'SideWork/proj', CORPUS.work1);
 
   // 🛑 #2125 no-ambush: a BARE (auto, first-run) scan must NOT walk ~/Documents, or it fires the
   // macOS access prompt on a fresh install. The seed agent there must stay ABSENT.
   const auto = withHome(HOME, () => withNoGeminiHome(() => discover.scan()));
+  assert.ok(candByDir(auto, reachable), 'positive control: the auto scan did not walk this fixture home at all');
   assert.ok(!impByBase(auto, path.basename(inDocs)), 'the auto scan reached ~/Documents (TCC ambush, #2125)');
 
   // ✅ Reached only via the GRANTED import scan: importScan adds Documents/Downloads/Desktop as
