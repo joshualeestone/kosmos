@@ -972,7 +972,7 @@ test('the sleep-pane filter matches STEM names a whole-word filter misses (0.6.4
     assert.equal(refused.ok, false);
     assert.match(refused.because, /Open System Settings/);
     assert.match(refused.because, /automatic sleep/);
-    assert.doesNotMatch(refused.because, /\u2014/, 'the failure copy carries an em dash');
+    assert.doesNotMatch(refused.because, /\u2014/, 'failure copy must not contain an em dash');
   } finally {
     machine.resetSleepPaneCache();
   }
