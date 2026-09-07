@@ -99,4 +99,8 @@ perturbation, because a mutation that never applies would let an arm pass while
 proving nothing (the first run of this harness hit exactly that: a `.pc-t` re-anchor
 silently no-op'd because the pin carries a `/m` flag, and it surfaced as a failure).
 
-12 self-proof tests pass; the 8 loosened files stay 40/40 green.
+Both floors are also proven in isolation (an emptied table reds the global-total
+floor alone; a file dropped from the table reds the per-file floor alone), by
+handing the checker a gutted table against untouched files - so a bug that broke
+only a floor would still be caught. 14 self-proof tests pass; the 8 loosened
+files stay 40/40 green.

@@ -25,6 +25,12 @@
 //     effective() cascade check and the DUP_RULE occurrence-count assertion.
 //     Those are not brace-anchored, and the count one legitimately changes to
 //     1 when #1459 lands, so pinning it would false-red.
+//   - It does NOT stop a DELIBERATELY self-defeating edit: re-anchor one pinned
+//     assertion (its count -> 0) AND paste a byte-identical copy of that same
+//     loosened source elsewhere in the file (count back to expected). Per-assertion
+//     counting sees the total unchanged. This needs an editor actively working to
+//     hide a re-anchor, which is not the threat here (accidental re-anchoring by a
+//     future editor); it is named so the coverage boundary is explicit.
 //
 // WHY EXACT-SOURCE PINNING, NOT A CLASSIFIER (both classifier versions #1430
 // tried had SILENT false negatives on spellings nobody thought to test):
@@ -180,14 +186,22 @@ const EXPECTED = {
   ]
 };
 
+// A HARDCODED constant, deliberately NOT `Object.values(EXPECTED).reduce(...)`.
+// Its whole job is to catch a table that was emptied or gutted: with an empty
+// table the file loop never runs, sweptTotal is 0, and only a constant that
+// still says 28 turns that into a red. A derived sum would be 0 too and pass -
+// so deriving it (however tidy) would delete the "sweep read nothing" guard the
+// card requires. If you legitimately change the pin set, update this by hand.
 const EXPECTED_TOTAL = 28; // occurrences across all files (dups counted)
 
 // Pure checker so a planting harness can run it against perturbed copies.
+// `expected`/`total` default to the module constants; the self-test overrides
+// them (e.g. an empty table) to prove the global-total floor in isolation.
 // Returns [] when clean, or a list of {file, kind, ...} failures.
-function checkBraceAnchors(dir) {
+function checkBraceAnchors(dir, expected = EXPECTED, total = EXPECTED_TOTAL) {
   const failures = [];
   let sweptTotal = 0;
-  for (const [file, arr] of Object.entries(EXPECTED)) {
+  for (const [file, arr] of Object.entries(expected)) {
     let src;
     try {
       src = fs.readFileSync(path.join(dir, file), 'utf8');
@@ -211,10 +225,11 @@ function checkBraceAnchors(dir) {
     sweptTotal += fileTotal;
   }
   // GLOBAL floor on top of the per-file floor: the whole sweep must account for
-  // every loosened occurrence. Catches a wholesale miscount the per-file floor
-  // might not (e.g. EXPECTED itself emptied).
-  if (sweptTotal !== EXPECTED_TOTAL) {
-    failures.push({ kind: 'total-mismatch', want: EXPECTED_TOTAL, got: sweptTotal });
+  // every loosened occurrence. This is the one floor that fires where the
+  // per-assertion checks cannot - an emptied table runs no per-assertion check
+  // at all, so only this catches it.
+  if (sweptTotal !== total) {
+    failures.push({ kind: 'total-mismatch', want: total, got: sweptTotal });
   }
   return failures;
 }

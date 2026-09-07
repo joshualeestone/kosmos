@@ -9,8 +9,10 @@
 // the untouched control stays GREEN. If the guard ever stops catching a trap,
 // THIS test goes red - so the guard's coverage cannot silently rot.
 //
-// Every arm below is one of the eight measured false-negatives #1430 recorded,
-// plus the two floors and the control.
+// The arms below are the eight measured false-negatives #1430 recorded, the
+// control, and both floors: the per-file floor (a file gone blind) and the
+// global-total floor (the whole table emptied - the one case the per-assertion
+// checks cannot see, proven here in isolation by passing an empty table).
 // ===========================================================================
 
 const test = require('node:test');
@@ -19,7 +21,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { checkBraceAnchors, EXPECTED } = require('./web.brace-anchor-guard-1469.lib.js');
+const { checkBraceAnchors, EXPECTED, EXPECTED_TOTAL } = require('./web.brace-anchor-guard-1469.lib.js');
 const FILES = Object.keys(EXPECTED);
 
 // exact pins, read verbatim from the guard's own table (never transcribed)
@@ -158,4 +160,38 @@ test('#1469 self-proof: re-anchoring ONE of two byte-identical .pc-t copies -> R
     const i = s.indexOf(pcRow);
     fs.writeFileSync(p, s.slice(0, i) + reanchorLit(pcRow, '\\}') + s.slice(i + pcRow.length));
   });
+});
+
+// The two floors, each proven IN ISOLATION against untouched files by handing
+// the checker a gutted table - so a bug that broke only a floor (not the
+// per-assertion checks) would still be caught here.
+
+test('#1469 self-proof: an emptied table trips the global-total floor ALONE -> RED', () => {
+  const dir = freshDir();
+  try {
+    // Files untouched; the TABLE is empty. No per-assertion check and no per-file
+    // check runs, so only the global-total floor can red. This is the "sweep read
+    // nothing" case the per-assertion checks structurally cannot see.
+    const failures = checkBraceAnchors(dir, {}, EXPECTED_TOTAL);
+    assert.deepStrictEqual(failures, [{ kind: 'total-mismatch', want: EXPECTED_TOTAL, got: 0 }],
+      'emptied table did not red via the global-total floor alone');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#1469 self-proof: a file dropped from the table trips the per-file floor ALONE -> RED', () => {
+  const dir = freshDir();
+  try {
+    // Files untouched; ONE file's pin list is emptied and the total is adjusted so
+    // the global floor stays satisfied. Then only that file's per-file floor fires.
+    const file = 'web.consolidated-867.test.js';
+    const dropped = EXPECTED[file].reduce((a, p) => a + p.count, 0); // 2
+    const expected = { ...EXPECTED, [file]: [] };
+    const failures = checkBraceAnchors(dir, expected, EXPECTED_TOTAL - dropped);
+    assert.deepStrictEqual(failures, [{ file, kind: 'file-blind' }],
+      'a file with no pins did not red via the per-file floor alone');
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
