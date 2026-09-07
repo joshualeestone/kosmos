@@ -16809,6 +16809,12 @@ let WORLD_RENAME_ID = null;
 let WORLD_SWITCH_ID = null;
 let WORLD_SWITCH_NAME = null;
 function worldswConfirmSwitch(id, name) {
+  // A switch is already in flight (its reconnect poll can hold WORLDSW_SWITCHING for ~150s).
+  // Opening a fresh confirm now would let worldswSwitchGo hide the modal and call
+  // worldswSwitch, which early-returns on the WORLDSW_SWITCHING guard -- so the modal would
+  // dismiss as if it acted while doing nothing (false feedback). Ignore the row click; the
+  // #worldsw-restart banner is already showing the in-progress status.
+  if (WORLDSW_SWITCHING) return;
   WORLD_SWITCH_ID = id;
   WORLD_SWITCH_NAME = name;
   /* Josh verbatim, with the target name appended: "Restart Kosmos in order to switch

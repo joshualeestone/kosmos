@@ -292,6 +292,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (cF.error) return { error: cF.error };
     await waitFor(() => typeof WORLDSW_RECONNECTING !== 'undefined' && WORLDSW_RECONNECTING === true, 300);
     const menuOpenBeforeClose = !!menuEl && menuEl.hidden === false;
+    // #6 NIT: a row click DURING an in-flight switch (WORLDSW_SWITCHING held across the
+    // reconnect) must NOT open a confirm modal -- worldswSwitch would early-return on that
+    // guard, so the modal would dismiss as if it acted while doing nothing. worldswConfirmSwitch
+    // is guarded to ignore the click; assert the modal stays hidden.
+    worldswConfirmSwitch('w2', 'Side Project');
+    const midSwitchModalHidden = document.getElementById('world-switch-modal').hidden === true;
     worldswClose();  // an outside-click / Escape / trigger toggle during the reconnect
     const menuStillOpenAfterClose = !!menuEl && menuEl.hidden === false;
     const bannerVisibleAfterClose = !document.getElementById('worldsw-restart').hidden;
@@ -299,7 +305,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await waitFor(() => typeof WORLDSW_RECONNECTING !== 'undefined' && WORLDSW_RECONNECTING === false, 1500);
     worldswClose();
     const menuClosedAfterTimeout = !!menuEl && menuEl.hidden === true;
-    const afterMenuClose = { menuOpenBeforeClose, menuStillOpenAfterClose, bannerVisibleAfterClose, menuClosedAfterTimeout };
+    const afterMenuClose = { menuOpenBeforeClose, midSwitchModalHidden, menuStillOpenAfterClose, bannerVisibleAfterClose, menuClosedAfterTimeout };
 
     // ---- Scenario G: #6 the switch-CONFIRM modal, and the banner survives Restart ----
     // A row click opens a confirm modal (Josh's requirement: switching is not silent/inline);
@@ -428,6 +434,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!f.menuStillOpenAfterClose) problems.push('closing the switcher menu DURING a reconnect must keep it open (the guidance banner lives inside it) -- worldswClose should no-op while WORLDSW_RECONNECTING');
     if (!f.bannerVisibleAfterClose) problems.push('the reconnect guidance banner must stay visible after a mid-reconnect menu close');
     if (!f.menuClosedAfterTimeout) problems.push('after the reconnect ends, the menu must be closable again (worldswClose no longer no-ops)');
+    if (!f.midSwitchModalHidden) problems.push('#6: a confirm attempt DURING an in-flight switch must be ignored (the modal must stay hidden), or it would dismiss as if it acted while worldswSwitch early-returns -- false feedback');
 
     // Scenario G: the #6 confirm modal, and the banner survives the Restart click
     const g = r.afterConfirmModal;
