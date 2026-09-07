@@ -262,6 +262,19 @@ test('#2389 (iter 4): a hard scan failure does NOT assert the verbatim', () => {
   assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
 });
 
+test('#2389 (iter 5): a tccUnavailable result (grant given, Documents unread) does NOT assert the verbatim', () => {
+  /* When file access was granted but the app-identity hatch failed, the scan settles
+     bounded.tccUnavailable: Documents/Downloads/Desktop (where the #2389 target's agents live)
+     were NOT read, yet the contract marks it full/complete (scanning falsy, FR_SCAN_FULL true),
+     so the grant-flip poll STOPS. Claiming "nothing to import" over those unread folders would be
+     a PERMANENT false claim on the granted path -- the exact #2389 population. */
+  const tccOut = { ok: true, candidates: [], importable: [], bounded: { tccUnavailable: true } };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, tccOut, false);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim rendered on a tccUnavailable scan (Documents unread)');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
+});
+
 test('#2389 CONTROL: with a running fleet and a genuinely empty disk, the verbatim pack copy still renders', () => {
   /* The Josh-ruled sentence (2026-08-17, verbatim) must survive untouched for the
      true-empty case. This pins that the fix ADDED a branch and did not edit the
