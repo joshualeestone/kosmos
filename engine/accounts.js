@@ -729,10 +729,10 @@ function forgetAccount(dir, usedBy) {
      the account if they fail.
      📌 A swallowed erase failure therefore leaves the raw key in the aside dir,
      and that residual is accepted rather than surfaced: the rename we just made
-     proves write access to the dir, so a forgetKey throw here is near-impossible,
-     and openaiaccounts.forgetAccount keeps the identical silent best-effort
-     posture. This module family does not log around a credential on purpose (see
-     openaiaccounts' codex login, which drops stdout/stderr so a key cannot echo).
+     proves write access to the dir, so a forgetKey throw here is near-impossible.
+     Surfacing it would also mean logging around a credential, which this module
+     family avoids on purpose -- openaiaccounts' codex login drops stdout/stderr so
+     a pasted key cannot echo into a log.
      📌 Only when the account HAD a key (`hadKey`): an oauth forget has no key
      file (forgetKey would rm a nonexistent path) and no apiKeyHelper (unwire is a
      no-op), so gating keeps the oauth path byte-for-byte unchanged. A dual-marker

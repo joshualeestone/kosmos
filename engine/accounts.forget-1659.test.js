@@ -150,6 +150,12 @@ function apiKeyAcct(label) {
 
 test('#2420: forgetting an api-key account moves it aside, ERASES the raw key, and unwires the pointer', () => {
   const dir = apiKeyAcct('keyforget');
+  /* Seed a stray key .tmp -- the crash-residue a partial storeKey leaves (its
+     writeFileSync/renameSync failing part-way), which forgetKey's second rmSync
+     exists to take back. storeKey's happy path renames .tmp->final atomically, so
+     without this seed the .tmp assertion below is vacuous: no .tmp ever exists to
+     survive, and the arm that cleans it is never exercised. */
+  fs.writeFileSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME + '.tmp'), 'sk-ant-stray-tmp', { mode: 0o600 });
   assert.ok(accounts.list().some((a) => a.dir === dir && a.apiKey === true),
     'it must be listed as an api-key account FIRST, or the removal proves nothing');
 
@@ -164,11 +170,12 @@ test('#2420: forgetting an api-key account moves it aside, ERASES the raw key, a
     'THE HISTORY SURVIVES: forget moves the dir aside, it does not delete it');
 
   /* 🛑 THE POINT OF THE SLICE: no live raw key is left behind in the forgotten
-     dir, and the apiKeyHelper pointer that read it is gone from settings.json. */
+     dir -- neither the key file NOR the seeded crash-residue .tmp -- and the
+     apiKeyHelper pointer that read it is gone from settings.json. */
   assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME)),
     'the raw api key was erased from the moved-aside dir');
   assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME + '.tmp')),
-    'no leftover key .tmp survives either');
+    'the seeded crash-residue .tmp was erased too (forgetKey takes back both)');
   const settings = JSON.parse(fs.readFileSync(nodePath.join(got.movedTo, 'settings.json'), 'utf8'));
   assert.ok(!('apiKeyHelper' in settings), 'the apiKeyHelper pointer was unwired from settings.json');
 });
