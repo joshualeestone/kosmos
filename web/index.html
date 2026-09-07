@@ -38562,6 +38562,11 @@ function frArmRescanOnGrant() {
       // avoid but this deliberately-timed one does not. If focus is inside #fr-fleet -- an
       // input being typed, or a row mid-submit that keeps focus on its button -- DEFER to a
       // later tick (keep polling) rather than discarding that transient DOM state.
+      // TRADE-OFF (deliberate): a deferred re-scan never times out -- while focus stays inside
+      // #fr-fleet the poll keeps firing its light /api/file-access-status read every
+      // FR_RESCAN_INTERVAL_MS and returning here. It cannot leak past S9 (frGo/frFinish retire
+      // it on exit) and the page stays responsive; the re-scan simply waits until the person
+      // blurs or leaves, which is the correct time to repaint the box.
       const fleet = document.getElementById('fr-fleet');
       if (fleet && fleet.contains(document.activeElement)) return;   // retry next tick
       frRescanStop();              // one flip, then stop
@@ -39517,7 +39522,14 @@ function frPaintFleet() {
      where reading the disk is most valuable was the state that never tried it. Fire it
      once here too; a candidate found is a far better answer than "we could not see". */
   if (FR_SCAN === null) frScanAgents();
-  else if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
+  else {
+    /* #3/#4(a): the unknown arm scans the disk too (the perverse path above), so a grant
+       that lands late must re-scan HERE as well -- otherwise this sibling S9 arm carries the
+       exact #4 bug the create arm's fix removes, and this is the MORE important arm (tmux
+       unreadable, so the disk is the only source). Idempotent + S9-guarded, same call. */
+    frArmRescanOnGrant();
+    if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
+  }
 
   title.textContent = 'We could not see what is on this computer';
   // The pack's ending C, verbatim.

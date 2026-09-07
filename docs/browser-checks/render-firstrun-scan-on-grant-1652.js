@@ -30,6 +30,8 @@
  *      (the poll is armed from frPaintFleet's create arm, so a Back -> forward return with
  *      FR_SCAN already populated still re-arms). Scenario 6: the re-scan DEFERS while focus is
  *      inside #fr-fleet (no repaint over in-progress work) and resumes once focus leaves.
+ *      Scenario 7: the UNKNOWN arm (tmux roster unreadable) also arms the poll and re-scans on
+ *      a late grant -- the re-scan covers every S9 arm that reads the disk, not just create.
  *
  * DOM-state + which-route assertions only, so headless is fine.
  *
@@ -285,6 +287,33 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const resumed6 = await p.evaluate(() => ({ full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null }));
     if (hits.scanImport === 1 && resumed6.full && resumed6.stopped) ok('#3/#4(a): once focus leaves #fr-fleet the deferred re-scan runs and the poll stops'); else bad('#3/#4(a) resume after blur', JSON.stringify({ resumed6, scanImport: hits.scanImport }));
 
+    // ── 7. #3/#4(a): the UNKNOWN arm (tmux roster unreadable) also re-scans on a late grant. ──
+    // frArmRescanOnGrant is called from BOTH the create arm and the unknown arm, so a person
+    // whose roster could not be read (disk is their only source -- the more important case)
+    // still gets the late-granted Documents agents.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: false, at: Date.now() };   // ungranted
+    importCandidates = [
+      { dir: '/Users/x/Documents/unknown-arm-agent', name: 'Unknown-arm agent', role: 'watches', preview: 'You watch.' },
+    ];
+    importFiles = [];
+    await p.evaluate(async () => {
+      FR_RESCAN_INTERVAL_MS = 20;
+      FR = { path: 'unknown' };                                   // tmux roster unreadable
+      FR_FOUND = { ok: true, agents: [], adoptable: [] };
+      FR_SCAN = null; FR_SCAN_GEN = 0; FR_SCAN_FULL = false;
+      frRescanStop();
+      await frScanAgents();                                       // ungranted bare scan; repaint arms the poll on the unknown arm
+    });
+    const u7armed = await p.evaluate(() => FR_RESCAN_TIMER !== null && FR_SCAN_FULL === false);
+    await p.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+    grant = { checkable: true, granted: true, at: Date.now() };
+    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 3000 }).catch(() => {});
+    const u7 = await p.evaluate(() => ({ full: FR_SCAN_FULL, offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1, stopped: FR_RESCAN_TIMER === null }));
+    if (u7armed && hits.scanImport === 1 && u7.full && u7.offer === 1 && u7.stopped)
+      ok('#3/#4(a): the UNKNOWN arm (tmux unreadable) also arms the poll and re-scans on a late grant');
+    else bad('#3/#4(a) unknown-arm re-scan', JSON.stringify({ u7armed, u7, hits }));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -294,7 +323,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 20) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 22) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 22), so a check was skipped -- proving nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or
