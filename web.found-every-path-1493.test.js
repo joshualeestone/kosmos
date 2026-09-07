@@ -133,6 +133,23 @@ test('#1938: the scan runs on the unknown path too, the one source that does not
     'the unknown path never scanned the disk, which is exactly the source tmux failure does not touch');
 });
 
+test('#4: loose importable FILES (no folder candidates) route to the scan screen, on BOTH the create and unknown arms', () => {
+  /* Josh 0.6.42: 7 loose agent files, no folder candidates. frImportOffer is the
+     new second consumer of FR_SCAN, and BOTH create-arm gates must read it -- the
+     known-empty (create) arm AND the could-not-count-tmux (unknown) arm, or
+     loose-files-only falls through to an empty/could-not-see screen one location
+     over (the exact class #4 fixes). */
+  const filesOnly = { ok: true, candidates: [], importable: [
+    { file: '/Users/x/Documents/a.md', name: 'A', role: 'r', preview: 'You are A.' },
+  ] };
+  const c = paint({ path: 'create', fleetCount: 0 }, { ok: true, agents: [] }, filesOnly);
+  assert.ok(c.calls.includes('PAINT-SCAN'),
+    'create arm: loose importable files did not route to the scan screen (fell through to "create your first agent")');
+  const u = paint({ path: 'unknown', fleetCount: null }, { ok: true, agents: [] }, filesOnly);
+  assert.ok(u.calls.includes('PAINT-SCAN'),
+    'unknown arm: loose importable files did not route to the scan screen (fell through to "could not see")');
+});
+
 test('CONTROLS: the honest empty answers are untouched', () => {
   const none = { ok: true, agents: [] };
   assert.match(paint({ path: 'adopt', fleetCount: 2 }, none).title, /already have 2 agents/,

@@ -28436,14 +28436,23 @@ async function importFoundFile(file, btn) {
    nor loaded, so a bare importFoundFile would pre-fill a form nobody can see with
    empty provider/account/model menus. Mirror what "Giddy Up" does from this same
    screen -- frFinish(then) ends first-run and reveals the board -- then, in order:
-   show the create tab, AWAIT loadRoles (so CREATE_MODELS/CREATE_ACCOUNTS exist
-   before finishImport's loadCreateExtras reads them), then import the chosen file.
-   Awaiting loadRoles first is what makes this race-free: no fire-and-forget from
-   openCreate competing with finishImport's cstep('name'). */
+   show the create tab, AWAIT loadRoles (so CREATE_MODELS and OWN_ROLE exist before
+   finishImport's roleByKey('own')/loadCreateExtras run -- CREATE_ACCOUNTS is filled
+   by loadCreateExtras itself), then import the chosen file. Awaiting loadRoles first
+   is what makes this race-free: no fire-and-forget from openCreate competing with
+   finishImport's cstep('name').
+   🔑 'import' MODE, not the default 'pm': it opens the import panel, so if
+   /api/agent-import-file REFUSES the file (a scan-listed file the stricter import
+   validation rejects, or one that changed/vanished between scan and click),
+   finishImport writes its reason to #import-msg on a VISIBLE surface rather than a
+   hidden one -- never a silent failure. On success finishImport's cstep('name')
+   hides the panel anyway. The panel's own scan is redundant here (the file list is
+   already in hand) but harmless: Documents is already granted by the time this runs,
+   so it fires no fresh prompt. */
 async function frImportFromScan(file, btn) {
   frFinish(async () => {
     showTab('create');
-    try { await loadRoles(); } catch { /* finishImport still fills the words; menus degrade, not crash */ }
+    try { await loadRoles('import'); } catch { /* finishImport still fills the words; menus degrade, not crash */ }
     await importFoundFile(file, btn);
   });
 }
@@ -38397,10 +38406,16 @@ async function frScanAgents() {
      board has no record of); the import scan additionally reaches ~/Documents.
      frScanOffer / frPaintScan render `candidates` unchanged, so the granted path
      surfaces the Documents folders through the same screen and the same Add/Skip
-     rows the auto scan already used. (The import scan's loose `importable` FILES
-     -- a bare agent .md downloaded into Downloads/Desktop -- still flow through
-     the create form's import mode; only the folder candidates load here.) */
-  FR_SCAN = out && Array.isArray(out.candidates) ? out : { ok: false, candidates: [] };
+     rows the auto scan already used. (#4: the import scan's loose `importable` FILES
+     -- a bare agent .md downloaded into Downloads/Desktop -- ALSO render on this
+     screen now, via frImportOffer/frPaintScan, each with a one-click Import; before
+     #4 only the folder candidates loaded here and the loose files were shunted to
+     the create-form import mode, which is the "found nothing" Josh hit.) */
+  /* #4/N5: accept a result carrying EITHER array. The real scan contract returns
+     both, but gating the whole result on `candidates` alone would silently drop an
+     importable-only answer now that frImportOffer is a second consumer. */
+  FR_SCAN = out && (Array.isArray(out.candidates) || Array.isArray(out.importable))
+    ? out : { ok: false, candidates: [] };
   if (FR_STEP > FR_STEP_YOU) frPaintFleet();
 }
 
@@ -39276,7 +39291,7 @@ function frPaintFleet() {
      where reading the disk is most valuable was the state that never tried it. Fire it
      once here too; a candidate found is a far better answer than "we could not see". */
   if (FR_SCAN === null) frScanAgents();
-  else if (frScanOffer().length) { frPaintScan(); return; }
+  else if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
 
   title.textContent = 'We could not see what is on this computer';
   // The pack's ending C, verbatim.
