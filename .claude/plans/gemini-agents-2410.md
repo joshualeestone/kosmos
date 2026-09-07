@@ -81,6 +81,21 @@ same geminiIdentity helper can also feed foundGemini.
   Weakest premise: that the row UI does not need the 'gemini' origin tag; if Angel's create
   form wants to surface "Gemini agent", that is a UI addition on top, not a reason to break
   the working import. Flagged to Splinter/Angel as a create-form UX follow-up.
+- iter3 WARNING (geminiIdentity recognized ANY name+description+no-kosmos file, incl. Claude
+  Code SKILL files and Jekyll docs -- a widening of the untrusted by-file import surface):
+  FIXED by ALSO requiring the body to INTRODUCE an agent ("You are ..."). That is the real
+  Gemini custom-agent shape and the discriminator against skills/docs (whose bodies describe
+  a skill/page, not an agent). Identity still comes from the front-matter, not the body.
+  Negative-control test added (skill + Jekyll doc refused; same front-matter with an agent
+  body accepted -> proves the body is the discriminator). Also extracted the shared
+  frontmatterField reader so importAgent and geminiIdentity cannot drift on the
+  line-terminator hardening.
+- iter3 NIT (YAML quoting / block scalars not stripped -- `name: "x"` keeps the quotes):
+  DEFERRED. The measured Gemini shape is unquoted single-line, and this matches importAgent's
+  existing kosmos-path field reader exactly (now the shared frontmatterField); adding quote
+  stripping to only the Gemini path would diverge the two readers the refactor just unified.
+- iter3 NIT (a symlinked agent file spends one mdReads budget unit before readClaudeHead
+  refuses it): DEFERRED -- negligible and matches how the disk walk accounts reads.
 - iter2 NIT (description/role not MAX_DISPLAY-bounded): DEFERRED -- role fields elsewhere
   (identityFromText role, looseRow/folderRow role) are not MAX_DISPLAY-bounded either, and
   the value is already bounded by READ_CAP + the single-line field reader; capping it would

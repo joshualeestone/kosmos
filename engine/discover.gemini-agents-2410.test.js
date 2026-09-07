@@ -100,6 +100,21 @@ test('#2410 geminiIdentity: declines a Kosmos export, the #7 control, and a desc
   assert.equal(agentfile.geminiIdentity('---\nkosmos:\nname: x\ndescription: y\n---\nYou are a helpful assistant.\n'), null);
 });
 
+test('#2410 geminiIdentity: a Claude Code SKILL file / Jekyll doc (name+description front-matter, non-agent body) is NOT recognized', () => {
+  // A skill file carries exactly name:/description: front-matter (engine/skills.js readMeta),
+  // as does a Jekyll page. The discriminator is the BODY: a Gemini agent introduces an agent
+  // ("You are ..."); a skill/doc does not. Without the introducing-body check these
+  // previously-refused files would be newly recognized as importable agents.
+  const skill = '---\nname: deploy-helper\ndescription: Use this skill when deploying.\n---\nThis skill should be used when the user wants to deploy the app.\n';
+  assert.equal(agentfile.geminiIdentity(skill), null, 'a skill body does not introduce an agent');
+  assert.equal(agentfile.importAgent(skill, deps).ok, false, 'and by-file import still refuses it');
+  const doc = '---\nname: About\ndescription: The about page.\n---\n# About\n\nThis is the about page of the site.\n';
+  assert.equal(agentfile.geminiIdentity(doc), null, 'a Jekyll doc is not a Gemini agent');
+  // Control: the SAME front-matter with a genuine agent body IS recognized -> the body is the discriminator.
+  const agent = '---\nname: deploy-helper\ndescription: Use this skill when deploying.\n---\nYou are a helpful assistant that helps deploy the app.\n';
+  assert.equal(agentfile.geminiIdentity(agent).displayName, 'deploy-helper');
+});
+
 /* ── agentfile.importAgent() by-file import ─────────────────────────────────── */
 
 test('#2410 importAgent: a Gemini file imports with its real name; provider is null so create does not dead-end', () => {
