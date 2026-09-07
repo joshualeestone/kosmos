@@ -21187,6 +21187,13 @@ function openDetail(sessionName, section) {
   renderAvatar(a);
   document.getElementById('d-msg').textContent = '';
   document.getElementById('d-role-msg').textContent = '';
+  /* #149/#150: the Terminal-tab action receipts clear on switch for the same reason as
+     the ones above -- #d-term-actions is never rebuilt per agent, so a receipt that landed
+     correctly for agent A ("That agent is not running...") would otherwise stand under
+     agent B, a wrong-agent provenance claim. The handlers' capture-and-recheck only covers
+     an in-flight POST; a receipt that already landed for A persists until cleared here. */
+  document.getElementById('d-trust-restart-msg').textContent = '';
+  document.getElementById('d-open-terminal-msg').textContent = '';
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its
