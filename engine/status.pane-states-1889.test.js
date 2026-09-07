@@ -35,7 +35,26 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { classify, trustPrompt, STATE, CONFIDENCE } = require('./status');
+
+// The reader's own matcher definitions, lifted from status.js and evaluated,
+// never re-typed -- the same discipline as status.awaiting-input-1320.test.js,
+// so a targeted matcher assertion cannot silently drift from the live source.
+const SRC = fs.readFileSync(path.join(__dirname, 'status.js'), 'utf8');
+function needsYouMarkers() {
+  const m = SRC.match(/const NEEDS_YOU_MARKERS = Object\.freeze\(\[([\s\S]*?)\]\);/);
+  assert.ok(m, 'NEEDS_YOU_MARKERS is gone from status.js');
+  // eslint-disable-next-line no-eval
+  return eval('[' + m[1] + ']');
+}
+function optionLine() {
+  const m = SRC.match(/const OPTION_LINE = (\/.*?\/[a-z]*);/);
+  assert.ok(m, 'OPTION_LINE is gone from status.js');
+  // eslint-disable-next-line no-eval
+  return eval(m[1]);
+}
 
 // A pane as the engine sees it, same shape as status.test.js's helper: a
 // version string in `command` means Claude Code is running, and `session`
@@ -85,9 +104,10 @@ const TRUST_DIALOG = [
 /* The dialog sits at the TOP of a fresh 40-row pane, with the rest blank --
    the exact geometry status.js:2637 (#1155) exists for. The 23 trailing blank
    lines below reproduce tmux's pane-height padding: without the trust branch's
-   trailing-whitespace strip, the shared last-25 tail would be all blank and
-   this screen would read `unknown`. Keeping the padding here means a
-   regression of that strip turns this test red. */
+   trailing-whitespace strip, the shared last-25 tail would hold only the dialog's
+   bottom rows (down to ` Enter to confirm`) and NOT the `Quick safety check:`
+   question, so trustPrompt finds no question row and this screen reads `unknown`.
+   Keeping the padding here means a regression of that strip turns this test red. */
 const TRUST_SCREEN = TRUST_DIALOG + '\n' + '\n'.repeat(23);
 
 test('the live trust dialog classifies needs_you, not idle', () => {
@@ -97,9 +117,11 @@ test('the live trust dialog classifies needs_you, not idle', () => {
   assert.equal(r.confidence, CONFIDENCE.SCRAPED);
 });
 
-test('trustPrompt reads the dialog even under a screenful of blank padding (#1155)', () => {
-  // The reader function directly, on the padded screen: proves the
-  // trailing-strip still reaches the question at the top of the pane.
+test('trustPrompt reads the dialog directly, padding and all', () => {
+  // The reader function on the padded screen. NB the #1155 fix that trims the
+  // shared tail lives in classify (exercised by Test 1 above); this test drives
+  // trustPrompt's OWN blank-row walk-back (its `while (raw[last] === '')` loop),
+  // a distinct mechanism -- so the two tests cover the two layers, not one twice.
   assert.notEqual(trustPrompt(TRUST_SCREEN), null,
     'trustPrompt lost the top-of-pane dialog under the blank padding');
 });
@@ -147,11 +169,9 @@ test('the live permission prompt classifies needs_you', () => {
   assert.equal(r.because, 'it is asking you something');
 });
 
-test('it is matched by the composed option row, not by the word "date"', () => {
-  // The whole point of the card's residual: `❯ 1. Yes` is what the reader
-  // keys on, so a differently-worded prompt with the same rendered structure
-  // still classifies needs_you. A reader keyed on this command would fix this
-  // instance and miss the next tool.
+test('the classification is not keyed on the specific command', () => {
+  // The same prompt for a different command still classifies needs_you: a
+  // reader keyed on "date" would fix this instance and miss the next tool.
   const other = [
     RULE,
     ' Bash command',
@@ -165,6 +185,27 @@ test('it is matched by the composed option row, not by the word "date"', () => {
     ' Esc to cancel · Tab to amend',
   ].join('\n') + '\n' + '\n'.repeat(12);
   assert.equal(classify(pane(), other).state, STATE.NEEDS_YOU);
+});
+
+/* The exact option row the live 2.1.263 pane drew, verbatim (leading space and
+   all). This is the byte string the card says can only be settled by a render. */
+const CAPTURED_OPTION_ROW = ' ❯ 1. Yes';
+
+test('the rendered `❯ 1. Yes` row satisfies the matcher static analysis cannot confirm (the card residual)', () => {
+  // The card's core point: the bundle holds no literal "1. Yes" (it is composed
+  // at render time), so `/❯\s*1\.\s*Yes/` can ONLY be checked against a rendered
+  // pane. classify() alone does NOT pin it -- ` Do you want to proceed?` sits
+  // above the option row and satisfies NEEDS_YOU_MARKERS first in asksSomething's
+  // top-down scan, so a retired option-row matcher would still ship green. These
+  // assertions pin BOTH readers of the row against the real captured bytes, so a
+  // regression of either turns this file red.
+  const markers = needsYouMarkers();
+  const optionMarker = markers.find((re) => /Yes/.test(re.source));
+  assert.ok(optionMarker, 'the `❯ 1. Yes` marker is gone from NEEDS_YOU_MARKERS');
+  assert.match(CAPTURED_OPTION_ROW, optionMarker,
+    'the live-rendered option row no longer matches its NEEDS_YOU marker');
+  assert.match(CAPTURED_OPTION_ROW, optionLine(),
+    'the live-rendered option row no longer matches OPTION_LINE (asksSomething checks this first, per line)');
 });
 
 // ---------------------------------------------------------------------------
