@@ -38517,6 +38517,7 @@ let FR_SCAN_GEN = 0;
 let FR_SCAN_FULL = false;
 let FR_RESCAN_TIMER = null;
 let FR_RESCAN_GEN = 0;
+let FR_RESCAN_BUSY = false;   // a poll tick's granted re-scan is in flight; serialize the ticks
 // Poll cadence for the grant-flip re-scan. `let` (not const) so a browser check can lower it
 // and exercise the flip deterministically without waiting real seconds.
 let FR_RESCAN_INTERVAL_MS = 1500;
@@ -38569,12 +38570,22 @@ function frArmRescanOnGrant() {
       // blurs or leaves, which is the correct time to repaint the box.
       const fleet = document.getElementById('fr-fleet');
       if (fleet && fleet.contains(document.activeElement)) return;   // retry next tick
-      frRescanStop();              // one flip, then stop
-      FR_SCAN = null;              // force a fresh scan
-      // Pass the confirmed grant so frScanAgents takes the granted route WITHOUT a second,
-      // independent /api/file-access-status read (which could hiccup and silently degrade
-      // back to the bare route). One edge, one grant read.
-      frScanAgents(true);
+      // Stop only on a SUCCESSFUL granted re-scan, not merely on the grant edge. If
+      // /api/scan-import hiccups at the exact edge, frScanAgents leaves FR_SCAN_FULL false
+      // (it is set true only when the granted route actually DELIVERED -- see frScanAgents),
+      // so we keep the poll running and retry on the next tick rather than foreclosing the
+      // one retry this feature exists to give. AWAIT so we know the outcome; pass the
+      // confirmed grant so frScanAgents skips a second, hiccup-prone file-access read.
+      // Throttled, not a busy loop: frScanAgents's repaint re-arm is a no-op while the timer
+      // is still set (we have not stopped), so the retry waits for the next interval tick.
+      if (FR_RESCAN_BUSY) return;   // a prior tick's re-scan is still in flight; let it finish
+      FR_RESCAN_BUSY = true;
+      try {
+        FR_SCAN = null;             // force a fresh scan
+        await frScanAgents(true);
+      } finally { FR_RESCAN_BUSY = false; }
+      if (gen !== FR_RESCAN_GEN) return;   // stopped / re-armed elsewhere while we awaited
+      if (FR_SCAN_FULL) frRescanStop();    // the granted scan delivered -> one flip, stop
     }
   };
   poll();
@@ -38634,9 +38645,15 @@ async function frScanAgents(grantedHint) {
   /* #4/N5: accept a result carrying EITHER array. The real scan contract returns
      both, but gating the whole result on `candidates` alone would silently drop an
      importable-only answer now that frImportOffer is a second consumer. */
-  FR_SCAN = out && (Array.isArray(out.candidates) || Array.isArray(out.importable))
-    ? out : { ok: false, candidates: [] };
-  FR_SCAN_FULL = full;   // #3/#4 half (a): remember whether the granted route was used
+  const scanOk = !!(out && (Array.isArray(out.candidates) || Array.isArray(out.importable)));
+  FR_SCAN = scanOk ? out : { ok: false, candidates: [] };
+  /* #3/#4 half (a): FR_SCAN_FULL means the GRANTED route ran AND DELIVERED -- not merely that
+     it was attempted. If the granted /api/scan-import hiccups at the grant edge (out === null),
+     leave it false so the grant-flip poll (and a return to S9) can retry; otherwise a single
+     transient failure would set FR_SCAN_FULL true and every future frArmRescanOnGrant would
+     short-circuit, silently foreclosing the one retry the late-grant person depends on. The
+     bare (ungranted) route keeps FR_SCAN_FULL false regardless, so the poll still arms. */
+  FR_SCAN_FULL = full && scanOk;
   // The repaint re-enters frPaintFleet's create arm, which arms the grant-flip poll when the
   // scan ran ungranted (frArmRescanOnGrant is idempotent + S9-guarded). Arming there rather
   // than here is what also re-arms on a Back -> forward RETURN to S9 (where no fresh scan runs).

@@ -32,6 +32,8 @@
  *      inside #fr-fleet (no repaint over in-progress work) and resumes once focus leaves.
  *      Scenario 7: the UNKNOWN arm (tmux roster unreadable) also arms the poll and re-scans on
  *      a late grant -- the re-scan covers every S9 arm that reads the disk, not just create.
+ *      Scenario 8: a transient /api/scan-import hiccup at the grant edge keeps FR_SCAN_FULL false
+ *      and the poll RETRYING (not foreclosed), then succeeds once the scan recovers.
  *
  * DOM-state + which-route assertions only, so headless is fine.
  *
@@ -71,7 +73,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const p = await browser.newPage({ viewport: { width: 1100, height: 900 } });
     const errs = [];
     p.on('pageerror', (e) => errs.push(String(e)));
-    p.on('console', (m) => { if (m.type() === 'error' && !/ERR_FILE_NOT_FOUND|favicon|status 404/.test(m.text())) errs.push(m.text()); });
+    // Network-level resource-load noise is not a page/JS error (uncaught exceptions come via
+    // pageerror above); scenario 8 deliberately makes /api/scan-import return 500 to exercise the
+    // hiccup-retry path, so a 500 resource-load line is expected here, like the 404/favicon noise.
+    p.on('console', (m) => { if (m.type() === 'error' && !/ERR_FILE_NOT_FOUND|favicon|status 404|status of 500/.test(m.text())) errs.push(m.text()); });
 
     /* Which scan route frScanAgents actually reached. Reset before each scenario;
        the route handlers push their own name so an assertion can tell scan-import
@@ -80,10 +85,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     let grant = { checkable: false };            // mutated per scenario
     let importCandidates = [];                    // agent FOLDERS scan-import returns
     let importFiles = [];                         // #4: loose agent FILES scan-import returns
+    let scanImportFail = false;                   // scenario 8: make the granted scan hiccup
 
     await p.route('**/api/file-access-status', (r) => r.fulfill({ json: grant }));
     await p.route('**/api/scan-import', (r) => {
       hits.scanImport++;
+      // scenario 8: a transient hiccup at the grant edge -> res.ok false -> frScanAgents out=null
+      if (scanImportFail) { r.fulfill({ status: 500, json: { ok: false } }); return; }
       r.fulfill({ json: { ok: true, candidates: importCandidates, importable: importFiles, bounded: {} } });
     });
     await p.route('**/api/scan-agents', (r) => {
@@ -178,12 +186,17 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     importCandidates = [];
     await runScan();
     if (hits.scanAgents === 1 && hits.scanImport === 0) ok('CONTROL declined: the TCC-walking import scan NEVER fires without a grant (#2125 no-ambush)'); else bad('CONTROL declined uses bare scan', 'scanImport=' + hits.scanImport + ' scanAgents=' + hits.scanAgents);
+    // This ungranted scan armed the grant-flip poll; retire it so the next scenario arms its
+    // OWN poll (else scenario 4's fast FR_RESCAN_INTERVAL_MS is inert -- frArmRescanOnGrant
+    // early-returns on the leaked timer and scenario 4 would ride this stale 1500ms poll).
+    await p.evaluate(() => frRescanStop());
 
     // ── 3. CONTROL (uncheckable, e.g. a browser with no native writer). ──
     hits.scanImport = 0; hits.scanAgents = 0;
     grant = { checkable: false, because: 'no native writer' };
     await runScan();
     if (hits.scanAgents === 1 && hits.scanImport === 0) ok('CONTROL uncheckable: an unmeasured grant keeps the bare TCC-free scan'); else bad('CONTROL uncheckable uses bare scan', 'scanImport=' + hits.scanImport + ' scanAgents=' + hits.scanAgents);
+    await p.evaluate(() => frRescanStop());   // same isolation: retire this scenario's armed poll
 
     // ── 4. #3/#4 half (a): a grant that lands AFTER the ungranted scan triggers a re-scan. ──
     // Josh 0.6.42 #4: he granted file-access on S2, but the macOS TCC write propagated a beat
@@ -215,7 +228,11 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     // this re-scan; this scenario tests the plain edge, scenario 6 tests the defer.
     await p.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
     grant = { checkable: true, granted: true, at: Date.now() };
-    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 3000 }).catch(() => {});
+    // 500ms timeout, deliberately BELOW the 1500ms default interval: this only passes if
+    // scenario 4 armed its OWN fast (20ms) poll. If a stale 1500ms poll leaked in from an
+    // earlier scenario (the isolation bug), the flip would not be caught within 500ms and this
+    // reds -- so the FR_RESCAN_INTERVAL_MS=20 knob is proven live, not inert.
+    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 500 }).catch(() => {});
     const a4 = await p.evaluate(() => ({
       stopped: FR_RESCAN_TIMER === null,
       full: FR_SCAN_FULL,
@@ -314,6 +331,37 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       ok('#3/#4(a): the UNKNOWN arm (tmux unreadable) also arms the poll and re-scans on a late grant');
     else bad('#3/#4(a) unknown-arm re-scan', JSON.stringify({ u7armed, u7, hits }));
 
+    // ── 8. #3/#4(a): a transient granted-scan hiccup does NOT foreclose the retry. ──
+    // If /api/scan-import fails at the grant edge, FR_SCAN_FULL must stay false and the poll
+    // must keep retrying (throttled), then succeed once the scan recovers. Without this, one
+    // hiccup sets FR_SCAN_FULL true forever and the late-grant person silently loses their agents.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: false, at: Date.now() };   // ungranted
+    importCandidates = [
+      { dir: '/Users/x/Documents/hiccup-agent', name: 'Hiccup agent', role: 'watches', preview: 'You watch.' },
+    ];
+    importFiles = [];
+    scanImportFail = true;                                          // the granted re-scan will hiccup
+    await p.evaluate(async () => {
+      FR_RESCAN_INTERVAL_MS = 20;
+      FR = { path: 'create', fleetCount: 0 };
+      FR_FOUND = { ok: true, agents: [], adoptable: [] };
+      FR_SCAN = null; FR_SCAN_GEN = 0; FR_SCAN_FULL = false;
+      frRescanStop();
+      await frScanAgents();                                        // ungranted bare scan; repaint arms the poll
+    });
+    await p.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
+    grant = { checkable: true, granted: true, at: Date.now() };    // grant lands, but scan-import hiccups
+    await new Promise((r) => setTimeout(r, 150));                   // several fast ticks try + fail the re-scan
+    const hic = await p.evaluate(() => ({ full: FR_SCAN_FULL, armed: FR_RESCAN_TIMER !== null }));
+    if (!hic.full && hic.armed && hits.scanImport >= 1)
+      ok('#3/#4(a): a granted-scan hiccup keeps FR_SCAN_FULL false and the poll RETRYING (not foreclosed)');
+    else bad('#3/#4(a) hiccup keeps retrying', JSON.stringify({ hic, scanImport: hits.scanImport }));
+    scanImportFail = false;                                         // the scan recovers
+    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 2000 }).catch(() => {});
+    const rec = await p.evaluate(() => ({ full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null, offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1 }));
+    if (rec.full && rec.stopped && rec.offer === 1) ok('#3/#4(a): once the granted scan recovers, the re-scan succeeds, the poll stops, and the agent renders'); else bad('#3/#4(a) recovers after hiccup', JSON.stringify(rec));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -323,7 +371,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 22) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 22), so a check was skipped -- proving nothing'); process.exit(1); }
+  if (ran < 24) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 24), so a check was skipped -- proving nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or
