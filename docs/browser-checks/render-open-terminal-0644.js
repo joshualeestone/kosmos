@@ -13,7 +13,9 @@
  *  1. the button exists in the Terminal section (#d-sec-term #d-open-terminal);
  *  2. clicking it POSTs to /api/agent/<encoded name>/launch-terminal (method POST);
  *  3. a 200 {ok:true} shows the "opening" confirmation, not a blank;
- *  4. a 400 {ok:false, because} shows the refusal reason (e.g. the headless-board case);
+ *  4. any non-200 {ok:false, because} shows the reason -- BOTH a 400 genuine refusal (agent
+ *     not running) AND a 503 environment failure (headless board), since the handler must not
+ *     special-case the status code (Pete's Contract-2 amendment);
  *  5. a network throw shows the friendly fallback, not a blank;
  *  6. the name is URL-encoded.
  *
@@ -60,8 +62,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         if (String(url).indexOf('/launch-terminal') !== -1) {
           window.__cap = { url: String(url), method: (opts && opts.method) || 'GET' };
           if (scenario === 'throw') return Promise.reject(new Error('offline'));
-          if (scenario === 'refused') {
+          if (scenario === 'refused400') {
+            // Genuine refusal (agent not running / unconfirmable) -> 400 {ok:false, because}.
             return Promise.resolve({ ok: false, status: 400,
+              json: () => Promise.resolve({ ok: false, because: 'That agent is not running, so there is nothing to attach to.' }) });
+          }
+          if (scenario === 'env503') {
+            // Environment failure (headless board / osascript / tmux) -> 503 {ok:false, because}
+            // per Pete's Contract-2 amendment. The frontend must NOT special-case 400 vs 503.
+            return Promise.resolve({ ok: false, status: 503,
               json: () => Promise.resolve({ ok: false, because: 'This board has no desktop, so there is no window to open here.' }) });
           }
           return Promise.resolve({ ok: true, status: 200,
@@ -107,9 +116,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       if (!/opening the terminal window/i.test(ok.msg)) problems.push('the 200 confirmation was not shown: ' + JSON.stringify(ok.msg));
     }
 
-    // Arm 4: a 400 refusal shows its `because` (the headless-board reason here).
-    const refused = await run('test-agent', 'refused');
-    if (!/no desktop/i.test(refused.msg)) problems.push('the 400 refusal `because` was not shown: ' + JSON.stringify(refused.msg));
+    // Arm 4a: a 400 genuine refusal (agent not running) shows its `because`.
+    const refused = await run('test-agent', 'refused400');
+    if (!/not running/i.test(refused.msg)) problems.push('the 400 refusal `because` was not shown: ' + JSON.stringify(refused.msg));
+
+    // Arm 4b: a 503 environment failure (headless board) ALSO shows its `because` -- the
+    // handler must NOT special-case the status code (Pete's Contract-2 amendment: env
+    // failures are 503, genuine refusals are 400, both carry ok:false + because).
+    const env = await run('test-agent', 'env503');
+    if (!/no desktop/i.test(env.msg)) problems.push('the 503 environment-failure `because` was not shown (did the handler special-case the status?): ' + JSON.stringify(env.msg));
 
     // Arm 5: a network throw shows the friendly fallback.
     const threw = await run('test-agent', 'throw');
