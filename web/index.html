@@ -24934,11 +24934,11 @@ document.getElementById('d-open-terminal').addEventListener('click', async () =>
     if (CURRENT && CURRENT.sessionName === forAgent) {
       msg.textContent = (res.ok && r.ok)
         ? 'Opening the Terminal window on this computer.'
-        : (r.because || r.error || 'We could not open a Terminal for this agent.');
+        : (r.because || r.error || 'The Terminal window could not be opened for this agent.');
     }
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) {
-      msg.textContent = 'We could not reach Kosmos to open a Terminal for this agent.';
+      msg.textContent = 'Kosmos could not be reached, so the Terminal window did not open.';
     }
   } finally {
     btn.disabled = false;

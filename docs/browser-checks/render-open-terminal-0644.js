@@ -128,7 +128,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
     // Arm 5: a network throw shows the friendly fallback.
     const threw = await run('test-agent', 'throw');
-    if (!/could not reach kosmos/i.test(threw.msg)) problems.push('a network failure did not show the fallback message: ' + JSON.stringify(threw.msg));
+    if (!/could not be reached/i.test(threw.msg)) problems.push('a network failure did not show the fallback message: ' + JSON.stringify(threw.msg));
   }
 
   await browser.close();
