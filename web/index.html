@@ -39553,16 +39553,20 @@ function frPaintFleet() {
        "second fetch the generation guard then threw away" class the create arm's own
        39594 comment removed. Gating on FR_FOUND makes the found-settle repaint the
        single trigger that starts the scan, so it fires once. */
+    /* #2389 (iter 4): the transient "checking" copy is shared across the three
+       pre-settled branches (found-loading, scan-not-started, scan-in-flight) so the
+       wording cannot drift between them. */
+    const checkingCopy = '<p>They are already here. Checking this computer for any '
+      + 'others to add\u2026</p>';
+
     if (FR_FOUND === null) {
-      box.innerHTML = '<p>They are already here. Checking this computer for any '
-        + 'others to add\u2026</p>';
+      box.innerHTML = checkingCopy;
       frForkActions();
       return;
     }
     if (FR_SCAN === null) {
       frScanAgents();
-      box.innerHTML = '<p>They are already here. Checking this computer for any '
-        + 'others to add\u2026</p>';
+      box.innerHTML = checkingCopy;
       frForkActions();
       return;
     }
@@ -39583,8 +39587,7 @@ function frPaintFleet() {
        SETTLED. Keep the "checking" copy while FR_SCAN_INFLIGHT is set; do NOT re-fire the
        scan (it is already running -- that is exactly why the flag is set). */
     if (FR_SCAN_INFLIGHT) {
-      box.innerHTML = '<p>They are already here. Checking this computer for any '
-        + 'others to add\u2026</p>';
+      box.innerHTML = checkingCopy;
       frForkActions();
       return;
     }
@@ -39602,8 +39605,25 @@ function frPaintFleet() {
      */
     // One sentence, at Josh's word (2026-08-17): the how-it-saw-them
     // explanation came out.
-    box.innerHTML = '<p>They are already here. There is nothing to import and '
-      + 'nothing to wait for.</p>';
+    /* 🛑 #2389 (iter 4): render the verbatim ONLY on a CLEAN, COMPLETE, READABLE-empty
+       scan. FR_SCAN is settled and not in-flight here, but two settled shapes are NOT a
+       genuine empty answer and must not carry the machine-claim: a retry-exhausted
+       still-scanning result (out.scanning === true, INFLIGHT already cleared, FR_SCAN_FULL
+       stays false) and a hard read failure ({ok:false}). On either, asserting "nothing to
+       import" is the #1493 SAID-WHILE-FALSE class on a disk we could not finish reading --
+       and (Josh's ruling, the four deleted sentences) we do NOT confess the failed read
+       either. So make no import claim: the heading already acknowledges the fleet and
+       frForkActions gives the way forward, with box cleared so a prior "checking" cannot
+       persist. The common bare-route pre-grant empty ({ok:true, no scanning}) still renders
+       the verbatim, exactly as the create arm shows its terminal state pre-grant; the
+       grant-flip poll (armed above) corrects it if a late grant lands. */
+    if (FR_SCAN && FR_SCAN.ok === true && FR_SCAN.scanning !== true) {
+      box.innerHTML = '<p>They are already here. There is nothing to import and '
+        + 'nothing to wait for.</p>';
+      frForkActions();
+      return;
+    }
+    box.innerHTML = '';
     frForkActions();
     return;
   }

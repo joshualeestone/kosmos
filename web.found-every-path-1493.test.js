@@ -238,6 +238,30 @@ test('#2389 (iter 3): a still-scanning granted partial does NOT flash the verbat
   assert.match(r.title, /already have 2 agents/, 'the running-fleet acknowledgment was dropped');
 });
 
+test('#2389 (iter 4): a retry-exhausted still-scanning result does NOT assert the verbatim', () => {
+  /* fetchImportScanComplete can return scanning:true after MAX retries; frScanAgents then
+     stores FR_SCAN = that result (scanning:true) and CLEARS FR_SCAN_INFLIGHT. That is
+     settled-but-not-a-clean-empty: the disk was not finished, so "nothing to import" would be
+     false. The verbatim must render only on a clean, complete, readable-empty scan. */
+  const exhausted = { ok: true, scanning: true, candidates: [], importable: [] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, exhausted, false);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim rendered on a retry-exhausted, unfinished scan');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
+});
+
+test('#2389 (iter 4): a hard scan failure does NOT assert the verbatim', () => {
+  /* On a failed read frScanAgents stores FR_SCAN = {ok:false, candidates:[]}. The disk was
+     not read, so the adopt arm must not claim "nothing to import" -- the create arm renders
+     silent neutral copy here and the unknown arm renders "could not see"; the adopt arm must
+     not be the only one making a positive machine claim on a failed read (#1493 SAID-WHILE-FALSE). */
+  const failed = { ok: false, candidates: [] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, failed, false);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim rendered on a hard scan failure (unread disk)');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
+});
+
 test('#2389 CONTROL: with a running fleet and a genuinely empty disk, the verbatim pack copy still renders', () => {
   /* The Josh-ruled sentence (2026-08-17, verbatim) must survive untouched for the
      true-empty case. This pins that the fix ADDED a branch and did not edit the
