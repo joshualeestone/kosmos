@@ -134,8 +134,20 @@ function unhide(id) {
       // that pane is correct for the bash background grant; only S3's tmux window moved to
       // Accessibility. This guards against over-removing "Login Items" from the whole file.
       const nb = pane.querySelector('.s4-nb');
+      const nt = pane.querySelector('.s4-nt');
+      const ntc = nt ? getComputedStyle(nt) : null;
+      const nbc = nb ? getComputedStyle(nb) : null;
       return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
-        s4Text: nb ? nb.textContent : null };
+        s4Text: nb ? nb.textContent : null,
+        // #768-batch (Josh, said 3x): the title must be BOLD, not LARGER. Weight >= 700
+        // and font-size EQUAL to the body, so a future edit cannot re-introduce the
+        // size-emphasis it kept regressing to.
+        ntWeight: ntc ? Number(ntc.fontWeight) : null,
+        ntSize: ntc ? parseFloat(ntc.fontSize) : null,
+        nbSize: nbc ? parseFloat(nbc.fontSize) : null,
+        // The cog is centred by flex + line-height:1 on the glyph, not place-items on
+        // a line box that let the gear's ascent push it high.
+        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
@@ -150,6 +162,17 @@ function unhide(id) {
         gearOk, JSON.stringify(s4));
       check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
         /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
+      // #768-batch (Josh, said 3 times): "App Background Activity" must be BOLD, NOT a
+      // larger font. Weight >= 700 AND the SAME size as the body -- both arms, so
+      // neither a non-bold weight nor a size-bump can pass. A computed-cascade fact a
+      // source read cannot see, and the exact property that kept regressing.
+      const boldNotLarger = s4.ntWeight != null && s4.ntWeight >= 700
+        && s4.ntSize != null && s4.nbSize != null && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
+      check(`${engine}: the S4 title is BOLD (weight>=700) and the SAME size as the body (bold, not larger)`,
+        boldNotLarger, `ntWeight ${s4.ntWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
+      check(`${engine}: the S4 cog is flex-centred (display:flex, items+content center), so the glyph sits centred not high-left`,
+        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center',
+        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}`);
     }
 
     await browser.close();
