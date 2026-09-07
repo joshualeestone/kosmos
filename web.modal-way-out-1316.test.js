@@ -40,8 +40,8 @@ test('the sweep still covers every modal, and the count is the assertion', () =>
   const found = modals();
   assert.ok(found.length >= 12,
     `only ${found.length} modals found; the sweep stopped seeing them, so every assertion below is vacuous`);
-  assert.ok(found.length <= 15,
-    `${found.length} modals now, up from 14. A new one joined the page: sweep it, then raise this number.`);
+  assert.ok(found.length <= 16,
+    `${found.length} modals now, up from 15. A new one joined the page: sweep it, then raise this number.`);
 });
 
 /**
@@ -75,6 +75,10 @@ const ESCAPES_VIA = {
      the switcher's keydown listener (closes the rename modal before the create modal
      and the menu). Caught by the table the moment the modal was added, as designed. */
   'world-rename-modal': /Escape[\s\S]{0,300}world-rename-modal/,
+  /* #6: the switch-confirm modal. Its Escape is the FIRST branch of the switcher's
+     global keydown listener (closes the switch modal before the rename/add modals and
+     the menu), matching the sibling world modals rather than an element-scoped listener. */
+  'world-switch-modal': /world-switch-modal'\)\.hidden\) \{ worldswSwitchCancel/,
   /* Added by kosmos#1303 H: the add-a-member picker became a dialog, and this
      sweep caught it the moment it did -- the table refused a modal nobody had
      checked. The guard doing its job on its own author. */

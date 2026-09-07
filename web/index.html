@@ -7642,6 +7642,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="fmsg" id="world-rename-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
+<!-- #6 (Josh 0.6.42 re-test): switching Kosmos requires a restart (the board reboots
+     onto the new world and its projects/agents reload), so clicking a Kosmos to switch
+     confirms in a modal FIRST rather than switching inline. Josh's verbatim line is the
+     modal message; the primary button auto-restarts (worldswSwitch, which self-restarts
+     when the board can). Replaces the old inline "run kosmos restart yourself" banner. -->
+<div class="rm-back" id="world-switch-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="world-switch-t">
+    <h2 class="rm-title" id="world-switch-t">Restart Kosmos in order to switch to a different Kosmos</h2>
+    <div class="rm-acts" style="margin-top: var(--space-6);">
+      <button class="btn" id="world-switch-cancel" type="button">Cancel</button>
+      <button class="btn uprime" id="world-switch-go" type="button">Restart Kosmos</button>
+    </div>
+  </div>
+</div>
 <div class="rm-back" id="mem-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="mem-title" aria-describedby="mem-small">
     <h2 class="rm-title" id="mem-title"></h2>
@@ -16508,7 +16522,7 @@ function worldswRender(data) {
     } else {
       row.type = 'button';
       row.setAttribute('aria-label', 'Switch to ' + wname);
-      row.addEventListener('click', () => worldswSwitch(w.id, wname));
+      row.addEventListener('click', () => worldswConfirmSwitch(w.id, wname));
     }
     const check = document.createElement('span');
     check.className = 'worldsw-check';
@@ -16584,17 +16598,24 @@ async function worldswSwitch(id, name) {
         body: JSON.stringify({ id }),
       });
     } catch {
+      // #6: the switch is now invoked from the confirm modal, and worldswSwitchGo hides
+      // that modal (destroying the focused "Restart Kosmos" button) BEFORE this runs. So
+      // EVERY terminal path here must restore focus to the trigger, or a keyboard user is
+      // left on a hidden button and focus falls to <body>. (Pre-#6 the row invoked the
+      // switch and stayed visible, so only the 404 refetch path needed this.)
       say('Could not reach Kosmos to switch. Try again.');
+      worldswFocusTrigger();
       return;
     }
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const because = body && body.because;
-      // 404 refetches, which rebuilds the rows and can drop the clicked button (the
-      // world was deleted), so restore focus to the trigger as the success path does.
-      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); worldswFocusTrigger(); }
+      // 404 also refetches (the world was deleted), rebuilding the rows; the focus restore
+      // is shared by every branch (see the catch above).
+      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); }
       else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
       else { say(because || 'Could not switch to that Kosmos.'); }
+      worldswFocusTrigger();
       return;
     }
     // Success: the active world is recorded. Prefer the server-returned world (the
@@ -16640,7 +16661,10 @@ async function worldswSwitch(id, name) {
     // A board that will not self-restart safely (from source / unmanaged): honest
     // guidance, no auto-reconnect (a poll would wait out the full timeout for a
     // restart that is never coming).
-    say('Switched to ' + switchedName + '. Restart Kosmos to finish switching (run "kosmos restart", or restart your Mac); its projects and agents load when the board comes back.');
+    /* #6: the board cannot self-restart safely (from-source / unmanaged), so the
+       auto-restart button could not finish it. Josh scrapped the old "run kosmos
+       restart" CLI instruction; give the gentle GUI action instead, no command. */
+    say('Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
     WORLDSW_SWITCHING = false;
@@ -16687,10 +16711,10 @@ async function worldswReconnect(switchedId, switchedName, say) {
       }
       if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
         slowShown = true;
-        say('Still switching to ' + switchedName + '… this is taking longer than usual. If Kosmos does not come back on its own, restart it (run "kosmos restart", or restart your Mac).');
+        say('Still switching to ' + switchedName + '… this is taking longer than usual. If it does not come back on its own, quit and reopen Kosmos.');
       }
     }
-    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, restart Kosmos (run "kosmos restart", or restart your Mac).');
+    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, quit and reopen Kosmos.');
     worldswFocusTrigger();
   } finally {
     WORLDSW_RECONNECTING = false;
@@ -16782,6 +16806,50 @@ async function worldAddSubmit() {
    is needed. On success the list is refetched and the menu reopened so the person sees
    the new name land, mirroring the create flow (worldAdd*). */
 let WORLD_RENAME_ID = null;
+/* #6: switching Kosmos requires a restart, so a row click CONFIRMS in a modal first
+   (worldswConfirmSwitch) rather than switching inline; the modal's "Restart Kosmos"
+   button runs the real switch (worldswSwitch), which self-restarts when the board can.
+   The switcher menu is left OPEN behind the modal so worldswSwitch's #worldsw-restart
+   status (Switching.../reconnect/fallback) is visible once the modal closes. */
+let WORLD_SWITCH_ID = null;
+let WORLD_SWITCH_NAME = null;
+function worldswConfirmSwitch(id, name) {
+  // A switch is already in flight (its reconnect poll can hold WORLDSW_SWITCHING for ~150s).
+  // Opening a fresh confirm now would let worldswSwitchGo hide the modal and call
+  // worldswSwitch, which early-returns on the WORLDSW_SWITCHING guard -- so the modal would
+  // dismiss as if it acted while doing nothing (false feedback). Ignore the row click; the
+  // #worldsw-restart banner is already showing the in-progress status.
+  if (WORLDSW_SWITCHING) return;
+  WORLD_SWITCH_ID = id;
+  WORLD_SWITCH_NAME = name;
+  /* Josh verbatim, with the target name appended: "Restart Kosmos in order to switch
+     to a different Kosmos [name]". One line, no reassurance (Josh scrapped the old
+     inline copy that carried it). */
+  document.getElementById('world-switch-t').textContent =
+    'Restart Kosmos in order to switch to a different Kosmos' + (name ? ' ' + name : '');
+  document.getElementById('world-switch-modal').hidden = false;
+  /* Initial focus lands on Cancel, not "Restart Kosmos": #6 exists to make switching a
+     DELIBERATE act (Josh's complaint was that switching happened silently/inline), so a
+     reflexive Enter should cancel, not restart the app. This is the standard
+     destructive-confirm default and matches the Tab-trap home (world-switch-cancel). */
+  document.getElementById('world-switch-cancel').focus();
+}
+function worldswSwitchCancel() {
+  document.getElementById('world-switch-modal').hidden = true;
+  WORLD_SWITCH_ID = null;
+  WORLD_SWITCH_NAME = null;
+  /* Back to the trigger: the clicked row may have been dropped/rebuilt by a refetch,
+     and the menu is still open behind the modal. */
+  document.getElementById('worldsw-btn').focus();
+}
+function worldswSwitchGo() {
+  const id = WORLD_SWITCH_ID;
+  const name = WORLD_SWITCH_NAME;
+  document.getElementById('world-switch-modal').hidden = true;
+  WORLD_SWITCH_ID = null;
+  WORLD_SWITCH_NAME = null;
+  if (id) worldswSwitch(id, name);
+}
 function worldRenameOpen(id, name) {
   worldswClose();
   WORLD_RENAME_ID = id;
@@ -16848,14 +16916,29 @@ async function worldRenameSubmit() {
   rin.addEventListener('input', () => { document.getElementById('world-rename-go').disabled = !rin.value.trim(); });
   rin.addEventListener('keydown', (e) => { if (e.key === 'Enter' && rin.value.trim() && !document.getElementById('world-rename-go').disabled) { e.preventDefault(); worldRenameSubmit(); } });
   document.getElementById('world-rename-modal').addEventListener('click', (e) => { if (e.target.id === 'world-rename-modal') worldRenameClose(); });
+  // #6: the switch-confirm modal, wired the same way (Cancel/backdrop/Esc close it,
+  // "Restart Kosmos" runs the real switch).
+  document.getElementById('world-switch-cancel').addEventListener('click', worldswSwitchCancel);
+  document.getElementById('world-switch-go').addEventListener('click', worldswSwitchGo);
+  document.getElementById('world-switch-modal').addEventListener('click', (e) => { if (e.target.id === 'world-switch-modal') worldswSwitchCancel(); });
   // Outside-click closes the menu.
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('worldsw-menu');
-    if (menu && !menu.hidden && !(e.target.closest && e.target.closest('#worldsw'))) worldswClose();
+    // #6: the switch-confirm modal lives OUTSIDE #worldsw but is left OPEN over the menu
+    // (worldswConfirmSwitch keeps the menu up so worldswSwitch's #worldsw-restart banner,
+    // which is nested INSIDE the menu, shows once the modal closes). Without this second
+    // exclusion a click on Restart/Cancel/backdrop bubbles here, matches neither #worldsw
+    // nor the menu-hidden guard, and runs worldswClose() -- hiding the menu and clearing
+    // the banner while the switch's fetch is still in flight (WORLDSW_RECONNECTING not yet
+    // set), so every later say() writes into a hidden menu and the fallback/no-op/error
+    // guidance is never seen. Excluding the modal also makes button/backdrop Cancel leave
+    // the menu open, matching the Escape-cancel path.
+    if (menu && !menu.hidden && !(e.target.closest && (e.target.closest('#worldsw') || e.target.closest('#world-switch-modal')))) worldswClose();
   });
   // Escape closes the create modal first, then the menu.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!document.getElementById('world-switch-modal').hidden) { worldswSwitchCancel(); return; }
     if (!document.getElementById('world-rename-modal').hidden) { worldRenameClose(); return; }
     if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
     const menu = document.getElementById('worldsw-menu');
@@ -31217,6 +31300,11 @@ document.addEventListener('keydown', (e) => {
        while it is disabled on an empty name, so Tab cycles name<->Cancel until a
        name is typed, then includes Create. */
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
+    /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap over its
+       two buttons (Cancel, Restart Kosmos), in DOM order. Home is Cancel -- the safe/back
+       choice, matching doc-keep -- and worldswConfirmSwitch also opens initial focus on
+       Cancel (a reflexive Enter cancels rather than restarting; see the comment there). */
+    ['world-switch-modal', ['world-switch-cancel', 'world-switch-go'], 'world-switch-cancel'],
   ]) {
     const back = document.getElementById(backId);
     if (back.hidden) continue;
