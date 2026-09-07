@@ -77,14 +77,15 @@ test('the context LIMIT is read from the tool rather than assumed', () => {
   assert.equal(r.contextWindow, 272000);
 });
 
-test('the USED half is null, and null is the answer rather than a placeholder', () => {
+test('the USED half is null when no turn has reported usage yet, and null is the answer rather than a placeholder', () => {
   writeRollout('rollout-2026-08-21T23-47-23-ccc.jsonl', WORKDIR, [TASK_STARTED, A_MESSAGE]);
   const r = codex.read(WORKDIR);
-  /* 🛑 I have not seen a successful Codex run report token usage, and inventing
-     a field name from a failed one is how a number nobody computed reaches a
-     card. Null renders as "we could not tell", which is this product's honest
-     answer. One real completed session decides it, and THIS test is what has to
-     change when somebody has one. */
+  /* ⭐ The USED half IS measured now (#2257): a completed turn reports a
+     `token_count` event carrying `info.last_token_usage.input_tokens` -- the
+     current window occupancy. THIS fixture has no such event (only task_started +
+     a message), so `contextUsed` is correctly null -- "we could not tell", the
+     honest answer, until a turn reports usage. See `codexsession.js` and the
+     `status.openai-ring-2257.test.js` fixture that exercises a real token_count. */
   assert.equal(r.contextUsed, null);
 });
 
