@@ -517,7 +517,15 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   {
     // #1: S3 tmux "Turn On" FIRES the native a11y prompt (/api/a11y-prompt); the
     // sleep row is programmatic and opens Energy settings (no trigger).
-    const { ctx, page } = await fresh(browser);
+    // The gates must be CHECKABLE-not-granted, not the walk-through's uncheckable
+    // default: since #2085 an uncheckable gate row is `data-checking`, which hides
+    // .s3-req (the "Turn On" button) behind a "Checking..." state, so a click on
+    // .s3-on can never become visible. "Turn On" is only shown to a real user when
+    // the gate is checkable and not granted, which is exactly what this asserts.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
     let sleepPosts = 0; let a11yPromptPosts = 0; let a11ySettingsPosts = 0;
     await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
     await page.route('**/api/a11y-prompt', (r) => { a11yPromptPosts += 1; r.fulfill({ json: { ok: true } }); });
