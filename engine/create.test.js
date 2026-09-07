@@ -3594,7 +3594,11 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   /* The folder is trusted at creation, or the agent is born into codex's
      blocking trust dialog (measured; the bypass flag does not skip it). */
   const toml = fs.readFileSync(nodePath.join(codexHome, 'config.toml'), 'utf8');
-  assert.ok(toml.includes(`[projects."${create.workerDir(name)}"]`), 'the worker folder was not trusted');
+  // #2129/#5: the trust key is the ON-DISK canonical spelling the runner looks up
+  // (canonicalOnDisk), not the raw workerDir -- in this sandbox the tmpdir is under
+  // /var -> /private/var, and codex canonicalizes its cwd, so the trust must be
+  // keyed on the resolved+cased spelling or codex's lookup misses it.
+  assert.ok(toml.includes(`[projects."${require('./trust').canonicalOnDisk(create.workerDir(name))}"]`), 'the worker folder was not trusted');
   assert.match(toml, /trust_level = "trusted"/);
   /* And the notify bridge is installed beside the supervisor by the same
      refresh, so the launch line's -c notify=[bridge] points at something. */
@@ -3864,7 +3868,7 @@ test('#246: the switch rewrites only the launch, both directions, and drops what
   assert.equal(store.readProfile(name).id, idBefore, 'the switch minted a new identity, which is the same-agent ruling broken');
   assert.equal(store.readProfile(name).provider, 'openai');
   assert.match(fs.readFileSync(nodePath.join(codexHome, 'config.toml'), 'utf8'),
-    new RegExp(`\\[projects\\."${create.workerDir(name).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]`),
+    new RegExp(`\\[projects\\."${require('./trust').canonicalOnDisk(create.workerDir(name)).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}"\\]`),
     'the switch must trust the folder or the agent restarts into a blocking dialog');
 
   /* AND THE OTHER DIRECTION: switching BACK must point at claude, or the
