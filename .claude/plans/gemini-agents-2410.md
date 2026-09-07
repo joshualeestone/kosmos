@@ -67,14 +67,24 @@ same geminiIdentity helper can also feed foundGemini.
   still handled by the strict path. Unchanged.
 - pip (#5, offer-with-empty-name): no front-matter => untouched.
 
-## Deferred (challenge-loop iter 1)
-- NIT: in the by-file importAgent path, geminiIdentity matches ANY name:+description:
-  front-matter (no location signal is available there -- importAgent takes text, not a
-  path) and stamps provider: 'gemini'. DEFERRED: provider is a soft HINT the create form
-  lets the user change (the file's own comment says so), auto-DISCOVERY is location-scoped
-  to ~/.gemini/agents, and there is no gemini-only marker in the file format to gate on.
-  A user manually importing an unrelated name+description .md getting a changeable 'gemini'
-  hint is acceptable and arguably correct (it is markdown+YAML-front-matter, the Gemini shape).
+## Decisions from the challenge loop
+- iter1 NIT (provider over-eager stamping) SUPERSEDED by the iter2 decision below: the
+  import no longer stamps 'gemini' at all.
+- iter2 WARNING (provider 'gemini' dead-ends createAgent, which refuses non-anthropic/
+  openai): DECIDED to return provider: null instead of 'gemini'. Gemini is not a runnable
+  provider yet, so a 'gemini' hint guarantees a create refusal on the happy path. Null
+  matches the #1939 recognized-instructions precedent: the front-matter gives the NAME, the
+  body is generic instructions that run under any runner, and the create form lets the
+  person pick a runnable provider -- so the import COMPLETES (import -> create under Claude/
+  Codex) rather than stopping. Reversible: re-add the origin hint when Gemini is runnable.
+  Rejected: keeping 'gemini' (honest about origin but dead-ends the user's actual goal).
+  Weakest premise: that the row UI does not need the 'gemini' origin tag; if Angel's create
+  form wants to surface "Gemini agent", that is a UI addition on top, not a reason to break
+  the working import. Flagged to Splinter/Angel as a create-form UX follow-up.
+- iter2 NIT (description/role not MAX_DISPLAY-bounded): DEFERRED -- role fields elsewhere
+  (identityFromText role, looseRow/folderRow role) are not MAX_DISPLAY-bounded either, and
+  the value is already bounded by READ_CAP + the single-line field reader; capping it would
+  diverge from existing role handling for no real gain.
 
 ## Tests (perturbation-proven)
 - geminisession.agentFiles(): finds `agents/*.md`, ignores non-md, [] on missing dir.

@@ -102,12 +102,15 @@ test('#2410 geminiIdentity: declines a Kosmos export, the #7 control, and a desc
 
 /* ── agentfile.importAgent() by-file import ─────────────────────────────────── */
 
-test('#2410 importAgent: a Gemini file imports with its real name + provider gemini', () => {
+test('#2410 importAgent: a Gemini file imports with its real name; provider is null so create does not dead-end', () => {
   const r = agentfile.importAgent(GEMINI['code-reviewer.md'], deps);
   assert.equal(r.ok, true, 'a Gemini agent file must not be refused as "not a Kosmos file"');
   assert.equal(r.displayName, 'code-reviewer');
   assert.equal(r.name, 'code-reviewer', 'the slug the create form pre-fills');
-  assert.equal(r.provider, 'gemini');
+  // Gemini is not runnable yet (createAgent refuses non-anthropic/openai), so the hint is
+  // null -- the person picks a runnable provider, exactly as the #1939 raw-instructions path.
+  assert.equal(r.provider, null, 'no gemini provider hint that would dead-end the create form');
+  assert.equal(r.recognizedFromContent, true);
   assert.ok(/helpful assistant/.test(r.body), 'the instructions body is carried through');
 });
 

@@ -384,7 +384,15 @@ function importAgent(text, deps) {
         // the same needsName discipline the #1939 recognized-instructions path uses.
         name: gname,
         displayName: g.displayName,
-        provider: 'gemini',
+        /* provider: null, NOT 'gemini'. Gemini is not a runnable provider yet
+           (createAgent refuses anything but anthropic/openai), so a 'gemini' hint would
+           dead-end the create happy-path on a clean refusal. Null is the same choice the
+           #1939 recognized-instructions path makes for a raw non-Kosmos file: the
+           front-matter gives us the NAME, the body is generic instructions that run under
+           any runner, and the create form lets the person pick a runnable provider -- so
+           the import completes end-to-end instead of stopping at "pick a provider". Re-add
+           the origin hint if/when Gemini becomes runnable. */
+        provider: null,
         // The instructions body (front-matter stripped) is what the agent reads; the
         // name lived in the front-matter and is now displayName.
         body: src.slice(m[0].length),

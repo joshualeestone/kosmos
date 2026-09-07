@@ -126,12 +126,12 @@ function agentFiles() {
   catch { return []; }
   const names = [];
   for (const e of entries) {
-    /* A file (or a symlink to one) named *.md / *.markdown. Directories under agents/
-       are not agent definitions; a dotfile (e.g. .DS_Store) is skipped. lstat is not
-       needed here -- the caller reads with a symlink-safe head reader -- but withFileTypes
-       lets us skip directories without a stat. A symlink shows as isSymbolicLink(); include
-       it so a linked agent file is still offered (the head reader lstats and refuses a
-       symlinked DIR later). */
+    /* A regular file named *.md / *.markdown. Directories under agents/ are not agent
+       definitions; a dotfile (e.g. .DS_Store) is skipped. withFileTypes lets us skip
+       directories without a stat. A symlink is passed through here, but the caller's head
+       reader (readClaudeHead) lstats and refuses ANY non-regular-file -- a symlink to a
+       file included -- so symlinks are ultimately not offered; that is the same
+       no-symlink-escape contract the disk walk keeps, enforced at read time. */
     if (e.isDirectory()) continue;
     const name = e.name;
     if (name.startsWith('.')) continue;
