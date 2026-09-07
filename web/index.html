@@ -5745,6 +5745,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   --label: #14161a; --label-3: rgba(20,22,26,0.61);
   --border-strong: rgba(20,22,26,0.26);
   --field-fill: #faf9f7;   /* paper, so a field is never the card's own white */
+  /* --danger is dark-overridden to a coral (#ff6b5e) tuned for a dark ground; on
+     this forced-white card that lands ~2.8:1 (below AA). The card is white in
+     BOTH themes, so pin the light danger (#b3261e, ~6.5:1 on white) for the whole
+     subtree unconditionally, exactly like the k-tokens above. Nothing enhances
+     --danger under prefers-contrast, so there is no arm this clobbers. */
+  --danger: #b3261e;
   background: var(--k-bg);
 }
 /* ⚠️ `--label-2` AND `--separator` ARE PINNED IN DARK ONLY, because the root

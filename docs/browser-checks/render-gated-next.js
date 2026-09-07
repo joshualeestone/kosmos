@@ -188,6 +188,17 @@ async function fresh(browser) {
     ok(after.hasErr, 'the failed-open message carries .fr-msg-err (reads as an error, not body copy)');
     ok(after.color !== before.color,
       `and its colour actually changed from the body ink (before=${before.color}, after=${after.color}); if equal, the "red" is invisible exactly as it was for Josh`);
+    // The firstrun card is white in BOTH themes, so the error must stay a readable
+    // dark red in dark theme too -- not the dark-ground coral (#ff6b5e / rgb 255,107,94)
+    // that --danger resolves to under a dark root, which washes out to ~2.8:1 on white.
+    // Force the explicit dark toggle and re-read: the #firstrun subtree pins --danger
+    // to the light value, so the colour must be the same readable red as in light.
+    const darkColor = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      return getComputedStyle(document.getElementById('fr-s3-msg')).color;
+    });
+    ok(darkColor === after.color && darkColor !== 'rgb(255, 107, 94)',
+      `the error stays a readable dark red in dark theme (dark=${darkColor}, light=${after.color}); a dark-ground coral on the white card would be below AA`);
     await ctx.close();
   }
   {
