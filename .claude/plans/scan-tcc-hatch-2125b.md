@@ -149,3 +149,25 @@ Built native-app/main.swift into a binary and ran `--kosmos-app-scan` against a 
 So the novel walk (SCAN_SKIP / dotdir / nested descent / CLAUDE.md folder + loose-.md exclusions /
 nonce / atomic write / consume) is behaviorally correct. The committed test for the suite will be
 a source-assert (native-app.a11y-writer-2125.test.js style) + the engine consume-path unit test.
+
+## BUILD STATE UPDATE (2026-09-07 ~02:52) -- engine wiring DONE + tested
+- engine/discover.js: DONE. scan() partitions tcc:true roots out of the walk; merges them via an
+  injectable `tccScan` seam (default `defaultTccScan` = non-blocking file bridge: reads a fresh
+  scan-result.json or drops scan-request.json + returns null). Detection single-sourced via
+  folderRow/looseRow (extracted, no behavior change). `scanning:true` when the hatch result isn't
+  ready. Existing discover tests 18/18 + import-1652 + fixtures-2003 GREEN (no regression).
+- server.js getImportScan(): DONE. Does not cache a scanning:true (partial) result; the route
+  already spreads `...out` so `scanning` flows through with no route change.
+- Tests: engine/discover.tccscan-2125b.test.js (4/4, stub tccScan -> merge/scanning/gate/no-tcc);
+  native-app.scan-hatch-2125b.test.js (7/7, wiring + cross-language seam). Hatch behavioral smoke
+  PASS (earlier).
+- Renet told the (b) contract: on `scanning:true`, retry /api/scan-import shortly (the hatch
+  answers within ~1s); show non-TCC rows immediately. Additive boolean, endpoint unchanged.
+- REMAINING: full node suite (running) green; then /challenge-loop (regenerate the -pre-challenge
+  proof AFTER this plan file exists so the gate hash matches); then PR (non-closing Addresses #3 /
+  the #2125 seam); self-merge on green. Fresh-install visual (no Documents re-prompt) rides Josh's run.
+- WEAKEST PREMISE of the engine half: defaultTccScan matches result->request by FRESHNESS (30s),
+  not a per-call nonce, relying on one scan session at a time. True for the find-agents screen (one
+  user, one screen). If two scans ever overlap, the freshness window could hand one session the
+  other's result; acceptable for a user-visible scan (re-scan fixes it), and the nonce is still
+  echoed end-to-end for a future tightening.
