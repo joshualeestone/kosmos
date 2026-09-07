@@ -13,7 +13,22 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const os = require('node:os');
 const nodePath = require('node:path');
+
+/* 🛑 SANDBOX EVERY ROOT BEFORE REQUIRING fleet/projects -- they resolve their
+   roots at require time, and an unsandboxed run reads/writes the operator's real
+   app data and instruction files (the same hazard web.task-page.test.js records).
+   The roster row this test resolves names through comes from the REAL producer
+   (fleet + projects.describe), not a hand-built literal -- fixture-discipline.test.js
+   forbids the literal, because a hand-built row is free to carry or miss fields the
+   producer never would. */
+process.env.AGENT_WORKFORCE_PROJECTS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkact-'));
+process.env.AGENT_WORKFORCE_DATA = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkact-data-'));
+process.env.AGENT_WORKFORCE_HOME = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkact-home-'));
+process.env.AGENT_WORKFORCE_WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-tkact-wk-'));
+const fleet = require('./test-support/fleet');
+const projects = require('./engine/projects');
 
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 const SCRIPT = PAGE.match(/<script>([\s\S]*?)<\/script>/)[1];
@@ -43,7 +58,20 @@ class FixedDate extends Date {
 // A stored `at` this many ms before FIXED_NOW; agoWords turns 5min -> "5 minutes ago".
 const minsAgo = (m) => new Date(FIXED_NOW - m * 60000).toISOString();
 
-const PROJECT = { id: 'alpha', agents: [{ sessionName: 'mona-sess', name: 'Mona' }] };
+/* Built from the real producer in test.before -- a project with one real roster
+   row (session 'mona', display name 'Mona'), so tkMemberName resolves a real
+   member the way the page does. */
+let PROJECT = null;
+test.before(() => {
+  const board = fleet.install([fleet.agent('mona', { state: 'idle', displayName: 'Mona' })]);
+  try {
+    const made = projects.create({ name: 'Alpha' });
+    projects.addAgent(made.id, 'mona');
+    PROJECT = projects.describe(projects.readAll().find((x) => x.id === made.id), board.agents);
+    assert.ok(PROJECT.agents.length === 1 && PROJECT.agents[0].sessionName === 'mona'
+      && PROJECT.agents[0].name === 'Mona', 'the premise: a real roster row for mona/Mona');
+  } finally { board.restore(); }
+});
 
 /* Build the real render fns (esc, agoWords, tkMemberName, tkActPhrase,
    paintTaskActivity) against a stub document + a stubbed fetch that yields
@@ -67,7 +95,7 @@ async function render(events, { openNum, fetchOk = true } = {}) {
 
 test('renders each recorded event, oldest first, with its phrase and a time', async () => {
   const acts = await render([
-    { at: minsAgo(20), kind: 'created', who: 'mona-sess' },
+    { at: minsAgo(20), kind: 'created', who: 'mona' },
     { at: minsAgo(5), kind: 'closed' },
   ]);
   const html = acts.innerHTML;
