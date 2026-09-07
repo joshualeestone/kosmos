@@ -25,6 +25,7 @@ const SANDBOX = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'trust-212
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 
+const K = (p) => String(p).split(path.sep).join('/');   // #2281: keys are separator-normalised; see trust.js
 const { trustFolder, KEY } = require('./trust');
 
 let n = 0;
@@ -67,16 +68,16 @@ test('createIfAbsent CREATES a minimal config when the file (and its dir) do not
   assert.ok(fs.existsSync(cfg), 'the config was not created');
   const j = JSON.parse(fs.readFileSync(cfg, 'utf8'));
   // MINIMAL: only the trust preference, no fabricated session fields.
-  assert.deepEqual(j, { projects: { [d]: { [KEY]: true } } });
+  assert.deepEqual(j, { projects: { [K(d)]: { [KEY]: true } } });
 });
 
 test('the created config is keyed on the RESOLVED path Claude Code will read', () => {
   const d = folder();                            // folder() already realpaths
   const cfgDir = freshConfigDir();
   const r = trustFolder(d, { configDir: cfgDir, createIfAbsent: true });
-  assert.equal(r.key, d);
+  assert.equal(r.key, K(d));
   const j = JSON.parse(fs.readFileSync(path.join(cfgDir, '.claude.json'), 'utf8'));
-  assert.deepEqual(Object.keys(j.projects), [d]);
+  assert.deepEqual(Object.keys(j.projects), [K(d)]);
 });
 
 test('the created config is born private (mode 600) -- it holds account/session details', () => {
@@ -97,7 +98,7 @@ test('createIfAbsent fills an EMPTY existing config file, KEEPING its existing m
   const r = trustFolder(d, { configDir: cfgDir, createIfAbsent: true });
   assert.equal(r.ok, true);
   const j = JSON.parse(fs.readFileSync(cfg, 'utf8'));
-  assert.equal(j.projects[d][KEY], true);
+  assert.equal(j.projects[K(d)][KEY], true);
   // The empty-EXISTING path keeps the existing mode; only the ENOENT create path
   // is born private (0o600). Pins that the two paths are not accidentally unified.
   assert.equal(fs.statSync(cfg).mode & 0o777, 0o644,
@@ -126,7 +127,7 @@ test('createIfAbsent still MERGES into an existing config, preserving other proj
   const j = JSON.parse(fs.readFileSync(path.join(cfgDir, '.claude.json'), 'utf8'));
   assert.deepEqual(j.projects['/somewhere/else'], { allowedTools: ['x'] }, 'another project was disturbed');
   assert.equal(j.someTopLevel, 1, 'a top-level setting was lost');
-  assert.equal(j.projects[d][KEY], true);
+  assert.equal(j.projects[K(d)][KEY], true);
 });
 
 test('createIfAbsent still REFUSES a symlinked config target (the safety guard is not bypassed by the flag)', () => {
