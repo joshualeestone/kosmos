@@ -1250,6 +1250,39 @@ function scan(opts) {
     }
   }
 
+  /* #2410: the Gemini CLI's custom-agent DEFINITION files (<gemini-home>/agents/*.md).
+     They sit under a dotdir the walk above skips (`name.startsWith('.')`), and their
+     identity is in YAML front-matter, not a "You are <Name>" line -- so the walk both
+     never reaches them and, if it did, would offer them with an EMPTY name.
+     geminisession.agentFiles() reads the known location DIRECTLY (as foundGemini reads
+     ~/.gemini/projects.json), so the dotdir skip does not apply; agentfile.geminiIdentity
+     names them from the front-matter. Merged into the loose importable list because a
+     Gemini agent is a FILE (imported by-file through the create form -> createAgent), not
+     a work FOLDER. Keyed by realpath into the same byFile map, honoring the same
+     MAX_IMPORTABLE / maxMdReads budgets as the walk. Runs only where the walk itself
+     would: the `!explicit && sandboxIsInconsistent()` early-return above already gives a
+     fixture-inconsistent machine an empty answer before this point, and a test points
+     AGENT_WORKFORCE_GEMINI_HOME at a sandbox exactly as the foundGemini tests do. A file
+     whose front-matter is not the Gemini shape falls back to the generic looseRow. */
+  let geminiAgentFiles = [];
+  try { geminiAgentFiles = geminisession.agentFiles(); } catch { geminiAgentFiles = []; }
+  for (const file of geminiAgentFiles) {
+    if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
+    if (mdReads >= maxMdReads) { hitImportable = true; break; }
+    let freal;
+    try { freal = fs.realpathSync(file); } catch { freal = file; }
+    if (seenFiles.has(freal)) continue;   // already collected by the walk (an aliased root reached it)
+    seenFiles.add(freal);
+    mdReads += 1;
+    const head = readClaudeHead(file);
+    if (head == null) continue;   // unreadable, or not a regular file (a symlinked dir)
+    const g = agentfile.geminiIdentity(head);
+    const row = g
+      ? { file, name: g.displayName, role: g.role || null, preview: head }
+      : looseRow(file, head);
+    if (row) byFile.set(freal, row);
+  }
+
   const candidates = [...byDir.values()].sort((a, b) => String(a.name || a.dir).localeCompare(String(b.name || b.dir)));
   /* #1652: loose importable agent files, sorted like the connect candidates (name, then
      path) so the two lists read the same way. A DISTINCT array from `candidates`: an

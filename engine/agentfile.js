@@ -367,8 +367,31 @@ function importAgent(text, deps) {
     return importFromInstructions(src, { identityFromText, nameUsable, nameProblem });
   }
 
-  // (2) the self-identifying marker. A `---` header that is not ours; refuse whole.
+  // (2) the self-identifying marker. A `---` header that is not ours.
   if (field('kosmos') !== KIND) {
+    /* #2410: before refusing, check whether this is a Gemini CLI custom-agent file
+       (front-matter name:/description:, no kosmos: marker). Those are real agents with
+       a front-matter identity; recognizing one lets by-file import create it with the
+       right name and the Gemini provider hint, rather than bouncing on "not a Kosmos
+       file". geminiIdentity refuses a kosmos-marked file, so this never steals the
+       strict path's input. */
+    const g = geminiIdentity(src);
+    if (g) {
+      const gname = suggestName(g.displayName, { nameUsable, nameProblem });
+      return {
+        ok: true,
+        // A derived slug that the create form will accept, or '' so the form asks --
+        // the same needsName discipline the #1939 recognized-instructions path uses.
+        name: gname,
+        displayName: g.displayName,
+        provider: 'gemini',
+        // The instructions body (front-matter stripped) is what the agent reads; the
+        // name lived in the front-matter and is now displayName.
+        body: src.slice(m[0].length),
+        recognizedFromContent: true,
+        needsName: !gname,
+      };
+    }
     return { ok: false, because: 'this file is not a Kosmos agent file' };
   }
   // (3) a name present and usable.
@@ -425,4 +448,49 @@ function importAgent(text, deps) {
   return { ok: true, name, displayName, provider: provider || null, body };
 }
 
-module.exports = { exportAgent, importAgent, headingName, IMPORT_CONTRACT, MARK, KIND };
+/**
+ * #2410: recognize a Gemini CLI custom-agent file by its front-matter identity.
+ *
+ * The Gemini CLI stores custom agents as markdown with a YAML front-matter block:
+ *   ---
+ *   name: code-reviewer
+ *   description: Reviews code for style and best practices.
+ *   ---
+ *   You are a helpful assistant that reviews code ...
+ * The identity is the front-matter `name:`; the body is a generic "You are a helpful
+ * assistant ..." that `identityFromText` reads as naming NOBODY (returns null). And the
+ * front-matter is NOT a Kosmos export (no `kosmos:` marker), so `importAgent`'s strict
+ * path refuses it and the disk scan's looseRow would offer it with an EMPTY name. This
+ * reads the front-matter as the identity source for that specific shape.
+ *
+ * Returns `{displayName, role}` or null. SPECIFIC on purpose so it does not widen into
+ * an over-eager "any front-matter is an agent" rule:
+ *   - requires a COMPLETE `---\n...\n---` front-matter block,
+ *   - requires BOTH `name:` and `description:` (the Gemini contract; the 3 seed
+ *     fixtures and Josh's real files all carry both),
+ *   - refuses a file that carries a `kosmos:` marker (a Kosmos export, handled by the
+ *     strict path), so the two paths never both claim one file.
+ * The #7 negative control (a plain notes file, no front-matter) returns null here.
+ */
+function geminiIdentity(text) {
+  const src = String(text == null ? '' : text).replace(/^﻿/, '').replace(/\r\n/g, '\n');
+  const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
+  if (!m) return null;
+  const head = m[1];
+  // Same field reader as importAgent's: `[^\n]+` (not `.+`) so a line-terminator in a
+  // value reaches safeValue and is refused rather than silently truncated.
+  const field = (key) => {
+    const f = head.match(new RegExp('^' + key + ':[ \\t]*([^\\n]+)$', 'm'));
+    return f ? safeValue(f[1]) : null;
+  };
+  // A Kosmos export owns the strict path; never double-claim it here.
+  if (/^kosmos:[ \t]*\S/m.test(head)) return null;
+  const name = field('name');
+  const description = field('description');
+  if (!name || !description) return null;
+  const displayName = safeValue(name);
+  if (!displayName || displayName.length > MAX_DISPLAY) return null;
+  return { displayName, role: description };
+}
+
+module.exports = { exportAgent, importAgent, geminiIdentity, headingName, IMPORT_CONTRACT, MARK, KIND };

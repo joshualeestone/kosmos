@@ -104,4 +104,44 @@ function projects() {
   return out;
 }
 
-module.exports = { HOME, projects };
+/**
+ * The Gemini CLI's CUSTOM AGENT DEFINITION files (#2410). Distinct from projects()
+ * above: those are project cwds whose <cwd>/GEMINI.md may introduce an agent; these
+ * are the agent DEFINITIONS the Gemini CLI stores as markdown-with-YAML-front-matter
+ * under <HOME()>/agents/*.md (measured shape: `---\nname: <name>\ndescription: <role>\n---\n`
+ * then a generic body). foundGemini/the disk scan never reached them: the location is a
+ * dotdir the scan skips, and their identity is in the front-matter, not a "You are <Name>"
+ * prose line.
+ *
+ * Returns absolute file paths, sorted for a stable order, [] on a missing/unreadable
+ * agents dir. NEVER throws: the caller decides what each file means (a Gemini agent
+ * file is offered by front-matter identity; a non-front-matter .md falls back to the
+ * generic loose-file rule). Bounded by MAX so a pathological agents dir cannot make the
+ * scan read thousands of files -- Gemini agents are few in practice.
+ */
+const MAX_AGENT_FILES = 200;
+function agentFiles() {
+  let entries;
+  try { entries = fs.readdirSync(path.join(HOME(), 'agents'), { withFileTypes: true }); }
+  catch { return []; }
+  const out = [];
+  for (const e of entries) {
+    if (out.length >= MAX_AGENT_FILES) break;
+    /* A file (or a symlink to one) named *.md / *.markdown. Directories under agents/
+       are not agent definitions; a dotfile (e.g. .DS_Store) is skipped. lstat is not
+       needed here -- the caller reads with a symlink-safe head reader -- but withFileTypes
+       lets us skip directories without a stat. A symlink shows as isSymbolicLink(); include
+       it so a linked agent file is still offered (the head reader lstats and refuses a
+       symlinked DIR later). */
+    if (e.isDirectory()) continue;
+    const name = e.name;
+    if (name.startsWith('.')) continue;
+    const lower = name.toLowerCase();
+    if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
+    out.push(path.join(HOME(), 'agents', name));
+  }
+  out.sort();
+  return out;
+}
+
+module.exports = { HOME, projects, agentFiles };
