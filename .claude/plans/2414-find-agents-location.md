@@ -40,6 +40,14 @@ case-folds the build/system names, so a folder whose name case-collides with a s
 skipped — negligible probability, and a single case-insensitive set is more robust than a two-set
 split that could let case-sensitivity creep back into the TCC subset.
 
+**Heavyweight caches added to `SCAN_SKIP` (`go`, `anaconda3`, `miniconda3`).** With every top-level
+folder now a deep root, a huge dependency/toolchain tree (`~/go/pkg/mod` is routinely tens of
+thousands of dirs) could exhaust MAX_DIRS before a later arbitrary-named agent folder is reached.
+Skipping these well-known non-agent trees (same rationale as `node_modules`) is a cheap mitigation.
+Small tradeoff: a legacy GOPATH agent under `~/go/src` is now missed — acceptable (rare; the modern
+Go layout is arbitrary project dirs, which discovery still covers). The residual (a large early
+discovered tree can still hit MAX_DIRS) is bounded by MAX_DIRS and surfaced via `bounded.dirs`.
+
 ## Why this preserves #2125 (the no-ambush regression)
 `SCAN_SKIP` already contains Documents, Downloads, Desktop, Library, Applications, Music, Movies,
 Pictures, Public, Photos Library. Discovery filters candidate names through `SCAN_SKIP` and skips

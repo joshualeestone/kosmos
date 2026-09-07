@@ -759,12 +759,21 @@ const SCAN = Object.freeze({
    vendor output, and the standard macOS home directories that never hold an agent. */
 const SCAN_SKIP = new Set([
   'node_modules', 'target', 'vendor', 'dist', 'build',
+  // #2414: heavyweight dependency/toolchain trees that essentially never hold an
+  // agent -- same rationale as node_modules. Promoting every top-level $HOME folder
+  // to a DEEP root (discoverHomeParents) means a huge cache (`~/go/pkg/mod` is
+  // routinely tens of thousands of dirs; conda installs are large) could otherwise
+  // exhaust MAX_DIRS before a later arbitrary-named agent folder is reached. Small
+  // tradeoff, stated: a legacy GOPATH agent literally under ~/go/src is now missed;
+  // judged acceptable (rare, and the modern layout is arbitrary project dirs, which
+  // discovery still covers).
+  'go', 'anaconda3', 'miniconda3',
   'Library', 'Applications', 'Music', 'Movies', 'Pictures', 'Downloads',
   // #2125: Documents must never be walked by the auto scan -- entering ~/Documents
   // at all fires the macOS Documents-access prompt on a fresh install. It is kept
   // off both discovery (isScanSkip filters it out of the promoted roots) and the
-  // descent (isScanSkip in scan()'s child loop), not just dropped from
-  // SCAN_DEEP_NAMES. It re-enters a scan only via the explicit importScan TCC hatch.
+  // child-descent skip, not just dropped from SCAN_DEEP_NAMES. It re-enters a scan
+  // only via the explicit importScan TCC hatch.
   'Public', 'Desktop', 'Documents', 'Photos Library.photoslibrary',
 ]);
 
@@ -889,12 +898,14 @@ function defaultScanRoots(opts) {
      levels of grandchildren) is now fully covered by the discovered deep roots, which
      reach FURTHER (DEEP_DEPTH), so nothing is lost and the redundant shallow re-walk
      is dropped.
-     ⚠️ RESIDUAL, bounded not eliminated: starvation is fixed for the home root, but
-     among the discovered deep roots (walked in arbitrary readdirSync order) a
-     heavyweight early tree can still consume MAX_DIRS before a later arbitrary-named
-     agent folder is reached. That is bounded by MAX_DIRS and surfaced honestly via
-     bounded.dirs ("there may be more"), which is why it is accepted rather than
-     chased with a per-root fairness scheme. */
+     ⚠️ RESIDUAL, bounded not eliminated: starvation is fixed for the home root, and
+     the common heavyweight non-agent trees are now skipped (SCAN_SKIP carries
+     go/anaconda3/miniconda3 alongside node_modules), but among the remaining
+     discovered deep roots (walked in arbitrary readdirSync order) a large early tree
+     could still consume MAX_DIRS before a later arbitrary-named agent folder is
+     reached. That is bounded by MAX_DIRS and surfaced honestly via bounded.dirs
+     ("there may be more"), which is why the tail is accepted rather than chased with
+     a per-root fairness scheme. */
   roots.push({ dir: home, maxDepth: 0 });
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
   /* #2414: arbitrary-named top-level folders, discovered and walked DEEP -- so an

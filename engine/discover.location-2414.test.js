@@ -114,6 +114,19 @@ test('build/vendor noise (node_modules) at the top level is not promoted', () =>
   assert.ok(!dirs.includes(vend), 'a top-level node_modules was promoted to a deep scan root');
 });
 
+test('#2414 heavyweight non-agent trees (~/go, ~/anaconda3, ~/miniconda3) are not promoted', () => {
+  /* Budget mitigation: these dependency/toolchain caches (routinely tens of
+     thousands of dirs) must not become deep roots that starve real agents. They are
+     in SCAN_SKIP, same class as node_modules. */
+  const goAgent = agentAt('go/pkg/mod/x', 'In Go Cache');
+  const conda = agentAt('anaconda3/lib/x', 'In Anaconda');
+  const mini = agentAt('miniconda3/lib/x', 'In Miniconda');
+  const dirs = discover.scan().candidates.map((c) => c.dir);
+  assert.ok(!dirs.includes(goAgent), '~/go was promoted to a deep scan root (budget starvation risk)');
+  assert.ok(!dirs.includes(conda), '~/anaconda3 was promoted to a deep scan root');
+  assert.ok(!dirs.includes(mini), '~/miniconda3 was promoted to a deep scan root');
+});
+
 test('an arbitrary top-level SYMLINK is NOT followed (no escape via a discovered parent)', () => {
   /* ⚠️ A discovered name is untrusted (unlike a curated root name). An agent reachable
      only through an arbitrary top-level symlink out of $HOME must NOT surface -- the
