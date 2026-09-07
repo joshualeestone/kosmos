@@ -126,6 +126,7 @@ async function fresh(browser) {
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: false } });
     ok(!(await nextDisabled(page)), 'file-access with no nativePresent field never blocks (safe before the route ships)');
+    ok(!(await rowGranted(page, 'file-access')), 'and it is NOT shown as granted (never false green)');
     await ctx.close();
   }
 
