@@ -104,6 +104,18 @@ test('#2129/#5 codex: trustCodexFolder keys the trust under the on-disk (runner-
   assert.equal((toml.match(/trust_level = "trusted"/g) || []).length, 1, 'exactly one trust block');
 });
 
+test('#2129/#5 codex MIGRATION: forget removes an OLD raw-keyed entry too, not only the new canonical one', { skip: !CI_FS && 'case-sensitive FS' }, () => {
+  const { handedLower } = capitalOnDiskLowercaseHanded();
+  const codexHome = path.join(SANDBOX, `codexhome${++n}`);
+  // An entry an OLDER build wrote: keyed on the RAW lowercase spelling.
+  fs.mkdirSync(codexHome, { recursive: true });
+  fs.writeFileSync(path.join(codexHome, 'config.toml'), `[projects."${handedLower}"]\ntrust_level = "trusted"\n`);
+  const r = create.forgetCodexFolder(handedLower, codexHome, false);
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.removed, true, 'the old raw-keyed entry is removed (both-spellings forget)');
+  assert.doesNotMatch(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'), /trust_level = "trusted"/, 'no stale trust block left');
+});
+
 test('#2129/#5 codex: create->trust then forget removes it, matching the on-disk spelling (undo intact)', { skip: !CI_FS && 'case-sensitive FS' }, () => {
   const { handedLower } = capitalOnDiskLowercaseHanded();
   const codexHome = path.join(SANDBOX, `codexhome${++n}`);

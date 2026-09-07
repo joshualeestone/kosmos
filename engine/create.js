@@ -1458,40 +1458,55 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
   let text;
   try { text = fs.readFileSync(cfg, 'utf8'); }
   catch { return { ok: true, removed: false, because: 'there is no codex config to change' }; }
-  // #2129/#5: match the ON-DISK canonical spelling trustCodexFolder wrote (not the
-  // raw `dir`). Removal leaves the worker folder on disk (see remove.js), so
-  // canonicalOnDisk resolves to the same stored spelling the create-time trust used.
-  const key = `[projects."${require('./trust').canonicalOnDisk(dir)}"]`;
-  if (!text.includes(key)) return { ok: true, removed: false, because: 'no entry for that folder' };
-  /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
-     RegExp: a folder path can contain characters a regex would read as
-     syntax, and this must match literally or not at all. */
-  const block = `${key}
+  // #2129/#5: match BOTH spellings of the folder -- the ON-DISK canonical one
+  // trustCodexFolder now writes (canonicalOnDisk, resolved when the folder exists,
+  // which it does at every normal removal since remove.js deletes nothing on disk),
+  // AND the raw path. The raw covers an entry an OLDER build wrote before this
+  // change (migration cleanup) and the fallback spelling. Removing whichever block
+  // is present cleans up the normal case, migrates an old raw-keyed entry, and
+  // cannot strand a spelling we can still name.
+  // ⚠️ THE ONE CASE WE CANNOT RECOVER, stated rather than hidden: a native-cased
+  // entry whose worker folder was MANUALLY DELETED before the agent was removed --
+  // canonicalOnDisk can no longer read the stored case, so the raw fallback will
+  // not match the capital entry, and it is left (inert, pointing at a folder that
+  // is gone). The honest alternative is trust.js's recordWrite provenance; this
+  // stays the content-match tradeoff the docblock above names.
+  const trust = require('./trust');
+  const canon = trust.canonicalOnDisk(dir);
+  const raw = path.resolve(String(dir));
+  const spellings = canon === raw ? [canon] : [canon, raw];
+  let removed = false;
+  let handEdited = false;
+  for (const spelling of spellings) {
+    const key = `[projects."${spelling}"]`;
+    if (!text.includes(key)) continue;
+    /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
+       RegExp: a folder path can contain characters a regex would read as syntax,
+       and this must match literally or not at all. */
+    const block = `${key}
 trust_level = "trusted"
 `;
-  if (!text.includes(block)) {
-    return { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' };
+    if (!text.includes(block)) { handEdited = true; continue; } // changed by hand: leave theirs
+    /* 🛑 TIDY ONLY THE SEAM THE REMOVAL LEAVES, NEVER THE WHOLE DOCUMENT
+       (PigeonPete, cross-review). A global `.replace(/\n{3,}/,'\n\n')` once
+       reformatted the person's OWN tables; the removal's job is to take back OUR
+       two lines and touch nothing else -- only the join it leaves is ours. */
+    const at = text.indexOf(block);
+    const before = text.slice(0, at);
+    const after = text.slice(at + block.length);
+    const lead = /\n*$/.exec(before)[0];
+    const trail = /^\n*/.exec(after)[0];
+    const joined = lead + trail;
+    const tidy = joined.length > 2 ? '\n\n' : joined;
+    text = before.slice(0, before.length - lead.length) + tidy + after.slice(trail.length);
+    removed = true;
   }
-  /* 🛑 THE TIDY-UP IS SCOPED TO THE SEAM, NOT THE DOCUMENT (PigeonPete,
-     cross-review). The first version ran `.replace(/\n{3,}/g, '\n\n')`
-     GLOBALLY, so removing one agent's entry also reformatted unrelated
-     sections the person had written themselves. Measured by him: a config
-     with a deliberate three-blank-line run between two of their own tables
-     came back with it collapsed.
-     ⚠️ Same "never clobber what is theirs" line as the permission bug in the
-     same function: the removal's job is to take back OUR two lines and touch
-     nothing else. Only the join left behind by the removal is ours to tidy. */
-  const at = text.indexOf(block);
-  const before = text.slice(0, at);
-  const after = text.slice(at + block.length);
-  /* The seam is the boundary between what came before the entry and what came
-     after it. Collapsing is bounded to the newline run that MEETS at that
-     point: trailing newlines of `before` plus leading newlines of `after`. */
-  const lead = /\n*$/.exec(before)[0];
-  const trail = /^\n*/.exec(after)[0];
-  const joined = lead + trail;
-  const tidy = joined.length > 2 ? '\n\n' : joined;
-  const next = before.slice(0, before.length - lead.length) + tidy + after.slice(trail.length);
+  if (!removed) {
+    return handEdited
+      ? { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' }
+      : { ok: true, removed: false, because: 'no entry for that folder' };
+  }
+  const next = text;
   const tmp = `${cfg}.tmp-${process.pid}`;
   /* 🛑 THE RENAME CARRIES THE TEMP FILE'S MODE, NOT THE TARGET'S, AND THIS
      REALLY HAPPENED. Caught in cross-review after the first version of this
