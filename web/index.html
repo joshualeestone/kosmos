@@ -21194,6 +21194,12 @@ function openDetail(sessionName, section) {
      an in-flight POST; a receipt that already landed for A persists until cleared here. */
   document.getElementById('d-trust-restart-msg').textContent = '';
   document.getElementById('d-open-terminal-msg').textContent = '';
+  /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
+     left them disabled; re-enable for the agent we are opening. The leaving agent's own
+     `finally` re-enable is then a harmless no-op, and its late receipt is dropped by the
+     capture-and-recheck above, so re-enabling here cannot cross agents. */
+  document.getElementById('d-trust-restart').disabled = false;
+  document.getElementById('d-open-terminal').disabled = false;
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its

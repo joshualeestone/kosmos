@@ -50,10 +50,12 @@ Renet confirmed disjoint: his #6 switch-modal is the Kosmos switcher (#worldsw ~
 handler by d-save ~24789) does not overlap. He pings on his merge; my rebase should be clean.
 
 ## UPDATE: Open Terminal (button #2) added to this same PR
-Pete handed Contract #2 (FINAL, built+tested): POST /api/agent/:name/launch-terminal, name
-URL-encoded, no body. 200 -> {ok:true, session}; 400 refused -> {ok:false, because} (agent not
-running, OR a HEADLESS board with no desktop to open a window on -- expected, not a bug); bad name
--> {error}; 500 -> {error, detail}. It attaches a Terminal.app window to the agent's live tmux
+Pete handed Contract #2 (FINAL, built+tested; amended: env failures moved 400->503). POST
+/api/agent/:name/launch-terminal, name URL-encoded, no body. 200 -> {ok:true, session};
+400 refused (agent not running / unconfirmable) -> {ok:false, because}; 503 environment failure
+(HEADLESS board with no desktop / osascript / tmux -- expected, not a bug) -> {ok:false, because};
+bad name -> {error}; 500 -> {error, detail}. The frontend treats ANY non-200 the same (show
+`because`), so 400 vs 503 need no special-casing. It attaches a Terminal.app window to the agent's live tmux
 session -- READ-ONLY about the agent (adds a viewer; does NOT restart it). Copy (Mona): "Open
 Terminal", helper "Opens this agent's Terminal window on this computer." (the "on this computer"
 hints at the desktop requirement; the headless case surfaces via the route's `because`).
