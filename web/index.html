@@ -16593,17 +16593,24 @@ async function worldswSwitch(id, name) {
         body: JSON.stringify({ id }),
       });
     } catch {
+      // #6: the switch is now invoked from the confirm modal, and worldswSwitchGo hides
+      // that modal (destroying the focused "Restart Kosmos" button) BEFORE this runs. So
+      // EVERY terminal path here must restore focus to the trigger, or a keyboard user is
+      // left on a hidden button and focus falls to <body>. (Pre-#6 the row invoked the
+      // switch and stayed visible, so only the 404 refetch path needed this.)
       say('Could not reach Kosmos to switch. Try again.');
+      worldswFocusTrigger();
       return;
     }
     if (!res.ok) {
       const body = await res.json().catch(() => null);
       const because = body && body.because;
-      // 404 refetches, which rebuilds the rows and can drop the clicked button (the
-      // world was deleted), so restore focus to the trigger as the success path does.
-      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); worldswFocusTrigger(); }
+      // 404 also refetches (the world was deleted), rebuilding the rows; the focus restore
+      // is shared by every branch (see the catch above).
+      if (res.status === 404) { await worldsFetch().catch(() => {}); say(because || 'That Kosmos is no longer here; the list has been refreshed.'); }
       else if (res.status === 409) { say(because || 'Another Kosmos operation is in progress. Try again in a moment.'); }
       else { say(because || 'Could not switch to that Kosmos.'); }
+      worldswFocusTrigger();
       return;
     }
     // Success: the active world is recorded. Prefer the server-returned world (the
@@ -16810,7 +16817,11 @@ function worldswConfirmSwitch(id, name) {
   document.getElementById('world-switch-t').textContent =
     'Restart Kosmos in order to switch to a different Kosmos' + (name ? ' ' + name : '');
   document.getElementById('world-switch-modal').hidden = false;
-  document.getElementById('world-switch-go').focus();
+  /* Initial focus lands on Cancel, not "Restart Kosmos": #6 exists to make switching a
+     DELIBERATE act (Josh's complaint was that switching happened silently/inline), so a
+     reflexive Enter should cancel, not restart the app. This is the standard
+     destructive-confirm default and matches the Tab-trap home (world-switch-cancel). */
+  document.getElementById('world-switch-cancel').focus();
 }
 function worldswSwitchCancel() {
   document.getElementById('world-switch-modal').hidden = true;

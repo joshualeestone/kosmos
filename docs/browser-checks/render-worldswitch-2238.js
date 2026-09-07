@@ -98,6 +98,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         calls.push({ url: '/api/worlds/active', id });
         registryActive = id;
         const world = { id, name: id === 'w2' ? 'Side Project' : 'Home' };
+        if (postMode === 'err409') {
+          // A non-ok response (another world op in progress): worldswSwitch shows the
+          // guidance and must restore focus to the trigger (#6: the confirm button was
+          // destroyed on the way in).
+          return Promise.resolve({ ok: false, status: 409, json: async () => ({ because: 'Another Kosmos operation is in progress. Try again in a moment.' }) });
+        }
         if (postMode === 'noop') {
           return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world, restartRequired: false, restarting: false }) });
         }
@@ -342,7 +348,31 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     };
     const afterConfirmModal = { modalOnRowClick, afterCancel, afterConfirm };
 
-    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal };
+    // ---- Scenario H: #6 keyboard focus -- Cancel on open, trigger restored on error ----
+    // (1) The confirm modal opens with focus on Cancel, not the destructive "Restart
+    // Kosmos": #6 makes switching deliberate, so a reflexive Enter cancels rather than
+    // restarts. (2) On an error switch (409), worldswSwitchGo has already hidden the modal
+    // (destroying the focused button), so worldswSwitch must restore focus to the switcher
+    // trigger -- else a keyboard user is stranded on a hidden element and focus falls to
+    // <body>. Guards the two iteration-3 focus WARNINGs.
+    registryActive = 'w1'; bootedActive = 'w1'; postMode = 'err409';
+    pendingReboot = false; rebootPollsSeen = 0; reloadCount = 0; statusObserved.length = 0;
+    await worldsFetch(); await sleep(10);
+    if (typeof worldswOpen === 'function') worldswOpen();
+    const cH = await clickRowOnly();
+    if (cH.error) return { error: cH.error };
+    const focusOnCancelOnOpen = !!document.activeElement && document.activeElement.id === 'world-switch-cancel';
+    confirmSwitchGo();
+    await waitFor(() => /in progress/i.test(bannerMsg()), 500);
+    await sleep(20);
+    const afterErrFocus = {
+      focusOnCancelOnOpen,
+      said409: /in progress/i.test(bannerMsg()),
+      focusRestored: !!document.activeElement && document.activeElement.id === 'worldsw-btn',
+      activeId: document.activeElement ? document.activeElement.id : null,
+    };
+
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal, afterErrFocus };
   });
 
   await browser.close();
@@ -414,6 +444,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!g.afterConfirm.sawManual || !/quit and reopen kosmos/i.test(g.afterConfirm.guidance)) problems.push('#6: on a manual switch the banner should give the softened "quit and reopen Kosmos" guidance, got "' + g.afterConfirm.guidance + '"');
     if (!g.afterConfirm.bannerVisible) problems.push('#6 REGRESSION: the #worldsw-restart banner is hidden after clicking Restart -- the outside-click handler cleared it mid-switch');
     if (!g.afterConfirm.menuStillOpen) problems.push('#6 REGRESSION: the switcher menu is closed after clicking Restart, so the banner (nested inside it) is invisible -- the modal was not excluded from the outside-click handler and worldswClose() ran mid-switch');
+
+    // Scenario H: keyboard focus -- Cancel on open, trigger restored on an error switch
+    const h = r.afterErrFocus;
+    if (!h.focusOnCancelOnOpen) problems.push('#6: opening the confirm modal must focus Cancel (deliberate confirm; a reflexive Enter must not restart the app), but activeElement was "' + h.activeId + '"');
+    if (!h.said409) problems.push('#6: a 409 switch should show the "in progress" guidance, got a different banner');
+    if (!h.focusRestored) problems.push('#6 REGRESSION: after an error switch, keyboard focus must return to the switcher trigger (worldsw-btn), but it was on "' + h.activeId + '" -- worldswSwitchGo destroyed the confirm button and the error path did not restore focus');
   }
 
   console.log('  ' + JSON.stringify(r));
