@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: scan-rescan-grant
-diff_hash: 1017e229d48520919245476a8fe57df8dbe41ce16ca64c450ad529ab57f1d72b
+diff_hash: 73d064bdec272bc6a6b30608f69e329338031d588b02f5587d0aee558edbe94f
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-07T08:02:38Z
