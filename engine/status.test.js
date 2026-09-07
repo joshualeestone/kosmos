@@ -2350,6 +2350,57 @@ test('#1889: the evidence contract for the background-agent wait line', () => {
   assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
 });
 
+test('#1889: INTERRUPT_LINE outranks this reader, and the five rows say exactly how', () => {
+  /**
+   * 🛑 THE COMMENT ABOVE THIS BLOCK IN status.js USED TO CLAIM THE OPPOSITE.
+   *
+   * It said a pane carrying both the wait row and a live spinner shows "the wait
+   * line rather than the spinner" as evidence, and called it a reporting nicety.
+   * In fact `INTERRUPT_LINE` is tested two checks HIGHER, the live spinner row
+   * carries `esc to interrupt`, and the card ends up with NO evidence and NO flag.
+   * The flag drives `chat.waitingNote` and the #1966 badge gate, so it was never
+   * cosmetic.
+   *
+   * ✅ ROWS 2 AND 4 ARE CORRECT AND THIS TEST EXISTS PARTLY TO STOP THEM BEING
+   * "FIXED". `esc to interrupt` means a turn is genuinely in flight, so the
+   * composer QUEUES rather than reads, and `it is mid-task` is the true sentence.
+   *
+   * 🛑 ROW 5 IS A KNOWN DEFECT, PINNED AS-IS RATHER THAN HIDDEN. A QUOTED
+   * `esc to interrupt` anywhere in the 25-row tail suppresses the flag with no
+   * turn in flight. Not fixed here: the discriminator is proximity to the
+   * composer, and `INTERRUPT_LINE` is shared with the codex path, so narrowing it
+   * is a fleet-wide precedence change rather than something this card may take.
+   * ⇒ IF YOU NARROW IT, THIS ROW GOES RED AND THAT IS THE POINT. Change the
+   * expectation to `true` and delete this paragraph.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const W = '✻ Waiting for 1 background agent to finish';
+  const SPIN = '· Improvising… (35s · ↓ 1.5k tokens · esc to interrupt)';
+  const SPIN_NOESC = '· Improvising… (35s · ↓ 1.5k tokens)';
+
+  const flagOf = (body) => classify(pane, body + footer).backgroundWait === true;
+
+  assert.equal(flagOf(W), true, 'the wait row alone lost its flag');
+  assert.equal(flagOf(SPIN + '\n' + W), false,
+    'a LIVE spinner stopped outranking the wait row; a queued message would be described as read immediately');
+  assert.equal(flagOf(SPIN_NOESC + '\n' + W), true,
+    'a spinner WITHOUT esc-to-interrupt suppressed the flag, so the trade is wider than INTERRUPT_LINE');
+  assert.equal(flagOf(W + '\n' + SPIN), false,
+    'order changed the verdict, so the precedence is positional rather than by rule');
+  assert.equal(flagOf('  he said (press esc to interrupt) earlier\n' + W), false,
+    'KNOWN DEFECT ROW: a quoted esc-to-interrupt no longer suppresses the flag. If you narrowed INTERRUPT_LINE deliberately, flip this to true and remove the paragraph above.');
+
+  /* CONTROL: every row above returns `working` regardless, so the assertions are
+     about the FLAG and not about the state accidentally changing under them. */
+  for (const body of [W, SPIN + '\n' + W, SPIN_NOESC + '\n' + W, W + '\n' + SPIN,
+    '  he said (press esc to interrupt) earlier\n' + W]) {
+    assert.equal(classify(pane, body + footer).state, 'working',
+      'a row stopped being working, so the flag assertions above are measuring the wrong thing');
+  }
+});
+
 test('#1889: a background wait and a reported idle are not in conflict, because both are true', () => {
   /**
    * 🛑 THE FALSE CONFLICT #1995 LEFT OPEN BY NAME.

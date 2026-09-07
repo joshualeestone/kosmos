@@ -187,6 +187,52 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## FINDING 3: A COMMENT THAT SAID THE OPPOSITE OF WHAT HAPPENS
+
+The paragraph above the #1889 block claimed that a pane carrying both the wait row
+and a live spinner shows *"the wait line rather than the spinner"* as evidence, and
+called the trade *"a reporting nicety, not a correctness question"*. **Both halves
+were false.** `INTERRUPT_LINE` is tested two checks HIGHER and the live spinner row
+carries `esc to interrupt`, so the card ends up with **no evidence at all and no
+flag** - and the flag drives `chat.waitingNote` and the #1966 badge gate, so it was
+never cosmetic.
+
+Measured, five rows, at `06b649d3`:
+
+| screen | flag |
+|---|---|
+| wait only | true |
+| wait + live spinner (esc) | **false** |
+| spinner above wait, NO esc | true |
+| wait above spinner (esc) | **false** |
+| wait + a QUOTED esc in transcript | **false** |
+
+✅ **Rows 2 and 4 are CORRECT and the test now exists partly to stop them being
+"fixed".** `esc to interrupt` means a turn really is in flight, so the composer
+QUEUES a message rather than reading it, and `it is mid-task` is the true sentence.
+Carrying the flag there would produce the false sentence in the other direction.
+
+🛑 **Row 5 is a real defect and is NOT taken here.** `INTERRUPT_LINE` is unanchored
+and tested against the whole 25-row tail, so a quoted phrase suppresses the flag
+with no turn in flight. **That is the same quotation residual this reader has a
+composer anchor and a reach budget for, in a constant that has neither.**
+
+⇒ **Raised as kosmos#2378 rather than taken.** The discriminator is proximity to
+the composer, i.e. giving `INTERRUPT_LINE` the reach treatment, and that constant
+is shared by every Claude pane AND the codex path at a second call site. Narrowing
+it is a fleet-wide precedence change for agents unrelated to this card. Same
+reasoning that kept rule 6 out of this branch, where #1995 later resolved it
+upstream and better than I would have.
+
+📌 **It predates #1889**: without this branch the same quotation already forced
+`mid-task`. What is new is that a consumer now ACTS on the flag, so a residual that
+was cosmetic acquired a user-visible consequence.
+
+✅ **Pinned, not hidden.** All five rows are asserted, defect row included, with a
+note telling anyone who narrows `INTERRUPT_LINE` deliberately to flip that
+expectation and delete the paragraph. Verified: applying the reach test reds
+exactly that row and nothing else.
+
 ## MY SWEEP WAS THE WEAKER INSTRUMENT, AND A REVIEWER SHOWED THE RIGHT ONE
 
 Two corrections to the section below, both from an outside re-measure and both

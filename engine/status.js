@@ -3268,11 +3268,44 @@ function classify(pane, paneText) {
    * not the truth. Do not widen this without a live capture of the shape you are
    * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
    */
-  /* ⚠️ ABOVE `WORKING_LINE` ON PURPOSE, AND THE COST IS THE EVIDENCE LINE. When a
-     pane carries both this line and a live spinner, the card's `evidence` shows
-     the wait line rather than the spinner, which is the less informative of the
-     two. The state is identical either way, so this is a reporting nicety, not a
-     correctness question, and it is recorded rather than silently traded. */
+  /* 🛑 THIS PARAGRAPH USED TO SAY THE OPPOSITE OF WHAT HAPPENS. It claimed that a
+     pane carrying both this row and a live spinner shows "the wait line rather
+     than the spinner" as its evidence, and called the trade "a reporting nicety,
+     not a correctness question". BOTH HALVES WERE FALSE, and the second one
+     mattered. `INTERRUPT_LINE` (`/\([^)]*esc to interrupt[^)]*\)/i`) is tested
+     TWO CHECKS ABOVE this one, and Claude Code's live spinner row carries
+     `esc to interrupt`. Re-measured on this tree:
+
+       wait only                          working  bgWait=true       ev=the wait line
+       wait + live spinner (esc)          working  bgWait=undefined  ev=undefined
+       spinner above wait, NO esc         working  bgWait=true       ev=the wait line
+       wait above spinner (esc)           working  bgWait=undefined  ev=undefined
+       wait + a QUOTED esc in transcript  working  bgWait=undefined  ev=undefined
+
+     ⇒ With a real spinner the card carries NO evidence at all, not the wait line,
+     and the FLAG is lost with it. The flag drives `chat.waitingNote` and the #1966
+     badge gate, so it was never a reporting nicety.
+
+     ✅ ROWS 2 AND 4 ARE CORRECT BEHAVIOUR AND MUST NOT BE "FIXED". `esc to
+     interrupt` means a turn really is in flight, so the composer QUEUES a message
+     rather than reading it, and "it is mid-task" is the true sentence. Carrying
+     the flag there would produce the false one in the other direction.
+
+     🛑 ROW 5 IS A REAL DEFECT AND IT IS NOT TAKEN HERE. `INTERRUPT_LINE` is
+     unanchored and tested against the whole 25-row tail, so an ordinary sentence
+     of transcript containing the phrase in parentheses suppresses the flag with no
+     turn in flight. That is the same quotation residual this reader has a composer
+     anchor and a reach budget for, in a constant that has neither.
+     ⇒ WHY IT IS RAISED RATHER THAN TAKEN: the discriminator is proximity to the
+     composer, which means giving `INTERRUPT_LINE` the reach treatment. That
+     constant is shared by every Claude pane AND the codex path at the other call
+     site, so narrowing it changes precedence fleet-wide for agents that have
+     nothing to do with this card. Same reasoning that kept rule 6 out of this
+     branch, where upstream #1995 later resolved it properly.
+     📌 It predates this branch: without #1889 the same quotation already forced
+     `mid-task`. What is new is that a consumer now ACTS on the flag, so a residual
+     that was cosmetic has a user-visible consequence. Pinned below so the current
+     behaviour is visible and any future narrowing reds. */
   const bgWaitLine = backgroundAgentWait(tail);
   if (bgWaitLine !== null) {
     return {
