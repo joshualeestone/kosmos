@@ -187,6 +187,43 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## MY SWEEP WAS THE WEAKER INSTRUMENT, AND A REVIEWER SHOWED THE RIGHT ONE
+
+Two corrections to the section below, both from an outside re-measure and both
+verified here before being written down.
+
+**1. The population is 471, not 297.** 297 at the root plus 174 under `engine/`.
+I stated 297 as the total twice and reasoned from it. Counted directly: 297 + 174.
+
+**2. `grep -rl <symbol>` is sound for NAMED things and useless for the pane-row
+axis.** My sweep grepped symbol names. That works for `waitingNote` and the flag,
+because a call site must name the function and a reader must name the field. It
+CANNOT work for "does any other test contain a string this matcher would read as a
+wait row", because the matcher was deliberately widened to `\s*` and accepts
+wrap-joined spellings (`backgroundagent`, `2background`, `agentsto`) that no
+literal search can see. **A correct instrument aimed at the wrong axis**, which is
+the class this whole branch keeps producing.
+
+✅ **THE RIGHT INSTRUMENT, and it is worth stealing:** extract every single- and
+double-quoted string literal from all 471 files, unescape `\n`, split into rows,
+and apply the four ACTUAL patterns to each row as if it were a pane row. Result:
+exactly the three files the diff touches. **With a planted positive control** (a
+wrap-joined `'✻ Waiting for 2background agents to finish'` dropped into
+`engine/ping.test.js`, flagged, removed, gone).
+
+✅ **AND THE CHECK THAT CLOSES THE CONSTANTS AXIS WITHOUT RUNNING ANYTHING:** none
+of the seven new constants and helpers is exported, so **no test in the repo can
+name them**. They are reachable only through `classify()`. Verified here with
+`reconcileReport` as a control, which IS exported.
+
+⭐ **The general lesson, and it is about what I asked for rather than what I got.**
+I asked "did you run all of them". The better question, which the reviewer answered
+instead, is **"what would have to be true for another test to be affected, and is
+that true anywhere in the population"**. `49 of 471 run, and here is why the other
+422 cannot matter` beats an exhausted run, because an exhausted run says nothing
+about WHY. **Coverage by exhaustion answers one tree; coverage by reachability
+answers the next one too.**
+
 ## THE SWEEP I HAD BEEN PUTTING ON SOMEONE ELSE, RUN
 
 Verified state on `06b649d3`: full suite **`SUITE_EXIT=0`, 4828/4828**, terminal
@@ -299,12 +336,12 @@ and ran the FULL suite for the first time since the parameter collision.
 
 `chat.waitingnote-provider-2107.test.js` lives at the **repo root**, not under
 `engine/`. My three per-file runs (`status`, `chat`, `status.observed-1921`) could
-never see it. There are **297 root-level `*.test.js` files**; exactly one reads
+never see it. There are **471 test files (297 at the root, 174 under `engine/`)**; exactly one reads
 the symbols this branch touches, and it is the one that went red.
 
 ⭐ **"I ran the three files I edited" was never the same claim as "the suite
 passes", and for two days I let the first stand in for the second.** The count is
-the point: three of three hundred.
+the point: three of four hundred and seventy-one.
 
 ### The red was the HARNESS, and asking which came first is what saved the time
 
