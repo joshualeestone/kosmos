@@ -392,11 +392,18 @@ function homeGemini(home) {
  *  where the "reach ~/.gemini by default" semantics live.) The os.homedir() assert is INSIDE the
  *  try so an abort still restores the env; it fails loud if the HOME override did not take, rather
  *  than letting sandboxIsInconsistent() flip true and the scan silently early-return empty. */
-const HOME_DERIVED_VARS = ['HOME', 'AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME'];
+// AGENT_WORKFORCE_HOME is the SHARED third fallback of BOTH codexupdate.defaultHome() and
+// geminisession.HOME() (each is `... || (AGENT_WORKFORCE_HOME || os.homedir())/.codex|.gemini`).
+// It is cleared here too so withHome is SELF-SUFFICIENT for the codex read - not merely hermetic
+// because both tests happen to nest withNoGeminiHome (which also clears it). A future withHome-only
+// Part F test on a box that exports AGENT_WORKFORCE_HOME would otherwise route foundCodex to a real
+// <AGENT_WORKFORCE_HOME>/.codex.
+const HOME_CLEAR_VARS = ['AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME', 'AGENT_WORKFORCE_HOME'];
+const HOME_DERIVED_VARS = ['HOME', ...HOME_CLEAR_VARS];
 function withHome(home, fn) {
   const prev = HOME_DERIVED_VARS.map((v) => [v, process.env[v]]);
   process.env.HOME = home;
-  for (const v of ['AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME']) delete process.env[v];
+  for (const v of HOME_CLEAR_VARS) delete process.env[v];
   try {
     assert.equal(os.homedir(), home, 'the HOME override did not take - the fixture sandbox is unsafe, aborting');
     return fn();
