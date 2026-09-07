@@ -379,21 +379,29 @@ function homeGemini(home) {
   for (const [name, body] of Object.entries(GEMINI)) fs.writeFileSync(path.join(agents, `gemini-${name}.md`), body);
 }
 /** Run fn with process.env.HOME pointed at a fixture home (os.homedir follows it), restored after.
- *  Also clears AGENT_WORKFORCE_SCAN_ROOTS for the duration: a bare discover.scan() reads that env
- *  var (scanRootsFromEnv) BEFORE defaultScanRoots, so an ambient value on a CI box would bypass the
- *  whole #2414/#2125/importScan machinery these tests exist to guard - a false RED. Cleared here
- *  exactly as discover.location-2414.test.js does at setup. And asserts the HOME override actually
- *  took: if it did not, sandboxIsInconsistent() flips true and the bare scan early-returns empty,
- *  which would otherwise read as a silent miss rather than a loud abort. */
+ *  Part F is the FIRST section to run a BARE scan under a CONSISTENT sandbox, which makes
+ *  status.sandboxIsInconsistent() false - so unlike Parts A-E, found()/foundCodex/foundGemini
+ *  actually RUN here rather than early-returning. Every home-derived read must therefore be pinned
+ *  to the fixture home, or a bare scan reads the operator's real machine:
+ *   - HOME -> os.homedir() (covers Claude's CONFIG_ROOT default and .codex/.gemini defaults);
+ *   - CODEX_HOME / AGENT_WORKFORCE_CODEX_HOME -> foundCodex's codex home. The fleet's codex
+ *     supervisor exports CODEX_HOME, so leaving it would make a bare scan read ~/.codex/sessions.
+ *   - AGENT_WORKFORCE_SCAN_ROOTS -> scanRootsFromEnv wins BEFORE defaultScanRoots, so an ambient
+ *     value would bypass the whole #2414/#2125/importScan machinery under test (a false RED).
+ *  (The Gemini home vars are cleared separately by the withNoGeminiHome the tests wrap, which is
+ *  where the "reach ~/.gemini by default" semantics live.) The os.homedir() assert is INSIDE the
+ *  try so an abort still restores the env; it fails loud if the HOME override did not take, rather
+ *  than letting sandboxIsInconsistent() flip true and the scan silently early-return empty. */
+const HOME_DERIVED_VARS = ['HOME', 'AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME'];
 function withHome(home, fn) {
-  const prevHome = process.env.HOME;
-  const prevRoots = process.env.AGENT_WORKFORCE_SCAN_ROOTS;
+  const prev = HOME_DERIVED_VARS.map((v) => [v, process.env[v]]);
   process.env.HOME = home;
-  delete process.env.AGENT_WORKFORCE_SCAN_ROOTS;
-  assert.equal(os.homedir(), home, 'the HOME override did not take - the fixture sandbox is unsafe, aborting');
-  try { return fn(); } finally {
-    if (prevHome === undefined) delete process.env.HOME; else process.env.HOME = prevHome;
-    if (prevRoots === undefined) delete process.env.AGENT_WORKFORCE_SCAN_ROOTS; else process.env.AGENT_WORKFORCE_SCAN_ROOTS = prevRoots;
+  for (const v of ['AGENT_WORKFORCE_SCAN_ROOTS', 'CODEX_HOME', 'AGENT_WORKFORCE_CODEX_HOME']) delete process.env[v];
+  try {
+    assert.equal(os.homedir(), home, 'the HOME override did not take - the fixture sandbox is unsafe, aborting');
+    return fn();
+  } finally {
+    for (const [v, val] of prev) { if (val === undefined) delete process.env[v]; else process.env[v] = val; }
   }
 }
 const candByDir = (r, dir) => (r.candidates || []).find((c) => c.dir === dir);
