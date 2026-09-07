@@ -22,7 +22,8 @@ In `web/index.html`:
 
 - A row click now calls `worldswConfirmSwitch(id, name)` (was: inline switch), which opens
   `#world-switch-modal` (a `.rm-back`/`.rm-box` alertdialog, `aria-modal="true"`,
-  `aria-labelledby` the Josh-verbatim title) and focuses the "Restart Kosmos" button.
+  `aria-labelledby` the Josh-verbatim title) and focuses the Cancel button (a reflexive
+  Enter cancels rather than restarting; switching is a deliberate act, per #6).
 - `worldswSwitchGo` runs the real switch (`worldswSwitch`), which posts
   `/api/worlds/active` and, on `restarting:true`, reconnects and reloads; on a from-source
   board it shows the softened "Quit and reopen Kosmos" guidance; a no-op says already-active.

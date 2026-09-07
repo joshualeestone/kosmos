@@ -31255,8 +31255,8 @@ document.addEventListener('keydown', (e) => {
     ['world-add-modal', ['world-add-name', 'world-add-cancel', 'world-add-go'], 'world-add-name'],
     /* #6: the switch-confirm dialog declares aria-modal, so it gets a real trap over its
        two buttons (Cancel, Restart Kosmos), in DOM order. Home is Cancel -- the safe/back
-       choice, matching doc-keep -- though worldswConfirmSwitch opens initial focus on
-       Restart (the primary confirm action). */
+       choice, matching doc-keep -- and worldswConfirmSwitch also opens initial focus on
+       Cancel (a reflexive Enter cancels rather than restarting; see the comment there). */
     ['world-switch-modal', ['world-switch-cancel', 'world-switch-go'], 'world-switch-cancel'],
   ]) {
     const back = document.getElementById(backId);

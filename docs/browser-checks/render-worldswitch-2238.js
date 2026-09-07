@@ -28,6 +28,14 @@
  * excluding it from the switcher's outside-click handler that click ran worldswClose() and
  * cleared the banner mid-switch, hiding the manual/fallback guidance the person needs.
  *
+ * CONTROLS (confirmed red-without-fix, then restored): the banner-survival guard (remove
+ * the #world-switch-modal exclusion -> menuStillOpen / afterCancel.menuOpen / scenario F
+ * red), the focus-restore guard (remove worldswFocusTrigger on the error path ->
+ * afterErrFocus.focusRestored red, activeId ""), and the in-flight-confirm guard (remove
+ * the WORLDSW_SWITCHING early-return -> midSwitchModalHidden red). The remaining #6
+ * assertions (modal-appears, Josh-verbatim title, focus-on-Cancel-on-open) are structurally
+ * falsifiable -- each pins an exact id/text/element -- rather than perturbation-demonstrated.
+ *
  * The CONTROL that proves the probe can see a real switch: the pre-fix page has no click
  * handler on .worldsw-row, so the POST-called + marker-moved + reload assertions red on it.
  *
