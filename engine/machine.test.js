@@ -938,6 +938,46 @@ test('the sleep-pane capability: derived from disk by id, refusing honestly, nev
   }
 });
 
+test('the sleep-pane filter matches STEM names a whole-word filter misses (0.6.41 robustness)', () => {
+  const machine = require('./machine');
+  try {
+    // `Batteries.appex` contains `batter` but NOT the whole word `battery`, and
+    // `PowerManagement.appex` contains `power`: both are the battery/power pane
+    // on some macOS layouts and must still be probed. The old whole-word filter
+    // dropped `Batteries.appex` before the id check ever ran, which is exactly
+    // how a real macOS could leave the button unable to find its pane.
+    for (const name of ['Batteries.appex', 'PowerManagement.appex', 'EnergySaver.appex']) {
+      machine.resetSleepPaneCache();
+      const url = machine.sleepPaneUrl(
+        () => ({ ok: true, stdout: 'com.apple.Battery-Settings.extension\n' }),
+        () => [name]);
+      assert.equal(url, 'x-apple.systempreferences:com.apple.Battery-Settings.extension',
+        'a stem-named power pane (' + name + ') was not probed');
+    }
+
+    // The wider net still cannot claim a WRONG pane: the closed id set decides.
+    machine.resetSleepPaneCache();
+    assert.equal(
+      machine.sleepPaneUrl(() => ({ ok: true, stdout: 'com.apple.batteryui.BatterySettingsIntents\n' }),
+        () => ['BatterySettingsIntentsExtension.appex']),
+      null, 'a battery-named appex with an unrecognised id produced a URL');
+
+    // The refusal now tells the person how to do it by hand, so an unrecognised
+    // macOS is completable rather than a dead button.
+    machine.resetSleepPaneCache();
+    const refused = machine.openSleepSettings((cmd) => {
+      if (cmd === '/usr/bin/defaults') return { ok: false, stdout: '' };
+      return { ok: true, stdout: '' };
+    }, () => ['FakePowerPane.appex']);
+    assert.equal(refused.ok, false);
+    assert.match(refused.because, /Open System Settings/);
+    assert.match(refused.because, /automatic sleep/);
+    assert.doesNotMatch(refused.because, /\u2014/, 'the failure copy carries an em dash');
+  } finally {
+    machine.resetSleepPaneCache();
+  }
+});
+
 test('the sleep row carries the settings flag from the same probe', () => {
   const machine = require('./machine');
   try {
