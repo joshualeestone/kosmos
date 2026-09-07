@@ -68,12 +68,13 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
        (TCC-reaching) from scan-agents (bare) rather than inferring from output. */
     const hits = { scanImport: 0, scanAgents: 0 };
     let grant = { checkable: false };            // mutated per scenario
-    let importCandidates = [];                    // what scan-import returns
+    let importCandidates = [];                    // agent FOLDERS scan-import returns
+    let importFiles = [];                         // #4: loose agent FILES scan-import returns
 
     await p.route('**/api/file-access-status', (r) => r.fulfill({ json: grant }));
     await p.route('**/api/scan-import', (r) => {
       hits.scanImport++;
-      r.fulfill({ json: { ok: true, candidates: importCandidates, importable: [], bounded: {} } });
+      r.fulfill({ json: { ok: true, candidates: importCandidates, importable: importFiles, bounded: {} } });
     });
     await p.route('**/api/scan-agents', (r) => {
       hits.scanAgents++;
@@ -106,7 +107,10 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       return {
         title: title ? title.textContent : '',
         rows: box ? box.querySelectorAll('.fr-scanrow').length : 0,
+        importRows: box ? box.querySelectorAll('.fr-importrow').length : 0,
+        importGo: box ? box.querySelectorAll('.fr-importrow .fr-importgo').length : 0,
         offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1,
+        importOffer: (typeof frImportOffer === 'function') ? frImportOffer().length : -1,
       };
     });
 
@@ -123,6 +127,40 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (g.offer === 2) ok('GRANTED: the import-scan candidates become the screen-9 offer'); else bad('GRANTED offer count', JSON.stringify(g));
     if (/We found 2 agents on this computer/i.test(g.title)) ok('GRANTED: screen 9 loads the found agents ("We found 2 agents on this computer.")'); else bad('GRANTED screen-9 title', JSON.stringify(g.title));
     if (g.rows === 2) ok('GRANTED: both found agents render as add/skip rows on screen 9'); else bad('GRANTED rendered rows', JSON.stringify(g));
+
+    // ── 1b. #4 (Josh 0.6.42): the LOOSE agent FILES also load onto screen 9. ──
+    // Josh loaded 7 agent files into Documents/Downloads; before this, the screen
+    // rendered only agent FOLDERS (candidates) and dumped him to "Create your first
+    // agent," while the separate Import screen found the files. Now the scan's loose
+    // `importable` files render on THIS screen with a one-click Import button.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: true, at: Date.now() };
+    importCandidates = [];   // NO folders, only loose files -- the exact shape that dumped Josh to "create your first agent"
+    importFiles = [
+      { file: '/Users/x/Documents/1-kosmos-created.md', name: 'Fixture Baron', role: 'a test fixture', preview: 'You are Fixture Baron.' },
+      { file: '/Users/x/Documents/4-codex-AGENTS.md', name: 'Fixture Codex', role: 'OpenAI-run agent', preview: 'You are Fixture Codex.' },
+      { file: '/Users/x/Downloads/6-second-profile-agent.md', name: 'Fixture Work1', role: 'second-profile agent', preview: 'You are Fixture Work1.' },
+    ];
+    await runScan();
+    const gi = await readScreen();
+    if (gi.importOffer === 3) ok('#4: the loose importable files become the screen-9 offer (importOffer=3)'); else bad('#4 importOffer', JSON.stringify(gi));
+    if (gi.importRows === 3 && gi.importGo === 3) ok('#4: the 3 loose agent FILES render on screen 9, each with a one-click Import button'); else bad('#4 rendered import rows', JSON.stringify(gi));
+    if (/We found 3 agents on this computer/i.test(gi.title)) ok('#4: screen 9 counts the loose files ("We found 3 agents on this computer.")'); else bad('#4 title', JSON.stringify(gi.title));
+    if (!/Create your first agent/i.test(gi.title)) ok('#4: it does NOT dump the person to "Create your first agent" when only loose files exist (the bug)'); else bad('#4 must not be the empty state', JSON.stringify(gi.title));
+
+    // ── 1c. #4 CONTROL: found none + no candidates + no importable -> the honest
+    // empty state is UNTOUCHED (frPaintFleet still lands on "Create your first agent"). ──
+    hits.scanImport = 0; hits.scanAgents = 0;
+    importCandidates = []; importFiles = [];
+    await p.evaluate(async () => {
+      FR = { path: 'create', fleetCount: 0 };
+      FR_FOUND = { ok: true, agents: [], adoptable: [] };
+      FR_SCAN = null; FR_SCAN_GEN = 0;
+      await frScanAgents();
+      frPaintFleet();   // the dispatcher decides scan-screen vs create-empty
+    });
+    const ge = await p.evaluate(() => (document.getElementById('fr-fleet-title') || {}).textContent || '');
+    if (/Create your first agent/i.test(ge)) ok('#4 CONTROL: with truly nothing found, the honest "Create your first agent" empty state is untouched'); else bad('#4 empty-state control', JSON.stringify(ge));
 
     // ── 2. CONTROL (declined): granted:false -> bare scan, NO TCC import walk. ──
     hits.scanImport = 0; hits.scanAgents = 0;
@@ -146,7 +184,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 7) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 12) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or

@@ -38,8 +38,11 @@ const SCRIPT = scriptOf(fs.readFileSync('web/index.html', 'utf8'));
 /* #1938: frPaintFleet now also references the disk-scan state (FR_SCAN) and helpers.
    frScanOffer is lifted (it is a pure read of FR_SCAN, so the real function is what we
    want to exercise); frScanAgents and frPaintScan are injected as stubs, the same way
-   frFindAgents and frPaintFound are. */
-const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') + '\n' + lift(SCRIPT, 'frPaintFleet');
+   frFindAgents and frPaintFound are.
+   #4 (0.6.42): frPaintFleet's create-arm gate now also reads frImportOffer (the loose
+   agent FILES the scan found), so lift it too -- another pure read of FR_SCAN. Without
+   it the gate call throws and every empty-answer control errors instead of asserting. */
+const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') + '\n' + lift(SCRIPT, 'frImportOffer') + '\n' + lift(SCRIPT, 'frPaintFleet');
 
 /* ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE AND CANNOT SEE AN INTEGRATION
    DEFECT (Splinter, 2026-09-02): a test of an extracted copy measures the branch logic,
@@ -128,6 +131,23 @@ test('#1938: the scan runs on the unknown path too, the one source that does not
   const r = paint({ path: 'unknown', fleetCount: null }, { ok: true, agents: [] }, null);
   assert.ok(r.calls.includes('SCAN-SEARCH'),
     'the unknown path never scanned the disk, which is exactly the source tmux failure does not touch');
+});
+
+test('#4: loose importable FILES (no folder candidates) route to the scan screen, on BOTH the create and unknown arms', () => {
+  /* Josh 0.6.42: 7 loose agent files, no folder candidates. frImportOffer is the
+     new second consumer of FR_SCAN, and BOTH create-arm gates must read it -- the
+     known-empty (create) arm AND the could-not-count-tmux (unknown) arm, or
+     loose-files-only falls through to an empty/could-not-see screen one location
+     over (the exact class #4 fixes). */
+  const filesOnly = { ok: true, candidates: [], importable: [
+    { file: '/Users/x/Documents/a.md', name: 'A', role: 'r', preview: 'You are A.' },
+  ] };
+  const c = paint({ path: 'create', fleetCount: 0 }, { ok: true, agents: [] }, filesOnly);
+  assert.ok(c.calls.includes('PAINT-SCAN'),
+    'create arm: loose importable files did not route to the scan screen (fell through to "create your first agent")');
+  const u = paint({ path: 'unknown', fleetCount: null }, { ok: true, agents: [] }, filesOnly);
+  assert.ok(u.calls.includes('PAINT-SCAN'),
+    'unknown arm: loose importable files did not route to the scan screen (fell through to "could not see")');
 });
 
 test('CONTROLS: the honest empty answers are untouched', () => {

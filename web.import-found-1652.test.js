@@ -85,9 +85,19 @@ test('#1652 PR2: populate reads the scan importable list, and import posts the b
 test('#1652 PR2: the found list is wired to open with the import panel and to its click handler', () => {
   // pickMode fills the list when the import radio is chosen.
   assert.match(SCRIPT, /populateFoundImports\(\);/, 'the found list is never populated');
-  // The click listener delegates on the Import button inside the found block.
-  assert.match(SCRIPT, /getElementById\('import-found'\)\.addEventListener\('click'/, 'the found list has no click handler');
+  // #4 (0.6.42): the click listener is now delegated on `document`, not on
+  // #import-found, because the Import rows render on BOTH the create-form import
+  // panel and the find-agents screen (#fr-fleet). One handler serves both, and it
+  // shows the create fork when the click comes from the find-agents surface.
   assert.match(SCRIPT, /closest\('\.fr-importgo'\)/, 'the click handler does not target the Import button');
+  assert.match(SCRIPT, /closest\('\.fr-importgo'\)[\s\S]{0,400}closest\('#fr-fleet'\)/,
+    'the Import click handler no longer serves the find-agents surface (#4)');
   // The container exists in the panel markup.
   assert.match(PAGE, /<div class="import-found" id="import-found" hidden><\/div>/, 'the found-import container is missing from the import panel');
+  // #4: the find-agents import path (frImportFromScan) skips openCreate, which is the
+  // only OTHER caller of refreshCreateTell, so it must call it directly or an agent
+  // imported from the find-agents screen would create with tellKosmos=false even when
+  // the person's ping is on (diverging from every other create path).
+  assert.match(SCRIPT, /async function frImportFromScan[\s\S]*?refreshCreateTell\(\)/,
+    'frImportFromScan does not set #create-tell from the ping setting (would under-send the create ping, #4)');
 });
