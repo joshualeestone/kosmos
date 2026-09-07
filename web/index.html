@@ -9980,7 +9980,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="setrow" id="pjs-sound-row">
         <div><b>Play a sound when a new message lands</b>
           <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p></div>
-        <button class="toggle" id="pjs-sound-toggle" role="switch" aria-label="Play a sound when a new message lands on this project"><i></i></button>
+        <button class="toggle" id="pjs-sound-toggle" role="switch" aria-checked="true" aria-label="Play a sound when a new message lands on this project"><i></i></button>
       </div>
     </div>
 
@@ -29942,13 +29942,6 @@ let BUBBLE_LAST = 0;
 function playBubblePop() {
   const ctx = bubbleAudioCtx();
   if (!ctx) return;
-  /* Coalesce across calls: two loadProjects reads can be in flight together (the file's
-     own note), and each would see the same rise and call this. A short floor since the
-     last pop makes that one pop, and it also extends "once per burst" across two rapid
-     polls -- a flurry rattles once, not twice. */
-  const nowMs = Date.now();
-  if (nowMs - BUBBLE_LAST < 250) return;
-  BUBBLE_LAST = nowMs;
   /* A tab that has had no user gesture keeps the context 'suspended' and cannot make
      sound (autoplay policy); resume is a no-op once running and harmless if it rejects. */
   try { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); } catch { /* ignore */ }
@@ -30030,7 +30023,16 @@ function ringNewMessages(projects) {
     if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id)) burst = true;
   }
   PJ_UNREAD_SEEN = next;
-  if (prevSeen && burst && !soundIsQuietedByDnd()) playBubblePop();
+  if (prevSeen && burst && !soundIsQuietedByDnd()) {
+    /* Coalesce across rapid/concurrent loadProjects reads into ONE pop: two reads can
+       be in flight together (the file's own note), and each would see the same rise and
+       reach here. A short floor since the last pop makes a flurry rattle once, not
+       twice. Kept HERE, at the decision, rather than inside playBubblePop, so a single
+       ringNewMessages call still makes exactly one call to the pop primitive -- a
+       per-message regression would ring twice and its test would catch it. */
+    const nowMs = Date.now();
+    if (nowMs - BUBBLE_LAST >= 250) { BUBBLE_LAST = nowMs; playBubblePop(); }
+  }
 }
 /* #867 (Josh, 2026-08-25 11:02): "let's default to automatically opening
    up a project when they come to this so that it's not just empty
