@@ -149,7 +149,7 @@ test('one button, two requests, and never a plain start', () => {
   }
 });
 
-test('the row offers it on every Claude row, including a signed-in one, and never on OpenAI', () => {
+test('the row offers it on every subscription Claude row, including a signed-in one, and never on OpenAI or an api-key row', () => {
   /* ⭐ ON A SIGNED-IN ROW TOO, AND THAT IS THE POINT, NOT AN OVERSIGHT. #874
      measured that this badge cannot see a REJECTED token, so Josh's own case
      was a green row and a dead login. Gating the remedy on "not signed in"
@@ -159,7 +159,15 @@ test('the row offers it on every Claude row, including a signed-in one, and neve
   const row = PAGE.slice(at, PAGE.indexOf('box.innerHTML = accountGroupsHtml', at));
 
   const reauthBit = row.slice(row.indexOf('data-reauth') - 400, row.indexOf('data-reauth') + 400);
-  assert.match(reauthBit, /isOpenai \? ''/, 'the sign-in-again button is not withheld from OpenAI rows');
+  /* #2433: the suppression condition is now `isOpenai || a.apiKey`, not `isOpenai`
+     alone. An api-key Claude account cannot be re-authed -- `Sign in again` is the
+     browser-OAuth flow and writing OAuth into a dir holding a stored key is refused by
+     the connect-start guard (#2432) -- so it is withheld from api-key rows too, until
+     #2420's removal slice lands. This still withholds it from OpenAI rows (the case
+     this line has always pinned) AND now documents the api-key exclusion; a
+     subscription Claude row (apiKey present-and-false) still gets the button. */
+  assert.match(reauthBit, /isOpenai \|\| a\.apiKey \? ''/,
+    'the sign-in-again button is not withheld from OpenAI and api-key rows (both are un-reauthable via this browser-OAuth flow)');
   assert.doesNotMatch(reauthBit, /connection/,
     'the button is gated on the connection state, which hides it from the very case #874 describes');
   assert.match(row, /data-reauth="' \+ esc\(a\.dir\)/, 'the button does not carry the account it means');

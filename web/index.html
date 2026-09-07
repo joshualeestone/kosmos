@@ -7781,6 +7781,29 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          Claude code step can never sit under the OpenAI key field again.
          Functional first, by his ruling; he adds the look afterwards. -->
     <div id="acct-claude-flow" hidden style="margin-top: var(--space-5);">
+      <!-- #2433 (#2420 UI slice; Josh's #2338 "follow suit on Claude too"): two ways
+           to connect Claude, and they are DISTINCT connection types, not two
+           dialects of one. A subscription signs in through Anthropic's own browser
+           flow, with nothing to paste; an API key is a pasted ANTHROPIC_API_KEY that
+           bills per use and lives on this computer, read by the account's Claude Code
+           via an apiKeyHelper pointer (engine #2420). This picker only decides which
+           flow the person ENTERS. Mirrors the OpenAI #acct-openai-pick above.
+           🛑 A REAUTH SKIPS THE PICKER. `acctReauthChrome(true)` is re-authing an
+           EXISTING subscription account, so a provider choice would be nonsense;
+           acctPick shows the subscription step directly in that case. -->
+      <div id="acct-claude-pick" hidden>
+        <p class="dhint" style="margin:0 0 8px;">Choose how to connect Claude.</p>
+        <div class="frow">
+          <button class="btn uprime" id="acct-claude-pick-sub" type="button">Sign in with your subscription</button>
+          <button class="btn" id="acct-claude-pick-key" type="button">Use an API key</button>
+        </div>
+        <p class="dhint" style="margin:8px 0 0;">A Claude subscription signs in through Anthropic, with nothing to paste. An API key is a string you create on Anthropic's site.</p>
+      </div>
+      <!-- The subscription (browser-OAuth) sign-in: the existing flow, now behind the
+           choice. Its controls keep their ids (acct-add, acct-add-confirm, acct-flow,
+           acct-add-note), so acctReauthChrome / acctFlowPaint / acctAddStart are
+           unchanged; only their visibility is now gated by the picker. -->
+      <div id="acct-claude-sub-step" hidden>
       <!-- 🛑 A MARKED WARNING, NOT A HINT (kosmos#976). Josh: skipping this step
            "really screws them in the process", and it was rendering as muted
            `.dhint` body copy indistinguishable from the reassurance beside it,
@@ -7817,6 +7840,38 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <div class="frow" style="margin:8px 0 0;"><button class="btn" id="acct-cancel" type="button">Stop this sign-in</button></div>
       </div>
       <p class="dhint" id="acct-add-note" role="status" aria-live="polite" tabindex="-1" style="margin:8px 0 0;"></p>
+      </div>
+      <!-- #2433: the API-key step (mirror #acct-openai-key-step). Paste an
+           ANTHROPIC_API_KEY; it POSTs to /api/accounts/claude/apikey, is validated
+           live before the add stands (engine #2420), and lives in a mode-600 file
+           the account's Claude Code reads via apiKeyHelper. Kosmos never echoes it,
+           never logs it, never puts it in a URL, and never shows it again. The field
+           is a password field so the screen does not show it unless asked. The
+           callout wears the same neutral-ink .dwarn shape the OpenAI key step uses
+           (#2164), not the subscription flow's red: a key not yet added must not wear
+           the connected-green, and this reassures rather than warns. -->
+      <div id="acct-claude-key-step" hidden>
+        <p class="dwarn" style="margin:0 0 8px;"><span class="dwarn-ok" aria-hidden="true">&#10003;</span><b>Paste an Anthropic API key.</b> It stays on this computer, read by Claude Code the same as if you had set it there yourself, and Kosmos will not show it again.</p>
+        <div class="frow">
+          <input type="password" id="acct-claude-key" autocomplete="new-password" spellcheck="false"
+                 aria-label="Anthropic API key" placeholder="sk-ant-…">
+          <button class="linkish" id="acct-claude-show" type="button" aria-pressed="false">Show</button>
+        </div>
+        <!-- Add has its own row under both fields (kosmos#978), where it reads as the
+             action for the FORM rather than for whichever input it is touching. -->
+        <div class="frow" style="margin-top:8px;">
+          <input type="text" id="acct-claude-key-label" autocomplete="off" maxlength="40"
+                 aria-label="A name for this account (optional)" placeholder="A name, if you want one">
+        </div>
+        <!-- Said in words, not only in a placeholder, which disappears exactly when
+             someone is deciding whether to fill the field in. -->
+        <p class="dhint" style="margin:6px 0 0;">The name is optional. It is only so you can tell this account
+          apart from another one later.</p>
+        <div class="frow" style="margin-top:12px;">
+          <button class="btn uprime" id="acct-claude-go" type="button">Add</button>
+        </div>
+        <p class="dhint" id="acct-claude-msg" role="status" aria-live="polite" style="margin:8px 0 0;"></p>
+      </div>
     </div>
     <!-- #540: an OpenAI account is a directory and one pasted key. No
          terminal, no browser. The key goes to codex's own login on stdin
@@ -15710,7 +15765,13 @@ async function paintAccounts() {
          a CSS border-left on each action after the first (.acct-actions), so a
          row with two actions or three lays out the same with no separator markup. */
       + '<div class="acct-actions">'
-      + (isOpenai ? ''
+      /* #2433: an api-key Claude account cannot be re-authed -- `Sign in again` is
+         the browser-OAuth flow, and writing OAuth into a dir that holds a stored key
+         is refused by the connect-start guard (#2432), so the control would only
+         error. Suppressed until #2420's removal slice lands, at which point these
+         rows get live actions. `a.apiKey` is present-and-false on a subscription
+         row, so this narrows to api-key rows alone. */
+      + (isOpenai || a.apiKey ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
           /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
              POINT. `qualName` falls back to the provider name so a Disconnect always
@@ -15722,7 +15783,24 @@ async function paintAccounts() {
              is untouched. Pinned below so this is a decision rather than a leftover. */
           + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
-      + (isOpenai
+      /* #2433: an api-key Claude account's removal engine is #2420's next slice, not
+         yet landed -- `forgetAccount`/`removeAccount` refuse it today (the
+         `!identityOf` guard), so a LIVE Disconnect would return a misleading "that is
+         not a Claude account" error. This outer arm renders a DISABLED Disconnect for
+         those rows, same shape as the default row's below (aria-disabled, no
+         data-forget so the shared removal handler cannot select it), whose reason is
+         the truth: removal is coming, not broken. It WRAPS the existing
+         openai/default/live ternary rather than nesting inside it, so that pinned
+         ternary (and #1659's extraction of it) is unchanged. When the removal slice
+         merges, drop this arm and the api-key rows get live actions like any other.
+         `a.apiKey` is present-and-false on subscription rows, so `&& !isOpenai`
+         narrows this to api-key Claude rows alone. */
+      + (a.apiKey && !isOpenai
+        ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
+          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
+            + '. Not ready yet: removing an API-key Claude account is coming soon." '
+          + 'title="Removing an API-key Claude account is not ready yet. It is coming soon; for now this account stays connected.">Disconnect</button>'
+        : (isOpenai
         /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
            row said "Disconnect", for the same act in the same row builder --
            the exact divergence this card exists to close, one layer up from
@@ -15805,14 +15883,18 @@ async function paintAccounts() {
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
-            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
+            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>')))
       /* #2264: DELETE AND REMOVE - the destructive third action, on every
          NON-default row of both providers (removeAccount refuses the default, so
          it gets no button, matching the disabled Disconnect above). data-remove
          (not data-forget) so the removal handler tells delete from disconnect and
          sends remove:true; the provider rides the same data-forget-provider
          attribute the two DELETE routes already read. */
-      + (a.isDefault ? ''
+      /* #2433: like the reauth and Disconnect above, an api-key Claude account has
+         no working removal until #2420's slice lands (removeAccount refuses it
+         today), so Delete-and-remove is suppressed on those rows too -- no destructive
+         control that only errors. Flips live with the rest when the slice merges. */
+      + (a.isDefault || (!isOpenai && a.apiKey) ? ''
         : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
           + 'data-forget-provider="' + (isOpenai ? 'openai' : 'claude') + '" '
           + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
@@ -15896,8 +15978,18 @@ async function paintAccounts() {
          When reauth is fixed so a green check means a captured credential, this wording
          can be strengthened to name it as the fix. Noted on the card so that owner sees
          it. */
+      /* #2433: the "Sign in again above" remedy is only TRUE when this row actually
+         has a reauth control. The api-key disabled Disconnect (removal-not-ready)
+         sits on a row where reauth is suppressed (#2420 ordering), so appending it
+         there would point at a button that does not exist. Gate the clause on the
+         control's presence in this row. The default row keeps reauth, so its message
+         is unchanged; the title is untouched either way (a test anchors on it). */
+      const row = btn.closest('.acct-box');
+      const hasReauth = !!(row && row.querySelector('[data-reauth]'));
       const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
-        + ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.';
+        + (hasReauth
+          ? ' If its sign-in is not working you can try \u201cSign in again\u201d above, then check that an agent on it actually connects: a green check here confirms a sign-in ran, not that it captured a working credential.'
+          : '');
       /* ⚠️ setTimeout, NOT requestAnimationFrame: rAF is throttled or suspended
          outright in a hidden or background tab, so the clear-then-set would
          leave the region BLANK there -- worse than the unchanged text it is
@@ -16175,6 +16267,10 @@ function acctFlowPaint(st) {
   ACCT_FLOW_LAST = key;
   if (frConnActive(phase)) {
     if (document.getElementById('acct-provider-pick').value !== 'claude') acctPick('claude', { focus: false });
+    /* #2433: a live sign-in belongs on the subscription step, never the picker or
+       the key field -- reveal it whether or not acctPick just ran (it does not run
+       when the provider is already 'claude', e.g. a mid-flow repaint). */
+    acctClaudeShowSub();
     flow.hidden = false;
     btn.disabled = true;
     say.textContent = ACCT_FLOW_SAY[phase] || 'Working…';
@@ -16489,12 +16585,68 @@ function acctOpenaiWatch() {
     if (msg) msg.textContent = 'Installing…';
   }, 1200);
 }
+/* #2433: the Claude flow's resting state -- show the subscription-vs-API-key
+   picker, hide both flows. Mirror of acctOpenaiStep with no runner concept: Claude
+   Code is the base runner, and the subscription step's own install-confirm (#1587)
+   handles a missing one, so there is no install gate ahead of the choice. */
+function acctClaudeStep() {
+  const pick = document.getElementById('acct-claude-pick');
+  const sub = document.getElementById('acct-claude-sub-step');
+  const keys = document.getElementById('acct-claude-key-step');
+  if (pick) pick.hidden = false;
+  if (sub) sub.hidden = true;
+  if (keys) keys.hidden = true;
+}
+/* #2433: reveal the subscription step and hide the picker + key step. Used by the
+   picker's Sub choice, by a reauth (which skips the picker entirely), and by
+   acctFlowPaint whenever a live sign-in is in flight -- a running flow belongs on
+   the subscription step, never on the picker. */
+function acctClaudeShowSub() {
+  const pick = document.getElementById('acct-claude-pick');
+  const sub = document.getElementById('acct-claude-sub-step');
+  const keys = document.getElementById('acct-claude-key-step');
+  if (pick) pick.hidden = true;
+  if (keys) keys.hidden = true;
+  if (sub) sub.hidden = false;
+}
+/* #2433: the person picked a flow. Hide the choice, show the one they chose, land
+   focus on its first control, and clear a stale status line so entry starts clean.
+   Mirror of acctOpenaiChoose. */
+function acctClaudeChoose(which) {
+  const msg = document.getElementById('acct-claude-msg');
+  if (msg) msg.textContent = '';
+  if (which === 'key') {
+    const pick = document.getElementById('acct-claude-pick');
+    const sub = document.getElementById('acct-claude-sub-step');
+    const keys = document.getElementById('acct-claude-key-step');
+    if (pick) pick.hidden = true;
+    if (sub) sub.hidden = true;
+    if (keys) keys.hidden = false;
+    const k = document.getElementById('acct-claude-key'); if (k) k.focus();
+  } else {
+    acctClaudeShowSub();
+    const b = document.getElementById('acct-add'); if (b) b.focus();
+  }
+}
 function acctPick(which, opts) {
   const sel = document.getElementById('acct-provider-pick');
   if (sel.value !== which) sel.value = which;
   document.getElementById('acct-claude-flow').hidden = which !== 'claude';
   document.getElementById('acct-openai-flow').hidden = which !== 'openai';
-  if (which !== 'openai') { acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; return; }
+  if (which !== 'openai') {
+    acctOpenaiStop(); acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null;
+    if (which === 'claude') {
+      /* #2433: a reauth goes straight to the subscription sign-in (it is re-authing
+         an existing subscription account); a fresh add meets the picker first. */
+      if (ACCT_REAUTH_DIR) acctClaudeShowSub(); else acctClaudeStep();
+      if (opts && opts.focus === false) return;
+      const el = ACCT_REAUTH_DIR
+        ? document.getElementById('acct-add')
+        : document.getElementById('acct-claude-pick-sub');
+      if (el) el.focus();
+    }
+    return;
+  }
   /* Ask every time the form opens rather than caching: a runner can arrive or
      leave between visits, and this dialog deliberately remembers nothing. */
   acctOpenaiStep(ACCT_OPENAI_READY);
@@ -16509,8 +16661,6 @@ function acctPick(which, opts) {
       : document.getElementById('acct-openai-pick-sub');
     if (el) el.focus();
   });
-  if (opts && opts.focus === false) return;
-  if (which === 'claude') document.getElementById('acct-add').focus();
 }
 document.getElementById('acct-openai-install-go').addEventListener('click', async (e) => {
   const go = e.currentTarget;
@@ -17225,6 +17375,71 @@ document.getElementById('acct-openai-go').addEventListener('click', async () => 
 /* #2338: the picker's two choices. */
 document.getElementById('acct-openai-pick-sub').addEventListener('click', () => acctOpenaiChoose('sub'));
 document.getElementById('acct-openai-pick-key').addEventListener('click', () => acctOpenaiChoose('key'));
+/* #2433: the Claude picker's two choices. */
+document.getElementById('acct-claude-pick-sub').addEventListener('click', () => acctClaudeChoose('sub'));
+document.getElementById('acct-claude-pick-key').addEventListener('click', () => acctClaudeChoose('key'));
+/* #2433: show/hide the pasted Anthropic key, mirror of acct-openai-show. */
+document.getElementById('acct-claude-show').addEventListener('click', () => {
+  const key = document.getElementById('acct-claude-key');
+  const show = document.getElementById('acct-claude-show');
+  const on = key.type === 'password';
+  key.type = on ? 'text' : 'password';
+  show.textContent = on ? 'Hide' : 'Show';
+  show.setAttribute('aria-pressed', String(on));
+  key.focus();
+});
+/* #2433: add a Claude account from a pasted ANTHROPIC_API_KEY. Mirror of the
+   acct-openai-go handler against POST /api/accounts/claude/apikey (engine #2420).
+   The route validates the key live before the add stands and returns
+   { account: { label, connection: { state } } } (never a keyTail -- the key is
+   written only to a mode-600 file, so there is nothing key-derived to show). */
+document.getElementById('acct-claude-go').addEventListener('click', async () => {
+  const keyField = document.getElementById('acct-claude-key');
+  const labelField = document.getElementById('acct-claude-key-label');
+  const go = document.getElementById('acct-claude-go');
+  const msg = document.getElementById('acct-claude-msg');
+  const key = keyField.value;
+  if (!key.trim()) { msg.textContent = 'Paste the key first.'; keyField.focus(); return; }
+  go.disabled = true;
+  msg.textContent = 'Adding…';
+  try {
+    const res = await fetch('/api/accounts/claude/apikey', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ key, label: labelField.value.trim() || undefined }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) {
+      const e = new Error((out && (out.error || out.because)) || 'we could not add that account');
+      e.needsRunner = !!(out && out.needsRunner);
+      throw e;
+    }
+    // The key leaves the field the moment it is stored: nothing on screen keeps it.
+    const enteredLabel = labelField.value.trim();
+    keyField.value = '';
+    labelField.value = '';
+    /* #2241 sibling: the connected state reads as the SAME gold check-row box the
+       first-run and OpenAI flows show, not a bare line. The route returns no
+       keyTail, so the box says the account is signed in with an API key without
+       claiming a key-ending it does not have. */
+    const goldBox = frCheckRow({ state: 'ok', title: 'Claude is connected',
+      detail: 'This computer is signed in with an API key.' });
+    msg.textContent = 'Checking the connection…';
+    await paintAccounts();
+    acctShowSuccess(enteredLabel || 'your Claude account', goldBox);
+  } catch (err) {
+    msg.textContent = String((err && err.message) || 'We could not add that account.');
+    /* The route answers needsRunner when Claude Code is not on this computer. The
+       key path has no install button of its own, so send the person back to the
+       picker, where the subscription path installs Claude Code (its #1587 confirm). */
+    if (err && err.needsRunner) {
+      acctClaudeStep();
+      const b = document.getElementById('acct-claude-pick-sub'); if (b) b.focus();
+    }
+  } finally {
+    go.disabled = false;
+  }
+});
 /* #2338: reveal the live sign-in affordances once a session has started -- the
    open-the-page link (browser mode) and/or the code to type on OpenAI's own page
    (device mode), plus the way out. */
