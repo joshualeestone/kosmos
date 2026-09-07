@@ -2,10 +2,11 @@
 pre_challenge: true
 method: challenge-loop
 branch: launch-terminal
-diff_hash: 6d53f063be045d8563abdbe601542569bdf878e9f2b49269c43873936344ce6d
+diff_hash: b122e413c49d037132a04d2de8ee93b2fc9efdcfae8a40fc1274f340a6733387
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-07T07:08:20Z
+timestamp: 2026-09-07T07:27:00Z
+merge_note: origin/main merged in to resolve a server.js conflict after #2386 (the sibling trust-and-restart route) landed first; both routes and both requires kept. The launch-terminal code under review is unchanged; full suite re-validated green on the merged HEAD.
 iterations: 3
 converged: true
 ---
