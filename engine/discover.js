@@ -1059,12 +1059,14 @@ function scan(opts) {
   let hitDepth = false;
 
   /* #1652: loose importable agent FILES, keyed by canonical realpath so the same file
-     reached through two aliased roots is offered once. #2408: the CASE-variant alias is
-     already collapsed upstream by seenDirs (dev+ino), which skips the re-walk of a
-     case-variant root entirely, so a loose file under it is never re-collected; realpath
-     here still collapses a symlink alias, and a hardlinked .md across two distinct real
-     dirs is not a scenario agent files occur in. Bounded by MAX_IMPORTABLE (rows) and
-     MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
+     reached through two aliased roots is offered once. #2408: kept on realpath (NOT switched
+     to dev+ino like seenDirs), for two reasons. (1) The CASE-variant alias is already
+     collapsed upstream by seenDirs (dev+ino), which skips the re-walk of a case-variant root
+     entirely, so a loose file under it is never re-collected. (2) realpath here is
+     load-bearing in its own right: it collapses a SYMLINKED loose .md reached via two paths.
+     The only alias realpath misses that dev+ino would catch is a HARDLINKED .md across two
+     distinct real dirs, which is not a shape agent files occur in. Bounded by MAX_IMPORTABLE
+     (rows) and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
   const byFile = new Map();
   const seenFiles = new Set();
   let mdReads = 0;

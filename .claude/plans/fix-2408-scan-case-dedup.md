@@ -16,16 +16,24 @@ two different strings and were never collapsed. Measured repro: one physical age
 candidate rows (candidates:2, visited:4).
 
 ## Fix
-Key `seenDirs` (and the loose-file `seenFiles`/`byFile`) on the PHYSICAL-DIRECTORY/FILE identity
+Key `seenDirs` (the DIRECTORY visit de-dup) on the PHYSICAL-DIRECTORY identity
 `st.dev + ':' + st.ino` via `fs.statSync`, not on a path string. `(dev,ino)` is the canonical
 physical identity: it collapses case-variants AND symlink aliases on a case-insensitive fs, and
 correctly keeps `~/projects` and `~/Projects` DISTINCT on a case-sensitive fs (where they really
 are two directories). `statSync` follows a symlink to the target inode (the same collapse
 realpath gave for links); a dir hardlink is OS-forbidden, so dev+ino is unique per directory.
-A vanished dir/file (TOCTOU) throws and is skipped. Also corrected the false realpathSync comment.
+A vanished dir (TOCTOU) throws and is skipped. Also corrected the false realpathSync comment.
 
-Applied to both the folder de-dup (the proven case) and the loose-file de-dup (the same latent
-bug, one class over -- fix the class, not the instance).
+### The loose-file de-dup (`seenFiles`/`byFile`) is deliberately LEFT on realpath
+The first commit also switched the loose-file key to (dev,ino) "to fix the class", but the
+challenge-loop reverted it, on evidence: `seenDirs` (dev+ino) sits at the TOP of the walk loop
+and skips the re-walk of a case-variant root ENTIRELY, so a loose file under it is never
+re-collected -- the loose path already shares the dir-level guard, and reverting the loose key
+to realpath reds no test (proven). Realpath is not merely harmless there, it is load-bearing:
+it collapses a SYMLINKED loose `.md` reached via two paths. The only scenario the (dev,ino) key
+would independently affect is a HARDLINKED `.md` across two distinct real dirs, which is not a
+shape agent files occur in. So the final fix is `seenDirs` only; `seenFiles` is unchanged from
+#1652.
 
 ## Scope (do NOT conflate)
 This fixes the OVERcount (an agent offered twice). Josh's 0.6.45 report was an UNDERcount
