@@ -29938,9 +29938,17 @@ function bubbleAudioCtx() {
   try { BUBBLE_CTX = new AC(); } catch { BUBBLE_CTX = null; }
   return BUBBLE_CTX;
 }
+let BUBBLE_LAST = 0;
 function playBubblePop() {
   const ctx = bubbleAudioCtx();
   if (!ctx) return;
+  /* Coalesce across calls: two loadProjects reads can be in flight together (the file's
+     own note), and each would see the same rise and call this. A short floor since the
+     last pop makes that one pop, and it also extends "once per burst" across two rapid
+     polls -- a flurry rattles once, not twice. */
+  const nowMs = Date.now();
+  if (nowMs - BUBBLE_LAST < 250) return;
+  BUBBLE_LAST = nowMs;
   /* A tab that has had no user gesture keeps the context 'suspended' and cannot make
      sound (autoplay policy); resume is a no-op once running and harmless if it rejects. */
   try { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); } catch { /* ignore */ }
@@ -29993,17 +30001,36 @@ function soundIsQuietedByDnd() { return SOUND_QUIET === true; }
    the pop is for a project you are not currently looking at. */
 let PJ_UNREAD_SEEN = null;   // null until the first load baselines it
 function ringNewMessages(projects) {
+  const prevSeen = PJ_UNREAD_SEEN;   // null on the first load -> baseline only, no ring
   const next = {};
   let burst = false;
   for (const p of (projects || [])) {
     if (!p || p.id == null) continue;
-    const cur = Number(p.unread || 0);
+    const raw = p.unread;
+    /* 🛑 null/undefined is UNKNOWN, NOT zero. server.js `withUnread` sends the count as
+       null when the record or read cursor cannot be read ("unknown is not zero").
+       Collapsing it to 0 would rebaseline every project to zero on a transient
+       count-read blip, and the next normal poll would read every unread project as a
+       0->N rise and ring a spurious burst. So carry the prior baseline forward on an
+       unknown count and never ring on it. */
+    if (raw == null || !Number.isFinite(Number(raw))) {
+      if (prevSeen && prevSeen[p.id] !== undefined) next[p.id] = prevSeen[p.id];
+      continue;
+    }
+    const cur = Number(raw);
     next[p.id] = cur;
-    if (PJ_UNREAD_SEEN && cur > Number(PJ_UNREAD_SEEN[p.id] || 0) && projectSoundOn(p.id)) burst = true;
+    /* Ring only a genuine rise against a KNOWN prior count. A project with no prior
+       baseline (first load, or one that just appeared / was just granted) seeds
+       silently -- that is a project appearing, not a message landing.
+       🔑 THE CURRENTLY-OPEN PROJECT NEVER RINGS. The badge already zeroes it
+       (p.id === PJ_CURRENT ? 0), but the projects poll runs BEFORE this tick's room
+       `/seen` lands, so /api/projects can still report unread=1 for the room you are
+       reading -- exclude it here too, the same guard the badge keeps. */
+    const prev = prevSeen ? prevSeen[p.id] : undefined;
+    if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id)) burst = true;
   }
-  const firstLoad = !PJ_UNREAD_SEEN;
   PJ_UNREAD_SEEN = next;
-  if (!firstLoad && burst && !soundIsQuietedByDnd()) playBubblePop();
+  if (prevSeen && burst && !soundIsQuietedByDnd()) playBubblePop();
 }
 /* #867 (Josh, 2026-08-25 11:02): "let's default to automatically opening
    up a project when they come to this so that it's not just empty

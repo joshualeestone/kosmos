@@ -3,11 +3,12 @@
  *
  * The node test (web.bubblepop-2407.test.js) runs the extracted #2407 block against a
  * stubbed Web Audio. What a node --test cannot see is that the block is actually WIRED
- * into the shipped page as live globals, that a real browser AudioContext accepts the
- * recipe without throwing, and that the per-project toggle element paints. This drives
- * the shipped page with a real Chromium AudioContext replaced by a counting stub
- * (installed before any page script via addInitScript), then exercises the real
- * `ringNewMessages` / `playBubblePop` / `projectSoundOn` globals.
+ * into the shipped page as live globals and that the per-project toggle element paints.
+ * This drives the shipped page with a counting AudioContext stub (installed before any
+ * page script via addInitScript) to exercise the decision logic, AND runs one pop
+ * through the REAL Chromium AudioContext (the stub is swapped out for that one check)
+ * so a real Web Audio constraint the stub cannot catch -- e.g. exponentialRampToValueAtTime
+ * targeting 0 -- fails loudly here rather than only on a device with speakers.
  *
  * ASSERTS:
  *   1. the #2407 globals exist on the page (wired, not dead source).
@@ -15,10 +16,13 @@
  *   3. a burst (several projects rising at once) rings once, not per message.
  *   4. a muted project does not ring; an unmuted one does (per-project).
  *   5. Do-Not-Disturb (SOUND_QUIET) suppresses the pop.
- *   6. the pop a real AudioContext builds is a sine that starts at 400 Hz.
- *   7. the per-project settings toggle exists and paintSwitch drives its state.
+ *   6. an unknown (null) unread neither rings nor rebaselines to zero; a real rise after still rings.
+ *   7. the currently-open project does not ring; a background one does after switching away.
+ *   8. the stubbed pop is a sine starting at 400 Hz (the recipe fields).
+ *   9. one pop through the REAL AudioContext builds a valid graph (no throw).
+ *  10. the per-project settings toggle exists and paintSwitch drives its state.
  *
- * DOM-state + a stubbed-AudioContext call count, so headless is fine.
+ * DOM-state + a stubbed-AudioContext call count (+ one real-context throw check), so headless is fine.
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-bubblepop-2407.js
  */
@@ -62,6 +66,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     // starts (one per pop) and the first frequency value set, so the recipe is checkable.
     await p.addInitScript(() => {
       window.__pops = [];
+      window.__RealAC = window.AudioContext;   // kept so one check can exercise the real graph
       const Fake = function () {
         this.state = 'running';
         this.currentTime = 0;
@@ -93,7 +98,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (wired) ok('the #2407 sound globals are wired into the page'); else bad('globals wired', 'a #2407 global is missing');
 
     const pops = () => p.evaluate(() => window.__pops.length);
-    const reset = () => p.evaluate(() => { window.__pops = []; PJ_UNREAD_SEEN = null; SOUND_QUIET = false; });
+    // BUBBLE_LAST is reset too: the debounce that coalesces a burst across rapid polls
+    // would otherwise suppress the next scenario's pop (scenarios fire ms apart).
+    const reset = () => p.evaluate(() => { window.__pops = []; PJ_UNREAD_SEEN = null; SOUND_QUIET = false; BUBBLE_LAST = 0; });
 
     // 2. first load no ring; a rise rings once
     await reset();
@@ -108,11 +115,11 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 5 }, { id: 'b', unread: 2 }]));
     if ((await pops()) === 1) ok('a burst (two projects rising at once) rings once'); else bad('burst ring count', String(await pops()));
 
-    // 4. muted project does not ring; unmuted does
+    // 4. muted project does not ring; unmuted does (consistent project sets each poll)
     await reset();
     await p.evaluate(() => { setProjectSoundOn('a', false); });
     await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 0 }, { id: 'b', unread: 0 }]));
-    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 9 }]));
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 9 }, { id: 'b', unread: 0 }]));
     if ((await pops()) === 0) ok('a muted project does not ring'); else bad('muted rang', String(await pops()));
     await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 10 }, { id: 'b', unread: 1 }]));
     if ((await pops()) === 1) ok('an unmuted project rings (mute is per-project)'); else bad('unmuted did not ring', String(await pops()));
@@ -125,11 +132,48 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 3 }]));
     if ((await pops()) === 0) ok('Do-Not-Disturb suppresses the pop'); else bad('DND rang', String(await pops()));
 
-    // 6. the real-AudioContext pop is a sine starting at 400 Hz
+    // 6. an UNKNOWN count (null unread) never rings and never rebaselines to zero
+    await reset();
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 2 }]));         // baseline 2
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: null }]));      // transient count-read failure
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 2 }]));         // same 2 -> must NOT be a 0->2 rise
+    if ((await pops()) === 0) ok('an unknown (null) count neither rings nor rebaselines to zero'); else bad('null-unread false-rang', String(await pops()));
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 3 }]));         // a real new message
+    if ((await pops()) === 1) ok('a real rise after an unknown blip still rings'); else bad('post-null rise did not ring', String(await pops()));
+
+    // 7. the currently-open project never rings; a background one does
+    await reset();
+    await p.evaluate(() => { PJ_CURRENT = 'a'; });
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 0 }, { id: 'b', unread: 0 }]));
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 1 }, { id: 'b', unread: 0 }]));   // message in the OPEN room
+    if ((await pops()) === 0) ok('the currently-open project does not ring'); else bad('open project rang', String(await pops()));
+    await p.evaluate(() => { PJ_CURRENT = 'b'; });
+    await p.evaluate(() => ringNewMessages([{ id: 'a', unread: 2 }, { id: 'b', unread: 0 }]));   // a is now background
+    if ((await pops()) === 1) ok('a background project rings after switching away'); else bad('background did not ring', String(await pops()));
+    await p.evaluate(() => { PJ_CURRENT = null; });
+
+    // 8. the stubbed pop is a sine starting at 400 Hz (the recipe fields)
     await reset();
     await p.evaluate(() => playBubblePop());
     const rec = await p.evaluate(() => window.__pops[0] || null);
     if (rec && rec.type === 'sine' && rec.startFreq === 400) ok('the pop is a sine starting at 400 Hz (the documented recipe)'); else bad('recipe', JSON.stringify(rec));
+
+    // 9. one pop through the REAL AudioContext must not throw (catches a real Web Audio
+    //    constraint the stub cannot, e.g. exponentialRampToValueAtTime targeting 0).
+    const real = await p.evaluate(() => {
+      const saved = window.AudioContext;
+      try {
+        window.AudioContext = window.__RealAC;
+        BUBBLE_CTX = null; BUBBLE_LAST = 0;
+        playBubblePop();
+        return { ok: true };
+      } catch (e) {
+        return { ok: false, err: String((e && e.message) || e) };
+      } finally {
+        window.AudioContext = saved; BUBBLE_CTX = null;
+      }
+    });
+    if (real.ok) ok('one pop through a REAL AudioContext builds a valid graph (no throw)'); else bad('real graph threw', real.err);
 
     // 7. the per-project settings toggle exists and paintSwitch drives it
     const tog = await p.evaluate(() => {
@@ -152,7 +196,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 10) { console.log('bubblepop: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 15) { console.log('bubblepop: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('bubblepop: ' + failures + ' FAILED'); process.exit(1); }
   console.log('bubblepop: all good, ' + ran + ' checks');
 })();

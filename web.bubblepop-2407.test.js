@@ -64,9 +64,11 @@ function loadSound(opts) {
     removeItem: (k) => { delete store[k]; },
   };
   const win = opts.noAudio ? {} : { AudioContext: makeCtx };
+  // PJ_CURRENT is a page global the extracted block reads (to never ring the open
+  // project); declare it in the wrapper and expose a setter so the tests can drive it.
   // eslint-disable-next-line no-new-func
   const factory = new Function('window', 'localStorage',
-    src + '\nreturn { ringNewMessages, projectSoundOn, setProjectSoundOn, playBubblePop, setQuiet: (v) => { SOUND_QUIET = v; } };');
+    'var PJ_CURRENT = null;\n' + src + '\nreturn { ringNewMessages, projectSoundOn, setProjectSoundOn, playBubblePop, setQuiet: (v) => { SOUND_QUIET = v; }, setCurrent: (v) => { PJ_CURRENT = v; } };');
   const api = factory(win, localStorage);
   api.started = started;
   return api;
@@ -106,10 +108,41 @@ test('#2407: a muted project does not ring, and the mute is per-project', () => 
   assert.equal(s.projectSoundOn('a'), false);
   assert.equal(s.projectSoundOn('b'), true, 'default is ON for an unset project');
   s.ringNewMessages([{ id: 'a', unread: 0 }, { id: 'b', unread: 0 }]);   // baseline
-  s.ringNewMessages([{ id: 'a', unread: 5 }]);          // only the muted one rose
+  s.ringNewMessages([{ id: 'a', unread: 5 }, { id: 'b', unread: 0 }]);   // only the muted one rose
   assert.equal(s.started.length, 0, 'a muted project rang');
   s.ringNewMessages([{ id: 'a', unread: 6 }, { id: 'b', unread: 1 }]);   // b (unmuted) rose
   assert.equal(s.started.length, 1, 'an unmuted project failed to ring');
+});
+
+test('#2407: an UNKNOWN count (null unread) never rings and never rebaselines to zero', () => {
+  const s = loadSound();
+  s.ringNewMessages([{ id: 'a', unread: 2 }]);          // baseline: a has 2 unread
+  s.ringNewMessages([{ id: 'a', unread: null }]);       // a transient count-read failure
+  assert.equal(s.started.length, 0, 'an unknown count rang');
+  // The prior baseline (2) must have carried forward, so a normal read of the SAME 2
+  // is not a 0->2 rise. This is the spurious-burst bug the null-handling prevents.
+  s.ringNewMessages([{ id: 'a', unread: 2 }]);
+  assert.equal(s.started.length, 0, 'a stale null rebaselined to 0 and then false-rang');
+  s.ringNewMessages([{ id: 'a', unread: 3 }]);          // a genuine new message
+  assert.equal(s.started.length, 1, 'a real rise after an unknown blip did not ring');
+});
+
+test('#2407: the currently-open project never rings (badge zeroes it after the poll)', () => {
+  const s = loadSound();
+  s.setCurrent('a');                                    // a is open
+  s.ringNewMessages([{ id: 'a', unread: 0 }, { id: 'b', unread: 0 }]);   // baseline
+  s.ringNewMessages([{ id: 'a', unread: 1 }]);          // a message in the OPEN room, /seen not yet in
+  assert.equal(s.started.length, 0, 'the open project rang');
+  s.setCurrent('b');                                    // switch to b; a is no longer open
+  s.ringNewMessages([{ id: 'a', unread: 2 }]);          // a further message on the now-background a
+  assert.equal(s.started.length, 1, 'a background project failed to ring after switching away');
+});
+
+test('#2407: a project seen for the first time WITH unread does not ring (it is appearing)', () => {
+  const s = loadSound();
+  s.ringNewMessages([{ id: 'a', unread: 0 }]);          // baseline knows only a
+  s.ringNewMessages([{ id: 'a', unread: 0 }, { id: 'b', unread: 4 }]);   // b appears already-unread
+  assert.equal(s.started.length, 0, 'a newly-appeared project rang on first sighting');
 });
 
 test('#2407: Do-Not-Disturb suppresses the pop', () => {
