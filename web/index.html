@@ -7330,11 +7330,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        Copy: Mona Lisa. -->
   <section class="dbox" id="d-term-actions">
     <h3 class="dlab">This agent&rsquo;s Terminal</h3>
-    <div class="freshstack">
-      <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
+    <!-- Two grouped actions. "Open Terminal" first: it is the lighter, read-only one (it
+         only attaches a viewer to the live tmux session; it does NOT restart the agent).
+         "Trust & Restart" is the heavier one (it restarts). Each carries its own hint +
+         receipt line so the association is unambiguous. -->
+    <div class="field">
+      <button class="btn" id="d-open-terminal" type="button">Open Terminal</button>
+      <p class="fhint" id="d-open-terminal-hint" style="margin-top:8px;">Opens this agent&rsquo;s Terminal window on this computer.</p>
+      <p class="fmsg" id="d-open-terminal-msg" role="status" aria-live="polite"></p>
     </div>
-    <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent folder so it can start without the Terminal question.</p>
-    <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
+    <div class="field" style="margin-top:14px;">
+      <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
+      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent folder so it can start without the Terminal question.</p>
+      <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
+    </div>
   </section>
 
   <!-- The raw session, always offered on this page since agent-page-nav
@@ -24896,6 +24905,40 @@ document.getElementById('d-trust-restart').addEventListener('click', async () =>
   } catch {
     if (CURRENT && CURRENT.sessionName === forAgent) {
       msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* Open Terminal (Josh 0.6.44): POST /api/agent/<name>/launch-terminal (Pete's route)
+   attaches a Terminal.app window to the agent's live tmux session so the person can watch
+   it or answer a prompt. READ-ONLY about the agent -- it only adds a tmux viewer, it does
+   NOT restart it or touch what it is doing. On 200 {ok:true} the window opens on this
+   computer, so there is nothing more to show than a brief confirmation. On a 400 refusal
+   the route hands back `because` (agent not running, or a HEADLESS board with no desktop
+   to open a window on -- expected, not a bug); show it. A bad name or 500 has only
+   `error`. Capture-and-recheck like the handlers around it, so a receipt cannot land under
+   a different agent if the person switches while the POST is in flight. */
+document.getElementById('d-open-terminal').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-open-terminal');
+  const msg = document.getElementById('d-open-terminal-msg');
+  btn.disabled = true;
+  msg.textContent = 'Opening the Terminal window…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/launch-terminal',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = (res.ok && r.ok)
+        ? 'Opening the Terminal window on this computer.'
+        : (r.because || r.error || 'We could not open a Terminal for this agent.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to open a Terminal for this agent.';
     }
   } finally {
     btn.disabled = false;

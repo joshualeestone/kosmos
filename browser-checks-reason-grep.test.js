@@ -492,7 +492,11 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
      counted once by the catch/launch scan below (41), not here. */
-  const EXPECTED_SITES = 66;
+  /* 67 after kosmos 0.6.44 added render-open-terminal-0644.js, whose per-problem
+     `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
+     quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
+     counted once by the catch/launch scan below (42), not here. */
+  const EXPECTED_SITES = 67;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -642,7 +646,11 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `console.error('FAIL  render-trust-restart-0644: could not start a browser' ...)` is one
      catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
      Its per-problem finding-emit loop is counted once by the finding-emit scan above (66). */
-  const EXPECTED_CATCH_SITES = 41;
+  /* 42 after kosmos 0.6.44 added render-open-terminal-0644.js, whose launch-failure
+     `console.error('FAIL  render-open-terminal-0644: could not start a browser' ...)` is one
+     catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
+     Its per-problem finding-emit loop is counted once by the finding-emit scan above (67). */
+  const EXPECTED_CATCH_SITES = 42;
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '

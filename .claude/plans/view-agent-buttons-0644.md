@@ -48,3 +48,23 @@ small add. Flagged for his call.
 Renet confirmed disjoint: his #6 switch-modal is the Kosmos switcher (#worldsw ~6444,
 #world-switch-modal ~7650, worldsw* JS ~16560-16930); my agent-detail region (#d-sec-term ~6759,
 handler by d-save ~24789) does not overlap. He pings on his merge; my rebase should be clean.
+
+## UPDATE: Open Terminal (button #2) added to this same PR
+Pete handed Contract #2 (FINAL, built+tested): POST /api/agent/:name/launch-terminal, name
+URL-encoded, no body. 200 -> {ok:true, session}; 400 refused -> {ok:false, because} (agent not
+running, OR a HEADLESS board with no desktop to open a window on -- expected, not a bug); bad name
+-> {error}; 500 -> {error, detail}. It attaches a Terminal.app window to the agent's live tmux
+session -- READ-ONLY about the agent (adds a viewer; does NOT restart it). Copy (Mona): "Open
+Terminal", helper "Opens this agent's Terminal window on this computer." (the "on this computer"
+hints at the desktop requirement; the headless case surfaces via the route's `because`).
+
+- web/index.html: "Open Terminal" button + handler in the same #d-term-actions bar, placed FIRST
+  (it is the lighter, read-only action). On 200 shows an opening confirmation; on ok:false shows
+  `because`; friendly fallback on a throw; same capture-and-recheck guard.
+- render-open-terminal-0644.js: pins button + URL-encoded route + POST + 200-confirmation +
+  refusal `because` + throw fallback, with a control. Registered (browser-checks.sh + README +
+  reason-grep 66->67/41->42).
+
+So this PR ships BOTH buttons. NOTE: the box is held by the 0.6.43 cut until ~02:00 CDT; the
+browser checks + full suite + challenge-loop will run AFTER the box frees (running them during a
+cut corrupts both). Both buttons were built (non-box) during the hold.
