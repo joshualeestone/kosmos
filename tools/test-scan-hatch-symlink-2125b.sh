@@ -61,3 +61,20 @@ if fail:
     print('scan-hatch-symlink: FAIL'); [print('  - '+m) for m in fail]; sys.exit(1)
 print('scan-hatch-symlink: PASS (symlinks refused, no escape, real agents found)')
 PY
+
+# NEGATIVE ARM (confused-deputy REFUSAL): a request naming a root NOT in the allowlist must yield
+# NO rows for it. Point the allowlist at a DECOY dir; request the fixture -> it must be refused.
+DECOY="$tmp/decoy"; mkdir -p "$DECOY"
+cat > "$AW/scan-request.inflight" <<EOF
+{"roots":[{"dir":"$FIX","maxDepth":4}],"budgets":{"maxDirs":8000,"maxMdPerDir":40,"maxMdReads":3000,"readCap":4000,"maxCandidates":100,"maxImportable":60},"req":"refuse1"}
+EOF
+AGENT_WORKFORCE_DATA="$STORE" AGENT_WORKFORCE_SCAN_ALLOW_ROOTS="$DECOY" "$BIN" --kosmos-app-scan
+[ -f "$RES" ] || { echo "scan-hatch-symlink: refusal arm wrote no result"; exit 1; }
+python3 - "$RES" "$FIX" <<'PY'
+import json, sys
+d = json.load(open(sys.argv[1])); fix = sys.argv[2]
+rows = d.get('dirs',[]) + d.get('loose',[])
+if rows:
+    print('scan-hatch-symlink: FAIL (confused-deputy) -- a non-allowlisted root was walked:', rows[:2]); sys.exit(1)
+print('scan-hatch-symlink: PASS (refusal arm -- a non-allowlisted root yields no rows)')
+PY

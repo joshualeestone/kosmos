@@ -106,6 +106,7 @@ test('defaultTccScan bridge: drops a nonce request, merges the matching result, 
       pr.nativePresent = () => false;
       const rNoApp = call();
       assert.strictEqual(rNoApp.scanning, false, 'no native app -> scan completes, not scanning forever');
+      assert.strictEqual(rNoApp.bounded.tccUnavailable, true, 'no native app -> bounded.tccUnavailable so the screen can say "couldn\'t scan Documents"');
       assert.ok(!fs.existsSync(reqPath), 'no native app -> no request dropped');
 
       // App present for the rest.

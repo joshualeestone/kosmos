@@ -558,6 +558,10 @@ private struct ScanBudgets {
     var maxMdPerDir = 40
     var maxMdReads = 3000
     var readCap = 4000
+    // Row caps mirroring the engine: emitting more than the engine will keep only bloats
+    // scan-result.json (which it then discards). The engine passes these; defaults match it.
+    var maxCandidates = 100
+    var maxImportable = 60
 }
 
 // Read the first `cap` bytes of a file as a UTF-8 string (lossy), never allocating the whole
@@ -619,6 +623,8 @@ func scanUnderGrant() -> Bool {
             if let v = b["maxMdPerDir"] as? Int { budgets.maxMdPerDir = v }
             if let v = b["maxMdReads"] as? Int { budgets.maxMdReads = v }
             if let v = b["readCap"] as? Int { budgets.readCap = v }
+            if let v = b["maxCandidates"] as? Int { budgets.maxCandidates = v }
+            if let v = b["maxImportable"] as? Int { budgets.maxImportable = v }
         }
     } else {
         logLine("scan: no readable scan-request.json; writing bounded-empty result")
@@ -657,11 +663,17 @@ func scanUnderGrant() -> Bool {
         // by found()/foundCodex/foundGemini, which do NOT walk here). Non-importOnly roots
         // only, matching the engine's `!cur.importOnly` gate.
         if !importOnly {
-            let file = (dir as NSString).appendingPathComponent("CLAUDE.md")
-            // Regular file ONLY (lstat, not fileExists which follows symlinks): a symlinked
-            // CLAUDE.md must not have an out-of-tree file's bytes read into a preview.
-            if lstatType(file) == .typeRegular, let head = headBytes(file, cap: budgets.readCap) {
-                dirsOut.append(["dir": dir, "instr": ["file": file, "head": head]])
+            // Row cap: stop emitting folder rows the engine merge would only discard (it caps at
+            // maxCandidates). boundedDirs mirrors the engine's hitCount so the screen still hints.
+            if dirsOut.count >= budgets.maxCandidates {
+                boundedDirs = true
+            } else {
+                let file = (dir as NSString).appendingPathComponent("CLAUDE.md")
+                // Regular file ONLY (lstat, not fileExists which follows symlinks): a symlinked
+                // CLAUDE.md must not have an out-of-tree file's bytes read into a preview.
+                if lstatType(file) == .typeRegular, let head = headBytes(file, cap: budgets.readCap) {
+                    dirsOut.append(["dir": dir, "instr": ["file": file, "head": head]])
+                }
             }
         }
 
@@ -675,6 +687,8 @@ func scanUnderGrant() -> Bool {
             if lower == "claude.md" || lower == "agents.md" { continue }
             if perDir >= budgets.maxMdPerDir { boundedImportable = true; break }
             if mdReads >= budgets.maxMdReads { boundedImportable = true; break }
+            // Row cap: stop emitting loose rows past what the engine merge keeps (MAX_IMPORTABLE).
+            if looseOut.count >= budgets.maxImportable { boundedImportable = true; break }
             let file = (dir as NSString).appendingPathComponent(name)
             // Regular file ONLY (lstat) -- refuse a symlinked .md, same no-escape guard.
             guard lstatType(file) == .typeRegular else { continue }

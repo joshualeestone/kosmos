@@ -885,7 +885,9 @@ function readClaudeHead(file) {
    throughout -- any fs failure yields null (scanning:true), never a throw. Overridable via
    opts.tccScan for tests. */
 const TCC_RESULT_FRESH_MS = 30 * 1000;
-const TCC_REQUEST_PENDING_MS = 15 * 1000;
+const TCC_REQUEST_PENDING_MS = 15 * 1000;   // MUST stay >= TCC_GIVE_UP_MS: the give-up check runs
+                                            // first, so a request older than GIVE_UP_MS never reaches
+                                            // the pending/re-drop block anyway.
 /* #3/#2125: the "never hangs" bound. If the native app is present but our request goes unanswered
    this long (a crashed/failed hatch), give up and COMPLETE the scan without TCC rows rather than
    report scanning:true forever. The plan required a give-up; this is it. */
@@ -1170,11 +1172,18 @@ function scan(opts) {
      SAME folderRow/looseRow the walk uses, so the hatch path cannot diverge from the engine path.
      Dedup: skip a dir/file already found by the walk, found(), alreadyIn or declined (known). */
   let scanning = false;
+  let tccUnavailable = false;   // #3/#2125: the TCC roots could not be scanned (no app / hatch gave up)
   if (tccRoots.length) {
     const tccScan = typeof o.tccScan === 'function' ? o.tccScan : defaultTccScan;
     let hatch = null;
     try {
-      hatch = tccScan(tccRoots, { maxDirs, maxMdPerDir: SCAN.MAX_MD_PER_DIR, maxMdReads, readCap: SCAN.READ_CAP });
+      // Pass the ROW caps too, so the hatch stops emitting folder/loose rows the merge would only
+      // discard -- otherwise a huge Documents tree yields a multi-MB scan-result.json (up to maxDirs
+      // rows x readCap bytes) the engine mostly throws away.
+      hatch = tccScan(tccRoots, {
+        maxDirs, maxMdPerDir: SCAN.MAX_MD_PER_DIR, maxMdReads, readCap: SCAN.READ_CAP,
+        maxCandidates, maxImportable: SCAN.MAX_IMPORTABLE,
+      });
     } catch { hatch = null; }
     if (!hatch) {
       scanning = true;
@@ -1196,6 +1205,11 @@ function scan(opts) {
       if (hatch.bounded) {
         if (hatch.bounded.dirs) hitDirs = true;
         if (hatch.bounded.importable) hitImportable = true;
+        // The TCC roots could not be scanned (no native app, or the hatch never answered). Surface
+        // it so the screen can say "we couldn't scan your Documents/Downloads/Desktop" rather than
+        // present a TCC-less list as complete (which, cached for SCAN_CACHE_MS, would silently hide
+        // those agents on a transient failure).
+        if (hatch.bounded.tccUnavailable) tccUnavailable = true;
         if (Number.isFinite(hatch.bounded.visited)) visited += hatch.bounded.visited;
       }
     }
@@ -1230,7 +1244,7 @@ function scan(opts) {
        is gated on the two that signal a real early stop. `importable` is the #1652
        loose-file-read wall, surfaced like the others so the screen can say "and there may
        be more files". */
-    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable },
+    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable, tccUnavailable },
     /* #3/#2125: true only when a TCC-root hatch result is not ready yet -- the caller (the
        /api/scan-import route + getImportScan cache) treats a scanning:true result as PARTIAL
        (non-TCC rows only) and does NOT cache it, so a retry shortly after picks up the TCC rows
