@@ -16012,12 +16012,15 @@ async function paintAccounts() {
          When reauth is fixed so a green check means a captured credential, this wording
          can be strengthened to name it as the fix. Noted on the card so that owner sees
          it. */
-      /* #2433: the "Sign in again above" remedy is only TRUE when this row actually
-         has a reauth control. The api-key disabled Disconnect (removal-not-ready)
-         sits on a row where reauth is suppressed (#2420 ordering), so appending it
-         there would point at a button that does not exist. Gate the clause on the
-         control's presence in this row. The default row keeps reauth, so its message
-         is unchanged; the title is untouched either way (a test anchors on it). */
+      /* #2433/#2441: the "Sign in again above" remedy is only TRUE when this row
+         actually has a reauth control, so the clause is gated on the control's presence
+         rather than assumed. #2441 flipped api-key Disconnect live, so the only row that
+         still renders a disabled Disconnect is the default ~/.claude row, which keeps
+         reauth -- meaning the false branch is not reached in practice today. The gate
+         stays because it is the correct guard: any disabled-Disconnect row that lacked
+         reauth (e.g. a default row that is also api-key) would otherwise point at a
+         button that does not exist. The title is untouched either way (a test anchors
+         on it). */
       const row = btn.closest('.acct-box');
       const hasReauth = !!(row && row.querySelector('[data-reauth]'));
       const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')

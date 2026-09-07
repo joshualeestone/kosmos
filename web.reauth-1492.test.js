@@ -159,13 +159,15 @@ test('the row offers it on every subscription Claude row, including a signed-in 
   const row = PAGE.slice(at, PAGE.indexOf('box.innerHTML = accountGroupsHtml', at));
 
   const reauthBit = row.slice(row.indexOf('data-reauth') - 400, row.indexOf('data-reauth') + 400);
-  /* #2433: the suppression condition is now `isOpenai || a.apiKey`, not `isOpenai`
+  /* #2433/#2441: the suppression condition is now `isOpenai || a.apiKey`, not `isOpenai`
      alone. An api-key Claude account cannot be re-authed -- `Sign in again` is the
      browser-OAuth flow and writing OAuth into a dir holding a stored key is refused by
-     the connect-start guard (#2432) -- so it is withheld from api-key rows too, until
-     #2420's removal slice lands. This still withholds it from OpenAI rows (the case
-     this line has always pinned) AND now documents the api-key exclusion; a
-     subscription Claude row (apiKey present-and-false) still gets the button. */
+     the connect-start guard (#2432) -- so it is withheld from api-key rows too. This is
+     permanent, not just until #2420's removal slice lands (which it has, #2441): the
+     product's answer for switching an api-key row to a subscription is remove-and-re-add.
+     This still withholds it from OpenAI rows (the case this line has always pinned) AND
+     documents the api-key exclusion; a subscription Claude row (apiKey present-and-false)
+     still gets the button. */
   assert.match(reauthBit, /isOpenai \|\| a\.apiKey \? ''/,
     'the sign-in-again button is not withheld from OpenAI and api-key rows (both are un-reauthable via this browser-OAuth flow)');
   assert.doesNotMatch(reauthBit, /connection/,
