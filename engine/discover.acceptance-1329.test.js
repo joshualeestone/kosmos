@@ -228,8 +228,8 @@ test('#1329 #2410: Gemini agents surface by front-matter name, and vanish when t
   // A non-agent loose file present too, so the scan has real work and the count is meaningful.
   loose(DISK, 'proj/notes.md', CORPUS.notes);
 
-  const withHome = withGeminiHome(home, () => discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] }));
-  const gnames = (withHome.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-')).map((c) => c.name).sort();
+  const geminiScan = withGeminiHome(home, () => discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] }));
+  const gnames = (geminiScan.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-')).map((c) => c.name).sort();
   assert.deepEqual(gnames, ['code-reviewer', 'project-explainer', 'sarah'], 'the 3 Gemini agents did not all surface by front-matter name');
 
   // PERTURBATION: drop the gemini-home override and re-run with the same explicit roots.
@@ -418,7 +418,10 @@ test('#1329/#2414 LOCATION: every auto-reachable seed agent is FOUND by a bare s
   // Two CLAUDE.md-shape agents as folder candidates: one at the USER HOME ROOT, one nested
   // DEEP under an ARBITRARY-named top-level folder (#2414's "could have been called anything").
   const novaDir = homeFolder(HOME, '.', CORPUS.nova);                       // HOME/CLAUDE.md
-  const work1Dir = homeFolder(HOME, 'Freelance/client-x/proj', CORPUS.work1); // arbitrary, depth 3
+  // Distinctive leaf name: reach is decided via alreadyIn->runningUnderName(basename, roster),
+  // and roster is the operator's REAL tmux (the one Part F input not pinned to the fixture); a
+  // generic 'proj' could collide with a live session name and spuriously exclude the candidate.
+  const work1Dir = homeFolder(HOME, 'Freelance/client-x/findall10-work1', CORPUS.work1); // arbitrary, depth 3
   // The rest as loose importable files under another arbitrary top-level folder.
   const codex = homeLoose(HOME, 'ClientStuff/imported/4-codex.md', CORPUS.codex);
   const pip = homeLoose(HOME, 'ClientStuff/imported/5-pip.md', CORPUS.pip);
@@ -458,7 +461,7 @@ test('#1329/#2125 LOCATION: a seed agent in ~/Documents is NOT ambushed by the a
   // POSITIVE CONTROL for this fixture home: a seed agent in an ordinary arbitrary folder that the
   // auto scan MUST reach. Its presence proves the bare scan actually walked THIS fixture home, so
   // the ~/Documents absence below is a real TCC skip, not a dead/unscanned scan.
-  const reachable = homeFolder(HOME, 'SideWork/proj', CORPUS.work1);
+  const reachable = homeFolder(HOME, 'SideWork/findall10-reachable', CORPUS.work1); // distinctive leaf (see the reach note above)
 
   // 🛑 #2125 no-ambush: a BARE (auto, first-run) scan must NOT walk ~/Documents, or it fires the
   // macOS access prompt on a fresh install. The seed agent there must stay ABSENT.
