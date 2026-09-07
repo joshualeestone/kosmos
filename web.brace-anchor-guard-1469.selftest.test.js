@@ -19,7 +19,7 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const { checkBraceAnchors, EXPECTED } = require('./web.brace-anchor-guard-1469.test.js');
+const { checkBraceAnchors, EXPECTED } = require('./web.brace-anchor-guard-1469.lib.js');
 const FILES = Object.keys(EXPECTED);
 
 // exact pins, read verbatim from the guard's own table (never transcribed)
@@ -107,6 +107,11 @@ test('#1469 self-proof: new RegExp string re-anchor -> RED', () => {
 });
 
 test('#1469 self-proof: assertion split across two source lines + re-anchor -> RED', () => {
+  // The multi-line trap that sank v2's per-line scanner: a new RegExp(...) whose
+  // parts wrap onto a second source line. The guard reads the whole file as one
+  // string, so the wrapped-and-re-anchored form no longer matches the single-line
+  // pin -> RED. (A pure rewrap with no re-anchor would also red the pin; that is
+  // the guard's safe-direction false positive, not a miss.)
   expectRed('multi-line', (d) =>
     edit(d, 'web.consolidated-980.test.js', pin980,
       reanchorStr(pin980).replace("new RegExp(cons + '", "new RegExp(cons\n    + '")));
@@ -114,9 +119,15 @@ test('#1469 self-proof: assertion split across two source lines + re-anchor -> R
 
 test('#1469 self-proof: compensating drift (re-anchor one, loosen a keep) -> RED', () => {
   expectRed('compensating-drift', (d) => {
+    // re-anchor a pinned (loosened) assertion...
     edit(d, 'web.consolidated-867.test.js', pin867, reanchorLit(pin867, '\\}'));
-    const p = path.join(d, 'web.consolidated-867.test.js');
-    fs.writeFileSync(p, fs.readFileSync(p, 'utf8').replace('display: none; \\}', 'display: none;'));
+    // ...AND loosen an untracked KEEP in the same file (drop its brace). Both edits
+    // go through edit(), which refuses a no-op - so this genuinely exercises the swap
+    // a bare per-file count would be blind to. Per-assertion counts still red the
+    // re-anchored pin (got 0, want 1) regardless of the compensating loosening.
+    edit(d, 'web.consolidated-867.test.js',
+      '#alist::-webkit-scrollbar \\{ display: none; \\}',
+      '#alist::-webkit-scrollbar \\{ display: none;');
   });
 });
 

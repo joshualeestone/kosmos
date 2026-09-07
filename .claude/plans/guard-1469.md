@@ -46,7 +46,10 @@ challenge-loop re-scrutinises the whole diff against main.
    were untouched on main since its fork; the 1 that moved
    (`web.consolidated-980.test.js`) auto-merged cleanly. Suite stays 40/40 green.
    Its per-file policy-header prose and per-assertion residual notes come with it.
-2. **`web.brace-anchor-guard-1469.test.js`** - the mechanical guard.
+2. **`web.brace-anchor-guard-1469.lib.js`** - the pure logic + pin table
+   (no `node:test`), and **`web.brace-anchor-guard-1469.test.js`** - the thin
+   `node:test` that runs it. Split so the check is defined once and never runs
+   twice (idiomatic here: tests already require `./server`, `./runners`, etc.).
 3. **`web.brace-anchor-guard-1469.selftest.test.js`** - the guard's own proof,
    run every suite: it plants each trap and asserts the guard goes red.
 4. A one-line pointer to the guard, added before each file's `#1430` policy header.
@@ -96,4 +99,4 @@ perturbation, because a mutation that never applies would let an arm pass while
 proving nothing (the first run of this harness hit exactly that: a `.pc-t` re-anchor
 silently no-op'd because the pin carries a `/m` flag, and it surfaced as a failure).
 
-13 self-proof tests pass; the 8 loosened files stay 40/40 green.
+12 self-proof tests pass; the 8 loosened files stay 40/40 green.
