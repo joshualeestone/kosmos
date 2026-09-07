@@ -14974,7 +14974,7 @@ async function paintHeartbeat() {
       if (iv.innerHTML !== html) iv.innerHTML = html;
     }
     paintSwitch('hb-toggle', r.on === true);
-    if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 17);
+    if (document.activeElement !== iv) iv.value = String(r.intervalMinutes || 15);
     if (row) row.hidden = r.on !== true;
     if (msg) msg.textContent = '';
   } catch {
@@ -15017,7 +15017,7 @@ async function saveHeartbeat(on, intervalMinutes) {
     if (mine !== HB_EPOCH) return;
     if (!res.ok) { if (msg) msg.textContent = out.error || 'We could not save that setting.'; return; }
     paintSwitch('hb-toggle', out.on === true);
-    document.getElementById('hb-interval').value = String(out.intervalMinutes || 17);
+    document.getElementById('hb-interval').value = String(out.intervalMinutes || 15);
     if (row) row.hidden = out.on !== true;
     if (msg) msg.textContent = '';
     /* The prompter just changed; re-check the notify-off hint. */

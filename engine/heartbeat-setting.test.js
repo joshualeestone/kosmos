@@ -25,11 +25,26 @@ test.afterEach(() => {
   fs.rmSync(hb.FILE, { force: true });
 });
 
-test('defaults: ON (Josh 2026-09-03), interval 17 (the fleet reference cadence), and a clean read', () => {
+test('defaults: ON (Josh 2026-09-03), interval 15 (#1843), and a clean read', () => {
   const s = hb.read();
   assert.equal(s.on, true, 'an absent store is never-configured, which is on by default');
-  assert.equal(s.intervalMinutes, 17);
+  assert.equal(s.intervalMinutes, 15);
   assert.equal(s.ok, true);
+});
+
+test('the closed set is exactly {5,10,15,30,60} and the default is 15 (Josh #1843)', () => {
+  assert.deepEqual([...hb.INTERVAL_CHOICES], [5, 10, 15, 30, 60]);
+  // 17 was the old default and choice; it is no longer valid.
+  assert.equal(hb.INTERVAL_CHOICES.includes(17), false, '17 is no longer a choice');
+});
+
+test('a stored 17 from an older build (the old default) falls back to 15 on read', () => {
+  // The dangerous-answer control: 17 USED to be a valid stored value, so this
+  // proves the fallback fires for exactly the migration case Josh's change creates.
+  fs.writeFileSync(hb.FILE, JSON.stringify({ on: true, intervalMinutes: 17 }) + '\n');
+  const s = hb.read();
+  assert.equal(s.on, true, 'the valid half is kept');
+  assert.equal(s.intervalMinutes, 15, 'the retired 17 falls back to the new default, not the runner');
 });
 
 test('setOn persists and is read back', () => {
@@ -58,7 +73,7 @@ test('setInterval accepts every choice in the closed set and refuses others', ()
 });
 
 test('setInterval refuses a string that looks numeric', () => {
-  assert.equal(hb.setIntervalMinutes('17').ok, false);
+  assert.equal(hb.setIntervalMinutes('15').ok, false);
 });
 
 test('on and interval persist independently (a patch does not reset the sibling)', () => {
@@ -73,14 +88,14 @@ test('a stored interval outside the closed set falls back to the default on read
   fs.writeFileSync(hb.FILE, JSON.stringify({ on: true, intervalMinutes: 999 }) + '\n');
   const s = hb.read();
   assert.equal(s.on, true, 'the valid half is kept');
-  assert.equal(s.intervalMinutes, 17, 'the nonsense interval falls back, never drives the runner');
+  assert.equal(s.intervalMinutes, 15, 'the nonsense interval falls back, never drives the runner');
 });
 
 test('a corrupt file reads as safe defaults with ok:false', () => {
   fs.writeFileSync(hb.FILE, 'not json');
   const s = hb.read();
   assert.equal(s.on, false);
-  assert.equal(s.intervalMinutes, 17);
+  assert.equal(s.intervalMinutes, 15);
   assert.equal(s.ok, false);
 });
 
@@ -131,9 +146,9 @@ test('set validates BOTH fields before writing either (atomic)', () => {
 
 test('set leaves an omitted field untouched', () => {
   hb.set({ on: true, intervalMinutes: 5 });
-  hb.set({ intervalMinutes: 17 }); // no `on` in the patch
+  hb.set({ intervalMinutes: 30 }); // no `on` in the patch
   const s = hb.read();
   assert.equal(s.on, true, 'on is preserved when the patch omits it');
-  assert.equal(s.intervalMinutes, 17);
+  assert.equal(s.intervalMinutes, 30);
 });
 

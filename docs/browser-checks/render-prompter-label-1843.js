@@ -75,6 +75,13 @@ function chk(ok, label, extra) {
         () => document.getElementById('s-sec-automation').getBoundingClientRect().height > 0,
         null, { timeout: 8000 },
       ).catch(() => {});
+      // #1843: the interval <select> is server-rendered from the closed set, so it
+      // is empty until paintHeartbeat's fetch lands. Wait for the options before
+      // reading them, so an empty read is a real failure rather than a race.
+      await page.waitForFunction(
+        () => { const iv = document.getElementById('hb-interval'); return iv && iv.options && iv.options.length > 0; },
+        null, { timeout: 8000 },
+      ).catch(() => {});
 
       const sec = await page.evaluate(() => {
         const el = document.getElementById('s-sec-automation');
@@ -96,6 +103,15 @@ function chk(ok, label, extra) {
         // edit goes red.
         const ahHint = el.querySelector('#ah-row .dhint');
         const autoSaveHint = ahHint ? ahHint.textContent.trim() : '';
+        // #1843: the interval choices Josh ruled -- {5,10,15,30,60}, default 15.
+        // The row is visible only while the Prompter is on (on by default here), so
+        // its visibility also confirms the default-ON state on screen.
+        const iv = el.querySelector('#hb-interval');
+        const ivRow = el.querySelector('#hb-interval-row');
+        const ivOptions = iv ? [...iv.options].map((o) => o.value) : [];
+        const ivOptionText = iv ? [...iv.options].map((o) => o.textContent.trim()) : [];
+        const ivValue = iv ? iv.value : null;
+        const ivRowVisible = !!(ivRow && vis(ivRow));
         return {
           height: el.getBoundingClientRect().height,
           promVisible: !!(promHeading && vis(promHeading)),
@@ -104,6 +120,10 @@ function chk(ok, label, extra) {
           promToggleAria: tog ? tog.getAttribute('aria-label') : null,
           heartbeatSeen,
           autoSaveHint,
+          ivOptions,
+          ivOptionText,
+          ivValue,
+          ivRowVisible,
         };
       });
 
@@ -130,6 +150,16 @@ function chk(ok, label, extra) {
         `[${theme}] the Auto-save hint carries Josh's verbatim "handoff document for its future self"`, JSON.stringify(sec.autoSaveHint));
       chk(!/progress to a file/.test(sec.autoSaveHint),
         `[${theme}] the Auto-save hint does NOT use the rejected "progress to a file" wording`, JSON.stringify(sec.autoSaveHint));
+      // #1843: the interval choices are exactly Josh's set, rendered as "N minutes",
+      // with the default 15 selected, and the row is visible (Prompter on by default).
+      chk(sec.ivRowVisible === true,
+        `[${theme}] the interval row is on screen (Prompter on by default)`, String(sec.ivRowVisible));
+      chk(JSON.stringify(sec.ivOptions) === JSON.stringify(['5', '10', '15', '30', '60']),
+        `[${theme}] the interval choices render 5/10/15/30/60 (#1843), no 17`, JSON.stringify(sec.ivOptions));
+      chk(JSON.stringify(sec.ivOptionText) === JSON.stringify(['5 minutes', '10 minutes', '15 minutes', '30 minutes', '60 minutes']),
+        `[${theme}] each interval option reads "N minutes"`, JSON.stringify(sec.ivOptionText));
+      chk(sec.ivValue === '15',
+        `[${theme}] the default selected interval is 15 (#1843)`, String(sec.ivValue));
     }
   } finally {
     await browser.close();
