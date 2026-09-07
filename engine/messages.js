@@ -962,6 +962,27 @@ function quotedSegments(text, from, projectId, rows) {
   return kept;
 }
 
+/* #2442: the room's effective membership, with removed agents dropped. A removed
+   agent's name is KEPT in the project record (so `restore` re-admits it), so this
+   filters at read time. `remove.isRemoved` keys the record on `create.cleanName`,
+   and a member name may not already be clean, so each is cleaned before the
+   comparison or the filter silently misses. Read the removed set ONCE (room posts
+   are infrequent, so the per-call cost is a non-issue), and require `remove`/
+   `create` lazily -- both are cycle-safe (neither requires messages at load).
+   FAIL-OPEN on an unreadable removed list: #2323's token revoke is the primary
+   gate, and refusing every room post over one corrupt file is the worse failure. */
+function _roomMembers(members) {
+  if (!Array.isArray(members) || !members.length) return members;
+  let goneClean = null;
+  try {
+    const removed = require('./remove').removedNames();
+    if (removed && removed.ok && removed.names.length) goneClean = new Set(removed.names);
+  } catch { goneClean = null; }
+  if (!goneClean) return members;
+  const clean = require('./create').cleanName;
+  return members.filter((m) => !goneClean.has(clean(m)));
+}
+
 function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
   const at = new Date().toISOString();
   /* The OPERATOR path: no pane to derive (the post comes off the room's
@@ -1036,6 +1057,19 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
   if (!Array.isArray(members) || !members.every((m) => typeof m === 'string' && m)) {
     return refuse('we could not read who is on that project, so nothing was posted');
   }
+  /* #2442: a REMOVED agent is not a room participant. Josh, 2026-09-07: "if you
+     delete an agent, he still has access to a project room." The project record
+     keeps a removed agent's name (so `restore` re-admits it), so the room's
+     EFFECTIVE membership is filtered here, at the access boundary, rather than by
+     deleting the record. This is where "access" lives: `members` gates both the
+     AGENT sender (below) and the recipient list, so filtering it cuts a removed
+     agent from BOTH -- it cannot post, and an operator room post is not typed
+     into it. The board's own project row keeps showing it as `present:false` (the
+     #166 member-of-record display), which is left untouched: this closes ACCESS,
+     not the display. Defense in depth with #2323 (which revokes a removed agent's
+     sender token): that revoke is best-effort and can fail, and if it does, this
+     membership gate is the only thing left -- and it PASSED before this line. */
+  members = _roomMembers(members);
   /* The room is its members: an AGENT sender who is not on the project
      is not in the room, and speaking into a room you are not in is
      exactly the unaddressed-steering hazard the room model exists to
@@ -1735,7 +1769,10 @@ function react({ project, of, emoji, from, operator, members }) {
     if (!Array.isArray(members) || !members.every((m) => typeof m === 'string' && m)) {
       return { ok: false, because: 'we could not read who is on that project, so nothing was reacted' };
     }
-    if (!members.includes(reactor)) {
+    // #2442: a removed agent is not a room participant, so it cannot react
+    // either -- the same access-boundary filter sendPost applies, for the same
+    // reason (a reaction is a write into a room). Record kept; filtered at read.
+    if (!_roomMembers(members).includes(reactor)) {
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' };
     }
   }

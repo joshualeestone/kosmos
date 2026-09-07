@@ -844,6 +844,68 @@ test('a post fans out to every member, mentioned as a request and the rest MARKE
   });
 });
 
+// #2442: a removed agent is not a room participant. Josh, 2026-09-07: "if you
+// delete an agent, he still has access to a project room." remove() keeps the
+// name in the project record (so restore re-admits it), so sendPost/react filter
+// removed agents from the effective membership at the access boundary. This
+// closes the SENDER path (a backstop to #2323's best-effort token revoke: if the
+// revoke fails, this membership gate is the only thing left) and the RECIPIENT
+// path (a partial removal still running would otherwise be typed into by an
+// operator room post). It does NOT touch the board's present:false display.
+const remove2442 = require('./remove');
+function seedRemoved2442(names) {
+  fs.mkdirSync(path.dirname(remove2442.REMOVED_FILE), { recursive: true });
+  fs.writeFileSync(remove2442.REMOVED_FILE, JSON.stringify(names.map((n) => ({ name: n, stopped: true }))));
+}
+function clearRemoved2442() { try { fs.rmSync(remove2442.REMOVED_FILE, { recursive: true, force: true }); } catch { /* fresh */ } }
+
+test('#2442: a removed agent cannot POST to a room it was on (refused at the membership gate)', () => {
+  withFleet(room3(), (board) => {
+    clearRemoved2442();
+    seedRemoved2442(['mara']);
+    try {
+      armSender('mara-discord');          // the removed agent (mara) tries to post
+      const tmux = arm([]);
+      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'let me back in' }, board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.COULD_NOT, 'a removed agent must not post to the room');
+      assert.match(out.because || '', /not on that project/,
+        'refused at the same membership gate a non-member hits -- the removed agent is no longer a member');
+      assert.equal(tmux.sends().length, 0, 'and nothing was typed into any pane');
+    } finally { clearRemoved2442(); }
+  });
+});
+
+test('#2442: an operator room post is NOT typed into a removed member, only the live ones', () => {
+  withFleet(room3(), (board) => {
+    clearRemoved2442();
+    seedRemoved2442(['mara']);
+    try {
+      arm([]);
+      const out = messages.sendPost({ operator: true, project: 'henderson-lease', text: 'standup in 5' }, board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.PLACED, out.because || '');
+      const row = messages.record().rows.find((m) => m.kind === 'post');
+      assert.deepEqual(row.to.sort(), ['april', 'leo'],
+        'the removed agent (mara) is not a recipient; the live members are');
+      assert.ok(!('mara' in (row.outcomes || {})), 'and it gets no delivery outcome');
+    } finally { clearRemoved2442(); }
+  });
+});
+
+test('#2442 CONTROL: an unreadable removed list filters nobody (fail-open), so a member still posts', () => {
+  withFleet(room3(), (board) => {
+    clearRemoved2442();
+    // A directory where the file should be makes removedNames() answer {ok:false}.
+    fs.mkdirSync(remove2442.REMOVED_FILE, { recursive: true });
+    try {
+      armSender('mara-discord');          // mara: still treated as a member under a corrupt list
+      arm([]);
+      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still a member' }, board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.PLACED,
+        out.because || 'an unreadable removed list must not refuse a real member (fail-open; the #2323 token gate still holds)');
+    } finally { clearRemoved2442(); }
+  });
+});
+
 test('a post with no @ still produces an arrival in every member pane (the falsifiable claim)', () => {
   withFleet(room3(), (board) => {
     armSender('leo-discord');
