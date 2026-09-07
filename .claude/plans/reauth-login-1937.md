@@ -40,13 +40,26 @@ actively-401'ing account shows not-green there — but the CONNECT FLOW gate doe
 it uses the expiry-blind `check`/`checkLive`. So the gate is still blind. Confirmed by content read;
 no expired-token synthesis needed.
 
-## NEXT CONCRETE STEP — how does `start()` learn "explicit re-auth intent"?
+## The re-auth-intent signal — RESOLVED
 
-The gate-bypass must fire ONLY for an explicit re-auth, never the normal connect path (or it
-reintroduces #1560). Find/confirm the signal: does `start(opts)` / `POST /api/connect/start` carry a
-`reauth`/`force` flag, or does the UI distinguish re-authenticate from connect? If no flag exists, add
-a minimal `opts.reauth` that (a) skips the `start():992` CONNECTED short-circuit and (b) selects the
-real-login launch. Scope it so the normal connect flow is byte-identical.
+The UI already has a distinct re-auth path: the "Sign in again" buttons (`data-reauth`,
+`openAcctReauth(dir, email)` at web/index.html:16495) target a specific account's configDir and
+reuse the connect flow "in reauth mode rather than duplicating its flow" (comment at ~15746). BUT
+`start(opts)` today accepts only `configDir | timeout | cancellable | env | requireInstallConfirm |
+installConfirmed` — **there is NO reauth/force flag**. (The first-run connect POST at
+web/index.html:37463 sends only `{ installConfirmed }`; the account re-auth POST sends the configDir.)
+
+⇒ **Add `opts.reauth` (boolean), plumbed from the "Sign in again" POST body → the server route →
+`start(opts)`.** When `reauth === true`:
+1. **Skip the `start():992` CONNECTED short-circuit** (the user explicitly asked to re-auth a broken
+   account; checkLive is expiry-blind so it would otherwise refuse). Scope narrowly so the NORMAL
+   connect path is byte-identical (no #1560 regression — a non-reauth start still refuses nothing it
+   refused before).
+2. **Select the real-login launch** in launchSignin (`claude auth login --claudeai`).
+
+Wiring points to touch: web/index.html (the reauth POST body adds `reauth:true`), the server route
+that maps `/api/connect/start` → `connect.start(opts)` (pass `reauth` through), and connect.js
+(`start()` gate + `launchSignin()` command).
 
 ## MEASUREMENT B (still to run, in a throwaway pane) — decides mechanism details
 
