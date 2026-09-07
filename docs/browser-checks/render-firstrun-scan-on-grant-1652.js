@@ -22,6 +22,11 @@
  *      no-ambush guarantee: the import scan never fires without a positive grant.
  *   3. CONTROL (uncheckable, e.g. a browser with no native writer):
  *      checkable:false -> bare /api/scan-agents, same as declined.
+ *   4. #3/#4 half (a): the grant lands LATE (after the ungranted scan). An ungranted
+ *      scan runs the bare route and ARMS a light /api/file-access-status poll on S9; when
+ *      the grant flips true, the poll re-runs frScanAgents via /api/scan-import, the
+ *      Documents agent appears, and the poll STOPS after one flip. Control: a scan already
+ *      granted at scan time arms no poll.
  *
  * DOM-state + which-route assertions only, so headless is fine.
  *
@@ -175,6 +180,54 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     await runScan();
     if (hits.scanAgents === 1 && hits.scanImport === 0) ok('CONTROL uncheckable: an unmeasured grant keeps the bare TCC-free scan'); else bad('CONTROL uncheckable uses bare scan', 'scanImport=' + hits.scanImport + ' scanAgents=' + hits.scanAgents);
 
+    // ── 4. #3/#4 half (a): a grant that lands AFTER the ungranted scan triggers a re-scan. ──
+    // Josh 0.6.42 #4: he granted file-access on S2, but the macOS TCC write propagated a beat
+    // late and he had already reached S9, so frScanAgents ran TCC-free and his Documents
+    // agents were missing ("it never showed me the agents on the path"). A light S9 poll of
+    // /api/file-access-status re-runs frScanAgents on the not-granted -> granted EDGE. Kitty's
+    // engine half (b) makes the granted walk read under the app-exe hatch identity; both sit
+    // behind /api/scan-import, so this front-end retry inherits her fix when it lands.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: false, at: Date.now() };   // NOT granted at scan time
+    importCandidates = [
+      { dir: '/Users/x/Documents/late-monitor', name: 'Late monitor', role: 'Watches late', preview: 'You watch late.' },
+    ];
+    importFiles = [];
+    await p.evaluate(() => { FR_RESCAN_INTERVAL_MS = 20; });   // fast poll: observe the flip without real seconds
+    await runScan();   // ungranted -> bare scan (no candidates), and ARMS the grant-flip poll
+    const b4 = await p.evaluate(() => ({
+      onS9: FR_STEP === FR_STEP_YOU + 1,
+      armed: FR_RESCAN_TIMER !== null,
+      full: FR_SCAN_FULL,
+      offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1,
+    }));
+    if (b4.onS9 && !b4.full && b4.armed && hits.scanAgents === 1 && hits.scanImport === 0 && b4.offer === 0)
+      ok('#3/#4(a): an ungranted scan runs the bare scan, finds nothing, and ARMS the grant-flip poll');
+    else bad('#3/#4(a) armed after ungranted scan', JSON.stringify({ b4, hits }));
+
+    // The grant lands (async S2 propagation). The poll must see the edge and re-scan.
+    grant = { checkable: true, granted: true, at: Date.now() };
+    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 3000 }).catch(() => {});
+    const a4 = await p.evaluate(() => ({
+      stopped: FR_RESCAN_TIMER === null,
+      full: FR_SCAN_FULL,
+      offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1,
+      rows: document.getElementById('fr-fleet').querySelectorAll('.fr-scanrow').length,
+      title: (document.getElementById('fr-fleet-title') || {}).textContent || '',
+    }));
+    if (hits.scanImport === 1) ok('#3/#4(a): the grant edge re-runs frScanAgents via the granted /api/scan-import'); else bad('#3/#4(a) re-scan uses import route', 'scanImport=' + hits.scanImport + ' scanAgents=' + hits.scanAgents);
+    if (a4.full) ok('#3/#4(a): the re-scan is recorded as the granted route (FR_SCAN_FULL true)'); else bad('#3/#4(a) FR_SCAN_FULL after flip', JSON.stringify(a4));
+    if (a4.offer === 1 && a4.rows === 1) ok('#3/#4(a): the late-granted Documents agent now renders on screen 9'); else bad('#3/#4(a) late agent renders', JSON.stringify(a4));
+    if (a4.stopped) ok('#3/#4(a): the poll stops after ONE flip (no unbounded polling)'); else bad('#3/#4(a) poll stops after flip', JSON.stringify(a4));
+
+    // ── 4b. CONTROL: grant already TRUE at scan time -> NO poll armed (no needless polling). ──
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: true, at: Date.now() };
+    importCandidates = []; importFiles = [];
+    await runScan();
+    const c4 = await p.evaluate(() => ({ armed: FR_RESCAN_TIMER !== null, full: FR_SCAN_FULL }));
+    if (!c4.armed && c4.full) ok('#3/#4(a) CONTROL: a scan already granted at scan time arms NO poll'); else bad('#3/#4(a) no-poll-when-granted', JSON.stringify(c4));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -184,7 +237,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 12) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 17) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or
