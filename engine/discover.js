@@ -1032,21 +1032,26 @@ function scan(opts) {
   for (const d of declined()) known.add(d);
 
   const byDir = new Map();
-  /* Directories already read, across ALL roots, keyed by CANONICAL REALPATH rather
-     than the literal path. Three different aliases resolve to one physical directory
-     and must not be walked twice:
+  /* Directories already read, across ALL roots, keyed by PHYSICAL-DIRECTORY IDENTITY
+     (`st.dev + ':' + st.ino`) rather than any path string. Three different aliases
+     resolve to one physical directory and must not be walked twice:
        - `$HOME` (walked last, shallow) re-reaches the curated parents (walked first,
          deep) that live directly under it;
        - on a CASE-INSENSITIVE filesystem (the macOS default, and the target), the two
          case variants in the root set (`projects`/`Projects`, `Kosmos`/`kosmos`) are the
-         SAME directory, and `$HOME`'s readdir returns the on-disk case, which need not
-         match the fixed case a curated root used;
+         SAME directory, reached as two differently-cased paths;
        - a symlinked root (now followed) can point at a place another root also reaches.
-     Keying on the literal string missed all three and emitted one agent as two rows
-     with differently-cased or differently-aliased paths, double-spending the visit
-     budget. `realpathSync` collapses them; it falls back to the literal path if the
-     directory has just vanished (TOCTOU), and children are never symlinks (they are
-     `lstat`-refused on descent), so this cannot follow a link out of the tree. */
+     🛑 #2408: this was keyed on `fs.realpathSync(dir)` and a comment here CLAIMED that
+     "realpathSync collapses" the case variants. It does NOT: `realpathSync` on macOS
+     resolves symlinks but PRESERVES the input path's case, so `realpathSync('~/projects')`
+     and `realpathSync('~/Projects')` return two differently-cased strings and the case
+     variants were emitted as two rows (measured: one agent, two candidates). The device+
+     inode pair IS the physical identity: it collapses case variants AND symlink aliases on
+     a case-insensitive fs, and correctly keeps `~/projects` and `~/Projects` DISTINCT on a
+     case-sensitive fs (where they genuinely are two directories). `fs.statSync` follows the
+     symlink to the target's inode (same collapse `realpathSync` gave for links); a dir
+     hardlink is forbidden by the OS, so dev+ino is unique per directory. If statSync throws
+     (TOCTOU, the dir just vanished), the dir is skipped -- it cannot be walked anyway. */
   const seenDirs = new Set();
   let visited = 0;
   let hitDirs = false;
@@ -1054,8 +1059,14 @@ function scan(opts) {
   let hitDepth = false;
 
   /* #1652: loose importable agent FILES, keyed by canonical realpath so the same file
-     reached through two aliased roots is offered once. Bounded by MAX_IMPORTABLE (rows)
-     and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
+     reached through two aliased roots is offered once. #2408: kept on realpath (NOT switched
+     to dev+ino like seenDirs), for two reasons. (1) The CASE-variant alias is already
+     collapsed upstream by seenDirs (dev+ino), which skips the re-walk of a case-variant root
+     entirely, so a loose file under it is never re-collected. (2) realpath here is
+     load-bearing in its own right: it collapses a SYMLINKED loose .md reached via two paths.
+     The only alias realpath misses that dev+ino would catch is a HARDLINKED .md across two
+     distinct real dirs, which is not a shape agent files occur in. Bounded by MAX_IMPORTABLE
+     (rows) and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
   const byFile = new Map();
   const seenFiles = new Set();
   let mdReads = 0;
@@ -1093,10 +1104,16 @@ function scan(opts) {
       if (byDir.size >= maxCandidates) { hitCount = true; break outer; }
       if (visited >= maxDirs) { hitDirs = true; break outer; }
       const cur = stack.pop();
-      let real;
-      try { real = fs.realpathSync(cur.dir); } catch { real = cur.dir; }
-      if (seenDirs.has(real)) continue;   // already read via an earlier root, a case variant, or a symlink alias
-      seenDirs.add(real);
+      /* #2408: key on the physical-directory identity (dev+ino), NOT realpathSync -- see
+         the seenDirs comment. statSync follows a symlinked dir to its target's inode; a
+         dir that just vanished (TOCTOU) throws and is skipped (it cannot be walked).
+         `bigint:true` so dev/ino are exact 64-bit values: a de-dup key that lost precision
+         (a numeric ino past 2^53) could stringify-collide and mis-collapse two DISTINCT
+         directories -- the exact mis-dedup class this card removes. */
+      let idkey;
+      try { const st = fs.statSync(cur.dir, { bigint: true }); idkey = st.dev.toString() + ':' + st.ino.toString(); } catch { continue; }
+      if (seenDirs.has(idkey)) continue;   // already read via an earlier root, a case variant, or a symlink alias
+      seenDirs.add(idkey);
       visited += 1;
 
       let names;
