@@ -80,6 +80,50 @@ test('the hatch content gate is folderRow/looseRow: a template head is refused',
   fs.rmSync(walkRoot, { recursive: true, force: true });
 });
 
+test('defaultTccScan bridge: drops a nonce request, merges the matching result, ignores a wrong nonce, consumes on read', () => {
+  // Point store.ROOT (a lazy getter reading AGENT_WORKFORCE_DATA) at a temp dir so the real
+  // file bridge writes/reads there, not the operator's Application Support.
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tccbridge-'));
+  const prev = process.env.AGENT_WORKFORCE_DATA;
+  process.env.AGENT_WORKFORCE_DATA = dataDir;
+  try {
+    const store = require('./store');
+    fs.mkdirSync(store.ROOT, { recursive: true });   // the bridge writeFileSyncs into store.ROOT
+    const reqPath = path.join(store.ROOT, 'scan-request.json');
+    const resPath = path.join(store.ROOT, 'scan-result.json');
+    const walkRoot = tmpTree();
+    const tccRoot = { dir: '/nonexistent/Documents', maxDepth: 4, tcc: true };
+    const call = () => discover.scan({ roots: [{ dir: walkRoot, maxDepth: 3 }, tccRoot] }); // NO stub -> defaultTccScan
+
+    // 1) First call: no result yet -> scanning:true, and a nonce request is dropped.
+    const r1 = call();
+    assert.strictEqual(r1.scanning, true, 'first call: not ready -> scanning:true');
+    assert.ok(fs.existsSync(reqPath), 'a scan-request.json was dropped');
+    const req = JSON.parse(fs.readFileSync(reqPath, 'utf8'));
+    assert.ok(req.req && req.roots.some((x) => x.dir === tccRoot.dir), 'request carries a nonce + the tcc root');
+
+    // 2) A WRONG-nonce result is ignored (still scanning, rows not merged).
+    fs.writeFileSync(resPath, JSON.stringify({ ok: true, req: 'WRONG-' + req.req,
+      dirs: [{ dir: '/x/Documents/nope', instr: { file: '/x/Documents/nope/CLAUDE.md', head: 'You are Nope.' } }], loose: [], bounded: {} }));
+    const rWrong = call();
+    assert.strictEqual(rWrong.scanning, true, 'a wrong-nonce result is ignored -> still scanning');
+    assert.ok(!rWrong.candidates.some((c) => /nope/.test(c.dir)), 'wrong-nonce rows are not merged');
+
+    // 3) The MATCHING-nonce result merges, and is consumed (unlinked) on read.
+    fs.writeFileSync(resPath, JSON.stringify({ ok: true, req: req.req,
+      dirs: [{ dir: '/x/Documents/bob', instr: { file: '/x/Documents/bob/CLAUDE.md', head: 'You are Bob.' } }], loose: [], bounded: { visited: 3 } }));
+    const rOk = call();
+    assert.strictEqual(rOk.scanning, false, 'matching-nonce result -> scanning:false');
+    assert.ok(rOk.candidates.some((c) => c.dir === '/x/Documents/bob' && c.name === 'Bob'), 'the matching result merged');
+    assert.ok(!fs.existsSync(resPath), 'the result was consumed (unlinked) on read');
+
+    fs.rmSync(walkRoot, { recursive: true, force: true });
+  } finally {
+    if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  }
+});
+
 test('no tcc roots (the auto scan) never calls tccScan and reports scanning:false', () => {
   const walkRoot = tmpTree();
   let called = false;

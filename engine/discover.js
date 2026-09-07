@@ -883,36 +883,45 @@ function readClaudeHead(file) {
    opts.tccScan for tests. */
 const TCC_RESULT_FRESH_MS = 30 * 1000;
 const TCC_REQUEST_PENDING_MS = 15 * 1000;
+/* #3/#2125: the nonce + time of the last scan-request THIS process dropped. A result is accepted
+   only when it echoes this nonce -- so two overlapping find-agents sessions cannot cross results
+   (freshness alone could not tell them apart). Module-scoped: the engine is one process; a restart
+   forgets it and simply drops a fresh request, which the app answers with a new nonce. */
+let tccPendingReq = null;
 function defaultTccScan(tccRoots, budgets) {
-  let reqPath, inflightPath, resPath;
+  let reqPath, resPath;
   try {
     reqPath = path.join(store.ROOT, 'scan-request.json');
-    inflightPath = path.join(store.ROOT, 'scan-request.inflight');
     resPath = path.join(store.ROOT, 'scan-result.json');
   } catch { return null; }
 
+  // A fresh result that answers OUR request (nonce match), consumed on read so a later unrelated
+  // session cannot pick up a stale answer.
   let res = null;
   try {
     const st = fs.statSync(resPath);
     if (Date.now() - st.mtimeMs < TCC_RESULT_FRESH_MS) {
-      res = JSON.parse(fs.readFileSync(resPath, 'utf8'));
-      try { fs.unlinkSync(resPath); } catch { /* best effort */ }
+      const parsed = JSON.parse(fs.readFileSync(resPath, 'utf8'));
+      if (parsed && parsed.ok && tccPendingReq && parsed.req === tccPendingReq.nonce) {
+        res = parsed;
+        try { fs.unlinkSync(resPath); } catch { /* best effort */ }
+        tccPendingReq = null;
+      }
     }
   } catch { /* no result yet */ }
-  if (res && res.ok) return { dirs: res.dirs || [], loose: res.loose || [], bounded: res.bounded || {} };
+  if (res) return { dirs: res.dirs || [], loose: res.loose || [], bounded: res.bounded || {} };
 
-  let pending = false;
-  for (const p of [reqPath, inflightPath]) {
-    try { if (Date.now() - fs.statSync(p).mtimeMs < TCC_REQUEST_PENDING_MS) { pending = true; break; } } catch { /* not there */ }
-  }
+  // No matching result. Drop a request so the app produces one, unless ours is still pending.
+  const pending = tccPendingReq && (Date.now() - tccPendingReq.at < TCC_REQUEST_PENDING_MS);
   if (!pending) {
+    const nonce = String(Date.now()) + '-' + Math.random().toString(16).slice(2);
     try {
-      const req = {
+      fs.writeFileSync(reqPath, JSON.stringify({
         roots: tccRoots.map((r) => ({ dir: r.dir, maxDepth: r.maxDepth, importOnly: r.importOnly === true })),
         budgets,
-        req: String(Date.now()),
-      };
-      fs.writeFileSync(reqPath, JSON.stringify(req));
+        req: nonce,
+      }));
+      tccPendingReq = { nonce, at: Date.now() };
     } catch { /* best effort; the retry re-attempts */ }
   }
   return null;
@@ -1140,11 +1149,15 @@ function scan(opts) {
       scanning = true;
     } else {
       for (const d of (hatch.dirs || [])) {
+        // Same row caps the in-engine walk enforces (#1652): a huge Documents tree must not push
+        // candidates past maxCandidates without the screen saying "there may be more".
+        if (byDir.size >= maxCandidates) { hitCount = true; break; }
         if (!d || !d.dir || byDir.has(d.dir) || known.has(d.dir)) continue;
         const row = folderRow(d.dir, d.instr && d.instr.head);
         if (row) { if (!alreadyIn(d.dir, roster)) byDir.set(d.dir, row); else known.add(d.dir); }
       }
       for (const l of (hatch.loose || [])) {
+        if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
         if (!l || !l.file || byFile.has(l.file)) continue;
         const row = looseRow(l.file, l.head);
         if (row) byFile.set(l.file, row);

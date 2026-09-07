@@ -571,6 +571,20 @@ private func headBytes(_ path: String, cap: Int) -> String? {
     return String(decoding: d, as: UTF8.self)
 }
 
+/* #3/#2125 -- THE NO-SYMLINK-ESCAPE GUARD (engine parity, discover.js). The TCC roots
+   (~/Documents, ~/Downloads, ~/Desktop) are USER-WRITABLE, so a symlink dropped there could
+   steer this privileged walk out of the tree -- a symlinked dir into /etc or another user's
+   home, or a symlinked `foo.md` pointing at an arbitrary readable file whose first bytes would
+   surface as a find-agents preview. The engine refuses exactly this with `lstat` (a symlinked
+   dir reports isDirectory()===false and is not descended; readClaudeHead lstat-refuses a
+   symlinked file). `attributesOfItem` does NOT follow a final symlink (lstat semantics), so it
+   reports `.typeSymbolicLink` for a link; we descend only a real directory and read only a real
+   regular file. This is the escape "this module family has shipped six times"; do not relax it. */
+private func lstatType(_ path: String) -> FileAttributeType? {
+    guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+    return attrs[.type] as? FileAttributeType
+}
+
 // Walk the requested roots under the granted app identity and write scan-result.json.
 // Returns true on a written result (even an empty one); false only if the request/result
 // paths cannot be resolved. Never throws out: a per-entry failure is recorded, not fatal --
@@ -638,9 +652,9 @@ func scanUnderGrant() -> Bool {
         // only, matching the engine's `!cur.importOnly` gate.
         if !importOnly {
             let file = (dir as NSString).appendingPathComponent("CLAUDE.md")
-            var isDir: ObjCBool = false
-            if fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue,
-               let head = headBytes(file, cap: budgets.readCap) {
+            // Regular file ONLY (lstat, not fileExists which follows symlinks): a symlinked
+            // CLAUDE.md must not have an out-of-tree file's bytes read into a preview.
+            if lstatType(file) == .typeRegular, let head = headBytes(file, cap: budgets.readCap) {
                 dirsOut.append(["dir": dir, "instr": ["file": file, "head": head]])
             }
         }
@@ -656,8 +670,8 @@ func scanUnderGrant() -> Bool {
             if perDir >= budgets.maxMdPerDir { boundedImportable = true; break }
             if mdReads >= budgets.maxMdReads { boundedImportable = true; break }
             let file = (dir as NSString).appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue else { continue }
+            // Regular file ONLY (lstat) -- refuse a symlinked .md, same no-escape guard.
+            guard lstatType(file) == .typeRegular else { continue }
             if let head = headBytes(file, cap: budgets.readCap) {
                 mdReads += 1
                 perDir += 1
@@ -671,8 +685,10 @@ func scanUnderGrant() -> Bool {
             if name.hasPrefix(".") { continue }          // every dotdir skipped by rule
             if kScanSkip.contains(name) { continue }     // build/vendor output + macOS homes
             let child = (dir as NSString).appendingPathComponent(name)
-            var isDir: ObjCBool = false
-            guard fm.fileExists(atPath: child, isDirectory: &isDir), isDir.boolValue else { continue }
+            // lstat, NOT fileExists: refuse a symlinked directory so the walk cannot be steered
+            // OUT of the TCC tree by a symlink in a user-writable folder (engine parity). Only a
+            // REAL directory is descended.
+            guard lstatType(child) == .typeDirectory else { continue }
             walk(child, depth: depth - 1, importOnly: importOnly)
         }
     }
@@ -691,14 +707,15 @@ func scanUnderGrant() -> Bool {
         "loose": looseOut,
         "bounded": ["dirs": boundedDirs, "count": false, "importable": boundedImportable, "visited": dirCount],
     ]
-    // Remove the claimed request; the walk is done. (A failure to remove is non-fatal: the
-    // nonce on the result is what the engine matches, so a lingering .inflight cannot cause a
-    // wrong answer -- and the watcher only ever renames a fresh scan-request.json into it.)
-    try? fm.removeItem(at: reqURL)
     do {
         let data = try JSONSerialization.data(withJSONObject: result, options: [])
         try fm.createDirectory(at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: outURL, options: .atomic)   // atomic: the engine never reads a torn result
+        // Remove the claimed request AFTER the result lands, not before: in the window between a
+        // remove and the write, defaultTccScan would see no result AND no pending request/inflight
+        // and drop a fresh scan-request.json -> a redundant second walk. (Non-fatal if it fails:
+        // the watcher only ever renames a fresh scan-request.json into .inflight.)
+        try? fm.removeItem(at: reqURL)
         return true
     } catch {
         logLine("scan: could not write scan-result.json (\(error.localizedDescription))")

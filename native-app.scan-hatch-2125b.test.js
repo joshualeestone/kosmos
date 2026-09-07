@@ -35,11 +35,17 @@ test('the watcher claims the request atomically (rename json -> inflight), not a
   assert.match(SRC, /moveItem\(at: req, to: inflight\)/, 'the request is not claimed by an atomic rename to .inflight');
 });
 
-test('CROSS-LANGUAGE SEAM: the swift hatch and the engine bridge name the SAME three files', () => {
-  for (const name of ['scan-request.json', 'scan-request.inflight', 'scan-result.json']) {
-    assert.ok(SRC.includes(name), `main.swift does not reference ${name}`);
-    assert.ok(ENGINE.includes(name), `engine/discover.js (defaultTccScan) does not reference ${name}`);
+test('CROSS-LANGUAGE SEAM: the two shared files match; inflight is swift-internal', () => {
+  // The engine and the swift side share exactly TWO files: scan-request.json (engine WRITES it,
+  // the swift watcher renames it) and scan-result.json (swift WRITES it, the engine READS it).
+  for (const name of ['scan-request.json', 'scan-result.json']) {
+    assert.ok(SRC.includes(name), `main.swift does not reference the shared ${name}`);
+    assert.ok(ENGINE.includes(name), `engine/discover.js (defaultTccScan) does not reference the shared ${name}`);
   }
+  // scan-request.inflight is the swift-internal claim (watcher rename -> hatch read); the engine
+  // deliberately does NOT know about it -- it tracks a pending request via module state, not a file.
+  assert.ok(SRC.includes('scan-request.inflight'), 'swift does not reference the inflight claim');
+  assert.ok(!ENGINE.includes('scan-request.inflight'), 'engine should not reference the swift-internal inflight file');
   // The hatch READS the claimed inflight file and WRITES the result.
   assert.match(SRC, /storeFileURL\("scan-request\.inflight"\)/, 'hatch does not read the claimed inflight request');
   assert.match(SRC, /storeFileURL\("scan-result\.json"\)/, 'hatch does not write scan-result.json');
@@ -54,6 +60,19 @@ test('the walk matches engine parity: SCAN_SKIP, CLAUDE.md folder head, loose .m
   // loose files exclude the folder-agent markers, lowercased, like the engine.
   assert.match(SRC, /lower == "claude\.md" \|\| lower == "agents\.md"/, 'loose collection does not exclude the folder-agent markers');
   assert.match(SRC, /\.md"\)\s*\|\|\s*lower\.hasSuffix\("\.markdown"\)/, 'loose collection does not read .md/.markdown like the engine');
+});
+
+test('the no-symlink-escape guard is present: dirs and files are lstat-checked, not fileExists-followed', () => {
+  // The TCC roots are user-writable, so a symlink there must not steer the walk out of the tree.
+  // lstatType uses attributesOfItem (lstat semantics, does not follow a final symlink).
+  assert.match(SRC, /func lstatType\(_ path: String\) -> FileAttributeType\?/, 'no lstatType helper');
+  assert.match(SRC, /lstatType\(child\) == \.typeDirectory/, 'dir descent does not lstat-refuse a symlinked directory');
+  assert.match(SRC, /lstatType\(file\) == \.typeRegular/, 'file reads do not lstat-refuse a symlinked file');
+  // And the followed-symlink form must be GONE from the walk's descent/read sites.
+  assert.doesNotMatch(SRC.slice(SRC.indexOf('func scanUnderGrant()')),
+    /fileExists\(atPath: (child|file), isDirectory:/, 'the walk still uses fileExists (which follows symlinks) for a descent/read');
+  // The behavioral proof lives in tools/test-scan-hatch-symlink-2125b.sh (compiles + runs the hatch
+  // against a fixture with symlinks into /etc and asserts refusal).
 });
 
 test('the result is written atomically and echoes the request nonce', () => {

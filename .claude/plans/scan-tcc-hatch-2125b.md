@@ -44,8 +44,8 @@ the TCC roots, it requests the hatch instead of walking them itself.
 ### Engine -> hatch: request file (same store dir + watcher pattern as a11y-prompt-request)
 `scan-request.json` in the store dir:
 ```
-{ "roots": [ {"dir": "/Users/x/Documents", "maxDepth": 4},
-             {"dir": "/Users/x/Downloads", "maxDepth": 1, "importOnly": true},
+{ "roots": [ {"dir": "/Users/x/Documents", "maxDepth": 5},          // SCAN.DEEP_DEPTH
+             {"dir": "/Users/x/Downloads", "maxDepth": 1, "importOnly": true},  // SCAN.DROP_DEPTH
              {"dir": "/Users/x/Desktop",   "maxDepth": 1, "importOnly": true} ],
   "budgets": { "maxDirs": N, "maxMdPerDir": 40, "maxMdReads": 3000, "readCap": 4000 },
   "req": "<nonce>" }
@@ -60,9 +60,10 @@ the TCC roots, it requests the hatch instead of walking them itself.
   "bounded": { "dirs": false, "count": false, "importable": false, "visited": 123 } }
 ```
 The hatch walks with the SAME semantics the engine walk uses (SCAN_SKIP set, dotdir skip, per
--root maxDepth, MAX_DIRS/MAX_MD_PER_DIR/MAX_MD_READS budgets, realpath dedup), collects each
-dir's CLAUDE.md|AGENTS.md|GEMINI.md head and each importOnly root's loose `.md` heads, and
-NEVER applies detection (that is the engine's job). `bounded.*` mirrors the engine's flags so
+-root maxDepth, MAX_DIRS/MAX_MD_PER_DIR/MAX_MD_READS budgets, realpath dedup, no-symlink-escape),
+collects each dir's CLAUDE.md head (CLAUDE.md ONLY -- AGENTS.md/GEMINI.md folder-agents are owned
+by found()/foundCodex/foundGemini, which do not walk here, matching the engine's byDir path) and
+each root's loose `.md`/`.markdown` heads, and NEVER applies detection (that is the engine's job). `bounded.*` mirrors the engine's flags so
 the screen can still say "there may be more."
 
 The engine, on `importScan:true`: drop `scan-request.json`, poll for `scan-result.json` (nonce
