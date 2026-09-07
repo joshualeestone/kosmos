@@ -71,10 +71,16 @@
 #      oversight: it catches the DIRECT-page-change class (the measured #2085 incident,
 #      which touched web/index.html) early, and the cut's headed 3b stays the backstop
 #      for the server/engine-data-driven render changes this trigger cannot see. Do not
-#      read a green here as full render coverage. The CHEAP dependency leaks ARE closed
-#      (test-support/, which fleet.js/fake-tmux.sh live in, is in the filter -- it is
-#      rarely touched, so covering it does not fire on most PRs the way engine/** would);
-#      only the engine/server-DATA leak is left open, deliberately, on the cost trade.
+#      read a green here as full render coverage. Precisely what IS and IS NOT covered,
+#      so this enumeration is honest rather than just "complete": the check-SHAPING
+#      inputs are in the filter (web/index.html; docs/browser-checks/; test-support/,
+#      where fleet.js builds the board a check asserts against). The driver's own
+#      sourced libs (tools/lib/cut-guard.sh, tools/lib/browser-run-log.sh) are NOT in
+#      the filter, but each has its OWN test:shell guard (test-cut-guard.sh,
+#      test-browser-run-log.sh) that reds on EVERY PR via test.yml, so a break there is
+#      caught regardless -- and release-freeze.sh is not reached on the CI detached-HEAD
+#      path. So the ONE genuinely uncovered leak is the engine/server DATA the checks
+#      render, left open deliberately on the cost trade (broad = fires on most PRs).
 
 name: browser-checks
 
