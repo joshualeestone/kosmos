@@ -12,6 +12,11 @@
  * The 1.5s poll re-checks, so granting in System Settings unlocks Next with no
  * manual re-check.
  *
+ * It ALSO covers the S3 sleep "Turn On" action itself (0.6.41 re-test blocker E):
+ * a failed open-settings must show a VISIBLE error (danger colour, not body ink)
+ * and a success must stay silent, so a button that cannot resolve the pane on some
+ * macOS never again reads as simply "dead".
+ *
  * This RUNS the real page against a served board, mocking only the status endpoints
  * so each verdict is deterministic. It subsumes the retired render-a11y-gate-2125
  * (tmux gate), render-sleep-button (sleep gate) and the gate half of the old
@@ -140,6 +145,78 @@ async function fresh(browser) {
     });
     ok(!(await nextDisabled(page)), 'S3 both-uncheckable never blocks (fail-safe)');
     ok(!(await rowGranted(page, 'sleep')) && !(await rowGranted(page, 'tmux')), 'and neither uncheckable row is false-green');
+    await ctx.close();
+  }
+
+  /* ---------- S3 sleep "Turn On": a FAILED open must show a VISIBLE error ---------- */
+  // 0.6.41 re-test blocker (E): the prevent-sleep Turn On button felt DEAD to Josh.
+  // The front-end DID surface the 409 message, but in body ink with no red, so a
+  // real failure read as one more line of copy. The failure message now carries
+  // .fr-msg-err (danger colour); a success leaves the line empty and un-classed.
+  console.log('\nS3 sleep Turn On -- a failed open shows a VISIBLE error; a success stays silent');
+  {
+    // Enter S3 in Josh's state (sleep not prevented) so the "Turn On" button shows.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false }, tmux: { checkable: true, trusted: false },
+    });
+    // The decoy Energy window is an illustration, not a control: it must be inert
+    // to clicks so its blue/On switch cannot be mistaken for the real action.
+    ok(await page.evaluate(() => getComputedStyle(document.querySelector('#fr-pane-3 .s3-win')).pointerEvents === 'none'),
+      'the decoy Energy window (.s3-win) is pointer-events:none, so its switch cannot be the wrong click');
+
+    // Baseline: the message line is empty and un-classed before any click.
+    const before = await page.evaluate(() => {
+      const el = document.getElementById('fr-s3-msg');
+      return { text: el.textContent.trim(), hasErr: el.classList.contains('fr-msg-err'), color: getComputedStyle(el).color };
+    });
+    ok(before.text === '' && !before.hasErr, 'the message line starts empty and un-errored');
+
+    // The open endpoint FAILS (409 with a message), as it would on a macOS whose
+    // pane we cannot resolve. Click the sleep row's real "Turn On".
+    await page.route('**/api/open-sleep-settings', (r) => r.fulfill({
+      status: 409, contentType: 'application/json',
+      body: JSON.stringify({ error: 'we could not find the sleep settings screen on this computer automatically. Open System Settings, choose Battery (or Energy Saver on older Macs), and turn off automatic sleep' }),
+    }));
+    await page.click('[data-gate="sleep"] .s3-on');
+    await page.waitForFunction(() => document.getElementById('fr-s3-msg').textContent.trim().length > 0, null, { timeout: 4000 }).catch(() => {});
+    const after = await page.evaluate(() => {
+      const el = document.getElementById('fr-s3-msg');
+      return { text: el.textContent.trim(), hasErr: el.classList.contains('fr-msg-err'), color: getComputedStyle(el).color };
+    });
+    ok(after.text.length > 0, 'a failed open puts a message on the line (never silent)');
+    ok(after.hasErr, 'the failed-open message carries .fr-msg-err (reads as an error, not body copy)');
+    ok(after.color !== before.color,
+      `and its colour actually changed from the body ink (before=${before.color}, after=${after.color}); if equal, the "red" is invisible exactly as it was for Josh`);
+    // The firstrun card is white in BOTH themes, so the error must stay a readable
+    // dark red in dark theme too -- not the dark-ground coral (#ff6b5e / rgb 255,107,94)
+    // that --danger resolves to under a dark root, which washes out to ~2.8:1 on white.
+    // Force the explicit dark toggle and re-read: the #firstrun subtree pins --danger
+    // to the light value, so the colour must be the same readable red as in light.
+    const darkColor = await page.evaluate(() => {
+      document.documentElement.setAttribute('data-theme', 'dark');
+      return getComputedStyle(document.getElementById('fr-s3-msg')).color;
+    });
+    ok(darkColor === after.color && darkColor !== 'rgb(255, 107, 94)',
+      `the error stays a readable dark red in dark theme (dark=${darkColor}, light=${after.color}); a dark-ground coral on the white card would be below AA`);
+    await ctx.close();
+  }
+  {
+    // CONTROL: a SUCCESSFUL open is silent -- empty line, no error class. This is
+    // what makes the failure assertions above non-vacuous: the same reader returns
+    // the opposite outcome when the endpoint succeeds.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false }, tmux: { checkable: true, trusted: false },
+    });
+    await page.route('**/api/open-sleep-settings', (r) => r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true }) }));
+    await page.click('[data-gate="sleep"] .s3-on');
+    await page.waitForTimeout(600);
+    const s = await page.evaluate(() => {
+      const el = document.getElementById('fr-s3-msg');
+      return { text: el.textContent.trim(), hasErr: el.classList.contains('fr-msg-err') };
+    });
+    ok(s.text === '' && !s.hasErr, 'a successful open leaves the line empty and un-errored (the check discriminates)');
     await ctx.close();
   }
 

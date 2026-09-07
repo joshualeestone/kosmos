@@ -5745,6 +5745,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   --label: #14161a; --label-3: rgba(20,22,26,0.61);
   --border-strong: rgba(20,22,26,0.26);
   --field-fill: #faf9f7;   /* paper, so a field is never the card's own white */
+  /* --danger is dark-overridden to a coral (#ff6b5e) tuned for a dark ground; on
+     this forced-white card that lands ~2.8:1 (below AA). The card is white in
+     BOTH themes, so pin the light danger (#b3261e, ~6.5:1 on white) for the whole
+     subtree unconditionally, exactly like the k-tokens above. Nothing enhances
+     --danger under prefers-contrast, so there is no arm this clobbers. */
+  --danger: #b3261e;
   background: var(--k-bg);
 }
 /* ⚠️ `--label-2` AND `--separator` ARE PINNED IN DARK ONLY, because the root
@@ -6018,6 +6024,13 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 #firstrun .fr-confirm .btn.uprime { background: var(--gold-bright); color: var(--k-ink); border-color: var(--gold-bright); }
 #firstrun .fr-confirm .btn.uprime:hover { background: var(--gold); }
 #firstrun .fr-msg { color: var(--k-ink); }
+/* When a permission step's action FAILS, its message must read as an error, not
+   as one more quiet line of body copy. The plain #firstrun .fr-msg colour is the
+   same ink as everything else on the card, which is how a real failure looked to
+   Josh like the button "did nothing" (0.6.41 re-test, prevent-sleep Turn On): the
+   409 message WAS shown, but in body ink with no red, so it read as decoration.
+   .fr-msg-err (id + two classes) wins over the rule above and paints it danger. */
+#firstrun .fr-msg.fr-msg-err { color: var(--danger); font-weight: 600; }
 #firstrun .fr-youfine { color: var(--k-ink-2); }
 /* #12 (0.6.39): .fr-revealrow and the #fr-reveal button styling were removed
    with the Success screen's reveal subsystem; .fr-sleepbtn (still used by the
@@ -8031,8 +8044,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              TMUX permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
              ============================================================ -->
         <style>
+        /* The window is an ILLUSTRATION of the macOS pane, not a control: its
+           switch (.s3-sw) is decorative and rendered On. pointer-events:none
+           makes the whole mock inert, so a click on the decoy switch cannot be
+           mistaken for activating anything (0.6.41 re-test: a blue/On decoy
+           toggle sat right above the real "Turn On" button). The real action is
+           the .s3-on button below the mock, which stays clickable. */
         .s3-win{background:#f7f7f5;border:1px solid #d8d6d2;border-radius:12px;overflow:hidden;
-          box-shadow:0 8px 22px rgba(0,0,0,.14);color:#1c1b19;margin:0 0 10px}
+          box-shadow:0 8px 22px rgba(0,0,0,.14);color:#1c1b19;margin:0 0 10px;pointer-events:none}
         .s3-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#eceae7;border-bottom:1px solid #d8d6d2}
         .s3-tl{width:11px;height:11px;border-radius:50%}
         .s3-r{background:#ff5f57}.s3-y{background:#febc2e}.s3-g{background:#28c840}
@@ -36765,7 +36784,12 @@ function frCheckRow(c, opts) {
    during the native rollout. sleep is not a prompt category (pmset, programmatic),
    so it keeps opening Settings and passes no trigger. */
 async function frFirePermission(triggerUrl, fallbackUrl, msg) {
-  if (msg) msg.textContent = '';
+  /* A failure here must read as a failure. frFail() paints the message danger
+     (see .fr-msg-err); clearing removes it so a later success is not left red.
+     This is the fix for the 0.6.41 re-test blocker: the open-Settings failure
+     was shown in body ink, so a dead-feeling button carried no visible error. */
+  const frFail = (t) => { if (!msg) return; msg.textContent = t; msg.classList.add('fr-msg-err'); };
+  if (msg) { msg.textContent = ''; msg.classList.remove('fr-msg-err'); }
   if (triggerUrl) {
     try {
       const res = await fetch(triggerUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
@@ -36785,10 +36809,10 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
     const res = await fetch(fallbackUrl, { method: 'POST', headers: { 'content-type': 'application/json' } });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
-      if (msg) msg.textContent = (body && body.error) || 'we could not open System Settings';
+      frFail((body && body.error) || 'we could not open System Settings');
     }
   } catch {
-    if (msg) msg.textContent = 'we could not open System Settings';
+    frFail('we could not open System Settings');
   }
 }
 

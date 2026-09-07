@@ -1001,7 +1001,13 @@ function sleepPaneUrl(runner, lister) {
   let names;
   try {
     names = list(EXTENSIONS_DIR)
-      .filter((n) => n.endsWith('.appex') && /power|energy|battery/i.test(n));
+      /* Match on STEMS, not whole words: a macOS that ships the pane appex as
+         `Batteries.appex`, `EnergySaver.appex` or `PowerManagement.appex`
+         would slip past `/battery|energy|power/` (none of those contains the
+         whole word). The closed id set below is what actually decides
+         correctness, so a wider net here only feeds it more candidates -- it
+         cannot make us claim a wrong pane. */
+      .filter((n) => n.endsWith('.appex') && /power|energ|batter/i.test(n));
   } catch {
     return remember(null);
   }
@@ -1021,7 +1027,12 @@ function sleepPaneUrl(runner, lister) {
     arbitrary URLs on the machine. */
 function openSleepSettings(runner, lister) {
   const url = sleepPaneUrl(runner, lister);
-  if (!url) return { ok: false, because: 'we could not find the sleep settings screen on this computer' };
+  /* When we cannot pinpoint the pane, the honest answer is not a dead button:
+     it is telling the person exactly where to do it themselves, so the step is
+     still completable on a macOS whose pane we do not recognise. The leading
+     phrase is kept ("could not find the sleep settings screen") because a test
+     pins it. */
+  if (!url) return { ok: false, because: 'we could not find the sleep settings screen on this computer automatically. Open System Settings, choose Battery (or Energy Saver on older Macs), and turn off automatic sleep' };
   const r = runner || run;
   const res = r('/usr/bin/open', [url]);
   return res.ok
