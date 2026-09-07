@@ -42,6 +42,18 @@ const STATE = { OK: 'ok', ATTENTION: 'attention', UNKNOWN: 'unknown' };
    this literal, the same assumption boardrestart.js's BOARD_LABEL makes. */
 const BOARD_LABEL = 'com.kosmos.board';
 
+/* #2397: the macOS LaunchAgents dir, honouring the #332 launch-dir seam (a
+   sandboxed suite sets AGENT_WORKFORCE_LAUNCH so a check reads ITS dir, never
+   the operator's real LaunchAgents). ONE definition, shared by labelTruthCheck
+   and boardAutostartCheck, so the `process.env.HOME` fallback (a macOS-only
+   branch -- HOME is USERPROFILE on Windows) lives in a single place: the #1732
+   Windows-coupling audit counts it once, and there is no second site to drift.
+   Both callers are macOS-only paths (launchd has no Windows analogue). */
+function launchAgentsDir() {
+  return process.env.AGENT_WORKFORCE_LAUNCH
+    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+}
+
 /**
  * ⚠️ Injectable so the tests never depend on the power settings of whatever
  * machine runs the suite — and, more to the point, so the laptop cases can be
@@ -1161,12 +1173,10 @@ function openFileAccessSettings(runner, lister) {
    OTHER than the one in the real LaunchAgents folder". Reads only; fails
    soft to unknown, never to a false alarm. */
 function labelTruthCheck(runner) {
-  /* The product's own launch-dir seam, the same one the installer honours:
-     a sandboxed suite sets AGENT_WORKFORCE_LAUNCH and this check then reads
-     ITS dir, never the operator's real LaunchAgents (#332's law: a test must
-     not be green or red by what the operator's machine happens to hold). */
-  const launchDir = process.env.AGENT_WORKFORCE_LAUNCH
-    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+  /* The product's own launch-dir seam, the same one the installer honours
+     (#332's law: a test must not be green or red by what the operator's machine
+     happens to hold). Shared with boardAutostartCheck via launchAgentsDir(). */
+  const launchDir = launchAgentsDir();
   let labels = [];
   try {
     labels = fs.readdirSync(launchDir)
@@ -1258,11 +1268,10 @@ function boardAutostartCheck(runner, opts) {
       detail: 'Not the same as it being wrong. We could not tell which user this computer runs Kosmos as.' };
   }
 
-  /* The product's launch-dir seam, the same one the installer and every sibling
-     check honour (#332): a sandboxed suite sets AGENT_WORKFORCE_LAUNCH so this
+  /* The product's launch-dir seam (#332), shared with labelTruthCheck via
+     launchAgentsDir(): a sandboxed suite sets AGENT_WORKFORCE_LAUNCH so this
      reads ITS dir, never the operator's real LaunchAgents. */
-  const launchDir = process.env.AGENT_WORKFORCE_LAUNCH
-    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+  const launchDir = launchAgentsDir();
   let present = false;
   try { present = fs.existsSync(path.join(launchDir, `${BOARD_LABEL}.plist`)); }
   catch { present = false; }
