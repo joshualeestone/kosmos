@@ -48,6 +48,13 @@ resolution/a dedup key, or the only reachable symptom is safe -> LEAVE with the 
   case-variant root re-walk is already collapsed upstream by seenDirs, and realpath is load-bearing
   to collapse a symlinked .md reached two ways). 1289 is the #2410 Gemini merge, same pattern.
 
+### More discover.js codex sites (LEAVE)
+- **engine/discover.js 310/313** (`foundCodex` byDir dedup) -- keys on raw `meta.cwd`. Out of class:
+  BOTH the key and every candidate are codex's own `std::fs::canonicalize` on-disk spelling
+  (on-disk-vs-on-disk, same kind), so no derived-vs-getcwd case divergence is reachable.
+- **engine/discover.js 239** (`codexIdentity`) -- uses `meta.cwd` as a READ target, not a
+  comparison. Out of scope.
+
 ### Other engine sites checked (not in the card, LEAVE)
 - **engine/workerfile.js 140-141** -- symmetric realpath containment ESCAPE guard; a case-divergent
   in-folder file reads as refused (safe non-match direction). Tightening a security guard toward

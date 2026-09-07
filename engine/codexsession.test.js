@@ -172,7 +172,7 @@ test('both providers say the SAME sentence about the same condition', () => {
   }
 });
 
-test('#2417: a case-divergent launch folder still matches its rollout (canonicalOnDisk, not plain realpathSync)', () => {
+test('#2417: a case-divergent launch folder still matches its rollout (canonicalOnDisk, not plain realpathSync)', (t) => {
   /* The bug this guards: `want` is the folder Kosmos DERIVES to launch in; `meta.cwd` is the
      ON-DISK spelling codex wrote via std::fs::canonicalize. Plain fs.realpathSync resolves the
      /private twin but PRESERVES case on macOS, so a case-divergent launch folder never matched
@@ -186,7 +186,7 @@ test('#2417: a case-divergent launch folder still matches its rollout (canonical
   const onDisk = nodePath.join(base, 'CaseVar');           // the on-disk spelling codex would record
   fs.mkdirSync(onDisk);
   const lower = nodePath.join(base, 'casevar');            // the spelling Kosmos might derive/hardcode
-  if (!fs.existsSync(lower)) return;                       // case-sensitive fs: not this bug, skip
+  if (!fs.existsSync(lower)) { t.skip('case-sensitive filesystem: the two spellings are different dirs'); return; }
 
   writeRollout('rollout-2026-08-21T23-59-00-case.jsonl', onDisk, [TASK_STARTED, A_MESSAGE, TASK_DONE]);
   const found = codex.forWorkdir(lower);
