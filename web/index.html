@@ -39520,6 +39520,39 @@ function frPaintFleet() {
   if (path === 'adopt' && Number.isInteger(count) && count > 0 && !frFoundOffer().length) {
     // The spec's declension: real count, "one" at one, the pack's period.
     title.textContent = count === 1 ? 'You already have one agent here.' : 'You already have ' + count + ' agents here.';
+
+    /* 🛑 #2389: LOOK ON THE DISK HERE TOO. This arm used to render the verbatim
+       "there is nothing to import" and return, WITHOUT ever scanning the disk --
+       the same #1938/#1652 gap the create and unknown arms already fixed, left
+       standing on the ONE arm that reaches a person who has a running fleet AND
+       unimported agents in Documents/Downloads whose folders Claude has no record
+       of. That person was told "there is nothing to import" while it was false --
+       the exact case the #1493 comment at the top of this function names ("the
+       adopt screen says 'there is nothing to import' WHILE IT IS FALSE").
+
+       ⚠️ THE VERBATIM PACK COPY BELOW IS TRUE ONLY WHEN THE SCAN CONFIRMS IT.
+       Josh's "there is nothing to import and nothing to wait for" (2026-08-17) is
+       a claim about their machine, so it must not sit on screen before the disk
+       has been read -- the same rule the create arm follows for its empty state.
+       So: while the scan runs, say we are still checking (a claim about THEIR
+       machine that resolves to a definite state, not a report on our own
+       uncertainty); when it finds importable agents, hand to frPaintScan exactly
+       as the other two arms do ("it just pulls them in", Josh 2026-08-27, #1652);
+       only when the scan is done and empty does the verbatim sentence render.
+
+       📌 Fire-and-forget + generation-guarded + grant-flip re-scan, identical to
+       the create/unknown arms. Reuses frPaintScan (one painter, so there is no
+       second copy of the Add/Skip rows to keep right). */
+    if (FR_SCAN === null) {
+      frScanAgents();
+      box.innerHTML = '<p>They are already here. Checking this computer for any '
+        + 'others to add…</p>';
+      frForkActions();
+      return;
+    }
+    frArmRescanOnGrant();
+    if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
+
     /**
      * ⚠️ NOT AN IMPORT, AND THIS SCREEN MUST NOT MIME ONE. The board is built
      * from `tmux list-panes`, so every one of these was already on it before
@@ -39528,7 +39561,8 @@ function frPaintFleet() {
      *
      * ⚠️ NO NAME CHIPS, at Josh's word (2026-08-17): a person can arrive
      * with hundreds of agents, and the count in the heading is the claim.
-     * The pack's two sentences below, verbatim.
+     * The pack's two sentences below, verbatim -- rendered only once the disk
+     * scan has confirmed there is genuinely nothing to import (#2389).
      */
     // One sentence, at Josh's word (2026-08-17): the how-it-saw-them
     // explanation came out.
