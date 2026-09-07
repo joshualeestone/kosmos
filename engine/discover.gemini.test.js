@@ -43,6 +43,11 @@ function withGeminiHome(root, fn) {
   }
 }
 const discover = require('./discover');
+// #2243 part 3: some assertions target projects() directly. foundGemini has its OWN
+// by-directory de-dupe (discover.js byDir), so a double-count or a bad cwd out of
+// projects() is masked when observed through foundGemini -- the guards live in
+// projects(), so they must be pinned there.
+const geminisession = require('./geminisession');
 
 test('#2243: a Gemini agent is found from GEMINI.md via projects.json', () => {
   const root = sandbox();
@@ -123,14 +128,22 @@ test('#2243 part 3: a Gemini agent recorded ONLY in history/<name>/.project_root
   assert.equal(r.agents[0].instructions, path.join(work, 'GEMINI.md'));
 });
 
-test('#2243 part 3: a cwd in BOTH projects.json and history is offered ONCE (de-duped)', () => {
+test('#2243 part 3: a cwd in BOTH projects.json and history is unioned ONCE (de-duped)', () => {
   const root = sandbox();
   const work = path.join(root, 'both'); fs.mkdirSync(work);
   fs.writeFileSync(path.join(work, 'GEMINI.md'), '# You are Both Agent, a pm.\n\nText.\n');
   projectsJson(root, { [work]: 'both' });
   historyRoot(root, 'both', work);
+  // Assert at the projects() level, NOT through foundGemini: foundGemini's own byDir
+  // de-dupe would mask a double-count here, making a foundGemini assertion vacuous. This
+  // one CAN return the dangerous answer -- remove the seen-set de-dupe in projects() and
+  // it reads 2.
+  const cwds = withGeminiHome(root, () => geminisession.projects());
+  assert.equal(cwds.filter((c) => c === work).length, 1, 'a cwd in both sources was returned twice (the union did not de-dupe)');
+  assert.equal(cwds.length, 1, 'projects() returned an unexpected extra cwd');
+  // And end-to-end it is still one agent.
   const r = withGeminiHome(root, () => discover.foundGemini(undefined));
-  assert.equal(r.agents.length, 1, 'a cwd recorded in both sources was offered twice (the union did not de-dupe)');
+  assert.equal(r.agents.length, 1, 'a cwd recorded in both sources was offered twice');
 });
 
 test('#2243 part 3: a missing / blank / relative .project_root is skipped and never throws', () => {
@@ -143,6 +156,12 @@ test('#2243 part 3: a missing / blank / relative .project_root is skipped and ne
   fs.writeFileSync(path.join(blank, '.project_root'), '   \n');
   const rel = path.join(root, 'gemini', 'history', 'rel'); fs.mkdirSync(rel);
   fs.writeFileSync(path.join(rel, '.project_root'), 'relative/path\n');
+  // Pin the guards where they live (projects()), not downstream: a blank value must be
+  // dropped by the trim+isAbsolute check and a relative value by isAbsolute, so projects()
+  // returns NO cwd at all. (Through foundGemini this would pass anyway - no GEMINI.md at a
+  // bad cwd - so the assertion has to be here to mean anything.)
+  const cwds = withGeminiHome(root, () => geminisession.projects());
+  assert.deepEqual(cwds, [], 'a blank/relative .project_root leaked a bad cwd out of projects(), or a missing one threw');
   const r = withGeminiHome(root, () => discover.foundGemini(undefined));
   assert.equal(r.agents.length, 0, 'a blank/missing/relative .project_root should be skipped, not throw or add a bad cwd');
   assert.equal(r.unreadable, 0, 'a skipped history entry must not raise unreadable');
