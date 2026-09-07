@@ -1,6 +1,7 @@
 'use strict';
 /**
- * The outbound "something happened" call: off by default, never the words,
+ * The outbound "something happened" call: ON by default for a never-asked
+ * machine (#2020 step 3) with a Settings opt-out switch, never the words,
  * never sent under test without an injected sender, and the closed list of
  * kinds. Sandboxed data root before the require.
  */
