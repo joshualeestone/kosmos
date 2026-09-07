@@ -68,6 +68,7 @@ test('#2401: an array pref fails to OFF, and never becomes permission to send', 
   const r = ping.read();
   assert.equal(r.on, false, 'an array pref must fail to OFF');
   assert.equal(r.ok, false, 'an array pref is not a readable preference');
+  assert.equal(r.installId, null, 'an array pref yields no install id, pinning the whole returned shape');
   let sent = 0;
   ping.setSender(() => { sent += 1; return Promise.resolve(); });
   ping.agentCreated({ wanted: true });
