@@ -107,12 +107,28 @@ function seedGemini(root) {
   for (const [name, body] of Object.entries(GEMINI)) fs.writeFileSync(path.join(agents, `gemini-${name}.md`), body);
   return home;
 }
+// The three env vars discover.js's gemini-merge gate reads (`!explicit || geminiHomeOverridden`)
+// AND geminisession.HOME() honours. A helper that manages only one of them leaves the other two
+// free to point the merge at a real home on a CI box that has them ambiently exported.
+const GEMINI_HOME_VARS = ['AGENT_WORKFORCE_GEMINI_HOME', 'GEMINI_CLI_HOME', 'AGENT_WORKFORCE_HOME'];
 function withGeminiHome(home, fn) {
-  const prev = process.env.AGENT_WORKFORCE_GEMINI_HOME;
+  // Set the canonical override AND clear the other two, so the fixture home is the ONLY one the
+  // gate can see - a stray ambient GEMINI_CLI_HOME must not shadow or double the fixture.
+  const prev = GEMINI_HOME_VARS.map((v) => [v, process.env[v]]);
   process.env.AGENT_WORKFORCE_GEMINI_HOME = home;
+  delete process.env.GEMINI_CLI_HOME;
+  delete process.env.AGENT_WORKFORCE_HOME;
   try { return fn(); } finally {
-    if (prev === undefined) delete process.env.AGENT_WORKFORCE_GEMINI_HOME;
-    else process.env.AGENT_WORKFORCE_GEMINI_HOME = prev;
+    for (const [v, val] of prev) { if (val === undefined) delete process.env[v]; else process.env[v] = val; }
+  }
+}
+// Run fn with EVERY gemini-home override cleared, so the merge gate is deterministically off
+// regardless of ambient CI env - used by the Part C perturbation arm.
+function withNoGeminiHome(fn) {
+  const prev = GEMINI_HOME_VARS.map((v) => [v, process.env[v]]);
+  for (const v of GEMINI_HOME_VARS) delete process.env[v];
+  try { return fn(); } finally {
+    for (const [v, val] of prev) { if (val === undefined) delete process.env[v]; else process.env[v] = val; }
   }
 }
 const impByBase = (r, base) => (r.importable || []).find((c) => path.basename(c.file) === base);
@@ -225,7 +241,7 @@ test('#1329 #2410: Gemini agents surface by front-matter name, and vanish when t
   // machine with no real ~/.gemini/agents a gate regression would also yield 0. The gate's
   // job - never read the real home under explicit roots - is asserted by the whole file's
   // hermeticity contract, not by this arm alone.)
-  const noHome = discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] });
+  const noHome = withNoGeminiHome(() => discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] }));
   const stillGemini = (noHome.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-'));
   assert.equal(stillGemini.length, 0, 'the Gemini fixture surfaced with no home override - the walk is no longer skipping the .gemini dotdir');
 });
