@@ -1943,6 +1943,35 @@ driverTest('#1937 END-TO-END: a re-auth waits for login-done, not the stale file
   } finally { subscription.setRunner(null); }
 });
 
+/**
+ * #1937: the SECOND file-outranks-screen arm -- the unknown-escalation path --
+ * carries the identical stale-file hazard and its own gate. This arm covers it
+ * so a future refactor that drops the `(!owner.reauth || owner.sawLoginDone)`
+ * condition there reds instead of silently re-opening the blocker. Without the
+ * gate, a re-auth that sits on an UNRECOGNISED screen past the unknown grace
+ * finishes off the stale-CONNECTED file; with it, and no login-done evidence, it
+ * becomes stuck with an honest "we do not recognise" rather than a false success.
+ */
+driverTest('#1937 CONTROL: an UNRECOGNISED screen with no login-done makes a re-auth stuck, not falsely connected', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  // An unrecognised screen throughout -- the login-done signal never appears.
+  term.screen = 'Something entirely new that no version has shown before';
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    // Drive past the unknown grace (UNKNOWN_GRACE / TICK) into the escalation arm.
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.equal(connect.state().phase, connect.PHASE.STUCK,
+      'a re-auth on an unrecognised screen with no login-done finished off the STALE file (unknown-escalation arm) instead of becoming stuck -- #1937, second arm');
+    assert.match(connect.state().because, /do not recognise/,
+      'the re-auth became stuck for the wrong reason');
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('cancel stops the flow and reports idle', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);
