@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: claude-connect-choice-2433
-diff_hash: 928d97a99ead313def59eb4b44b8c68606c963eff37401a6a070683be8d9371d
+diff_hash: 99baae89ddaaf7a257a7d3880c7adcf67dc78f44440640d5b6533b6cc91f3d37
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-07T21:02:07Z
@@ -15,13 +15,13 @@ converged: true
 **Iterations:** 1 (one fresh, blind independent review pass)
 **Converged:** Yes (the blind pass returned zero NEW BLOCKERs/WARNINGs/CONVENTIONs after deduplication)
 **Total findings:** 3 (0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs)
-**Fixed:** 1 | **Deferred:** 2 | **Asked (awaiting user):** 0
+**Fixed:** 2 | **Deferred:** 1 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
 #### Iteration 1
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 1 CONVENTION, 2 NITs
-- [CONVENTION] .claude/plans/ -- No plan file for this branch --> DEFERRED: this is a night-shift rotation card (#2433) built directly from Splinter's routing brief in the session handoff plus the card body, which together served as the plan. Formal plan files are not produced for night-shift rotation cards.
+- [CONVENTION] .claude/plans/ -- No plan file for this branch --> FIXED: added `.claude/plans/claude-connect-choice-2433.md` documenting the goal, the mirror-OpenAI approach, the #2420 ordering decision (with rejected alternatives and weakest premise), and validation. (Built as a night-shift rotation card from Splinter's routing brief + the card body; the plan file records that plan retroactively to satisfy the pre-PR gate.)
 - [NIT] docs/browser-checks/render-claude-connect-choice-2433.js -- No assertion that the key field clears after a successful add --> FIXED (commit 403d6d56): added `keyCleared` assertion to the add-success check.
 - [NIT] web/index.html -- A pasted-but-unsubmitted key persists in the hidden password field across picker toggles / modal close-reopen (only a successful add clears it) --> DEFERRED: identical to the existing, reviewed OpenAI key step, which also clears only on success. Consistent with the established pattern; changing it here would diverge from OpenAI. Password-type field, low risk.
 
@@ -39,7 +39,7 @@ The blind reviewer additionally verified (as STRENGTHs) the risky parts of the c
 
 | # | Iter | Category | File:Line | Description | Status | Resolution |
 |---|------|----------|-----------|-------------|--------|------------|
-| 1 | 1 | CONVENTION | .claude/plans/ | No plan file for branch | DEFERRED | Night-shift rotation card; handoff brief + card body served as the plan |
+| 1 | 1 | CONVENTION | .claude/plans/ | No plan file for branch | FIXED | Added claude-connect-choice-2433.md (plan recorded retroactively) |
 | 2 | 1 | NIT | docs/browser-checks/render-claude-connect-choice-2433.js | No assert key field clears after add | FIXED | 403d6d56 |
 | 3 | 1 | NIT | web/index.html | Unsubmitted key persists across toggles | DEFERRED | Identical to reviewed OpenAI key step (clears on success only) |
 
