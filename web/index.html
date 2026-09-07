@@ -5411,6 +5411,15 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .rm-box.rm-box-form { max-width: 34rem; }
 .rm-box-form .field { margin-top: var(--space-5); }
 .rm-box-form .tk-inp { width: 100%; }
+/* 0.6.45 (Josh): the add-member modal closes with an X in the corner (not a
+   Cancel button crowding the dropdown), and the label gets air from the menu so
+   the two are not touching. Scoped to #am-modal so no other modal's layout moves. */
+#am-modal .am-box { position: relative; }
+#am-modal .am-x { position: absolute; top: var(--space-4); right: var(--space-4); background: none; border: 0;
+        font-size: 22px; line-height: 1; color: var(--label-2); cursor: pointer; padding: 2px 8px; border-radius: 6px; }
+#am-modal .am-x:hover, #am-modal .am-x:focus-visible { color: var(--label); }
+#am-modal .am-x:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+#am-modal .flabel { margin-bottom: var(--space-4); }
 /* Both answers are full-size and legible. The destructive one is marked by its
    border, never by hue alone -- this screen reads the same in greyscale. */
 .rm-acts .btn { padding: var(--space-5) var(--space-7); }
@@ -9403,7 +9412,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            #1316 and has to satisfy its rule: a way back that is not the action,
            and Escape. Both are below. -->
       <div class="rm-back" id="am-modal" hidden>
-      <div class="rm-box rm-box-form" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
+      <div class="rm-box rm-box-form am-box" role="dialog" aria-modal="true" aria-labelledby="am-t" aria-describedby="am-in">
+      <!-- 0.6.45 (Josh): the way out is an X in the corner, not a Cancel button
+           down in the acts row that crowded the dropdown. Reuses the `am-keep`
+           id so amClose (Cancel + backdrop + Escape) stays one function. -->
+      <button class="am-x" id="am-keep" type="button" aria-label="Close">&times;</button>
       <h2 class="rm-title" id="am-t">Add a member</h2>
       <p class="rm-small" id="am-in">To <b id="am-project"></b>.</p>
       <div id="pj-one-add-row" style="margin-top: var(--space-5)">
@@ -9421,15 +9434,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <label class="flabel" for="pj-one-add">Who should join this project?</label>
         <div class="frow">
           <select id="pj-one-add"></select>
-          <button class="btn" id="pj-one-add-go" type="button">Put it on this project</button>
+          <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
         </div>
       </div>
-      <div class="rm-acts">
-        <button class="btn" id="am-keep" type="button">Cancel</button>
+      <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
+           to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
+           backdrop, so a reason written here was covered by the overlay. Now that
+           a successful add closes the modal, the only time this shows is a failure
+           with the modal still open, so it has to be on top of the backdrop. -->
+      <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
       </div>
       </div>
-      </div>
-      <p class="fmsg" id="pj-one-msg" aria-live="polite"></p>
 
       <!-- ⚠️ PROJECT DOCUMENTS IS NET NEW: the pack's project page has three
            columns (members, conversation, tasks) and no documents section, so
@@ -36203,26 +36218,35 @@ document.getElementById('pj-create').addEventListener('click', async () => {
 });
 
 /**
- * Put an agent on the CURRENT project, live -- shared by the tab view's
- * "Put it on this project" Go button and the settings doors' picker
- * (#762), so the two do not drift into two answers for one POST.
+ * Put an agent on the CURRENT project, live -- shared by the add-member modal's
+ * "Add to project" Go button and the settings doors' picker (#762), so the two
+ * do not drift into two answers for one POST. Returns true on success so the
+ * modal caller can close on a clean add (0.6.45); the settings-door caller
+ * ignores the return.
  */
 async function addMemberToProject(who, msg) {
-  if (!who || !PJ_CURRENT) return;
+  if (!who || !PJ_CURRENT) return false;
   msg.textContent = '';
   try {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
     await loadProjects();
+    return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
     // engine's reasons are clauses.
     msg.textContent = pjSentence(err.message) || 'We could not change that project.';
+    return false;
   }
 }
-document.getElementById('pj-one-add-go').addEventListener('click', () => {
-  addMemberToProject(document.getElementById('pj-one-add').value, document.getElementById('pj-one-msg'));
+document.getElementById('pj-one-add-go').addEventListener('click', async () => {
+  // 0.6.45 (Josh): once the member is added there is nothing more to do in the
+  // modal, so close it on success rather than leaving it open showing the
+  // "everyone is already on it" empty state. A failure keeps it open with the
+  // reason in pj-one-msg. amClose is the same close Cancel/backdrop/Escape use.
+  const ok = await addMemberToProject(document.getElementById('pj-one-add').value, document.getElementById('pj-one-msg'));
+  if (ok) amClose();
 });
 /* #762: the settings doors' own "+ Add an agent", a duplicate of New
    project's reveal-a-picker door (#750) but live: picking an agent adds
@@ -36566,9 +36590,9 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
   document.getElementById('am-modal').hidden = false;
   document.getElementById('pj-one-add').focus();
 });
-/* The ways out, both of them, per #1316: a Cancel that is not the action, and
-   Escape, because somebody who opened this from the keyboard is still on it. The
-   backdrop closes too, matching every other modal on this page. */
+/* The ways out, per #1316: the corner X (0.6.45, was a Cancel button) that is not
+   the action, and Escape, because somebody who opened this from the keyboard is
+   still on it. The backdrop closes too, matching every other modal on this page. */
 function amClose() {
   document.getElementById('am-modal').hidden = true;
   const b = document.getElementById('pj-add-member');
