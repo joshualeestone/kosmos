@@ -1106,9 +1106,12 @@ function scan(opts) {
       const cur = stack.pop();
       /* #2408: key on the physical-directory identity (dev+ino), NOT realpathSync -- see
          the seenDirs comment. statSync follows a symlinked dir to its target's inode; a
-         dir that just vanished (TOCTOU) throws and is skipped (it cannot be walked). */
+         dir that just vanished (TOCTOU) throws and is skipped (it cannot be walked).
+         `bigint:true` so dev/ino are exact 64-bit values: a de-dup key that lost precision
+         (a numeric ino past 2^53) could stringify-collide and mis-collapse two DISTINCT
+         directories -- the exact mis-dedup class this card removes. */
       let idkey;
-      try { const st = fs.statSync(cur.dir); idkey = st.dev + ':' + st.ino; } catch { continue; }
+      try { const st = fs.statSync(cur.dir, { bigint: true }); idkey = st.dev.toString() + ':' + st.ino.toString(); } catch { continue; }
       if (seenDirs.has(idkey)) continue;   // already read via an earlier root, a case variant, or a symlink alias
       seenDirs.add(idkey);
       visited += 1;
