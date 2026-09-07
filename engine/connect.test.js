@@ -1904,6 +1904,45 @@ driverTest('#1937 CONTROL: a NON-reauth sign-in launch does NOT append the login
   } finally { subscription.setRunner(null); }
 });
 
+/**
+ * #1937 END-TO-END: the fix cannot stop at start() + the launch argv. Once the
+ * re-auth launches, the driver's tick loop meets the "config outranks screen"
+ * guards (browser-open/awaiting-code and the unknown-escalation arm). Both call
+ * the FILE-based `subscription.check()`, which is stale-CONNECTED for Ben's
+ * account from the first tick -- so before the tick-loop fix the flow finished
+ * instantly off the stale file and `killSession()`'d the still-running
+ * `claude auth login`, reporting success with nothing repaired. This arm drives
+ * the real tick loop and proves the re-auth WAITS for login-done.
+ */
+driverTest('#1937 END-TO-END: a re-auth waits for login-done, not the stale file, before finishing', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  /* Measurement B: `claude auth login --claudeai` opens straight on the browser
+     screen (no theme/login-method chooser). Hold there -- the person has not yet
+     finished authenticating -- while the file keeps reading its stale CONNECTED. */
+  term.screen = SCREEN_SPINNER;
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const killsAfterLaunch = term.killed;
+    /* Let the tick loop run many times on the browser screen with the stale
+       file. Before the fix, the FIRST browser-open tick finished off the file. */
+    await new Promise((resolve) => setTimeout(resolve, 15 * 15));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'the re-auth finished off the STALE file before login-done -- the #1937 blocker, moved into the tick loop');
+    assert.equal(term.killed, killsAfterLaunch,
+      'the re-auth tore down the running `claude auth login` session before the login completed');
+    /* Now the browser auth completes and the CLI prints "Login successful". */
+    term.screen = SCREEN_LOGIN_DONE;
+    await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+    assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+      'after a genuine login-done the re-auth still did not finish');
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('cancel stops the flow and reports idle', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);

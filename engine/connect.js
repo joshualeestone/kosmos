@@ -955,7 +955,7 @@ async function start(opts) {
      This flag skips that one early exit; every other guard on the flow (install
      confirm, binary probe, the launch itself) is unchanged, and a non-reauth
      start still refuses exactly what it refused before. */
-  const reauth = !!(opts && opts.reauth === true);
+  const reauth = opts != null && opts.reauth === true;
   /* A relative path here is a caller bug, and quietly resolving it against
      an unknowable cwd would sign somebody in to a directory nobody can
      name. Loud, before any state moves. */
@@ -2093,7 +2093,12 @@ async function tickBody(owner) {
        * this only prevents the false failure.
        */
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
-      if (sub.state === subscription.STATE.CONNECTED) {
+      /* #1937: a re-auth may finish off the file only once login-done has proven
+         the login landed; the file was stale-connected from the start, so an
+         unrecognised screen with no completion evidence is a genuine "we could
+         not confirm", not a silent success on the old credential. Non-reauth is
+         unchanged (`!owner.reauth` short-circuits true). */
+      if ((!owner.reauth || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
       }
@@ -2110,6 +2115,14 @@ async function tickBody(owner) {
     owner.blankTicks = 0;
     if (seen.kind !== 'unknown') owner.everSaw = true;
   }
+  /* #1937: remember the CLI's own "Login successful" evidence. For an explicit
+     re-auth the config file was ALREADY connected at flow start (the stale,
+     expiry-blind read this card exists to defeat), so the file-outranks-screen
+     arms below cannot treat "the file says connected" as proof the NEW login
+     landed -- doing so finishes instantly off the stale file and kills the login
+     mid-flow. login-done is the CLI reporting the login actually completed; a
+     re-auth is only allowed to finish off the file once it has been seen. */
+  if (seen.kind === 'login-done') owner.sawLoginDone = true;
   /**
    * ⚠️ ACTIONS PER CONTINUOUS SCREEN-KIND ARE BOUNDED. The act-once guard is
    * keyed on the pane TEXT, so an animated screen (a spinner frame in the
@@ -2179,10 +2192,17 @@ async function tickBody(owner) {
    * cross-tick bookkeeping to shrink further.
    */
   if (seen.kind === 'browser-open' || seen.kind === 'awaiting-code') {
-    const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
-    if (sub.state === subscription.STATE.CONNECTED) {
-      await finishConnected(owner, sub);
-      return;
+    /* #1937: these screens appear BEFORE a login completes, so for a re-auth the
+       only "connected" the file can report here is the STALE one from flow start
+       -- finishing on it kills the still-running `claude auth login` and reports
+       success with no credential repaired. Require login-done first for a
+       re-auth; a normal flow (file starts signed-out) is unchanged. */
+    if (!owner.reauth || owner.sawLoginDone) {
+      const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
+      if (sub.state === subscription.STATE.CONNECTED) {
+        await finishConnected(owner, sub);
+        return;
+      }
     }
     /**
      * ⚠️ #727 item 4: AN ABANDONED BROWSER LEG shows the exact same pane

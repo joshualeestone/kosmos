@@ -99,6 +99,43 @@ Tests (all perturb-verified — each reds on its own defect, controls stay green
   flag → short-circuits, opens nothing); CONTROL (non-reauth launch omits login args).
 - `server.connect.test.js`: non-boolean `reauth` → 400.
 
+## BLOCKER found in blind review (2026-09-07) — the fix moved the defect into the tick loop
+
+A fresh blind CTO review found that start()+launch were necessary but NOT sufficient.
+Once the re-auth launches, the driver's tick loop has two "config outranks screen"
+guards that finish off the FILE-based `subscription.check()`:
+- `engine/connect.js` browser-open/awaiting-code arm (~2194)
+- `engine/connect.js` unknown-escalation arm (~2086)
+
+For Ben's account the file is stale-CONNECTED from flow start, so on the FIRST
+browser-open tick the guard fired `finishConnected()` → wrote `PHASE.CONNECTED`
+and `killSession()`'d the still-running `claude auth login` — reporting success
+with no code submitted and nothing repaired. The exact card symptom, one layer
+deeper. My own self-review missed it (I traced the launch, not the tick loop).
+
+**Fix (tick-loop):** a re-auth may finish off the file ONLY after `login-done`
+proves the login actually completed. Track `owner.sawLoginDone` (set when the
+CLI shows "Login successful"); both file-outranks-screen arms gate their
+`finishConnected` on `(!owner.reauth || owner.sawLoginDone)`. Non-reauth is
+byte-identical. Completion for a re-auth now flows through the genuine
+login-done/repl path (connect.js ~2384), which is the CLI reporting the login
+landed — not the stale file.
+
+**Test:** `#1937 END-TO-END` drives the real tick loop with the file
+stale-CONNECTED and the pane held at browser-open, asserts the flow does NOT
+finish and does NOT kill the session, then flips the pane to login-done and
+asserts it DOES finish. Perturb-verified: reverting the browser-open gate reds it.
+
+Also fixed the review's NIT (redundant `!!` at start()'s reauth extraction).
+
+**Weakest premise now:** that real `claude auth login --claudeai` reaches a
+login-done/repl screen on success (so the completion path fires). Measurement B
+observed the browser-open + paste screens; the terminal login-done screen is
+standard `claude auth login` behaviour but was not driven to completion (needs a
+real OAuth). If the CLI ever completes a re-auth WITHOUT a recognised login-done
+screen, the flow waits out the 15-min abandoned-signin timeout rather than
+finishing — an honest "could not confirm, try again", not a false success.
+
 ## Mechanism decision (recommend + rejected, per the ruling)
 
 **Recommend: launch `claude auth login --claudeai`** (an explicit login the CLI cannot ignore).
