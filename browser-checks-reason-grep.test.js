@@ -502,7 +502,12 @@ test('every emit site in every check prints a line the gate can quote', () => {
      an IIFE with an in-try `catch { bad('the check itself', …) }`, which the catch/launch
      scan does NOT count (that scan matches the top-level throw-line shape, not a bad()
      call), so EXPECTED_CATCH_SITES is unchanged. */
-  const EXPECTED_SITES = 68;
+  /* 69 after kosmos#2407 added render-bubblepop-2407.js, whose `bad()` helper prints
+     `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit site,
+     confirmed quotable (same shape as render-import-add-inplace-2419's). It self-boots
+     via an IIFE with an in-try `catch { bad('the check itself', …) }`, which the
+     catch/launch scan does NOT count, so EXPECTED_CATCH_SITES is unchanged. */
+  const EXPECTED_SITES = 69;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '

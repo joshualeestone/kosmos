@@ -9971,6 +9971,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <p class="ferr" id="pjs-parent-err" aria-live="polite"></p>
     </div>
 
+    <!-- #2407: the per-project new-message sound. On by default (Josh chose the sound);
+         this switch mutes it for a noisy project, on this device only, so it reads and
+         writes localStorage directly rather than a server setting. Not `hidden` like the
+         server-backed switches above: the value is always readable, so there is no
+         unknown state to paint around. Copy is Mona's to finalize. -->
+    <div class="field">
+      <div class="setrow" id="pjs-sound-row">
+        <div><b>Play a sound when a new message lands</b>
+          <p class="dhint" id="pjs-sound-hint" style="margin:2px 0 0;">A soft pop on this device when a new message arrives on this project, so you notice without watching. On by default; turn it off for a noisy project. Several at once make one sound, not a flurry.</p></div>
+        <button class="toggle on" id="pjs-sound-toggle" role="switch" aria-checked="true" aria-label="Play a sound when a new message lands on this project"><i></i></button>
+      </div>
+    </div>
+
     <div class="field">
       <span class="flabel">Where the work lives</span>
       <!-- ⚠️ The pack cut the tilde and the mechanism sentence here (Josh
@@ -29910,6 +29923,117 @@ async function watchForAgent(name, result, attempt) {
 
 let PROJECTS = [];
 let PJ_LOADED_ONCE = false;  // #774: the empty-centre sentence may say "No projects yet" only after a read, never before one
+
+/* #2407: a subtle "bubble pop" when a new message lands on a project, so a person
+   notices without watching the screen. Josh's pick from the audition page (Option 5),
+   design owner Mona Lisa. No asset file: synthesized in Web Audio from the design
+   page's `bubble` voice -- a single sine gliding 400->900 Hz over ~0.9 of a ~0.13s
+   life, soft attack, low peak. The page auditioned at peak 0.5; the in-app level is
+   turned right down here (Mona pairs on the exact number). */
+let BUBBLE_CTX = null;
+function bubbleAudioCtx() {
+  if (BUBBLE_CTX) return BUBBLE_CTX;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;                       // a browser with no Web Audio: silent, never a crash
+  try { BUBBLE_CTX = new AC(); } catch { BUBBLE_CTX = null; }
+  return BUBBLE_CTX;
+}
+let BUBBLE_LAST = 0;
+function playBubblePop() {
+  const ctx = bubbleAudioCtx();
+  if (!ctx) return;
+  /* A tab that has had no user gesture keeps the context 'suspended' and cannot make
+     sound (autoplay policy); resume is a no-op once running and harmless if it rejects. */
+  try { if (ctx.state === 'suspended') ctx.resume().catch(() => {}); } catch { /* ignore */ }
+  const now = ctx.currentTime;
+  const dur = 0.13;
+  const peak = 0.08;                          // low in-app level (page auditioned at 0.5); Mona pairs
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = 'sine';
+  osc.frequency.setValueAtTime(400, now);
+  osc.frequency.linearRampToValueAtTime(900, now + dur * 0.9);   // glide up, holding the top the last tenth
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.linearRampToValueAtTime(peak, now + 0.004);          // soft attack
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + dur);     // decay to silence (exp can't reach 0)
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.start(now);
+  osc.stop(now + dur + 0.02);
+  /* Free the graph nodes once the pop is done so a run of pops does not pile them up. */
+  osc.onended = () => { try { osc.disconnect(); gain.disconnect(); } catch { /* already gone */ } };
+}
+
+/* Per-project, per-device, default ON (Josh chose the sound). Whether YOU hear a pop
+   is yours, not the project's, so it lives in localStorage beside the other per-viewer
+   display preferences rather than on the shared project record. A noisy project is
+   muted here on its own; storage blocked (private window) falls back to ON. */
+function projectSoundOn(id) {
+  try { return localStorage.getItem('kosmos.sound.pj.' + id) !== 'off'; }
+  catch { return true; }
+}
+function setProjectSoundOn(id, on) {
+  try {
+    if (on) localStorage.removeItem('kosmos.sound.pj.' + id);
+    else localStorage.setItem('kosmos.sound.pj.' + id, 'off');
+  } catch { /* preference only; nothing to recover */ }
+}
+
+/* #2407: respect the system's Do Not Disturb. A web page cannot read macOS Focus
+   itself -- the reliable source is the native layer, which can publish a quiet flag
+   the board serves. This gate is present and FAILS OPEN (never quiet) so the sound
+   works today and DND suppression drops in the moment the native signal sets
+   SOUND_QUIET, with no page change. The native/engine half is this card's follow-up,
+   routed via Splinter; the per-project on/off above is the control that works now. */
+let SOUND_QUIET = false;
+function soundIsQuietedByDnd() { return SOUND_QUIET === true; }
+
+/* Remembers each project's unread count between polls, so a RISE means a new message
+   landed. Seeded (not rung) on the first successful load, where every count looks
+   "new". Once per burst: one pop no matter how many projects or messages rose this
+   poll. The open project's unread is zeroed on open, so its own messages never ring --
+   the pop is for a project you are not currently looking at. */
+let PJ_UNREAD_SEEN = null;   // null until the first load baselines it
+function ringNewMessages(projects) {
+  const prevSeen = PJ_UNREAD_SEEN;   // null on the first load -> baseline only, no ring
+  const next = {};
+  let burst = false;
+  for (const p of (projects || [])) {
+    if (!p || p.id == null) continue;
+    const raw = p.unread;
+    /* 🛑 null/undefined is UNKNOWN, NOT zero. server.js `withUnread` sends the count as
+       null when the record or read cursor cannot be read ("unknown is not zero").
+       Collapsing it to 0 would rebaseline every project to zero on a transient
+       count-read blip, and the next normal poll would read every unread project as a
+       0->N rise and ring a spurious burst. So carry the prior baseline forward on an
+       unknown count and never ring on it. */
+    if (raw == null || !Number.isFinite(Number(raw))) {
+      if (prevSeen && prevSeen[p.id] !== undefined) next[p.id] = prevSeen[p.id];
+      continue;
+    }
+    const cur = Number(raw);
+    next[p.id] = cur;
+    /* Ring only a genuine rise against a KNOWN prior count. A project with no prior
+       baseline (first load, or one that just appeared / was just granted) seeds
+       silently -- that is a project appearing, not a message landing.
+       🔑 THE CURRENTLY-OPEN PROJECT NEVER RINGS. The badge already zeroes it
+       (p.id === PJ_CURRENT ? 0), but the projects poll runs BEFORE this tick's room
+       `/seen` lands, so /api/projects can still report unread=1 for the room you are
+       reading -- exclude it here too, the same guard the badge keeps. */
+    const prev = prevSeen ? prevSeen[p.id] : undefined;
+    if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id)) burst = true;
+  }
+  PJ_UNREAD_SEEN = next;
+  if (prevSeen && burst && !soundIsQuietedByDnd()) {
+    /* Coalesce across rapid/concurrent loadProjects reads into ONE pop: two reads can
+       be in flight together (the file's own note), and each would see the same rise and
+       reach here. A short floor since the last pop makes a flurry rattle once, not
+       twice. Kept HERE, at the decision, rather than inside playBubblePop, so a single
+       ringNewMessages call still makes exactly one call to the pop primitive -- a
+       per-message regression would ring twice and its test would catch it. */
+    const nowMs = Date.now();
+    if (nowMs - BUBBLE_LAST >= 250) { BUBBLE_LAST = nowMs; playBubblePop(); }
+  }
+}
 /* #867 (Josh, 2026-08-25 11:02): "let's default to automatically opening
    up a project when they come to this so that it's not just empty
    nothingness." Same one-shot shape as WANT_PROJECT below (the first
@@ -30710,6 +30834,10 @@ async function loadProjects() {
       throw new Error(body.error || 'we cannot read your projects right now');
     }
     PROJECTS = body.projects || [];
+    /* #2407: ring the bubble-pop if any project's unread rose since the last load.
+       Placed on the fresh PROJECTS, before the first-load deep-link work below, and
+       itself no-ops on the first load (it only baselines then). */
+    ringNewMessages(PROJECTS);
     PJ_LOADED_ONCE = true;
     /* The project deep link (#374), once: the first load that can see the
        project opens it, the way the first poll opens WANT_AGENT. A project
@@ -31766,6 +31894,8 @@ function paintProjectSettings(p) {
   document.getElementById('pj-settings-backname').textContent = p.name;
   document.getElementById('pjs-name').value = p.name;
   document.getElementById('pjs-desc').value = p.description || '';
+  // #2407: reflect this project's per-device sound preference (default ON).
+  paintSwitch('pjs-sound-toggle', projectSoundOn(p.id));
   pjPaintParentSelect(p);
   document.getElementById('pjs-msg').textContent = '';
   document.getElementById('pjs-reveal-msg').textContent = '';
@@ -31868,6 +31998,18 @@ document.getElementById('pj-remove-member').addEventListener('click', () => {
 document.getElementById('pj-settings-back').addEventListener('click', () => {
   pjView('one');
   document.getElementById('pj-settings-link').focus();
+});
+
+/* #2407: flip this project's per-device sound preference. Settings are always open
+   for PJ_CURRENT, so the toggle acts on it; the click both writes localStorage and
+   repaints the switch. A first tap here also counts as the user gesture that lets the
+   audio context make sound later (some browsers need one before any playback). */
+document.getElementById('pjs-sound-toggle').addEventListener('click', () => {
+  const p = pjById(PJ_CURRENT);
+  if (!p) return;
+  const on = !projectSoundOn(p.id);
+  setProjectSoundOn(p.id, on);
+  paintSwitch('pjs-sound-toggle', on);
 });
 
 /* 🔑 THE DESCRIPTION CAP, ONCE IN THIS FILE (#1303 G). The engine is the
