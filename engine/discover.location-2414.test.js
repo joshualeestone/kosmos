@@ -217,6 +217,27 @@ test('the user home root is read UP FRONT and is never starved by a heavyweight 
   assert.equal(r.bounded.dirs, true, 'the dir budget was hit but not reported (honest truncation)');
 });
 
+test('#2414 the depth-0 home read does NOT raise bounded.depth (it is read-only by design, not truncated)', () => {
+  /* NIT fix: the $HOME root is walked at maxDepth 0. Its non-descent is deliberate
+     (children covered by the discovered deep roots), so it must not set the "there may
+     be deeper agents" flag -- otherwise bounded.depth would be permanently, falsely
+     true on every scan. Own home so accumulated fixtures (some nested) cannot perturb
+     it; a shallow agent well within DEEP_DEPTH so no discovered root truncates either. */
+  const H3 = path.join(SB, 'home-depthflag');
+  fs.mkdirSync(path.join(H3, 'Reachable', 'proj'), { recursive: true });
+  fs.writeFileSync(path.join(H3, 'Reachable', 'proj', 'CLAUDE.md'), 'You are **Depth Flag Agent**, a tester.\n');
+  const saved = process.env.HOME;
+  process.env.HOME = H3;
+  try {
+    assert.equal(os.homedir(), H3, 'HOME override did not take -- cannot trust this arm');
+    const r = discover.scan();
+    assert.ok(r.candidates.some((c) => c.name === 'Depth Flag Agent'), 'the fixture was not scanned -- the arm would be vacuous');
+    assert.equal(r.bounded.depth, false, 'the depth-0 home read falsely raised bounded.depth');
+  } finally {
+    if (saved !== undefined) process.env.HOME = saved; else delete process.env.HOME;
+  }
+});
+
 test('CONTROL: the fixture home is really being scanned (an absence above is the guard, not a dead scan)', () => {
   agentAt('Stuff/an-agent', 'Control Agent');   // arbitrary name, shallow
   const r = discover.scan();

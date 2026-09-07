@@ -18,8 +18,10 @@ it stops at depth 2.
 
 ## The call (implemented)
 Add `discoverHomeParents(home)`: read the top level of `$HOME` and promote every REAL directory
-that is not a dotdir, not in `SCAN_SKIP` (matched case-insensitively — see below), and not
-already a curated name to a DEEP root (`DEEP_DEPTH=5`). Runs on BOTH the auto and import scans
+that is not a dotdir and not in `SCAN_SKIP` (matched case-insensitively — see below) to a DEEP
+root (`DEEP_DEPTH=5`). It does NOT skip names already in the curated list — that name-skip would
+break case-sensitive-fs coverage (`~/Work` distinct from `~/work`); `seenDirs` (dev+ino) collapses
+the curated/discovered overlap on the case-insensitive target instead. Runs on BOTH the auto and import scans
 (these are non-TCC folders that need no grant, so they belong on the auto find-agents screen too).
 
 This directly implements Josh's "it could have been called anything": no fixed name list to
@@ -78,7 +80,7 @@ folder is a one-time inconvenience with a workaround. Would change my mind if me
 arbitrary-named external-volume workspaces are common; they are an edge case.
 
 ## Tests
-`engine/discover.location-2414.test.js` (8 arms, sandboxed via a CONSISTENT fixture home so
+`engine/discover.location-2414.test.js` (14 arms, sandboxed via a CONSISTENT fixture home so
 `defaultScanRoots` runs on a bare scan):
 - arbitrary-named folder nested DEEP (depth 3, name not case-colliding with a curated one) is found;
 - the user home root's own CLAUDE.md is found;

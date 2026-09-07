@@ -1284,8 +1284,13 @@ function scan(opts) {
       }
 
       /* Do not descend past the cap. The CLAUDE.md above was still read, so a
-         folder at the cap is offered; only its children are out of reach. */
-      if (cur.depth >= maxDepth) { hitDepth = true; continue; }
+         folder at the cap is offered; only its children are out of reach.
+         #2414: hitDepth means "a root meant to descend was truncated, so deeper
+         agents may be unreached". A maxDepth:0 root is read-ONLY by design (the
+         $HOME depth-0 read, whose children are covered by the discovered deep
+         roots), NOT a truncation -- so it must not raise bounded.depth, which
+         would otherwise become a permanent false "there may be more" signal. */
+      if (cur.depth >= maxDepth) { if (maxDepth > 0) hitDepth = true; continue; }
 
       for (const name of names) {
         if (name.startsWith('.')) continue;   // every dotdir: .git, .Trash, .config, .cache…
