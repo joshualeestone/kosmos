@@ -2,20 +2,20 @@
 pre_challenge: true
 method: challenge-loop
 branch: s2-nativepresent-gate
-diff_hash: 992acbc9c42f63028bf318a49cb04023adaabd499acace598ad34c3667af4f11
+diff_hash: 9ad26bb18f60d7605aa693284ba5ae504d7ed6fd9bf58b03cc94c6442d0aa0cf
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-07T01:03:31Z
-iterations: 3
+timestamp: 2026-09-07T01:18:44Z
+iterations: 4
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 3 (1 initial validation baseline + 2 blind review passes)
-**Converged:** Yes (blind pass 2 found no new actionable code findings)
-**Total findings:** 4 (0 BLOCKERs, 1 WARNING, 1 CONVENTION, 2 NITs)
-**Fixed:** 1 | **Deferred:** 3 | **Asked (awaiting user):** 0
+**Iterations:** 4 (1 initial validation baseline + 2 blind review passes + 1 CI full-validation finding)
+**Converged:** Yes (blind passes found no new actionable code findings; CI full-suite caught one broken guard, fixed)
+**Total findings:** 5 (0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 2 NITs)
+**Fixed:** 2 | **Deferred:** 3 | **Asked (awaiting user):** 0
 
 ### Per-Iteration Breakdown
 
@@ -37,6 +37,10 @@ Full pre-PR validation (typescript stack) + subdir-CLAUDE.md audit ran clean. No
 - 2 STRENGTHs: the per-gate refactor is correct and well-reasoned; test coverage is genuine and discriminating; all other gate consumers correctly reconciled.
 **Converged** -- every finding is deferred/out-of-scope or a non-code coordination note; no code change this iteration.
 
+#### Iteration 4 (CI full-validation finding)
+The initial PR CI run went red: the full `node --test engine/*.test.js *.test.js` suite (which my local validation helper ran a narrower subset of, missing this file) caught an existing guard my refactor broke. Handled as a 6g/6j-style validation finding (fix + re-validate, no new blind pass needed for a mechanical guard reconciliation).
+- [WARNING] web.firstrun-a11y-1214.test.js:50,53 -- source-shape guard pinned the OLD single-line tmux/sleep FR_GATES entries; the per-gate refactor changed the format --> FIXED (4d31d9bd): updated both regexes to tolerate the checkable-gating prefix + the added blocked line while still pinning endpoint+grant condition, AND added a new assertion guarding the file-access `nativePresent && !granted` block. Full `tools/run-tests.sh` re-run green (0 failures).
+
 ### Final Ledger
 
 | # | Iter | Category | File:Line | Description | Status | Resolution |
@@ -45,6 +49,7 @@ Full pre-PR validation (typescript stack) + subdir-CLAUDE.md audit ran clean. No
 | 2 | 2 | NIT | render-gated-next.js | no-nativePresent case missing no-false-green assert | FIXED | 4757b06a |
 | 3 | 3 | WARNING | web/index.html; fileaccessstatus.js | S2 gate inert until native route ships | DEFERRED | By-design fail-safe (reviewer: not a code defect); sequencing stated in PR body + coordinated with Kitty |
 | 4 | 3 | NIT | web/index.html:36323 | spec.blocked(r) called unguarded | DEFERRED | Defensive-only; symmetric with the equally-unguarded granted; closed FR_GATES literal |
+| 5 | 4 | WARNING | web.firstrun-a11y-1214.test.js:50,53 | source-shape guard pinned the old FR_GATES format | FIXED | 4d31d9bd (CI full-suite caught; helper ran a subset) |
 
 ### Outstanding questions (ASKED, still unresolved when the run ended)
 None.
