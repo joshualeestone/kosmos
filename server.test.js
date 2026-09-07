@@ -5366,6 +5366,12 @@ function firstRunHarness(name, state, opts = {}) {
     let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
     let FR_SCAN_GEN = 0;
     function frScanAgents() {}
+    /* #3/#4(a): frPaintFleet's create AND unknown arms now call frArmRescanOnGrant() (arms
+       the S9 grant-flip re-scan poll). Stubbed here like frScanAgents -- this harness tests
+       the painter's branch logic, not the poll (covered by render-firstrun-scan-on-grant-1652.js);
+       without the stub any render path that reaches the create or unknown arm throws a
+       ReferenceError (the adopt-with-count arm returns before it, so it alone would survive). */
+    function frArmRescanOnGrant() {}
     const frScanOffer = ${pageFunction('frScanOffer').toString()};
     /* #4 (0.6.42): frPaintFleet's create-arm gate and frPaintScan now also read
        frImportOffer (the loose agent FILES the scan found). Lift it as the REAL

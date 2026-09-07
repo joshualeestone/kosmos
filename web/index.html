@@ -36743,6 +36743,9 @@ function frGo(step) {
   // stops the permission-gate poll and invalidates any in-flight one (frGateStop
   // bumps FR_GATE_GEN), the same generation contract as above.
   if (step !== 2 && step !== 3) frGateStop();
+  // #3/#4 half (a): the grant-flip re-scan poll runs only on the find-agents screen
+  // (S9 = FR_STEP_YOU + 1); leaving it retires the poll, same generation contract as above.
+  if (step !== FR_STEP_YOU + 1) frRescanStop();
   FR_STEP = step;
   // The dot field warms from grey toward the golds as the steps advance.
   frDots.progress((step - 1) / (FR_STEPS - 1));
@@ -38614,7 +38617,90 @@ async function frFindAgents() {
  */
 let FR_SCAN = null;
 let FR_SCAN_GEN = 0;
-async function frScanAgents() {
+// #3/#4 half (a): whether the last frScanAgents used the file-access-GRANTED route
+// (/api/scan-import, which reaches ~/Documents, ~/Downloads, ~/Desktop). false means it ran
+// the TCC-free /api/scan-agents route, so a grant that lands LATER warrants a re-scan.
+let FR_SCAN_FULL = false;
+let FR_RESCAN_TIMER = null;
+let FR_RESCAN_GEN = 0;
+let FR_RESCAN_BUSY = false;   // a poll tick's granted re-scan is in flight; serialize the ticks
+// Poll cadence for the grant-flip re-scan. `let` (not const) so a browser check can lower it
+// and exercise the flip deterministically without waiting real seconds.
+let FR_RESCAN_INTERVAL_MS = 1500;
+function frRescanStop() {
+  FR_RESCAN_GEN += 1;
+  if (FR_RESCAN_TIMER) { clearInterval(FR_RESCAN_TIMER); FR_RESCAN_TIMER = null; }
+}
+/* #3/#4 half (a): the find-agents screen (S9) re-scans when file-access is granted LATE.
+   frScanAgents picks the granted /api/scan-import route only if /api/file-access-status
+   already reports granted when it runs. But S2's grant can land ASYNCHRONOUSLY -- the person
+   clicks Allow, the macOS TCC write propagates a beat later, and they have already advanced
+   to S9 -- so the scan ran TCC-free and their Documents/Downloads agents are missing here
+   (Josh 0.6.42 #4: "it never showed me the agents on the path"). This polls the SAME
+   /api/file-access-status signal S2 uses, and on the first not-granted -> granted EDGE
+   re-runs frScanAgents (now the granted route) and repaints. It polls ONLY on S9 and stops
+   after ONE flip (or when the person leaves S9 / finishes first-run). Kitty's engine half
+   (b) routes that granted walk through the app-exe hatch so it reads correctly and fires no
+   NEW prompt; both are behind the same /api/scan-import, so this inherits her fix when it
+   lands. */
+function frArmRescanOnGrant() {
+  // Only arm on the find-agents screen (S9 = FR_STEP_YOU + 1). The screen guard lives here
+  // (not only at the call sites) so this is safe to call from frPaintFleet's create arm on
+  // EVERY S9 render -- which is what re-arms the poll on a Back -> forward RETURN to S9,
+  // where FR_SCAN is already populated so no fresh scan (and thus no arm) would otherwise run.
+  if (FR_STEP !== FR_STEP_YOU + 1) return;
+  if (FR_SCAN_FULL) return;        // the scan already used the granted route; nothing to retry
+  if (FR_RESCAN_TIMER) return;     // already polling
+  const gen = ++FR_RESCAN_GEN;
+  const poll = async () => {
+    if (gen !== FR_RESCAN_GEN) return;
+    // Retire the poll the moment the person is no longer on S9.
+    if (FR_STEP !== FR_STEP_YOU + 1) { frRescanStop(); return; }
+    let granted = false;
+    try {
+      const g = await fetch('/api/file-access-status', { cache: 'no-store' });
+      const gr = g.ok ? await g.json() : null;
+      granted = !!(gr && gr.checkable === true && gr.granted === true);
+    } catch { granted = false; }
+    if (gen !== FR_RESCAN_GEN) return;
+    if (granted) {
+      // Don't repaint work out from under the person. The re-scan does a full #fr-fleet
+      // innerHTML repaint (frPaintScan), which the generation-guarded late paints elsewhere
+      // avoid but this deliberately-timed one does not. If focus is inside #fr-fleet -- an
+      // input being typed, or a row mid-submit that keeps focus on its button -- DEFER to a
+      // later tick (keep polling) rather than discarding that transient DOM state.
+      // TRADE-OFF (deliberate): a deferred re-scan never times out -- while focus stays inside
+      // #fr-fleet the poll keeps firing its light /api/file-access-status read every
+      // FR_RESCAN_INTERVAL_MS and returning here. It cannot leak past S9 (frGo/frFinish retire
+      // it on exit) and the page stays responsive; the re-scan simply waits until the person
+      // blurs or leaves, which is the correct time to repaint the box.
+      const fleet = document.getElementById('fr-fleet');
+      if (fleet && fleet.contains(document.activeElement)) return;   // retry next tick
+      // Stop only on a SUCCESSFUL granted re-scan, not merely on the grant edge. If
+      // /api/scan-import hiccups at the exact edge, frScanAgents leaves FR_SCAN_FULL false
+      // (it is set true only when the granted route actually DELIVERED -- see frScanAgents),
+      // so we keep the poll running and retry on the next tick rather than foreclosing the
+      // one retry this feature exists to give. AWAIT so we know the outcome; pass the
+      // confirmed grant so frScanAgents skips a second, hiccup-prone file-access read.
+      // Throttled, not a busy loop: frScanAgents's repaint re-arm is a no-op while the timer
+      // is still set (we have not stopped), so the retry waits for the next interval tick.
+      if (FR_RESCAN_BUSY) return;   // a prior tick's re-scan is still in flight; let it finish
+      FR_RESCAN_BUSY = true;
+      try {
+        // No FR_SCAN=null here: frScanAgents recomputes FR_SCAN unconditionally and never reads
+        // it at entry, so nulling it first only opened a brief window where a concurrent
+        // frPaintFleet could see FR_SCAN===null and fire a second bare scan. Dropping it removes
+        // that latent coupling with no behaviour change.
+        await frScanAgents(true);
+      } finally { FR_RESCAN_BUSY = false; }
+      if (gen !== FR_RESCAN_GEN) return;   // stopped / re-armed elsewhere while we awaited
+      if (FR_SCAN_FULL) frRescanStop();    // the granted scan delivered -> one flip, stop
+    }
+  };
+  poll();
+  FR_RESCAN_TIMER = setInterval(poll, FR_RESCAN_INTERVAL_MS);
+}
+async function frScanAgents(grantedHint) {
   const mine = ++FR_SCAN_GEN;
   let out = null;
   /* 🔑 #1652: LOAD FOUND AGENTS ONTO THIS SCREEN AFTER THE GRANT, NO LINK.
@@ -38639,11 +38725,18 @@ async function frScanAgents() {
      Screen 9's create empty-state, so the grant verdict is already settled by
      the time we choose a route. */
   let full = false;
-  try {
-    const g = await fetch('/api/file-access-status', { cache: 'no-store' });
-    const gr = g.ok ? await g.json() : null;
-    full = !!(gr && gr.checkable === true && gr.granted === true);
-  } catch { full = false; }
+  if (grantedHint === true) {
+    // #3/#4 half (a): the S9 grant-flip poll already confirmed the grant with its own read,
+    // so take the granted route directly rather than reading /api/file-access-status a second
+    // time (a redundant round-trip whose hiccup could silently degrade back to the bare route).
+    full = true;
+  } else {
+    try {
+      const g = await fetch('/api/file-access-status', { cache: 'no-store' });
+      const gr = g.ok ? await g.json() : null;
+      full = !!(gr && gr.checkable === true && gr.granted === true);
+    } catch { full = false; }
+  }
   try {
     const res = await fetch(full ? '/api/scan-import' : '/api/scan-agents', { cache: 'no-store' });
     out = res.ok ? await res.json() : null;
@@ -38661,8 +38754,18 @@ async function frScanAgents() {
   /* #4/N5: accept a result carrying EITHER array. The real scan contract returns
      both, but gating the whole result on `candidates` alone would silently drop an
      importable-only answer now that frImportOffer is a second consumer. */
-  FR_SCAN = out && (Array.isArray(out.candidates) || Array.isArray(out.importable))
-    ? out : { ok: false, candidates: [] };
+  const scanOk = !!(out && (Array.isArray(out.candidates) || Array.isArray(out.importable)));
+  FR_SCAN = scanOk ? out : { ok: false, candidates: [] };
+  /* #3/#4 half (a): FR_SCAN_FULL means the GRANTED route ran AND DELIVERED -- not merely that
+     it was attempted. If the granted /api/scan-import hiccups at the grant edge (out === null),
+     leave it false so the grant-flip poll (and a return to S9) can retry; otherwise a single
+     transient failure would set FR_SCAN_FULL true and every future frArmRescanOnGrant would
+     short-circuit, silently foreclosing the one retry the late-grant person depends on. The
+     bare (ungranted) route keeps FR_SCAN_FULL false regardless, so the poll still arms. */
+  FR_SCAN_FULL = full && scanOk;
+  // The repaint re-enters frPaintFleet's create arm, which arms the grant-flip poll when the
+  // scan ran ungranted (frArmRescanOnGrant is idempotent + S9-guarded). Arming there rather
+  // than here is what also re-arms on a Back -> forward RETURN to S9 (where no fresh scan runs).
   if (FR_STEP > FR_STEP_YOU) frPaintFleet();
 }
 
@@ -39376,6 +39479,13 @@ function frPaintFleet() {
       frActions();
       return;
     }
+    /* #3/#4 half (a): the disk scan is done. If it ran BEFORE file-access was granted (a
+       grant that lands async, S2 -> S9), watch for the grant edge and re-scan once when it
+       flips. Placed here rather than in frScanAgents so it also (re-)arms on a Back ->
+       forward RETURN to S9, where FR_SCAN is already populated and no fresh scan runs.
+       Idempotent + S9-guarded, so calling it on every S9 render is safe and a no-op once the
+       scan was granted (FR_SCAN_FULL) or the poll is already armed. */
+    frArmRescanOnGrant();
     if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
     title.textContent = 'Create your first agent.';
     /**
@@ -39538,7 +39648,14 @@ function frPaintFleet() {
      where reading the disk is most valuable was the state that never tried it. Fire it
      once here too; a candidate found is a far better answer than "we could not see". */
   if (FR_SCAN === null) frScanAgents();
-  else if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
+  else {
+    /* #3/#4(a): the unknown arm scans the disk too (the perverse path above), so a grant
+       that lands late must re-scan HERE as well -- otherwise this sibling S9 arm carries the
+       exact #4 bug the create arm's fix removes, and this is the MORE important arm (tmux
+       unreadable, so the disk is the only source). Idempotent + S9-guarded, same call. */
+    frArmRescanOnGrant();
+    if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
+  }
 
   title.textContent = 'We could not see what is on this computer';
   // The pack's ending C, verbatim.
@@ -39772,6 +39889,7 @@ async function frFinish(then) {
    */
   if (FR_FINISHING) return;
   FR_FINISHING = true;
+  frRescanStop();   // #3/#4 half (a): first-run is ending; retire the grant-flip re-scan poll
   const next = document.getElementById('fr-next');
   /**
    * ⚠️ FOCUS MOVES BEFORE THE BUTTON GOES DEAD. Disabling the element that
