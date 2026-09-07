@@ -172,3 +172,19 @@ a source-assert (native-app.a11y-writer-2125.test.js style) + the engine consume
   user, one screen). If two scans ever overlap, the freshness window could hand one session the
   other's result; acceptable for a user-visible scan (re-scan fixes it), and the nonce is still
   echoed end-to-end for a future tightening.
+
+## ITERATION 2 HARDENING (2026-09-07 ~03:10)
+- **never hangs**: defaultTccScan now gates on promptrequest.nativePresent() -- no native app ->
+  return a resolved-empty TCC result (scanning:false), never scanning-forever and never an in-engine
+  TCC walk (which would re-prompt). And a TCC_GIVE_UP_MS (12s) bound: if the app is present but the
+  request goes unanswered too long (crashed hatch), give up to a resolved-empty result. getImportScan
+  caches that complete result so the front-end retry stops.
+- **confused-deputy**: the hatch clamps the walk to exactly ~/Documents,~/Downloads,~/Desktop
+  (canonicalised); a forged scan-request.json naming arbitrary roots is refused. Test seam
+  AGENT_WORKFORCE_SCAN_ALLOW_ROOTS (mirrors the engine's SCAN_ROOTS override) for fixtures.
+- **TOCTOU**: headBytes now opens O_RDONLY|O_NOFOLLOW|O_NONBLOCK -- a symlink swapped in after the
+  lstatType check is refused atomically at open (parity with the engine's import-file read).
+- **atomic request**: scan-request.json written tmp+rename.
+- ScanBudgets default maxDirs aligned to the engine's 6000.
+- Deferred: the loose-file budget COUNT can diverge by a symlink/unreadable file between hatch and
+  engine -- bounded.importable is a "there may be more" hint, not an exact count; cosmetic.

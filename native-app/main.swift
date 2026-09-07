@@ -554,7 +554,7 @@ private let kScanSkip: Set<String> = [
     "Public", "Desktop", "Documents", "Photos Library.photoslibrary",
 ]
 private struct ScanBudgets {
-    var maxDirs = 8000
+    var maxDirs = 6000   // matches the engine's SCAN.MAX_DIRS; only used if a request omits budgets
     var maxMdPerDir = 40
     var maxMdReads = 3000
     var readCap = 4000
@@ -564,11 +564,17 @@ private struct ScanBudgets {
 // file (an agent .md is small, but a mis-placed huge file must not be slurped). Returns nil if
 // unreadable (which, for a TCC root before the grant, is exactly the not-granted signal).
 private func headBytes(_ path: String, cap: Int) -> String? {
-    guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
-    defer { try? fh.close() }
-    let data = (try? fh.read(upToCount: cap)) ?? nil
-    guard let d = data else { return nil }
-    return String(decoding: d, as: UTF8.self)
+    // O_NOFOLLOW closes the lstat->open TOCTOU atomically: a symlink swapped into a user-writable
+    // TCC root between the lstatType check and this open is refused here (open fails with ELOOP)
+    // rather than followed. O_NONBLOCK stops a fifo swapped into that same window from blocking.
+    // (Parity with the engine's /api/agent-import-file read hardening.)
+    let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+    if fd < 0 { return nil }
+    defer { close(fd) }
+    var buf = [UInt8](repeating: 0, count: cap)
+    let n = read(fd, &buf, cap)
+    if n <= 0 { return nil }
+    return String(decoding: buf[0..<n], as: UTF8.self)
 }
 
 /* #3/#2125 -- THE NO-SYMLINK-ESCAPE GUARD (engine parity, discover.js). The TCC roots
@@ -693,11 +699,37 @@ func scanUnderGrant() -> Bool {
         }
     }
 
+    // CONFUSED-DEPUTY GUARD: this hatch holds the app's broad Files-and-Folders grant, so it must
+    // only ever walk the THREE expected TCC roots. scan-request.json lives in the user's own
+    // Application Support, but a same-user process WITHOUT a Documents grant could still write one
+    // naming arbitrary paths and harvest the head bytes from the world-of-same-user-readable
+    // scan-result.json -- a within-user privilege escalation. Clamp to ~/Documents, ~/Downloads,
+    // ~/Desktop (canonicalised), refusing anything else, so a forged request cannot redirect the
+    // grant. The engine only ever sends these three.
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    // Test seam, mirroring the engine's AGENT_WORKFORCE_SCAN_ROOTS override: a path-delimited list
+    // REPLACES the allowlist so a fixture tree can be walked under test. Unset in production ->
+    // exactly the three TCC roots.
+    let allowedRoots: Set<String>
+    if let override = ProcessInfo.processInfo.environment["AGENT_WORKFORCE_SCAN_ALLOW_ROOTS"], !override.isEmpty {
+        allowedRoots = Set(override.split(separator: ":").map {
+            URL(fileURLWithPath: String($0)).resolvingSymlinksInPath().path
+        })
+    } else {
+        allowedRoots = Set(["Documents", "Downloads", "Desktop"].map {
+            home.appendingPathComponent($0).resolvingSymlinksInPath().path
+        })
+    }
     for r in roots {
         guard let dir = r["dir"] as? String else { continue }
+        let canonDir = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
+        guard allowedRoots.contains(canonDir) else {
+            logLine("scan: refusing non-TCC-root \(dir) (confused-deputy guard)")
+            continue
+        }
         let maxDepth = (r["maxDepth"] as? Int) ?? 4
         let importOnly = (r["importOnly"] as? Bool) ?? false
-        walk(dir, depth: maxDepth, importOnly: importOnly)
+        walk(canonDir, depth: maxDepth, importOnly: importOnly)
     }
 
     let result: [String: Any] = [

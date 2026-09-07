@@ -38,7 +38,9 @@ cat > "$AW/scan-request.inflight" <<EOF
 {"roots":[{"dir":"$FIX","maxDepth":4}],"budgets":{"maxDirs":8000,"maxMdPerDir":40,"maxMdReads":3000,"readCap":4000},"req":"symnonce"}
 EOF
 
-AGENT_WORKFORCE_DATA="$STORE" "$BIN" --kosmos-app-scan
+# AGENT_WORKFORCE_SCAN_ALLOW_ROOTS: the test seam that lets the confused-deputy allowlist accept
+# the fixture root (production allows only ~/Documents,~/Downloads,~/Desktop).
+AGENT_WORKFORCE_DATA="$STORE" AGENT_WORKFORCE_SCAN_ALLOW_ROOTS="$FIX" "$BIN" --kosmos-app-scan
 RES="$AW/scan-result.json"
 [ -f "$RES" ] || { echo "scan-hatch-symlink: hatch wrote no scan-result.json"; exit 1; }
 

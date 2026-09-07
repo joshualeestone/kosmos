@@ -75,6 +75,20 @@ test('the no-symlink-escape guard is present: dirs and files are lstat-checked, 
   // against a fixture with symlinks into /etc and asserts refusal).
 });
 
+test('the confused-deputy guard clamps the walk to the three TCC roots (allowlist)', () => {
+  // The hatch holds the app's broad grant, so a forged scan-request.json naming arbitrary roots
+  // must not redirect it. It walks only ~/Documents,~/Downloads,~/Desktop (canonicalised).
+  assert.match(SRC, /allowedRoots/, 'no allowlist in the root loop');
+  assert.match(SRC, /"Documents", "Downloads", "Desktop"/, 'the allowlist is not the three TCC roots');
+  assert.match(SRC, /allowedRoots\.contains\(canonDir\)/, 'the requested root is not checked against the allowlist');
+  // A test seam mirrors the engine's AGENT_WORKFORCE_SCAN_ROOTS override for fixtures.
+  assert.match(SRC, /AGENT_WORKFORCE_SCAN_ALLOW_ROOTS/, 'no test-seam override for the allowlist');
+});
+
+test('file reads use O_NOFOLLOW to close the lstat->open symlink TOCTOU', () => {
+  assert.match(SRC, /O_RDONLY \| O_NOFOLLOW/, 'headBytes does not open with O_NOFOLLOW');
+});
+
 test('the result is written atomically and echoes the request nonce', () => {
   assert.match(SRC, /options:\s*\.atomic/, 'scan-result.json is not written atomically (a torn read would break the engine)');
   assert.match(SRC, /"req":\s*nonce/, 'the result does not echo the request nonce');

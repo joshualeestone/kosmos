@@ -95,6 +95,22 @@ test('defaultTccScan bridge: drops a nonce request, merges the matching result, 
     const tccRoot = { dir: '/nonexistent/Documents', maxDepth: 4, tcc: true };
     const call = () => discover.scan({ roots: [{ dir: walkRoot, maxDepth: 3 }, tccRoot] }); // NO stub -> defaultTccScan
 
+    // Control nativePresent directly (a11ystatus freezes its FILE path at require, so a temp
+    // a11y-status.json cannot steer it; discover calls promptrequest.nativePresent() on the object
+    // each time, so patching the method controls the gate. a11ystatus's own freshness is its tests').
+    const pr = require('./promptrequest');
+    const origNP = pr.nativePresent;
+    try {
+      // 0) NO native app -> the scan COMPLETES empty (scanning:false), does NOT hang forever, and
+      // drops no request (nothing would answer).
+      pr.nativePresent = () => false;
+      const rNoApp = call();
+      assert.strictEqual(rNoApp.scanning, false, 'no native app -> scan completes, not scanning forever');
+      assert.ok(!fs.existsSync(reqPath), 'no native app -> no request dropped');
+
+      // App present for the rest.
+      pr.nativePresent = () => true;
+
     // 1) First call: no result yet -> scanning:true, and a nonce request is dropped.
     const r1 = call();
     assert.strictEqual(r1.scanning, true, 'first call: not ready -> scanning:true');
@@ -116,6 +132,9 @@ test('defaultTccScan bridge: drops a nonce request, merges the matching result, 
     assert.strictEqual(rOk.scanning, false, 'matching-nonce result -> scanning:false');
     assert.ok(rOk.candidates.some((c) => c.dir === '/x/Documents/bob' && c.name === 'Bob'), 'the matching result merged');
     assert.ok(!fs.existsSync(resPath), 'the result was consumed (unlinked) on read');
+    } finally {
+      pr.nativePresent = origNP;   // restore the patched gate
+    }
 
     fs.rmSync(walkRoot, { recursive: true, force: true });
   } finally {

@@ -41,6 +41,9 @@ const store = require('./store');
 // found-files list and the import form agree on a role-first-under-`# Name` file
 // (agentfile requires no engine module, so this is a clean one-way dependency).
 const agentfile = require('./agentfile');
+// #3/#2125: nativePresent() (a11y-status freshness) tells defaultTccScan whether a native app is
+// there to answer the hatch request. No circular require -- promptrequest pulls a11ystatus, not this.
+const promptrequest = require('./promptrequest');
 
 /* "Dismiss this forever" (Josh, 2026-08-24 17:06): the board's found-agents
    block can be sent away for good. The flag lives on disk beside the app's
@@ -883,12 +886,28 @@ function readClaudeHead(file) {
    opts.tccScan for tests. */
 const TCC_RESULT_FRESH_MS = 30 * 1000;
 const TCC_REQUEST_PENDING_MS = 15 * 1000;
+/* #3/#2125: the "never hangs" bound. If the native app is present but our request goes unanswered
+   this long (a crashed/failed hatch), give up and COMPLETE the scan without TCC rows rather than
+   report scanning:true forever. The plan required a give-up; this is it. */
+const TCC_GIVE_UP_MS = 12 * 1000;
+// A resolved-but-empty TCC result: the scan is COMPLETE (scanning:false) with no TCC rows. Used
+// when no native app can answer (headless/browser) or when the app never answered in time.
+const TCC_UNAVAILABLE = Object.freeze({ dirs: [], loose: [], bounded: { tccUnavailable: true } });
 /* #3/#2125: the nonce + time of the last scan-request THIS process dropped. A result is accepted
    only when it echoes this nonce -- so two overlapping find-agents sessions cannot cross results
    (freshness alone could not tell them apart). Module-scoped: the engine is one process; a restart
    forgets it and simply drops a fresh request, which the app answers with a new nonce. */
 let tccPendingReq = null;
 function defaultTccScan(tccRoots, budgets) {
+  // No native app to answer means the hatch cannot run (a headless `kosmos start` board opened in
+  // a plain browser, or the app not running). We must NOT hang on scanning:true, and must NOT walk
+  // the TCC roots in-engine (that is the re-prompt this whole change removes). So COMPLETE the scan
+  // with no TCC rows: a resolved-empty result -> scanning:false. (nativePresent = a11y-status is
+  // fresh, i.e. the app is maintaining its status writer.)
+  let nativeUp = false;
+  try { nativeUp = promptrequest.nativePresent(); } catch { nativeUp = false; }
+  if (!nativeUp) return TCC_UNAVAILABLE;
+
   let reqPath, resPath;
   try {
     reqPath = path.join(store.ROOT, 'scan-request.json');
@@ -911,16 +930,28 @@ function defaultTccScan(tccRoots, budgets) {
   } catch { /* no result yet */ }
   if (res) return { dirs: res.dirs || [], loose: res.loose || [], bounded: res.bounded || {} };
 
+  // GIVE UP: the app is present but our request has gone unanswered too long (a crashed/failed
+  // hatch). Stop reporting scanning:true forever -- complete the scan without TCC rows. getImportScan
+  // then caches this complete result, so the front-end's retry stops rather than polling endlessly.
+  if (tccPendingReq && (Date.now() - tccPendingReq.at) > TCC_GIVE_UP_MS) {
+    tccPendingReq = null;
+    return TCC_UNAVAILABLE;
+  }
+
   // No matching result. Drop a request so the app produces one, unless ours is still pending.
   const pending = tccPendingReq && (Date.now() - tccPendingReq.at < TCC_REQUEST_PENDING_MS);
   if (!pending) {
     const nonce = String(Date.now()) + '-' + Math.random().toString(16).slice(2);
     try {
-      fs.writeFileSync(reqPath, JSON.stringify({
+      // Write tmp+rename so a reader (the app watcher) never sees a torn request (parity with the
+      // store's other writers). rename is atomic within the same dir.
+      const tmp = reqPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({
         roots: tccRoots.map((r) => ({ dir: r.dir, maxDepth: r.maxDepth, importOnly: r.importOnly === true })),
         budgets,
         req: nonce,
       }));
+      fs.renameSync(tmp, reqPath);
       tccPendingReq = { nonce, at: Date.now() };
     } catch { /* best effort; the retry re-attempts */ }
   }
