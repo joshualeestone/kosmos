@@ -3186,6 +3186,14 @@ function byWorkdirDetailed(agentName) {
     && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
   let sawTranscripts = false;
 
+  // Gather candidates from EVERY searched folder first, then rank globally.
+  // ⚠️ Collecting across the (canon, raw) folders before sorting keeps the
+  // "newest first" invariant honest: were both folders populated, a per-folder
+  // return would hand back the first folder's newest rather than the newest
+  // overall. In practice getcwd canonicalizes, so real transcripts only land in
+  // `flatten(canon)` and the two folders do not both fill -- but the ranking
+  // must not depend on that being true.
+  const candidates = [];
   for (const root of configRoots()) {
     for (const flat of flats) {
       const projects = path.join(root, 'projects', flat);
@@ -3196,21 +3204,19 @@ function byWorkdirDetailed(agentName) {
       // Something has been written for this agent, whether or not it turns out to
       // be readable. That fact is what separates "has not started" from "broken".
       sawTranscripts = true;
-      // Newest first: a running agent is writing to its current session, and an
-      // agent that has been restarted has older ones beside it.
-      const byNewest = jsonl
-        .map((n) => {
-          const full = path.join(projects, n);
-          let mtime = 0;
-          try { mtime = fs.statSync(full).mtimeMs; } catch { /* skip below */ }
-          return { full, mtime };
-        })
-        .filter((f) => f.mtime > 0)
-        .sort((a, b) => b.mtime - a.mtime);
-      for (const f of byNewest) {
-        if (belongs(transcriptCwd(f.full))) return { file: f.full, sawTranscripts };
+      for (const n of jsonl) {
+        const full = path.join(projects, n);
+        let mtime = 0;
+        try { mtime = fs.statSync(full).mtimeMs; } catch { continue; }
+        if (mtime > 0) candidates.push({ full, mtime });
       }
     }
+  }
+  // Newest first ACROSS every candidate folder: a running agent is writing to
+  // its current session, and a restarted one has older ones beside it.
+  candidates.sort((a, b) => b.mtime - a.mtime);
+  for (const f of candidates) {
+    if (belongs(transcriptCwd(f.full))) return { file: f.full, sawTranscripts };
   }
   return { file: null, sawTranscripts };
 }
