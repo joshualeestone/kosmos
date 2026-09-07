@@ -1814,6 +1814,96 @@ driverTest('#1560 CONTROL: an UNVERIFIABLE live check keeps the old behaviour ra
   } finally { subscription.setRunner(null); }
 });
 
+/**
+ * #1937: an EXPLICIT re-auth must run a REAL login, even when the file AND
+ * `claude auth status` both say connected.
+ *
+ * 🛑 THE DANGEROUS ANSWER THIS ARM REJECTS. Ben's state was: the local file
+ * names a paid plan (`check()` -> CONNECTED) and `claude auth status` reports
+ * `loggedIn: true`. That status is expiry-blind (#874/#1916): it says a login
+ * EXISTS, never that it WORKS, so it answers connected for a DEAD credential.
+ * With that state and no reauth flag, `start()` takes the already-connected
+ * short-circuit and never launches a sign-in -- so the one button that repairs
+ * the account (its "Sign in again") does nothing, which is the lockout the card
+ * is about. The CONTROL below is exactly that state without the flag, proving the
+ * flag is the discriminant: before this fix, THIS arm behaved like the control.
+ *
+ * 🔑 THE SEAM IS `subscription.setRunner`, the same one #1560's tests use: without
+ * a live runner `checkLive()` answers UNKNOWN in the sandbox and the CONNECTED
+ * arm is never entered, so replacing the reauth bypass with `if (false)` would
+ * leave every OTHER test green. This arm drives the runner to `loggedIn: true` so
+ * the short-circuit is live and the bypass is actually exercised.
+ */
+driverTest('#1937: an EXPLICIT re-auth runs a REAL login even when file + auth-status say connected', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start({ reauth: true });
+    assert.notEqual(st.phase, connect.PHASE.CONNECTED,
+      'an explicit re-auth was answered "already connected" and never ran the sign-in -- the #1937 lockout');
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'the re-auth launched no sign-in session at all, so nothing repairs the credential');
+    /* The launch must run a REAL login. `launchSignin` pushes the login
+       subcommand LAST, as three bare argv elements (multi-arg, never a quoted
+       string -- the tmux 3.6a invariant this file's #1922 arms measure), so the
+       final three tokens of the new-session argv are the login command. A bare
+       `claude` (the pre-fix launch) would end at the binary and re-read the same
+       config that already said CONNECTED. */
+    assert.deepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      're-auth did not launch `claude auth login --claudeai`; argv was ' + JSON.stringify(made.slice(-6)));
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * ⭐ THE CONTROL. Without it the arm above is satisfied by a change that simply
+ * stops short-circuiting for EVERYONE -- which would drag every genuinely
+ * connected person through a needless sign-in. Same connected state, no reauth
+ * flag: the short-circuit must still hold and nothing may open.
+ */
+driverTest('#1937 CONTROL: WITHOUT the reauth flag, a connected account still short-circuits and opens nothing', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start();
+    assert.equal(st.phase, connect.PHASE.CONNECTED,
+      'a normal start on a connected account must still report connected, not run a sign-in');
+    assert.equal(term.made, 0,
+      'a sign-in session was opened for somebody already signed in -- the non-reauth path must be byte-identical');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * ⭐ THE SECOND CONTROL, on the LAUNCH rather than the gate. The login arguments
+ * are scoped to `owner.reauth`, so an ordinary (non-reauth) sign-in that DOES
+ * launch -- the first-run path, reached here by a signed-out world -- must remain
+ * a bare `claude` with no login subcommand appended. Without this, a change that
+ * appended the login args unconditionally would pass the arm above.
+ */
+driverTest('#1937 CONTROL: a NON-reauth sign-in launch does NOT append the login subcommand', async () => {
+  // World says signed out, so start() falls through and launches the first-run
+  // sign-in -- the byte-identical bare-`claude` path.
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start();
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'the first-run sign-in launched no session, so this control asserts nothing');
+    assert.notDeepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      'a non-reauth launch appended the login subcommand -- the change is meant to be scoped to an explicit re-auth');
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('cancel stops the flow and reports idle', async () => {
   const term = fakeTerminal();
   connect.setRunner(term.runner);

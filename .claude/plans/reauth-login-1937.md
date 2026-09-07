@@ -61,7 +61,43 @@ Wiring points to touch: web/index.html (the reauth POST body adds `reauth:true`)
 that maps `/api/connect/start` → `connect.start(opts)` (pass `reauth` through), and connect.js
 (`start()` gate + `launchSignin()` command).
 
-## MEASUREMENT B (still to run, in a throwaway pane) — decides mechanism details
+## MEASUREMENT B — RESOLVED (2026-09-07, throwaway isolated pane)
+
+Ran `claude auth login --claudeai` in an isolated pane (throwaway `CLAUDE_CONFIG_DIR`,
+a no-op `open` shadowed on PATH so no real browser and no collision with an active
+release cut; the real `~/.claude.json` was untouched — mtime unchanged). The first
+screen printed:
+
+```
+Opening browser to sign in…
+If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?...
+Paste code here if prompted >
+```
+
+⇒ Both strings are ALREADY recognized by `classifyPane` (connect.js:855+):
+`Opening browser to sign in` → browser-open, `Paste code here` → awaiting-code.
+`--claudeai` skips the `Select login method` chooser (harmless — the browser
+recognizer fires immediately). **No recognizer widening needed.** The weakest
+premise is discharged: the existing driver walks the flow unchanged.
+
+## IMPLEMENTED (2026-09-07)
+
+Five edits, reauth signal explicit end-to-end (web → server → engine):
+- `web/index.html` (~16277): the reauth POST body carries `reauth: true`.
+- `server.js` (~6223/6327): validate `reauth` boolean (400 on non-boolean), thread
+  it into the accountDir `connect.start` call.
+- `engine/connect.js` `start()` (~958/1001): `const reauth = ...`; the CONNECTED
+  short-circuit gate becomes `&& !reauth` — a non-reauth start is byte-identical.
+- `engine/connect.js` owner (~1352): `owner` carries `reauth`.
+- `engine/connect.js` `launchSignin()` (~1969): push `'auth','login','--claudeai'`
+  (multi-arg, bare) after the binary ONLY when `owner.reauth` — first-run launch
+  unchanged.
+
+Tests (all perturb-verified — each reds on its own defect, controls stay green):
+- `engine/connect.test.js`: #1937 fix arm (connected file + `loggedIn:true` +
+  `reauth:true` → NOT connected, launches `auth login --claudeai`); CONTROL (no
+  flag → short-circuits, opens nothing); CONTROL (non-reauth launch omits login args).
+- `server.connect.test.js`: non-boolean `reauth` → 400.
 
 ## Mechanism decision (recommend + rejected, per the ruling)
 

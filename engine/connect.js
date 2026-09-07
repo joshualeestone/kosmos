@@ -947,6 +947,15 @@ function validCode(code) {
 
 async function start(opts) {
   const configDir = opts && typeof opts.configDir === 'string' && opts.configDir ? opts.configDir : null;
+  /* #1937: an EXPLICIT re-auth ("Sign in again" on a specific account) means the
+     person is deliberately repairing a login the file may still call good. The
+     CONNECTED short-circuit below runs `checkLive`, which reports that a login
+     EXISTS, never that it WORKS (#874/#1916) -- so on a dead-but-present
+     credential it would refuse to re-auth the very account the button targets.
+     This flag skips that one early exit; every other guard on the flow (install
+     confirm, binary probe, the launch itself) is unchanged, and a non-reauth
+     start still refuses exactly what it refused before. */
+  const reauth = !!(opts && opts.reauth === true);
   /* A relative path here is a caller bug, and quietly resolving it against
      an unknowable cwd would sign somebody in to a directory nobody can
      name. Loud, before any state moves. */
@@ -989,7 +998,7 @@ async function start(opts) {
      account connected and a fresh directory requested, an unscoped check
      would early-exit every add-another-account attempt as already done. */
   const sub = subscription.check(configDir ? { configDir } : undefined);
-  if (sub.state === subscription.STATE.CONNECTED) {
+  if (sub.state === subscription.STATE.CONNECTED && !reauth) {
     /**
      * 🛑 THE FILE SAYING CONNECTED IS NOT ENOUGH TO REFUSE TO CONNECT (#1560).
      * `check()` reads `oauthAccount.organizationType` out of a local file and
@@ -1340,7 +1349,7 @@ async function start(opts) {
    * cannot distinguish "cancelled" from "replaced"; `driver !== owner` can.
    */
   flowDir = configDir;
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir };
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, reauth };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -1934,6 +1943,32 @@ async function launchSignin(owner) {
     cmd.push('-u', 'CLAUDE_CONFIG_DIR');
   }
   cmd.push(claudeBinPath());
+
+  /* #1937: an EXPLICIT re-auth must run a REAL login, not a bare `claude`. A cold
+     bare `claude` against a dead-but-present credential drops into the REPL
+     ("Not logged in - Run /login"): no walkable chooser, the tick re-reads the
+     same config that already said CONNECTED, and the press ends where it started.
+     `auth login --claudeai` is a login the CLI cannot ignore.
+
+     ⚠️ MULTI-ARG AND BARE, like every argument this function pushes: this tmux
+     (3.6a) runs multiple arguments as argv, so `'auth', 'login', '--claudeai'`
+     are three separate elements -- NOT a single quoted string, which the LIVE
+     check upstream measured killing the launch outright.
+
+     ✅ The driver's `classifyPane` already walks the whole flow this produces:
+     measured in a throwaway pane (#1937 Measurement B), `claude auth login
+     --claudeai` prints "Opening browser to sign in..." (-> browser-open) then
+     "Paste code here if prompted >" (-> awaiting-code), both existing recognizers;
+     `--claudeai` skips the login-method chooser, which is harmless. No recognizer
+     widening was needed.
+
+     📌 Only for `owner.reauth`. The first-run/add-another launch is left byte-
+     identical (a bare `claude` on a machine with no credential opens its own
+     onboarding); this changes only the deliberate re-auth of an existing account,
+     which is the one path the bare launch could not repair. */
+  if (owner.reauth) {
+    cmd.push('auth', 'login', '--claudeai');
+  }
 
   /* 📌 The `-u` pushed above sits AFTER `env` in the tmux argv, so it is part of
      the shell-command tmux runs and not an option tmux itself consumes. That

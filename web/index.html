@@ -16393,8 +16393,12 @@ async function acctAddStart(installConfirmed) {
       /* #1574: the confirm flag rides with whichever shape this is. The fresh
          `/api/first-run` read above narrows the window; only the server, deciding
          inside the same call that would download, closes it. */
+      /* #1937: an existing account's re-auth carries `reauth: true`, an explicit
+         signal the server threads to connect.start so it skips the already-
+         connected short-circuit and runs a REAL login (not a bare `claude` that
+         re-reads the same config and reports connected without repairing it). */
       body: JSON.stringify(Object.assign(
-        ACCT_REAUTH_DIR ? { accountDir: ACCT_REAUTH_DIR } : { another: true },
+        ACCT_REAUTH_DIR ? { accountDir: ACCT_REAUTH_DIR, reauth: true } : { another: true },
         { installConfirmed: installConfirmed === true },
       )),
     });
