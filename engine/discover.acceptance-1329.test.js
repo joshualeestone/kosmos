@@ -216,12 +216,18 @@ test('#1329 #2410: Gemini agents surface by front-matter name, and vanish when t
   const gnames = (withHome.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-')).map((c) => c.name).sort();
   assert.deepEqual(gnames, ['code-reviewer', 'project-explainer', 'sarah'], 'the 3 Gemini agents did not all surface by front-matter name');
 
-  // PERTURBATION: with no gemini-home override and explicit roots, the merge is gated OFF
-  // (it must never read the operator's real ~/.gemini). If this arm still returned the 3,
-  // the assertion above would be measuring the real home, not the fixture. It must go to 0.
+  // PERTURBATION: drop the gemini-home override and re-run with the same explicit roots.
+  // What this proves cleanly, on any machine: the fixture's 3 files live under a `.gemini`
+  // DOTDIR, which the walk skips, so with no override reaching them they must vanish. If the
+  // walk ever stopped skipping dotdirs, stillGemini would go non-zero here regardless of the
+  // operator's real home - so this is a real, machine-independent guard on the dotdir skip.
+  // (It does NOT independently prove the explicit-roots gate `!explicit || override`: on a
+  // machine with no real ~/.gemini/agents a gate regression would also yield 0. The gate's
+  // job - never read the real home under explicit roots - is asserted by the whole file's
+  // hermeticity contract, not by this arm alone.)
   const noHome = discover.scan({ roots: [{ dir: DISK, maxDepth: 4 }] });
   const stillGemini = (noHome.importable || []).filter((c) => path.basename(c.file).startsWith('gemini-'));
-  assert.equal(stillGemini.length, 0, 'the Gemini arm read a home it was not pointed at - the positive arm is not really exercising the fixture');
+  assert.equal(stillGemini.length, 0, 'the Gemini fixture surfaced with no home override - the walk is no longer skipping the .gemini dotdir');
 });
 
 /* ───────────────────────────────────────────────────────────────────────────────────
@@ -230,12 +236,14 @@ test('#1329 #2410: Gemini agents surface by front-matter name, and vanish when t
    machine actually has, not only as loose downloads.
    ─────────────────────────────────────────────────────────────────────────────────── */
 test('#1329 CLAUDE.md folder is a connect candidate by name; a Claude-recorded folder is owned by found()', () => {
+  // Only CONFIG_ROOT is swapped: found()'s configRoots reads it live per call, so this test
+  // gets its own Claude records dir. AGENT_WORKFORCE_DATA is deliberately NOT swapped - store
+  // paths (declined/dismiss/profiles) are resolved once at module require() time, so a per-test
+  // DATA swap would be inert; this test touches none of them, and the module-load SB/data keeps
+  // it sandboxed regardless.
   const CFG = fs.mkdtempSync(path.join(SB, 'cfg-'));
-  const DATA = fs.mkdtempSync(path.join(SB, 'data-'));
   const prevCfg = process.env.AGENT_WORKFORCE_CONFIG_ROOT;
-  const prevData = process.env.AGENT_WORKFORCE_DATA;
   process.env.AGENT_WORKFORCE_CONFIG_ROOT = path.join(CFG, 'claude');
-  process.env.AGENT_WORKFORCE_DATA = path.join(DATA, 'data');
   try {
     const DISK = fs.mkdtempSync(path.join(SB, 'folders-'));
     // Nova as a CLAUDE.md folder that Claude never recorded -> a connect candidate.
@@ -266,20 +274,53 @@ test('#1329 CLAUDE.md folder is a connect candidate by name; a Claude-recorded f
     assert.ok(!r.candidates.some((c) => c.dir === baronDir), 'the recorded folder was double-listed by the scan');
   } finally {
     process.env.AGENT_WORKFORCE_CONFIG_ROOT = prevCfg;
-    process.env.AGENT_WORKFORCE_DATA = prevData;
   }
 });
 
 /* ───────────────────────────────────────────────────────────────────────────────────
-   PART E - provider spread. The pre-existing column is "Claude AND OpenAI". At the
-   classification layer both are represented: the Claude/CLAUDE.md shape (Nova/Baron/
-   Work1/pip) and the OpenAI/Codex AGENTS.md-convention shape (Codex) are both read by name.
+   PART E - the OpenAI provider, through its OWN code path. The pre-existing column is
+   "Claude AND OpenAI". Parts A/B/D already cover the Claude family (CLAUDE.md via found()
+   and scan). This part covers the OpenAI/Codex family through the mechanism that actually
+   distinguishes it - foundCodex reading an AGENTS.md named by a codex rollout - not a loose
+   .md that happens to say "You are ...", which looseRow parses identically whatever the
+   provider. The row it produces carries runner='codex', the real provider signal, which is
+   what makes this a distinct guard rather than a duplicate of the positive control.
+   (This is corpus fixture #4's documented "real Codex path: codexIdentity -> identityFromText".)
    ─────────────────────────────────────────────────────────────────────────────────── */
-test('#1329 both providers are represented: a Claude-shape and an OpenAI/Codex-shape agent are both read by name', () => {
-  const DISK = fs.mkdtempSync(path.join(SB, 'providers-'));
-  const claude = loose(DISK, 'a/nova.md', CORPUS.nova);       // Claude family
-  const openai = loose(DISK, 'b/codex.md', CORPUS.codex);     // OpenAI/Codex family
-  const r = discover.scan({ roots: [{ dir: DISK, maxDepth: 3 }] });
-  assert.equal(impByBase(r, path.basename(claude)).name, 'Fixture Nova');
-  assert.equal(impByBase(r, path.basename(openai)).name, 'Fixture Codex');
+test('#1329 OpenAI pre-existing: an AGENTS.md agent is found through foundCodex, with runner=codex', () => {
+  const root = fs.mkdtempSync(path.join(SB, 'codex-'));
+  const codexHome = path.join(root, 'codex');
+  fs.mkdirSync(path.join(codexHome, 'sessions', '2026', '09', '07'), { recursive: true });
+  const work = path.join(root, 'proj');
+  fs.mkdirSync(work, { recursive: true });
+  // The Codex/OpenAI convention: identity lives in AGENTS.md, read by codexIdentity.
+  fs.writeFileSync(path.join(work, 'AGENTS.md'), CORPUS.codex);
+  // A rollout the real reader accepts: session_meta MUST be the first line (metaOf reads the
+  // head), and its cwd points at the folder whose AGENTS.md names the agent.
+  const rf = path.join(codexHome, 'sessions', '2026', '09', '07', 'rollout-2026-09-07T04-00-00-fixturecodex.jsonl');
+  fs.writeFileSync(rf, JSON.stringify({
+    timestamp: '2026-09-07T04:00:00.000Z', ordinal: 0, type: 'session_meta',
+    payload: { session_id: 'fixturecodex', cwd: work, originator: 'codex-tui' },
+  }) + '\n');
+  // foundCodex bails when status.sandboxIsInconsistent() is true, and that predicate is
+  // `AGENT_WORKFORCE_DATA under tmp && home not under tmp` - which the file-level DATA sandbox
+  // makes true. So for this one call, unset DATA (restored in finally). Hermeticity is NOT
+  // weakened: foundCodex reads only the CODEX_HOME we point at the sandbox, never the real
+  // ~/.codex, and it touches nothing under DATA. This mirrors discover.codex.test.js, which
+  // simply never sets DATA at all.
+  const prevCodex = process.env.AGENT_WORKFORCE_CODEX_HOME;
+  const prevData = process.env.AGENT_WORKFORCE_DATA;
+  process.env.AGENT_WORKFORCE_CODEX_HOME = codexHome;
+  delete process.env.AGENT_WORKFORCE_DATA;
+  try {
+    const r = discover.foundCodex(undefined);
+    const hit = r.agents.find((a) => a.name === 'Fixture Codex');
+    assert.ok(hit, `the OpenAI/Codex agent was not found by foundCodex (agents: ${JSON.stringify(r.agents.map((a) => a.name))})`);
+    assert.equal(hit.runner, 'codex', 'the found row does not record the OpenAI/Codex provider - the provider distinction this part exists to prove');
+  } finally {
+    if (prevCodex === undefined) delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+    else process.env.AGENT_WORKFORCE_CODEX_HOME = prevCodex;
+    if (prevData === undefined) delete process.env.AGENT_WORKFORCE_DATA;
+    else process.env.AGENT_WORKFORCE_DATA = prevData;
+  }
 });
