@@ -187,6 +187,50 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## kosmos#2378 LANDED HERE, AND THE OWNER'S MECHANISM DID NOT SURVIVE THE FIXTURES
+
+Ice Cream Kitty owns `INTERRUPT_LINE` and ruled on the residual I raised: **fix
+it, and fix it on THIS branch, not on main.** Her reasoning was better than my
+reason for not taking it: `backgroundWait` (the consumer that makes it
+user-visible), the reach helper, and the pinning test all exist only here, so on
+main it is a latent residual with nothing to validate a fleet-wide narrowing
+against, and a main-side fix would collide with 40 commits.
+
+**Her recipe was to bound both call sites to composer-reach. It does not work, and
+I checked before implementing rather than after:**
+
+- The branch's own pinned quotation sits **3 rows above the composer**, well inside
+  a reach of 8. Bounding leaves the defect exactly where it was, and tightening the
+  constant until that one fixture passes is **tuning to the fixture**.
+- Two real fixtures that reach this code have **no composer row at all**:
+  `CODEX_WORKING` is 2 rows, `projects`' `WORKING_SCREEN` is 3. Any
+  composer-anchored bound falls back to whole-tail for them, which is the behaviour
+  being removed.
+
+✅ **Row SHAPE instead of proximity.** Require the phrase to sit on a row shaped
+like a live status row rather than to appear anywhere in the 25-row tail. Measured
+across 7 shapes: current pattern **3 wrong**, row-shape **0 wrong**. No new
+constant, independent of pane geometry, works identically on the composer-less
+runners. One shared helper at both call sites so codex cannot drift from Claude.
+
+📌 Glyph class is `WORKING_LINE`'s plus `•` for codex, **minus `*`** - that
+exclusion carries `WORKING_LINE`'s own recorded reason across, since `*` makes a
+markdown bullet read as a working agent, which is the same quotation hazard this
+change closes. There is a test row for that bullet.
+
+⭐ **THE BEST ARGUMENT ON THIS BRANCH FOR PINNING A DEFECT RATHER THAN ONLY FILING
+IT.** The row I pinned carried a note: *"if you narrow `INTERRUPT_LINE`
+deliberately, flip this to true and delete the paragraph above."* When the fix
+landed, that row went red and **its own failure message did the routing.** A guard
+that says what to do when it fires is worth more than one that reports a changed
+number, and it cost one sentence.
+
+⚠️ **The owner's WEAKEST PREMISE, which she named, is exactly what broke:** *"a
+live interrupt line is always within composer-reach and a quoted one never is."*
+The second half is false. **Naming it is why I tested it first instead of building
+on trust** - and she has since corrected the recipe on the card so no future reader
+builds the version she wrote.
+
 ## FINDING 3: A COMMENT THAT SAID THE OPPOSITE OF WHAT HAPPENS
 
 The paragraph above the #1889 block claimed that a pane carrying both the wait row

@@ -2365,13 +2365,18 @@ test('#1889: INTERRUPT_LINE outranks this reader, and the five rows say exactly 
    * "FIXED". `esc to interrupt` means a turn is genuinely in flight, so the
    * composer QUEUES rather than reads, and `it is mid-task` is the true sentence.
    *
-   * 🛑 ROW 5 IS A KNOWN DEFECT, PINNED AS-IS RATHER THAN HIDDEN. A QUOTED
-   * `esc to interrupt` anywhere in the 25-row tail suppresses the flag with no
-   * turn in flight. Not fixed here: the discriminator is proximity to the
-   * composer, and `INTERRUPT_LINE` is shared with the codex path, so narrowing it
-   * is a fleet-wide precedence change rather than something this card may take.
-   * ⇒ IF YOU NARROW IT, THIS ROW GOES RED AND THAT IS THE POINT. Change the
-   * expectation to `true` and delete this paragraph.
+   * ✅ ROW 5 IS NOW FIXED, AND THIS TEST IS HOW IT GOT FIXED. It was pinned as a
+   * known defect with a note saying that anyone who narrowed `INTERRUPT_LINE`
+   * deliberately should flip the expectation and delete the paragraph. When the
+   * fix landed, this row went red and its own failure message said exactly that.
+   * A guard that tells the next person what to do when it fires is worth more
+   * than one that only says a number changed.
+   * 📌 The fix (kosmos#2378) requires the phrase to sit on a row SHAPED like a
+   * live status row rather than to appear anywhere in the 25-row tail. NOT
+   * proximity to the composer, which the ruling proposed and which does not
+   * discriminate: the quoted row below sits 3 rows above the composer, inside any
+   * reach the wait reader uses, and two of the real fixtures that reach this code
+   * have no composer row at all.
    */
   const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
   const footer = ['', '────', '❯ ', '────',
@@ -2389,8 +2394,27 @@ test('#1889: INTERRUPT_LINE outranks this reader, and the five rows say exactly 
     'a spinner WITHOUT esc-to-interrupt suppressed the flag, so the trade is wider than INTERRUPT_LINE');
   assert.equal(flagOf(W + '\n' + SPIN), false,
     'order changed the verdict, so the precedence is positional rather than by rule');
-  assert.equal(flagOf('  he said (press esc to interrupt) earlier\n' + W), false,
-    'KNOWN DEFECT ROW: a quoted esc-to-interrupt no longer suppresses the flag. If you narrowed INTERRUPT_LINE deliberately, flip this to true and remove the paragraph above.');
+  assert.equal(flagOf('  he said (press esc to interrupt) earlier\n' + W), true,
+    'a QUOTED esc-to-interrupt suppressed the flag again, so a person messaging a pane at its prompt is told it will go unread (#2378)');
+  /* More quotation shapes, because one string is one string. Each carries the
+     phrase in a position no live status row uses. */
+  for (const quoted of [
+    'the docs say (esc to interrupt) works',
+    '  - note: (esc to interrupt) cancels',
+    '  * (esc to interrupt) in a markdown bullet',
+  ]) {
+    assert.equal(flagOf(quoted + '\n' + W), true,
+      'a quotation was read as a live turn: ' + quoted.trim());
+  }
+  /* 🛑 AND THE LIVE SHAPES MUST STILL FIRE, or the narrowing traded a false
+     positive for a false negative. Both runners, both real fixture spellings. */
+  for (const live of [
+    '· Working (esc to interrupt)',
+    '• Reconnecting... 4/5 (4s • esc to interrupt)',
+  ]) {
+    assert.equal(flagOf(live + '\n' + W), false,
+      'a LIVE interrupt line stopped being recognised, so a queued message reads as read: ' + live);
+  }
 
   /* CONTROL: every row above returns `working` regardless, so the assertions are
      about the FLAG and not about the state accidentally changing under them. */

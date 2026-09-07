@@ -1982,6 +1982,41 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
  */
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
 
+/* #2378. The same phrase, required to sit on a row SHAPED like a live status row
+   rather than merely to appear somewhere in the 25-row tail.
+
+   🛑 THE DEFECT IT CLOSES: `INTERRUPT_LINE` is unanchored and was tested against
+   the whole tail, so an ordinary sentence of transcript containing the phrase in
+   parentheses read as a live turn. On this branch that also suppressed #1889's
+   `backgroundWait`, so a person messaging a pane at its prompt was told their
+   message would go unread. Measured: `he said (press esc to interrupt) earlier`
+   forced `mid-task` with no turn in flight.
+
+   🔑 WHY ROW SHAPE RATHER THAN PROXIMITY, WHICH IS WHAT #2378's RULING PROPOSED.
+   The ruling's recipe was to bound both call sites to rows within composer reach,
+   reusing `BACKGROUND_AGENT_WAIT_REACH`. Measured against the branch's own pinned
+   fixture, THAT DOES NOT DISCRIMINATE: the quoted row sits 3 rows above the
+   composer, well inside a reach of 8, and tightening the bound until it passes
+   would be tuning the constant to one fixture. It also cannot work at all for the
+   two real fixtures that reach this code (`CODEX_WORKING`, and `projects`'
+   `WORKING_SCREEN`) because both are short panes with NO composer row.
+   ⇒ Row shape separates them 7/7 where the current pattern gets 3 wrong, needs no
+   new constant, and is independent of pane geometry. The ruling's DECISION (fix
+   it, here, not on main) stands; only its mechanism changed, and #2378 says so.
+
+   📌 GLYPH CLASS: `WORKING_LINE`'s, plus `•` for codex's progress line, MINUS `*`.
+   That exclusion is deliberate and its reason is already recorded at
+   `WORKING_LINE`: `*` makes an ordinary markdown bullet read as a working agent,
+   which is the same quotation hazard this constant exists to close. */
+const INTERRUPT_LINE_LIVE = /^\s*[·•✢✳✶✻✽]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)/i;
+
+/* #2378. True when the tail carries a LIVE interrupt line on its own row. Shared
+   by both call sites (Claude and codex) so the two cannot drift apart, which is
+   how one of them would quietly keep the old behaviour. */
+function hasLiveInterruptLine(text) {
+  return String(text == null ? '' : text).split('\n').some((r) => INTERRUPT_LINE_LIVE.test(r));
+}
+
 /* #1889. A no-timer shape `WORKING_LINE` cannot match:
      * ✻ Waiting for 1 background agent to finish
    (samples `*`-prefixed so this file does not match its own reader)
@@ -3050,7 +3085,7 @@ function classify(pane, paneText) {
     // Observed: codex draws "(4s • esc to interrupt)" on its live progress
     // line, the same phrase Claude's older UI used. Vocabulary coincidence,
     // matched deliberately: it was captured from a real pane, not assumed.
-    if (INTERRUPT_LINE.test(codexTail)) {
+    if (hasLiveInterruptLine(codexTail)) {   /* #2378: on a row, not anywhere in the tail */
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
     }
     // Observed: the empty composer, codex's equivalent of sitting at the
@@ -3207,7 +3242,7 @@ function classify(pane, paneText) {
   if (SPINNER.test(pane.title)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is producing output right now' };
   }
-  if (INTERRUPT_LINE.test(tail)) {
+  if (hasLiveInterruptLine(tail)) {   /* #2378: on a row, not anywhere in the tail */
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
   }
   /**
