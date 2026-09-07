@@ -26,7 +26,10 @@
  *      scan runs the bare route and ARMS a light /api/file-access-status poll on S9; when
  *      the grant flips true, the poll re-runs frScanAgents via /api/scan-import, the
  *      Documents agent appears, and the poll STOPS after one flip. Control: a scan already
- *      granted at scan time arms no poll.
+ *      granted at scan time arms no poll. Scenario 5: a RETURN render of S9 re-arms the poll
+ *      (the poll is armed from frPaintFleet's create arm, so a Back -> forward return with
+ *      FR_SCAN already populated still re-arms). Scenario 6: the re-scan DEFERS while focus is
+ *      inside #fr-fleet (no repaint over in-progress work) and resumes once focus leaves.
  *
  * DOM-state + which-route assertions only, so headless is fine.
  *
@@ -206,6 +209,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     else bad('#3/#4(a) armed after ungranted scan', JSON.stringify({ b4, hits }));
 
     // The grant lands (async S2 propagation). The poll must see the edge and re-scan.
+    // Ensure focus is OUTSIDE #fr-fleet so the focus-defer guard (scenario 6) does not hold
+    // this re-scan; this scenario tests the plain edge, scenario 6 tests the defer.
+    await p.evaluate(() => { if (document.activeElement && document.activeElement.blur) document.activeElement.blur(); });
     grant = { checkable: true, granted: true, at: Date.now() };
     await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 3000 }).catch(() => {});
     const a4 = await p.evaluate(() => ({
@@ -228,6 +234,57 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const c4 = await p.evaluate(() => ({ armed: FR_RESCAN_TIMER !== null, full: FR_SCAN_FULL }));
     if (!c4.armed && c4.full) ok('#3/#4(a) CONTROL: a scan already granted at scan time arms NO poll'); else bad('#3/#4(a) no-poll-when-granted', JSON.stringify(c4));
 
+    // ── 5. #3/#4(a): a RETURN to S9 re-arms the poll (the Back-button hole). ──
+    // The poll is armed from frPaintFleet's create arm, not only frScanAgents, so a second
+    // S9 render (FR_SCAN already populated, no fresh scan) re-arms it. Without that, a grant
+    // landing during a Back -> forward return visit would be silently missed.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: false, at: Date.now() };   // ungranted
+    importCandidates = []; importFiles = [];
+    await p.evaluate(() => { FR_RESCAN_INTERVAL_MS = 20; });
+    await runScan();                                          // ungranted scan -> arms
+    const armed5 = await p.evaluate(() => FR_RESCAN_TIMER !== null);
+    await p.evaluate(() => { frRescanStop(); });             // simulate leaving S9 (frGo does this)
+    const stopped5 = await p.evaluate(() => FR_RESCAN_TIMER === null);
+    // Return to S9: FR_STEP is still the fleet step, FR_SCAN is populated (ungranted), so NO
+    // fresh scan runs -- only a re-render. frPaintFleet's create arm must re-arm the poll.
+    await p.evaluate(() => { frPaintFleet(); });
+    const rearmed5 = await p.evaluate(() => FR_RESCAN_TIMER !== null && FR_SCAN_FULL === false);
+    await p.evaluate(() => { frRescanStop(); });             // clean up before the next scenario
+    if (armed5 && stopped5 && rearmed5) ok('#3/#4(a): a RETURN render of S9 re-arms the poll (Back-button hole closed)'); else bad('#3/#4(a) return re-arm', JSON.stringify({ armed5, stopped5, rearmed5 }));
+
+    // ── 6. #3/#4(a): the re-scan DEFERS while focus is inside #fr-fleet, then resumes. ──
+    // The re-scan does a full #fr-fleet repaint; doing it while the person is typing in a
+    // fleet input (or a row is mid-submit, focus on its button) would discard that work. The
+    // poll must skip the flip while focus is inside #fr-fleet and re-scan once it leaves.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: false, at: Date.now() };   // ungranted
+    importCandidates = []; importFiles = [];
+    await p.evaluate(() => { FR_RESCAN_INTERVAL_MS = 20; });
+    await runScan();                                          // ungranted scan -> arms
+    // Put focus INSIDE #fr-fleet, then land the grant. The poll must NOT re-scan yet.
+    await p.evaluate(() => {
+      const fleet = document.getElementById('fr-fleet');
+      let inp = document.getElementById('__test-fleet-input');
+      if (!inp) { inp = document.createElement('input'); inp.id = '__test-fleet-input'; fleet.appendChild(inp); }
+      inp.focus();
+    });
+    grant = { checkable: true, granted: true, at: Date.now() };
+    await new Promise((r) => setTimeout(r, 120));            // several 20ms poll ticks
+    const held6 = await p.evaluate(() => ({
+      focusInFleet: document.getElementById('fr-fleet').contains(document.activeElement),
+      armed: FR_RESCAN_TIMER !== null,
+      full: FR_SCAN_FULL,
+    }));
+    if (held6.focusInFleet && held6.armed && !held6.full && hits.scanImport === 0)
+      ok('#3/#4(a): the re-scan DEFERS while focus is inside #fr-fleet (no repaint over in-progress work)');
+    else bad('#3/#4(a) defer while focused', JSON.stringify({ held6, hits }));
+    // Move focus out; the next tick must re-scan and stop.
+    await p.evaluate(() => { const i = document.getElementById('__test-fleet-input'); if (i) { i.blur(); i.remove(); } });
+    await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 3000 }).catch(() => {});
+    const resumed6 = await p.evaluate(() => ({ full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null }));
+    if (hits.scanImport === 1 && resumed6.full && resumed6.stopped) ok('#3/#4(a): once focus leaves #fr-fleet the deferred re-scan runs and the poll stops'); else bad('#3/#4(a) resume after blur', JSON.stringify({ resumed6, scanImport: hits.scanImport }));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -237,7 +294,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 17) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 20) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or
