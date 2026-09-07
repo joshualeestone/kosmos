@@ -806,6 +806,47 @@ function scanRootsFromEnv() {
   return roots.length ? roots : null;
 }
 
+/* #2414: DISCOVER candidate parents under $HOME rather than trusting ONLY the
+   fixed SCAN_DEEP_NAMES list. Josh's requirement, verbatim: "look in ALL the
+   possible places ... it could have been called anything." An agent under an
+   arbitrary-named top-level folder (his "Work", or any name not in
+   SCAN_DEEP_NAMES) was reached only by the shallow $HOME walk (HOME_DEPTH=2),
+   which misses anything nested deeper than a grandchild. Promoting every real
+   top-level home folder to a DEEP root reaches those agents wherever they live,
+   without a fixed name list to fall through.
+
+   🛑 #2125 PRESERVED. SCAN_SKIP still filters out the TCC-protected folders
+   (Documents, Downloads, Desktop) and the macOS home noise, and every dotdir is
+   skipped, so discovery never turns one of those into a deep root: the AUTO scan
+   still fires no macOS access prompt. The TCC folders reach a scan only through
+   the explicit importScan tcc-root path below, unchanged.
+
+   ⚠️ REAL DIRECTORIES ONLY (lstat, not stat). A curated root NAME is trusted, so
+   a symlinked `~/work` is followed once (the external-volume case the scan-root
+   symlink policy exists for). A DISCOVERED name is ARBITRARY and untrusted, so a
+   top-level symlink is NOT followed here -- an arbitrary `~/x -> /` must never
+   become a deep root. That is the no-symlink-escape rule this module family has
+   had to relearn repeatedly; discovery holds to the conservative side of it. */
+function discoverHomeParents(home) {
+  const out = [];
+  let names;
+  try { names = fs.readdirSync(home); } catch { return out; }   // never throws (module contract)
+  const curated = new Set(SCAN_DEEP_NAMES);
+  for (const name of names) {
+    if (name.startsWith('.')) continue;          // every dotdir: .config, .cache, .Trash…
+    if (SCAN_SKIP.has(name)) continue;           // TCC folders + build/vendor + macOS noise (#2125)
+    if (curated.has(name)) continue;             // already added as a deep root above
+    const dir = path.join(home, name);
+    let st;
+    /* lstat, so a symlink reports isDirectory()===false and is skipped -- an
+       arbitrary top-level symlink is never followed out of $HOME. */
+    try { st = fs.lstatSync(dir); } catch { continue; }
+    if (!st.isDirectory()) continue;
+    out.push({ dir, maxDepth: SCAN.DEEP_DEPTH });
+  }
+  return out;
+}
+
 function defaultScanRoots(opts) {
   const importScan = !!(opts && opts.importScan);
   const home = os.homedir();
@@ -816,6 +857,12 @@ function defaultScanRoots(opts) {
      those same parents) can consume it. */
   const roots = [];
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
+  /* #2414: arbitrary-named top-level folders, discovered and walked DEEP -- after
+     the curated names (so they keep priority in the budget), before the shallow
+     $HOME walk (so a discovered parent is walked to full depth and the $HOME walk's
+     seenDirs skip just re-reaches it). Runs on BOTH scan types: these are non-TCC
+     folders that need no grant, so they belong on the auto scan too. */
+  for (const r of discoverHomeParents(home)) roots.push(r);
   roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
   /* 🛑 #2125: the TCC-protected home folders are reached ONLY under importScan.
      The AUTO first-run scan (discover.scan() with no importScan) never names them,
