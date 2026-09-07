@@ -613,6 +613,46 @@ test('#2397: a present-but-turned-off login item is surfaced plainly, never foug
   });
 });
 
+test('#2397: the OLDER macOS disable token (=> true) is also read as turned off, not a false OK', () => {
+  // Older `launchctl print-disabled` emitted `=> true`/`=> false` (true == disabled)
+  // instead of `=> disabled`/`=> enabled`. Matching only `disabled` would let a
+  // genuinely disabled board fall through to OK -- the cannot-see-zero direction.
+  withLaunchDir(true, () => {
+    const OLD_TOKEN_BLOCK = 'disabled services = {\n\t"com.kosmos.board" => true\n\t"com.other" => false\n}';
+    const oldRunner = (cmd, args) => {
+      if (cmd === '/bin/launchctl' && args[0] === 'print-disabled') return { ok: true, stdout: OLD_TOKEN_BLOCK };
+      return { ok: true, stdout: '' };
+    };
+    const got = machine.boardAutostartCheck(oldRunner, { platform: 'darwin' });
+    assert.equal(got.state, machine.STATE.ATTENTION, 'a `=> true` disabled board fell through to a false OK');
+    assert.match(got.title, /turned off/);
+  });
+});
+
+test('#2397: an UNREADABLE launch dir is unknown (could-not-look), not a false "will not start"', () => {
+  // fs.existsSync would collapse an EACCES/ENOTDIR into "the file is not there"
+  // and render ATTENTION. A non-ENOENT stat error is a read we could not make, so
+  // the row must fail SOFT to unknown -- matching installedCheck / labelTruthCheck.
+  // Simulated with a launch path that is a FILE, so stat of <file>/...plist throws
+  // ENOTDIR (not ENOENT).
+  const os2 = require('node:os');
+  const p2 = require('node:path');
+  const fs2 = require('node:fs');
+  const f = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-notdir-'));
+  const asFile = p2.join(f, 'launch-as-file');
+  fs2.writeFileSync(asFile, 'x'); // a regular file where a dir is expected
+  const orig = process.env.AGENT_WORKFORCE_LAUNCH;
+  process.env.AGENT_WORKFORCE_LAUNCH = asFile;
+  try {
+    const got = machine.boardAutostartCheck(okRunner, { platform: 'darwin', installedRoot: '/opt/kosmos' });
+    assert.equal(got.state, machine.STATE.UNKNOWN, 'an unreadable launch dir was rendered as a checked negative');
+    assert.match(got.title, /could not check/i);
+  } finally {
+    if (orig === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = orig;
+    fs2.rmSync(f, { recursive: true, force: true });
+  }
+});
+
 test('#2397: a present, enabled board login job is a pass', () => {
   withLaunchDir(true, () => {
     const enabledRunner = (cmd, args) => {

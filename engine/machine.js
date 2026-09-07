@@ -1272,9 +1272,27 @@ function boardAutostartCheck(runner, opts) {
      launchAgentsDir(): a sandboxed suite sets AGENT_WORKFORCE_LAUNCH so this
      reads ITS dir, never the operator's real LaunchAgents. */
   const launchDir = launchAgentsDir();
-  let present = false;
-  try { present = fs.existsSync(path.join(launchDir, `${BOARD_LABEL}.plist`)); }
-  catch { present = false; }
+  /* ⚠️ statSync + an ENOENT split, NOT fs.existsSync. existsSync NEVER throws, so
+     it collapses "the LaunchAgents dir is unreadable" (EACCES, or a stat error
+     that is not "not found") into "the file is not there" -- turning a
+     could-not-look into a checked negative that would render ATTENTION "Kosmos
+     will not start". Only a genuine ENOENT is a real absence; anything else is a
+     read we could not make, and this check fails SOFT to unknown there, matching
+     installedCheck's ENOENT-vs-EACCES discipline and labelTruthCheck's
+     unreadable-dir -> unknown/OK, so the three rows agree about one condition. */
+  let present;
+  try {
+    fs.statSync(path.join(launchDir, `${BOARD_LABEL}.plist`));
+    present = true;
+  } catch (e) {
+    if (e && e.code === 'ENOENT') {
+      present = false; // genuinely absent (the file, or a parent dir, does not exist)
+    } else {
+      return { key: 'autostart', state: STATE.UNKNOWN,
+        title: 'We could not check whether Kosmos starts at login',
+        detail: 'Not the same as it being wrong. We could not read the folder this computer keeps login jobs in.' };
+    }
+  }
 
   if (!present) {
     /* A from-source checkout legitimately has no login job and must not alarm
@@ -1299,9 +1317,18 @@ function boardAutostartCheck(runner, opts) {
      fleet's macOS; a label with no override does not appear and defaults to
      enabled). A read failure here is not a disable -- fall through to OK, since
      the file's presence is the reboot-bearing fact and we simply could not read
-     the toggle. */
+     the toggle.
+     ⚠️ MATCH BOTH TOKENS. Current macOS prints `=> disabled`/`=> enabled`, but
+     older `print-disabled` emitted `=> true`/`=> false` (true == disabled). If a
+     supported-floor macOS uses the older token, matching only `disabled` would
+     let a genuinely disabled board fall through to OK -- a false reassurance in
+     exactly the cannot-see-zero direction this check exists to fight. `true`
+     never means enabled in print-disabled (the value IS the disabled boolean),
+     so matching both is safe; the trailing boundary keeps `disabledx`/`truex`
+     from matching. The closing quote after the label still blocks a suffixed
+     `com.kosmos.board.<hash>` from matching the bare label. */
   const dis = runner('/bin/launchctl', ['print-disabled', `gui/${uid}`]);
-  const disabledRe = new RegExp('"' + BOARD_LABEL.replace(/\./g, '\\.') + '"\\s*=>\\s*disabled');
+  const disabledRe = new RegExp('"' + BOARD_LABEL.replace(/\./g, '\\.') + '"\\s*=>\\s*(?:disabled|true)\\b');
   if (dis && dis.ok && typeof dis.stdout === 'string' && disabledRe.test(dis.stdout)) {
     return { key: 'autostart', state: STATE.ATTENTION,
       title: 'Kosmos is set up to start at login, but it is turned off',
