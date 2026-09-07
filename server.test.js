@@ -10313,8 +10313,10 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
   const sent = [];
   notifyEngine.setSender(async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true }; });
   try {
-    // The setting: off by default, round-trips.
-    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, false);
+    // The setting: ON by default now (#2020 step 3), and it round-trips both ways.
+    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, true);
+    const off = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+    assert.equal(JSON.parse(off.body).on, false);
     const put = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
     assert.equal(JSON.parse(put.body).on, true);
 
