@@ -1,4 +1,4 @@
-# board-plist-guard-2397 — runtime board-autostart check (#2397)
+# board-plist-guard-2397 - runtime board-autostart check (#2397)
 
 Owner: Ice Cream Kitty (native/coordinator). Kosmos beta-launch relevant (Josh's beta
 requirement: install + permissions correct).
@@ -10,7 +10,7 @@ requirement: install + permissions correct).
 
 Kosmos auto-starts the board via `~/Library/LaunchAgents/com.kosmos.board[.<hash>].plist`
 (`RunAtLoad=true`). The risk is **invisible until reboot**: if that login job goes missing, Kosmos
-silently will not start on the next restart, with no error at the time it breaks — the
+silently will not start on the next restart, with no error at the time it breaks - the
 `a-guard-that-only-checks-too-many-cannot-see-zero` failure class.
 
 ## What already exists (measured; do NOT duplicate)
@@ -21,14 +21,14 @@ silently will not start on the next restart, with no error at the time it breaks
 - **Ask #2 (sweep/uninstall never removes a LIVE board):** `install/setup.sh`'s orphan sweep
   (~1300-1398) only removes a SUFFIXED label whose `KOSMOS_HOME` is confirmed gone; the bare default
   board never matches the glob. `engine/remove.js` deletes nothing on disk, ever; `engine/
-  delete-leftover.js` is keyed on an agent name (`com.<name>.plist`) and refuses a live agent — so
+  delete-leftover.js` is keyed on an agent name (`com.<name>.plist`) and refuses a live agent - so
   neither can reach `com.kosmos.board`.
 
 ## The gap this closes
 
 Nothing detects the board's OWN login job going missing **at runtime**. `machine.labelTruthCheck`
 answers "does any registered label point at the WRONG file" (an impostor) and returns OK when a job
-is simply gone — exactly the cannot-see-zero hole.
+is simply gone - exactly the cannot-see-zero hole.
 
 ## The change
 
@@ -40,17 +40,17 @@ Josh's missing-vs-disabled fork (folded from #2395) intact:
 - plist missing running **from source** → **OK, benign** (`update.installedRoot()` gate; no dev false alarm).
 - plist present + a standing `launchctl disable` override (what the Login Items toggle writes) →
   **ATTENTION, surfaced plainly, NEVER fought** (points at the toggle; force-re-enabling can get
-  Kosmos flagged by Background Task Management — Josh's comment #2).
+  Kosmos flagged by Background Task Management - Josh's comment #2).
 - plist present + enabled, or the toggle unreadable → **OK** (presence + `RunAtLoad` is the
   reboot-bearing fact; not-loaded-right-now is not a fault).
 - non-darwin → row omitted (no launchd).
 
 **Detection only:** it never mutates launchd (same conservatism as `boardrestart.js`), because at the
-file layer a deleted plist and a user-disabled job are two faults with two right answers — surfacing
+file layer a deleted plist and a user-disabled job are two faults with two right answers - surfacing
 is the safe superset. A heal/notify arm is a deliberate follow-up on #2397.
 
 **The only runtime probe is `launchctl print-disabled` (read-only):** `RunAtLoad` reloads a present
-plist at the next login on its own, so a standing disable override — not "loaded right now" — is the
+plist at the next login on its own, so a standing disable override - not "loaded right now" - is the
 sole thing that stops a reboot start.
 
 A shared `launchAgentsDir()` helper is extracted so the `process.env.HOME` fallback (the #1732
@@ -65,13 +65,13 @@ green; full `tools/run-tests.sh` green.
 
 ## Rejected / deferred (with reasons)
 
-- **Auto-recreate a deleted plist / auto-re-enable** — Josh's comment #1 says re-create is safe in
+- **Auto-recreate a deleted plist / auto-re-enable** - Josh's comment #1 says re-create is safe in
   the abstract, but at the file layer deleted and user-disabled read the same, and comment #2 forbids
   fighting a user's toggle. Detection that surfaces both is the safe superset; the heal arm is a
   follow-up.
-- **Runtime per-agent RunAtLoad loaded-check** — larger surface (roster join); board first (the app
+- **Runtime per-agent RunAtLoad loaded-check** - larger surface (roster join); board first (the app
   coming back is the precondition). Agent plists are already guarded at creation.
-- **Folding presence into `labelTruthCheck`** — its "impostor path, not existence" contract is pinned
+- **Folding presence into `labelTruthCheck`** - its "impostor path, not existence" contract is pinned
   by its own comment + tests; a sibling row is cleaner than fighting it.
 
 ## Weakest premise

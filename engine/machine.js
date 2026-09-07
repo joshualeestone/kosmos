@@ -1261,6 +1261,11 @@ function boardAutostartCheck(runner, opts) {
   const platform = opts && opts.platform || process.platform;
   if (platform !== 'darwin') return null;
 
+  /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
+     darwin path this early-returns above, process.getuid is always a function,
+     so this branch is not reachable here today -- kept (not dropped) so the
+     three launchd-reading checks read identically, and so it stays correct if
+     the platform gate above is ever relaxed. */
   const uid = typeof process.getuid === 'function' ? process.getuid() : null;
   if (uid === null) {
     return { key: 'autostart', state: STATE.UNKNOWN,
@@ -1313,9 +1318,9 @@ function boardAutostartCheck(runner, opts) {
 
   /* File present. The only thing that stops RunAtLoad from bringing it back is a
      standing `disable` override, whose `launchctl print-disabled` line reads
-     `"com.kosmos.board" => disabled` (verified against live launchctl on this
-     fleet's macOS; a label with no override does not appear and defaults to
-     enabled). A read failure here is not a disable -- fall through to OK, since
+     `"com.kosmos.board" => disabled` (the format launchctl prints on current
+     macOS; a label with no override does not appear and defaults to enabled). A
+     read failure here is not a disable -- fall through to OK, since
      the file's presence is the reboot-bearing fact and we simply could not read
      the toggle.
      ⚠️ MATCH BOTH TOKENS. Current macOS prints `=> disabled`/`=> enabled`, but
