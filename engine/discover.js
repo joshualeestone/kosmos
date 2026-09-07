@@ -825,9 +825,13 @@ function defaultScanRoots(opts) {
      Downloads/Desktop are import-only (loose FILES only; nobody RUNS an agent
      there), which is why they carry importOnly + the shallow DROP_DEPTH. */
   if (importScan) {
-    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH });
+    // #3/#2125: these three are the TCC-protected roots. `tcc: true` marks them so scan()
+    // routes their walk through the app-identity hatch (--kosmos-app-scan) instead of walking
+    // them in the engine (a different TCC subject, which re-prompts). The in-engine walk seeds
+    // its stack from the NON-tcc roots only; the tcc roots are handled by the hatch merge.
+    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH, tcc: true });
     for (const name of ['Downloads', 'Desktop']) {
-      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true });
+      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true, tcc: true });
     }
   }
   return roots;
@@ -867,6 +871,74 @@ function readClaudeHead(file) {
  *   env-or-default roots and the SCAN bounds.
  * @returns {{ok: boolean, candidates: Array, bounded: object, because: string|null}}
  */
+/* #3/#2125: default TCC-root scanner -- the file-based, NON-BLOCKING bridge to the app-identity
+   hatch (native-app --kosmos-app-scan). scan() is synchronous and must never block the event loop
+   polling, so this NEVER waits: it returns a fresh scan-result.json if the app has already produced
+   one, else it drops a scan-request.json (so the app produces one) and returns null -- scan() then
+   reports scanning:true and the caller retries /api/scan-import shortly. FRESHNESS, not a nonce,
+   matches result->request: only one find-agents scan runs at a time (one user, one screen), so a
+   scan-result.json newer than TCC_RESULT_FRESH_MS is the answer to the current session's request;
+   it is consumed on read so a later unrelated session cannot pick up a stale answer. Best-effort
+   throughout -- any fs failure yields null (scanning:true), never a throw. Overridable via
+   opts.tccScan for tests. */
+const TCC_RESULT_FRESH_MS = 30 * 1000;
+const TCC_REQUEST_PENDING_MS = 15 * 1000;
+function defaultTccScan(tccRoots, budgets) {
+  let reqPath, inflightPath, resPath;
+  try {
+    reqPath = path.join(store.ROOT, 'scan-request.json');
+    inflightPath = path.join(store.ROOT, 'scan-request.inflight');
+    resPath = path.join(store.ROOT, 'scan-result.json');
+  } catch { return null; }
+
+  let res = null;
+  try {
+    const st = fs.statSync(resPath);
+    if (Date.now() - st.mtimeMs < TCC_RESULT_FRESH_MS) {
+      res = JSON.parse(fs.readFileSync(resPath, 'utf8'));
+      try { fs.unlinkSync(resPath); } catch { /* best effort */ }
+    }
+  } catch { /* no result yet */ }
+  if (res && res.ok) return { dirs: res.dirs || [], loose: res.loose || [], bounded: res.bounded || {} };
+
+  let pending = false;
+  for (const p of [reqPath, inflightPath]) {
+    try { if (Date.now() - fs.statSync(p).mtimeMs < TCC_REQUEST_PENDING_MS) { pending = true; break; } } catch { /* not there */ }
+  }
+  if (!pending) {
+    try {
+      const req = {
+        roots: tccRoots.map((r) => ({ dir: r.dir, maxDepth: r.maxDepth, importOnly: r.importOnly === true })),
+        budgets,
+        req: String(Date.now()),
+      };
+      fs.writeFileSync(reqPath, JSON.stringify(req));
+    } catch { /* best effort; the retry re-attempts */ }
+  }
+  return null;
+}
+
+/* #3/#2125: single-sourced detection + row construction, called by BOTH the in-engine walk and
+   the app-identity hatch merge, so a folder/loose row is built the SAME way regardless of which
+   process read the head bytes. The walk keeps its own counter/cap logic; these are pure. The
+   content gate is the exact `found()` signal: names somebody (identityFromText) OR addresses
+   somebody without a readable name (INTRODUCES) -- a template ("You are an expert in Rust") stays
+   out. Returns the row or null. */
+function folderRow(dir, text) {
+  if (text == null) return null;
+  const id = status.identityFromText(text);
+  if (!((id && id.displayName) || INTRODUCES.test(text))) return null;
+  return { dir, name: (id && id.displayName) || '', role: (id && id.role) || null, preview: text };
+}
+function looseRow(file, text) {
+  if (text == null) return null;
+  const id = status.identityFromText(text);
+  if (!((id && id.displayName) || INTRODUCES.test(text))) return null;
+  // #8: fall back to the H1 heading when the intro names nobody the parser can read, so the row
+  // shows the same name the import form prepopulates.
+  return { file, name: (id && id.displayName) || agentfile.headingName(text) || '', role: (id && id.role) || null, preview: text };
+}
+
 function scan(opts) {
   const o = opts || {};
   const explicit = Array.isArray(o.roots) ? o.roots : scanRootsFromEnv();
@@ -934,8 +1006,15 @@ function scan(opts) {
   let mdReads = 0;
   let hitImportable = false;
 
+  /* #3/#2125: the TCC-protected roots (Documents/Downloads/Desktop, marked tcc:true by
+     defaultScanRoots under importScan) are walked by the app-identity hatch, NOT the engine --
+     an engine walk of them is a different TCC subject and re-prompts. Partition them out of the
+     in-engine walk and merge them from the hatch after the walk. */
+  const tccRoots = roots.filter((r) => r && r.tcc === true);
+
   outer:
   for (const root of roots) {
+    if (root && root.tcc === true) continue;   // #3/#2125: handled by the hatch merge below
     let rootStat;
     /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
        (the fixed set under $HOME, or an explicit test override), and a person whose
@@ -974,34 +1053,15 @@ function scan(opts) {
          there, so a folder-connect row would be wrong; only loose importable FILES below
          are collected from those locations. */
       if (!cur.importOnly && !byDir.has(cur.dir) && !known.has(cur.dir)) {
-        const text = readClaudeHead(path.join(cur.dir, 'CLAUDE.md'));
-        if (text != null) {
-          const id = status.identityFromText(text);
-          /* 🔑 THE EXACT SIGNAL `found()` USES, and BOTH arms of it. A file that
-             names somebody (`identityFromText`) OR one that addresses somebody
-             without a readable name (`INTRODUCES`) is an agent -- the same union
-             `found()` draws its named agents and its unnamed-intro adoptable rows
-             from. It is NOT widened past that: "You are an expert in Rust" is a
-             template and stays out, which is the false-positive class `found()`
-             already refuses. */
-          if ((id && id.displayName) || INTRODUCES.test(text)) {
-            if (!alreadyIn(cur.dir, roster)) {
-              byDir.set(cur.dir, {
-                dir: cur.dir,
-                /* Empty when the file introduces somebody but names nobody: the
-                   screen asks rather than guesses, exactly as the adopt rows do. */
-                name: (id && id.displayName) || '',
-                role: (id && id.role) || null,
-                /* The bytes the screen SHOWS. Bounded to READ_CAP, and it is the
-                   whole point of this card: a list that ASSERTS is the defect
-                   discover.js warns about ("a wrong list is used"); a list that
-                   SHOWS the file moves the judgement to the person. */
-                preview: text,
-              });
-            } else {
-              known.add(cur.dir);
-            }
-          }
+        /* folderRow is THE EXACT SIGNAL `found()` uses (names somebody OR INTRODUCES), the
+           row built identically here and in the hatch merge below (#3/#2125). `preview` is
+           the bytes the screen SHOWS -- a list that ASSERTS is the defect discover.js warns
+           about; a list that SHOWS the file moves the judgement to the person. `name` is
+           empty when the file introduces somebody but names nobody: the screen asks. */
+        const row = folderRow(cur.dir, readClaudeHead(path.join(cur.dir, 'CLAUDE.md')));
+        if (row) {
+          if (!alreadyIn(cur.dir, roster)) byDir.set(cur.dir, row);
+          else known.add(cur.dir);
         }
       }
 
@@ -1036,21 +1096,10 @@ function scan(opts) {
           seenFiles.add(freal);
           perDir += 1;
           mdReads += 1;
-          const text = readClaudeHead(file);   // regular-file + symlink-safe + byte-bounded, same as CLAUDE.md
-          if (text == null) continue;
-          const id = status.identityFromText(text);
-          if ((id && id.displayName) || INTRODUCES.test(text)) {
-            byFile.set(freal, {
-              file,
-              // #8: fall back to the H1 heading when the intro line names nobody the
-              // parser can read (a `# Pip` file with a role-first intro), so this row
-              // shows "Pip" -- matching what the import form prepopulates -- instead of
-              // "an agent file with no name in it".
-              name: (id && id.displayName) || agentfile.headingName(text) || '',
-              role: (id && id.role) || null,
-              preview: text,
-            });
-          }
+          // regular-file + symlink-safe + byte-bounded, same as CLAUDE.md; looseRow applies
+          // the identical detection + row shape the hatch merge uses (#3/#2125, #8).
+          const row = looseRow(file, readClaudeHead(file));
+          if (row) byFile.set(freal, row);
         }
       }
 
@@ -1069,6 +1118,41 @@ function scan(opts) {
         try { cst = fs.lstatSync(child); } catch { continue; }
         if (!cst.isDirectory()) continue;
         stack.push({ dir: child, depth: cur.depth + 1, importOnly: cur.importOnly });
+      }
+    }
+  }
+
+  /* #3/#2125: merge the TCC roots the app-identity hatch walked (--kosmos-app-scan), so those
+     folders are scanned WITHOUT the engine touching them. `tccScan` is injectable (tests pass a
+     stub); the default drops the request and reads a ready result NON-BLOCKING (scan() is sync and
+     must never block the event loop polling). A null return means the hatch result is not ready
+     yet -> `scanning:true`, and the caller retries /api/scan-import shortly. Rows are built by the
+     SAME folderRow/looseRow the walk uses, so the hatch path cannot diverge from the engine path.
+     Dedup: skip a dir/file already found by the walk, found(), alreadyIn or declined (known). */
+  let scanning = false;
+  if (tccRoots.length) {
+    const tccScan = typeof o.tccScan === 'function' ? o.tccScan : defaultTccScan;
+    let hatch = null;
+    try {
+      hatch = tccScan(tccRoots, { maxDirs, maxMdPerDir: SCAN.MAX_MD_PER_DIR, maxMdReads, readCap: SCAN.READ_CAP });
+    } catch { hatch = null; }
+    if (!hatch) {
+      scanning = true;
+    } else {
+      for (const d of (hatch.dirs || [])) {
+        if (!d || !d.dir || byDir.has(d.dir) || known.has(d.dir)) continue;
+        const row = folderRow(d.dir, d.instr && d.instr.head);
+        if (row) { if (!alreadyIn(d.dir, roster)) byDir.set(d.dir, row); else known.add(d.dir); }
+      }
+      for (const l of (hatch.loose || [])) {
+        if (!l || !l.file || byFile.has(l.file)) continue;
+        const row = looseRow(l.file, l.head);
+        if (row) byFile.set(l.file, row);
+      }
+      if (hatch.bounded) {
+        if (hatch.bounded.dirs) hitDirs = true;
+        if (hatch.bounded.importable) hitImportable = true;
+        if (Number.isFinite(hatch.bounded.visited)) visited += hatch.bounded.visited;
       }
     }
   }
@@ -1103,6 +1187,11 @@ function scan(opts) {
        loose-file-read wall, surfaced like the others so the screen can say "and there may
        be more files". */
     bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable },
+    /* #3/#2125: true only when a TCC-root hatch result is not ready yet -- the caller (the
+       /api/scan-import route + getImportScan cache) treats a scanning:true result as PARTIAL
+       (non-TCC rows only) and does NOT cache it, so a retry shortly after picks up the TCC rows
+       the hatch has since written. Absent/false on the auto scan (no TCC roots) and once merged. */
+    scanning,
     because: null,
   };
 }
