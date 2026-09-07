@@ -4761,25 +4761,27 @@ const server = http.createServer((req, res) => {
         }
         const shape = claudeAccounts.keyProblem(body.key);
         if (shape) { sendJson(res, 400, { error: shape }); return; }
-        // #1315 discipline: validate LIVE at ADD time. Refuse ONLY a positively-rejected
-        // key (Anthropic's authentication_error); accept CONNECTED and also UNKNOWN
-        // (unreachable / a non-attributed refusal), never blocking a good key on an
-        // answer that does not confirm the key is bad.
-        const live = await claudeAccounts.validateLive(String(body.key || '').trim());
-        if (live.state === claudeAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
-        // #2420 taken-label guard, BEFORE prepare so a REFUSED add never touches an
-        // existing account (prepare would merge reporting hooks into its settings.json).
-        // NEVER write into an EXISTING account: a label matching a signed-in SUBSCRIPTION
-        // account (identityOf) or an existing api-key account (a stored key file) would drop
-        // a key file + apiKeyHelper into it and SILENTLY switch its billing to the pasted key
-        // (Claude Code prefers apiKeyHelper over the OAuth subscription). Mirrors
-        // openaiaccounts.addWithKey's taken-label refusal.
+        // #2420 taken-label guard, BEFORE the live check and BEFORE prepare. Before the
+        // live check so a doomed add on an existing label does not waste a round-trip
+        // sending the key to Anthropic (mirrors openaiaccounts.addWithKeyLive's label-first
+        // order); before prepare so a REFUSED add never merges hooks into an existing
+        // account's settings.json. NEVER write into an EXISTING account: a label matching a
+        // signed-in SUBSCRIPTION account (identityOf) or an existing api-key account (a
+        // stored key file) would drop a key file + apiKeyHelper into it and SILENTLY switch
+        // its billing to the pasted key (Claude Code prefers apiKeyHelper over the OAuth
+        // subscription).
         const named = accounts.dirForLabel(body.label);
         if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
         if (accounts.identityOf(named.dir) || fs.existsSync(claudeAccounts.keyFile(named.dir))) {
           sendJson(res, 400, { error: 'there is already a Claude account by that name on this computer' });
           return;
         }
+        // #1315 discipline: validate LIVE at ADD time. Refuse ONLY a positively-rejected
+        // key (Anthropic's authentication_error); accept CONNECTED and also UNKNOWN
+        // (unreachable / a non-attributed refusal), never blocking a good key on an
+        // answer that does not confirm the key is bad.
+        const live = await claudeAccounts.validateLive(String(body.key || '').trim());
+        if (live.state === claudeAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
         const prepared = accounts.prepare(body.label);
         if (!prepared.ok) { sendJson(res, 400, { error: prepared.because }); return; }
         const settingsPath = path.join(prepared.dir, 'settings.json');

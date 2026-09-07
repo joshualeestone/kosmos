@@ -415,6 +415,15 @@ function prepare(label) {
  * would then refuse forever.
  */
 function nextWorkDir() {
+  /* #2420: the basename an api-key Claude account stores its key under. Resolved
+     ONCE (require caches, but hoisting reads cleaner than a per-iteration call) and
+     runtime, so claudeaccounts -> subscription -> (lazy) accounts never re-enters
+     this module mid-load. If the module cannot load, this is null and the occupancy
+     check below is skipped -- failing OPEN, which is SAFE here: a claudeaccounts that
+     will not load means the api-key feature never ran, so no key files exist to
+     contaminate a reused slot. */
+  let apiKeyBasename = null;
+  try { apiKeyBasename = require('./claudeaccounts').KEY_BASENAME; } catch { apiKeyBasename = null; }
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(homeDir(), `.claude-${label}`);
@@ -444,11 +453,8 @@ function nextWorkDir() {
        an oauthAccount in the dir, and Claude Code prefers apiKeyHelper, so the
        subscription's billing would silently switch to the stored key (the
        inverse of the taken-label guard the api-key connect route applies). A
-       stored key file means occupied. Lazy require avoids any load-order
-       coupling; the basename is claudeaccounts' own constant so it cannot drift. */
-    try {
-      if (fs.existsSync(path.join(dir, require('./claudeaccounts').KEY_BASENAME))) continue;
-    } catch { /* if the module cannot load, do not wrongly claim occupied */ }
+       stored key file means occupied. */
+    if (apiKeyBasename && fs.existsSync(path.join(dir, apiKeyBasename))) continue;
     /* And freeness demands exactly what preparability demands, or a
        half-formed spot is offered forever while prepare refuses it
        forever: the projects entry must be absent, or a symlink that

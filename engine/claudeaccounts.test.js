@@ -126,3 +126,13 @@ test('forget takes back BOTH the key file and the apiKeyHelper entry, leaving ot
   assert.equal('apiKeyHelper' in obj, false, 'the pointer is removed');
   assert.equal(obj.theme, 'dark', 'unrelated settings survive the untwire');
 });
+
+test('forgetKey also removes a leftover .tmp so a failed storeKey cannot strand a plaintext key', () => {
+  const dir = freshDir('tmpclean1');
+  // Simulate an interrupted storeKey: the temp with the raw key survives, the final file may too.
+  fs.writeFileSync(ca.keyFile(dir), 'sk-ant-final', { mode: 0o600 });
+  fs.writeFileSync(ca.keyFile(dir) + '.tmp', 'sk-ant-stranded-plaintext', { mode: 0o600 });
+  ca.forgetKey(dir);
+  assert.equal(fs.existsSync(ca.keyFile(dir)), false, 'the key file is gone');
+  assert.equal(fs.existsSync(ca.keyFile(dir) + '.tmp'), false, 'the orphaned temp holding the raw key is also gone');
+});

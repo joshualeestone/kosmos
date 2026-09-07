@@ -149,7 +149,13 @@ function storeKey(dir, key) {
 }
 
 function forgetKey(dir) {
-  try { fs.rmSync(keyFile(dir), { force: true }); return true; } catch { return false; }
+  // Remove the key file AND any leftover temp: a storeKey whose writeFileSync or
+  // renameSync failed part-way can leave <keyfile>.tmp holding the raw key (mode
+  // 0600), so the failed-store cleanup must take back BOTH or a plaintext key lingers.
+  let ok = false;
+  try { fs.rmSync(keyFile(dir), { force: true }); ok = true; } catch { ok = false; }
+  try { fs.rmSync(keyFile(dir) + '.tmp', { force: true }); } catch { /* best effort */ }
+  return ok;
 }
 
 /* Single-quote a string for a POSIX shell: everything inside single quotes is
