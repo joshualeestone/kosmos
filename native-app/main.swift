@@ -533,6 +533,179 @@ func writeFileAccessStatus(granted: Bool) -> Bool {
     }
 }
 
+// MARK: - #3 / #2125 follow-up: the import-scan TCC-root walk, done by the APP identity
+//
+// The find-agents import scan must read the TCC-protected roots (~/Documents deep,
+// ~/Downloads + ~/Desktop shallow). Doing that in the ENGINE (node) re-prompts, because
+// the S2 grant was taken for the APP-EXE identity, not the engine's. So the ENGINE drops a
+// `scan-request.json` and this hatch -- the SAME app-exe spawned under tmux that
+// `--kosmos-app-fileaccessprompt` uses (the proven S2 grant path) -- does the readdir + head
+// reads under the granted identity and writes `scan-result.json`. It emits RAW MATERIAL only
+// (paths + head bytes); ALL agent-detection + dedup stays single-sourced in engine/discover.js
+// so there is no Swift/Node divergence. See .claude/plans/scan-tcc-hatch-2125b.md for the
+// contract. This walk mirrors the engine's SCAN_SKIP / depth / budget semantics.
+
+// Folder NAMES never descended -- the engine's SCAN_SKIP, kept in sync deliberately (the
+// engine still owns detection; this is only the walk shape). Documents/Downloads/Desktop are
+// here because a NESTED occurrence during descent is skipped; they still walk as explicit ROOTS.
+private let kScanSkip: Set<String> = [
+    "node_modules", "target", "vendor", "dist", "build",
+    "Library", "Applications", "Music", "Movies", "Pictures", "Downloads",
+    "Public", "Desktop", "Documents", "Photos Library.photoslibrary",
+]
+// The instruction files an agent FOLDER is recognised by (the engine reads these heads and
+// decides whether they "introduce somebody"; the hatch only supplies the head bytes).
+private let kInstrFiles = ["CLAUDE.md", "AGENTS.md", "GEMINI.md"]
+
+private struct ScanBudgets {
+    var maxDirs = 8000
+    var maxMdPerDir = 40
+    var maxMdReads = 3000
+    var readCap = 4000
+}
+
+// Read the first `cap` bytes of a file as a UTF-8 string (lossy), never allocating the whole
+// file (an agent .md is small, but a mis-placed huge file must not be slurped). Returns nil if
+// unreadable (which, for a TCC root before the grant, is exactly the not-granted signal).
+private func headBytes(_ path: String, cap: Int) -> String? {
+    guard let fh = FileHandle(forReadingAtPath: path) else { return nil }
+    defer { try? fh.close() }
+    let data = (try? fh.read(upToCount: cap)) ?? nil
+    guard let d = data else { return nil }
+    return String(decoding: d, as: UTF8.self)
+}
+
+// Walk the requested roots under the granted app identity and write scan-result.json.
+// Returns true on a written result (even an empty one); false only if the request/result
+// paths cannot be resolved. Never throws out: a per-entry failure is recorded, not fatal --
+// an unreadable TCC root simply yields no rows (the grant is not there), which is a valid
+// answer, not an error.
+func scanUnderGrant() -> Bool {
+    // The watcher has already atomically renamed scan-request.json -> scan-request.inflight
+    // (the consume, so successive 1.5s ticks cannot launch a second walk). This hatch reads
+    // the claimed file and removes it when done.
+    guard let reqURL = storeFileURL("scan-request.inflight"),
+          let outURL = storeFileURL("scan-result.json") else {
+        logLine("scan: could not resolve scan-request/scan-result paths")
+        return false
+    }
+    // Parse the request. A missing/garbage request is not a crash: write a bounded-empty
+    // result so the engine's poll never hangs waiting on a hatch that had nothing to do.
+    var roots: [[String: Any]] = []
+    var budgets = ScanBudgets()
+    var nonce = ""
+    if let data = try? Data(contentsOf: reqURL),
+       let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+        roots = (obj["roots"] as? [[String: Any]]) ?? []
+        nonce = (obj["req"] as? String) ?? ""
+        if let b = obj["budgets"] as? [String: Any] {
+            if let v = b["maxDirs"] as? Int { budgets.maxDirs = v }
+            if let v = b["maxMdPerDir"] as? Int { budgets.maxMdPerDir = v }
+            if let v = b["maxMdReads"] as? Int { budgets.maxMdReads = v }
+            if let v = b["readCap"] as? Int { budgets.readCap = v }
+        }
+    } else {
+        logLine("scan: no readable scan-request.json; writing bounded-empty result")
+    }
+
+    let fm = FileManager.default
+    var dirsOut: [[String: Any]] = []
+    var looseOut: [[String: Any]] = []
+    var visited = Set<String>()      // canonical realpaths already walked
+    var dirCount = 0
+    var mdReads = 0
+    var boundedDirs = false
+    var boundedImportable = false
+
+    // Resolve to a canonical realpath so three aliases of one physical dir are walked once
+    // (the engine dedups by realpath for the same reason): $HOME re-reaching a curated parent,
+    // a case-variant on the case-insensitive default FS, and a symlinked root.
+    func canon(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
+
+    // One directory: read its instruction-file heads (folder-agent material) and, when the
+    // root is importOnly, its loose .md heads (importable material). Then descend, honouring
+    // SCAN_SKIP, dotdirs, depth and budgets.
+    func walk(_ dir: String, depth: Int, importOnly: Bool) {
+        if dirCount >= budgets.maxDirs { boundedDirs = true; return }
+        let real = canon(dir)
+        if visited.contains(real) { return }
+        visited.insert(real)
+        dirCount += 1
+
+        let entries: [String]
+        do { entries = try fm.contentsOfDirectory(atPath: dir) }
+        catch { return }   // unreadable (e.g. TCC not granted) -> no rows from here
+
+        // Folder-agent material: the instruction files, if present.
+        for name in kInstrFiles {
+            let file = (dir as NSString).appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            if fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue,
+               mdReads < budgets.maxMdReads, let head = headBytes(file, cap: budgets.readCap) {
+                mdReads += 1
+                dirsOut.append(["dir": dir, "instr": ["file": file, "head": head]])
+                break   // one instruction file per dir is enough for the engine to judge
+            }
+        }
+
+        // Importable loose .md material (importOnly roots only, e.g. Downloads/Desktop).
+        if importOnly {
+            var perDir = 0
+            for name in entries where name.hasSuffix(".md") {
+                if perDir >= budgets.maxMdPerDir { boundedImportable = true; break }
+                if mdReads >= budgets.maxMdReads { boundedImportable = true; break }
+                let file = (dir as NSString).appendingPathComponent(name)
+                var isDir: ObjCBool = false
+                guard fm.fileExists(atPath: file, isDirectory: &isDir), !isDir.boolValue else { continue }
+                if let head = headBytes(file, cap: budgets.readCap) {
+                    mdReads += 1
+                    perDir += 1
+                    looseOut.append(["file": file, "head": head])
+                }
+            }
+        }
+
+        // Descend.
+        if depth <= 0 { return }
+        for name in entries {
+            if name.hasPrefix(".") { continue }          // every dotdir skipped by rule
+            if kScanSkip.contains(name) { continue }     // build/vendor output + macOS homes
+            let child = (dir as NSString).appendingPathComponent(name)
+            var isDir: ObjCBool = false
+            guard fm.fileExists(atPath: child, isDirectory: &isDir), isDir.boolValue else { continue }
+            walk(child, depth: depth - 1, importOnly: importOnly)
+        }
+    }
+
+    for r in roots {
+        guard let dir = r["dir"] as? String else { continue }
+        let maxDepth = (r["maxDepth"] as? Int) ?? 4
+        let importOnly = (r["importOnly"] as? Bool) ?? false
+        walk(dir, depth: maxDepth, importOnly: importOnly)
+    }
+
+    let result: [String: Any] = [
+        "ok": true,
+        "req": nonce,
+        "dirs": dirsOut,
+        "loose": looseOut,
+        "bounded": ["dirs": boundedDirs, "count": false, "importable": boundedImportable, "visited": dirCount],
+    ]
+    // Remove the claimed request; the walk is done. (A failure to remove is non-fatal: the
+    // nonce on the result is what the engine matches, so a lingering .inflight cannot cause a
+    // wrong answer -- and the watcher only ever renames a fresh scan-request.json into it.)
+    try? fm.removeItem(at: reqURL)
+    do {
+        let data = try JSONSerialization.data(withJSONObject: result, options: [])
+        try fm.createDirectory(at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: outURL, options: .atomic)   // atomic: the engine never reads a torn result
+        return true
+    } catch {
+        logLine("scan: could not write scan-result.json (\(error.localizedDescription))")
+        return false
+    }
+}
+
 // MARK: - #2124 single-instance handoff
 //
 // A fresh install ran MULTIPLE Kosmos instances: the installer launches a copy,
@@ -896,11 +1069,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // watcher's job is only the on-demand FIRING, timing fixed in #2347.)
     private func startPromptRequestWatcher() {
         checkPromptRequests()
+        checkScanRequest()
         // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
         // enough (a fileExists on two paths) to run continuously.
         promptRequestTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
             self?.checkPromptRequests()
+            self?.checkScanRequest()
         }
+    }
+
+    // #3 / #2125 follow-up: the import-scan TCC-root walk. The engine drops scan-request.json;
+    // this claims it by an ATOMIC rename to scan-request.inflight (so two 1.5s ticks cannot
+    // both launch a walk) and fires --kosmos-app-scan under tmux -- the SAME spawn path as the
+    // file-access hatch, so the walk runs under the APP identity that holds the S2 grant and
+    // fires no fresh Documents prompt. The hatch reads the .inflight file, writes
+    // scan-result.json (atomic, nonce-tagged) and removes the .inflight file.
+    private func checkScanRequest() {
+        guard let req = storeFileURL("scan-request.json"),
+              FileManager.default.fileExists(atPath: req.path),
+              let inflight = storeFileURL("scan-request.inflight") else { return }
+        // A request older than 60s is abandoned (the engine's poll times out well before
+        // then); drop it rather than fire a walk nobody is waiting on.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: req.path),
+           let mtime = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mtime) > 60 {
+            try? FileManager.default.removeItem(at: req)
+            logLine("scan-request: dropped stale request (older than 60s)")
+            return
+        }
+        guard let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome else { return }
+        // The rename IS the consume: exactly one tick wins it, and a failure (already claimed,
+        // or gone) means another tick got there first -- so bail without firing.
+        do {
+            // Replace any leftover .inflight from a crashed prior walk, then claim.
+            try? FileManager.default.removeItem(at: inflight)
+            try FileManager.default.moveItem(at: req, to: inflight)
+        } catch {
+            return
+        }
+        spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-scan")
     }
 
     private func checkPromptRequests() {
@@ -3050,6 +3257,16 @@ if CommandLine.arguments.contains("--kosmos-app-axprompt") {
 // this file-access attribution as evidence the a11y seam attributes to tmux too.)
 if CommandLine.arguments.contains("--kosmos-app-fileaccessprompt") {
     exit(writeFileAccessStatus(granted: fileAccessReading()) ? 0 : 1)
+}
+// --kosmos-app-scan: the import-scan TCC-root walk, done by the APP identity (#3 / #2125
+// follow-up). The engine drops scan-request.json; the prompt-request watcher claims it (rename
+// -> scan-request.inflight) and fires this hatch UNDER tmux -- the SAME spawn path as
+// --kosmos-app-fileaccessprompt, so the readdir runs under the app identity that holds the S2
+// grant and fires no fresh Documents prompt. This walk emits RAW MATERIAL only (paths + head
+// bytes) to scan-result.json; ALL agent detection + dedup stays in engine/discover.js so there
+// is no Swift/Node divergence. Contract: .claude/plans/scan-tcc-hatch-2125b.md.
+if CommandLine.arguments.contains("--kosmos-app-scan") {
+    exit(scanUnderGrant() ? 0 : 1)
 }
 
 let app = NSApplication.shared
