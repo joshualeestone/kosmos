@@ -127,9 +127,11 @@ function setSqliteRunner(fn) { sqliteRunner = fn; }
 
 /* #2085: a tiny time-boxed cache so the 1.5s first-run gate poll does not spawn a
    sqlite3 subprocess on EVERY request (each spawn blocks the board's single HTTP
-   thread). The grant changes only when the user toggles it in System Settings, so
-   a ~2s staleness is invisible -- the poll re-reads continuously and the pill
-   flips within a poll or two of a real change. Disabled whenever a test passes an
+   thread). It elides the SUBPROCESS SPAWN specifically; the cheap path resolution
+   (binPaths + realpathSync) still runs each call, because it computes the cache
+   key. The grant changes only when the user toggles it in System Settings, so a
+   ~2s staleness is invisible -- the poll re-reads continuously and the pill flips
+   within a poll or two of a real change. Disabled whenever a test passes an
    override (custom runner / db / tmuxBin) so tests are never served a stale value. */
 let grantCache = null; // { key, at, value }
 const GRANT_TTL_MS = 2000;

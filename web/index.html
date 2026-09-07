@@ -37056,6 +37056,9 @@ async function frPollGates(screenEl, gen) {
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
     // fail-safe invariant is unchanged: only 'blocked' gates Next (below).
+    // NOTE: data-checking is set on ANY uncheckable data-gate row, but only the
+    // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
+    // (that row keeps its default red state, unchanged) -- harmless, not a regression.
     if (states[i] === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
     else if (states[i] === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }

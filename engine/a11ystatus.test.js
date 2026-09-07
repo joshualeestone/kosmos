@@ -188,3 +188,30 @@ test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + 
   const drifted = a11y.tmuxGrant({ tmuxBin: '/fake/bundled/tmux', tccDb: bad });
   assert.equal(drifted.checkable, false, 'a db without the access table must fall to checkable:false, not throw or vouch');
 });
+
+test('#2085 tmuxGrant: the PRODUCTION (no-opts) cache path memoizes, and resetGrantCache clears it', () => {
+  // server.js calls tmuxGrant() with NO opts -> useCache is on and the MODULE
+  // runner is used. That load-bearing path is exercised here via setSqliteRunner
+  // (a counting spy) so the 2s memo (elide repeat sqlite spawns) and
+  // resetGrantCache are both covered. A fixed tmuxBin via env keeps the resolve
+  // deterministic without a real binary.
+  const origBin = process.env.AGENT_WORKFORCE_TMUX_BIN;
+  process.env.AGENT_WORKFORCE_TMUX_BIN = '/fake/cachetest/tmux';
+  let calls = 0;
+  a11y.setSqliteRunner(() => { calls += 1; return { ok: true, rows: [] }; });
+  a11y.resetGrantCache();
+  try {
+    a11y.tmuxGrant();  // miss -> spy called
+    a11y.tmuxGrant();  // hit within the 2s TTL -> spy NOT called again
+    assert.equal(calls, 1, 'the memo must serve the second no-opts call from cache, not re-spawn');
+    a11y.resetGrantCache();
+    a11y.tmuxGrant();  // cleared -> fresh read
+    assert.equal(calls, 2, 'resetGrantCache must force a fresh read');
+  } finally {
+    // Restore a benign module runner + clear the cache so no later test in this
+    // file inherits the spy or a stale value.
+    a11y.setSqliteRunner(() => ({ ok: false, because: 'test teardown runner' }));
+    a11y.resetGrantCache();
+    if (origBin === undefined) delete process.env.AGENT_WORKFORCE_TMUX_BIN; else process.env.AGENT_WORKFORCE_TMUX_BIN = origBin;
+  }
+});
