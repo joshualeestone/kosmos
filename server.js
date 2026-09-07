@@ -9284,6 +9284,29 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #768: set or clear a task's due date. Body { dueDate: 'YYYY-MM-DD' | null }.
+     tasks.setDue validates (a nonsense date is a 400, never stored) and records a
+     lifecycle event so the change shows in the task's activity. */
+  const taskDue = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/due$/);
+  if (taskDue && req.method === 'POST') {
+    const id = decodeSegment(taskDue[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        const t = tasks.setDue(id, taskDue[2], body.dueDate);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
+          { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* The parts of a task (#206 step 2). One route per verb, the same shape as
      close/reopen above, and every one of them re-tells the people named on the
      task afterwards. */
