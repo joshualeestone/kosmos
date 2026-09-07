@@ -36452,9 +36452,17 @@ document.getElementById('pj-create').addEventListener('click', async () => {
 /**
  * Put an agent on the CURRENT project, live -- shared by the add-member modal's
  * "Add to project" Go button and the settings doors' picker (#762), so the two
- * do not drift into two answers for one POST. Returns true on success so the
- * modal caller can close on a clean add (0.6.45); the settings-door caller
- * ignores the return.
+ * do not drift into two answers for one POST. Returns true on a clean POST so the
+ * caller can close/refresh in the order THAT surface needs.
+ *
+ * 🛑 #2429: this NO LONGER refreshes the board itself. It used to `await loadProjects()`
+ * on success, which repaints the open project detail -- and thus the modal's own
+ * free-agent picker -- BEFORE the modal handler's `amClose()` ran. When the just-added
+ * agent was the last free one, `paintFreeAgentPicker` flashed its empty-state line
+ * ("every agent we can see is already on it") into the still-open picker and only then
+ * closed: Josh's "it blipped out and then said 'everyone can already see on it'". So the
+ * refresh is the CALLER's now -- the modal handler closes FIRST, then refreshes a hidden
+ * picker (no visible flash); the settings-door caller refreshes in place as before.
  */
 async function addMemberToProject(who, msg) {
   if (!who || !PJ_CURRENT) return false;
@@ -36463,7 +36471,6 @@ async function addMemberToProject(who, msg) {
     const res = await fetch('/api/project/' + encodeURIComponent(PJ_CURRENT) + '/agent/' + encodeURIComponent(who), { method: 'POST' });
     const body = await res.json();
     if (!res.ok) throw new Error(body.error || 'we could not change that project');
-    await loadProjects();
     return true;
   } catch (err) {
     // Through pjSentence like every sibling on this screen (round 24): the
@@ -36473,12 +36480,13 @@ async function addMemberToProject(who, msg) {
   }
 }
 document.getElementById('pj-one-add-go').addEventListener('click', async () => {
-  // 0.6.45 (Josh): once the member is added there is nothing more to do in the
-  // modal, so close it on success rather than leaving it open showing the
-  // "everyone is already on it" empty state. A failure keeps it open with the
-  // reason in pj-one-msg. amClose is the same close Cancel/backdrop/Escape use.
+  // #2429 (Josh, 0.6.45): once the member is added there is nothing more to do in the
+  // modal, so CLOSE it on success -- and close BEFORE the board refresh, so the picker's
+  // empty-state line never flashes in the still-open modal (the repaint then lands on a
+  // hidden picker). A failure keeps the modal open with the reason in pj-one-msg. amClose
+  // is the same close Cancel/backdrop/Escape use.
   const ok = await addMemberToProject(document.getElementById('pj-one-add').value, document.getElementById('pj-one-msg'));
-  if (ok) amClose();
+  if (ok) { amClose(); loadProjects(); }
 });
 /* #762: the settings doors' own "+ Add an agent", a duplicate of New
    project's reveal-a-picker door (#750) but live: picking an agent adds
@@ -36499,7 +36507,10 @@ document.getElementById('pjs-add-pick').addEventListener('change', async () => {
   document.getElementById('pjs-add-row').hidden = true;
   document.getElementById('pjs-add-agent').focus();
   if (!who) return;
-  await addMemberToProject(who, document.getElementById('pjs-members-msg'));
+  // #2429: addMemberToProject no longer refreshes the board itself, so refresh here
+  // on success. This settings-door surface has no modal to flash, so order does not
+  // matter -- it just needs the members list to update, as it did before.
+  if (await addMemberToProject(who, document.getElementById('pjs-members-msg'))) await loadProjects();
 });
 
 /* The removal listener lives on the SETTINGS rows now (the column lost
