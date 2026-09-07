@@ -88,31 +88,43 @@ test('a verdict with no readable time -> uncheckable (cannot judge freshness)', 
    trusted:true; every failure path falls to checkable:false ("Checking...").
 --------------------------------------------------------------------------- */
 
-// A mocked sqlite runner so the branch logic is deterministic without a db.
-const grantRunner = (authValues) => () => ({ ok: true, authValues });
+// A mocked sqlite runner so the branch logic is deterministic without a db. The
+// runner returns {ok, rows:[{client, auth}]} for tmux-shaped clients (the real
+// runner does a LIKE '%tmux%'); tmuxGrant matches the exact resolved path in JS.
+const rowsRunner = (rows) => () => ({ ok: true, rows });
 const failRunner = (because) => () => ({ ok: false, because: because || 'nope' });
 
-test('#2085 tmuxGrant: auth_value 2 (allowed) -> checkable:true, trusted:true (the honest green)', () => {
-  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: grantRunner([2]) });
+test('#2085 tmuxGrant: THIS tmux granted (auth 2) -> checkable:true, trusted:true (the honest green)', () => {
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([{ client: '/fake/tmux', auth: 2 }]) });
   assert.equal(r.checkable, true);
   assert.equal(r.trusted, true);
   assert.equal(typeof r.at, 'string');
 });
 
-test('#2085 tmuxGrant: auth_value 3 (allowed, limited) also -> trusted:true', () => {
-  assert.equal(a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: grantRunner([3]) }).trusted, true);
+test('#2085 tmuxGrant: auth 3 (allowed, limited) also -> trusted:true', () => {
+  assert.equal(a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([{ client: '/fake/tmux', auth: 3 }]) }).trusted, true);
 });
 
-test('#2085 tmuxGrant: auth_value 0 (denied) -> checkable:true, trusted:false (Not activated, Turn On)', () => {
-  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: grantRunner([0]) });
+test('#2085 tmuxGrant: THIS tmux present but denied (auth 0) -> checkable:true, trusted:false (Not activated, Turn On)', () => {
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([{ client: '/fake/tmux', auth: 0 }]) });
   assert.equal(r.checkable, true);
   assert.equal(r.trusted, false);
 });
 
-test('#2085 tmuxGrant: NO row (tmux never requested / path mismatch) -> trusted:false, never a false green', () => {
-  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: grantRunner([]) });
+test('#2085 tmuxGrant: NO tmux granted anywhere -> trusted:false (honest fresh-install Turn On), never a false green', () => {
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/tmux', sqliteRunner: rowsRunner([]) });
   assert.equal(r.checkable, true);
-  assert.equal(r.trusted, false, 'absence of a grant row must read as NOT granted, not activated');
+  assert.equal(r.trusted, false, 'no grant anywhere must read as NOT granted (actionable), never activated');
+});
+
+test('#2085 tmuxGrant: ANOTHER tmux granted but not ours (path-key mismatch) -> checkable:false, NOT a strand and NOT a false green', () => {
+  // The reviewer's strand case: a tmux holds the grant, but under a different path
+  // than the binary we resolve. Must NOT block Next with a false "Not activated"
+  // (that strands a granted user) and must NOT claim green (it is not OUR tmux) ->
+  // the non-committal "Checking..." state (checkable:false) is the honest answer.
+  const r = a11y.tmuxGrant({ tmuxBin: '/fake/bundled/tmux', sqliteRunner: rowsRunner([{ client: '/opt/homebrew/Cellar/tmux/3.6a/bin/tmux', auth: 2 }]) });
+  assert.equal(r.checkable, false, 'an ambiguous other-tmux grant must be cannot-check, not a blocking "Not activated"');
+  assert.equal(r.trusted, undefined, 'and never a false green off a tmux that is not ours');
 });
 
 test('#2085 tmuxGrant: a read failure -> checkable:false ("Checking..."), NEVER trusted:true', () => {
@@ -128,15 +140,14 @@ test('#2085 tmuxGrant: a runner that THROWS is caught -> checkable:false, never 
 
 test('#2085 tmuxGrant: an empty opts.tmuxBin FALLS BACK to the resolved default (does not crash)', () => {
   // '' is falsy, so it falls through to create.binPaths().tmuxBin (the resolved
-  // default) rather than the "could not resolve" arm; the mock runner makes the
-  // verdict deterministic regardless of which path binPaths returns. This pins
-  // that the resolution fallback works and never throws.
-  const r = a11y.tmuxGrant({ tmuxBin: '', sqliteRunner: grantRunner([2]) });
+  // default) rather than the "could not resolve" arm. rowsRunner([]) (no grant)
+  // makes the verdict deterministic regardless of which path binPaths returns.
+  const r = a11y.tmuxGrant({ tmuxBin: '', sqliteRunner: rowsRunner([]) });
   assert.equal(r.checkable, true, 'an empty tmuxBin should resolve via binPaths, not fail to ask');
-  assert.equal(r.trusted, true);
+  assert.equal(r.trusted, false);
 });
 
-test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + schema-guard)', () => {
+test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + 3-way + schema-guard)', () => {
   const { execFileSync } = require('node:child_process');
   // Skip cleanly if sqlite3 is unavailable in this environment.
   let haveSqlite = true;
@@ -147,21 +158,29 @@ test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + 
   const db = path.join(SANDBOX, 'tcc-test.db');
   try { fs.rmSync(db, { force: true }); } catch { /* */ }
   // Match the real schema (service/client/client_type/auth_value) so this
-  // exercises the ACTUAL query the default runner builds, not a mock.
+  // exercises the ACTUAL query the default runner builds (LIKE '%tmux%'), not a mock.
   execFileSync('/usr/bin/sqlite3', [db,
     "CREATE TABLE access(service TEXT NOT NULL, client TEXT NOT NULL, client_type INTEGER NOT NULL, auth_value INTEGER NOT NULL);"
     + "INSERT INTO access VALUES('kTCCServiceAccessibility','/fake/bundled/tmux',1,2);"
     + "INSERT INTO access VALUES('kTCCServiceAccessibility','/some/other/app',0,0);"]);
 
-  // Granted tmux path -> trusted:true (uses the DEFAULT runner: real sqlite3 + real query).
+  // Granted tmux path -> trusted:true (DEFAULT runner: real sqlite3 + real query).
   const granted = a11y.tmuxGrant({ tmuxBin: '/fake/bundled/tmux', tccDb: db });
   assert.equal(granted.checkable, true);
   assert.equal(granted.trusted, true, 'a real auth_value 2 row for the tmux path was not read as granted');
 
-  // A tmux path with no row -> trusted:false (not a false green off another app's row).
-  const other = a11y.tmuxGrant({ tmuxBin: '/fake/ungranted/tmux', tccDb: db });
-  assert.equal(other.checkable, true);
-  assert.equal(other.trusted, false);
+  // A DIFFERENT tmux path while /fake/bundled/tmux IS granted -> ambiguous ->
+  // checkable:false (never a false green off the granted-but-not-ours row, never a strand).
+  const ambiguous = a11y.tmuxGrant({ tmuxBin: '/fake/other/tmux', tccDb: db });
+  assert.equal(ambiguous.checkable, false, 'another-tmux-granted must be cannot-check, not a false green or a strand');
+
+  // No tmux granted at all -> trusted:false (fresh-install Turn On).
+  const emptyDb = path.join(SANDBOX, 'tcc-empty.db');
+  execFileSync('/usr/bin/sqlite3', [emptyDb,
+    "CREATE TABLE access(service TEXT NOT NULL, client TEXT NOT NULL, client_type INTEGER NOT NULL, auth_value INTEGER NOT NULL);"]);
+  const none = a11y.tmuxGrant({ tmuxBin: '/fake/bundled/tmux', tccDb: emptyDb });
+  assert.equal(none.checkable, true);
+  assert.equal(none.trusted, false);
 
   // Schema drift / wrong db shape -> checkable:false (the guard), never a verdict.
   const bad = path.join(SANDBOX, 'tcc-bad.db');

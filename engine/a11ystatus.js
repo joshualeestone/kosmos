@@ -92,28 +92,48 @@ function read() {
   return { checkable: true, trusted: rec.trusted === true, at: rec.at };
 }
 
-/* SQL single-quote escaping for the client path. The path comes from the
-   install layout / config, not from a network caller, but the sqlite3 CLI takes
-   no bound parameters, so the literal is escaped rather than trusted. */
-function sqlQuote(s) { return "'" + String(s).replace(/'/g, "''") + "'"; }
-
-/* Test seam: read tmux's Accessibility auth_value(s) from the system TCC db.
-   Returns { ok:true, authValues:[int,...] } or { ok:false, because }. Never
-   throws. `-readonly` so a locked live db still reads and this can never mutate
-   the system TCC store. The schema (service/client/auth_value) is Apple-private
-   and can drift across macOS versions; any drift makes the query error, which
-   lands in { ok:false } and thus checkable:false -- never a wrong grant verdict. */
-let sqliteRunner = (dbPath, clientPath) => {
+/* Test seam: read the Accessibility grant rows for any tmux-shaped client from
+   the system TCC db. Returns { ok:true, rows:[{client, auth}] } or { ok:false,
+   because }. Never throws.
+   - `-readonly` so a locked live db still reads and this can NEVER mutate the
+     system TCC store.
+   - The query is a FIXED literal (a `LIKE '%tmux%'` with no interpolated value),
+     so there is no injected path and nothing to escape -- the exact-binary match
+     is done in JS below against `client`, off the returned rows.
+   - `timeout` is short (2s): this is a local single-row read, and the caller runs
+     on the board's HTTP thread, so a pathological lock must not pin the event loop
+     for long; a timeout lands in { ok:false } -> checkable:false ("Checking...").
+   - The schema (service/client/auth_value) is Apple-private and can drift across
+     macOS versions; any drift makes the query error -> { ok:false } -> never a
+     wrong grant verdict. */
+let sqliteRunner = (dbPath) => {
   try {
-    const q = "SELECT auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client=" + sqlQuote(clientPath) + ';';
+    const q = "SELECT client, auth_value FROM access WHERE service='kTCCServiceAccessibility' AND client LIKE '%tmux%';";
     const out = execFileSync('/usr/bin/sqlite3', ['-readonly', dbPath, q], {
-      encoding: 'utf8', timeout: 5000, stdio: ['ignore', 'pipe', 'pipe'],
+      encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'pipe'],
     });
-    const authValues = String(out).split('\n').map((s) => s.trim()).filter(Boolean).map(Number).filter(Number.isFinite);
-    return { ok: true, authValues };
+    const rows = String(out).split('\n').map((s) => s.trim()).filter(Boolean).map((line) => {
+      // sqlite3's default separator is '|'; a client path never contains one, so
+      // split on the LAST '|' to keep any '|' inside a (hypothetical) path safe.
+      const i = line.lastIndexOf('|');
+      if (i < 0) return null;
+      const auth = Number(line.slice(i + 1));
+      return Number.isFinite(auth) ? { client: line.slice(0, i), auth } : null;
+    }).filter(Boolean);
+    return { ok: true, rows };
   } catch (e) { return { ok: false, because: String((e && e.message) || e) }; }
 };
 function setSqliteRunner(fn) { sqliteRunner = fn; }
+
+/* #2085: a tiny time-boxed cache so the 1.5s first-run gate poll does not spawn a
+   sqlite3 subprocess on EVERY request (each spawn blocks the board's single HTTP
+   thread). The grant changes only when the user toggles it in System Settings, so
+   a ~2s staleness is invisible -- the poll re-reads continuously and the pill
+   flips within a poll or two of a real change. Disabled whenever a test passes an
+   override (custom runner / db / tmuxBin) so tests are never served a stale value. */
+let grantCache = null; // { key, at, value }
+const GRANT_TTL_MS = 2000;
+function resetGrantCache() { grantCache = null; }
 
 /**
  * #2085: tmux's REAL Accessibility grant, read from the system TCC db, in the
@@ -131,13 +151,20 @@ function setSqliteRunner(fn) { sqliteRunner = fn; }
  * responsibility for its CHILDREN, which is why the under-tmux re-exec in #2125
  * still returned the app's state.)
  *
- * Dispositions (never a false green is the load-bearing invariant):
- *   auth_value >= 2 for THIS tmux binary -> { checkable:true, trusted:true }
- *   no row / auth_value < 2              -> { checkable:true, trusted:false }
- *       tmux was never granted (or the path does not match) -> the actionable
- *       "Not activated, Turn On" state; safe, never claims a grant it did not see.
+ * Dispositions -- NEVER a false green is the load-bearing invariant, and it never
+ * strands a granted user on a Next gate either:
+ *   THIS tmux binary granted (auth >= 2)            -> { checkable:true, trusted:true }  (green)
+ *   THIS binary present but denied (auth < 2)        -> { checkable:true, trusted:false } (Not activated + Turn On)
+ *   THIS binary absent, but ANOTHER tmux IS granted  -> { checkable:false } ("Checking...")
+ *       ambiguous: some tmux holds the grant but not the binary we resolve (a
+ *       path-key mismatch -- bundled vs Homebrew, symlink vs target). Never claim
+ *       a green we cannot attribute to OUR tmux, and never block Next on a "not
+ *       activated" that may be false -- so this is the non-committal, non-blocking
+ *       state, not a red one.
+ *   NO tmux granted anywhere                         -> { checkable:true, trusted:false } (Not activated + Turn On)
+ *       the honest fresh-install state: nothing is granted, so offer the action.
  *   any read failure (no FDA, missing/locked db, schema drift, no sqlite3,
- *   unresolvable tmux path) -> { checkable:false, because } -> "Checking..."
+ *   unresolvable tmux path)                          -> { checkable:false }      ("Checking...")
  *
  * @returns {{checkable:true,trusted:boolean,at:string}|{checkable:false,because:string}}
  */
@@ -153,18 +180,40 @@ function tmuxGrant(opts) {
   let real;
   try { real = fs.realpathSync(tmuxBin); } catch { real = tmuxBin; }
 
-  const runner = (opts && opts.sqliteRunner) || sqliteRunner;
   const dbPath = (opts && opts.tccDb) || TCC_DB;
-  let res;
-  try { res = runner(dbPath, real); } catch (e) { res = { ok: false, because: String((e && e.message) || e) }; }
-  if (!res || res.ok !== true) {
-    return { checkable: false, because: 'the accessibility database was not readable (no access, missing, locked, or a changed format)' };
+  // Only the production path (no test overrides) is cached, so a test never reads
+  // a value seeded by another test or by production.
+  const useCache = !(opts && (opts.sqliteRunner || opts.tccDb || opts.tmuxBin));
+  const cacheKey = real + ' ' + dbPath;
+  if (useCache && grantCache && grantCache.key === cacheKey && (Date.now() - grantCache.at) < GRANT_TTL_MS) {
+    return grantCache.value;
   }
-  const vals = Array.isArray(res.authValues) ? res.authValues : [];
-  // auth_value 2 (allowed) / 3 (allowed, limited) => granted; 0/1 => denied; no
-  // row => never requested => not granted. Only a real >=2 shows the green pill.
-  const trusted = vals.some((v) => v >= 2);
-  return { checkable: true, trusted, at: new Date().toISOString() };
+
+  const runner = (opts && opts.sqliteRunner) || sqliteRunner;
+  let res;
+  try { res = runner(dbPath); } catch (e) { res = { ok: false, because: String((e && e.message) || e) }; }
+  let verdict;
+  if (!res || res.ok !== true || !Array.isArray(res.rows)) {
+    verdict = { checkable: false, because: 'the accessibility database was not readable (no access, missing, locked, or a changed format)' };
+  } else {
+    const rows = res.rows;
+    const exact = rows.find((r) => r && r.client === real);
+    // auth_value 2 (allowed) / 3 (allowed, limited) => granted; 0/1 => denied.
+    const granted = (r) => r && r.auth >= 2;
+    if (exact) {
+      verdict = { checkable: true, trusted: granted(exact), at: new Date().toISOString() };
+    } else if (rows.some(granted)) {
+      // A tmux is granted, but not the binary we resolve -- ambiguous. Do not
+      // claim green (it is not OUR tmux) and do not block Next with a possibly-
+      // false "Not activated"; report cannot-check so the pill reads "Checking...".
+      verdict = { checkable: false, because: 'a tmux Accessibility grant exists but not for the tmux binary this install runs (path-key mismatch)' };
+    } else {
+      // No tmux granted anywhere -> the honest, actionable fresh-install state.
+      verdict = { checkable: true, trusted: false, at: new Date().toISOString() };
+    }
+  }
+  if (useCache) grantCache = { key: cacheKey, at: Date.now(), value: verdict };
+  return verdict;
 }
 
-module.exports = { FILE, STALE_AFTER_MS, read, tmuxGrant, setSqliteRunner };
+module.exports = { FILE, STALE_AFTER_MS, read, tmuxGrant, setSqliteRunner, resetGrantCache };
