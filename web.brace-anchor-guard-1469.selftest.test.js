@@ -123,10 +123,13 @@ test('#1469 self-proof: compensating drift (re-anchor one, loosen a keep) -> RED
   expectRed('compensating-drift', (d) => {
     // re-anchor a pinned (loosened) assertion...
     edit(d, 'web.consolidated-867.test.js', pin867, reanchorLit(pin867, '\\}'));
-    // ...AND loosen an untracked KEEP in the same file (drop its brace). Both edits
-    // go through edit(), which refuses a no-op - so this genuinely exercises the swap
-    // a bare per-file count would be blind to. Per-assertion counts still red the
-    // re-anchored pin (got 0, want 1) regardless of the compensating loosening.
+    // ...AND, in the same file, loosen a KEEP (drop its brace) as the compensating
+    // half of a class-count swap: a guard that counted the brace-anchor CLASS would
+    // see +1 (re-anchored pin) and -1 (loosened keep) net to zero and stay blind -
+    // the original v1 trap. This guard reds anyway, because it checks the specific
+    // pinned assertion's exact source, not a class total (got 0, want 1). Both edits
+    // go through edit(), which refuses a no-op. (The per-assertion-vs-count-2 case is
+    // proven separately by the duplicate-aware arm.)
     edit(d, 'web.consolidated-867.test.js',
       '#alist::-webkit-scrollbar \\{ display: none; \\}',
       '#alist::-webkit-scrollbar \\{ display: none;');
