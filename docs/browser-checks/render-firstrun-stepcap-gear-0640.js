@@ -146,8 +146,11 @@ function unhide(id) {
         ntSize: ntc ? parseFloat(ntc.fontSize) : null,
         nbSize: nbc ? parseFloat(nbc.fontSize) : null,
         // The cog is centred by flex + line-height:1 on the glyph, not place-items on
-        // a line box that let the gear's ascent push it high.
-        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent };
+        // a line box that let the gear's ascent push it high. line-height is the
+        // LOAD-BEARING half: flex centres the line box, and only line-height:1
+        // collapses that box to the glyph, so it is pinned too.
+        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent,
+        gearLine: c.lineHeight, gearFont: parseFloat(c.fontSize) };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
@@ -170,9 +173,15 @@ function unhide(id) {
         && s4.ntSize != null && s4.nbSize != null && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
       check(`${engine}: the S4 title is BOLD (weight>=700) and the SAME size as the body (bold, not larger)`,
         boldNotLarger, `ntWeight ${s4.ntWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
-      check(`${engine}: the S4 cog is flex-centred (display:flex, items+content center), so the glyph sits centred not high-left`,
-        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center',
-        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}`);
+      // flex + centre alignment AND line-height COLLAPSED to the glyph (== font size).
+      // line-height is load-bearing: keeping flex but reverting line-height to `normal`
+      // (which computes to ~1.2x = ~53px here) reintroduces the high-glyph offset while
+      // display/align/justify still read centre, so it is asserted too.
+      const lineCollapsed = s4.gearLine != null && s4.gearFont != null
+        && Math.abs(parseFloat(s4.gearLine) - s4.gearFont) < 2;
+      check(`${engine}: the S4 cog is flex-centred (flex, items+content center) with line-height collapsed to the glyph, so it sits centred not high-left`,
+        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center' && lineCollapsed,
+        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}, line ${s4.gearLine} vs font ${s4.gearFont}`);
     }
 
     await browser.close();
