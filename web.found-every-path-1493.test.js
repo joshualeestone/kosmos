@@ -58,11 +58,15 @@ function paint(FR, FR_FOUND, FR_SCAN) {
   const mk = (id) => (els[id] = { id, textContent: '', innerHTML: '', hidden: false, focus() {} });
   const calls = [];
   const fn = new Function('document', 'FR', 'FR_FOUND', 'FR_SCAN', 'FR_MACHINE', 'FR_STEP', 'FR_STEP_YOU',
-    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'esc', 'pjSentence',
+    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'frArmRescanOnGrant', 'esc', 'pjSentence',
     BODY + '\nreturn frPaintFleet();');
   fn({ getElementById: (id) => els[id] || mk(id) }, FR, FR_FOUND, scan, null, 6, 3,
     () => calls.push('PAINT-FOUND'), () => calls.push('PAINT-SCAN'), () => calls.push('actions'),
-    () => calls.push('fork'), () => calls.push('SEARCH'), () => calls.push('SCAN-SEARCH'), String, String);
+    () => calls.push('fork'), () => calls.push('SEARCH'), () => calls.push('SCAN-SEARCH'),
+    // #3/#4(a): frPaintFleet's create arm now calls frArmRescanOnGrant() (arms the grant-flip
+    // re-scan poll on S9). This harness lifts frPaintFleet out of its module, so inject it as a
+    // no-op stub -- the poll's real behaviour is covered in render-firstrun-scan-on-grant-1652.js.
+    () => calls.push('ARM-RESCAN'), String, String);
   // install-flow-9screen: the fleet painters now write the heading into the
   // pane-9 head (#fr-fleet-title), not the retired shell #fr-title.
   return { calls, title: (els['fr-fleet-title'] || {}).textContent || '' };
