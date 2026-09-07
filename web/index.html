@@ -36276,19 +36276,51 @@ let FR_YOU_GEN = 0;
    machine; it blocks only when we KNOW a required grant is off. The user grants it
    in System Settings and the next poll (1.5s) unlocks Next -- no manual re-check.
    Generation-guarded: a poll captured on one screen does NOTHING once the step
-   moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md). */
+   moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md).
+
+   🔑 EACH GATE OWNS ITS OWN `granted` AND `blocked` PREDICATE, because the three
+   are not measured the same way. sleep (pmset) and tmux (a11y AXIsProcessTrusted)
+   are PURE READS: the engine/native app can report checkable:true+not-granted, so
+   they block on that positive. FILE-ACCESS CANNOT: reading it enumerates the three
+   protected folders, which IS the TCC prompt, so there is deliberately no
+   entry-time verdict (a periodic probe re-introduces the #2125 permflood). On S2
+   entry file-access-status.json is ENOENT -> checkable:false -> with a checkable-
+   only rule Next would never gray, which is exactly what Josh hit ("Next should be
+   grayed until access is allowed"). So file-access blocks on a PROMPT-FREE presence
+   signal instead: `nativePresent` (the native app's axcheck loop is maintaining
+   a11y-status, so a real install is present) AND no grant on file yet. This
+   subsumes the old checkable:true+granted:false case (nativePresent is true there
+   too) and adds the pre-Allow entry case; a browser / no-native-app
+   (nativePresent!==true) still never blocks. See kosmos#2347 (native half exposes
+   nativePresent on /api/file-access-status). */
 const FR_GATES = {
-  'file-access': { url: '/api/file-access-status', granted: (r) => r.granted === true },
-  'sleep':       { url: '/api/sleep-status',       granted: (r) => r.prevented === true },
-  'tmux':        { url: '/api/a11y-status',        granted: (r) => r.trusted === true },
+  'file-access': {
+    url: '/api/file-access-status',
+    granted: (r) => r.granted === true,
+    blocked: (r) => r.nativePresent === true && r.granted !== true,
+  },
+  'sleep': {
+    url: '/api/sleep-status',
+    granted: (r) => r.checkable === true && r.prevented === true,
+    blocked: (r) => r.checkable === true && r.prevented !== true,
+  },
+  'tmux': {
+    url: '/api/a11y-status',
+    granted: (r) => r.checkable === true && r.trusted === true,
+    blocked: (r) => r.checkable === true && r.trusted !== true,
+  },
 };
 let FR_GATE_GEN = 0, FR_GATE_TIMER = null;
 function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
   if (!spec) return 'uncheckable';
-  let r; try { r = await (await fetch(spec.url)).json(); } catch { r = { checkable: false }; }
-  if (r && r.checkable === true) return spec.granted(r) ? 'granted' : 'blocked';
+  // A fetch failure is an empty reading, so every predicate below reads false and
+  // the row is uncheckable (fail-safe) -- never blocked, never a false green.
+  let r; try { r = await (await fetch(spec.url)).json(); } catch { r = {}; }
+  if (!r || typeof r !== 'object') r = {};
+  if (spec.granted(r)) return 'granted';
+  if (spec.blocked(r)) return 'blocked';
   return 'uncheckable';
 }
 async function frPollGates(screenEl, gen) {

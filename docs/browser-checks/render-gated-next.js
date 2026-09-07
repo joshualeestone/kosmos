@@ -77,30 +77,55 @@ async function fresh(browser) {
   catch (e) { console.error('FAIL  render-gated-next: could not start a browser (' + ((e && e.message) || e) + ')'); process.exit(1); }
   try {
 
-  /* ---------- S2 Access: the file-access gate ---------- */
-  console.log('\nS2 Access -- the file-access gate');
+  /* ---------- S2 Access: the file-access gate (kosmos#2347 nativePresent) ----------
+     File access cannot be measured on entry without firing the TCC prompt, so the S2
+     gate keys on the PROMPT-FREE presence signal `nativePresent` (native app is
+     maintaining status) + no grant yet -- NOT on checkable, which is false on entry.
+     The native half exposes { checkable, granted?, because?, nativePresent } on
+     /api/file-access-status; these mocks drive that shape. */
+  console.log('\nS2 Access -- the file-access gate (nativePresent)');
   {
-    // Measured NOT granted -> Next disabled, row not green.
+    // ENTRY on a real install: native present, no verdict on file yet (ENOENT ->
+    // checkable:false) -> BLOCK. This is the case Josh hit; the old checkable-only
+    // rule left Next enabled here. THE new capability.
     const { ctx, page } = await fresh(browser);
-    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: true, granted: false } });
-    ok(await nextDisabled(page), 'file-access measured-not-granted disables Next');
+    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: false, nativePresent: true } });
+    ok(await nextDisabled(page), 'S2 entry (native present, no verdict yet) disables Next -- the fix');
+    ok(!(await rowGranted(page, 'file-access')), 'and the row is NOT shown granted (no false green)');
+    await ctx.close();
+  }
+  {
+    // Native present, measured NOT granted (post-Allow denial) -> Next disabled.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: true, granted: false, nativePresent: true } });
+    ok(await nextDisabled(page), 'file-access native-present + not-granted disables Next');
     ok(!(await rowGranted(page, 'file-access')), 'and the row is NOT shown granted (no false green)');
     await ctx.close();
   }
   {
     // Measured granted -> Next enabled, row green.
     const { ctx, page } = await fresh(browser);
-    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: true, granted: true } });
-    ok(!(await nextDisabled(page)), 'file-access measured-granted enables Next');
+    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: true, granted: true, nativePresent: true } });
+    ok(!(await nextDisabled(page)), 'file-access granted enables Next');
     ok(await rowGranted(page, 'file-access'), 'and the row is shown granted (data-granted)');
     await ctx.close();
   }
   {
-    // Uncheckable (a browser / no native writer) -> FAIL-SAFE: Next enabled, no false green.
+    // No native app (a browser tester): nativePresent falsey -> FAIL-SAFE, Next
+    // enabled, never a false green. The browser tester is never stranded.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: false, nativePresent: false } });
+    ok(!(await nextDisabled(page)), 'file-access no-native-app never blocks (fail-safe browser tester)');
+    ok(!(await rowGranted(page, 'file-access')), 'and it is NOT shown as granted (never false green)');
+    await ctx.close();
+  }
+  {
+    // Belt-and-suspenders: a reading with NO nativePresent field at all (e.g. the
+    // native route not yet deployed) must also fail-safe, so this front-end half is
+    // inert-and-safe before the native half ships.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: false } });
-    ok(!(await nextDisabled(page)), 'file-access UNCHECKABLE never blocks (fail-safe)');
-    ok(!(await rowGranted(page, 'file-access')), 'and uncheckable is NOT shown as granted (never false green)');
+    ok(!(await nextDisabled(page)), 'file-access with no nativePresent field never blocks (safe before the route ships)');
     await ctx.close();
   }
 
@@ -251,7 +276,7 @@ async function fresh(browser) {
     await page.goto(`${BASE}/?first-run=1&fr-step=1`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(300);
     const welcomeEnabled = !(await nextDisabled(page));
-    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: true, granted: false } });
+    await gotoGate(page, '[data-gate="file-access"]', { fileAccess: { checkable: true, granted: false, nativePresent: true } });
     const gatedDisabled = await nextDisabled(page);
     ok(welcomeEnabled && gatedDisabled,
       `the reader discriminates (Welcome enabled=${welcomeEnabled}, gated-not-granted disabled=${gatedDisabled}); if either is wrong the gate assertions above are vacuous`);
