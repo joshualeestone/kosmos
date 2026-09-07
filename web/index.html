@@ -28786,8 +28786,13 @@ async function addImportedInPlace(file, btn, row) {
   // 2. Create from the parsed fields. Import maps to the `own` role, the same mapping
   //    finishImport used; own's label always travels (the engine refuses without it).
   const bodyObj = { name: name, role: 'own' };
+  /* own's label ALWAYS travels -- the engine refuses an own create with no label
+     (create.js). displayName is non-empty in every ok:true parse where name is
+     non-empty (agentfile.importAgent), and name is guaranteed non-empty by the guard
+     above, so `label || name` cannot be empty. The fallback pins that cross-module
+     invariant here rather than relying on the parser never changing. */
   const label = String(data.displayName || '').trim();
-  if (label) bodyObj.label = label;
+  bodyObj.label = label || name;
   const instr = String(data.instructions || '');
   if (instr.trim()) bodyObj.instructions = instr;
   /* The parsed provider travels only when it is NOT the anthropic default -- the same
@@ -28824,9 +28829,24 @@ async function addImportedInPlace(file, btn, row) {
      more. Full-opacity settled green with a check, not the half-visible disabled
      state, and the row is marked done. No sentence on success: the button says it. */
   btn.textContent = 'Added to Kosmos';
+  /* 🔑 THE ACCESSIBLE NAME TRACKS THE VISIBLE ONE. Without this the button keeps its
+     "Add to Kosmos, <name>" label, so a screen reader still hears "Add to Kosmos"
+     after the add and the visible "Added to Kosmos" is no longer contained in the
+     accessible name (WCAG 2.5.3 label-in-name). Updating it here IS the AT receipt --
+     the same role the visible text plays -- so the success needs no separate live-region
+     sentence (Josh's "no sentence on success" ruling for these rows still holds). The
+     visible words stay first for label-in-name. */
+  btn.setAttribute('aria-label', 'Added to Kosmos, ' + name);
   btn.classList.add('added');
   if (row) row.classList.add('done');
   if (said) said.textContent = '';
+  /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
+     a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
+     Add is a CONNECT (discover.disconnect puts the folder back); an imported agent is a
+     fresh Kosmos-CREATED agent, which disconnect refuses by design, so "undo" here would
+     be a delete -- a different, more destructive action Josh did not ask for on this
+     screen. An accidental add is recoverable from the board (remove the agent), just not
+     from the row. */
 }
 
 /* #2419: delegated on `document`, because the Import rows render on TWO surfaces --

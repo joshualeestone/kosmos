@@ -76,6 +76,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     // State the routes read/mutate per scenario.
     let importFiles = [{ file: '/Users/x/Downloads/rust-starter.md', name: 'Rust starter template', role: 'A Rust template', preview: 'You are a Rust starter template.' }];
     let parseReply = { ok: true, name: 'Rust starter template', displayName: 'Rust starter', instructions: 'You are a Rust starter template.', provider: 'anthropic' };
+    let createRefuse = false;  // scenario 6: make /api/agents refuse the create
     const createBodies = [];   // every POST /api/agents body the Add fires
 
     await p.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true, at: Date.now() } }));
@@ -86,6 +87,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       let body = {};
       try { body = JSON.parse(r.request().postData() || '{}'); } catch { /* recorded as {} */ }
       createBodies.push(body);
+      if (createRefuse) { r.fulfill({ json: { ok: false, outcome: 'refused', because: 'there is already an agent called that.' } }); return; }
       r.fulfill({ json: { ok: true, outcome: 'created', name: body.name || 'rust-starter' } });
     });
 
@@ -146,6 +148,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       return {
         rowStillThere: !!row,
         goText: go ? go.textContent.trim() : '',
+        goAria: go ? (go.getAttribute('aria-label') || '') : '',
         added: go ? go.classList.contains('added') : false,
         checkGlyph: before,
         rowDone: row ? row.classList.contains('done') : false,
@@ -162,6 +165,9 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       && !('provider' in b) && !('tellKosmos' in b);
     if (bodyOk) ok('the create maps name + own role + label + instructions, omits the anthropic default and tellKosmos'); else bad('create body', JSON.stringify(b));
     if (after.goText === 'Added to Kosmos') ok('the button becomes "Added to Kosmos" in place'); else bad('added label', JSON.stringify(after.goText));
+    // The accessible name must track the visible one (WCAG 2.5.3): "Added to Kosmos"
+    // is now the visible label, so it must be contained in the aria-label.
+    if (after.goAria === 'Added to Kosmos, Rust starter template') ok('the aria-label updates to the added state (label-in-name holds for AT)'); else bad('aria-label not updated', JSON.stringify(after.goAria));
     if (after.added) ok('the button carries the `added` class (the green receipt state)'); else bad('added class', 'missing');
     if (/✓/.test(after.checkGlyph)) ok('the green CHECK renders (::before glyph), so the state is not colour-only'); else bad('check glyph', JSON.stringify(after.checkGlyph));
     if (after.rowDone) ok('the row is marked done'); else bad('row done', 'missing');
@@ -194,6 +200,36 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (ctrl.goText === 'Add to Kosmos' && !ctrl.goDisabled && !ctrl.added && !ctrl.rowDone) ok('CONTROL: the button re-enables to "Add to Kosmos", the row is not done'); else bad('CONTROL button reset', JSON.stringify(ctrl));
     if (createBodies.length === 0) ok('CONTROL: a refused parse fires NO create'); else bad('CONTROL fired a create', JSON.stringify(createBodies));
 
+    // ── 6. CONTROL: a CREATE refusal (parse ok, /api/agents refuses) is surfaced. ──
+    // This exercises the `out.outcome === 'refused'` branch the parse-refusal control
+    // cannot reach: the parse succeeds, so a create IS attempted, and the refusal must
+    // land on the row exactly as a parse refusal does.
+    importFiles = [{ file: '/Users/x/Downloads/dupe.md', name: 'Dupe agent', role: '', preview: 'You are a dupe.' }];
+    parseReply = { ok: true, name: 'Dupe agent', displayName: 'Dupe', instructions: 'You are a dupe.', provider: 'anthropic' };
+    createRefuse = true;
+    createBodies.length = 0;
+    await p.evaluate(async () => { FR_SCAN = null; FR_SCAN_GEN = 0; await frScanAgents(); if (typeof frRescanStop === 'function') frRescanStop(); });
+    await p.click('#fr-fleet .fr-importrow .fr-importgo');
+    await p.waitForFunction(() => {
+      const s = document.querySelector('#fr-fleet .fr-importrow .fr-importsaid');
+      return s && /already an agent/i.test(s.textContent);
+    }, { timeout: 8000 }).catch(() => {});
+    const ctrl2 = await p.evaluate(() => {
+      const row = document.querySelector('#fr-fleet .fr-importrow');
+      const go = row ? row.querySelector('.fr-importgo') : null;
+      const said = row ? row.querySelector('.fr-importsaid') : null;
+      return {
+        reason: said ? said.textContent : '',
+        goText: go ? go.textContent.trim() : '',
+        goDisabled: go ? go.disabled : true,
+        added: go ? go.classList.contains('added') : false,
+        rowDone: row ? row.classList.contains('done') : false,
+      };
+    });
+    if (/already an agent/i.test(ctrl2.reason)) ok('CONTROL: a CREATE refusal shows its reason on the row'); else bad('CONTROL create-refusal reason', JSON.stringify(ctrl2.reason));
+    if (ctrl2.goText === 'Add to Kosmos' && !ctrl2.goDisabled && !ctrl2.added && !ctrl2.rowDone) ok('CONTROL: a create refusal re-enables the button, row not done'); else bad('CONTROL create-refusal reset', JSON.stringify(ctrl2));
+    if (createBodies.length === 1) ok('CONTROL: a create WAS attempted (the refusal came from /api/agents, not a skipped create)'); else bad('CONTROL create-refusal attempt count', JSON.stringify(createBodies.length));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -203,7 +239,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 14) { console.log('import-add-inplace: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 20) { console.log('import-add-inplace: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('import-add-inplace: ' + failures + ' FAILED'); process.exit(1); }
   console.log('import-add-inplace: all good, ' + ran + ' checks');
 })();
