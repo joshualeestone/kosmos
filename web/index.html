@@ -28776,7 +28776,10 @@ async function addImportedInPlace(file, btn, row) {
     return;
   }
   if (!data) { fail('We could not read the reply.'); return; }
-  if (!data.ok) { fail(data.because || 'That is not an agent file we can bring in.'); return; }
+  /* `because` is the parse route's refusal reason (a 200 {ok:false, because}); `error`
+     is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
+     not mislabelled "that is not an agent file". */
+  if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
   /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). The form
      path prompts for one; a one-click add cannot, so it says so and stops rather than
      making a nameless agent. */
@@ -28809,20 +28812,28 @@ async function addImportedInPlace(file, btn, row) {
      it defers to that setting (on by default, #2020) instead of reading a create-form
      checkbox this path never shows. This is what the old find-agents import got WRONG --
      it reused the form and could create with tellKosmos=false even when the ping was on. */
-  let out;
+  let out, res;
   try {
-    const r = await fetch('/api/agents', {
+    res = await fetch('/api/agents', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(bodyObj),
     });
-    out = await r.json().catch(() => null);
+    out = await res.json().catch(() => null);
   } catch (err) {
     fail('We could not reach the board to make it. (' + err.message + ')');
     return;
   }
   if (!out) { fail('We could not read the reply.'); return; }
-  if (out.outcome === 'refused' || out.ok === false) { fail(out.because || 'that name will not work'); return; }
+  /* 🛑 GATE SUCCESS POSITIVELY -- only a `created` outcome on an ok response is a receipt,
+     the same rule create-go keeps (the create screen learned it the hard way). A NEGATIVE
+     gate (fail only on outcome==='refused') turned two answers into a false green
+     "Added to Kosmos": a PARTIAL -- an HTTP 200 whose create half-happened and ROLLED
+     BACK, leaving nothing on the computer -- and every error body (a 400 {error}, a 403
+     from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
+     is "not made", so it re-enables and shows its reason like any other failure; this
+     one-click add has no made-screen to advance a partial to. */
+  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.'); return; }
 
   /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
      found/scan Add rows keep, on a screen where a person is about to press several

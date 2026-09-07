@@ -71,12 +71,20 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const p = await browser.newPage({ viewport: { width: 1100, height: 900 } });
     const errs = [];
     p.on('pageerror', (e) => errs.push(String(e)));
-    p.on('console', (m) => { if (m.type() === 'error' && !/ERR_FILE_NOT_FOUND|favicon|status 404/.test(m.text())) errs.push(m.text()); });
+    // `status 400` is excluded because scenario 8 DELIBERATELY stubs /api/agents to a 400
+    // to prove an error body does not render a false success; this check controls every
+    // route, so the only 400 is that one. A real uncaught JS error still arrives via the
+    // `pageerror` handler above, which this does not filter.
+    p.on('console', (m) => { if (m.type() === 'error' && !/ERR_FILE_NOT_FOUND|favicon|status 404|status of 400/.test(m.text())) errs.push(m.text()); });
 
     // State the routes read/mutate per scenario.
     let importFiles = [{ file: '/Users/x/Downloads/rust-starter.md', name: 'Rust starter template', role: 'A Rust template', preview: 'You are a Rust starter template.' }];
     let parseReply = { ok: true, name: 'Rust starter template', displayName: 'Rust starter', instructions: 'You are a Rust starter template.', provider: 'anthropic' };
-    let createRefuse = false;  // scenario 6: make /api/agents refuse the create
+    // The /api/agents reply, mutated per scenario. Shapes match the real route: a created
+    // is HTTP 200 {outcome:'created', ...} (no `ok` field); a refusal is {outcome:'refused',
+    // because}; a partial is HTTP 200 {outcome:'partial', because} (rolled back, nothing on
+    // disk); an error is HTTP 400 {error}.
+    let createResult = { status: 200, json: { outcome: 'created', name: 'rust-starter' } };
     const createBodies = [];   // every POST /api/agents body the Add fires
 
     await p.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true, at: Date.now() } }));
@@ -87,8 +95,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       let body = {};
       try { body = JSON.parse(r.request().postData() || '{}'); } catch { /* recorded as {} */ }
       createBodies.push(body);
-      if (createRefuse) { r.fulfill({ json: { ok: false, outcome: 'refused', because: 'there is already an agent called that.' } }); return; }
-      r.fulfill({ json: { ok: true, outcome: 'created', name: body.name || 'rust-starter' } });
+      r.fulfill({ status: createResult.status || 200, json: createResult.json });
     });
 
     // Load first-run, jump to the #fr-fleet step (keyed by identity, not a number).
@@ -204,31 +211,53 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     // This exercises the `out.outcome === 'refused'` branch the parse-refusal control
     // cannot reach: the parse succeeds, so a create IS attempted, and the refusal must
     // land on the row exactly as a parse refusal does.
-    importFiles = [{ file: '/Users/x/Downloads/dupe.md', name: 'Dupe agent', role: '', preview: 'You are a dupe.' }];
-    parseReply = { ok: true, name: 'Dupe agent', displayName: 'Dupe', instructions: 'You are a dupe.', provider: 'anthropic' };
-    createRefuse = true;
-    createBodies.length = 0;
-    await p.evaluate(async () => { FR_SCAN = null; FR_SCAN_GEN = 0; await frScanAgents(); if (typeof frRescanStop === 'function') frRescanStop(); });
-    await p.click('#fr-fleet .fr-importrow .fr-importgo');
-    await p.waitForFunction(() => {
-      const s = document.querySelector('#fr-fleet .fr-importrow .fr-importsaid');
-      return s && /already an agent/i.test(s.textContent);
-    }, { timeout: 8000 }).catch(() => {});
-    const ctrl2 = await p.evaluate(() => {
-      const row = document.querySelector('#fr-fleet .fr-importrow');
-      const go = row ? row.querySelector('.fr-importgo') : null;
-      const said = row ? row.querySelector('.fr-importsaid') : null;
-      return {
-        reason: said ? said.textContent : '',
-        goText: go ? go.textContent.trim() : '',
-        goDisabled: go ? go.disabled : true,
-        added: go ? go.classList.contains('added') : false,
-        rowDone: row ? row.classList.contains('done') : false,
-      };
-    });
-    if (/already an agent/i.test(ctrl2.reason)) ok('CONTROL: a CREATE refusal shows its reason on the row'); else bad('CONTROL create-refusal reason', JSON.stringify(ctrl2.reason));
-    if (ctrl2.goText === 'Add to Kosmos' && !ctrl2.goDisabled && !ctrl2.added && !ctrl2.rowDone) ok('CONTROL: a create refusal re-enables the button, row not done'); else bad('CONTROL create-refusal reset', JSON.stringify(ctrl2));
-    if (createBodies.length === 1) ok('CONTROL: a create WAS attempted (the refusal came from /api/agents, not a skipped create)'); else bad('CONTROL create-refusal attempt count', JSON.stringify(createBodies.length));
+    // A reusable driver for a create-answer control: seed a fresh importable file, set the
+    // /api/agents reply, click Add, and read back the row. `waitText` is what the failure
+    // reason should contain. Returns the row state.
+    const runCreateControl = async (fileName, agentName, reply, waitRe) => {
+      importFiles = [{ file: '/Users/x/Downloads/' + fileName, name: agentName, role: '', preview: 'You are ' + agentName + '.' }];
+      parseReply = { ok: true, name: agentName, displayName: agentName, instructions: 'You are ' + agentName + '.', provider: 'anthropic' };
+      createResult = reply;
+      createBodies.length = 0;
+      await p.evaluate(async () => { FR_SCAN = null; FR_SCAN_GEN = 0; await frScanAgents(); if (typeof frRescanStop === 'function') frRescanStop(); });
+      await p.click('#fr-fleet .fr-importrow .fr-importgo');
+      await p.waitForFunction((re) => {
+        const s = document.querySelector('#fr-fleet .fr-importrow .fr-importsaid');
+        return s && new RegExp(re, 'i').test(s.textContent);
+      }, waitRe, { timeout: 8000 }).catch(() => {});
+      return p.evaluate(() => {
+        const row = document.querySelector('#fr-fleet .fr-importrow');
+        const go = row ? row.querySelector('.fr-importgo') : null;
+        const said = row ? row.querySelector('.fr-importsaid') : null;
+        return {
+          reason: said ? said.textContent : '',
+          goText: go ? go.textContent.trim() : '',
+          goDisabled: go ? go.disabled : true,
+          added: go ? go.classList.contains('added') : false,
+          rowDone: row ? row.classList.contains('done') : false,
+        };
+      });
+    };
+
+    // ── 6. CONTROL: a REFUSED create ({outcome:'refused'}) is surfaced, not green. ──
+    const ctrl2 = await runCreateControl('dupe.md', 'Dupe agent',
+      { status: 200, json: { outcome: 'refused', because: 'there is already an agent called that.' } }, 'already an agent');
+    if (/already an agent/i.test(ctrl2.reason)) ok('CONTROL: a REFUSED create shows its reason on the row'); else bad('CONTROL refused reason', JSON.stringify(ctrl2.reason));
+    if (ctrl2.goText === 'Add to Kosmos' && !ctrl2.goDisabled && !ctrl2.added && !ctrl2.rowDone) ok('CONTROL: a refused create re-enables the button, row not green/done'); else bad('CONTROL refused reset', JSON.stringify(ctrl2));
+    if (createBodies.length === 1) ok('CONTROL: a create WAS attempted (the refusal came from /api/agents)'); else bad('CONTROL refused attempt count', JSON.stringify(createBodies.length));
+
+    // ── 7. CONTROL: a PARTIAL create (HTTP 200 {outcome:'partial'}, rolled back) must NOT
+    //       go green. This is the exact false-success a negative success gate produced. ──
+    const ctrl3 = await runCreateControl('partial.md', 'Partial agent',
+      { status: 200, json: { outcome: 'partial', because: 'We could not finish making it. Nothing has been left on your computer.' } }, 'Nothing has been left');
+    if (/Nothing has been left/i.test(ctrl3.reason)) ok('CONTROL: a PARTIAL create shows its "nothing was made" reason'); else bad('CONTROL partial reason', JSON.stringify(ctrl3.reason));
+    if (ctrl3.goText === 'Add to Kosmos' && !ctrl3.goDisabled && !ctrl3.added && !ctrl3.rowDone) ok('CONTROL: a partial create does NOT go green (no false "Added to Kosmos")'); else bad('CONTROL partial went green', JSON.stringify(ctrl3));
+
+    // ── 8. CONTROL: an ERROR body (HTTP 400 {error}, no outcome) must NOT go green. ──
+    const ctrl4 = await runCreateControl('err.md', 'Err agent',
+      { status: 400, json: { error: 'we could not read that request' } }, 'could not read that request');
+    if (/could not read that request/i.test(ctrl4.reason)) ok('CONTROL: an error body shows its error, not a false success'); else bad('CONTROL error reason', JSON.stringify(ctrl4.reason));
+    if (ctrl4.goText === 'Add to Kosmos' && !ctrl4.goDisabled && !ctrl4.added && !ctrl4.rowDone) ok('CONTROL: an error body does NOT go green'); else bad('CONTROL error went green', JSON.stringify(ctrl4));
 
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
@@ -239,7 +268,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 20) { console.log('import-add-inplace: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 24) { console.log('import-add-inplace: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('import-add-inplace: ' + failures + ' FAILED'); process.exit(1); }
   console.log('import-add-inplace: all good, ' + ran + ' checks');
 })();
