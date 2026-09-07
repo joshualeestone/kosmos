@@ -228,6 +228,14 @@ const MEMBER = 'taskmate';
     // step-3b. Its route + fail-soft behaviour are covered separately by the
     // server.projects.test.js task-chats-reveal test.
     if (!(await p.locator('#tk-chats-reveal').isVisible())) die('the #992 task-conversation reveal button is missing from the task view');
+    /* #768/#992: the task's activity renders IN the app, not only behind the
+       folder-reveal button. This task was just created through the UI, so a
+       'created' event is recorded; the list fetches it async on open, so wait
+       for the row rather than reading an empty box, then assert the creation
+       shows. `shown` honours visibility, so a rendered-but-invisible list fails. */
+    await p.waitForSelector('#tk-activity .tkact', { timeout: 10000 });
+    const acts = (await shown(p.locator('#tk-activity'))).replace(/\s+/g, ' ').trim();
+    if (!/Created/.test(acts)) die('the task activity list does not show the creation event: ' + acts);
     const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);

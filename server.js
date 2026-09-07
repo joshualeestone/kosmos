@@ -9247,6 +9247,21 @@ const server = http.createServer((req, res) => {
     return last;
   };
 
+  /* #768/#992: a task's recorded lifecycle events, read-only, so the person can
+     "get to it as a user" IN the app, not only by opening the folder. Keyed by
+     the SAME (id, number) the record side used, so the file matches. taskchat.read
+     is fail-soft -- no file or an unreadable one both return [], which the page
+     renders as "Nothing yet" rather than an error. */
+  const taskActivity = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/activity$/);
+  if (taskActivity && (req.method === 'GET' || req.method === 'HEAD')) {
+    const id = decodeSegment(taskActivity[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const taskchat = require('./engine/taskchat');
+    const events = taskchat.read(id, Number(taskActivity[2]));
+    sendJson(res, 200, { events, count: events.length });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
