@@ -136,6 +136,34 @@ real OAuth). If the CLI ever completes a re-auth WITHOUT a recognised login-done
 screen, the flow waits out the 15-min abandoned-signin timeout rather than
 finishing — an honest "could not confirm, try again", not a false success.
 
+## MEASUREMENT C — discharges blind-round-5's "premature latch" WARNING
+
+Round 5 sharpened the premise: `owner.sawLoginDone` latches on the login-done
+recognizer (`/Login successful|Logged in as/i`). Measurement B used an EMPTY config
+dir, but Ben's population is a DEAD-BUT-PRESENT credential — and if `claude auth
+login` prints "Logged in as <old account>" reading the STORED identity BEFORE the
+new login completes, the latch fires early, the gates open, and the re-auth
+finishes off the stale file (the exact defect, on the exact machine).
+
+Measured 2026-09-07: seeded a throwaway `CLAUDE_CONFIG_DIR` with a PRESENT
+credential (a real oauthAccount) and ran `claude auth login --claudeai` (browser
+suppressed, isolated — real config mtime never moved). First screen was
+`Opening browser to sign in…` then `Paste code here if prompted >` — IDENTICAL to
+the empty-config case. **No "Logged in as" / "Login successful" text before the
+new login.** So `auth login` initiates a fresh browser login regardless of an
+existing credential; the login-done text appears only on genuine OAuth completion,
+which is exactly when the latch SHOULD fire. This also discharges round 5's second
+WARNING (the ungated `repl` arm): `auth login --claudeai` goes to the browser, it
+does not drop into the REPL.
+
+Residual (accepted): measured a present VALID credential, not a present EXPIRED
+one — but the `Opening browser` print is a property of the `login` subcommand, not
+of credential validity, so a dead credential behaves the same or more so. A real
+expired-credential end-to-end run still needs a real dead OAuth account and is the
+one thing this can only fully close on a real machine (post-launch re-verify on the
+served build). The premise is now measured on the present-credential population,
+not just the empty one.
+
 ## Mechanism decision (recommend + rejected, per the ruling)
 
 **Recommend: launch `claude auth login --claudeai`** (an explicit login the CLI cannot ignore).
