@@ -429,8 +429,10 @@ func fileAccessStatusURL() -> URL? {
 // which forbids that exact code literal anywhere in the source -- is not tripped by
 // this comment.) So spawnAxHatchUnderTmux's guard was FALSE
 // on every real install and EVERY under-tmux hatch silently skipped: the a11y
-// prompt never fired (tmux never landed in the Accessibility list -> "no Tmux to
-// enable"), a11y-status.json was never written (-> promptrequest.nativePresent()
+// prompt never fired (so nothing landed in the Accessibility list -> "no Tmux to
+// enable"; note that even when it DOES fire it registers the kosmos-app, not tmux, per
+// the #2125 attribution correction in startA11yTrustChecks, so "no Tmux to enable" has
+// that second cause too), a11y-status.json was never written (-> promptrequest.nativePresent()
 // false -> the on-demand a11y/file-access fires fell back to opening Settings), and
 // the file-access prompt never fired on Allow Access. Meanwhile the AGENTS resolve
 // tmux correctly (tmux/bin via PATH / AGENT_WORKFORCE_TMUX_BIN), so the prompt still
@@ -804,9 +806,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // copy tells the user to grant ("Turn on Tmux in Accessibility"). ⚠️ THAT BELIEF IS
     // VERIFIED WRONG (see the correction below): accessibility is keyed on the CALLING
     // BINARY, so the under-tmux read reports the kosmos-APP's trust, not tmux's. The
-    // spawn-under-tmux is retained only because the axPROMPT half still needs it (it is
-    // what lands an entry in the Accessibility list); the axCHECK's verdict does not
-    // describe tmux and must not be read as if it does.
+    // spawn-under-tmux is retained only because the axPROMPT is the mechanism that
+    // surfaces an Accessibility entry at all -- but by the SAME calling-binary rule that
+    // entry is the kosmos-APP's, NOT tmux's, which is exactly why #2189 sees "no Tmux to
+    // enable" when the pane opens Accessibility. The axCHECK's verdict likewise does not
+    // describe tmux and must not be read as if it does. Check and prompt use the same AX
+    // API family in the same binary; neither can be attributed to tmux.
     //
     // 🛑 THE ATTRIBUTION IS VERIFIED WRONG (2026-09-06, #2125), AND THE HARM WAS THE
     // OPPOSITE DIRECTION FROM WHAT THIS COMMENT ORIGINALLY ANTICIPATED. It read: the
@@ -3019,10 +3024,14 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
 if CommandLine.arguments.contains("--kosmos-app-axcheck") {
     exit(writeA11yStatus(trusted: axTrustReading()) ? 0 : 1)
 }
-// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds the
-// responsible process to the Accessibility list -- so the Open-Accessibility button
-// then "gives something to enable" (Josh's bug #2). Fired once (under tmux) when the
-// last reading is not-trusted/absent, so it is Tmux that lands in the list.
+// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds an entry
+// to the Accessibility list -- so the Open-Accessibility button then "gives something to
+// enable" (Josh's bug #2). Fired once (under tmux) when the last reading is
+// not-trusted/absent. ⚠️ CORRECTED (#2125, 2026-09-06): the entry it adds is the CALLING
+// BINARY's (the kosmos-app), NOT tmux's -- accessibility is keyed on the calling binary,
+// not the responsible process, and this prompt uses the same AX API family as the
+// axcheck. That is exactly #2189's "no Tmux to enable": the prompt registers the app, so
+// no tmux row appears to toggle.
 if CommandLine.arguments.contains("--kosmos-app-axprompt") {
     let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     _ = AXIsProcessTrustedWithOptions(opts)
