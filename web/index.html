@@ -10882,8 +10882,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            off"; engine/ping.js defaults an absent setting to on:true). So the copy
            now reads "On by default; this switch turns it off" - the wording swap
            the note above said would follow the flip. This switch is the OPT-OUT.
-           (The phone-notification row below is engine/notify.js and stays OFF by
-           default - a different mechanism; do not sweep it with this one.)
+           (The phone-notification row below is engine/notify.js, a DIFFERENT
+           mechanism with its own switch; it is ALSO on by default now, its own
+           #2020 step 3 flip - Josh 2026-09-03 "on, and they can turn it off".)
            🛑 THREE STATES, NOT TWO (#2047): the paint below shows ON / OFF /
            COULD-NOT-READ. On a 403 board the GET is gated and the value is unknown;
            a telemetry opt-out that falsely reads OFF would tell a person "nothing is
@@ -10896,11 +10897,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
       <!-- The outbound "something happened" switch (engine/notify.js): the seam a
-           phone notification rides on. Off by default; the copy says exactly what
-           leaves the Mac: who, what, when, never the words. -->
+           phone notification rides on. ON by default (#2020 step 3, Josh 2026-09-03
+           "on, and they can turn it off"; engine/notify.js defaults an absent
+           setting to on:true); this switch is the OPT-OUT. The copy says exactly
+           what leaves the Mac: who, what, when, never the words. -->
       <div class="setrow" id="notify-row" style="margin-top:12px;">
         <div><b>Let the Kosmos team know when an agent posts or answers you</b>
-          <p class="dhint" style="margin:2px 0 0;">Off by default. One small message each time: the agent's name and session, what it did (posted or answered), which project, when, an id for that event, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
+          <p class="dhint" style="margin:2px 0 0;">On by default; this switch turns it off. One small message each time: the agent's name and session, what it did (posted or answered), which project, when, an id for that event, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
         <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
       </div>
       <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>

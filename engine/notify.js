@@ -14,9 +14,10 @@
  * time, and this install's random id. The words stay on the Mac; the phone
  * fetches them from the Mac when it is opened.
  *
- * ⚠️ THE SAME HONESTY RULE AS THE CREATED PING (#331): off by default, one
- * switch in Settings whose copy says exactly what leaves the Mac, and a
- * sentence that stays true if the endpoint changes. Same seams as ping.js
+ * ⚠️ THE SAME HONESTY RULE AS THE CREATED PING (#331/#2283): ON by default for
+ * a never-asked machine (#2020 step 3, Josh 2026-09-03 "on, and they can turn
+ * it off"), with one switch in Settings whose copy says exactly what leaves the
+ * Mac, and a sentence that stays true if the endpoint changes. Same seams as ping.js
  * (a sender tests inject; a refusal to send under test with no sender) so a
  * suite never reaches the internet and the send path stays testable.
  *
@@ -60,13 +61,31 @@ const notifyToken = () => process.env.AGENT_WORKFORCE_NOTIFY_TOKEN || '';
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
-    if (err && err.code === 'ENOENT') return { on: false, ok: true };
+    /* ON for a never-asked machine (#2020 step 3; Josh's ruling 2026-09-03:
+       "on, and they can turn it off"). This mirrors the created-agent ping
+       (#2283): the Settings opt-out switch (#notify-toggle) is present, so
+       absent = "nobody has been asked yet" = on. The send is event-only (who,
+       what, which project, when, and this install's random id; never the
+       words), which is why the default-on is low-privacy. */
+    if (err && err.code === 'ENOENT') return { on: true, ok: true };
+    /* ⚠️ AN UNREADABLE FILE FAILS TO OFF, unlike the never-asked default above:
+       a body leaving the Mac on a setting we could not read is the wrong
+       direction, so an existing-but-unreadable pref is treated as off. */
     return { on: false, ok: false };
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, ok: false };
-  return { on: parsed.on === true, ok: true };
+  /* ⚠️ Array.isArray IS LOAD-BEARING, not tidiness: `typeof [] === 'object'`, so
+     without it a pref corrupted to a JSON array falls through to the ON default
+     and starts sending against a person's possible opt-out. With the send now ON
+     by default, any non-plain-object pref must fail to OFF -- the safe direction.
+     (ping.js carries the same `typeof` check and the same latent quirk; a parallel
+     one-line fix there is a scoped follow-up, noted in this branch's plan.) */
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, ok: false };
+  /* A missing or non-boolean `on` field is the never-asked default (ON), the
+     same as ENOENT; only an explicit `false` turns it off, so a person's opt-out
+     is honoured exactly. Was `parsed.on === true` (default OFF) before step 3. */
+  return { on: typeof parsed.on === 'boolean' ? parsed.on : true, ok: true };
 }
 function write(patch) {
   const next = { ...read(), ...patch };
