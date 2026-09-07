@@ -128,6 +128,51 @@ test('an arbitrary top-level SYMLINK is NOT followed (no escape via a discovered
   assert.ok(!names.includes('Escaped Via Link'), 'an arbitrary top-level symlink was followed, escaping $HOME');
 });
 
+test('#2125 case-insensitive: a lowercase ~/downloads (case variant of a TCC folder) is NOT walked', () => {
+  /* 🛑 THE WARNING-1 FIX. On a case-INSENSITIVE fs (macOS default, the target) a
+     folder whose STORED name is `downloads` is the same TCC-protected location as
+     `Downloads`; a case-SENSITIVE SCAN_SKIP check would miss it and promote it to a
+     deep root, firing the exact macOS access prompt #2125 removed.
+
+     🔑 THIS NEEDS ITS OWN HOME. The shared fixture already created `Downloads`
+     (capital) in the #2125 arm, and a case-insensitive fs stores the FIRST-created
+     case, so here `downloads` would resolve to a dir stored as `Downloads` -- which
+     even a case-sensitive check skips, making the test vacuous (measured: it passed
+     against a case-SENSITIVE perturbation). A private home where the ONLY spelling
+     ever created is lowercase is the only fixture that discriminates. */
+  const H2 = path.join(SB, 'home-lc');
+  fs.mkdirSync(path.join(H2, 'downloads', 'proj'), { recursive: true });
+  fs.writeFileSync(path.join(H2, 'downloads', 'proj', 'CLAUDE.md'), 'You are **In Lowercase Downloads**, a tester.\n');
+  /* Confirm the on-disk stored case really is lowercase before trusting the result
+     -- if the platform up-cased it, the arm proves nothing and must skip. */
+  const stored = fs.readdirSync(H2);
+  if (!stored.includes('downloads')) return;   // stored case is not lowercase here; the case-variant cannot be exercised
+  const saved = process.env.HOME;
+  process.env.HOME = H2;
+  try {
+    assert.equal(os.homedir(), H2, 'HOME override did not take -- cannot trust this arm');
+    const dirs = discover.scan().candidates.map((c) => c.dir);
+    assert.ok(!dirs.includes(path.join(H2, 'downloads', 'proj')),
+      'a lowercase ~/downloads was walked (case-sensitive SCAN_SKIP reintroduced the #2125 TCC ambush)');
+  } finally {
+    if (saved !== undefined) process.env.HOME = saved; else delete process.env.HOME;
+  }
+});
+
+test('the user home root is read UP FRONT and is never starved by a heavyweight sibling', () => {
+  /* 🔑 THE WARNING-2 FIX. Every top-level folder is a deep root, so a heavyweight
+     non-agent tree could exhaust MAX_DIRS before a $HOME-last walk ran. The home
+     root is now the FIRST root at depth 0, so ~/CLAUDE.md is read on the first
+     directory visit. With maxDirs=1, ONLY that first root runs -- if ~/CLAUDE.md
+     still surfaces, it was read before any deep sibling could starve it. */
+  agentAt('.', 'Front Home Root');            // HOME/CLAUDE.md
+  agentAt('BigCache/a/b/c/d', 'Buried Deep'); // a heavyweight sibling that would eat the budget
+  const r = discover.scan({ maxDirs: 1 });
+  assert.ok(r.candidates.some((c) => c.dir === HOME && c.name === 'Front Home Root'),
+    'the home-root agent was starved -- it is not read up front');
+  assert.equal(r.bounded.dirs, true, 'the dir budget was hit but not reported (honest truncation)');
+});
+
 test('CONTROL: the fixture home is really being scanned (an absence above is the guard, not a dead scan)', () => {
   agentAt('Stuff/an-agent', 'Control Agent');   // arbitrary name, shallow
   const r = discover.scan();

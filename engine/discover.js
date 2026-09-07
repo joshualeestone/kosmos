@@ -722,10 +722,11 @@ const SCAN = Object.freeze({
   /* Candidates we will return before stopping. A person cannot act on hundreds of
      rows, and an offer that never ends is its own defect. */
   MAX_CANDIDATES: 100,
-  /* $HOME itself is scanned SHALLOW: its direct children and grandchildren, enough
-     to reach `~/<name>/CLAUDE.md` and `~/<name>/<sub>/CLAUDE.md` without wading
-     into the deep noise a home directory holds. */
-  HOME_DEPTH: 2,
+  /* #2414: $HOME itself is read at depth 0 (its own `~/CLAUDE.md` + loose `~/*.md`),
+     never descended -- its children are covered further by the discovered deep roots
+     (defaultScanRoots). Before #2414 $HOME was walked SHALLOW at depth 2; that walk
+     is gone, superseded by candidate-parent discovery, so there is no HOME_DEPTH
+     constant any more. */
   /* The curated project parents are scanned DEEP, enough for nested worktrees. */
   DEEP_DEPTH: 5,
   /* #1652: loose importable agent FILES (an agent .md a person downloaded or was
@@ -764,6 +765,18 @@ const SCAN_SKIP = new Set([
   // ~/Documents at all fires the macOS Documents-access prompt on a fresh install.
   'Public', 'Desktop', 'Documents', 'Photos Library.photoslibrary',
 ]);
+
+/* 🛑 #2414/#2125: MATCH SCAN_SKIP CASE-INSENSITIVELY. The target volume is
+   case-INSENSITIVE (the macOS default), so `~/downloads` and `~/Downloads` are the
+   SAME physical directory, and a case-sensitive `SCAN_SKIP.has(name)` would MISS a
+   non-canonically-cased TCC folder -- letting `~/downloads` through as a scan root or
+   a descended child and firing the exact macOS access prompt #2125 removed. Case
+   is the fleet's most-repeated false-zero, and the invariant this guards is
+   load-bearing, so the skip is lower-cased on both sides. (`node_modules` etc. are
+   already lower-case; matching them case-insensitively too only skips more build
+   noise, never less.) */
+const SCAN_SKIP_LOWER = new Set(Array.from(SCAN_SKIP, (n) => n.toLowerCase()));
+function isScanSkip(name) { return SCAN_SKIP_LOWER.has(name.toLowerCase()); }
 
 /* The curated project parents under $HOME, scanned deep. Names only; only those
    that actually exist become roots. This is the "sensible roots" set, and it is
@@ -831,11 +844,14 @@ function discoverHomeParents(home) {
   const out = [];
   let names;
   try { names = fs.readdirSync(home); } catch { return out; }   // never throws (module contract)
-  const curated = new Set(SCAN_DEEP_NAMES);
+  /* Case-insensitive curated set, same reason as isScanSkip: on a case-insensitive
+     fs `~/Work` IS the curated `work`, so recognising it here avoids a redundant
+     (dedup-collapsed, but pointless) discovered root. */
+  const curatedLower = new Set(SCAN_DEEP_NAMES.map((n) => n.toLowerCase()));
   for (const name of names) {
     if (name.startsWith('.')) continue;          // every dotdir: .config, .cache, .Trash…
-    if (SCAN_SKIP.has(name)) continue;           // TCC folders + build/vendor + macOS noise (#2125)
-    if (curated.has(name)) continue;             // already added as a deep root above
+    if (isScanSkip(name)) continue;              // TCC folders + build/vendor + macOS noise (#2125), case-insensitive
+    if (curatedLower.has(name.toLowerCase())) continue;   // already added as a deep root above
     const dir = path.join(home, name);
     let st;
     /* lstat, so a symlink reports isDirectory()===false and is skipped -- an
@@ -856,14 +872,24 @@ function defaultScanRoots(opts) {
      spent where agents actually are before the shallow home walk (which re-reaches
      those same parents) can consume it. */
   const roots = [];
+  /* #2414: $HOME ITSELF FIRST, AT DEPTH 0. This reads `~/CLAUDE.md` and the loose
+     `~/*.md` import files at the top of $HOME (one directory visit) BEFORE any deep
+     root can spend the MAX_DIRS budget. The user home root is one of Josh's seeded
+     locations, and promoting every top-level folder to a deep root (below) means a
+     single heavyweight non-agent tree (`~/go/pkg/mod`, `~/anaconda3`) could exhaust
+     the budget before a $HOME-last walk ever ran -- so the home root is read up
+     front and never starved. maxDepth 0 = read this folder, do not descend: the
+     descent it used to do (HOME_DEPTH grandchildren) is now fully covered by the
+     discovered deep roots, which reach FURTHER (DEEP_DEPTH), so nothing is lost and
+     the redundant shallow re-walk is dropped. */
+  roots.push({ dir: home, maxDepth: 0 });
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
-  /* #2414: arbitrary-named top-level folders, discovered and walked DEEP -- after
-     the curated names (so they keep priority in the budget), before the shallow
-     $HOME walk (so a discovered parent is walked to full depth and the $HOME walk's
-     seenDirs skip just re-reaches it). Runs on BOTH scan types: these are non-TCC
-     folders that need no grant, so they belong on the auto scan too. */
+  /* #2414: arbitrary-named top-level folders, discovered and walked DEEP -- so an
+     agent under a folder Josh could have "called anything" is reached at full depth,
+     not just the old shallow grandchild walk. Runs on BOTH scan types: these are
+     non-TCC folders that need no grant, so they belong on the auto scan too. The
+     shared seenDirs set collapses the overlap with the curated roots above. */
   for (const r of discoverHomeParents(home)) roots.push(r);
-  roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
   /* 🛑 #2125: the TCC-protected home folders are reached ONLY under importScan.
      The AUTO first-run scan (discover.scan() with no importScan) never names them,
      so a brand-new user is not bombarded with macOS Documents/Downloads/Desktop
@@ -1228,7 +1254,7 @@ function scan(opts) {
 
       for (const name of names) {
         if (name.startsWith('.')) continue;   // every dotdir: .git, .Trash, .config, .cache…
-        if (SCAN_SKIP.has(name)) continue;     // build/vendor output + macOS home noise
+        if (isScanSkip(name)) continue;        // build/vendor output + macOS home noise (case-insensitive, #2414)
         const child = path.join(cur.dir, name);
         let cst;
         /* `lstat`: a symlinked directory reports isDirectory()===false here, so it
