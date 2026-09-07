@@ -194,6 +194,41 @@ test('fail closed: if we cannot ask tmux, we refuse rather than guess (and it is
   }
 });
 
+test('the quoting layers neutralize adversarial input directly (tmuxBin has no allowlist)', () => {
+  const { shellSingleQuote, appleScriptString } = terminal;
+
+  /* shell single-quoting: a value is one literal, and an embedded ' becomes
+     '\'' so it cannot end the quote. Metacharacters inside are inert. */
+  assert.equal(shellSingleQuote("a'b"), "'a'\\''b'", 'single-quote is not escaped as the POSIX close-escape-reopen form');
+  assert.equal(shellSingleQuote('; rm -rf ~'), "'; rm -rf ~'", 'shell metacharacters are not contained in one literal');
+  assert.equal(shellSingleQuote('$(evil)`evil`'), "'$(evil)`evil`'", 'command substitution is not contained');
+  const q = shellSingleQuote("x'y'z");
+  assert.ok(q.startsWith("'") && q.endsWith("'"), 'the quoted value does not open and close with a quote: ' + q);
+
+  /* AppleScript string literal: backslash escaped BEFORE double-quote, so a
+     shell-escape (which contains a backslash) survives intact inside it. */
+  assert.equal(appleScriptString('a"b'), '"a\\"b"', 'double-quote not escaped in the AppleScript literal');
+  assert.equal(appleScriptString('a\\b'), '"a\\\\b"', 'backslash not escaped in the AppleScript literal');
+
+  /* THE COMPOSITION, which is the property the whole scheme rests on: a hostile
+     tmux path goes shell-quote THEN applescript-quote, and the backslash the
+     shell-escape introduces must survive as \\ so osascript hands the shell the
+     exact literal rather than a broken-out one. */
+  const hostile = "/tmp/ev'il/tmux";
+  const shellQuoted = shellSingleQuote(hostile);     // '/tmp/ev'\''il/tmux'
+  assert.equal(shellQuoted, "'/tmp/ev'\\''il/tmux'", 'shell layer wrong: ' + shellQuoted);
+  const composed = appleScriptString(shellQuoted);
+  /* Prove the composition by REVERSING the AppleScript escaping rather than
+     hand-building the doubly-escaped literal (that hand-escaping is exactly
+     where a false assertion hides). A valid AppleScript literal opens/closes
+     with " and its body un-escapes \\ -> \ and \" -> " back to the shell form.
+     If the shell-escape backslash had NOT survived, this would not round-trip. */
+  assert.ok(composed.startsWith('"') && composed.endsWith('"'), 'not a quoted AppleScript literal: ' + composed);
+  const unAppleScripted = composed.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  assert.equal(unAppleScripted, shellQuoted,
+    'the shell form did not survive AppleScript escaping intact, so osascript would hand the shell a different string: ' + composed);
+});
+
 test('an empty name finds no live card and opens nothing', () => {
   /* NOT the route's decodeSegment===null branch (that mirrors the /restart
      sibling verbatim and answers 400 before openTerminal is called). This

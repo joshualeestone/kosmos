@@ -116,4 +116,14 @@ function openTerminal(name) {
   return { ok: true, session };
 }
 
-module.exports = { openTerminal, setRunner };
+module.exports = {
+  openTerminal,
+  setRunner,
+  /* Exported for a DIRECT adversarial test. `tmuxBin` reaches the shell with no
+     allowlist -- only these two layers neutralize it -- and SAFE_SESSION catches
+     a hostile session before the quoting ever sees it, so the quoting is
+     otherwise only exercised on benign values. A unit test feeds quote-bearing
+     input straight through these to prove the escaping, per that review. */
+  shellSingleQuote,
+  appleScriptString,
+};
