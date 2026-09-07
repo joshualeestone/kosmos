@@ -7648,7 +7648,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      modal message; the primary button auto-restarts (worldswSwitch, which self-restarts
      when the board can). Replaces the old inline "run kosmos restart yourself" banner. -->
 <div class="rm-back" id="world-switch-modal" hidden>
-  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="world-switch-t" aria-describedby="world-switch-t">
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="world-switch-t">
     <h2 class="rm-title" id="world-switch-t">Restart Kosmos in order to switch to a different Kosmos</h2>
     <div class="rm-acts" style="margin-top: var(--space-6);">
       <button class="btn" id="world-switch-cancel" type="button">Cancel</button>
@@ -16699,10 +16699,10 @@ async function worldswReconnect(switchedId, switchedName, say) {
       }
       if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
         slowShown = true;
-        say('Still switching to ' + switchedName + '… this is taking longer than usual. If Kosmos does not come back on its own, restart it (run "kosmos restart", or restart your Mac).');
+        say('Still switching to ' + switchedName + '… this is taking longer than usual. If it does not come back on its own, quit and reopen Kosmos.');
       }
     }
-    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, restart Kosmos (run "kosmos restart", or restart your Mac).');
+    say('Switched to ' + switchedName + ', but Kosmos is taking a while to restart. If it does not reload shortly, quit and reopen Kosmos.');
     worldswFocusTrigger();
   } finally {
     WORLDSW_RECONNECTING = false;
@@ -16899,7 +16899,6 @@ async function worldRenameSubmit() {
   document.getElementById('world-switch-cancel').addEventListener('click', worldswSwitchCancel);
   document.getElementById('world-switch-go').addEventListener('click', worldswSwitchGo);
   document.getElementById('world-switch-modal').addEventListener('click', (e) => { if (e.target.id === 'world-switch-modal') worldswSwitchCancel(); });
-  document.getElementById('world-switch-modal').addEventListener('keydown', (e) => { if (e.key === 'Escape') worldswSwitchCancel(); });
   // Outside-click closes the menu.
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('worldsw-menu');
@@ -16908,6 +16907,7 @@ async function worldRenameSubmit() {
   // Escape closes the create modal first, then the menu.
   document.addEventListener('keydown', (e) => {
     if (e.key !== 'Escape') return;
+    if (!document.getElementById('world-switch-modal').hidden) { worldswSwitchCancel(); return; }
     if (!document.getElementById('world-rename-modal').hidden) { worldRenameClose(); return; }
     if (!document.getElementById('world-add-modal').hidden) { worldAddClose(); return; }
     const menu = document.getElementById('worldsw-menu');
