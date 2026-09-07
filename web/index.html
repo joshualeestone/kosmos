@@ -38581,7 +38581,10 @@ function frArmRescanOnGrant() {
       if (FR_RESCAN_BUSY) return;   // a prior tick's re-scan is still in flight; let it finish
       FR_RESCAN_BUSY = true;
       try {
-        FR_SCAN = null;             // force a fresh scan
+        // No FR_SCAN=null here: frScanAgents recomputes FR_SCAN unconditionally and never reads
+        // it at entry, so nulling it first only opened a brief window where a concurrent
+        // frPaintFleet could see FR_SCAN===null and fire a second bare scan. Dropping it removes
+        // that latent coupling with no behaviour change.
         await frScanAgents(true);
       } finally { FR_RESCAN_BUSY = false; }
       if (gen !== FR_RESCAN_GEN) return;   // stopped / re-armed elsewhere while we awaited

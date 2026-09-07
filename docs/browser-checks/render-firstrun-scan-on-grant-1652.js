@@ -74,9 +74,19 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const errs = [];
     p.on('pageerror', (e) => errs.push(String(e)));
     // Network-level resource-load noise is not a page/JS error (uncaught exceptions come via
-    // pageerror above); scenario 8 deliberately makes /api/scan-import return 500 to exercise the
-    // hiccup-retry path, so a 500 resource-load line is expected here, like the 404/favicon noise.
-    p.on('console', (m) => { if (m.type() === 'error' && !/ERR_FILE_NOT_FOUND|favicon|status 404|status of 500/.test(m.text())) errs.push(m.text()); });
+    // pageerror above). The 500 tolerance is scoped to scenario 8 (which deliberately makes
+    // /api/scan-import return 500 to exercise the hiccup-retry path) via expect500 -- so
+    // scenarios 1-7 still catch an UNEXPECTED 500 from any endpoint. expect500 is set once at
+    // scenario 8's start and never reset (scenario 8 is last), which also avoids racing the
+    // async console event against scanImportFail flipping back to false.
+    let expect500 = false;
+    p.on('console', (m) => {
+      if (m.type() !== 'error') return;
+      const t = m.text();
+      if (/ERR_FILE_NOT_FOUND|favicon|status 404/.test(t)) return;
+      if (expect500 && /status of 500/.test(t)) return;
+      errs.push(t);
+    });
 
     /* Which scan route frScanAgents actually reached. Reset before each scenario;
        the route handlers push their own name so an assertion can tell scan-import
@@ -341,6 +351,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       { dir: '/Users/x/Documents/hiccup-agent', name: 'Hiccup agent', role: 'watches', preview: 'You watch.' },
     ];
     importFiles = [];
+    expect500 = true;                                              // scope the 500 console-noise tolerance to this scenario onward
     scanImportFail = true;                                          // the granted re-scan will hiccup
     await p.evaluate(async () => {
       FR_RESCAN_INTERVAL_MS = 20;
