@@ -83,3 +83,69 @@ That the app-exe hatch (under tmux) and the app's S2 fileaccessprompt grant are 
 subject so the grant is reused. This is the SAME premise the working fileaccessprompt hatch
 already rests on (slice-1 "PROVEN S2 model"); Design A adds no NEW attribution assumption. The
 fresh-account confirm is the same gate the existing hatch carries.
+
+---
+
+## BUILD STATE (2026-09-07 ~02:10, Ice Cream Kitty) -- hatch DONE, engine wiring NEXT
+
+### DONE + committed (typechecks: swiftc -typecheck passes)
+- native-app/main.swift: `scanUnderGrant()` walk + `--kosmos-app-scan` hatch dispatch +
+  `checkScanRequest()` watcher (atomic rename claim scan-request.json -> scan-request.inflight,
+  60s staleness drop, fires the hatch under tmux via spawnAxHatchUnderTmux). Walk matches engine
+  parity: CLAUDE.md folder head on non-importOnly roots; loose .md/.markdown heads on ALL roots
+  excluding claude.md/agents.md; SCAN_SKIP + dotdir skip + per-root maxDepth + maxDirs/maxMdPerDir/
+  maxMdReads budgets + realpath dedup. Emits scan-result.json via JSONSerialization (heads safely
+  escaped), atomic write, nonce echoed.
+
+### NEXT: engine wiring in engine/discover.js (do after the box frees; full suite ~263s)
+Integration points found:
+- `readClaudeHead(path)` is the disk read to replace with hatch-supplied heads.
+- Folder byDir path ~L977: `if (!cur.importOnly && !byDir.has(cur.dir) && !known.has(cur.dir))`
+  -> `const text = readClaudeHead(path.join(cur.dir, 'CLAUDE.md'))` -> introducesSomebody ->
+  `byDir.set(cur.dir, {...})`.
+- Loose importable path ~L1008: runs on ALL roots; `.md`/`.markdown`, excl claude.md/agents.md;
+  `readClaudeHead(file)` -> `status.identityFromText` / `INTRODUCES.test` -> `byFile.set(...)`.
+
+Plan for the wiring (keep endpoint /api/scan-import unchanged, keep detection single-sourced):
+1. Split `scan()` roots into TCC roots (Documents/Downloads/Desktop -- only added under
+   importScan) and non-TCC roots. Non-TCC walk UNCHANGED (in-engine, never prompts).
+2. For TCC roots, call a new `tccScanViaHatch(roots, budgets)`:
+   - write `scan-request.json` (roots+budgets+nonce) to store.ROOT,
+   - poll for `scan-result.json` with matching `req` nonce, ~10s timeout, ~150ms interval,
+   - on timeout: return `{dirs:[], loose:[], bounded:{...timedOut}}` so the scan never hangs and
+     the screen can say "couldn't finish" (fail-open, not fail-closed).
+   - Requires nativePresent (the app writes the result); if no native app, fall back to the
+     current in-engine walk (a browser-on-localhost has no hatch, but also no TCC prompt).
+3. Feed hatch `dirs[]` heads through the SAME byDir builder (introducesSomebody -> candidate) and
+   `loose[]` heads through the SAME byFile builder (identityFromText/INTRODUCES -> importable),
+   merging into the existing byDir/byFile maps BEFORE the dedup/known-exclusion so nothing
+   duplicates found()/alreadyIn/declined.
+4. Merge `bounded` flags (OR the hatch's dirs/importable into the engine's).
+
+### Tests to add
+- discover.tccscan-2125b.test.js: given a canned scan-result.json (fixture heads), scan({importScan:true})
+  produces the same candidate/importable rows the direct walk would; nonce mismatch -> ignored ->
+  timeout path; timeout -> bounded-timedOut, never hangs; no-native -> falls back to in-engine walk.
+- native-app.scan-hatch-2125b.test.js: assert main.swift has the --kosmos-app-scan dispatch, the
+  checkScanRequest rename-claim, the atomic result write, and the SCAN_SKIP/CLAUDE.md/loose parity
+  (source-asserts, same style as native-app.a11y-writer-2125.test.js).
+- Reds on the old behavior (engine walks TCC roots directly).
+
+### Then: challenge-loop (regenerate the -pre-challenge.md proof AFTER this plan file exists so the
+### pre-challenge-gate hash matches), full validation suite (once, box free), self-merge on green.
+
+### Renet's half (b), after this merges: /api/scan-import already routes through the hatch, so his
+### S9 re-scan-on-grant-flip (half a) inherits it; he re-runs frScanAgents on the grant edge.
+
+## HATCH BEHAVIORAL SMOKE (2026-09-07 ~02:15) -- PASS, walk validated directly
+Built native-app/main.swift into a binary and ran `--kosmos-app-scan` against a fixture tree
+(AGENT_WORKFORCE_DATA override -> store/AgentWorkforce/). Result:
+- dirs[] = myagent/CLAUDE.md ("You are Bob") + sub/CLAUDE.md ("You are Deep", nested descent works);
+  node_modules/junk/CLAUDE.md EXCLUDED (SCAN_SKIP), .hidden/CLAUDE.md EXCLUDED (dotdir skip). ✓
+- loose[] = README.md + loose-agent.md ("You are Sue"); agents.md EXCLUDED, CLAUDE.md markers
+  EXCLUDED from loose. ✓
+- req echoed ("testnonce123"), bounded.visited=3 (root+myagent+sub, skipped dirs not entered),
+  scan-request.inflight consumed, scan-result.json valid JSON with safely-escaped heads, exit 0. ✓
+So the novel walk (SCAN_SKIP / dotdir / nested descent / CLAUDE.md folder + loose-.md exclusions /
+nonce / atomic write / consume) is behaviorally correct. The committed test for the suite will be
+a source-assert (native-app.a11y-writer-2125.test.js style) + the engine consume-path unit test.
