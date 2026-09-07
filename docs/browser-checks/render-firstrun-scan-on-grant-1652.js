@@ -463,8 +463,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       frRescanStop();
       await frScanAgents();                                        // granted-at-entry scan; hiccups
     });
-    const armed11 = await p.evaluate(() => ({ armed: FR_RESCAN_TIMER !== null, full: FR_SCAN_FULL, inflight: FR_SCAN_INFLIGHT }));
-    if (armed11.armed && !armed11.full && !armed11.inflight)
+    // Assert the poll ARMED and the scan did NOT deliver. Do NOT assert FR_SCAN_INFLIGHT here: it is
+    // a transient flag, and the just-armed poll's immediate re-scan can re-set it at an uncontrolled
+    // moment -- and armed===true already implies the entry scan had settled (frArmRescanOnGrant
+    // returns early while INFLIGHT), so the flag adds nothing but flake.
+    const armed11 = await p.evaluate(() => ({ armed: FR_RESCAN_TIMER !== null, full: FR_SCAN_FULL }));
+    if (armed11.armed && !armed11.full)
       ok('#3/#4(b): a granted scan that hiccups at S9 entry ARMS the poll (retry not foreclosed)');
     else bad('#3/#4(b) granted-entry hiccup arms poll', JSON.stringify({ armed11, scanImport: hits.scanImport }));
     // The scan recovers: the armed poll re-scans (grant already true) and delivers.
