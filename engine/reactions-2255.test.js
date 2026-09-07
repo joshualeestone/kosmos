@@ -143,6 +143,33 @@ test('#2255: an agent must be ON the project to react (room isolation), the oper
     'the operator reaction did not store the operator flag');
 });
 
+// #2442: a REMOVED agent is not a room participant, so it cannot react either --
+// the same access-boundary filter sendPost applies. The record keeps the name
+// (restore re-admits), so react() filters removed agents from the membership at
+// read time. This is the exact inverse of the "a member agent could react" arm
+// above: the same member, once removed, is refused.
+test('#2442: a member who has been removed can no longer react (room access is cut)', () => {
+  const remove = require('./remove');
+  const seedRemoved = (names) => {
+    fs.mkdirSync(require('node:path').dirname(remove.REMOVED_FILE), { recursive: true });
+    fs.writeFileSync(remove.REMOVED_FILE, JSON.stringify(names.map((n) => ({ name: n, stopped: true }))));
+  };
+  const clearRemoved = () => { try { fs.rmSync(remove.REMOVED_FILE, { recursive: true, force: true }); } catch { /* fresh */ } };
+  seedPost('m2442', 'p', 'leo');
+  clearRemoved();
+  try {
+    // Control: zeta, a member, CAN react (matches the #2255 arm above).
+    assert.equal(messages.react({ project: 'p', of: 'm2442', emoji: THUMB, from: 'zeta', members: ['zeta'] }).ok, true,
+      'the control: a live member can react');
+    // Now remove zeta: the same member, off the same record, is refused.
+    seedRemoved(['zeta']);
+    const gone = messages.react({ project: 'p', of: 'm2442', emoji: FIRE, from: 'zeta', members: ['zeta'] });
+    assert.equal(gone.ok, false, 'a removed agent must not react into a room it was on');
+    assert.match(gone.because, /not on that project/i,
+      'refused at the same membership gate a non-member hits');
+  } finally { clearRemoved(); }
+});
+
 test('#2255: rowShaped drops a malformed reaction row at read time, keeps a well-formed one', () => {
   fs.mkdirSync(require('node:path').dirname(messages.LOG), { recursive: true });
   const at = new Date().toISOString();
