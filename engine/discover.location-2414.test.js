@@ -172,6 +172,37 @@ test('#2125 case-insensitive: a lowercase ~/downloads (case variant of a TCC fol
   }
 });
 
+test('a folder whose name IS a curated name is offered exactly once (seenDirs dedup, not a name-skip)', () => {
+  /* #2414: discovery does NOT skip a name already in SCAN_DEEP_NAMES (that skip breaks
+     case-sensitive-fs coverage). On the case-insensitive target, `~/work` is then both a
+     curated root and a discovered root -- seenDirs (dev+ino) must collapse the two so the
+     agent is offered ONCE, not twice. */
+  const dir = agentAt('work/an-agent', 'Curated Name Agent');
+  const hits = discover.scan().candidates.filter((c) => c.dir === dir);
+  assert.equal(hits.length, 1, `an agent under a curated-named folder was offered ${hits.length} times (seenDirs dedup failed)`);
+});
+
+test('case-SENSITIVE fs: ~/Work (distinct from curated work) is still found', () => {
+  /* 🛑 THE WARNING FIX. On a case-SENSITIVE fs `~/Work` is a DISTINCT directory from the
+     curated `~/work` (which does not exist here), so a name-based curated skip would leave
+     it covered by neither -- exactly the "could have been called anything" miss. Discovery
+     must reach it. Only meaningful on a case-sensitive fs; on the case-insensitive target
+     `~/Work` IS `~/work` (found via the curated root), so detect and skip there. */
+  const workCap = path.join(HOME, 'Work');
+  fs.mkdirSync(workCap, { recursive: true });
+  let caseSensitive;
+  // On a case-INSENSITIVE fs, ~/work resolves to the just-created ~/Work (same ino) -> not
+  // the gap. On a case-SENSITIVE fs, ~/work does not exist -> statSync throws -> the gap.
+  try { caseSensitive = fs.statSync(path.join(HOME, 'work')).ino !== fs.statSync(workCap).ino; }
+  catch { caseSensitive = true; }
+  if (!caseSensitive) return;
+  const dir = path.join(workCap, 'proj');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'You are **Work Cap Agent**, a tester.\n');
+  const dirs = discover.scan().candidates.map((c) => c.dir);
+  assert.ok(dirs.includes(dir), '~/Work (distinct from curated work on a case-sensitive fs) was missed');
+});
+
 test('the user home root is read UP FRONT and is never starved by a heavyweight sibling', () => {
   /* 🔑 THE WARNING-2 FIX. Every top-level folder is a deep root, so a heavyweight
      non-agent tree could exhaust MAX_DIRS before a $HOME-last walk ran. The home

@@ -863,14 +863,18 @@ function discoverHomeParents(home) {
   const out = [];
   let names;
   try { names = fs.readdirSync(home); } catch { return out; }   // never throws (module contract)
-  /* Case-insensitive curated set, same reason as isScanSkip: on a case-insensitive
-     fs `~/Work` IS the curated `work`, so recognising it here avoids a redundant
-     (dedup-collapsed, but pointless) discovered root. */
-  const curatedLower = new Set(SCAN_DEEP_NAMES.map((n) => n.toLowerCase()));
+  /* 🔑 NO name-based curated skip. It is tempting to skip a name already in
+     SCAN_DEEP_NAMES (it is added as a curated root above), but that skip is wrong on
+     a case-SENSITIVE fs: there `~/Work` is a DISTINCT directory from the curated
+     `~/work` (which may not exist), so skipping `Work` by name would leave it covered
+     by NEITHER -- the exact "it could have been called anything" miss this card fixes.
+     Redundancy on a case-INSENSITIVE fs (`~/work` reached as both a curated and a
+     discovered root) is collapsed correctly and cheaply by seenDirs (dev+ino) in
+     scan(), at the cost of one extra statSync that is then skipped. Let the physical-
+     identity dedup handle it; do not second-guess it by name. */
   for (const name of names) {
     if (name.startsWith('.')) continue;          // every dotdir: .config, .cache, .Trash…
     if (isScanSkip(name)) continue;              // TCC folders + build/vendor + macOS noise (#2125), case-insensitive
-    if (curatedLower.has(name.toLowerCase())) continue;   // already added as a deep root above
     const dir = path.join(home, name);
     let st;
     /* lstat, so a symlink reports isDirectory()===false and is skipped -- an
@@ -1132,8 +1136,11 @@ function scan(opts) {
   /* Directories already read, across ALL roots, keyed by PHYSICAL-DIRECTORY IDENTITY
      (`st.dev + ':' + st.ino`) rather than any path string. Three different aliases
      resolve to one physical directory and must not be walked twice:
-       - `$HOME` (walked last, shallow) re-reaches the curated parents (walked first,
-         deep) that live directly under it;
+       - #2414: a curated parent and a DISCOVERED parent naming the same folder (e.g.
+         `~/work` in SCAN_DEEP_NAMES and also found by discoverHomeParents) are two
+         root entries for one directory; discovery deliberately does NOT skip curated
+         names (that skip breaks case-sensitive coverage), so this dedup is what
+         collapses the overlap;
        - on a CASE-INSENSITIVE filesystem (the macOS default, and the target), the two
          case variants in the root set (`projects`/`Projects`, `Kosmos`/`kosmos`) are the
          SAME directory, reached as two differently-cased paths;
@@ -1180,11 +1187,15 @@ function scan(opts) {
     if (root && root.tcc === true) continue;   // #3/#2125: handled by the hatch merge below
     let rootStat;
     /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
-       (the fixed set under $HOME, or an explicit test override), and a person whose
-       `~/work` is a symlink to an external volume keeps their agents there on purpose --
-       dropping a symlinked root would hide that whole population and reintroduce the
-       "Create your first agent" defect this card exists to fix. So the root symlink is
-       FOLLOWED once, to enter the place the person chose.
+       (the fixed set under $HOME, a #2414 DISCOVERED top-level $HOME folder, or an
+       explicit test override), and a person whose `~/work` is a symlink to an external
+       volume keeps their agents there on purpose -- dropping a symlinked root would
+       hide that whole population and reintroduce the "Create your first agent" defect
+       this card exists to fix. So the root symlink is FOLLOWED once, to enter the place
+       the person chose. (#2414: a DISCOVERED root is safe to follow-once here because
+       discoverHomeParents already lstat-proved it is a real directory, never a symlink,
+       so this statSync only re-resolves a dir; a curated/test root is trusted by
+       construction as before.)
        ⚠️ THE NO-ESCAPE GUARD IS ON THE DESCENDED CHILDREN, NOT THE ROOT. Every child
        below is `lstat`ed and a symlink is refused, so the walk never follows a link OUT
        of the root's real tree -- the escape this module family has shipped six times.
