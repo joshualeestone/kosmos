@@ -10877,6 +10877,31 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       </div>
       <p class="dhint" id="hb-msg" role="status" style="margin:8px 0 0;"></p>
     </section>
+    <!-- #2436 (Josh, 2026-09-07): the master on/off for the #2407 new-message sound,
+         the global switch Josh asked for after hearing it ("something in the settings
+         somewhere to turn it on/off but have it on by default"). It sits here beside the
+         Prompter as the other "how Kosmos gets your attention" control.
+         🔑 A PER-VIEWER PREFERENCE, NOT A SERVER SETTING. Whether YOU hear the pop is
+         yours, like the per-project toggles it governs -- so it lives in localStorage
+         (soundMasterOn) and, unlike Auto-save/Prompter above, there is nothing to read
+         from the board: the toggle shows its known state immediately rather than hiding
+         until a status read (paintSwitch is called with a real boolean, never null).
+         When OFF, no pop plays on ANY project regardless of the per-project toggles; when
+         ON, the per-project toggles govern each project as they do today. On by default
+         (Josh chose the sound); the static markup starts ON and paintSettings confirms it
+         from storage, so there is no flash. Copy is Mona Lisa's (the card). -->
+    <section class="dbox">
+      <h3 class="dlab">Sounds</h3>
+      <div class="setrow" id="snd-row" style="margin-top:14px;">
+        <div><b>Play a sound for new messages</b>
+          <p class="dhint" style="margin:2px 0 0;">A soft pop when a new message lands on one of your projects, so you notice without watching. On by default. Turn it off to silence it everywhere; you can also mute a single project in its own settings.</p></div>
+        <!-- ⚠️ WCAG 2.5.3 Label in Name (Level A): the accessible name must CONTAIN the
+             visible label ("Play a sound for new messages"), so a speech-input user can
+             activate the control by the words they see. The sibling per-project toggle
+             keeps the same discipline (its visible label is a substring of its aria-label). -->
+        <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
+      </div>
+    </section>
     <!-- #2054 (Mona Lisa's design, 2026-09-03): "Agents talking to each other" moved
          here from its own top-level tab, which is deleted. Block 3 of the consolidated
          Automation section, before the Daily report (#2037, now the block below).
@@ -15216,6 +15241,9 @@ async function paintSettings() {
   paintYouTz();
   paintAutomation();
   paintHeartbeat();
+  /* #2436: a per-viewer localStorage preference, so there is nothing to fetch -- confirm
+     the master sound toggle from storage on open (always a real boolean, never null). */
+  paintSwitch('snd-toggle', soundMasterOn());
   const loc = document.getElementById('set-applocation');
   const mach = document.getElementById('set-machine');
   try {
@@ -30210,6 +30238,24 @@ function setProjectSoundOn(id, on) {
   } catch { /* preference only; nothing to recover */ }
 }
 
+/* #2436: the GLOBAL master on/off for the new-message sound (Settings > Automation >
+   Sounds). Per-viewer and default ON, the same shape and storage family as the
+   per-project toggles above, because whether YOU hear the pop is yours. OFF here
+   silences the pop on EVERY project regardless of the per-project toggles -- it is the
+   one place to turn it off entirely; the per-project toggles only ever mute a single
+   project when the master is ON. Storage blocked (private window) falls back to ON, so a
+   viewer who cannot persist a preference still hears the sound Josh chose. */
+function soundMasterOn() {
+  try { return localStorage.getItem('kosmos.sound.master') !== 'off'; }
+  catch { return true; }
+}
+function setSoundMasterOn(on) {
+  try {
+    if (on) localStorage.removeItem('kosmos.sound.master');
+    else localStorage.setItem('kosmos.sound.master', 'off');
+  } catch { /* preference only; nothing to recover */ }
+}
+
 /* #2407: respect the system's Do Not Disturb. A web page cannot read macOS Focus
    itself -- the reliable source is the native layer, which can publish a quiet flag
    the board serves. This gate is present and FAILS OPEN (never quiet) so the sound
@@ -30255,7 +30301,12 @@ function ringNewMessages(projects) {
     if (prev !== undefined && cur > Number(prev) && p.id !== PJ_CURRENT && projectSoundOn(p.id)) burst = true;
   }
   PJ_UNREAD_SEEN = next;
-  if (prevSeen && burst && !soundIsQuietedByDnd()) {
+  /* #2436: the global master gates the play, not the baseline: PJ_UNREAD_SEEN is
+     updated above regardless, so turning the sound off SILENCES rather than DEFERS --
+     flipping it back on does not ring a backlog for messages that arrived while muted.
+     Checked here at the single play decision (like the DND gate) so master-off silences
+     every project no matter what its per-project toggle says. */
+  if (prevSeen && burst && soundMasterOn() && !soundIsQuietedByDnd()) {
     /* Coalesce across rapid/concurrent loadProjects reads into ONE pop: two reads can
        be in flight together (the file's own note), and each would see the same rise and
        reach here. A short floor since the last pop makes a flurry rattle once, not
@@ -32242,6 +32293,17 @@ document.getElementById('pjs-sound-toggle').addEventListener('click', () => {
   const on = !projectSoundOn(p.id);
   setProjectSoundOn(p.id, on);
   paintSwitch('pjs-sound-toggle', on);
+});
+
+/* #2436: flip the GLOBAL master new-message sound preference (Settings > Automation >
+   Sounds). Same shape as the per-project toggle above: writes localStorage and repaints
+   the switch. Off here silences the pop on every project (soundMasterOn gates the play in
+   ringNewMessages); on hands control back to the per-project toggles. A tap here also
+   counts as the user gesture some browsers require before the audio context can play. */
+document.getElementById('snd-toggle') && document.getElementById('snd-toggle').addEventListener('click', () => {
+  const on = !soundMasterOn();
+  setSoundMasterOn(on);
+  paintSwitch('snd-toggle', on);
 });
 
 /* 🔑 THE DESCRIPTION CAP, ONCE IN THIS FILE (#1303 G). The engine is the

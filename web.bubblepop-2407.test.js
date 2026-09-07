@@ -68,7 +68,7 @@ function loadSound(opts) {
   // project); declare it in the wrapper and expose a setter so the tests can drive it.
   // eslint-disable-next-line no-new-func
   const factory = new Function('window', 'localStorage',
-    'var PJ_CURRENT = null;\n' + src + '\nreturn { ringNewMessages, projectSoundOn, setProjectSoundOn, playBubblePop, setQuiet: (v) => { SOUND_QUIET = v; }, setCurrent: (v) => { PJ_CURRENT = v; } };');
+    'var PJ_CURRENT = null;\n' + src + '\nreturn { ringNewMessages, projectSoundOn, setProjectSoundOn, soundMasterOn, setSoundMasterOn, playBubblePop, setQuiet: (v) => { SOUND_QUIET = v; }, setCurrent: (v) => { PJ_CURRENT = v; } };');
   const api = factory(win, localStorage);
   api.started = started;
   return api;
@@ -112,6 +112,43 @@ test('#2407: a muted project does not ring, and the mute is per-project', () => 
   assert.equal(s.started.length, 0, 'a muted project rang');
   s.ringNewMessages([{ id: 'a', unread: 6 }, { id: 'b', unread: 1 }]);   // b (unmuted) rose
   assert.equal(s.started.length, 1, 'an unmuted project failed to ring');
+});
+
+test('#2436: the master defaults ON, and turning it OFF silences even an unmuted project', () => {
+  const s = loadSound();
+  assert.equal(s.soundMasterOn(), true, 'the master default is not ON');
+  s.setSoundMasterOn(false);                            // master off
+  assert.equal(s.soundMasterOn(), false);
+  s.ringNewMessages([{ id: 'a', unread: 0 }]);          // baseline
+  s.ringNewMessages([{ id: 'a', unread: 3 }]);          // an unmuted project rose
+  assert.equal(s.started.length, 0, 'the master was off but a pop still rang');
+});
+
+test('#2436: the master gate is the discriminator (same rise, only the master differs)', () => {
+  // Off: silent.
+  const off = loadSound();
+  off.setSoundMasterOn(false);
+  off.ringNewMessages([{ id: 'a', unread: 0 }]);
+  off.ringNewMessages([{ id: 'a', unread: 2 }]);
+  assert.equal(off.started.length, 0, 'master OFF rang');
+  // On (default): the identical rise rings, proving the OFF result is the master, not the setup.
+  const on = loadSound();
+  on.ringNewMessages([{ id: 'a', unread: 0 }]);
+  on.ringNewMessages([{ id: 'a', unread: 2 }]);
+  assert.equal(on.started.length, 1, 'master ON failed to ring the identical rise');
+});
+
+test('#2436: turning the master OFF SILENCES rather than DEFERS -- flipping back on rings no backlog', () => {
+  const s = loadSound();
+  s.setSoundMasterOn(false);                            // master off
+  s.ringNewMessages([{ id: 'a', unread: 0 }]);          // baseline
+  s.ringNewMessages([{ id: 'a', unread: 5 }]);          // messages arrived while muted (silent)
+  assert.equal(s.started.length, 0, 'muted master rang');
+  s.setSoundMasterOn(true);                             // master back on
+  s.ringNewMessages([{ id: 'a', unread: 5 }]);          // unchanged since the muted read: no NEW rise
+  assert.equal(s.started.length, 0, 'flipping the master back on rang a backlog for messages that arrived while muted');
+  s.ringNewMessages([{ id: 'a', unread: 6 }]);          // a genuine new message after re-enabling
+  assert.equal(s.started.length, 1, 'a real new message after re-enabling did not ring');
 });
 
 test('#2407: an UNKNOWN count (null unread) never rings and never rebaselines to zero', () => {
