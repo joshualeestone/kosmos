@@ -69,7 +69,9 @@ function openTerminal(name) {
   catch {
     // paneRoster throws when tmux cannot be asked. Fail CLOSED and say so,
     // exactly as remove.js's sessionFor does: "cannot confirm" is not "open it".
-    return { ok: false, because: `we could not check whether ${clean} is running right now, so we did not open a terminal. Try again in a moment.` };
+    // `unavailable` marks this as an environment failure (a transient, not a
+    // bad request) so the route can answer 503 rather than 400.
+    return { ok: false, unavailable: true, because: `we could not check whether ${clean} is running right now, so we did not open a terminal. Try again in a moment.` };
   }
 
   if (!card || !card.session) {
@@ -106,7 +108,10 @@ function openTerminal(name) {
 
   const r = run('osascript', ['-e', appleScript]);
   if (!r || r.ok === false) {
-    return { ok: false, because: `we could not open a terminal window (${(r && r.because) || 'unknown'}).` };
+    // osascript failing is an environment condition -- most often a headless
+    // board with no window server, or a transient AppleScript error -- not a
+    // bad request. `unavailable` routes it to 503, not 400.
+    return { ok: false, unavailable: true, because: `we could not open a terminal window (${(r && r.because) || 'unknown'}).` };
   }
   return { ok: true, session };
 }

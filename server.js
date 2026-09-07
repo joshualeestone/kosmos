@@ -3868,7 +3868,12 @@ const server = http.createServer((req, res) => {
     let out;
     try { out = terminal.openTerminal(name); }
     catch (err) { sendJson(res, 500, { error: 'we could not open a terminal for this agent', detail: String(err && err.message || err) }); return; }
-    sendJson(res, out && out.ok ? 200 : 400, out);
+    /* A refusal (not running / not ours / a name we will not shell out) is a
+       400; an ENVIRONMENT failure (tmux unaskable, or osascript failing on a
+       headless board) is a 503, so a transient "try again" is not reported to
+       monitoring as a bad request. The board reads `because` either way. */
+    const code = out && out.ok ? 200 : (out && out.unavailable ? 503 : 400);
+    sendJson(res, code, out);
     return;
   }
 

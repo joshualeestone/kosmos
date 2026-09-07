@@ -133,6 +133,25 @@ test('a stopped agent: refuses, and NO terminal is opened', async () => {
   assert.equal(lastRun, null, 'a terminal was opened for a stopped agent -- nothing should have run');
 });
 
+test('an environment failure (osascript fails / headless board) is a 503, not a 400', async () => {
+  /* A live agent, but the osascript call fails the way it would on a headless
+     board. That is an environment condition, not a bad request: the route must
+     answer 503 so a transient/headless failure does not read as a client
+     error. Contrast with the stopped-agent arm above, a genuine 400 refusal. */
+  const name = 'lt-headless';
+  born(name);
+  terminal.setRunner(() => ({ ok: false, because: 'no window server' }));
+  let r;
+  try {
+    r = await launch(name);
+  } finally {
+    terminal.setRunner((file, args) => { lastRun = { file, args }; return { ok: true }; });
+  }
+  assert.equal(r.status, 503, 'an osascript/headless failure was not reported as 503: ' + JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, JSON.stringify(r.body));
+  assert.match(String(r.body.because || ''), /could not open a terminal/, JSON.stringify(r.body));
+});
+
 /* --- module-level arms: force states paneRoster cannot honestly produce, to
    prove the two guards that protect the shell command. paneRoster is stubbed
    synchronously and restored in the same test body (openTerminal is sync). --- */
@@ -158,7 +177,7 @@ test('SAFE_SESSION guard: a hostile session name is refused, no osascript runs',
   }
 });
 
-test('fail closed: if we cannot ask tmux, we refuse rather than guess', () => {
+test('fail closed: if we cannot ask tmux, we refuse rather than guess (and it is 503, not a bad request)', () => {
   lastRun = null;
   const orig = status.paneRoster;
   status.paneRoster = () => { throw new Error('tmux is not answering'); };
@@ -166,16 +185,20 @@ test('fail closed: if we cannot ask tmux, we refuse rather than guess', () => {
     const out = terminal.openTerminal('whoever');
     assert.equal(out.ok, false, JSON.stringify(out));
     assert.match(out.because, /could not check/, JSON.stringify(out));
+    /* An unaskable tmux is an ENVIRONMENT failure, so it is marked `unavailable`
+       (the route answers 503), not a plain refusal. */
+    assert.equal(out.unavailable, true, 'a transient tmux failure is not marked unavailable, so the route would call it a 400: ' + JSON.stringify(out));
     assert.equal(lastRun, null, 'osascript ran despite not being able to confirm the agent is live');
   } finally {
     status.paneRoster = orig;
   }
 });
 
-test('a name we cannot read never reaches the engine', () => {
-  /* decodeSegment returns null for a name that is not readable; the route
-     answers 400 before openTerminal. Driven at the module boundary here: an
-     empty name is cleaned to '' and finds no card. */
+test('an empty name finds no live card and opens nothing', () => {
+  /* NOT the route's decodeSegment===null branch (that mirrors the /restart
+     sibling verbatim and answers 400 before openTerminal is called). This
+     drives the MODULE with an empty name, which cleans to '' and matches no
+     card, so nothing is opened. */
   lastRun = null;
   const orig = status.paneRoster;
   status.paneRoster = () => ([]);
