@@ -74,6 +74,28 @@ test('#2264: a name-shaped folder that is NOT an account is never deleted', () =
   assert.ok(fs.existsSync(nodePath.join(notAcct, 'a-real-file.txt')), 'a non-account folder must be left untouched');
 });
 
+/* #2420: an api-key account (a `.claude-*` dir with the stored key file, no
+   oauthAccount) is invisible to identityOf, so before this slice removeAccount
+   refused it. It must delete it -- and rmSync takes the whole dir, key included,
+   so no separate erase is needed here (unlike forget). */
+test('#2420: removeAccount DELETES an api-key account (dir gone, key and all)', () => {
+  const claudeaccounts = require('./claudeaccounts');
+  const dir = nodePath.join(SANDBOX, '.claude-keydelete');
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  claudeaccounts.storeKey(dir, 'sk-ant-keydelete');
+  claudeaccounts.wireApiKeyHelper(nodePath.join(dir, 'settings.json'), dir);
+  assert.ok(accounts.list().some((a) => a.dir === dir && a.apiKey === true),
+    'it must be listed as an api-key account FIRST, or the delete proves nothing');
+
+  const got = accounts.removeAccount(dir, []);
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.removed, true);
+  assert.ok(!fs.existsSync(dir), 'THE DIRECTORY IS DELETED -- key file and all');
+  assert.ok(!accounts.list().some((a) => a.dir === dir), 'it is gone from the list');
+  const leftovers = fs.readdirSync(SANDBOX).filter((n) => n.startsWith(accounts.FORGOTTEN_PREFIX));
+  assert.deepEqual(leftovers, [], 'a delete must not leave a renamed-aside copy');
+});
+
 test('#2264: a path outside home is refused, and an already-gone account is a quiet success', () => {
   assert.equal(accounts.removeAccount('/etc/passwd', []).ok, false, 'a path outside home is refused');
   const dir = nodePath.join(SANDBOX, '.claude-neverexisted');

@@ -687,14 +687,19 @@ function forgetAccount(dir, usedBy) {
   /* 🛑 THE NAME IS NOT THE ACCOUNT, AND THIS FUNCTION IS THE ONE PLACE THAT
      MATTERED. The docblock at the top of this module states the invariant and
      `list()` enforces it: a `.claude-*` directory is an account only if it
-     carries a `.claude.json` with an `oauthAccount`. Measured on the fleet
-     machine, `.claude-workers` carries none and is the workers/inbox tree.
-     Without this check `forgetAccount` renamed it, because every guard above
-     keys on the NAME.
+     carries a `.claude.json` with an `oauthAccount` OR a stored api-key file.
+     Measured on the fleet machine, `.claude-workers` carries neither and is the
+     workers/inbox tree. Without this check `forgetAccount` renamed it, because
+     every guard above keys on the NAME.
+     📌 #2420: an api-key account is invisible to `identityOf` (which reads
+     `oauthAccount` only), so the guard also accepts a dir carrying the stored
+     key file -- the same `apiKeyStored` marker `list()` surfaces it by. Keying
+     both on that one helper means the removable set matches the listed set.
      ⚠️ AFTER the existence check on purpose: `identityOf` answers null for a
      missing directory too, so checking earlier would turn "already gone" into
      "not an account" and lose the quiet-success arm. */
-  if (!identityOf(clean)) {
+  const hadKey = apiKeyStored(clean);
+  if (!identityOf(clean) && !hadKey) {
     return { ok: false, forgotten: false, because: 'that is not a Claude account on this computer' };
   }
 
@@ -711,6 +716,30 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+
+  /* #2420: an api-key account's credential is a raw key on disk, not an OAuth
+     token inside .claude.json. Forgetting it must take the key back the way
+     forgetCodexFolder takes back the codex trust it wrote -- otherwise the
+     renamed-aside dir keeps a live, mode-0600 raw key that no account uses.
+     🛑 AFTER the rename, not before, and best-effort: erasing before the rename
+     would destroy the credential on a rename FAILURE (the arm above returns an
+     error while the key is already gone) -- the oauth path destroys nothing on
+     that arm, and this must match it. So the rename is the commit point; the key
+     erase and pointer unwire are cleanup on the moved dir that cannot un-forget
+     the account if they fail.
+     📌 Only when the account HAD a key (`hadKey`): an oauth forget has no key
+     file (forgetKey would rm a nonexistent path) and no apiKeyHelper (unwire is a
+     no-op), so gating keeps the oauth path byte-for-byte unchanged. A dual-marker
+     dir (both an oauth token and a stray key -- prevented at creation now, per
+     list()'s comment) still gets its stray key swept, which is the safe way. */
+  if (hadKey) {
+    let ca = null;
+    try { ca = require('./claudeaccounts'); } catch { ca = null; }
+    if (ca) {
+      try { ca.forgetKey(target); } catch { /* best effort: the account is already forgotten */ }
+      try { ca.unwireApiKeyHelper(path.join(target, 'settings.json')); } catch { /* best effort */ }
+    }
+  }
 
   /* `wasDefault` is a constant here and there is no branch that sets it true:
      the default is refused above, so it can never reach this line. Kept so the
@@ -766,7 +795,13 @@ function removeAccount(dir, usedBy) {
   if (!fs.existsSync(clean)) {
     return { ok: true, removed: false, because: 'that account is already gone from this computer' };
   }
-  if (!identityOf(clean)) {
+  /* Same identity guard as forgetAccount, and the same #2420 relaxation: an
+     api-key account (a `.claude-*` dir with the stored key file but no
+     oauthAccount) is a real account and must be deletable, while a name-shaped
+     dir that is NEITHER (`.claude-workers`) is still refused. `rmSync` below
+     takes the whole dir, key file included, so unlike forget there is no separate
+     erase step -- only the guard needs relaxing. */
+  if (!identityOf(clean) && !apiKeyStored(clean)) {
     return { ok: false, removed: false, because: 'that is not a Claude account on this computer' };
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }

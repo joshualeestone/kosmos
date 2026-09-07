@@ -128,6 +128,63 @@ test('#1659: a .claude-* directory that is NOT signed in is refused, and survive
   assert.equal(accounts.forgetAccount(real, []).forgotten, true);
 });
 
+/* ---- #2420: an api-key Claude account is forgettable ----------------------
+   An api-key account is a `.claude-*` dir carrying the stored key file
+   (claudeaccounts.KEY_BASENAME) and NO oauthAccount, so identityOf is null for
+   it. Before this slice, forgetAccount's identity guard refused it with a false
+   "not a Claude account". It must forget it AND take back the raw key + the
+   apiKeyHelper pointer (#2420 item 4: mirror forgetCodexFolder's clean removal),
+   while the transcripts move aside like any forgotten account. */
+const claudeaccounts = require('./claudeaccounts');
+
+/* A signed-in api-key account: a stored key file + a wired apiKeyHelper (the two
+   artifacts the connect route writes), plus a projects tree that must survive. */
+function apiKeyAcct(label) {
+  const dir = nodePath.join(SANDBOX, '.claude-' + label);
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'projects', 'a-transcript.jsonl'), 'kept history');
+  claudeaccounts.storeKey(dir, 'sk-ant-' + label);
+  claudeaccounts.wireApiKeyHelper(nodePath.join(dir, 'settings.json'), dir);
+  return dir;
+}
+
+test('#2420: forgetting an api-key account moves it aside, ERASES the raw key, and unwires the pointer', () => {
+  const dir = apiKeyAcct('keyforget');
+  assert.ok(accounts.list().some((a) => a.dir === dir && a.apiKey === true),
+    'it must be listed as an api-key account FIRST, or the removal proves nothing');
+
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.ok, true, got.because);
+  assert.equal(got.forgotten, true);
+
+  assert.ok(!accounts.list().some((a) => a.dir === dir), 'it is gone from the list');
+  assert.ok(nodePath.basename(got.movedTo).startsWith(accounts.FORGOTTEN_PREFIX),
+    'the dir was renamed aside with the engine\'s prefix, not deleted');
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, 'projects', 'a-transcript.jsonl')),
+    'THE HISTORY SURVIVES: forget moves the dir aside, it does not delete it');
+
+  /* 🛑 THE POINT OF THE SLICE: no live raw key is left behind in the forgotten
+     dir, and the apiKeyHelper pointer that read it is gone from settings.json. */
+  assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME)),
+    'the raw api key was erased from the moved-aside dir');
+  assert.ok(!fs.existsSync(nodePath.join(got.movedTo, claudeaccounts.KEY_BASENAME + '.tmp')),
+    'no leftover key .tmp survives either');
+  const settings = JSON.parse(fs.readFileSync(nodePath.join(got.movedTo, 'settings.json'), 'utf8'));
+  assert.ok(!('apiKeyHelper' in settings), 'the apiKeyHelper pointer was unwired from settings.json');
+});
+
+/* CONTROL that the erase is GATED on the account having had a key: an oauth
+   forget must be byte-for-byte unchanged -- no attempt to read a settings.json
+   it never had, and its sign-in still survives. This reds if the erase block
+   stops gating on hadKey and runs unconditionally in a way that disturbs oauth. */
+test('#2420 CONTROL: an oauth forget still keeps its sign-in and is untouched by the key-erase path', () => {
+  const dir = acct('oauthstillforgets');
+  const got = accounts.forgetAccount(dir, []);
+  assert.equal(got.forgotten, true);
+  assert.ok(fs.existsSync(nodePath.join(got.movedTo, '.claude.json')),
+    'the oauth sign-in survives the forget, exactly as before this slice');
+});
+
 test('#1659: refused while agents are on it, and the agents are NAMED', () => {
   const dir = acct('busy');
 
