@@ -1412,7 +1412,13 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
   const cfg = path.join(codexHome, 'config.toml');
   let text = '';
   try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
-  const key = `[projects."${dir}"]`;
+  // #2129/#5: key on the ON-DISK canonical spelling, which is what codex looks
+  // up (std::fs::canonicalize resolves its cwd to the stored case), NOT the raw
+  // `dir` the code hands us (workersDir hardcodes lowercase 'work'). On a fresh
+  // macOS user where the on-disk dir is '~/Work', the raw-cased key we used to
+  // write never matched codex's capital-cased lookup and the trust menu fired.
+  // See trust.js canonicalOnDisk (realpathSync alone does NOT case-fold on macOS).
+  const key = `[projects."${require('./trust').canonicalOnDisk(dir)}"]`;
   if (text.includes(key)) return;
   fs.mkdirSync(codexHome, { recursive: true });
   fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
@@ -1452,7 +1458,10 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
   let text;
   try { text = fs.readFileSync(cfg, 'utf8'); }
   catch { return { ok: true, removed: false, because: 'there is no codex config to change' }; }
-  const key = `[projects."${dir}"]`;
+  // #2129/#5: match the ON-DISK canonical spelling trustCodexFolder wrote (not the
+  // raw `dir`). Removal leaves the worker folder on disk (see remove.js), so
+  // canonicalOnDisk resolves to the same stored spelling the create-time trust used.
+  const key = `[projects."${require('./trust').canonicalOnDisk(dir)}"]`;
   if (!text.includes(key)) return { ok: true, removed: false, because: 'no entry for that folder' };
   /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
      RegExp: a folder path can contain characters a regex would read as
