@@ -175,6 +175,13 @@ function check(name, pass, detail) {
       hasReauth: Boolean(box.querySelector('[data-reauth]')),
       hasForget: Boolean(box.querySelector('[data-forget]')),
       hasRemove: Boolean(box.querySelector('[data-remove]')),
+      // The LIVE Disconnect's tooltip. Its truth differs by credential shape
+      // (#2441): on an api-key row Disconnect erases the saved key, so the title
+      // must NOT reuse the OAuth "sign-in file stays / nothing is deleted" copy.
+      discTitle: (() => {
+        const d = box.querySelector('.acct-disconnect[data-forget]');
+        return d ? (d.getAttribute('title') || '') : '';
+      })(),
       disabledDisc: (() => {
         const d = box.querySelector('.acct-disconnect[aria-disabled="true"]');
         if (!d) return null;
@@ -237,6 +244,14 @@ function check(name, pass, detail) {
       !r.rows.api.hasReauth, 'reauth ' + r.rows.api.hasReauth);
     check('the api-key row shows NO leftover disabled "removal coming" Disconnect (it is a live control now)',
       !r.rows.api.disabledDisc, JSON.stringify(r.rows.api.disabledDisc));
+    // #2441 honesty: Disconnect ERASES the saved key on an api-key row, so its title
+    // must say the key is removed and must NOT reuse the OAuth "sign-in file stays /
+    // nothing is deleted" promise, which is false here.
+    check('the api-key Disconnect title tells the truth: it says the saved API key is erased, and does NOT falsely promise the sign-in file stays / nothing is deleted',
+      /erases its saved API key/i.test(r.rows.api.discTitle)
+        && !/sign-in file stays/i.test(r.rows.api.discTitle)
+        && !/nothing is deleted\b/i.test(r.rows.api.discTitle),
+      JSON.stringify(r.rows.api.discTitle));
   } else {
     check('the api-key row was found in the list', false, 'no api-key row rendered');
   }
@@ -244,6 +259,13 @@ function check(name, pass, detail) {
   check('CONTROL: the subscription row keeps its live Sign-in-again (which the api-key row lacks), Disconnect and Delete-and-remove',
     r.rows.sub && r.rows.sub.hasReauth && r.rows.sub.hasForget && r.rows.sub.hasRemove,
     r.rows.sub ? JSON.stringify(r.rows.sub) : 'no subscription control row found');
+  // CONTROL for the title honesty: the OAuth (subscription) row's Disconnect KEEPS the
+  // "sign-in file stays / nothing is deleted" copy, which is true there -- proving the
+  // api-key rewording is credential-shape-specific, not a blanket copy change.
+  check('CONTROL: the subscription Disconnect title keeps the OAuth "sign-in file stays, nothing is deleted" copy (true for a renamed-aside OAuth dir)',
+    r.rows.sub && /sign-in file stays/i.test(r.rows.sub.discTitle) && /nothing is deleted/i.test(r.rows.sub.discTitle)
+      && !/erases its saved API key/i.test(r.rows.sub.discTitle),
+    r.rows.sub ? JSON.stringify(r.rows.sub.discTitle) : 'no subscription row');
 
   await browser.close();
   if (problems.length) {
@@ -251,5 +273,5 @@ function check(name, pass, detail) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-claude-connect-choice-2433: the Claude add flow offers a subscription-vs-API-key picker that toggles the right step, a pasted key paints the gold connected box, a reauth skips the picker, and an api-key row now shows live Disconnect + Delete-and-remove while still suppressing Sign-in-again (subscription row keeps all three).');
+  console.log('render-claude-connect-choice-2433: the Claude add flow offers a subscription-vs-API-key picker that toggles the right step, a pasted key paints the gold connected box, a reauth skips the picker, and an api-key row now shows live Disconnect + Delete-and-remove (with a truthful "erases the saved key" tooltip) while still suppressing Sign-in-again (subscription row keeps all three and the OAuth "nothing is deleted" copy).');
 })();

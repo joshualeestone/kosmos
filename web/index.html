@@ -15914,10 +15914,24 @@ async function paintAccounts() {
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
               + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
             + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
+          /* 🛑 #2441: THE TITLE IS CONDITIONAL ON api-key, BECAUSE Disconnect DELETES
+             DIFFERENT THINGS ON THE TWO CREDENTIAL SHAPES, and #1659's rule is that
+             "removed" and "deleted" are different promises and the person is owed the
+             true one. On an OAuth row `forgetAccount` renames the dir aside and the
+             sign-in file survives -- "nothing is deleted" is true. On an api-key row
+             it ALSO erases the raw key file and unwires the apiKeyHelper pointer
+             (engine/accounts.js #2420: `ca.forgetKey` + `unwireApiKeyHelper` on the
+             moved dir), so the saved key IS deleted. Reusing the OAuth title there
+             would promise the credential survives when Disconnect is exactly what
+             takes it away. The api-key title says so; the folder is still moved aside,
+             so the history sentence stays true of both. */
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
-            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>'))
+            + 'title="' + (a.apiKey
+              ? 'Takes this account off the list and erases its saved API key from this computer. Nothing else is deleted: its folder is moved aside and Kosmos stops looking inside it, so any history kept only there will not appear any more.'
+              : 'Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.')
+            + '">Disconnect</button>'))
       /* #2264: DELETE AND REMOVE - the destructive third action, on every
          NON-default row of both providers (removeAccount refuses the default, so
          it gets no button, matching the disabled Disconnect above). data-remove
