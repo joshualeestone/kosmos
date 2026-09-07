@@ -3890,10 +3890,11 @@ const server = http.createServer((req, res) => {
     if (!job) {
       trusted = { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
     } else {
+      /* A truthy job means the name passed readJob's NAME_RE, so workerDir
+         returns a real path under WORKERS -- never falsy -- and the trust
+         writers below always have a folder to key on. */
       const folder = create.workerDir(clean);
-      if (!folder) {
-        trusted = { wrote: false, because: 'we could not resolve this agent\'s folder' };
-      } else if (job.runner === 'codex') {
+      if (job.runner === 'codex') {
         try { create.trustCodexFolder(folder, job.configDir, !job.configDir); trusted = { wrote: true, runner: 'codex' }; }
         catch (err) { trusted = { wrote: false, runner: 'codex', because: String(err && err.message || err) }; }
       } else {
