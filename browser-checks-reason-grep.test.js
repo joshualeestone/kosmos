@@ -496,7 +496,13 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (same shape as render-account-badge-1921's). Its launch-failure emit is
      counted once by the catch/launch scan below (42), not here. */
-  const EXPECTED_SITES = 67;
+  /* 68 after kosmos#2419 added render-import-add-inplace-2419.js, whose `bad()` helper
+     prints `console.log('FAIL  ' + n + '  --  ' + why)` -- one SHAPE-1 finding-emit
+     site, confirmed quotable (same shape as render-reactions-2255's). It self-boots via
+     an IIFE with an in-try `catch { bad('the check itself', …) }`, which the catch/launch
+     scan does NOT count (that scan matches the top-level throw-line shape, not a bad()
+     call), so EXPECTED_CATCH_SITES is unchanged. */
+  const EXPECTED_SITES = 68;
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '

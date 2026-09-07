@@ -5004,14 +5004,31 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    rule the scan panel keeps), then a single Import action. Dressed with the shared
    tokens so it reads as part of the import panel. */
 .import-found { margin-top: var(--space-3); display: grid; gap: var(--space-3); }
-.fr-importrow { display: block; padding: var(--space-3);
+/* #2419: name left, one Add button hard right -- the same two-column grid the found
+   rows use, now that the row shows only a name (no preview, no path). `min-width: 0`
+   on the text column stops a long name pushing the control off the right edge. */
+.fr-importrow { display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center; column-gap: var(--space-4); padding: 10px 12px;
   border: 0.5px solid var(--border-strong); border-radius: var(--radius-control);
   background: var(--field-fill); }
-.fr-importtext { display: grid; gap: 2px; }
+.fr-importtext { display: grid; gap: 2px; min-width: 0; }
 .fr-importname { font-weight: 600; color: var(--label); }
-.fr-importrole { color: var(--label-2); font: var(--text-caption) var(--font-ui); }
-.fr-importpath { color: var(--label-2); font: var(--text-caption) var(--font-mono); overflow-wrap: anywhere; }
-.fr-importact { display: block; margin-top: var(--space-3); }
+.fr-importact { display: flex; align-items: center; gap: var(--space-2); }
+/* The Add receipt line spans both columns: a failure sentence is about the row, not
+   the button, and an empty line takes no room so an un-pressed row is unchanged. */
+.fr-importrow .fr-importsaid { grid-column: 1 / -1; margin: var(--space-3) 0 0;
+  font: var(--text-callout) var(--font-ui); color: var(--label-2); }
+.fr-importrow .fr-importsaid:empty { display: none; }
+.fr-importrow.done { border-color: var(--label-3); }
+/* The gold primary, per surface (a bare `.btn.uprime` loses to #firstrun's white-btn
+   ID rule), and the Added state that turns the fill off again -- green with a CHECK
+   so the colour never carries the state alone (kosmos#1346, same `--ok` as the found
+   rows). `.added` is set by addImportedInPlace, not baked into the label. */
+#firstrun .fr-importrow .btn.uprime,
+#import-found .fr-importrow .btn.uprime { background: var(--gold-bright); border-color: var(--gold-bright); color: var(--k-ink); }
+#firstrun .fr-importrow .fr-importgo.added,
+#import-found .fr-importrow .fr-importgo.added { opacity: 1; color: var(--ok, #1f7a4d); border-color: var(--ok, #1f7a4d); background: none; font-weight: 600; }
+.fr-importrow .fr-importgo.added::before { content: '\2713'; margin-right: 6px; font-weight: 700; }
 .flabel-soft { font-weight: 400; color: var(--label-2); }
 /* ⚠️ CHIPS THAT WRAP, which is the pack's own rule and which the build had
    replaced with a single-column grid of full-width rows. That is why Josh
@@ -28573,12 +28590,13 @@ async function importLoad() {
   await finishImport(data, gen, btn);
 }
 
-/* #1652 PR2: the shared tail of an import, reached from BOTH the paste/choose path
-   (importLoad) and the discovered-file path (importFoundFile). `data` is the parsed
-   shape /api/agent-import and /api/agent-import-file both return; `btn` is the control
-   to re-enable on a stay-on-panel outcome (the Bring-it-in button, or the found row's
-   Import button). Extracted so the two entry points cannot drift in how they map an
-   imported file onto the create form. */
+/* #1652 PR2: the tail of a PASTE/CHOOSE import -- lay the parsed fields onto the
+   create form and advance to the name step. `data` is the parsed shape /api/agent-import
+   returns; `btn` is the Bring-it-in control to re-enable on a stay-on-panel outcome.
+   #2419: the discovered-FILE rows no longer route here -- they add in place
+   (addImportedInPlace) rather than opening the form -- so this is now reached only by
+   importLoad. Kept as its own function so the paste path's form-fill stays testable and
+   separate from the one-click add. */
 async function finishImport(data, gen, btn) {
   // The stay-on-panel outcomes re-enable the button; the success advance below
   // leaves it disabled (cstep hides this panel) and pickMode/openCreate re-enable
@@ -28644,25 +28662,30 @@ async function finishImport(data, gen, btn) {
    here. Clicking one reads it by path (POST /api/agent-import-file, which refuses any
    path the scan did not itself return) and hands the parsed result to the SAME
    finishImport the paste/choose path uses. */
+/* #2419: name + one Add button, nothing else. Josh's 0.6.45 ruling on the found-agents
+   rows -- "All I need is the agent name and an 'Add to Kosmos' button": no markdown file,
+   no path of where it is, no title, no "No title" indicator, no instructions preview.
+   The row keeps `data-import-file` (the click handler reads it to add the file by path) but
+   shows none of it. The Add is one click, in place -- addImportedInPlace, not a jump to the
+   create form -- and the `.fr-importsaid` line is empty until something goes wrong. */
 function foundImportRowsHtml(items) {
   return (items || []).map((c) => {
     const file = String(c && c.file ? c.file : '');
     const name = String(c && c.name ? c.name : '');
-    const role = c && c.role ? String(c.role) : '';
-    const preview = String(c && c.preview != null ? c.preview : '');
-    const id = cssId(file);
+    /* The visible words come FIRST so a voice control reaching "add to kosmos" finds it,
+       and the name disambiguates after them (WCAG label-in-name) -- the same rule the
+       found/scan rows keep. A nameless file falls back to its path in the accessible
+       name only, so two of them are still tellable apart to assistive tech. */
+    const label = name || file;
     return '<div class="fr-importrow" data-import-file="' + esc(file) + '">'
       + '<span class="fr-importtext">'
       + '<span class="fr-importname">' + (name ? esc(name) : 'An agent file with no name in it') + '</span>'
-      + '<span class="fr-importrole">' + esc(role || 'No title in its instructions') + '</span>'
-      + '<span class="fr-importpath">' + esc(file) + '</span>'
       + '</span>'
-      + '<label class="fr-scanhint" for="impprev-' + esc(id) + '">What it says</label>'
-      + '<textarea class="fr-scanpreview" id="impprev-' + esc(id) + '" rows="4" readonly spellcheck="false"'
-      + ' aria-label="Instructions in ' + esc(file) + '">' + esc(preview) + '</textarea>'
       + '<span class="fr-importact">'
-      + '<button class="btn uprime fr-importgo" type="button" aria-label="Import ' + esc(file) + '">Import this one</button>'
+      + '<button class="btn uprime fr-importgo" type="button"'
+      + ' aria-label="Add to Kosmos, ' + esc(label) + '">Add to Kosmos</button>'
       + '</span>'
+      + '<p class="fr-importsaid" role="status" aria-live="polite"></p>'
       + '</div>';
   }).join('');
 }
@@ -28712,14 +28735,34 @@ async function populateFoundImports() {
   paint(body);
 }
 
-/* Import one discovered file: read it by path (server-validated against the scan), then
-   the shared finishImport. Mirrors importLoad's generation-token guard so switching
-   modes mid-read cannot touch the form. */
-async function importFoundFile(file, btn) {
-  if (!file || (btn && btn.disabled)) return;
-  const gen = ++IMPORT_GEN;
-  if (btn) btn.disabled = true;
-  importMsg('Reading it…');
+/* #2419: add ONE discovered file to Kosmos in place, on the click, without ever
+   opening the create form. Josh's 0.6.45 ruling: the found-agents rows read "Add to
+   Kosmos", create the agent behind the scenes, and show a green "Added to Kosmos"
+   check where the button was -- so a person goes down the list adding one after
+   another, staying on the screen. This replaces the old importFoundFile +
+   frImportFromScan pair, both of which PARSED then jumped into the create form (the
+   exact jump Josh asked us to remove).
+
+   Two steps, each on its own endpoint so a refusal lands on the right surface:
+     1. read the file by path (/api/agent-import-file, server-validated against the
+        scan) to get the parsed name / displayName / instructions / provider;
+     2. create straight from those fields -- POST /api/agents, mapped to the `own`
+        role the import has always used, the same route every other create path uses.
+
+   The paste/choose path (importLoad -> finishImport) is untouched: someone who wants
+   to review a file before creating still opens the form that way. This one-click path
+   is only for the discovered-file rows. */
+async function addImportedInPlace(file, btn, row) {
+  if (!file || !btn || btn.disabled) return;
+  const said = row && row.querySelector('.fr-importsaid');
+  const was = btn.textContent;
+  const fail = (msg) => { btn.disabled = false; btn.textContent = was; if (said) said.textContent = msg; };
+  btn.disabled = true;
+  btn.textContent = 'Adding…';
+  if (said) said.textContent = '';
+
+  // 1. Read the file by its path. The server refuses any path the scan did not itself
+  //    return, and refuses a hostile or non-agent file WHOLE (data.because says why).
   let data;
   try {
     const r = await fetch('/api/agent-import-file', {
@@ -28729,61 +28772,105 @@ async function importFoundFile(file, btn) {
     });
     data = await r.json().catch(() => null);
   } catch (err) {
-    if (gen === IMPORT_GEN) { if (btn) btn.disabled = false; importMsg('We could not reach the board to read it. (' + err.message + ')'); }
+    fail('We could not reach the board to read it. (' + err.message + ')');
     return;
   }
-  if (gen !== IMPORT_GEN) return;
-  await finishImport(data, gen, btn || document.getElementById('import-load'));
+  if (!data) { fail('We could not read the reply.'); return; }
+  /* `because` is the parse route's refusal reason (a 200 {ok:false, because}); `error`
+     is its transport/500 sentence (a 400/500 {error}). Read both so a server error is
+     not mislabelled "that is not an agent file". */
+  if (!data.ok) { fail(data.because || data.error || 'That is not an agent file we can bring in.'); return; }
+  /* A raw CLAUDE.md may carry no derivable name (recognizedFromContent). The form
+     path prompts for one; a one-click add cannot, so it says so and stops rather than
+     making a nameless agent. */
+  const name = String(data.name || '').trim();
+  if (!name) { fail('This file does not say what to call the agent, so it cannot be added in one click. Open it from Create an agent to name it.'); return; }
+
+  // 2. Create from the parsed fields. Import maps to the `own` role, the same mapping
+  //    finishImport used; own's label always travels (the engine refuses without it).
+  const bodyObj = { name: name, role: 'own' };
+  /* own's label ALWAYS travels -- the engine refuses an own create with no label
+     (create.js). displayName is non-empty in every ok:true parse where name is
+     non-empty (agentfile.importAgent), and name is guaranteed non-empty by the guard
+     above, so `label || name` cannot be empty. The fallback pins that cross-module
+     invariant here rather than relying on the parser never changing. */
+  const label = String(data.displayName || '').trim();
+  bodyObj.label = label || name;
+  const instr = String(data.instructions || '');
+  if (instr.trim()) bodyObj.instructions = instr;
+  /* The parsed provider travels only when it is NOT the anthropic default -- the same
+     "only what changed travels" rule create-go keeps, and it does NOT read the create
+     form's provider menu (this path never loads that form, so on the find-agents
+     screen the menu is empty). anthropic needs no account and is the common imported
+     case; an OpenAI import sends provider:'openai' and the server validates it (a
+     missing account refuses with a reason this row shows, rather than a silent
+     wrong-provider create). */
+  const wanted = String(data.provider || '').toLowerCase();
+  if (wanted && wanted !== 'anthropic') bodyObj.provider = wanted;
+  /* tellKosmos is DELIBERATELY not sent: the server reads `wanted = tellKosmos !== false`
+     and ping.agentCreated still gates on the person's global ping setting, so omitting
+     it defers to that setting (on by default, #2020) instead of reading a create-form
+     checkbox this path never shows. This is what the old find-agents import got WRONG --
+     it reused the form and could create with tellKosmos=false even when the ping was on. */
+  let out, res;
+  try {
+    res = await fetch('/api/agents', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(bodyObj),
+    });
+    out = await res.json().catch(() => null);
+  } catch (err) {
+    fail('We could not reach the board to make it. (' + err.message + ')');
+    return;
+  }
+  if (!out) { fail('We could not read the reply.'); return; }
+  /* 🛑 GATE SUCCESS POSITIVELY -- only a `created` outcome on an ok response is a receipt,
+     the same rule create-go keeps (the create screen learned it the hard way). A NEGATIVE
+     gate (fail only on outcome==='refused') turned two answers into a false green
+     "Added to Kosmos": a PARTIAL -- an HTTP 200 whose create half-happened and ROLLED
+     BACK, leaving nothing on the computer -- and every error body (a 400 {error}, a 403
+     from the cross-site guard, a 5xx), none of which carry outcome==='refused'. A partial
+     is "not made", so it re-enables and shows its reason like any other failure; this
+     one-click add has no made-screen to advance a partial to. */
+  if (!res.ok || out.outcome !== 'created') { fail(out.because || out.error || 'We could not make it, and we cannot tell you why.'); return; }
+
+  /* ⚠️ THE BUTTON BECOMES THE RECEIPT rather than vanishing -- the same pattern the
+     found/scan Add rows keep, on a screen where a person is about to press several
+     more. Full-opacity settled green with a check, not the half-visible disabled
+     state, and the row is marked done. No sentence on success: the button says it. */
+  btn.textContent = 'Added to Kosmos';
+  /* 🔑 THE ACCESSIBLE NAME TRACKS THE VISIBLE ONE. Without this the button keeps its
+     "Add to Kosmos, <name>" label, so the visible "Added to Kosmos" would no longer be
+     contained in the accessible name (WCAG 2.5.3 label-in-name). This keeps the STATIC
+     name correct for anyone who lands on the button again; it is not an announcement
+     (the button is left disabled, so this change is not spoken on its own). Success is
+     shown, not announced -- the same as the sibling found/scan Add rows, and Josh's "no
+     sentence on success" ruling for these rows. The visible words stay first. */
+  btn.setAttribute('aria-label', 'Added to Kosmos, ' + name);
+  btn.classList.add('added');
+  if (row) row.classList.add('done');
+  if (said) said.textContent = '';
+  /* #2419: NO Undo on an import row, deliberately (Josh's spec for this screen is add +
+     a green check: "add, add, add"). The sibling found/scan rows offer Undo, but their
+     Add is a CONNECT (discover.disconnect puts the folder back); an imported agent is a
+     fresh Kosmos-CREATED agent, which disconnect refuses by design, so "undo" here would
+     be a delete -- a different, more destructive action Josh did not ask for on this
+     screen. An accidental add is recoverable from the board (remove the agent), just not
+     from the row. */
 }
 
-/* #4: import a loose agent FILE straight off the find-agents screen (#fr-fleet).
-   On that screen first-run is still overlaid and the create form is neither open
-   nor loaded, so a bare importFoundFile would pre-fill a form nobody can see with
-   empty provider/account/model menus. Mirror what "Giddy Up" does from this same
-   screen -- frFinish(then) ends first-run and reveals the board -- then, in order:
-   show the create tab, AWAIT loadRoles (so CREATE_MODELS and OWN_ROLE exist before
-   finishImport's roleByKey('own')/loadCreateExtras run -- CREATE_ACCOUNTS is filled
-   by loadCreateExtras itself), then import the chosen file. Awaiting loadRoles first
-   is what makes this race-free: no fire-and-forget from openCreate competing with
-   finishImport's cstep('name').
-   🔑 'import' MODE, not the default 'pm': it opens the import panel, so if
-   /api/agent-import-file REFUSES the file (a scan-listed file the stricter import
-   validation rejects, or one that changed/vanished between scan and click),
-   finishImport writes its reason to #import-msg on a VISIBLE surface rather than a
-   hidden one -- never a silent failure. On success finishImport's cstep('name')
-   hides the panel anyway. The panel's own scan is redundant here (the file list is
-   already in hand) but harmless: Documents is already granted by the time this runs,
-   so it fires no fresh prompt. */
-async function frImportFromScan(file, btn) {
-  frFinish(async () => {
-    showTab('create');
-    try { await loadRoles('import'); } catch { /* finishImport still fills the words; menus degrade, not crash */ }
-    /* openCreate is the only other caller of refreshCreateTell, and this path skips
-       openCreate (to avoid its fire-and-forget loadRoles racing our cstep). Call it
-       directly so #create-tell reflects the real /api/ping-setting on THIS path too:
-       without it an agent imported from the find-agents screen would create with
-       tellKosmos=false even when the person's ping is on, diverging from every other
-       create path. Un-awaited like openCreate's own call: the create-go read is a
-       later human click, so it resolves in time. */
-    refreshCreateTell();
-    await importFoundFile(file, btn);
-  });
-}
-
-/* #4: delegated on `document`, not on #import-found, because these rows now render
-   on TWO surfaces -- the create form's import panel (#import-found) AND the
-   find-agents screen (#fr-fleet, via frPaintScan). One handler serves both. From
-   the find-agents screen the import goes through frImportFromScan (end first-run,
-   open + load the create form, then import); on #import-found the form is already
-   open and loaded, so importFoundFile runs directly. */
+/* #2419: delegated on `document`, because the Import rows render on TWO surfaces --
+   the create form's import panel (#import-found) AND the find-agents screen
+   (#fr-fleet, via frPaintScan). One handler, one behaviour on both: add the file in
+   place (addImportedInPlace), never jump to the create form. */
 document.addEventListener('click', (e) => {
   const btn = e.target.closest('.fr-importgo');
   if (!btn || btn.disabled) return;
   const row = btn.closest('.fr-importrow');
   const file = row && row.getAttribute('data-import-file');
   if (!file) return;
-  if (btn.closest('#fr-fleet')) { frImportFromScan(file, btn); return; }
-  importFoundFile(file, btn);
+  addImportedInPlace(file, btn, row);
 });
 
 /** One tick line. `state` is 'done' | 'fail' | 'undone' | 'waiting'. */
