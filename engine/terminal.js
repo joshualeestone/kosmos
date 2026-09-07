@@ -44,11 +44,16 @@ function run(file, args) {
   }
 }
 
-/* A session name we are willing to hand to a shell. `paneRoster` only reports a
-   Kosmos session as `isNamedOurs` when its name is `<NAME_RE>-discord`, so a
-   real session is always safe -- but the value crosses into a shell command
-   inside AppleScript, so it is validated HERE rather than trusted, the same
-   posture every name-to-path step in this codebase takes. */
+/* A session name we are willing to hand to a shell. `paneRoster` marks a session
+   `isNamedOurs` two ways (status.js isNamedOurs): a `@kosmos_agent` claim, whose
+   name is NOT bounded to any shape, OR the legacy `<NAME_RE>-discord` suffix. So
+   this is not a restatement of that invariant -- a claimed session could carry a
+   name the shell would mangle. The value crosses into a shell command inside
+   AppleScript, so it is validated HERE rather than trusted, the posture every
+   name-to-path step in this codebase takes. A session whose name is not plain
+   `[A-Za-z0-9_-]` is REFUSED rather than shell-quoted -- the safe direction, at
+   the cost of not opening a terminal for an unusually-named session, which the
+   fleet's `-discord` sessions never are. */
 const SAFE_SESSION = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 /* Single-quote a value for /bin/sh: wrap in '...' and turn each ' into '\''. */
