@@ -50,7 +50,11 @@ const EXCUSED = {
   setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file (feedbacksend.js\'s equivalent, setSender, escapes only by a name-collision); production pull() uses the default fetch transport.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
-  checkLive: 'engine/claudeaccounts.js (#2420): the live-badge reader for a stored api-key Claude account. Genuinely dormant until the listing slice wires it into accounts.listLive (that slice makes an api-key account first-class in /api/accounts). It is tested; it escapes the orphan sweep only because "checkLive" collides with openaiaccounts/subscription, which the sweep warns not to rely on -- named here so the excuse is explicit rather than luck. forgetKey and unwireApiKeyHelper are NOT excused: server.js\'s failed-store cleanup calls both now, so they are reachable on their own.',
+  // checkLive's excuse was removed in the #2420 listing slice: accounts.listLiveNow()
+  // now calls claudeaccounts.checkLive for an api-key Claude row (the live-badge
+  // reader for a stored api-key account), so it is a real caller and the #265
+  // orphan guard protects it on its own -- no longer "genuinely dormant". (forgetKey
+  // and unwireApiKeyHelper were already reachable via server.js's failed-store cleanup.)
 };
 
 const engineDir = path.join(__dirname, 'engine');
