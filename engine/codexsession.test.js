@@ -171,3 +171,25 @@ test('both providers say the SAME sentence about the same condition', () => {
       'a reason names the runtime: ' + JSON.stringify(r));
   }
 });
+
+test('#2417: a case-divergent launch folder still matches its rollout (canonicalOnDisk, not plain realpathSync)', (t) => {
+  /* The bug this guards: `want` is the folder Kosmos DERIVES to launch in; `meta.cwd` is the
+     ON-DISK spelling codex wrote via std::fs::canonicalize. Plain fs.realpathSync resolves the
+     /private twin but PRESERVES case on macOS, so a case-divergent launch folder never matched
+     its rollout and the OpenAI ring read "not yet". canonicalOnDisk (realpathSync.native) folds
+     case exactly as codex's canonicalize did, so the two match.
+
+     Only meaningful on a case-INSENSITIVE filesystem (the macOS default, and the target). On a
+     case-sensitive fs the two spellings are genuinely different directories and SHOULD NOT match,
+     so the test skips itself there -- detected by creating one case and probing the other. */
+  const base = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-codex-case-'));
+  const onDisk = nodePath.join(base, 'CaseVar');           // the on-disk spelling codex would record
+  fs.mkdirSync(onDisk);
+  const lower = nodePath.join(base, 'casevar');            // the spelling Kosmos might derive/hardcode
+  if (!fs.existsSync(lower)) { t.skip('case-sensitive filesystem: the two spellings are different dirs'); return; }
+
+  writeRollout('rollout-2026-08-21T23-59-00-case.jsonl', onDisk, [TASK_STARTED, A_MESSAGE, TASK_DONE]);
+  const found = codex.forWorkdir(lower);
+  assert.ok(found, 'a case-variant launch folder did not match its rollout');
+  assert.equal(found.meta.cwd, onDisk, 'matched the wrong rollout');
+});
