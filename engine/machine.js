@@ -1281,10 +1281,14 @@ function boardAutostartCheck(runner, opts) {
      it collapses "the LaunchAgents dir is unreadable" (EACCES, or a stat error
      that is not "not found") into "the file is not there" -- turning a
      could-not-look into a checked negative that would render ATTENTION "Kosmos
-     will not start". Only a genuine ENOENT is a real absence; anything else is a
-     read we could not make, and this check fails SOFT to unknown there, matching
-     installedCheck's ENOENT-vs-EACCES discipline and labelTruthCheck's
-     unreadable-dir -> unknown/OK, so the three rows agree about one condition. */
+     will not start". So a NON-ENOENT error fails SOFT to unknown here, the same
+     could-not-look discipline installedCheck (ENOENT-vs-EACCES) and
+     labelTruthCheck (unreadable dir -> unknown/OK) already keep.
+     A genuine ENOENT is a real absence and is treated as "no login job" (below),
+     which is deliberately NOT what labelTruthCheck does with a missing
+     LaunchAgents dir (it reports unknown): for "will the board autostart", a
+     missing plist -- whether the file or its whole dir is gone -- is the honest
+     answer that it will not, so this check reports it rather than declining to. */
   let present;
   try {
     fs.statSync(path.join(launchDir, `${BOARD_LABEL}.plist`));

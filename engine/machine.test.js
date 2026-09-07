@@ -694,6 +694,10 @@ test('#2397: the check never mutates launchd -- it only ever reads print-disable
     const calls = [];
     const spy = (cmd, args) => { calls.push([cmd, ...(args || [])]); return { ok: true, stdout: ENABLED_BLOCK }; };
     machine.boardAutostartCheck(spy, { platform: 'darwin' });
+    // Non-vacuous: on the present-path the check MUST probe launchctl at least
+    // once, so a future refactor that short-circuits the runner cannot let this
+    // guard pass by making zero calls.
+    assert.ok(calls.length >= 1, 'the check made no launchctl call, so the never-mutates loop below is vacuous');
     for (const c of calls) {
       const verb = c[1];
       assert.equal(verb, 'print-disabled', `a health check must not run a mutating launchctl verb: ${c.join(' ')}`);
