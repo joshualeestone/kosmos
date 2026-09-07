@@ -3617,9 +3617,10 @@ function readContext(agentName, model, exactSession) {
  * so a person cannot tell which provider an agent runs on from the words.
  *
  * 📌 SCOPE: this reads the fill from a MATCHED rollout. `codexsession.forWorkdir`
- * matches on `realpathSync` (resolves the `/private` twin, not case) -- a
- * case-divergence there is the same class as #2406 and is left to the
- * canonicalOnDisk sweep, not widened here.
+ * now matches on `trust.canonicalOnDisk` (realpathSync.native -- folds the `/private`
+ * twin AND case, exactly as codex's std::fs::canonicalize wrote `meta.cwd`), so a
+ * case-divergent launch folder matches its rollout. That door -- the #2406 class --
+ * was closed by the #2417 canonicalOnDisk sweep.
  */
 function readCodexContext(agentName) {
   let dir;
@@ -3643,10 +3644,11 @@ function readCodexContext(agentName) {
   // writes one, so `sawTranscripts` is always false and, for a Kosmos-managed
   // (plist) Codex agent, this resolves to `notYet` before the admissions are
   // reached. So a Codex agent that HAS run but whose rollout `forWorkdir` fails to
-  // MATCH (a case-divergent workdir -- the same class as #2406, deferred to the
-  // canonicalOnDisk sweep #2417) re-presents "Not yet read" rather than admitting
-  // a fault. It fails SOFT (never a wrong number), and the common matched case is
-  // the one this card fixes; the match-miss is the sweep's to close.
+  // MATCH re-presents "Not yet read" rather than admitting a fault. It fails SOFT
+  // (never a wrong number). The case-divergent match-miss (the #2406 class) that
+  // used to be the dominant cause here is now CLOSED -- #2417 switched
+  // `forWorkdir` to `trust.canonicalOnDisk`, which folds case; a match-miss now
+  // needs some OTHER divergence, which this still soft-handles.
   if (!sess.found || sess.contextUsed == null) {
     if (notYetStarted(agentName)) return notYetResult();
     if (neverRecorded(agentName)) return neverRecordedResult();
