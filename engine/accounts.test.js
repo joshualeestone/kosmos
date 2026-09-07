@@ -253,12 +253,18 @@ test('#2420: nextWorkDir skips a slot already holding an api-key Claude account 
   const w1 = nodePath.join(home, '.claude-work1');
   fs.mkdirSync(w1, { recursive: true });
   fs.writeFileSync(nodePath.join(w1, require('./claudeaccounts').KEY_BASENAME), 'sk-ant-stored', { mode: 0o600 });
-  assert.equal(accounts.nextWorkDir().label, 'work2', 'the api-key slot is skipped, not offered to a subscription');
-  /* Clean up the stored-key dir: since the listing slice, list()/listLive() treat
-     a lingering api-key dir as a first-class account, so leaving it here would make
-     the later #881 listLive tests live-check it against the REAL Anthropic endpoint
-     (they do not stub claudeaccounts.setFetcher). Restore the no-api-key-dir invariant. */
-  fs.rmSync(w1, { recursive: true, force: true });
+  /* Cleanup in finally, NOT as a trailing statement: since the listing slice,
+     list()/listLive() treat a lingering api-key dir as a first-class account, so
+     leaving one here would make the later #881 listLive tests live-check it against
+     the REAL Anthropic endpoint (they do not stub claudeaccounts.setFetcher). A
+     trailing rmSync would be SKIPPED if the assert threw, turning a unit-test
+     failure into real-network calls -- so the cleanup must run on the failing path
+     too. Restores the no-api-key-dir invariant either way. */
+  try {
+    assert.equal(accounts.nextWorkDir().label, 'work2', 'the api-key slot is skipped, not offered to a subscription');
+  } finally {
+    fs.rmSync(w1, { recursive: true, force: true });
+  }
 });
 
 /* ---- #2420: an api-key Claude account is first-class in list()/listLive() ---
@@ -273,16 +279,20 @@ test('#2420: list() surfaces an api-key Claude account (a stored key, no oauthAc
   fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
   fs.writeFileSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME), 'sk-ant-stored-key', { mode: 0o600 });
 
-  const row = accounts.list().find((a) => a.dir === dir);
-  assert.ok(row, 'the api-key account must appear in list()');
-  assert.equal(row.apiKey, true, 'it is marked as an api-key account');
-  assert.equal(row.label, 'keyacct', 'its identity is derived from the dir label');
-  assert.equal(row.email, null, 'an api-key account has no oauth email');
-  assert.equal(row.organization, null);
-  assert.equal(row.isDefault, false);
-  // Same invariant as the nextWorkDir test above: do not leave an api-key dir for
-  // the later unstubbed listLive tests to live-check against the real endpoint.
-  fs.rmSync(dir, { recursive: true, force: true });
+  /* Cleanup in finally, not trailing: same invariant and same reason as the
+     nextWorkDir test above -- a failing assert must not leave an api-key dir for
+     the later unstubbed listLive tests to live-check against the real endpoint. */
+  try {
+    const row = accounts.list().find((a) => a.dir === dir);
+    assert.ok(row, 'the api-key account must appear in list()');
+    assert.equal(row.apiKey, true, 'it is marked as an api-key account');
+    assert.equal(row.label, 'keyacct', 'its identity is derived from the dir label');
+    assert.equal(row.email, null, 'an api-key account has no oauth email');
+    assert.equal(row.organization, null);
+    assert.equal(row.isDefault, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test('#2420: the stored-key marker is what makes it an account -- a bare .claude- dir stays skipped, and an oauth row is not marked apiKey', () => {
