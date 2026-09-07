@@ -69,7 +69,11 @@ function projects() {
     out.push(p);
   };
 
-  // Source 1: projects.json (part 2). Order preserved, absolute keys only.
+  // Source 1: projects.json (part 2). Order preserved. NOTE (#2243 part 3): its keys
+  // now flow through add() too, so they are trimmed + trailing-slash-stripped, not pushed
+  // verbatim as part 2 did -- a benign change (the sole consumer foundGemini joins
+  // GEMINI.md onto the cwd and keys byDir, both of which normalization only helps) and it
+  // is what lets a projects.json key de-dupe against a differently-spelled history value.
   let parsed;
   try { parsed = JSON.parse(fs.readFileSync(path.join(HOME(), 'projects.json'), 'utf8')); }
   catch { parsed = null; }

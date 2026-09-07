@@ -175,6 +175,22 @@ test('#2243 part 3: a multi-line .project_root reduces to its first-line cwd, no
   assert.equal(r.agents.length, 1, 'the first-line cwd was not read as an agent');
 });
 
+test('#2243 part 3: a CRLF .project_root de-dupes cleanly (the \\r is stripped)', () => {
+  // Gemini on Windows would write a CRLF line ending; split('\n') leaves a trailing \r,
+  // which add()'s trim() strips BEFORE isAbsolute/de-dupe, so it de-dupes against the
+  // clean projects.json key rather than surfacing the same agent twice.
+  const root = sandbox();
+  const work = path.join(root, 'crlf'); fs.mkdirSync(work);
+  fs.writeFileSync(path.join(work, 'GEMINI.md'), '# You are CRLF Agent, a pm.\n\nText.\n');
+  projectsJson(root, { [work]: 'crlf' });
+  const dir = path.join(root, 'gemini', 'history', 'crlf'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '.project_root'), work + '\r\n');
+  const cwds = withGeminiHome(root, () => geminisession.projects());
+  assert.deepEqual(cwds, [work], 'a CRLF .project_root left a \\r that broke de-dupe or isAbsolute');
+  const r = withGeminiHome(root, () => discover.foundGemini(undefined));
+  assert.equal(r.agents.length, 1, 'a CRLF .project_root surfaced the agent twice or not at all');
+});
+
 test('#2243 part 3: a missing / blank / relative .project_root is skipped and never throws', () => {
   const root = sandbox();
   projectsJson(root, {});
