@@ -109,9 +109,36 @@ test('stored text is escaped -- an injection payload in a part sentence stays in
 
 test('a fetch that lands after the person left the task does not paint the wrong page', async () => {
   // paintTaskActivity(7) resolves, but TK_OPEN has moved to 9 -> it must return
-  // without writing, so a slow read cannot stamp task 7 onto task 9.
+  // without writing, so a slow read cannot stamp task 7 onto task 9. This
+  // exercises the guard at the FIRST await (fetch).
   const acts = await render([{ at: minsAgo(1), kind: 'created' }], { openNum: 9 });
   assert.equal(acts.innerHTML, '', 'a stale fetch painted over a page the person had left');
+});
+
+test('the guard also fires at the SECOND await (res.json), not only after fetch', async () => {
+  // The person leaves DURING the body parse: n === TK_OPEN at the fetch check,
+  // then TK_OPEN moves before json() resolves. Only the post-json guard catches
+  // this. TK_OPEN is read as a free global here so the stub can flip it mid-call
+  // (the real page reads the `let TK_OPEN` global the same way).
+  const src = [fnSource('esc'), fnSource('agoWords'), fnSource('tkMemberName'),
+    fnSource('tkActPhrase'), fnSource('paintTaskActivity')].join('\n');
+  const acts = { innerHTML: '' };
+  const doc = { getElementById: (id) => (id === 'tk-activity' ? acts : null) };
+  const prev = globalThis.TK_OPEN;
+  globalThis.TK_OPEN = 7;   // on task 7 when the fetch resolves...
+  const fetchStub = async () => ({
+    ok: true,
+    // ...but the person opens task 9 before the body finishes parsing.
+    json: async () => { globalThis.TK_OPEN = 9; return { events: [{ at: minsAgo(1), kind: 'created' }], count: 1 }; },
+  });
+  try {
+    const paint = new Function('document', 'pjById', 'PJ_CURRENT', 'fetch', 'Date',
+      src + '\n; return paintTaskActivity;')(doc, () => PROJECT, PROJECT.id, fetchStub, FixedDate);
+    await paint(7);
+    assert.equal(acts.innerHTML, '', 'the post-json guard did not fire: task 7 events painted after the page moved to 9');
+  } finally {
+    if (prev === undefined) delete globalThis.TK_OPEN; else globalThis.TK_OPEN = prev;
+  }
 });
 
 test('a failed read leaves a quiet could-not-read line, never a false empty state', async () => {

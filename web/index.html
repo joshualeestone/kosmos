@@ -31198,6 +31198,11 @@ async function paintTaskActivity(n) {
     if (!holder.innerHTML) holder.innerHTML = '<p class="dhint tkacts-empty">We could not read the activity just now.</p>';
     return;
   }
+  /* The guard again, AFTER the body-parse await: opening a different task while
+     res.json() was resolving would otherwise paint this task's events into the
+     shared #tk-activity of the new one. Same check as after the fetch await -- a
+     second await is a second chance for the page to have moved on. */
+  if (n !== TK_OPEN) return;
   if (!events.length) {
     holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
     return;
