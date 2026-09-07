@@ -34,6 +34,10 @@
  *      a late grant -- the re-scan covers every S9 arm that reads the disk, not just create.
  *      Scenario 8: a transient /api/scan-import hiccup at the grant edge keeps FR_SCAN_FULL false
  *      and the poll RETRYING (not foreclosed), then succeeds once the scan recovers.
+ *   5. #3/#4 half (b): the import scan is two-phase. Scenario 9: a scanning:true response shows the
+ *      partial (non-TCC) rows immediately, not marked full, and the retry lands the complete set
+ *      (TCC rows) and marks it full. Scenario 10: bounded.tccUnavailable is a COMPLETE scan (full,
+ *      single call, no retry loop) that shows a "could not scan Documents" hint.
  *
  * DOM-state + which-route assertions only, so headless is fine.
  *
@@ -96,13 +100,22 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     let importCandidates = [];                    // agent FOLDERS scan-import returns
     let importFiles = [];                         // #4: loose agent FILES scan-import returns
     let scanImportFail = false;                   // scenario 8: make the granted scan hiccup
+    let scanImportScanningLeft = 0;               // #3/#4(b) sc.9: return scanning:true this many times first
+    let importCandidatesPartial = [];             // #3/#4(b): the non-TCC rows shown while scanning:true
+    let importBounded = {};                       // #3/#4(b) sc.10: e.g. { tccUnavailable: true }
 
     await p.route('**/api/file-access-status', (r) => r.fulfill({ json: grant }));
     await p.route('**/api/scan-import', (r) => {
       hits.scanImport++;
       // scenario 8: a transient hiccup at the grant edge -> res.ok false -> frScanAgents out=null
       if (scanImportFail) { r.fulfill({ status: 500, json: { ok: false } }); return; }
-      r.fulfill({ json: { ok: true, candidates: importCandidates, importable: importFiles, bounded: {} } });
+      // #3/#4(b) scenario 9: the two-phase partial -- non-TCC rows now, scanning:true, hatch pending.
+      if (scanImportScanningLeft > 0) {
+        scanImportScanningLeft--;
+        r.fulfill({ json: { ok: true, candidates: importCandidatesPartial, importable: [], bounded: {}, scanning: true } });
+        return;
+      }
+      r.fulfill({ json: { ok: true, candidates: importCandidates, importable: importFiles, bounded: importBounded } });
     });
     await p.route('**/api/scan-agents', (r) => {
       hits.scanAgents++;
@@ -373,6 +386,59 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const rec = await p.evaluate(() => ({ full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null, offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1 }));
     if (rec.full && rec.stopped && rec.offer === 1) ok('#3/#4(a): once the granted scan recovers, the re-scan succeeds, the poll stops, and the agent renders'); else bad('#3/#4(a) recovers after hiccup', JSON.stringify(rec));
 
+    // ── 9. #3/#4(b): scanning:true shows the partial rows, then the retry lands the complete set. ──
+    // The granted /api/scan-import is two-phase: the first call returns the non-TCC rows with
+    // scanning:true (hatch pending), the retry returns the complete set. The partial must show
+    // immediately and NOT be marked full; the retry must land the TCC rows and mark it full.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: true, at: Date.now() };
+    scanImportFail = false;
+    scanImportScanningLeft = 1;                                     // first call partial, second complete
+    importCandidatesPartial = [{ dir: '/Users/x/Downloads/quick-agent', name: 'Quick agent', role: 'r', preview: 'p' }];
+    importCandidates = [
+      { dir: '/Users/x/Downloads/quick-agent', name: 'Quick agent', role: 'r', preview: 'p' },
+      { dir: '/Users/x/Documents/late-doc-agent', name: 'Late doc agent', role: 'r', preview: 'p' },
+    ];
+    importFiles = []; importBounded = {};
+    await p.evaluate(() => { FR_IMPORT_RETRY_MS = 150; });          // partial visible long enough to observe
+    await p.evaluate(() => {
+      FR = { path: 'create', fleetCount: 0 };
+      FR_FOUND = { ok: true, agents: [], adoptable: [] };
+      FR_SCAN = null; FR_SCAN_GEN = 0; FR_SCAN_FULL = false;
+      frRescanStop();
+      frScanAgents();                                              // NOT awaited: observe partial then complete
+    });
+    const sawPartial = await p.waitForFunction(() => typeof frScanOffer === 'function' && frScanOffer().length === 1 && FR_SCAN_FULL === false, null, { timeout: 1200 }).then(() => true).catch(() => false);
+    const sawComplete = await p.waitForFunction(() => typeof frScanOffer === 'function' && frScanOffer().length === 2 && FR_SCAN_FULL === true, null, { timeout: 2500 }).then(() => true).catch(() => false);
+    const s9 = await p.evaluate(() => ({ offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1, full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null }));
+    if (sawPartial) ok('#3/#4(b): scanning:true shows the partial (non-TCC) rows immediately, not marked full'); else bad('#3/#4(b) partial shown', JSON.stringify({ sawPartial, s9, scanImport: hits.scanImport }));
+    if (sawComplete && hits.scanImport === 2) ok('#3/#4(b): the retry lands the complete set (TCC rows) and marks it full'); else bad('#3/#4(b) retry completes', JSON.stringify({ sawComplete, scanImport: hits.scanImport, s9 }));
+
+    // ── 10. #3/#4(b): bounded.tccUnavailable is a COMPLETE scan (full, no retry loop) + a hint. ──
+    // The protected folders could not be read (no app / hatch gave up), but the scan is DONE
+    // (scanning falsey), so it is full (the poll stops -- retrying would not help until a later
+    // re-scan), and the screen shows a "could not scan Documents" hint rather than a spinner.
+    hits.scanImport = 0; hits.scanAgents = 0;
+    grant = { checkable: true, granted: true, at: Date.now() };
+    scanImportScanningLeft = 0;
+    importCandidates = [{ dir: '/Users/x/work/local-agent', name: 'Local agent', role: 'r', preview: 'p' }];
+    importFiles = []; importBounded = { tccUnavailable: true };
+    await p.evaluate(async () => {
+      FR = { path: 'create', fleetCount: 0 };
+      FR_FOUND = { ok: true, agents: [], adoptable: [] };
+      FR_SCAN = null; FR_SCAN_GEN = 0; FR_SCAN_FULL = false;
+      frRescanStop();
+      await frScanAgents();                                        // awaited: one complete call (no scanning)
+    });
+    const s10 = await p.evaluate(() => ({
+      full: FR_SCAN_FULL,
+      offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1,
+      hint: /Could not scan Documents/i.test((document.getElementById('fr-fleet') || {}).innerHTML || ''),
+      stopped: FR_RESCAN_TIMER === null,
+    }));
+    if (s10.full && hits.scanImport === 1) ok('#3/#4(b): tccUnavailable is a COMPLETE scan (full, single call, no retry loop)'); else bad('#3/#4(b) tccUnavailable complete', JSON.stringify({ s10, scanImport: hits.scanImport }));
+    if (s10.hint && s10.offer === 1) ok('#3/#4(b): tccUnavailable shows the "could not scan Documents" hint alongside the rows found'); else bad('#3/#4(b) tccUnavailable hint', JSON.stringify(s10));
+
     if (errs.length) bad('no page errors', errs.join(' | ')); else ok('no page errors');
     await p.close();
   } catch (e) {
@@ -382,7 +448,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 24) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 24), so a check was skipped -- proving nothing'); process.exit(1); }
+  if (ran < 28) { console.log('scan-on-grant: only ' + ran + ' checks ran (expected 28), so a check was skipped -- proving nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 /* A throw BEFORE the body's try (temp-dir setup, the server spawn, or

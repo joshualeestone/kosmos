@@ -28614,26 +28614,45 @@ function foundImportRowsHtml(items) {
    when the import radio is chosen (pickMode). Best-effort: if the scan cannot be read,
    or finds nothing, the found block simply stays hidden and the paste/choose path is
    unaffected. */
+let FR_IMPORT_POP_GEN = 0;
 async function populateFoundImports() {
   const wrap = document.getElementById('import-found');
   if (!wrap) return;
+  // #3/#4 half (b): a fresh generation per call, so a mode re-pick during the ~2s two-phase
+  // retry cannot let a stale partial paint over the newer state.
+  const gen = ++FR_IMPORT_POP_GEN;
+  /* Render whatever the scan has so far: the non-TCC rows immediately, then the complete set once
+     the app-identity hatch answers. A tccUnavailable result (protected folders unreadable) shows a
+     hint instead of a blank/spinner. */
+  const paint = (body) => {
+    if (gen !== FR_IMPORT_POP_GEN) return;   // a newer populateFoundImports superseded this one
+    const items = body && Array.isArray(body.importable) ? body.importable : [];
+    const tccOut = !!(body && body.bounded && body.bounded.tccUnavailable);
+    if (!items.length && !tccOut) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+    const more = body && body.bounded && body.bounded.importable
+      ? '<p class="fr-scanhint">There may be more than shown here.</p>' : '';
+    // #3/#4 half (b): the protected folders (Documents/Downloads/Desktop) could not be read this
+    // time (no app running, or the hatch did not answer). Say so rather than silently omitting them.
+    const tccHint = tccOut
+      ? '<p class="fr-scanhint">Could not scan Documents, Downloads, or Desktop this time.</p>' : '';
+    if (!items.length) { wrap.innerHTML = tccHint; wrap.hidden = false; return; }
+    wrap.innerHTML = '<p class="flabel">Agent files found on this computer</p>'
+      + foundImportRowsHtml(items) + more + tccHint;
+    wrap.hidden = false;
+  };
   let body = null;
   try {
     // #1652 PR2: the ON-DEMAND import scan (/api/scan-import), NOT the auto /api/scan-agents.
     // It scans the TCC folders (Downloads/Desktop/Documents) a person keeps downloaded/shared
     // agent files in; fetched only here, when the user chose to import, so a TCC prompt is
     // expected and contextual (the auto first-run scan stays TCC-free, #2125).
-    const res = await fetch('/api/scan-import', { cache: 'no-store' });
-    if (!res.ok) { wrap.hidden = true; wrap.innerHTML = ''; return; }
-    body = await res.json().catch(() => null);
-  } catch { wrap.hidden = true; wrap.innerHTML = ''; return; }
-  const items = body && Array.isArray(body.importable) ? body.importable : [];
-  if (!items.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
-  const more = body && body.bounded && body.bounded.importable
-    ? '<p class="fr-scanhint">There may be more than shown here.</p>' : '';
-  wrap.innerHTML = '<p class="flabel">Agent files found on this computer</p>'
-    + foundImportRowsHtml(items) + more;
-  wrap.hidden = false;
+    // #3/#4 half (b): two-phase -- fetchImportScanComplete retries on scanning:true (paint the
+    // non-TCC rows meanwhile) until the hatch's rows land or the engine gives up to tccUnavailable.
+    body = await fetchImportScanComplete((partial) => paint(partial));
+  } catch { if (gen === FR_IMPORT_POP_GEN) { wrap.hidden = true; wrap.innerHTML = ''; } return; }
+  if (gen !== FR_IMPORT_POP_GEN) return;
+  if (body == null) { wrap.hidden = true; wrap.innerHTML = ''; return; }   // hard fetch failure
+  paint(body);
 }
 
 /* Import one discovered file: read it by path (server-validated against the scan), then
@@ -38617,6 +38636,33 @@ async function frFindAgents() {
  */
 let FR_SCAN = null;
 let FR_SCAN_GEN = 0;
+// #3/#4 half (b): the two-phase import scan retry cadence. `let` (not const) so a browser check
+// can lower it and exercise the scanning:true retry deterministically without waiting real seconds.
+let FR_IMPORT_RETRY_MS = 500;
+/* #3/#4 half (b): the import scan (/api/scan-import) is TWO-PHASE. discover.scan() is synchronous,
+   so it cannot block the event loop on the app-identity hatch that reads the TCC roots
+   (~/Documents, ~/Downloads, ~/Desktop, routed there by Kitty's #2391). The FIRST call returns the
+   non-TCC rows immediately with `scanning: true`; the hatch's rows land a beat later (~1s). This
+   fetches /api/scan-import and, while it reports scanning:true, RETRIES a few times ~FR_IMPORT_RETRY_MS
+   apart until the result is complete (scanning falsey), calling onPartial(result) each round so the
+   non-TCC rows show immediately rather than a blank wait. The engine SELF-LIMITS -- it gives up to
+   `bounded.tccUnavailable` rather than reporting scanning:true forever -- so this terminates; the
+   retry cap is a belt-and-suspenders bound. A hard fetch failure (out === null) returns immediately,
+   NOT retried here: that is the grant-edge hiccup half (a)'s poll already retries. */
+async function fetchImportScanComplete(onPartial) {
+  const MAX = 4;   // ~2s of retries at the 500ms default; the hatch answers in ~1s and the engine self-limits
+  let out = null;
+  for (let i = 0; i <= MAX; i++) {
+    try {
+      const res = await fetch('/api/scan-import', { cache: 'no-store' });
+      out = res.ok ? await res.json() : null;
+    } catch { out = null; }
+    if (!out || out.scanning !== true) return out;   // complete result, or a hard failure -> done
+    if (typeof onPartial === 'function') { try { onPartial(out); } catch { /* partial rendering is best-effort */ } }
+    if (i < MAX) await new Promise((r) => setTimeout(r, FR_IMPORT_RETRY_MS));
+  }
+  return out;   // retries exhausted while still scanning (rare; the engine normally resolves to tccUnavailable first)
+}
 // #3/#4 half (a): whether the last frScanAgents used the file-access-GRANTED route
 // (/api/scan-import, which reaches ~/Documents, ~/Downloads, ~/Desktop). false means it ran
 // the TCC-free /api/scan-agents route, so a grant that lands LATER warrants a re-scan.
@@ -38737,10 +38783,24 @@ async function frScanAgents(grantedHint) {
       full = !!(gr && gr.checkable === true && gr.granted === true);
     } catch { full = false; }
   }
-  try {
-    const res = await fetch(full ? '/api/scan-import' : '/api/scan-agents', { cache: 'no-store' });
-    out = res.ok ? await res.json() : null;
-  } catch { out = null; }
+  if (full) {
+    // #3/#4 half (b): the granted /api/scan-import is two-phase; retry on scanning:true and paint
+    // the non-TCC rows meanwhile (fetchImportScanComplete). The onPartial repaint is
+    // generation-guarded so a superseded scan cannot paint, and it holds FR_SCAN_FULL false so a
+    // partial never stops half (a)'s grant-flip poll.
+    out = await fetchImportScanComplete((partial) => {
+      if (mine !== FR_SCAN_GEN) return;
+      const pOk = !!(partial && (Array.isArray(partial.candidates) || Array.isArray(partial.importable)));
+      if (pOk) FR_SCAN = partial;
+      FR_SCAN_FULL = false;
+      if (FR_STEP > FR_STEP_YOU) frPaintFleet();
+    });
+  } else {
+    try {
+      const res = await fetch('/api/scan-agents', { cache: 'no-store' });
+      out = res.ok ? await res.json() : null;
+    } catch { out = null; }
+  }
   if (mine !== FR_SCAN_GEN) return;
   /* Both routes answer with `candidates` (agent FOLDERS holding a CLAUDE.md the
      board has no record of); the import scan additionally reaches ~/Documents.
@@ -38761,8 +38821,12 @@ async function frScanAgents(grantedHint) {
      leave it false so the grant-flip poll (and a return to S9) can retry; otherwise a single
      transient failure would set FR_SCAN_FULL true and every future frArmRescanOnGrant would
      short-circuit, silently foreclosing the one retry the late-grant person depends on. The
-     bare (ungranted) route keeps FR_SCAN_FULL false regardless, so the poll still arms. */
-  FR_SCAN_FULL = full && scanOk;
+     bare (ungranted) route keeps FR_SCAN_FULL false regardless, so the poll still arms.
+     #3/#4 half (b): a still-scanning result (retries exhausted before the hatch answered) is
+     PARTIAL, not delivered, so it stays not-full and the poll retries; a complete result --
+     including bounded.tccUnavailable (protected folders unreadable) -- is full: the scan is done
+     and retrying would not help until a later re-scan, so the poll should stop. */
+  FR_SCAN_FULL = full && scanOk && (!out || out.scanning !== true);
   // The repaint re-enters frPaintFleet's create arm, which arms the grant-flip poll when the
   // scan ran ungranted (frArmRescanOnGrant is idempotent + S9-guarded). Arming there rather
   // than here is what also re-arms on a Back -> forward RETURN to S9 (where no fresh scan runs).
@@ -38807,10 +38871,15 @@ function frPaintScan() {
   title.textContent = n === 1 ? 'We found an agent on this computer.' : 'We found ' + n + ' agents on this computer.';
   const more = FR_SCAN && FR_SCAN.bounded
     && (FR_SCAN.bounded.count || FR_SCAN.bounded.dirs || FR_SCAN.bounded.importable);
+  // #3/#4 half (b): the protected folders (Documents/Downloads/Desktop) could not be scanned this
+  // time (the app-identity hatch did not answer). Some agents were found elsewhere; say the rest
+  // could not be reached rather than implying the found set is everything.
+  const tccOut = !!(FR_SCAN && FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable);
   box.innerHTML = '<p>These are on this computer but not yet in Kosmos. Add the ones '
     + 'that are yours.' + (more ? ' There may be more than shown here.' : '') + '</p>'
     + (cand.length ? '<div class="fr-found">' + scanRowsHtml(cand) + '</div>' : '')
-    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp) + '</div>' : '');
+    + (imp.length ? '<div class="fr-found fr-found-import">' + foundImportRowsHtml(imp) + '</div>' : '')
+    + (tccOut ? '<p class="fr-scanhint">Could not scan Documents, Downloads, or Desktop this time.</p>' : '');
   /* 🛑 `Continue`, NOT "Take me to my agents" -- the same reason `frPaintFound` gives:
      nothing is added until a button is pressed, so the board still shows what tmux
      shows, and a person who added nothing must not be promised a fleet. */
