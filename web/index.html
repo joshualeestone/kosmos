@@ -3735,6 +3735,17 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    line through: striking the whole row would strike the agent's face too. */
 .tkpart.done .tkwho-b b { text-decoration: line-through; color: var(--label-2); }
 .tkpart-go { flex: 0 0 auto; }
+/* #768/#992: the task's activity list. Structural + muted-time only, so it is
+   theme-safe -- the same --label-2 / --k-rule tokens the parts rows above use.
+   Each row: a fixed-width muted time on the left, the event phrase filling the
+   rest, rows ruled off like the parts. */
+.tkacts-wrap { margin-top: 22px; }
+.tkacts { margin-top: 8px; }
+.tkacts-empty { color: var(--label-2); }
+.tkact { display: flex; gap: 12px; align-items: baseline; padding: 7px 0; }
+.tkact + .tkact { border-top: 1px solid var(--k-rule); }
+.tkact time { flex: 0 0 auto; min-width: 96px; color: var(--label-2); font-size: .8rem; }
+.tkact .tkact-what { flex: 1; min-width: 0; }
 /* ⚠️ THE ADD ROW HAD TO BE SIZED DOWN, and rendering is the only thing that
    showed it: `.frow` gives the input `flex: 1` and `.btn-quiet` is a
    full-weight control, so at this column's width the pair WRAPPED and Add
@@ -9754,6 +9765,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fmsg" id="tk-chats-msg" aria-live="polite"></p>
       </aside>
     </div>
+
+    <!-- #768/#992: the task's own activity, IN the app. The reveal button in
+         the aside opens the folder; this shows the same recorded lifecycle
+         (created / assigned / part added / done / put back) as a read-only list,
+         which is the "get to it as a user" half #992 asked for. It sits full
+         width BELOW the two columns on purpose: the three-column reflow of this
+         page (the middle "activity" column of #768) is the screen owner's design
+         slice, and this content moves into it then rather than pre-empting it. -->
+    <section class="tkacts-wrap">
+      <h3 class="dlab">Activity</h3>
+      <div id="tk-activity" class="tkacts" aria-live="polite"></div>
+    </section>
   </div>
 
   <!-- ============ NEW TASK, ITS OWN PAGE (#383) ============
@@ -31130,6 +31153,68 @@ function paintTaskPage() {
   const parentClosed = t.progress ? t.progress.closed : Boolean(t.closedAt);
   document.getElementById('tk-done').textContent = parentClosed ? 'Reopen' : 'Mark as done';
 }
+/* #768/#992: one recorded lifecycle event, said the way the rest of the page
+   says things. The stored text is RAW (engine/taskchat.js keeps it unescaped and
+   its header says so), so the caller esc()s the whole returned string -- names
+   and a part's sentence both pass through here unescaped and are escaped once at
+   the render site. An unknown kind returns itself rather than nothing, so a new
+   event added to the engine later shows up as its bare name instead of vanishing. */
+function tkActPhrase(ev, p) {
+  const nameOf = (sn) => (sn ? tkMemberName(p, sn) : null);
+  switch (ev.kind) {
+    case 'created': { const who = nameOf(ev.who); return who ? 'Created and given to ' + who : 'Created'; }
+    case 'assigned': { const who = nameOf(ev.who); return who ? who + ' put on a part' : 'A part left with nobody on it'; }
+    case 'part-added': return 'A part added' + (ev.sentence ? ': ' + ev.sentence : '');
+    case 'part-closed': return 'A part marked done';
+    case 'part-reopened': return 'A part put back';
+    case 'closed': return 'Marked done';
+    case 'reopened': return 'Put back';
+    default: return String(ev.kind);
+  }
+}
+/* Draw the task's activity, oldest first (the way the record is written and the
+   way a conversation reads top-to-bottom). Fetched on open and re-fetched after
+   an in-app change (tkPartPost / the done button), NOT on the five-second poll:
+   a lifecycle event is rare, so a per-open + per-action read stays fresh without
+   a request every tick. `n` is checked against TK_OPEN after the await so a fetch
+   that lands after the person has left the task cannot paint the wrong page. */
+async function paintTaskActivity(n) {
+  const holder = document.getElementById('tk-activity');
+  if (!holder) return;
+  const p = pjById(PJ_CURRENT);
+  if (!p || n == null) return;
+  let events = [];
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + n + '/activity', { cache: 'no-store' });
+    if (n !== TK_OPEN) return;
+    if (!res.ok) throw new Error('not ok');
+    const out = await res.json();
+    events = Array.isArray(out.events) ? out.events : [];
+  } catch {
+    if (n !== TK_OPEN) return;
+    /* A failed read says nothing about the task, so it must not read as "nothing
+       happened". Keep whatever is already shown; only when the list is empty put
+       a quiet could-not-read line, never a false empty state. */
+    if (!holder.innerHTML) holder.innerHTML = '<p class="dhint tkacts-empty">We could not read the activity just now.</p>';
+    return;
+  }
+  /* The guard again, AFTER the body-parse await: opening a different task while
+     res.json() was resolving would otherwise paint this task's events into the
+     shared #tk-activity of the new one. Same check as after the fetch await -- a
+     second await is a second chance for the page to have moved on. */
+  if (n !== TK_OPEN) return;
+  if (!events.length) {
+    holder.innerHTML = '<p class="dhint tkacts-empty">Nothing yet. As this task is worked on, what happens shows up here.</p>';
+    return;
+  }
+  const now = Date.now();
+  holder.innerHTML = events.map((ev) => {
+    const at = Date.parse(ev.at);
+    const when = Number.isFinite(at) ? agoWords(now - at) : '';
+    return '<div class="tkact"><time datetime="' + esc(String(ev.at)) + '">' + esc(when) + '</time>'
+      + '<span class="tkact-what">' + esc(tkActPhrase(ev, p)) + '</span></div>';
+  }).join('');
+}
 function openTaskPage(n) {
   const p = pjById(PJ_CURRENT);
   const t = p && (p.tasks || []).find((x) => x.number === n);
@@ -31137,6 +31222,11 @@ function openTaskPage(n) {
   TK_OPEN = n;
   document.getElementById('tk-msg').textContent = '';
   paintTaskPage();
+  /* A new task: clear the last one's activity before the fetch so a slow read
+     cannot leave the previous task's events on screen. */
+  const acts = document.getElementById('tk-activity');
+  if (acts) acts.innerHTML = '';
+  paintTaskActivity(n);
   pjView('task');
   document.getElementById('tk-back').focus();   // the top of the new page
 }
@@ -31173,6 +31263,8 @@ async function tkPartPost(url, body) {
     // not the `p` captured before the reload, for the same reason the New
     // Task handler does: the name to speak needs the current roster.
     msg.textContent = heardSentence(spokenHeard(pjById(PJ_CURRENT), out && out.heard));
+    // #768: the change just recorded a lifecycle event, so refresh the activity.
+    paintTaskActivity(TK_OPEN);
     return true;
   } catch {
     msg.textContent = 'we could not change that';
@@ -31281,6 +31373,8 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     }
     document.getElementById('tk-msg').textContent = '';
     await pjReload();
+    // #768: close/reopen recorded a lifecycle event, so refresh the activity.
+    paintTaskActivity(TK_OPEN);
     /* ⚠️ AND IT STAYS ON THE PAGE. The dialog closed itself here, which was
        right for a dialog: the act was the reason it was open. A page is not
        dismissed by succeeding, and being thrown back to the project on a
