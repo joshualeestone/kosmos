@@ -87,11 +87,15 @@ lw_snapshot() {
 #     That is the exact incident shape (#1163) and warns-only, so it is no worse
 #     than the pre-change status quo; it is not fixable from the properties line.
 #   - Because the before/after diff (uniq -u) now includes the life field, a job
-#     whose persistence FLIPS mid-run (same label+path, life changes) survives the
-#     diff on both lines and is reported twice, once PERSIST once SANDBOX. Cosmetic
-#     only: the escalation still fires (no miss), it warns-only (no false fail), and
-#     it needs a rare mid-run flip of a job that already existed at BEFORE. Left as
-#     a double-note rather than adding a dedup pass to a security-hygiene lib.
+#     present at both BEFORE and AFTER whose life field DIFFERS between the two
+#     reads survives the diff on both lines and is reported twice, once PERSIST
+#     once SANDBOX. The usual cause is a real mid-run persistence flip; it would
+#     also fire on transient read variance if `launchctl print` returned the
+#     properties line inconsistently for an otherwise-unchanged job (unlikely, as
+#     print is deterministic for a stable job). Cosmetic only: the escalation
+#     still fires (no miss) and warns-only (no false fail), and it needs a job
+#     that already existed at BEFORE. Left as a double-note rather than adding a
+#     dedup pass to a security-hygiene lib.
 #   - Like #566 itself, this only surfaces jobs that DIFFER between before/after; a
 #     persistent leak already present at BEFORE and unchanged is dropped by uniq -u.
 #     Detection works for the run that CREATES the leak, not a later audit run.

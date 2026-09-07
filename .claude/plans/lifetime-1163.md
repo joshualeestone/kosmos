@@ -18,6 +18,23 @@ I had earlier annotated the card "probably superseded by #566." That was wrong
 in direction and is retracted on the card: #566 is the provenance axis the card
 says is INSUFFICIENT, not a fix for it. The card is live.
 
+## Two consumers of lw_judge, both updated (a new verdict is a contract change)
+
+`lw_judge` is a shared function with TWO consumers, and adding the `PERSIST`
+verdict is a breaking change for any consumer that does not handle it:
+- **`clean-machine.sh`** - the cleanliness verifier (updated: loud non-failing warning).
+- **`tools/sweep-leaked-supervisors.sh`** - the leaked-supervisor REAPER. Its
+  `case` was `REAL|UNKNOWN|SANDBOX)` with no default, so an unhandled `PERSIST`
+  would fall through SILENTLY: a persistent leaked job (the exact #1163 shape)
+  counted in FOUND but never checked for a missing plist, never counted LEAKED,
+  never reaped - and since the sweep feeds an empty "before", EVERY persistent
+  non-real job took that path, so `--reap` would report "nothing leaked" on the
+  most dangerous job. Fixed: `SANDBOX|PERSIST)` handles PERSIST at least as
+  strongly as SANDBOX (reaped when its plist is gone, surfaced when present).
+  `test-sweep-leaked.sh` gains a persist arm that is a real regression guard -
+  verified to go RED on the pre-fix sweep (persist-gone leak swallowed, "nothing
+  leaked") and GREEN on the fix.
+
 ## The change
 
 Add a LIFETIME axis, read from the same `launchctl print` seam the path is:
