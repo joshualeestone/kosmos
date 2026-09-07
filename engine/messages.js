@@ -962,29 +962,35 @@ function quotedSegments(text, from, projectId, rows) {
   return kept;
 }
 
-/* #2442: the room's effective membership, with removed agents dropped. A removed
-   agent's name is KEPT in the project record (so `restore` re-admits it), so this
-   filters at read time.
-   🔑 DELEGATE to `remove.isRemoved` rather than re-deriving "is removed" here.
-   `isRemoved` is the ONE removal check the whole codebase keys on (the roster
-   filter, the account-delete routes), so the room's membership can never disagree
-   with it -- re-deriving the match (its own cleanName-vs-name comparison, or the
-   slugFor form a sibling guard uses for #740) would be a second derivation of the
-   fleet, this module family's named worst habit, and a drift there fails in the
-   security-relevant direction (a removed agent RETAINS access). `isRemoved` reads
-   `removed.json` per member, a non-issue on the infrequent room-post/react path.
-   ⚠️ FAILS OPEN: `readRemoved()` answers `[]` on an unreadable list, so `isRemoved`
-   is false and the member is KEPT; the try/catch keeps a member if the check
-   itself throws. #2323's token revoke is the primary gate, and refusing every
-   room post over one corrupt file is the worse failure. Lazy require is
-   cycle-safe (remove does not require messages at load). */
+/* #2442: the room's effective membership for an ACTING gate, with removed agents
+   dropped. A removed agent's name is KEPT in the project record (so `restore`
+   re-admits it), so this filters at read time.
+   🛑 FAILS CLOSED on an unreadable removed list, which is the whole point of
+   using `removedNames()` here. remove.js documents the split exactly:
+   `readRemoved()`/`isRemoved` fail OPEN (right for the board display -- hiding an
+   agent for a reason nobody can inspect is worse than showing too many), while
+   `removedNames()` answers `{ok:false}` so "a caller that is about to ACT gets the
+   failure rather than an empty list, and can refuse". A room post/react ACTS: it
+   admits a sender and types into panes. So on `{ok:false}` this returns `ok:false`
+   and the caller REFUSES, rather than silently re-admitting every removed agent --
+   and it does not lean on #2323 (whose best-effort revoke this fix exists because
+   it can fail) as the backstop.
+   📌 The MATCH is cleanName, the same key `isRemoved` uses, on the same record's
+   names -- so the room can never disagree with the fleet's one removal check.
+   `addAgent` stores a member name un-cleaned, so it is cleaned before the compare
+   or the filter silently misses. Lazy requires are cycle-safe (remove/create do
+   not require messages at load).
+   Returns `{members, ok}`: `ok:false` means "could not check -- refuse". */
 function _roomMembers(members) {
-  if (!Array.isArray(members) || !members.length) return members;
-  let removeMod = null;
-  try { removeMod = require('./remove'); } catch { return members; }
-  return members.filter((m) => {
-    try { return !removeMod.isRemoved(m); } catch { return true; }
-  });
+  if (!Array.isArray(members) || !members.length) return { members, ok: true };
+  let removed;
+  try { removed = require('./remove').removedNames(); }
+  catch { return { members: [], ok: false }; }
+  if (!removed || removed.ok !== true) return { members: [], ok: false };
+  if (!removed.names.length) return { members, ok: true };
+  const clean = require('./create').cleanName;
+  const gone = new Set(removed.names);
+  return { members: members.filter((m) => !gone.has(clean(m))), ok: true };
 }
 
 function sendPost({ fromPane, project, projectName, text, operator, attachment, attachments, trailer }, roster, members) {
@@ -1072,8 +1078,12 @@ function sendPost({ fromPane, project, projectName, text, operator, attachment, 
      #166 member-of-record display), which is left untouched: this closes ACCESS,
      not the display. Defense in depth with #2323 (which revokes a removed agent's
      sender token): that revoke is best-effort and can fail, and if it does, this
-     membership gate is the only thing left -- and it PASSED before this line. */
-  members = _roomMembers(members);
+     membership gate is the only thing left -- and it PASSED before this line.
+     FAILS CLOSED: an unreadable removed list refuses the post, the acting posture
+     remove.js documents, rather than re-admitting every removed agent. */
+  const room = _roomMembers(members);
+  if (!room.ok) return refuse('we could not check which agents have been removed, so nothing was posted');
+  members = room.members;
   /* The room is its members: an AGENT sender who is not on the project
      is not in the room, and speaking into a room you are not in is
      exactly the unaddressed-steering hazard the room model exists to
@@ -1656,6 +1666,22 @@ function sweepUnanswered(roster, now) {
      card's own condition was the sweep pinned unchanged. */
   const rec = record();
   if (!rec.ok) return { ok: false, nudged: [] };
+  /* #2442: the nudge is a pane write into agents, so it must also respect removal
+     -- a removed agent gets NO room traffic, not even a nudge for an ask that
+     predates its removal. A killed removed agent is already skipped below (no
+     roster card), but a PARTIAL removal (kill failed, still running) keeps a live
+     card and would otherwise be nudged; the post the nudge invites is refused by
+     the membership gate now, so it is inert, but it is still room traffic into a
+     cut agent. Read the removed set ONCE (the sweep is periodic, not per-message),
+     and FAIL CLOSED like the post/react gates: an unreadable removed list nudges
+     NOBODY this sweep rather than nudging possibly-removed agents. A skipped nudge
+     writes no at-most-once row (below), so it re-fires cleanly next sweep once the
+     list is readable. cleanName match, same key isRemoved uses. */
+  let goneNudge = null;
+  const removedForNudge = (() => { try { return require('./remove').removedNames(); } catch { return { ok: false }; } })();
+  if (removedForNudge.ok !== true) return { ok: true, nudged: [] };  // fail closed: nudge nobody
+  if (removedForNudge.names.length) goneNudge = new Set(removedForNudge.names);
+  const cleanNudge = goneNudge ? require('./create').cleanName : null;
   const projects = new Set(rec.rows.filter((m) => m && m.kind === 'post' && m.operator === true
     && Array.isArray(m.mentioned)).map((m) => m.project));
   const nudged = [];
@@ -1665,15 +1691,8 @@ function sweepUnanswered(roster, now) {
       for (const name of names) {
         const already = rec.rows.some((m) => m && m.kind === 'nudge' && m.post === postId && m.to === name);
         if (already) continue;
-        /* #2442: a removed agent gets NO room traffic, not even a nudge for an ask
-           that predates its removal. A killed removed agent is already skipped
-           below (no roster card), but a PARTIAL removal (kill failed, still
-           running) keeps a live card and would otherwise be nudged. The post the
-           nudge invites is refused by the membership gate now, so the nudge is
-           inert -- but it is still room traffic into an agent that was cut, so
-           close it. Same `isRemoved` delegation as `_roomMembers`, before the
-           at-most-once card check so no row is spent on a removed agent. */
-        try { if (require('./remove').isRemoved(name)) continue; } catch { /* fail-open: nudge as before */ }
+        // #2442: skip a removed agent BEFORE the at-most-once card check, so no row is spent on it.
+        if (goneNudge && goneNudge.has(cleanNudge(name))) continue;
         /* ⚠️ ONLY AN ADDRESSABLE CARD MAY SPEND THE PAIR'S ONE NUDGE.
            A roster row with no target is OUR caller handing thin rows
            (the paneRoster shape), not the agent being gone; burning the
@@ -1785,7 +1804,12 @@ function react({ project, of, emoji, from, operator, members }) {
     // #2442: a removed agent is not a room participant, so it cannot react
     // either -- the same access-boundary filter sendPost applies, for the same
     // reason (a reaction is a write into a room). Record kept; filtered at read.
-    if (!_roomMembers(members).includes(reactor)) {
+    // Fails closed on an unreadable removed list, exactly as the post gate does.
+    const room = _roomMembers(members);
+    if (!room.ok) {
+      return { ok: false, because: 'we could not check which agents have been removed, so nothing was reacted' };
+    }
+    if (!room.members.includes(reactor)) {
       return { ok: false, because: 'you are not on that project, so this room is not yours to react in' };
     }
   }

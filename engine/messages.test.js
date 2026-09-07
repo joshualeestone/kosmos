@@ -891,17 +891,20 @@ test('#2442: an operator room post is NOT typed into a removed member, only the 
   });
 });
 
-test('#2442 CONTROL: an unreadable removed list filters nobody (fail-open), so a member still posts', () => {
+test('#2442: an unreadable removed list REFUSES the post (fail-closed, the acting posture)', () => {
   withFleet(room3(), (board) => {
     clearRemoved2442();
     // A directory where the file should be makes removedNames() answer {ok:false}.
     fs.mkdirSync(remove2442.REMOVED_FILE, { recursive: true });
     try {
-      armSender('mara-discord');          // mara: still treated as a member under a corrupt list
-      arm([]);
-      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'still a member' }, board.agents, MEMBERS);
-      assert.equal(out.state, chat.DELIVERY.PLACED,
-        out.because || 'an unreadable removed list must not refuse a real member (fail-open; the #2323 token gate still holds)');
+      armSender('mara-discord');
+      const tmux = arm([]);
+      const out = messages.sendPost({ fromPane: '%7', project: 'henderson-lease', text: 'am I still on?' }, board.agents, MEMBERS);
+      assert.equal(out.state, chat.DELIVERY.COULD_NOT,
+        'when the removed list cannot be read, the room post is refused rather than silently admitting a possibly-removed agent');
+      assert.match(out.because || '', /could not check which agents have been removed/,
+        'and the refusal names the acting-guard reason, not the ordinary membership one');
+      assert.equal(tmux.sends().length, 0, 'nothing was typed into any pane');
     } finally { clearRemoved2442(); }
   });
 });

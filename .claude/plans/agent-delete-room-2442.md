@@ -38,15 +38,19 @@ in `sendPost` (right after the members-shape validation, so it gates BOTH the ag
 and the recipient list) and in `react` (the agent-reactor membership gate). Both room-post routes
 and the react route derive `members` from `describe()` and pass it to these two functions, so this
 is the one place the room ACCESS decision is made. Details:
-- DELEGATE to `remove.isRemoved` rather than re-deriving the match here. `isRemoved` is the one
-  removal check the whole codebase keys on (roster filter, delete routes), so the room's membership
-  can never disagree with it -- re-deriving the cleanName/slugFor comparison would be a second
-  derivation of the fleet whose drift fails in the security-relevant direction (a removed agent
-  RETAINS access). It reads `removed.json` per member, a non-issue on the infrequent room path.
-- FAIL-OPEN on an unreadable removed list: `readRemoved()` answers `[]` -> `isRemoved` false -> the
-  member is kept, and the try/catch keeps a member if the check throws (#2323's token gate still
-  holds; refusing every room post over one corrupt file is the worse failure).
-- lazy require is cycle-safe (remove does not require messages at load).
+- FAIL CLOSED on an unreadable removed list, via `remove.removedNames()`. remove.js documents the
+  split: `readRemoved()`/`isRemoved` fail OPEN (right for the board display), while `removedNames()`
+  answers `{ok:false}` so "a caller that is about to ACT gets the failure ... and can refuse". A room
+  post/react/nudge ACTS (admits a sender, types into a pane), so on `{ok:false}` the caller REFUSES
+  ("we could not check which agents have been removed") rather than silently re-admitting every
+  removed agent -- and it does NOT lean on #2323 (whose best-effort revoke this fix exists because it
+  can fail) as the backstop. `removedNames()` on a MISSING file is `{ok:true, names:[]}` (ENOENT is
+  the ordinary no-removals case), so fail-closed fires only on a genuinely unreadable/corrupt list, a
+  rare, transient, self-healing window.
+- The MATCH is `create.cleanName`, the same key `isRemoved` uses, on the same record's names, so the
+  room can never disagree with the fleet's one removal check. `addAgent` stores a member name
+  un-cleaned, so it is cleaned before the compare or the filter silently misses. Lazy requires are
+  cycle-safe (remove/create do not require messages at load).
 
 Also `sweepUnanswered` (the #185 room-nudge sweep, another pane-write path into agents): it
 re-nudges agents named in a pre-removal operator post's `mentioned` array. A killed removed agent
@@ -68,6 +72,12 @@ the display listing -- so the guard belongs at the room-post/react access bounda
   removed agent there is the operator's own action (they may want to tell a not-yet-dead process
   to stop) -- not the removed agent's access. History reads (thread + room GET) deliberately keep
   a removed agent's PAST posts; history should not vanish.
+- OUT, same rationale: the task-assignment pane write (`server.js` `heardBy`/`tellEveryoneOn`,
+  #761/#327 -> `chat.deliver`). It is not a room-participation surface (it announces a task to a
+  `who`), and like the 1:1 thread it is `isNamedOurs`-gated, so a fully-removed agent is
+  unreachable; only a still-running partial removal is, matching the thread carve-out. So
+  "sendPost + react + sweepUnanswered" is the complete set of ROOM-write paths, not of every
+  pane-write path -- the others are covered by `isNamedOurs`.
 - The board's `present:false` row display is left as #166 designed it. If Josh wants a removed
   agent to VANISH from the room's member list entirely (not just show present:false), that is a
   separate DISPLAY-contract change from #166 -- flagged for his call, since it overrides a
