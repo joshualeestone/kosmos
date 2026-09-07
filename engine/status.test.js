@@ -2464,6 +2464,52 @@ test('#1889: a background wait and a reported idle are not in conflict, because 
     '#1995 stopped surfacing the conflict for an ordinary working pane');
 });
 
+test('#1889: the no-count fallback is BEHAVIOUR, and one character of it turns the feature off', () => {
+  /**
+   * 🛑 THIS WAS DESCRIBED AS BEHAVIOUR AND PINNED BY NOTHING.
+   *
+   * `backgroundAgentWaitCount` returns 1 when no digit can be read. No fixture in
+   * this file reached that branch: instrumented and measured, ZERO hits across the
+   * whole file, with the logger proven live by the perturbation below so the zero
+   * is a measurement rather than a silent instrument.
+   *
+   * ⚠️ AND THE PERTURBATION IS THE WHOLE ARGUMENT. Changing that `1` to a `0`
+   * leaves the suite GREEN at 184/184 while switching the ENTIRE feature off:
+   * `done >= 0` is always true, so every wait row takes the resolving `continue`
+   * and nothing ever reads as a background wait again. One character, no signal,
+   * in exactly the false-calm direction this card exists to close.
+   *
+   * The other direction is as bad and was equally unpinned: a large fallback makes
+   * every unreadable row read `working` forever.
+   *
+   * 📌 The row is constructible, which is why this is pinned rather than labelled
+   * unreachable like its sibling two lines below: `BACKGROUND_AGENT_WAIT` spells
+   * the gap `.*`, so a wait line with a word where the count goes still matches.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const NODIGIT = '✻ Waiting for the background agents to finish';
+
+  /* It really does reach the reader, or the rows below measure nothing. */
+  assert.equal(classify(pane, NODIGIT + footer).state, 'working',
+    'a digit-less wait row stopped being read at all, so the fallback is unreachable and this test is vacuous');
+  assert.equal(classify(pane, NODIGIT + footer).backgroundWait, true,
+    'a digit-less wait row lost its flag');
+
+  /* THE FALLBACK'S ACTUAL VALUE, asserted through behaviour rather than by reading
+     the constant: a fallback of 1 means ONE completion resolves it. A fallback of
+     0 resolves it with none, which is the feature switched off. */
+  assert.notEqual(
+    classify(pane, NODIGIT + '\n  ⏺ Agent "a" finished · 2m' + footer).state,
+    'working',
+    'one completion did not resolve a no-count wait, so the fallback is not 1');
+  assert.equal(
+    classify(pane, NODIGIT + '\n  follow-up output that is not a completion' + footer).state,
+    'working',
+    'a no-count wait resolved with NO completion below it, which is the fallback being 0 and the whole feature off');
+});
+
 test('#1889: the background-wait flag survives EVERY report arm, including the steady-state one', () => {
   /**
    * 🛑 THE ARM THAT LOST IT WAS THE ONE THE FEATURE IS FOR.

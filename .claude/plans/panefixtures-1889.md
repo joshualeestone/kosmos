@@ -187,6 +187,58 @@ other three. Do not read the merge as the card being done.
   the absence of `FAIL` rows: a suite killed mid-flight prints a plausible
   passing tally and has no failures in it either.
 
+## FINDINGS 4 AND 5: MY OWN CONVENTIONS, TURNED ON MY OWN CODE
+
+Both arrived from the blind reviewer, both verified here, and both are cases where
+this file already contains the sentence that should have been applied and I did not
+apply it to myself.
+
+### Finding 5 is the serious one: ONE CHARACTER TURNS THE FEATURE OFF, SILENTLY
+
+`backgroundAgentWaitCount`'s no-count fallback returns 1, and that was **described
+as behaviour and pinned by nothing**. The reviewer instrumented the branch and
+measured **zero fixtures reaching it** across the whole file, with the logger proven
+live so the zero is a measurement rather than a silent instrument.
+
+🛑 **Then the perturbation, which is the entire argument:** changing that `1` to a
+`0` leaves the suite **GREEN at 184/184** while switching the whole feature off.
+`done >= 0` is always true, so every wait row takes the resolving `continue` and
+nothing ever reads as a background wait again. **One character, no signal, in
+exactly the false-calm direction this card exists to close.** The other direction
+is as bad and was equally unpinned: a large fallback makes every unreadable row read
+`working` forever.
+
+✅ Pinned through BEHAVIOUR rather than by reading the constant, on a row that is
+genuinely constructible (`BACKGROUND_AGENT_WAIT` spells the gap `.*`, so
+`✻ Waiting for the background agents to finish` matches with no digit). Both
+perturbations now red: `return 0` and `return 99`.
+
+⭐ **The distinction worth keeping: `describe as behaviour` and `label as
+unreachable` are different obligations, and I applied the wrong one.** Two lines
+below sits `Number.isFinite(n) && n > 0`, correctly labelled unreachable after an
+earlier round. This fallback IS reachable, so it owed a test, not a label. I gave
+it prose instead and the prose read as coverage.
+
+### Finding 4: a publish site that is always false and does not say so
+
+`panelessCard`'s `stateBackgroundWait` can never be true - it reconciles against
+defaults that carry no such field and there is no pane to scrape - and **deleting
+the line outright leaves every suite green**. Kept for shape parity so consumers see
+one card shape rather than two, and now LABELLED, because this module's own
+convention two functions away says an unreachable expression that looks like a guard
+is worse than no expression. Same sentence, same reason, applied to my own line
+after somebody pointed at it.
+
+### NIT: a comment that CLAIMED a control the block did not contain
+
+`status.observed-1921.test.js` said *"the same harness DOES record an OK for an
+ordinary working pane, so a null here is this gate firing rather than the fixture
+failing to register"*. The only such fixture was in a different `test()`. The row
+was genuinely armed, so nothing was broken.
+⚠️ **But a CLAIMED control is worse than an absent one: it stops the next person
+adding the real thing.** Now in the block, and it discriminates: removing the gate
+reds one row, disabling recording entirely reds two.
+
 ## A SHA POINTER ORPHANED FOUR MINUTES AFTER I WARNED ABOUT IT
 
 The #2378 owner asked me to keep commit `6008120d` in the #1889 PR and parked her

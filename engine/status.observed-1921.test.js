@@ -76,12 +76,21 @@ test('#1889: a pane WAITING ON A BACKGROUND AGENT records no observed OK', () =>
     '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
   fleet.install([fleet.agent('bgwait', { state: 'working', screen: wait })]);
 
-  /* CONTROL, and it is the whole point of the row: the same harness DOES record an
-     OK for an ordinary working pane, so a null here is this gate firing rather
-     than the fixture failing to register at all. */
   assert.equal((observed.read('bgwait') || {}).outcome, undefined,
     'a pane merely waiting on a background agent recorded a witnessed request: '
     + JSON.stringify(observed.all()));
+
+  /* 🛑 THE CONTROL, NOW ACTUALLY IN THIS BLOCK. The comment here used to CLAIM a
+     control ("the same harness DOES record an OK for an ordinary working pane")
+     while the only such fixture lived in a different `test()` above. The row was
+     genuinely armed, so nothing was broken, but a reader trusting the sentence
+     believed a control had run beside the assertion when none had. A claimed
+     control is worse than an absent one: it stops the next person adding the real
+     thing. One line, so there is no excuse for the claim standing alone. */
+  fleet.install([fleet.agent('ordinary', { state: 'working' })]);
+  assert.equal((observed.read('ordinary') || {}).outcome, observed.OUTCOME.OK,
+    'the harness stopped recording an OK for an ordinary working pane, so the null '
+    + 'above is the fixture failing to register rather than this gate firing');
 });
 
 test('an IMPOSTOR pane (a stranger under a name) records NOTHING, even scraping a 401', () => {

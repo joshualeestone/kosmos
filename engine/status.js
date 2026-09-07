@@ -5539,6 +5539,16 @@ function panelessCard(key, nowMs, defaultStatus) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
+    /* 📌 ALWAYS `false` HERE, AND SAYING SO IS THE POINT. `panelessCard` reconciles
+       against `PANELESS_DEFAULT` / `NEVER_RUN_DEFAULT`, neither of which carries
+       `backgroundWait`, and there is no pane to scrape, so nothing can ever set it.
+       Deleting this line leaves every suite green, which is what a reviewer
+       measured. It is kept for SHAPE PARITY with the pane card, so a consumer sees
+       one card shape rather than two, and labelled because this module's own
+       convention two functions away says an unreachable expression that LOOKS like
+       a guard is worse than no expression: it tells the next reader this input is
+       checked when nothing here checks it. Same sentence, same reason, applied to
+       my own line after somebody pointed at it. */
     stateBackgroundWait: status.backgroundWait === true,
     stateConflict: status.conflict || null,
     context: {
