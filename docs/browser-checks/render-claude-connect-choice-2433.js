@@ -146,6 +146,8 @@ function check(name, pass, detail) {
       boxVisible: vis(successBox),
       hasRow: Boolean(goldRow),
       rowText: goldRow ? (goldRow.innerText || goldRow.textContent || '') : '',
+      // The pasted key must not linger on screen after it is stored.
+      keyCleared: document.getElementById('acct-claude-key').value === '',
     };
 
     // 5. A reauth SKIPS the picker and lands on the subscription step directly.
@@ -233,9 +235,9 @@ function check(name, pass, detail) {
       && r.subStep.startBtnVisible && r.subStep.warnVisible,
     JSON.stringify(r.subStep));
   // 4. add success
-  check('adding a pasted ANTHROPIC_API_KEY paints the gold connected box ("Claude is connected")',
-    r.added.boxVisible && r.added.hasRow && /Claude is connected/.test(r.added.rowText) && /API key/i.test(r.added.rowText),
-    'text ' + JSON.stringify(r.added.rowText.slice(0, 80)));
+  check('adding a pasted ANTHROPIC_API_KEY paints the gold connected box ("Claude is connected") and clears the key field',
+    r.added.boxVisible && r.added.hasRow && /Claude is connected/.test(r.added.rowText) && /API key/i.test(r.added.rowText) && r.added.keyCleared,
+    'text ' + JSON.stringify(r.added.rowText.slice(0, 80)) + ', keyCleared ' + r.added.keyCleared);
   // 5. reauth bypass
   check('a reauth skips the picker and lands on the subscription step directly',
     r.reauth.pickHidden && r.reauth.subVisible, JSON.stringify(r.reauth));
