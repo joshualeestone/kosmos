@@ -39520,6 +39520,78 @@ function frPaintFleet() {
   if (path === 'adopt' && Number.isInteger(count) && count > 0 && !frFoundOffer().length) {
     // The spec's declension: real count, "one" at one, the pack's period.
     title.textContent = count === 1 ? 'You already have one agent here.' : 'You already have ' + count + ' agents here.';
+
+    /* 🛑 #2389: LOOK ON THE DISK HERE TOO. This arm used to render the verbatim
+       "there is nothing to import" and return, WITHOUT ever scanning the disk --
+       the same #1938/#1652 gap the create and unknown arms already fixed, left
+       standing on the ONE arm that reaches a person who has a running fleet AND
+       unimported agents in Documents/Downloads whose folders Claude has no record
+       of. That person was told "there is nothing to import" while it was false --
+       the exact case the #1493 comment at the top of this function names ("the
+       adopt screen says 'there is nothing to import' WHILE IT IS FALSE").
+
+       ⚠️ THE VERBATIM PACK COPY BELOW IS TRUE ONLY WHEN THE SCAN CONFIRMS IT.
+       Josh's "there is nothing to import and nothing to wait for" (2026-08-17) is
+       a claim about their machine, so it must not sit on screen before the disk
+       has been read -- the same rule the create arm follows for its empty state.
+       So: while the scan runs, say we are still checking (a claim about THEIR
+       machine that resolves to a definite state, not a report on our own
+       uncertainty); when it finds importable agents, hand to frPaintScan exactly
+       as the other two arms do ("it just pulls them in", Josh 2026-08-27, #1652);
+       only when the scan is done and empty does the verbatim sentence render.
+
+       📌 Fire-and-forget + generation-guarded + grant-flip re-scan, identical to
+       the create/unknown arms. Reuses frPaintScan (one painter, so there is no
+       second copy of the Add/Skip rows to keep right). */
+    /* 🛑 WAIT FOR THE FOUND SEARCH TO SETTLE BEFORE SCANNING, exactly as the create
+       arm does (its FR_FOUND===null early return above). frFindAgents() fires at the
+       top of this function for every path, and frFoundOffer() reads empty while
+       FR_FOUND is still null -- so scanning straight on FR_SCAN===null without this
+       gate fires frScanAgents ONCE now (FR_FOUND null) and AGAIN on the found-settle
+       repaint (FR_SCAN still null, the scan being the slower fetch): two
+       /api/scan-import TCC walks and a possible double macOS permission prompt, the
+       "second fetch the generation guard then threw away" class the create arm's own
+       39594 comment removed. Gating on FR_FOUND makes the found-settle repaint the
+       single trigger that starts the scan, so it fires once. */
+    /* #2389 (iter 4): the transient "checking" copy is shared across the three
+       pre-settled branches (found-loading, scan-not-started, scan-in-flight) so the
+       wording cannot drift between them. */
+    const checkingCopy = '<p>They are already here. Checking this computer for any '
+      + 'others to add\u2026</p>';
+
+    if (FR_FOUND === null) {
+      box.innerHTML = checkingCopy;
+      frForkActions();
+      return;
+    }
+    if (FR_SCAN === null) {
+      frScanAgents();
+      box.innerHTML = checkingCopy;
+      frForkActions();
+      return;
+    }
+    frArmRescanOnGrant();
+    if (frScanOffer().length || frImportOffer().length) { frPaintScan(); return; }
+
+    /* 🛑 #2389 (iter 3): A GRANTED TWO-PHASE SCAN sets FR_SCAN to a scanning:true
+       partial with no rows yet (frScanAgents -> fetchImportScanComplete onPartial) and
+       repaints, so FR_SCAN is non-null here with both offers empty WHILE THE SCAN IS
+       STILL RUNNING -- and the TCC folders (Documents/Downloads/Desktop), where the
+       #2389 target's agents are, are delivered LAST. The same window opens when a late
+       file-access grant flips and frArmRescanOnGrant re-scans over a stale settled-empty
+       FR_SCAN. Rendering the verbatim "nothing to import" on either would flash the exact
+       false claim this fix removes, for as long as the scan takes, in front of the one
+       person it is wrong about. The create arm is immune ONLY because its empty state is
+       silent copy ("Create your first agent."), not a machine claim -- so mirroring its
+       STRUCTURE is not enough; the empty state must also stay silent until the scan has
+       SETTLED. Keep the "checking" copy while FR_SCAN_INFLIGHT is set; do NOT re-fire the
+       scan (it is already running -- that is exactly why the flag is set). */
+    if (FR_SCAN_INFLIGHT) {
+      box.innerHTML = checkingCopy;
+      frForkActions();
+      return;
+    }
+
     /**
      * ⚠️ NOT AN IMPORT, AND THIS SCREEN MUST NOT MIME ONE. The board is built
      * from `tmux list-panes`, so every one of these was already on it before
@@ -39528,12 +39600,47 @@ function frPaintFleet() {
      *
      * ⚠️ NO NAME CHIPS, at Josh's word (2026-08-17): a person can arrive
      * with hundreds of agents, and the count in the heading is the claim.
-     * The pack's two sentences below, verbatim.
+     * The pack's two sentences below, verbatim -- rendered only once the disk
+     * scan has confirmed there is genuinely nothing to import (#2389).
      */
     // One sentence, at Josh's word (2026-08-17): the how-it-saw-them
     // explanation came out.
-    box.innerHTML = '<p>They are already here. There is nothing to import and '
-      + 'nothing to wait for.</p>';
+    /* 🛑 #2389: render the verbatim ONLY on a CLEAN, COMPLETE, READABLE-empty scan.
+       FR_SCAN is settled and not in-flight here, but THREE settled shapes are NOT a
+       genuine empty answer and must not carry the machine-claim:
+         (iter 4) a retry-exhausted still-scanning result (out.scanning === true, INFLIGHT
+           already cleared, FR_SCAN_FULL stays false) and a hard read failure ({ok:false});
+         (iter 5) a bounded.tccUnavailable result -- the grant was given but the app-identity
+           hatch failed, so Documents/Downloads/Desktop (the exact folders holding the #2389
+           target's agents) were NOT read, yet the scan contract (frScanAgents ~38859) treats
+           tccUnavailable as FULL/complete (scanning falsy, FR_SCAN_FULL true), so the
+           grant-flip poll STOPS and there is no late edge to correct it. Asserting "nothing
+           to import" there is the #1493 SAID-WHILE-FALSE class, persistently, on the granted
+           path, for the precise population #2389 exists to serve.
+       On any of the three: make no import claim. Fall to the silent else (heading + fork,
+       box cleared). This matches Josh's standing S9-empty ruling -- on the empty screen we
+       stay silent about a failed/unfinished read rather than confess it (the four deleted
+       sentences) -- and frPaintScan's own tccUnavailable disclosure fires only when there
+       ARE rows, so the empty case is deliberately silent here too.
+
+       ⚠️ KEPT (a decided, reversible call, FLAGGED for Josh): the ungranted BARE-route empty
+       (ok:true, not scanning, no bounded) STILL renders the verbatim. The bare /api/scan-agents
+       is TCC-free by design (#2125, no permission ambush) and skips Documents/Downloads/Desktop,
+       so pre-grant "nothing to import" is the honest summary of what we are ALLOWED to see, and
+       it matches the create arm's pre-grant terminal state; the grant-flip poll corrects it if a
+       late grant lands. The alternative (gate on FR_SCAN_FULL) would strip Josh's reassuring
+       close from EVERY declined/ungranted adopt user -- including the majority who genuinely have
+       nothing -- to protect the narrow declined-WITH-Documents-agents case. That trade is his
+       copy call: if he wants the verbatim gated on a full granted readable scan, it is a one-line
+       change to require FR_SCAN_FULL here. */
+    if (FR_SCAN && FR_SCAN.ok === true && FR_SCAN.scanning !== true
+        && !(FR_SCAN.bounded && FR_SCAN.bounded.tccUnavailable)) {
+      box.innerHTML = '<p>They are already here. There is nothing to import and '
+        + 'nothing to wait for.</p>';
+      frForkActions();
+      return;
+    }
+    box.innerHTML = '';
     frForkActions();
     return;
   }
