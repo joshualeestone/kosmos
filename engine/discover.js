@@ -1205,6 +1205,13 @@ function scan(opts) {
       }
       for (const l of (hatch.loose || [])) {
         if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
+        // 🔑 Keyed on the LITERAL l.file, not a canonical realpath like the in-engine walk's byFile.
+        // This is correct ONLY because the tcc:true roots are partitioned OUT of the in-engine walk
+        // (above), so the hatch population and the walk population never overlap -- there is no
+        // realpath alias to collide. Do NOT realpath l.file here: it is a path under a TCC folder
+        // the ENGINE is not granted, so resolving it could itself touch/prompt (the whole reason the
+        // hatch does the reading). The hatch already realpath-dedups its own walk. If that partition
+        // invariant ever changes, revisit this dedup basis.
         if (!l || !l.file || byFile.has(l.file)) continue;
         const row = looseRow(l.file, l.head);
         if (row) byFile.set(l.file, row);
