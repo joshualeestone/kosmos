@@ -146,6 +146,35 @@ test('#2243 part 3: a cwd in BOTH projects.json and history is unioned ONCE (de-
   assert.equal(r.agents.length, 1, 'a cwd recorded in both sources was offered twice');
 });
 
+test('#2243 part 3: a trailing-slash divergence between the two sources de-dupes to ONE row', () => {
+  const root = sandbox();
+  const work = path.join(root, 'slash'); fs.mkdirSync(work);
+  fs.writeFileSync(path.join(work, 'GEMINI.md'), '# You are Slash Agent, a pm.\n\nText.\n');
+  projectsJson(root, { [work]: 'slash' });   // projects.json: no trailing slash
+  historyRoot(root, 'slash', work + '/');    // history: trailing slash -- same dir, spelled differently
+  // Without the trailing-slash strip these are two distinct strings that both survive
+  // de-dupe, and foundGemini keys byDir on the raw cwd, so the SAME agent shows TWICE.
+  const cwds = withGeminiHome(root, () => geminisession.projects());
+  assert.equal(cwds.length, 1, 'a trailing-slash divergence produced two cwds for one directory');
+  const r = withGeminiHome(root, () => discover.foundGemini(undefined));
+  assert.equal(r.agents.length, 1, 'the SAME agent surfaced twice from a trailing-slash divergence');
+});
+
+test('#2243 part 3: a multi-line .project_root reduces to its first-line cwd, not an embedded-newline string', () => {
+  const root = sandbox();
+  const work = path.join(root, 'multi'); fs.mkdirSync(work);
+  fs.writeFileSync(path.join(work, 'GEMINI.md'), '# You are Multi Agent, a pm.\n\nText.\n');
+  projectsJson(root, {});
+  // A malformed/multi-line .project_root: the first line is the cwd; extra lines must
+  // not survive as an embedded newline (which passes isAbsolute and defeats de-dupe).
+  const dir = path.join(root, 'gemini', 'history', 'multi'); fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '.project_root'), work + '\nstray second line\n');
+  const cwds = withGeminiHome(root, () => geminisession.projects());
+  assert.deepEqual(cwds, [work], 'a multi-line .project_root did not reduce to its first-line cwd');
+  const r = withGeminiHome(root, () => discover.foundGemini(undefined));
+  assert.equal(r.agents.length, 1, 'the first-line cwd was not read as an agent');
+});
+
 test('#2243 part 3: a missing / blank / relative .project_root is skipped and never throws', () => {
   const root = sandbox();
   projectsJson(root, {});

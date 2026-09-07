@@ -55,7 +55,15 @@ function projects() {
   const out = [];
   const add = (cwd) => {
     if (typeof cwd !== 'string') return;
-    const p = cwd.trim();
+    let p = cwd.trim();
+    /* Strip a trailing slash (a lone "/" left as-is) so /x and /x/ from the two
+       sources de-dupe to one row: foundGemini keys byDir on the raw cwd, so an
+       un-normalized trailing-slash divergence would surface the SAME agent twice.
+       Cheap, no filesystem. A symlink-spelling divergence (/tmp vs /private/tmp) is
+       NOT collapsed here -- that needs realpathSync (a per-cwd stat + throw-handling
+       for a moved cwd that must stay returnable), deferred as the sources are
+       byte-identical in practice; revisit if they ever diverge by symlink. */
+    if (p.length > 1) p = p.replace(/\/+$/, '');
     if (!p || !path.isAbsolute(p) || seen.has(p)) return;
     seen.add(p);
     out.push(p);
@@ -68,7 +76,10 @@ function projects() {
   const map = parsed && parsed.projects;
   if (map && typeof map === 'object') for (const cwd of Object.keys(map)) add(cwd);
 
-  // Source 2: history/<name>/.project_root (#2243 part 3). Per-entry and tolerant --
+  // Source 2: history/<name>/.project_root (#2243 part 3). One readFileSync per history
+  // subdir; bounded by the number of Gemini projects (per-project, comparable to
+  // projects.json in practice), so no depth/count cap -- if history ever becomes
+  // session-keyed and unbounded, add one. Per-entry and tolerant --
   // a missing history dir, a non-directory entry, an unreadable subdir, or an
   // absent/blank/relative .project_root is simply skipped, never thrown.
   let entries;
@@ -79,7 +90,11 @@ function projects() {
     let root;
     try { root = fs.readFileSync(path.join(HOME(), 'history', e.name, '.project_root'), 'utf8'); }
     catch { continue; }
-    add(root);
+    /* First line only, matching codexsession's meta discipline: a .project_root is one
+       absolute cwd, so extra lines in a malformed/multi-line file must not become an
+       embedded newline in the cwd (which survives trim and would defeat de-dupe against
+       the clean projects.json key). */
+    add(root.split('\n')[0]);
   }
 
   return out;
