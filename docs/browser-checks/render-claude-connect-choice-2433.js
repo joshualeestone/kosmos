@@ -15,18 +15,19 @@
  * screen, and that a pasted-key add paints the same gold connected box the OpenAI
  * and first-run flows use.
  *
- * 🛑 IT ALSO PINS THE #2420 ORDERING CONSTRAINT ON THE ROW. Pete's removal engine
- * (forget/remove for an api-key account) is a later #2420 slice; until it lands a
- * live Disconnect / Sign-in-again / Delete-and-remove on an api-key row only errors.
- * So this drives the REAL paintAccounts() over a stubbed list carrying an api-key
- * row and a subscription row, and asserts the api-key row renders NONE of those three
- * live controls (a disabled, focusable Disconnect stating removal is coming instead),
- * while the subscription row keeps all three. That suppression is a browser-visible
- * property of the rendered list, so it is pinned where a source read would miss a
- * regression that re-enabled the broken controls.
+ * 🛑 IT ALSO PINS THE #2441 ROW-ACTION STATE. #2420's removal engine has landed, so an
+ * api-key Claude row's Disconnect (data-forget) and Delete-and-remove (data-remove) are
+ * now LIVE. Sign-in-again STAYS suppressed on those rows: writing OAuth into a dir that
+ * holds a stored key is refused by the connect-start guard (#2432), so a live reauth
+ * would only error; the product's switch-billing answer is remove-and-re-add. So this
+ * drives the REAL paintAccounts() over a stubbed list carrying an api-key row and a
+ * subscription row, and asserts the api-key row now has a live Disconnect + Delete but
+ * NO Sign-in-again and no leftover disabled "removal coming" button. These are
+ * browser-visible properties of the rendered list, pinned where a source read would miss
+ * a regression that re-suppressed the removal controls or surfaced the erroring reauth.
  *
- * CONTROL: the subscription row is the discriminator -- it proves the suppression is
- * specific to api-key rows, not a blanket removal of every Claude row's actions.
+ * CONTROL: the subscription row is the discriminator -- it keeps its Sign-in-again,
+ * proving the reauth suppression is specific to api-key rows, not a blanket removal.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-claude-connect-choice-2433.js
@@ -174,6 +175,20 @@ function check(name, pass, detail) {
       hasReauth: Boolean(box.querySelector('[data-reauth]')),
       hasForget: Boolean(box.querySelector('[data-forget]')),
       hasRemove: Boolean(box.querySelector('[data-remove]')),
+      // The LIVE Disconnect's tooltip. Its truth differs by credential shape
+      // (#2441): on an api-key row Disconnect erases the saved key, so the title
+      // must NOT reuse the OAuth "sign-in file stays / nothing is deleted" copy.
+      discTitle: (() => {
+        const d = box.querySelector('.acct-disconnect[data-forget]');
+        return d ? (d.getAttribute('title') || '') : '';
+      })(),
+      // The Delete-and-remove tooltip. Its "Unlike Disconnect" contrast is only true
+      // where Disconnect is reversible; on an api-key Claude row Disconnect erases the
+      // key, so that contrast must be dropped there (#2441).
+      removeTitle: (() => {
+        const d = box.querySelector('.acct-remove[data-remove]');
+        return d ? (d.getAttribute('title') || '') : '';
+      })(),
       disabledDisc: (() => {
         const d = box.querySelector('.acct-disconnect[aria-disabled="true"]');
         if (!d) return null;
@@ -185,10 +200,9 @@ function check(name, pass, detail) {
         };
       })(),
     });
-    const apiBox = boxes.find((b) => {
-      const d = b.querySelector('.acct-disconnect[aria-disabled="true"]');
-      return d && /not ready|coming soon/i.test((d.getAttribute('title') || '') + (d.getAttribute('aria-label') || ''));
-    });
+    // Both rows now render a live data-forget, so locate each by its dir rather than
+    // by a "removal coming" button that no longer exists (#2441).
+    const apiBox = boxes.find((b) => b.querySelector('[data-forget="/h/.claude-work1"]'));
     const subBox = boxes.find((b) => b.querySelector('[data-forget="/h/.claude-sub"]'));
     const rows = {
       boxCount: boxes.length,
@@ -196,22 +210,7 @@ function check(name, pass, detail) {
       sub: subBox ? info(subBox) : null,
     };
 
-    // Pressing the api-key row's disabled Disconnect must NOT speak "Sign in again
-    // above": that remedy is suppressed on this row (#2433 made the handler's clause
-    // conditional on the row actually having a reauth control), so pointing at it
-    // would name a button that is not there.
-    let apiPressSay = null;
-    if (apiBox) {
-      const d = apiBox.querySelector('.acct-disconnect[aria-disabled="true"]');
-      const sayEl = document.getElementById('set-accounts-msg');
-      if (d && sayEl) {
-        d.click();
-        await new Promise((res) => setTimeout(res, 120));
-        apiPressSay = sayEl.textContent || '';
-      }
-    }
-
-    return { picker, keyStep, subStep, added, reauth, rows, apiPressSay };
+    return { picker, keyStep, subStep, added, reauth, rows };
   });
 
   if (r.error) { console.error('render-claude-connect-choice-2433: ' + r.error); await browser.close(); process.exit(1); }
@@ -241,30 +240,48 @@ function check(name, pass, detail) {
   // 5. reauth bypass
   check('a reauth skips the picker and lands on the subscription step directly',
     r.reauth.pickHidden && r.reauth.subVisible, JSON.stringify(r.reauth));
-  // 6. rows: #2420 ordering
+  // 6. rows: #2441 — api-key Disconnect + Delete now live, reauth stays suppressed
   check('the account list rendered both rows (so the row asserts are not vacuous)',
     r.rows.boxCount === 2, 'boxCount ' + r.rows.boxCount);
   if (r.rows.api) {
-    check('the api-key row carries NO live Sign-in-again, Disconnect or Delete-and-remove (removal engine not landed)',
-      !r.rows.api.hasReauth && !r.rows.api.hasForget && !r.rows.api.hasRemove,
-      'reauth ' + r.rows.api.hasReauth + ', forget ' + r.rows.api.hasForget + ', remove ' + r.rows.api.hasRemove);
-    check('the api-key row shows a focusable, painted, aria-disabled Disconnect (not the tab-order-removed native disabled)',
-      r.rows.api.disabledDisc && r.rows.api.disabledDisc.visible && r.rows.api.disabledDisc.sized
-        && !r.rows.api.disabledDisc.nativeDisabled,
-      JSON.stringify(r.rows.api.disabledDisc));
-    check('the api-key Disconnect states the truth in its accessible name: removal is coming, not broken',
-      r.rows.api.disabledDisc && /not ready|coming soon/i.test(r.rows.api.disabledDisc.label),
-      r.rows.api.disabledDisc ? r.rows.api.disabledDisc.label : 'no disabled disconnect');
-    check('pressing the api-key disabled Disconnect does NOT point at a "Sign in again" that this row lacks',
-      typeof r.apiPressSay === 'string' && r.apiPressSay.length > 0 && !/Sign in again/i.test(r.apiPressSay),
-      JSON.stringify((r.apiPressSay || '').slice(0, 90)));
+    check('the api-key row now carries a LIVE Disconnect and Delete-and-remove (#2420 removal engine landed, #2441 flipped them live)',
+      r.rows.api.hasForget && r.rows.api.hasRemove,
+      'forget ' + r.rows.api.hasForget + ', remove ' + r.rows.api.hasRemove);
+    check('the api-key row STILL suppresses Sign-in-again (reauth into a key-holding dir is refused by the connect-start guard; switching billing is remove-and-re-add)',
+      !r.rows.api.hasReauth, 'reauth ' + r.rows.api.hasReauth);
+    check('the api-key row shows NO leftover disabled "removal coming" Disconnect (it is a live control now)',
+      !r.rows.api.disabledDisc, JSON.stringify(r.rows.api.disabledDisc));
+    // #2441 honesty: Disconnect ERASES the saved key on an api-key row, so its title
+    // must say the key is removed and must NOT reuse the OAuth "sign-in file stays /
+    // nothing is deleted" promise, which is false here.
+    check('the api-key Disconnect title tells the truth: it says the saved API key is erased, and does NOT falsely promise the sign-in file stays / nothing is deleted',
+      /erases its saved API key/i.test(r.rows.api.discTitle)
+        && !/sign-in file stays/i.test(r.rows.api.discTitle)
+        && !/nothing is deleted\b/i.test(r.rows.api.discTitle),
+      JSON.stringify(r.rows.api.discTitle));
+    check('the api-key Delete-and-remove title does NOT use the "Unlike Disconnect" contrast (api-key Disconnect erases the key, so it is not the reversible option), and still states this cannot be undone',
+      !/unlike disconnect/i.test(r.rows.api.removeTitle) && /cannot be undone/i.test(r.rows.api.removeTitle),
+      JSON.stringify(r.rows.api.removeTitle));
   } else {
-    check('the api-key row was found in the list', false, 'no api-key row with a removal-coming Disconnect rendered');
+    check('the api-key row was found in the list', false, 'no api-key row rendered');
   }
   // CONTROL
-  check('CONTROL: the subscription row keeps its live Sign-in-again, Disconnect and Delete-and-remove',
+  check('CONTROL: the subscription row keeps its live Sign-in-again (which the api-key row lacks), Disconnect and Delete-and-remove',
     r.rows.sub && r.rows.sub.hasReauth && r.rows.sub.hasForget && r.rows.sub.hasRemove,
     r.rows.sub ? JSON.stringify(r.rows.sub) : 'no subscription control row found');
+  // CONTROL for the title honesty: the OAuth (subscription) row's Disconnect KEEPS the
+  // "sign-in file stays / nothing is deleted" copy, which is true there -- proving the
+  // api-key rewording is credential-shape-specific, not a blanket copy change.
+  check('CONTROL: the subscription Disconnect title keeps the OAuth "sign-in file stays, nothing is deleted" copy (true for a renamed-aside OAuth dir)',
+    r.rows.sub && /sign-in file stays/i.test(r.rows.sub.discTitle) && /nothing is deleted/i.test(r.rows.sub.discTitle)
+      && !/erases its saved API key/i.test(r.rows.sub.discTitle),
+    r.rows.sub ? JSON.stringify(r.rows.sub.discTitle) : 'no subscription row');
+  // CONTROL for the Delete-title contrast: the subscription row's Disconnect IS
+  // reversible (renamed aside, credential survives), so its Delete title correctly
+  // KEEPS the "Unlike Disconnect" contrast -- proving the api-key drop is shape-specific.
+  check('CONTROL: the subscription Delete-and-remove title keeps the "Unlike Disconnect" contrast (Disconnect is reversible on a subscription row)',
+    r.rows.sub && /unlike disconnect/i.test(r.rows.sub.removeTitle) && /cannot be undone/i.test(r.rows.sub.removeTitle),
+    r.rows.sub ? JSON.stringify(r.rows.sub.removeTitle) : 'no subscription row');
 
   await browser.close();
   if (problems.length) {
@@ -272,5 +289,5 @@ function check(name, pass, detail) {
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-claude-connect-choice-2433: the Claude add flow offers a subscription-vs-API-key picker that toggles the right step, a pasted key paints the gold connected box, a reauth skips the picker, and an api-key row suppresses the three not-yet-working removal controls (subscription row keeps them).');
+  console.log('render-claude-connect-choice-2433: the Claude add flow offers a subscription-vs-API-key picker that toggles the right step, a pasted key paints the gold connected box, a reauth skips the picker, and an api-key row now shows live Disconnect + Delete-and-remove (with a truthful "erases the saved key" tooltip) while still suppressing Sign-in-again (subscription row keeps all three and the OAuth "nothing is deleted" copy).');
 })();

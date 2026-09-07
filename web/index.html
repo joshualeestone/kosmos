@@ -15810,12 +15810,13 @@ async function paintAccounts() {
          a CSS border-left on each action after the first (.acct-actions), so a
          row with two actions or three lays out the same with no separator markup. */
       + '<div class="acct-actions">'
-      /* #2433: an api-key Claude account cannot be re-authed -- `Sign in again` is
-         the browser-OAuth flow, and writing OAuth into a dir that holds a stored key
-         is refused by the connect-start guard (#2432), so the control would only
-         error. Suppressed until #2420's removal slice lands, at which point these
-         rows get live actions. `a.apiKey` is present-and-false on a subscription
-         row, so this narrows to api-key rows alone. */
+      /* #2433/#2441: an api-key Claude account cannot be re-authed -- `Sign in again`
+         is the browser-OAuth flow, and writing OAuth into a dir that holds a stored key
+         is refused by the connect-start guard (#2432), so the control would only error.
+         This stays suppressed permanently even now that #2420's removal slice has landed
+         (#2441): the product's answer for switching an api-key row to a subscription is
+         remove-and-re-add, not reauth-in-place. `a.apiKey` is present-and-false on a
+         subscription row, so this narrows to api-key rows alone. */
       + (isOpenai || a.apiKey ? ''
         : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
           /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
@@ -15828,24 +15829,12 @@ async function paintAccounts() {
              is untouched. Pinned below so this is a decision rather than a leftover. */
           + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
           + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
-      /* #2433: an api-key Claude account's removal engine is #2420's next slice, not
-         yet landed -- `forgetAccount`/`removeAccount` refuse it today (the
-         `!identityOf` guard), so a LIVE Disconnect would return a misleading "that is
-         not a Claude account" error. This outer arm renders a DISABLED Disconnect for
-         those rows, same shape as the default row's below (aria-disabled, no
-         data-forget so the shared removal handler cannot select it), whose reason is
-         the truth: removal is coming, not broken. It WRAPS the existing
-         openai/default/live ternary rather than nesting inside it, so that pinned
-         ternary (and #1659's extraction of it) is unchanged. When the removal slice
-         merges, drop this arm and the api-key rows get live actions like any other.
-         `a.apiKey` is present-and-false on subscription rows, so `&& !isOpenai`
-         narrows this to api-key Claude rows alone. */
-      + (a.apiKey && !isOpenai
-        ? '<button class="acct-disconnect" type="button" aria-disabled="true" '
-          + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
-            + '. Not ready yet: removing an API-key Claude account is coming soon." '
-          + 'title="Removing an API-key Claude account is not ready yet. It is coming soon; for now this account stays connected.">Disconnect</button>'
-        : (isOpenai
+      /* #2441: api-key Claude Disconnect is now LIVE. #2420's removal slice landed, so
+         `forgetAccount` accepts api-key accounts (erases the stored key + unwires the
+         apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
+         around this ternary has been dropped. The openai/default/live ternary below is
+         the #1659-pinned one, unchanged. */
+      + (isOpenai
         /* 🔑 ONE WORD FOR ONE ACT (#1659). This said "Remove" while the Claude
            row said "Disconnect", for the same act in the same row builder --
            the exact divergence this card exists to close, one layer up from
@@ -15925,25 +15914,52 @@ async function paintAccounts() {
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')'
               + '. Unavailable: Kosmos does not remove this computer\u2019s main Claude folder." '
             + 'title="Kosmos does not remove this computer\u2019s main Claude folder. It is the one Claude Code uses when nothing says otherwise, and other accounts here may keep their history inside it.">Disconnect</button>'
+          /* 🛑 #2441: THE TITLE IS CONDITIONAL ON api-key, BECAUSE Disconnect DELETES
+             DIFFERENT THINGS ON THE TWO CREDENTIAL SHAPES, and #1659's rule is that
+             "removed" and "deleted" are different promises and the person is owed the
+             true one. On an OAuth row `forgetAccount` renames the dir aside and the
+             sign-in file survives -- "nothing is deleted" is true. On an api-key row
+             it ALSO erases the raw key file and unwires the apiKeyHelper pointer
+             (engine/accounts.js #2420: `ca.forgetKey` + `unwireApiKeyHelper` on the
+             moved dir), so the saved key IS deleted. Reusing the OAuth title there
+             would promise the credential survives when Disconnect is exactly what
+             takes it away. The api-key title says so; the folder is still moved aside,
+             so the history sentence stays true of both. */
           : '<button class="acct-disconnect" type="button" data-forget="' + esc(a.dir) + '" '
             + 'data-forget-provider="claude" '
             + 'aria-label="Disconnect ' + who + ' (' + esc(qualName) + ')' + '" '
-            + 'title="Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.">Disconnect</button>')))
+            + 'title="' + (a.apiKey
+              ? 'Takes this account off the list and erases its saved API key from this computer. Nothing else is deleted: its folder is moved aside and Kosmos stops looking inside it, so any history kept only there will not appear any more.'
+              : 'Takes this account off the list. Its sign-in file stays on this computer, so nothing is deleted, and Kosmos stops looking inside it, so any history kept only there will not appear any more.')
+            + '">Disconnect</button>'))
       /* #2264: DELETE AND REMOVE - the destructive third action, on every
          NON-default row of both providers (removeAccount refuses the default, so
          it gets no button, matching the disabled Disconnect above). data-remove
          (not data-forget) so the removal handler tells delete from disconnect and
          sends remove:true; the provider rides the same data-forget-provider
          attribute the two DELETE routes already read. */
-      /* #2433: like the reauth and Disconnect above, an api-key Claude account has
-         no working removal until #2420's slice lands (removeAccount refuses it
-         today), so Delete-and-remove is suppressed on those rows too -- no destructive
-         control that only errors. Flips live with the rest when the slice merges. */
-      + (a.isDefault || (!isOpenai && a.apiKey) ? ''
+      /* #2441: Delete-and-remove is now LIVE on api-key Claude rows too. #2420's slice
+         landed, so removeAccount accepts api-key accounts; the #2433 `a.apiKey`
+         suppression is dropped, leaving only the default-row suppression (removeAccount
+         still refuses the default, so it keeps getting no button). */
+      + (a.isDefault ? ''
         : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
           + 'data-forget-provider="' + (isOpenai ? 'openai' : 'claude') + '" '
           + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
-          + 'title="Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.">Delete and remove</button>')
+          /* 🛑 #2441: THE "Unlike Disconnect" CONTRAST IS FALSE ON A CLAUDE api-key ROW.
+             It tells the person Disconnect is the reversible option -- true where
+             Disconnect renames the dir aside and the credential survives: an OpenAI row
+             (openaiaccounts.forgetAccount renames aside, no key erase) and a Claude
+             subscription row. But on a Claude api-key row Disconnect ALSO erases the raw
+             key (forgetKey rm), so it is NOT undoable, and "Unlike Disconnect" would
+             imply it is. `!isOpenai && a.apiKey` is exactly the Claude-api-key set (the
+             #2433 condition); it excludes OpenAI even in its own apikey mode, whose
+             Disconnect stays reversible. There the title states Delete's finality
+             without the misleading comparison. */
+          + 'title="' + (!isOpenai && a.apiKey
+            ? 'Deletes this account from this computer: its saved API key and its whole folder, including any history in it. This cannot be undone.'
+            : 'Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.')
+          + '">Delete and remove</button>')
       + '</div>'
       + '</div>';
   };
@@ -16023,12 +16039,15 @@ async function paintAccounts() {
          When reauth is fixed so a green check means a captured credential, this wording
          can be strengthened to name it as the fix. Noted on the card so that owner sees
          it. */
-      /* #2433: the "Sign in again above" remedy is only TRUE when this row actually
-         has a reauth control. The api-key disabled Disconnect (removal-not-ready)
-         sits on a row where reauth is suppressed (#2420 ordering), so appending it
-         there would point at a button that does not exist. Gate the clause on the
-         control's presence in this row. The default row keeps reauth, so its message
-         is unchanged; the title is untouched either way (a test anchors on it). */
+      /* #2433/#2441: the "Sign in again above" remedy is only TRUE when this row
+         actually has a reauth control, so the clause is gated on the control's presence
+         rather than assumed. #2441 flipped api-key Disconnect live, so the only row that
+         still renders a disabled Disconnect is the default ~/.claude row, which keeps
+         reauth -- meaning the false branch is not reached in practice today. The gate
+         stays because it is the correct guard: any disabled-Disconnect row that lacked
+         reauth (e.g. a default row that is also api-key) would otherwise point at a
+         button that does not exist. The title is untouched either way (a test anchors
+         on it). */
       const row = btn.closest('.acct-box');
       const hasReauth = !!(row && row.querySelector('[data-reauth]'));
       const say = (btn.title || 'Kosmos does not remove this computer\u2019s main Claude folder.')
