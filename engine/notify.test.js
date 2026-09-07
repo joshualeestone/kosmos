@@ -73,6 +73,26 @@ test('ON by default (#2020 step 3); opting out stops the send, and a bad value i
   assert.equal(notify.read().on, true);
 });
 
+test('an existing-but-unreadable pref FAILS TO OFF, never sending against a possible opt-out (#2020 safety)', () => {
+  /* 🛑 THE SAFETY-CRITICAL ARM, elevated by the step-3 flip: now that a
+     never-asked machine defaults ON, the ONLY thing keeping an unreadable pref
+     from sending against a person's possible opt-out is that a malformed /
+     non-object / unreadable file reads OFF, not the ON default. A person who
+     turned it OFF and whose file then became unreadable must NOT start sending
+     again. */
+  // Malformed (not JSON): OFF, ok:false.
+  fs.writeFileSync(notify.FILE, 'not json at all');
+  assert.deepEqual(notify.read(), { on: false, ok: false }, 'a malformed pref must fail to OFF, ok:false');
+  // Non-object JSON (an array): OFF, ok:false.
+  fs.writeFileSync(notify.FILE, '[1,2,3]');
+  assert.deepEqual(notify.read(), { on: false, ok: false }, 'a non-object pref must fail to OFF, ok:false');
+  /* Control that proves the OFF above is the fail-safe and not just the default:
+     remove the file and the same read is ON (the never-asked default). If the
+     default were OFF this control would not discriminate. */
+  fs.rmSync(notify.FILE, { force: true });
+  assert.equal(notify.read().on, true, 'control: a never-asked machine reads ON, so the OFF above is the unreadable fail-safe');
+});
+
 test('what leaves the Mac is who, what, which project and when; never the words, and never an unknown kind', async () => {
   const sent = capture();
   notify.setOn(true);

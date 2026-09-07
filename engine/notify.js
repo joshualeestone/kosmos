@@ -75,7 +75,13 @@ function read() {
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, ok: false };
+  /* ⚠️ Array.isArray IS LOAD-BEARING, not tidiness: `typeof [] === 'object'`, so
+     without it a pref corrupted to a JSON array falls through to the ON default
+     and starts sending against a person's possible opt-out. With the send now ON
+     by default, any non-plain-object pref must fail to OFF -- the safe direction.
+     (ping.js carries the same `typeof` check and the same latent quirk; a parallel
+     one-line fix there is a scoped follow-up, noted in this branch's plan.) */
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, ok: false };
   /* A missing or non-boolean `on` field is the never-asked default (ON), the
      same as ENOENT; only an explicit `false` turns it off, so a person's opt-out
      is honoured exactly. Was `parsed.on === true` (default OFF) before step 3. */
