@@ -90,7 +90,7 @@ test('a verdict with no readable time -> uncheckable (cannot judge freshness)', 
 
 // A mocked sqlite runner so the branch logic is deterministic without a db. The
 // runner returns {ok, rows:[{client, auth}]} for tmux-shaped clients (the real
-// runner does a LIKE '%tmux%'); tmuxGrant matches the exact resolved path in JS.
+// runner does a LIKE '%/tmux'); tmuxGrant matches the exact resolved path in JS.
 const rowsRunner = (rows) => () => ({ ok: true, rows });
 const failRunner = (because) => () => ({ ok: false, because: because || 'nope' });
 
@@ -158,7 +158,7 @@ test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + 
   const db = path.join(SANDBOX, 'tcc-test.db');
   try { fs.rmSync(db, { force: true }); } catch { /* */ }
   // Match the real schema (service/client/client_type/auth_value) so this
-  // exercises the ACTUAL query the default runner builds (LIKE '%tmux%'), not a mock.
+  // exercises the ACTUAL query the default runner builds (LIKE '%/tmux'), not a mock.
   execFileSync('/usr/bin/sqlite3', [db,
     "CREATE TABLE access(service TEXT NOT NULL, client TEXT NOT NULL, client_type INTEGER NOT NULL, auth_value INTEGER NOT NULL);"
     + "INSERT INTO access VALUES('kTCCServiceAccessibility','/fake/bundled/tmux',1,2);"
