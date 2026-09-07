@@ -763,10 +763,12 @@ const SCAN_SKIP = new Set([
   // agent -- same rationale as node_modules. Promoting every top-level $HOME folder
   // to a DEEP root (discoverHomeParents) means a huge cache (`~/go/pkg/mod` is
   // routinely tens of thousands of dirs; conda installs are large) could otherwise
-  // exhaust MAX_DIRS before a later arbitrary-named agent folder is reached. Small
-  // tradeoff, stated: a legacy GOPATH agent literally under ~/go/src is now missed;
-  // judged acceptable (rare, and the modern layout is arbitrary project dirs, which
-  // discovery still covers).
+  // exhaust MAX_DIRS before a later arbitrary-named agent folder is reached.
+  // ⚠️ NAME-BASED AND AT EVERY LEVEL (like build/target/dist): a folder named `go`
+  // (case-insensitively) is skipped anywhere in the tree, not just ~/go. `go` is a
+  // more collision-prone name than the others, so a legacy GOPATH agent under
+  // ~/go/src, or any folder literally named `go`, is now missed. Judged acceptable
+  // (rare; the modern Go layout is arbitrary project dirs, which discovery covers).
   'go', 'anaconda3', 'miniconda3',
   'Library', 'Applications', 'Music', 'Movies', 'Pictures', 'Downloads',
   // #2125: Documents must never be walked by the auto scan -- entering ~/Documents
@@ -928,8 +930,9 @@ function defaultScanRoots(opts) {
      re-adds exactly the roots #1938 (Documents, deep) and #1652 (Downloads/Desktop,
      import-only) contributed, but gated behind the explicit action.
      ⚠️ ~/Documents is added as an explicit ROOT even though it is in SCAN_SKIP:
-     SCAN_SKIP filters CHILDREN during descent, so it keeps ~/Documents out of the
-     $HOME walk (path 2), but a root is its own walk start and is not self-skipped.
+     isScanSkip keeps ~/Documents out of the AUTO scan (it filters discovery's
+     promoted roots and the descent children), but a root is its own walk start and
+     is not self-skipped, so naming it here still walks it under importScan.
      Downloads/Desktop are import-only (loose FILES only; nobody RUNS an agent
      there), which is why they carry importOnly + the shallow DROP_DEPTH. */
   if (importScan) {
