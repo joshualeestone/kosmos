@@ -38662,7 +38662,9 @@ async function fetchImportScanComplete(onPartial, isStale) {
       out = res.ok ? await res.json() : null;
     } catch { out = null; }
     if (!out || out.scanning !== true) return out;   // complete result, or a hard failure -> done
-    if (typeof onPartial === 'function') { try { onPartial(out); } catch { /* partial rendering is best-effort */ } }
+    // onPartial only on NON-final iterations: on the last (i===MAX) we return this same partial, and
+    // the caller paints it -- calling onPartial here too would paint the identical partial twice.
+    if (i < MAX && typeof onPartial === 'function') { try { onPartial(out); } catch { /* partial rendering is best-effort */ } }
     if (i < MAX) await new Promise((r) => setTimeout(r, FR_IMPORT_RETRY_MS));
   }
   return out;   // retries exhausted while still scanning (rare; the engine normally resolves to tccUnavailable first)

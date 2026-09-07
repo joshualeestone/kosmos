@@ -80,11 +80,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     const errs = [];
     p.on('pageerror', (e) => errs.push(String(e)));
     // Network-level resource-load noise is not a page/JS error (uncaught exceptions come via
-    // pageerror above). The 500 tolerance is scoped to scenario 8 (which deliberately makes
-    // /api/scan-import return 500 to exercise the hiccup-retry path) via expect500 -- so
-    // scenarios 1-7 still catch an UNEXPECTED 500 from any endpoint. expect500 is set once at
-    // scenario 8's start and never reset (scenario 8 is last), which also avoids racing the
-    // async console event against scanImportFail flipping back to false.
+    // pageerror above). The 500 tolerance is scoped, via expect500, to ONLY the scenarios that
+    // deliberately make /api/scan-import return 500 (8: grant-edge hiccup; 11: granted-entry
+    // hiccup). It is turned on at each of those scenarios' start and turned back off after each
+    // recovers -- so every other scenario (1-7, 9, 10) still catches an UNEXPECTED 500 from any
+    // endpoint. Resetting is race-free because each 500-producing scenario awaits its own recovery
+    // (FR_SCAN_FULL===true) before the reset, by which point its 500 console events have flushed.
     let expect500 = false;
     p.on('console', (m) => {
       if (m.type() !== 'error') return;
@@ -366,7 +367,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
       { dir: '/Users/x/Documents/hiccup-agent', name: 'Hiccup agent', role: 'watches', preview: 'You watch.' },
     ];
     importFiles = [];
-    expect500 = true;                                              // scope the 500 console-noise tolerance to this scenario onward
+    expect500 = true;                                              // this scenario deliberately 500s; reset to false after it recovers
     scanImportFail = true;                                          // the granted re-scan will hiccup
     await p.evaluate(async () => {
       FR_RESCAN_INTERVAL_MS = 20;
@@ -387,6 +388,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     await p.waitForFunction(() => FR_SCAN_FULL === true, null, { timeout: 2000 }).catch(() => {});
     const rec = await p.evaluate(() => ({ full: FR_SCAN_FULL, stopped: FR_RESCAN_TIMER === null, offer: (typeof frScanOffer === 'function') ? frScanOffer().length : -1 }));
     if (rec.full && rec.stopped && rec.offer === 1) ok('#3/#4(a): once the granted scan recovers, the re-scan succeeds, the poll stops, and the agent renders'); else bad('#3/#4(a) recovers after hiccup', JSON.stringify(rec));
+    expect500 = false;   // scenario 8 done + recovered (its 500 console events have flushed); 9/10 produce no 500s, so re-tighten
 
     // ── 9. #3/#4(b): scanning:true shows the partial rows, then the retry lands the complete set. ──
     // The granted /api/scan-import is two-phase: the first call returns the non-TCC rows with
