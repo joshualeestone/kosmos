@@ -182,6 +182,13 @@ function check(name, pass, detail) {
         const d = box.querySelector('.acct-disconnect[data-forget]');
         return d ? (d.getAttribute('title') || '') : '';
       })(),
+      // The Delete-and-remove tooltip. Its "Unlike Disconnect" contrast is only true
+      // where Disconnect is reversible; on an api-key Claude row Disconnect erases the
+      // key, so that contrast must be dropped there (#2441).
+      removeTitle: (() => {
+        const d = box.querySelector('.acct-remove[data-remove]');
+        return d ? (d.getAttribute('title') || '') : '';
+      })(),
       disabledDisc: (() => {
         const d = box.querySelector('.acct-disconnect[aria-disabled="true"]');
         if (!d) return null;
@@ -252,6 +259,9 @@ function check(name, pass, detail) {
         && !/sign-in file stays/i.test(r.rows.api.discTitle)
         && !/nothing is deleted\b/i.test(r.rows.api.discTitle),
       JSON.stringify(r.rows.api.discTitle));
+    check('the api-key Delete-and-remove title does NOT use the "Unlike Disconnect" contrast (api-key Disconnect erases the key, so it is not the reversible option), and still states this cannot be undone',
+      !/unlike disconnect/i.test(r.rows.api.removeTitle) && /cannot be undone/i.test(r.rows.api.removeTitle),
+      JSON.stringify(r.rows.api.removeTitle));
   } else {
     check('the api-key row was found in the list', false, 'no api-key row rendered');
   }
@@ -266,6 +276,12 @@ function check(name, pass, detail) {
     r.rows.sub && /sign-in file stays/i.test(r.rows.sub.discTitle) && /nothing is deleted/i.test(r.rows.sub.discTitle)
       && !/erases its saved API key/i.test(r.rows.sub.discTitle),
     r.rows.sub ? JSON.stringify(r.rows.sub.discTitle) : 'no subscription row');
+  // CONTROL for the Delete-title contrast: the subscription row's Disconnect IS
+  // reversible (renamed aside, credential survives), so its Delete title correctly
+  // KEEPS the "Unlike Disconnect" contrast -- proving the api-key drop is shape-specific.
+  check('CONTROL: the subscription Delete-and-remove title keeps the "Unlike Disconnect" contrast (Disconnect is reversible on a subscription row)',
+    r.rows.sub && /unlike disconnect/i.test(r.rows.sub.removeTitle) && /cannot be undone/i.test(r.rows.sub.removeTitle),
+    r.rows.sub ? JSON.stringify(r.rows.sub.removeTitle) : 'no subscription row');
 
   await browser.close();
   if (problems.length) {

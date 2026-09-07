@@ -15946,7 +15946,20 @@ async function paintAccounts() {
         : '<button class="acct-remove" type="button" data-remove="' + esc(a.dir) + '" '
           + 'data-forget-provider="' + (isOpenai ? 'openai' : 'claude') + '" '
           + 'aria-label="Delete and remove ' + who + ' (' + esc(qualName) + ')" '
-          + 'title="Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.">Delete and remove</button>')
+          /* 🛑 #2441: THE "Unlike Disconnect" CONTRAST IS FALSE ON A CLAUDE api-key ROW.
+             It tells the person Disconnect is the reversible option -- true where
+             Disconnect renames the dir aside and the credential survives: an OpenAI row
+             (openaiaccounts.forgetAccount renames aside, no key erase) and a Claude
+             subscription row. But on a Claude api-key row Disconnect ALSO erases the raw
+             key (forgetKey rm), so it is NOT undoable, and "Unlike Disconnect" would
+             imply it is. `!isOpenai && a.apiKey` is exactly the Claude-api-key set (the
+             #2433 condition); it excludes OpenAI even in its own apikey mode, whose
+             Disconnect stays reversible. There the title states Delete's finality
+             without the misleading comparison. */
+          + 'title="' + (!isOpenai && a.apiKey
+            ? 'Deletes this account from this computer: its saved API key and its whole folder, including any history in it. This cannot be undone.'
+            : 'Deletes this account from this computer, sign-in file and all. Unlike Disconnect, this cannot be undone.')
+          + '">Delete and remove</button>')
       + '</div>'
       + '</div>';
   };
