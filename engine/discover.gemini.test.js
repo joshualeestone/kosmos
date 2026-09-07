@@ -27,6 +27,13 @@ function projectsJson(root, map) {
   fs.writeFileSync(path.join(root, 'gemini', 'projects.json'),
     JSON.stringify({ projects: map }) + '\n');
 }
+// #2243 part 3: the second enumeration source. history/<name>/.project_root holds
+// one absolute cwd (byte-identical to that project's projects.json key when both exist).
+function historyRoot(root, name, cwd) {
+  const dir = path.join(root, 'gemini', 'history', name);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, '.project_root'), cwd + '\n');
+}
 function withGeminiHome(root, fn) {
   const prev = process.env.AGENT_WORKFORCE_GEMINI_HOME;
   process.env.AGENT_WORKFORCE_GEMINI_HOME = path.join(root, 'gemini');
@@ -98,4 +105,45 @@ test('#2243: a missing or malformed projects.json yields no agents and never thr
   fs.writeFileSync(path.join(root, 'gemini', 'projects.json'), 'not json{');
   const r2 = withGeminiHome(root, () => discover.foundGemini(undefined));
   assert.equal(r2.agents.length, 0, 'a malformed projects.json was not tolerated as empty');
+});
+
+test('#2243 part 3: a Gemini agent recorded ONLY in history/<name>/.project_root (absent from projects.json) is found', () => {
+  const root = sandbox();
+  const work = path.join(root, 'histproj'); fs.mkdirSync(work);
+  fs.writeFileSync(path.join(work, 'GEMINI.md'), '# You are History Agent, a project manager.\n\nText.\n');
+  // projects.json exists but does NOT list this cwd -- an agent that ran before the
+  // project landed in projects.json, or whose projects.json was cleared. Part 2's
+  // projects.json-only read left this whole population invisible (its weakest premise).
+  projectsJson(root, {});
+  historyRoot(root, 'histproj', work);
+  const r = withGeminiHome(root, () => discover.foundGemini(undefined));
+  assert.equal(r.agents.length, 1, 'a Gemini agent recorded only in history/.project_root was invisible');
+  assert.equal(r.agents[0].name, 'History Agent');
+  assert.equal(r.agents[0].runner, 'gemini', 'the row does not say which provider it came from');
+  assert.equal(r.agents[0].instructions, path.join(work, 'GEMINI.md'));
+});
+
+test('#2243 part 3: a cwd in BOTH projects.json and history is offered ONCE (de-duped)', () => {
+  const root = sandbox();
+  const work = path.join(root, 'both'); fs.mkdirSync(work);
+  fs.writeFileSync(path.join(work, 'GEMINI.md'), '# You are Both Agent, a pm.\n\nText.\n');
+  projectsJson(root, { [work]: 'both' });
+  historyRoot(root, 'both', work);
+  const r = withGeminiHome(root, () => discover.foundGemini(undefined));
+  assert.equal(r.agents.length, 1, 'a cwd recorded in both sources was offered twice (the union did not de-dupe)');
+});
+
+test('#2243 part 3: a missing / blank / relative .project_root is skipped and never throws', () => {
+  const root = sandbox();
+  projectsJson(root, {});
+  // A history subdir with NO .project_root, and one whose .project_root is blank, and
+  // one relative -- each must be skipped, not throw and not add a bad cwd.
+  fs.mkdirSync(path.join(root, 'gemini', 'history', 'noroot'), { recursive: true });
+  const blank = path.join(root, 'gemini', 'history', 'blank'); fs.mkdirSync(blank);
+  fs.writeFileSync(path.join(blank, '.project_root'), '   \n');
+  const rel = path.join(root, 'gemini', 'history', 'rel'); fs.mkdirSync(rel);
+  fs.writeFileSync(path.join(rel, '.project_root'), 'relative/path\n');
+  const r = withGeminiHome(root, () => discover.foundGemini(undefined));
+  assert.equal(r.agents.length, 0, 'a blank/missing/relative .project_root should be skipped, not throw or add a bad cwd');
+  assert.equal(r.unreadable, 0, 'a skipped history entry must not raise unreadable');
 });
