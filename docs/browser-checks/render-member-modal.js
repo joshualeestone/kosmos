@@ -119,12 +119,16 @@ const chk = (ok, label, extra) => {
       await page.waitForTimeout(400);
       chk((await box()) === null, 'clicking the backdrop closes it');
 
-      /* ⚠️ AND THE BACKDROP MUST NOT SWALLOW A CLICK ON THE BOX ITSELF, which is
+      /* ⚠️ AND THE BACKDROP MUST NOT SWALLOW A CLICK INSIDE THE BOX, which is
          the usual way this idiom breaks: the dialog shuts the moment somebody
-         reaches for the field inside it. */
+         reaches for something inside it. Click the TITLE, not the box centre:
+         the 0.6.45 box is taller (the error line moved inside it), so a
+         centre-click now lands on the <select> and opens its native dropdown,
+         which then swallows the later selectOption. The title is inside the box
+         and non-interactive, so it tests the same close-safety cleanly. */
       await (await page.$('#pj-add-member')).click();
       await page.waitForTimeout(400);
-      await page.click('#am-modal .rm-box');
+      await page.click('#am-t');
       await page.waitForTimeout(400);
       chk((await box()) !== null, 'clicking inside the box does NOT close it');
 
@@ -147,12 +151,26 @@ const chk = (ok, label, extra) => {
       await page.waitForTimeout(400);
       chk((await box()) === null, 'the corner X closes it');
 
-      /* 0.6.45 (Josh) close-on-add: adding a member CLOSES the modal (no lingering
-         "everyone is already on it" empty state) AND the member is really added. */
+      /* Reopen for the add-then-close test (the X above closed it). */
       await (await page.$('#pj-add-member')).click();
       await page.waitForTimeout(400);
       chk((await box()) !== null, 'it reopens for the add-then-close test');
-      await page.selectOption('#pj-one-add', { label: 'Mikey' }).catch(() => page.selectOption('#pj-one-add', { index: 0 }));
+
+      /* 0.6.45: on a FAILED add the modal stays open and the reason goes to
+         #pj-one-msg, so that element must be INSIDE the modal box -- it used to
+         sit behind the fixed .rm-back backdrop, where a failure reason would be
+         invisible. Structural check (the failure POST is hard to force here). */
+      const msgInside = await page.$eval('#pj-one-msg', (el) => !!el.closest('#am-modal .rm-box')).catch(() => false);
+      chk(msgInside, 'the error line is inside the modal box (a failure reason is not hidden behind the backdrop)');
+
+      /* 0.6.45 (Josh) close-on-add: adding a member CLOSES the modal (no lingering
+         "everyone is already on it" empty state) AND the member is really added.
+         The fixture puts mikey free on this project, so assert he is selectable
+         rather than masking a missing option behind a silent fallback. */
+      const mikeyOption = await page.$eval('#pj-one-add', (sel) =>
+        [...sel.options].some((o) => o.textContent.trim() === 'Mikey')).catch(() => false);
+      chk(mikeyOption, 'Mikey is a selectable free agent (the fixture precondition holds)');
+      await page.selectOption('#pj-one-add', { label: 'Mikey' });
       await page.click('#pj-one-add-go');
       await page.waitForTimeout(900);
       chk((await box()) === null, 'clicking Add to project closes the modal (Josh item 5)');

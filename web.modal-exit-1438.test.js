@@ -47,12 +47,17 @@ function modalsIn(html) {
   const backs = [...html.matchAll(/<div class="rm-back"[^>]*id="([a-z0-9-]+)"/g)];
   for (let i = 0; i < backs.length; i += 1) {
     const w = backs[i];
-    // The modal's own region ends where the next modal begins, so an rm-acts or
-    // close-X found here belongs to THIS modal and not the one after it.
-    const end = i + 1 < backs.length ? backs[i + 1].index : html.length;
+    // The modal's own region ends where the next modal begins -- so an rm-acts or
+    // close-X found here belongs to THIS modal and not the one after it. For the
+    // LAST modal there is no next one, so cap the window (a modal's markup is well
+    // under this) rather than scanning the whole page tail, which would let a
+    // Close-glyph button added anywhere below it false-pass hasCloseX.
+    const nextBack = i + 1 < backs.length ? backs[i + 1].index : html.length;
+    // rm-acts: bound only by the next modal, since a modal with a big form can
+    // carry its actions row well past a fixed window.
     const ai = html.indexOf('class="rm-acts"', w.index);
     let acts = null; let buttons = [];
-    if (ai >= 0 && ai < end) {
+    if (ai >= 0 && ai < nextBack) {
       acts = html.slice(ai, html.indexOf('</div>', ai));
       buttons = [...acts.matchAll(/<button[^>]*class="([^"]*)"/g)].map((m) => m[1]);
     }
@@ -60,8 +65,12 @@ function modalsIn(html) {
     // is a way out on its own, even without an rm-acts row -- the add-member
     // modal (am-modal) now closes that way. Precise, so a primary "Quit" alone
     // still counts as no way out: the button must be Close-labelled AND a ×.
+    // The close-X is a corner element near the modal's TOP, so cap the scan (the
+    // last modal would otherwise scan the whole page tail -- a false-pass if a
+    // Close-glyph button is ever added below it).
+    const xEnd = Math.min(nextBack, w.index + 3000);
     const hasCloseX = /<button[^>]*aria-label="Close"[^>]*>\s*(?:&times;|×|✕)\s*<\/button>/i
-      .test(html.slice(w.index, end));
+      .test(html.slice(w.index, xEnd));
     out.push({ id: w[1], acts, buttons, hasCloseX });
   }
   return out;

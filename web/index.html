@@ -5415,10 +5415,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    Cancel button crowding the dropdown), and the label gets air from the menu so
    the two are not touching. Scoped to #am-modal so no other modal's layout moves. */
 #am-modal .am-box { position: relative; }
-.am-x { position: absolute; top: var(--space-4); right: var(--space-4); background: none; border: 0;
+#am-modal .am-x { position: absolute; top: var(--space-4); right: var(--space-4); background: none; border: 0;
         font-size: 22px; line-height: 1; color: var(--label-2); cursor: pointer; padding: 2px 8px; border-radius: 6px; }
-.am-x:hover, .am-x:focus-visible { color: var(--label); }
-.am-x:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
+#am-modal .am-x:hover, #am-modal .am-x:focus-visible { color: var(--label); }
+#am-modal .am-x:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 #am-modal .flabel { margin-bottom: var(--space-4); }
 /* Both answers are full-size and legible. The destructive one is marked by its
    border, never by hue alone -- this screen reads the same in greyscale. */
@@ -9437,9 +9437,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <button class="btn" id="pj-one-add-go" type="button">Add to project</button>
         </div>
       </div>
+      <!-- 0.6.45: the error on a FAILED add lives INSIDE the modal box. It used
+           to sit after #am-modal, in normal page flow BEHIND the fixed .rm-back
+           backdrop, so a reason written here was covered by the overlay. Now that
+           a successful add closes the modal, the only time this shows is a failure
+           with the modal still open, so it has to be on top of the backdrop. -->
+      <p class="fmsg" id="pj-one-msg" aria-live="polite" style="margin-top: var(--space-4)"></p>
       </div>
       </div>
-      <p class="fmsg" id="pj-one-msg" aria-live="polite"></p>
 
       <!-- ⚠️ PROJECT DOCUMENTS IS NET NEW: the pack's project page has three
            columns (members, conversation, tasks) and no documents section, so
@@ -36585,9 +36590,9 @@ document.getElementById('pj-add-member').addEventListener('click', () => {
   document.getElementById('am-modal').hidden = false;
   document.getElementById('pj-one-add').focus();
 });
-/* The ways out, both of them, per #1316: a Cancel that is not the action, and
-   Escape, because somebody who opened this from the keyboard is still on it. The
-   backdrop closes too, matching every other modal on this page. */
+/* The ways out, per #1316: the corner X (0.6.45, was a Cancel button) that is not
+   the action, and Escape, because somebody who opened this from the keyboard is
+   still on it. The backdrop closes too, matching every other modal on this page. */
 function amClose() {
   document.getElementById('am-modal').hidden = true;
   const b = document.getElementById('pj-add-member');
