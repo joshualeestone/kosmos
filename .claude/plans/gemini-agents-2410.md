@@ -67,6 +67,15 @@ same geminiIdentity helper can also feed foundGemini.
   still handled by the strict path. Unchanged.
 - pip (#5, offer-with-empty-name): no front-matter => untouched.
 
+## Deferred (challenge-loop iter 1)
+- NIT: in the by-file importAgent path, geminiIdentity matches ANY name:+description:
+  front-matter (no location signal is available there -- importAgent takes text, not a
+  path) and stamps provider: 'gemini'. DEFERRED: provider is a soft HINT the create form
+  lets the user change (the file's own comment says so), auto-DISCOVERY is location-scoped
+  to ~/.gemini/agents, and there is no gemini-only marker in the file format to gate on.
+  A user manually importing an unrelated name+description .md getting a changeable 'gemini'
+  hint is acceptable and arguably correct (it is markdown+YAML-front-matter, the Gemini shape).
+
 ## Tests (perturbation-proven)
 - geminisession.agentFiles(): finds `agents/*.md`, ignores non-md, [] on missing dir.
 - agentfile.geminiIdentity(): matches the 3 Gemini fixtures (real names), returns null

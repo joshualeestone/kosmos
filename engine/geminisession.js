@@ -124,9 +124,8 @@ function agentFiles() {
   let entries;
   try { entries = fs.readdirSync(path.join(HOME(), 'agents'), { withFileTypes: true }); }
   catch { return []; }
-  const out = [];
+  const names = [];
   for (const e of entries) {
-    if (out.length >= MAX_AGENT_FILES) break;
     /* A file (or a symlink to one) named *.md / *.markdown. Directories under agents/
        are not agent definitions; a dotfile (e.g. .DS_Store) is skipped. lstat is not
        needed here -- the caller reads with a symlink-safe head reader -- but withFileTypes
@@ -138,10 +137,12 @@ function agentFiles() {
     if (name.startsWith('.')) continue;
     const lower = name.toLowerCase();
     if (!lower.endsWith('.md') && !lower.endsWith('.markdown')) continue;
-    out.push(path.join(HOME(), 'agents', name));
+    names.push(name);
   }
-  out.sort();
-  return out;
+  // Sort BEFORE the cap so a pathological (>MAX) agents dir truncates to a STABLE set --
+  // capping in readdir order would keep a non-deterministic subset and only then sort it.
+  names.sort();
+  return names.slice(0, MAX_AGENT_FILES).map((name) => path.join(HOME(), 'agents', name));
 }
 
 module.exports = { HOME, projects, agentFiles };

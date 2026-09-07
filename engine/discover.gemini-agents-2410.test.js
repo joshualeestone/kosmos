@@ -96,6 +96,8 @@ test('#2410 geminiIdentity: declines a Kosmos export, the #7 control, and a desc
   assert.equal(agentfile.geminiIdentity(BUILD_NOTES), null, 'no front-matter must not be an agent');
   // name: present, description: absent -> not the Gemini contract shape.
   assert.equal(agentfile.geminiIdentity('---\nname: whoever\n---\nYou are a helpful assistant.\n'), null);
+  // ANY kosmos: line declines, even a malformed empty one (must not fall through to Gemini).
+  assert.equal(agentfile.geminiIdentity('---\nkosmos:\nname: x\ndescription: y\n---\nYou are a helpful assistant.\n'), null);
 });
 
 /* ── agentfile.importAgent() by-file import ─────────────────────────────────── */
@@ -129,6 +131,32 @@ test('#2410 scan: the 3 Gemini agents appear in importable with their real names
     'all three Gemini agents must be offered, each with its front-matter name');
   const cr = out.importable.find((r) => r.name === 'code-reviewer');
   assert.ok(cr.file.endsWith('code-reviewer.md'), 'the row carries the file to import');
+});
+
+test('#2410 scan: the merge is gated -- an explicit-roots scan that has NOT set a Gemini-home override never reaches a Gemini home', () => {
+  // A sandbox agents dir exists on disk, but the override env is UNSET. An explicit-roots
+  // scan must NOT reach it (and must not fall back to the operator's real ~/.gemini during
+  // a test): this is what stops discover.import-1652 et al. breaking on a machine that has
+  // real Gemini agents. The env-set arm below reads the SAME dir and finds all 3, so the
+  // difference is the gate, not luck.
+  const home = geminiHome(GEMINI);
+  const savedEnv = process.env.AGENT_WORKFORCE_GEMINI_HOME;
+  const savedHome = process.env.AGENT_WORKFORCE_HOME;
+  const savedCli = process.env.GEMINI_CLI_HOME;
+  delete process.env.AGENT_WORKFORCE_GEMINI_HOME;
+  delete process.env.AGENT_WORKFORCE_HOME;
+  delete process.env.GEMINI_CLI_HOME;
+  let off;
+  try { off = discover.scan({ roots: [] }); }
+  finally {
+    if (savedEnv !== undefined) process.env.AGENT_WORKFORCE_GEMINI_HOME = savedEnv;
+    if (savedHome !== undefined) process.env.AGENT_WORKFORCE_HOME = savedHome;
+    if (savedCli !== undefined) process.env.GEMINI_CLI_HOME = savedCli;
+  }
+  const mine = (rows) => rows.filter((r) => ['code-reviewer', 'project-explainer', 'sarah'].includes(r.name));
+  assert.equal(mine(off.importable).length, 0, 'gate off: the sandbox agents dir must not be reached');
+  const on = withGeminiHome(home, () => discover.scan({ roots: [] }));
+  assert.equal(mine(on.importable).length, 3, 'gate on (override set): the same dir yields all 3');
 });
 
 test('#2410 scan: a non-Gemini-shape .md under agents/ falls back to the generic rule (empty name), proving the name came from geminiIdentity', () => {

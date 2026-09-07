@@ -1264,8 +1264,24 @@ function scan(opts) {
      fixture-inconsistent machine an empty answer before this point, and a test points
      AGENT_WORKFORCE_GEMINI_HOME at a sandbox exactly as the foundGemini tests do. A file
      whose front-matter is not the Gemini shape falls back to the generic looseRow. */
+  /* 🛑 ONLY REACH THE GEMINI HOME ON THE REAL SCAN PATH, OR WHEN A TEST HAS EXPLICITLY
+     POINTED IT AT A SANDBOX. The scan's sandbox early-return only guards `!explicit`, so
+     an EXPLICIT-roots caller (every scan test) would otherwise read the operator's real
+     ~/.gemini/agents here -- which both breaks those tests' importable counts on a machine
+     that has Gemini agents and falsifies discover.import-1652's "os.homedir() is never
+     walked" contract. Guarding on sandboxIsInconsistent() alone is wrong in the other
+     direction: it is TRUE in a tmp-sandbox test that legitimately points the Gemini home
+     at a fixture (AGENT_WORKFORCE_DATA under /tmp), so it would skip the very merge such a
+     test exercises. The correct signal is: the REAL run passes no explicit roots, and a
+     test that means to exercise this merge sets one of the Gemini-home overrides (the same
+     ones geminisession.HOME() honours). An explicit-roots test that set neither is not
+     testing Gemini and must not read a real home. */
+  const geminiHomeOverridden = !!(process.env.AGENT_WORKFORCE_GEMINI_HOME
+    || process.env.GEMINI_CLI_HOME || process.env.AGENT_WORKFORCE_HOME);
   let geminiAgentFiles = [];
-  try { geminiAgentFiles = geminisession.agentFiles(); } catch { geminiAgentFiles = []; }
+  if (!explicit || geminiHomeOverridden) {
+    try { geminiAgentFiles = geminisession.agentFiles(); } catch { geminiAgentFiles = []; }
+  }
   for (const file of geminiAgentFiles) {
     if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
     if (mdReads >= maxMdReads) { hitImportable = true; break; }

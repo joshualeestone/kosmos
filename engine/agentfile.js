@@ -483,14 +483,15 @@ function geminiIdentity(text) {
     const f = head.match(new RegExp('^' + key + ':[ \\t]*([^\\n]+)$', 'm'));
     return f ? safeValue(f[1]) : null;
   };
-  // A Kosmos export owns the strict path; never double-claim it here.
-  if (/^kosmos:[ \t]*\S/m.test(head)) return null;
+  // A Kosmos file owns the strict path; never double-claim it here. Match ANY `kosmos:`
+  // line, empty value included -- a malformed export must not fall through to Gemini.
+  if (/^kosmos:/m.test(head)) return null;
+  // `field` already ran safeValue, so `name` is clean-or-null; no second safeValue needed.
   const name = field('name');
   const description = field('description');
   if (!name || !description) return null;
-  const displayName = safeValue(name);
-  if (!displayName || displayName.length > MAX_DISPLAY) return null;
-  return { displayName, role: description };
+  if (name.length > MAX_DISPLAY) return null;
+  return { displayName: name, role: description };
 }
 
 module.exports = { exportAgent, importAgent, geminiIdentity, headingName, IMPORT_CONTRACT, MARK, KIND };
