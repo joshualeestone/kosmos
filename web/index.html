@@ -7642,6 +7642,20 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="fmsg" id="world-rename-msg" role="alert" aria-live="assertive"></div>
   </div>
 </div>
+<!-- #6 (Josh 0.6.42 re-test): switching Kosmos requires a restart (the board reboots
+     onto the new world and its projects/agents reload), so clicking a Kosmos to switch
+     confirms in a modal FIRST rather than switching inline. Josh's verbatim line is the
+     modal message; the primary button auto-restarts (worldswSwitch, which self-restarts
+     when the board can). Replaces the old inline "run kosmos restart yourself" banner. -->
+<div class="rm-back" id="world-switch-modal" hidden>
+  <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="world-switch-t" aria-describedby="world-switch-t">
+    <h2 class="rm-title" id="world-switch-t">Restart Kosmos in order to switch to a different Kosmos</h2>
+    <div class="rm-acts" style="margin-top: var(--space-6);">
+      <button class="btn" id="world-switch-cancel" type="button">Cancel</button>
+      <button class="btn uprime" id="world-switch-go" type="button">Restart Kosmos</button>
+    </div>
+  </div>
+</div>
 <div class="rm-back" id="mem-modal" hidden>
   <div class="rm-box" role="alertdialog" aria-modal="true" aria-labelledby="mem-title" aria-describedby="mem-small">
     <h2 class="rm-title" id="mem-title"></h2>
@@ -16503,7 +16517,7 @@ function worldswRender(data) {
     } else {
       row.type = 'button';
       row.setAttribute('aria-label', 'Switch to ' + wname);
-      row.addEventListener('click', () => worldswSwitch(w.id, wname));
+      row.addEventListener('click', () => worldswConfirmSwitch(w.id, wname));
     }
     const check = document.createElement('span');
     check.className = 'worldsw-check';
@@ -16635,7 +16649,10 @@ async function worldswSwitch(id, name) {
     // A board that will not self-restart safely (from source / unmanaged): honest
     // guidance, no auto-reconnect (a poll would wait out the full timeout for a
     // restart that is never coming).
-    say('Switched to ' + switchedName + '. Restart Kosmos to finish switching (run "kosmos restart", or restart your Mac); its projects and agents load when the board comes back.');
+    /* #6: the board cannot self-restart safely (from-source / unmanaged), so the
+       auto-restart button could not finish it. Josh scrapped the old "run kosmos
+       restart" CLI instruction; give the gentle GUI action instead, no command. */
+    say('Kosmos could not restart itself. Quit and reopen Kosmos to finish switching to ' + switchedName + '.');
     worldswFocusTrigger();
   } finally {
     WORLDSW_SWITCHING = false;
@@ -16777,6 +16794,40 @@ async function worldAddSubmit() {
    is needed. On success the list is refetched and the menu reopened so the person sees
    the new name land, mirroring the create flow (worldAdd*). */
 let WORLD_RENAME_ID = null;
+/* #6: switching Kosmos requires a restart, so a row click CONFIRMS in a modal first
+   (worldswConfirmSwitch) rather than switching inline; the modal's "Restart Kosmos"
+   button runs the real switch (worldswSwitch), which self-restarts when the board can.
+   The switcher menu is left OPEN behind the modal so worldswSwitch's #worldsw-restart
+   status (Switching.../reconnect/fallback) is visible once the modal closes. */
+let WORLD_SWITCH_ID = null;
+let WORLD_SWITCH_NAME = null;
+function worldswConfirmSwitch(id, name) {
+  WORLD_SWITCH_ID = id;
+  WORLD_SWITCH_NAME = name;
+  /* Josh verbatim, with the target name appended: "Restart Kosmos in order to switch
+     to a different Kosmos [name]". One line, no reassurance (Josh scrapped the old
+     inline copy that carried it). */
+  document.getElementById('world-switch-t').textContent =
+    'Restart Kosmos in order to switch to a different Kosmos ' + (name || '');
+  document.getElementById('world-switch-modal').hidden = false;
+  document.getElementById('world-switch-go').focus();
+}
+function worldswSwitchCancel() {
+  document.getElementById('world-switch-modal').hidden = true;
+  WORLD_SWITCH_ID = null;
+  WORLD_SWITCH_NAME = null;
+  /* Back to the trigger: the clicked row may have been dropped/rebuilt by a refetch,
+     and the menu is still open behind the modal. */
+  document.getElementById('worldsw-btn').focus();
+}
+function worldswSwitchGo() {
+  const id = WORLD_SWITCH_ID;
+  const name = WORLD_SWITCH_NAME;
+  document.getElementById('world-switch-modal').hidden = true;
+  WORLD_SWITCH_ID = null;
+  WORLD_SWITCH_NAME = null;
+  if (id) worldswSwitch(id, name);
+}
 function worldRenameOpen(id, name) {
   worldswClose();
   WORLD_RENAME_ID = id;
@@ -16843,6 +16894,12 @@ async function worldRenameSubmit() {
   rin.addEventListener('input', () => { document.getElementById('world-rename-go').disabled = !rin.value.trim(); });
   rin.addEventListener('keydown', (e) => { if (e.key === 'Enter' && rin.value.trim() && !document.getElementById('world-rename-go').disabled) { e.preventDefault(); worldRenameSubmit(); } });
   document.getElementById('world-rename-modal').addEventListener('click', (e) => { if (e.target.id === 'world-rename-modal') worldRenameClose(); });
+  // #6: the switch-confirm modal, wired the same way (Cancel/backdrop/Esc close it,
+  // "Restart Kosmos" runs the real switch).
+  document.getElementById('world-switch-cancel').addEventListener('click', worldswSwitchCancel);
+  document.getElementById('world-switch-go').addEventListener('click', worldswSwitchGo);
+  document.getElementById('world-switch-modal').addEventListener('click', (e) => { if (e.target.id === 'world-switch-modal') worldswSwitchCancel(); });
+  document.getElementById('world-switch-modal').addEventListener('keydown', (e) => { if (e.key === 'Escape') worldswSwitchCancel(); });
   // Outside-click closes the menu.
   document.addEventListener('click', (e) => {
     const menu = document.getElementById('worldsw-menu');
