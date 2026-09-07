@@ -297,7 +297,7 @@ else
       # this witness exists to avoid) - but flagged LOUDLY and named, never the
       # quiet SANDBOX note, because it is the un-attributable leak shape from the
       # incident. To make it hard-fail instead, move this into the fail set above.
-      PERSIST) say "   WARNING: a PERSISTENT sandboxed job is on this Mac and SURVIVES LOGOUT: $_label (plist at $_path, not ~/Library/LaunchAgents and not this run's sandbox). Investigate and remove - a RunAtLoad/KeepAlive test artifact should not persist, and this one cannot be attributed from its label alone (#1163)."; LW_PERSIST_SEEN=1 ;;
+      PERSIST) say "   WARNING: a sandboxed job on this Mac carries a persistence key (RunAtLoad/KeepAlive), so it is built to outlive the run: $_label (plist at $_path, not ~/Library/LaunchAgents and not this run's sandbox). Investigate and remove - a test artifact should not persist, and this one cannot be attributed from its label alone (#1163)."; LW_PERSIST_SEEN=1 ;;
       SANDBOX) say "   sandboxed create observed elsewhere on this Mac, ignored: $_label (plist at $_path, not ~/Library/LaunchAgents)" ;;
     esac
   done <<LWEOF
