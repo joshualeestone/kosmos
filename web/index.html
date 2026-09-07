@@ -8250,7 +8250,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           background:rgba(236,236,236,.98);border:1px solid #d8d6d2;border-radius:14px;padding:12px 16px;
           box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
         /* #10 (0.6.40): Josh wants the notification cog about twice its size (was 38/22). */
-        .s4-gear{width:76px;height:76px;border-radius:12px;flex:none;display:grid;place-items:center;font-size:44px;
+        /* 0.6.45 (Josh): the gray box was too big for the cog (the cog size is
+           right). Tightened to hug it so the mock reads like the real macOS
+           notification icon. place-items:center keeps the cog centred. */
+        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:40px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
         .s4-nt{font:700 .8125rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
         .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
