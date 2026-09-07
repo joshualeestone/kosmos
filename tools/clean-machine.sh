@@ -273,11 +273,11 @@ esac
 # domain, so any honest create-and-chat verification on this Mac bootstraps
 # a real com.kosmos.agent.* job into it even when its store is sealed -- the
 # strict equality failed on every such run, forever. The lib names each
-# changed job REAL / OURS / SANDBOX / UNKNOWN; only the first, second and
-# fourth fail. A SANDBOX job is somebody else's test create: ignored, and
-# SAID, because a transient job must read as "observed, ignored" rather
-# than as silence -- while ignoring OURS would let this harness's own
-# uninstall leak hide behind the same word.
+# changed job REAL / OURS / PERSIST / SANDBOX / UNKNOWN; REAL, OURS and
+# UNKNOWN fail, PERSIST warns loudly (#1163), and a plain SANDBOX is somebody
+# else's transient test create: ignored, and SAID, because a transient job
+# must read as "observed, ignored" rather than as silence -- while ignoring
+# OURS would let this harness's own uninstall leak hide behind the same word.
 AFTER_JOBS="$(lw_snapshot)"
 if [ "$BEFORE_JOBS" = "$AFTER_JOBS" ]; then
   pass "the launchd domain holds the same com.kosmos jobs it started with"

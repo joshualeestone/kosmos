@@ -54,7 +54,11 @@ lw_snapshot() {
     _lw_p="$(printf '%s\n' "$_lw_out" | sed -n 's/.*path = //p' | head -1)"
     # launchctl prints persistence keys on a `properties = ... | runatload | ...`
     # line. Absent line or absent tokens => not persistent (fails toward "-",
-    # the same best-effort posture as an unreadable path).
+    # the same best-effort posture as an unreadable path). The match is not
+    # anchored to the TOP-LEVEL properties line, so a nested section carrying one
+    # of these tokens could over-classify a transient job as persist. That is
+    # fail-safe: a false persist only upgrades a SANDBOX note to a non-failing
+    # warning (and a sweep annotation) - never a missed leak, false reap, or fail.
     if printf '%s\n' "$_lw_out" | sed -n 's/.*properties = //p' | head -1 | grep -qiE 'runatload|keepalive'; then
       _lw_life=persist
     else
