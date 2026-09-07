@@ -14943,7 +14943,7 @@ function ahThresholdChange() {
 document.getElementById('ah-toggle').addEventListener('click', ahToggleClick);
 document.getElementById('ah-threshold').addEventListener('change', ahThresholdChange);
 /* #1722: the heartbeat control in Settings > Automation, a later addition to the
-   section #1724 created. Reads the in-force setting (on/17 by default, #2013; the runner
+   section #1724 created. Reads the in-force setting (on/15 by default, #2013/#1843; the runner
    reads the same file, so read == in force) and saves {on, intervalMinutes} to PUT
    /api/heartbeat-setting. The interval choices are rendered from the server so the
    select and the engine cannot disagree about what is valid (same shape as the
