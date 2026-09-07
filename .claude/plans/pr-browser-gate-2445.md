@@ -56,6 +56,17 @@ EVERY PR (even ones that do not trigger the browser workflow), so a broken workf
   the comment even with the path dropped from the filter (caught by perturbation). Perturbation-verified:
   dropping a path list-entry OR the browser-checks.sh call reds the test.
 
+## Deferred (noted, not done)
+- **Playwright runtime caching** (a cheap speedup): `~/work/pw-runtime` + the browser cache are fresh
+  each run, so provision re-installs playwright@1.62.1 + browsers (~2-4 min) every triggered run. An
+  `actions/cache` keyed on the pinned version would make most runs a no-op. Deferred: runs are
+  path-filtered/infrequent so the saving is minor, and a fresh provision avoids cache-staleness risk
+  (a corrupt/partial cache defeating provision-pw's idempotency check). Revisit if CI time becomes a
+  concern.
+- **Trigger leak (server/engine -> rendered data)**: see the workflow header's caveat 3. Adding
+  `engine/**`/`server.js` to the filter would fire the suite on the majority of PRs and defeat the
+  load-scoping, so the narrow filter is deliberate and the cut's 3b is the backstop for that class.
+
 ## Verification
 The PR itself runs the new workflow end to end (the workflow is in its own path filter). Locally:
 `bash tools/test-browser-checks-workflow.sh` green + perturbation-verified; `test.yml`'s node suite is
