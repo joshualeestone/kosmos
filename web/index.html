@@ -28453,6 +28453,14 @@ async function frImportFromScan(file, btn) {
   frFinish(async () => {
     showTab('create');
     try { await loadRoles('import'); } catch { /* finishImport still fills the words; menus degrade, not crash */ }
+    /* openCreate is the only other caller of refreshCreateTell, and this path skips
+       openCreate (to avoid its fire-and-forget loadRoles racing our cstep). Call it
+       directly so #create-tell reflects the real /api/ping-setting on THIS path too:
+       without it an agent imported from the find-agents screen would create with
+       tellKosmos=false even when the person's ping is on, diverging from every other
+       create path. Un-awaited like openCreate's own call: the create-go read is a
+       later human click, so it resolves in time. */
+    refreshCreateTell();
     await importFoundFile(file, btn);
   });
 }

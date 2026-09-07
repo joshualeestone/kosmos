@@ -94,4 +94,10 @@ test('#1652 PR2: the found list is wired to open with the import panel and to it
     'the Import click handler no longer serves the find-agents surface (#4)');
   // The container exists in the panel markup.
   assert.match(PAGE, /<div class="import-found" id="import-found" hidden><\/div>/, 'the found-import container is missing from the import panel');
+  // #4: the find-agents import path (frImportFromScan) skips openCreate, which is the
+  // only OTHER caller of refreshCreateTell, so it must call it directly or an agent
+  // imported from the find-agents screen would create with tellKosmos=false even when
+  // the person's ping is on (diverging from every other create path).
+  assert.match(SCRIPT, /async function frImportFromScan[\s\S]*?refreshCreateTell\(\)/,
+    'frImportFromScan does not set #create-tell from the ping setting (would under-send the create ping, #4)');
 });
