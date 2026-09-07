@@ -31,6 +31,13 @@
 # change should read before merging. macos-latest matches test.yml AND the cut's own
 # 3b environment.
 #
+# 🛑 IF THIS IS EVER MADE A REQUIRED STATUS CHECK, DO NOT LEAVE IT PATH-FILTERED. A
+# required check that is path-filtered NEVER REPORTS on a PR that touches none of the
+# paths, and GitHub then blocks that PR forever at "expected -- waiting for status"
+# (the well-known required-plus-paths deadlock). Advisory + path-filtered is correct
+# and reports nothing on non-matching PRs by design; making it required needs a
+# companion always-runs job that reports a neutral success, or dropping the filter.
+#
 # ⚠️ THREE WAYS A CI-GREEN IS NOT IDENTICAL TO A CUT-TIME 3b GREEN (Baron, #2444/#2445,
 # eyes-open -- neither blocks this, both are honest limits to carry):
 #   1) INTRA-RUN contention still exists. CI-isolation removes the CROSS-AGENT
