@@ -393,7 +393,11 @@ function foundCodex(roster) {
    way is one agent, and connect already knows how to act on the Claude/Codex
    record. No ghost-collapse is needed here (unlike foundCodex): projects.json is
    a current map, so a moved agent's old cwd simply fails the GEMINI.md read rather
-   than surviving as a second row. */
+   than surviving as a second row. #2243 part 3 added a SECOND cwd source in
+   geminisession.projects(), <home>/history/<name>/.project_root, which is NOT a
+   current map and may retain a stale cwd -- the same read-fails-and-skips reasoning
+   still holds (a stale history cwd whose GEMINI.md is gone is skipped, not offered),
+   so no ghost-collapse is needed for it either. */
 function foundGemini(roster) {
   if (status.sandboxIsInconsistent()) return { agents: [], unreadable: 0 };
 
