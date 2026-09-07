@@ -3586,6 +3586,78 @@ function readContext(agentName, model, exactSession) {
 }
 
 /**
+ * The context ring for a Codex (OpenAI) agent (#2257).
+ *
+ * 🔑 A DIFFERENT SOURCE, THE SAME SHAPE. `readContext` reads a Claude `.jsonl`
+ * transcript; a Codex agent does not write one, so that path returned
+ * NO_TRANSCRIPT for every OpenAI agent and the ring read "Not yet read" forever
+ * regardless of activity. Codex writes a JSONL ROLLOUT instead, and
+ * `codexsession.read`, keyed on the launch folder, returns both halves of the
+ * ring: the window (the tool states it on `task_started`) and the used tokens
+ * (the last `token_count` event's `last_token_usage.input_tokens` -- the last
+ * prompt, i.e. current window occupancy; see codexsession.js's note on why the
+ * cumulative total is the wrong number).
+ *
+ * ⭐ THE CEILING IS MEASURED, NOT ASSUMED. Claude's limit is a number we guess
+ * ("against a limit we have assumed"); Codex states its own window, so
+ * `ceilingAssumed` is false and this ring rests on a firmer footing.
+ *
+ * ⚠️ THE not-yet / admission SPLIT IS THE SAME as `readContext`'s, and reuses the
+ * same provider-agnostic bookkeeping (`notYetStarted`/`neverRecorded`): a Codex
+ * agent Kosmos launched (plist) with no rollout has not started; anything else
+ * with no reading is the admission. The reasons come from the shared `NO_READING`,
+ * so a person cannot tell which provider an agent runs on from the words.
+ *
+ * 📌 SCOPE: this reads the fill from a MATCHED rollout. `codexsession.forWorkdir`
+ * matches on `realpathSync` (resolves the `/private` twin, not case) -- a
+ * case-divergence there is the same class as #2406 and is left to the
+ * canonicalOnDisk sweep, not widened here.
+ */
+function readCodexContext(agentName) {
+  let dir;
+  try { dir = require('./create').workerDir(agentName); } catch { dir = null; }
+  let sess;
+  try { sess = dir ? require('./codexsession').read(dir) : { found: false }; }
+  catch { sess = { found: false }; }
+
+  // No rollout for this folder, or a session that has reported no usage yet: the
+  // same three-way split `readContext` makes for a missing/empty Claude transcript.
+  if (!sess.found || sess.contextUsed == null) {
+    if (notYetStarted(agentName)) {
+      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: true,
+               because: 'it has not done anything yet' };
+    }
+    if (neverRecorded(agentName)) {
+      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false, neverRecorded: true,
+               because: 'made before Kosmos recorded this, so there is no record to read' };
+    }
+    return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
+             because: NO_READING.NO_TRANSCRIPT };
+  }
+
+  const tokens = sess.contextUsed;
+  if (!sess.contextWindow) {
+    // Measured usage but no window (task_started never carried one): report the
+    // number without a percentage -- the same seventh case `readContext` has.
+    return { tokens, percent: null, ceiling: null, ceilingSource: null, notYet: false,
+             noCeiling: true, confidence: CONFIDENCE.STRUCTURED,
+             because: 'measured, but we do not know how much this model can hold' };
+  }
+  const percent = Math.round((tokens / sess.contextWindow) * 100);
+  return {
+    tokens,
+    percent: Math.min(100, percent),
+    overCeiling: percent > 100,
+    notYet: false,
+    ceiling: sess.contextWindow,
+    // Measured from `task_started`, not assumed like Claude's ceiling.
+    ceilingAssumed: false,
+    confidence: CONFIDENCE.STRUCTURED,
+    because: 'measured, against a limit we have watched it hit',
+  };
+}
+
+/**
  * Model IDs as a person should read them.
  *
  * An explicit table, not a transform. A dash-to-space rule looks fine on
@@ -5115,8 +5187,14 @@ function snapshot() {
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
     const { model } = tied ? readModel(pane.name, pane.session) : { model: null };
+    /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
+       `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
+       read "Not yet read" forever. Its context lives in the Codex rollout, which
+       `readCodexContext` reads instead. Same `isCodexPane` discriminator the
+       account-badge gate above (~5053) uses. */
+    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
     const context = tied
-      ? readContext(pane.name, model, pane.session)
+      ? (isCodexPane ? readCodexContext(pane.name) : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
       // 'not yet' would be false about us as well as about the agent.
@@ -5454,7 +5532,7 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor,
+  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */

@@ -20,11 +20,13 @@
  * watched". Here it is measured, so an OpenAI agent's memory ring rests on a
  * firmer footing than a Claude one.
  *
- * 🛑 WHAT THIS FILE DOES NOT CLAIM. The USED half of the ring is not here,
- * because I have not seen a successful run report usage and I will not invent a
- * field name from a failed one. `contextUsed` is null until somebody reads a
- * real completed session and says what carries it. Null renders as "we could
- * not tell", which is this product's honest answer and not a placeholder.
+ * ⭐ THE USED HALF IS NOW MEASURED TOO (#2257). A completed Codex turn reports a
+ * `token_count` event carrying `info.last_token_usage.input_tokens` -- the last
+ * prompt, i.e. how full the window is right now. `contextUsed` reads it from the
+ * last such event; it stays null (rendering as the honest "we could not tell")
+ * only until a turn has reported usage. This was the field the original version
+ * refused to guess -- settled by six real gpt-5.6-sol rollouts on 2026-09-07, not
+ * from documentation, which still does not describe it. See the note in `read`.
  */
 
 const fs = require('node:fs');
@@ -127,6 +129,7 @@ function read(dir) {
     return { found: false, because: NO_READING.UNREADABLE };
   }
   let contextWindow = null;
+  let contextUsed = null;
   let lastAt = null;
   let messages = 0;
   let lastAgentMessage = null;
@@ -144,6 +147,21 @@ function read(dir) {
       if (p.type === 'task_started' && typeof p.model_context_window === 'number') {
         contextWindow = p.model_context_window;
       }
+      /* #2257: THE USED HALF, MEASURED. Codex reports usage on a `token_count`
+         event as `info.last_token_usage` (the last turn) and `info.total_token_usage`
+         (CUMULATIVE across the whole session). The window OCCUPANCY -- what the ring
+         needs -- is the last turn's prompt, because each turn re-sends the whole
+         conversation as input, so `last_token_usage.input_tokens` tracks how full the
+         window is right now. `total_token_usage.total_tokens` is the wrong number: it
+         climbs past the window and never resets on a compaction. Keep the LAST such
+         event; a session with no completed turn has none, and `contextUsed` stays null.
+         Measured against six real gpt-5.6-sol rollouts, 2026-09-07 (window 258400):
+         last_token_usage.input_tokens ~11.7k held steady while total_tokens climbed
+         23k -> 39k, which is what settled the "one real session decides this" note. */
+      if (p.type === 'token_count' && p.info && p.info.last_token_usage
+          && typeof p.info.last_token_usage.input_tokens === 'number') {
+        contextUsed = p.info.last_token_usage.input_tokens;
+      }
       if (p.type === 'task_complete' && typeof p.last_agent_message === 'string') {
         lastAgentMessage = p.last_agent_message;
       }
@@ -156,10 +174,10 @@ function read(dir) {
     provider: found.meta.model_provider || null,
     cliVersion: found.meta.cli_version || null,
     contextWindow,
-    /* 🛑 DELIBERATELY NULL. I have not seen a successful Codex run report token
-       usage, and inventing a field name from a failed one is how a number
-       nobody computed ends up on a card. One real session decides this. */
-    contextUsed: null,
+    /* #2257: no longer deliberately null -- the last `token_count` event's
+       `last_token_usage.input_tokens` is the measured window occupancy (see the
+       loop note). Null only when no completed turn has reported usage yet. */
+    contextUsed,
     messages,
     lastAt,
     lastAgentMessage,
