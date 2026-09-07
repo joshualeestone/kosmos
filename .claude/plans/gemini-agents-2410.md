@@ -105,8 +105,9 @@ same geminiIdentity helper can also feed foundGemini.
 - geminisession.agentFiles(): finds `agents/*.md`, ignores non-md, [] on missing dir.
 - agentfile.geminiIdentity(): matches the 3 Gemini fixtures (real names), returns null
   on a Kosmos export, on #7 build-notes, and on a front-matter file missing description.
-- agentfile.importAgent(): the 3 Gemini fixtures import with the right name +
-  provider 'gemini'; a Kosmos export still parses as before; #7 still refused.
+- agentfile.importAgent(): the 3 Gemini fixtures import with the right name and
+  provider null (see the iter2 decision below); a Kosmos export still parses as before;
+  #7 still refused; a skill/doc (name+description front-matter, non-agent body) refused.
 - discover.scan(): with a gemini-home sandbox holding the 3 fixtures and empty
   explicit roots, importable contains all 3 with their real names; a bare
   name-only-no-description file falls back (empty name), proving the row is built by

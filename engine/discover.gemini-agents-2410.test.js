@@ -151,30 +151,37 @@ test('#2410 scan: the 3 Gemini agents appear in importable with their real names
   assert.ok(cr.file.endsWith('code-reviewer.md'), 'the row carries the file to import');
 });
 
-test('#2410 scan: the merge is gated -- an explicit-roots scan that has NOT set a Gemini-home override never reaches a Gemini home', () => {
-  // A sandbox agents dir exists on disk, but the override env is UNSET. An explicit-roots
-  // scan must NOT reach it (and must not fall back to the operator's real ~/.gemini during
-  // a test): this is what stops discover.import-1652 et al. breaking on a machine that has
-  // real Gemini agents. The env-set arm below reads the SAME dir and finds all 3, so the
-  // difference is the gate, not luck.
+test('#2410 scan: the merge is gated -- an explicit-roots scan with no Gemini-home override never CALLS agentFiles (so it cannot read a real home)', () => {
+  // The discriminator is whether agentFiles() is invoked at all -- asserting the importable
+  // is empty is weak, since it also holds if the real ~/.gemini merely lacks seed-named
+  // agents. Spying on the call proves the gate CLOSED, independent of what the real home
+  // holds. This is what stops discover.import-1652 et al. breaking on a machine with real
+  // Gemini agents. The env-set arm calls it AND finds 3, so the difference is the gate.
   const home = geminiHome(GEMINI);
-  const savedEnv = process.env.AGENT_WORKFORCE_GEMINI_HOME;
-  const savedHome = process.env.AGENT_WORKFORCE_HOME;
-  const savedCli = process.env.GEMINI_CLI_HOME;
-  delete process.env.AGENT_WORKFORCE_GEMINI_HOME;
-  delete process.env.AGENT_WORKFORCE_HOME;
-  delete process.env.GEMINI_CLI_HOME;
-  let off;
-  try { off = discover.scan({ roots: [] }); }
-  finally {
-    if (savedEnv !== undefined) process.env.AGENT_WORKFORCE_GEMINI_HOME = savedEnv;
-    if (savedHome !== undefined) process.env.AGENT_WORKFORCE_HOME = savedHome;
-    if (savedCli !== undefined) process.env.GEMINI_CLI_HOME = savedCli;
+  const realAgentFiles = geminisession.agentFiles;
+  let called = 0;
+  geminisession.agentFiles = (...a) => { called += 1; return realAgentFiles.apply(geminisession, a); };
+  try {
+    const savedEnv = process.env.AGENT_WORKFORCE_GEMINI_HOME;
+    const savedHome = process.env.AGENT_WORKFORCE_HOME;
+    const savedCli = process.env.GEMINI_CLI_HOME;
+    delete process.env.AGENT_WORKFORCE_GEMINI_HOME;
+    delete process.env.AGENT_WORKFORCE_HOME;
+    delete process.env.GEMINI_CLI_HOME;
+    try { discover.scan({ roots: [] }); }
+    finally {
+      if (savedEnv !== undefined) process.env.AGENT_WORKFORCE_GEMINI_HOME = savedEnv;
+      if (savedHome !== undefined) process.env.AGENT_WORKFORCE_HOME = savedHome;
+      if (savedCli !== undefined) process.env.GEMINI_CLI_HOME = savedCli;
+    }
+    assert.equal(called, 0, 'gate off: agentFiles must not be called at all (no home read)');
+    const on = withGeminiHome(home, () => discover.scan({ roots: [] }));
+    assert.ok(called >= 1, 'gate on (override set): agentFiles IS called');
+    const mine = on.importable.filter((r) => ['code-reviewer', 'project-explainer', 'sarah'].includes(r.name));
+    assert.equal(mine.length, 3, 'gate on: the same dir yields all 3');
+  } finally {
+    geminisession.agentFiles = realAgentFiles;
   }
-  const mine = (rows) => rows.filter((r) => ['code-reviewer', 'project-explainer', 'sarah'].includes(r.name));
-  assert.equal(mine(off.importable).length, 0, 'gate off: the sandbox agents dir must not be reached');
-  const on = withGeminiHome(home, () => discover.scan({ roots: [] }));
-  assert.equal(mine(on.importable).length, 3, 'gate on (override set): the same dir yields all 3');
 });
 
 test('#2410 scan: a non-Gemini-shape .md under agents/ falls back to the generic rule (empty name), proving the name came from geminiIdentity', () => {
