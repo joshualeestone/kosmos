@@ -158,22 +158,25 @@ test('an environment failure (osascript fails / headless board) is a 503, not a 
 
 test('SAFE_SESSION guard: a hostile session name is refused, no osascript runs', () => {
   lastRun = null;
-  const orig = status.paneRoster;
-  status.paneRoster = () => ([{
-    sessionName: 'evil',
-    /* A name that, unquoted, would run `rm -rf ~` after the attach. It can
-       never be `isNamedOurs` in reality (that requires <NAME_RE>-discord), so
-       this arm forces the belt-and-braces guard to be the thing that refuses. */
-    session: "evil'; rm -rf ~; '",
-    isNamedOurs: true,
-  }]);
+  /* Build a REAL "ours" roster row via fleet (never a hand-built card -- see
+     fixture-discipline.test.js), then override ONLY its session to a name that,
+     if it reached the shell unquoted, would run `rm -rf ~`. paneRoster cannot
+     honestly emit an ours row with such a name (that would need a @kosmos_agent
+     claim), so force it: stub paneRoster to return the mutated row. */
+  const board = fleet.install([fleet.agent('evil', { state: 'working' })], { strict: false });
+  const origPR = status.paneRoster;
   try {
+    const row = board.roster.find((r) => r.sessionName === 'evil');
+    assert.ok(row && row.isNamedOurs === true, 'the fleet row is not an ours row, so the guard would not be the thing that refuses');
+    row.session = "evil'; rm -rf ~; '";
+    status.paneRoster = () => [row];
     const out = terminal.openTerminal('evil');
     assert.equal(out.ok, false, 'a hostile session name was accepted: ' + JSON.stringify(out));
     assert.match(out.because, /will not hand to a terminal/, JSON.stringify(out));
     assert.equal(lastRun, null, 'osascript ran for a hostile session -- the guard did not stop it');
   } finally {
-    status.paneRoster = orig;
+    status.paneRoster = origPR;
+    fleet.restore();
   }
 });
 
