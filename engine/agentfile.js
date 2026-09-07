@@ -485,8 +485,9 @@ function importAgent(text, deps) {
  * The #7 negative control (a plain notes file, no front-matter) returns null here.
  */
 function geminiIdentity(text) {
-  // Escaped \uFEFF (matching importAgent line 355), never a literal BOM: an
-  // is easy to mangle in a later edit.
+  // BOM/CRLF hygiene before parsing, as importAgent does. The BOM is matched by the
+  // escaped \uFEFF, never a literal BOM char in source, which is invisible on screen and
+  // easy to mangle in a later edit.
   const src = String(text == null ? '' : text).replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
   if (!m) return null;
