@@ -218,6 +218,26 @@ function share(dir) {
   return { ok: true, already: false };
 }
 
+/**
+ * #2420: does this directory hold a stored api-key Claude account? An api-key
+ * account writes NO `oauthAccount` -- only a mode-600 key file
+ * (claudeaccounts.KEY_BASENAME) and a settings.json `apiKeyHelper` pointer -- so
+ * `identityOf()` is null for it and `list()` would skip it. The key file is the
+ * marker that makes such a directory an account, exactly as an `oauthAccount` is
+ * the marker for a subscription one (and exactly the marker `nextWorkDir` already
+ * treats as "occupied").
+ *
+ * Lazy require, matching `nextWorkDir`: claudeaccounts -> subscription ->
+ * (lazy) accounts, so a top-level require here could re-enter this module
+ * mid-load. Fails CLOSED (false) if the module cannot load or the stat throws:
+ * a directory we cannot confirm holds a key is never surfaced as an account.
+ */
+function apiKeyStored(dir) {
+  let keyFile = null;
+  try { keyFile = require('./claudeaccounts').keyFile(dir); } catch { return false; }
+  try { return fs.existsSync(keyFile); } catch { return false; }
+}
+
 function list() {
   const out = [];
   const seen = new Set();
@@ -225,13 +245,32 @@ function list() {
     if (seen.has(dir)) return;
     seen.add(dir);
     const who = identityOf(dir);
-    if (!who) return;
+    /* #2420: a directory with a stored api-key but NO oauthAccount is a
+       first-class api-key Claude account that `identityOf` (which reads
+       oauthAccount only) cannot see. The default account is never one of these
+       -- it is the subscription account Claude Code uses with no override -- and
+       the `!who` guard means a directory somehow carrying BOTH markers is
+       surfaced as its subscription account: the more informative identity. That
+       dual-marker state is now prevented at CREATION from both directions -- the
+       create route's taken-label guard blocks a key over an existing oauth, and
+       (added with this slice, because making api-key dirs visible here is what
+       made it reachable) the /api/connect/start guard blocks an OAuth reauth over
+       an existing key. `apiKeyStored` is only reached when `identityOf` is null,
+       so the fast 5-second tick pays no extra stat for a real oauth account. */
+    const apiKey = !who && isDefault !== true && apiKeyStored(dir);
+    if (!who && !apiKey) return;
     out.push({
       dir,
       label: isDefault ? null : path.basename(dir).replace(/^\.claude-/, ''),
       isDefault: isDefault === true,
-      email: who.email,
-      organization: who.organization,
+      email: who ? who.email : null,
+      organization: who ? who.organization : null,
+      /* #2420: whether this account runs on a pasted API key rather than an
+         OAuth subscription login. `listLiveNow` reads it to pick the right
+         live-badge reader (claudeaccounts.checkLive vs subscription.checkLive);
+         it is `false` on every subscription row so the field is present with one
+         meaning across the list, never absent-vs-false. */
+      apiKey: apiKey === true,
       /* Whether a memory reading taken on this account can be FOUND. See the
          naming note at the top: `status.configRoots` only looks at `~/.claude`
          and `~/.claude-*`, and only when a `projects` directory is there. */
@@ -281,6 +320,10 @@ async function listLiveNow() {
   // inside check() -- these two modules require each other, and a
   // top-level require on either side would deadlock on load order.
   const subscription = require('./subscription');
+  // #2420: the live-badge reader for an api-key Claude row. Lazy, same load-order
+  // reason as the require in `apiKeyStored`; cached, so this costs nothing after
+  // the first call.
+  const claudeaccounts = require('./claudeaccounts');
   const rows = list();
   const checked = await Promise.all(rows.map(async (row) => {
     try {
@@ -299,9 +342,26 @@ async function listLiveNow() {
          to catch it. Omitting configDir for the default row lets `claude
          auth status` use its own built-in default resolution instead,
          which this machine confirms lands on the real account. */
-      const connection = row.isDefault
-        ? await subscription.checkLive()
-        : await subscription.checkLive({ configDir: row.dir });
+      let connection;
+      if (row.isDefault) {
+        connection = await subscription.checkLive();
+      } else if (row.apiKey) {
+        /* #2420: an api-key account has no OAuth subscription to query -- its
+           liveness is whether the STORED KEY still authenticates. checkLive
+           reads the mode-600 key file and asks Anthropic, keeping the same
+           asymmetry every reader here keeps: only a positive rejection is NONE,
+           unreachable is UNKNOWN. Shape-matched with `plan: null` so every row's
+           connection carries the same fields (the subscription arm and the catch
+           arm below both do), and the badge overlay in server.js reads one
+           vocabulary regardless of how the row was checked. `plan: null` is
+           written AFTER the spread on purpose: an api-key account has no
+           subscription plan, so plan is null regardless of anything checkLive
+           might one day return. */
+        const c = await claudeaccounts.checkLive(row.dir);
+        connection = { ...c, plan: null };
+      } else {
+        connection = await subscription.checkLive({ configDir: row.dir });
+      }
       return { ...row, connection };
     } catch {
       // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,

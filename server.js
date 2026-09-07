@@ -6239,6 +6239,32 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
             return null;
           }
+          /* 🛑 #2420: REFUSE AN OAUTH SIGN-IN INTO AN API-KEY ACCOUNT. The listing
+             slice makes an api-key Claude account (a stored key, no oauthAccount)
+             visible to list(), so `known` can now BE one -- and the per-row "Sign
+             in again" button (web/index.html, on every Claude row) reaches this
+             path. Running the OAuth flow here would write an oauthAccount BESIDE
+             the stored key + apiKeyHelper; Claude Code prefers apiKeyHelper, so
+             billing would silently STAY on the pasted key while the row
+             reclassified as a subscription (list()'s `!who` guard flips) and the
+             badge showed the OAuth email as connected. This is the MIRROR of the
+             create route's taken-label guard above (which blocks a key over an
+             existing oauth); this blocks an oauth over an existing key. Both
+             billing-contamination directions are now closed. To switch, remove
+             the account and add it again. Guarded here rather than by hiding the
+             button, because the route is the enforcement point and a UI-only
+             guard leaves the contamination reachable by any direct caller.
+             ⚠️ KEYED ON THE FILE, NOT list()'s `apiKey` FLAG. The file is the
+             ground truth: a dual-marker dir (oauth + key, which list() classifies
+             apiKey:FALSE because the oauth identity wins) still holds a key, so
+             an OAuth reauth there still muddies billing -- the file check refuses
+             it; the flag check would have let it through. */
+          if (fs.existsSync(claudeAccounts.keyFile(known.dir))) {
+            sendJson(res, 400, {
+              error: 'that account is connected with an API key. Signing in with a Claude subscription would change how it is billed, so remove it and add it again to switch.',
+            });
+            return null;
+          }
           /* 🛑 #1922: THE DEFAULT ACCOUNT IS ADDRESSED BY OMITTING configDir, NOT
              BY PASSING ITS DIR. Its config is `<HOME>/.claude.json`, a file
              BESIDE `<HOME>/.claude` -- and `CLAUDE_CONFIG_DIR=<HOME>/.claude`
