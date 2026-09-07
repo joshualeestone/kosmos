@@ -5670,7 +5670,21 @@ const server = http.createServer((req, res) => {
     let reading;
     try { reading = fileaccessstatus.read(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the file-access reading (' + String(err && err.message || err) + ')' }; }
-    sendJson(res, 200, reading);
+    /* #2347 item C (Josh 0.6.41: "S2 Next should gray until folder access is
+       allowed"): expose native-presence so the S2 gate can block Next when the
+       native app is present but access is not yet granted, WITHOUT a file-access
+       probe at entry. The file-access verdict alone cannot gate S2 on entry: the
+       probe IS the TCC prompt (engine reads it, native fileaccessprompt fires it),
+       so there is deliberately no entry-time reading -- on entry read() returns
+       checkable:false and the gate fail-safes to enabled, which is exactly the bug.
+       nativePresent is a PROMPT-FREE presence signal (a11y-status freshness the app
+       already maintains via axcheck, no folder access), so a probe-free entry gate
+       is possible: the front-end blocks S2 Next when nativePresent && !granted, and
+       fail-safes (enables) when there is no native app (a browser tester). Defaults
+       false on any error, so the fail-safe direction is preserved. */
+    let nativePresent = false;
+    try { nativePresent = promptrequest.nativePresent(); } catch { nativePresent = false; }
+    sendJson(res, 200, { ...reading, nativePresent });
     return;
   }
 
