@@ -3695,6 +3695,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .tmeta:last-of-type { border-bottom: 0; }
 .tmeta > span { color: var(--label-2); }
 .tmeta > b { font-weight: 600; text-align: right; min-width: 0; }
+/* #768: the due-date input sits in a tmeta row like the read-only values, but is
+   editable. Inherit the font, keep it right-aligned and unobtrusive; the native
+   date control carries its own picker + a clear affordance. */
+.tk-due-input { font: inherit; text-align: right; color: inherit; background: transparent;
+                border: 1px solid var(--k-rule); border-radius: 6px; padding: 2px 6px; }
+.tk-due-input:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .tkstate { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; } /* pack (#179) */
 /* The pack has `10px 0 0` and this had `10px 0 18px`. Mona Lisa: either is
    defensible, pick one. Picked the pack's: the note is about the button
@@ -9745,11 +9751,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <div class="tmeta"><span>Project</span><b id="tk-project"></b></div>
         <div class="tmeta"><span>Added</span><b id="tk-added"></b></div>
         <div class="tmeta"><span>State</span><b id="tk-state"></b></div>
-        <!-- ⚠️ NO DUE DATE FIELD, and its absence is deliberate rather than an
-             omission. Nothing in Kosmos acts on a date: agents are not
-             scheduled, nothing reminds anyone, and a date the product cannot
-             honour is a promise printed on a screen. It belongs here the day
-             something reads it. -->
+        <!-- #768: the task's DUE DATE (Josh's #768: "on the right we could have
+             some more detail... if there's a due date assigned"). This REVERSES
+             the earlier deliberate no-due-date deferral, on purpose: that deferral
+             said "it belongs here the day something reads it", and #768 is that day
+             -- the task page now reads and shows it. A calendar date only (no time),
+             set/cleared in place; NOTHING SCHEDULES on it yet, so it is information a
+             person and a picking-up agent read, never a promise the product silently
+             breaks. Clearing the field removes the date. -->
+        <div class="tmeta"><span>Due</span>
+          <input type="date" id="tk-due" class="tk-due-input" aria-label="Due date, optional">
+        </div>
+        <p class="fmsg" id="tk-due-msg" aria-live="polite" style="margin:2px 0 0;"></p>
         <p class="dhint" style="margin:12px 0 0;">Anything written here is part of the task, so an agent picking it up later reads the whole thing rather than just the title.</p>
         <!-- #992: the "get to it as a user" half of the transcript. 🛑 THE LABEL
              SAYS "THE TASK CONVERSATIONS", NOT "THIS TASK'S", for the same reason
@@ -31073,6 +31086,11 @@ function paintTaskPage() {
   document.getElementById('tk-project').textContent = p.name;
   document.getElementById('tk-added').textContent = tkAdded(t);
   document.getElementById('tk-state').textContent = tkStateWord(t);
+  /* #768: the due date. `document.activeElement` guard so the five-second poll
+     does not yank the value out from under someone mid-edit (the same reason the
+     Prompter interval paint checks it). Empty input means no due date. */
+  const due = document.getElementById('tk-due');
+  if (due && document.activeElement !== due) due.value = t.dueDate || '';
 
   /**
    * Who is on it: the task's PARTS, one row each (#206 step 2).
@@ -31170,6 +31188,8 @@ function tkActPhrase(ev, p) {
     case 'part-added': return 'A part added' + (ev.sentence ? ': ' + ev.sentence : '');
     case 'part-closed': return 'A part marked done';
     case 'part-reopened': return 'A part put back';
+    case 'due-set': return ev.dueDate ? 'Due date set to ' + ev.dueDate : 'Due date set';
+    case 'due-cleared': return 'Due date cleared';
     case 'closed': return 'Marked done';
     case 'reopened': return 'Put back';
     default: return String(ev.kind);
@@ -31389,6 +31409,31 @@ document.getElementById('tk-done').addEventListener('click', async () => {
     btn.disabled = false;
   }
 });
+
+/* #768: set or clear the task's due date. Saves on `change` (a native date input
+   fires it on pick and on clear), reports any refusal in tk-due-msg, then reloads
+   and refreshes the activity -- setDue records a lifecycle event, so it shows in
+   the Activity list the same tick. Paint after the reload comes from the SERVER's
+   stored value via paintTaskPage, never from the raw input. */
+async function saveTaskDue(value) {
+  const p = pjById(PJ_CURRENT);
+  if (!p || TK_OPEN === null) return;
+  const msg = document.getElementById('tk-due-msg');
+  try {
+    const res = await fetch('/api/project/' + encodeURIComponent(p.id) + '/task/' + TK_OPEN + '/due', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ dueDate: value || null }),
+    });
+    const out = await res.json().catch(() => null);
+    if (!res.ok) { if (msg) msg.textContent = (out && out.error) || 'we could not set that due date'; return; }
+    if (msg) msg.textContent = '';
+    await pjReload();
+    paintTaskActivity(TK_OPEN);
+  } catch {
+    if (msg) msg.textContent = 'we could not reach Kosmos to set that date';
+  }
+}
+document.getElementById('tk-due').addEventListener('change', (e) => { saveTaskDue(e.target.value); });
 
 /* ---- new task, its own page (#383; fields are the pack's, verbatim) ---- */
 /* Which project the typed draft belongs to. Back keeps the words (the

@@ -236,6 +236,20 @@ const MEMBER = 'taskmate';
     await p.waitForSelector('#tk-activity .tkact', { timeout: 10000 });
     const acts = (await shown(p.locator('#tk-activity'))).replace(/\s+/g, ' ').trim();
     if (!/Created/.test(acts)) die('the task activity list does not show the creation event: ' + acts);
+    /* #768: the due-date field is on the task page, settable in place. Fill it,
+       which fires the change handler; it POSTs, reloads, and repaints from the
+       SERVER's stored value, so a persisted 2026-12-25 proves the whole round trip
+       (route + engine + repaint), and the due-set event shows in the activity. */
+    if (!(await p.locator('#tk-due').isVisible())) die('the #768 due-date field is missing from the task view');
+    await p.fill('#tk-due', '2026-12-25');
+    await p.waitForFunction(() => { const el = document.getElementById('tk-due'); return el && el.value === '2026-12-25'; }, null, { timeout: 10000 })
+      .catch(() => {});
+    const dueVal = await p.$eval('#tk-due', (el) => el.value);
+    if (dueVal !== '2026-12-25') die('the due date did not persist on the task page after save+reload: ' + dueVal);
+    await p.waitForFunction(() => /Due date set/.test((document.getElementById('tk-activity') || {}).innerText || ''), null, { timeout: 10000 })
+      .catch(() => {});
+    const acts2 = (await shown(p.locator('#tk-activity'))).replace(/\s+/g, ' ').trim();
+    if (!/Due date set to 2026-12-25/.test(acts2)) die('the due-set event did not show in the activity: ' + acts2);
     const note = (await shown(p.locator('#tk-note'))).replace(/\s+/g, ' ').trim();
     if (!note.startsWith(MEMBER + ' says it is on this. Marking it done closes it here. It does not stop ')
         || !note.includes(MEMBER)) die('the joined close-note drifted: ' + note);
