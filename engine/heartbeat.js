@@ -88,8 +88,8 @@ const ASK_ON_EXIT_TO = new Set(['stopped', 'idle', 'unknown', 'auth_failed']);
 // Consecutive stall ticks a NEVER-worked agent must show before a persistent
 // stall opens an episode for it (see "TWO WAYS AN EPISODE OPENS", case 2). Two
 // gives a freshly started agent a boot grace of ~1 interval before the first
-// question, which at the 17-min default is generous. Tunable; the edge opener
-// (case 1) is unaffected and stays immediate.
+// question, which at the 15-min default (#1843) is generous. Tunable; the
+// edge opener (case 1) is unaffected and stays immediate.
 const STARTUP_STALL_TICKS = 2;
 
 function isStallState(state) { return ASK_ON_EXIT_TO.has(state); }

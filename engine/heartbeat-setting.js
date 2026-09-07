@@ -12,13 +12,19 @@
  * stated reason). An absent store means never-configured, which reads on; an
  * unreadable or corrupt one still falls to off so a bad config never drives the
  * runner. The interval is a CLOSED set of minute choices so the UI selector and the
- * stored value cannot disagree about what is valid, and 17 is the default
- * because it mirrors the fleet reference cadence (StartInterval 1020s = 17 min).
+ * stored value cannot disagree about what is valid, and 15 is the default.
+ *
+ * INTERVAL SET (Josh, 2026-09-03, #1843: "instead of 5, 10, 17, and 60 minutes,
+ * could we make it just 5, 10, 15, 30, and 60?"). The set is {5,10,15,30,60} and
+ * the default is 15 (the old default was 17, which mirrored the fleet's own
+ * launchd cadence but is not one of the customer-facing choices Josh asked for).
+ * A stored 17 from an older build is no longer in the set, so read() falls it
+ * back to the default like any out-of-set value.
  *
  * ONE CONTROL FOR "OFF": the plan's interval list read "Off / 5 / 10 / 17 / 60",
  * but a distinct on/off toggle already owns Off, so an interval value of Off is
  * redundant and would let two controls disagree. The interval choices are the
- * live minutes {5,10,17,60}; `on:false` is the only Off. Decided here, once.
+ * live minutes {5,10,15,30,60}; `on:false` is the only Off. Decided here, once.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -32,8 +38,8 @@ const FILE = path.join(BASE, 'heartbeat.json');
 
 // The closed set of interval choices, in minutes. Frozen so a consumer cannot
 // rewrite the product's notion of a valid interval from outside.
-const INTERVAL_CHOICES = Object.freeze([5, 10, 17, 60]);
-const DEFAULT_INTERVAL = 17;
+const INTERVAL_CHOICES = Object.freeze([5, 10, 15, 30, 60]);
+const DEFAULT_INTERVAL = 15;
 
 function isValidInterval(m) {
   return typeof m === 'number' && INTERVAL_CHOICES.includes(m);
