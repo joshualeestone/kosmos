@@ -1,0 +1,250 @@
+/**
+ * THE #2129 LAUNCH-TERMINAL ROUTE + engine/terminal.js.
+ * POST /api/agent/:name/launch-terminal.
+ *
+ * The route opens a Terminal.app window attached to a live agent's tmux
+ * session. Two properties matter and a source regex sees neither:
+ *   1. it only opens a window for a LIVE, ours agent -- a not-running or
+ *      not-confirmably-ours agent is refused and NO osascript runs; and
+ *   2. the command handed to Terminal is SHELL-QUOTED, so a session name can
+ *      never break out of `tmux attach -t <session>` into the shell. The
+ *      SAFE_SESSION guard is belt-and-braces on top (paneRoster only calls a
+ *      `<NAME_RE>-discord` session ours), and this pins that it actually fires.
+ *
+ * The osascript call is intercepted by terminal.setRunner so no test opens a
+ * real window; the HTTP arms drive the whole route with a fake tmux + fake
+ * panes so the live-session resolution (paneRoster) runs for real.
+ */
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const nodePath = require('node:path');
+
+const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'srv-launch-term-2129-'));
+const HOME = nodePath.join(SANDBOX, 'home');
+const BIN = nodePath.join(SANDBOX, 'bin');
+for (const d of [HOME, BIN, nodePath.join(SANDBOX, 'data'), nodePath.join(SANDBOX, 'workers'),
+  nodePath.join(SANDBOX, 'launch'), nodePath.join(SANDBOX, 'projects')]) {
+  fs.mkdirSync(d, { recursive: true });
+}
+process.env.AGENT_WORKFORCE_HOME = HOME;
+process.env.AGENT_WORKFORCE_DATA = nodePath.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = nodePath.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_LAUNCH = nodePath.join(SANDBOX, 'launch');
+process.env.AGENT_WORKFORCE_PROJECTS = nodePath.join(SANDBOX, 'projects');
+delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+delete process.env.CLAUDE_CONFIG_DIR;
+delete process.env.AGENT_WORKFORCE_CODEX_HOME;
+delete process.env.CODEX_HOME;
+
+const CLAUDE_BIN = nodePath.join(BIN, 'claude');
+const TMUX_BIN = nodePath.join(BIN, 'tmux');
+for (const b of [CLAUDE_BIN, TMUX_BIN]) {
+  fs.writeFileSync(b, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+}
+process.env.AGENT_WORKFORCE_CLAUDE_BIN = CLAUDE_BIN;
+
+const FAKE_TMUX = nodePath.join(__dirname, 'test-support', 'fake-tmux.sh');
+const PANES = nodePath.join(SANDBOX, 'panes.txt');
+process.env.AGENT_WORKFORCE_TMUX_BIN = FAKE_TMUX;
+process.env.AGENT_WORKFORCE_FAKE_PANES = PANES;
+
+const fleet = require('./test-support/fleet');
+const create = require('./engine/create');
+const status = require('./engine/status');
+const terminal = require('./engine/terminal');
+const store = require('./engine/store');
+
+/* Capture the osascript the route would run, and never open a window. */
+let lastRun = null;
+terminal.setRunner((file, args) => { lastRun = { file, args }; return { ok: true }; });
+
+function born(name) {
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  store.writeProfile(name, { provider: 'anthropic' });
+  fs.writeFileSync(PANES, fleet.line({ session: name + '-discord', title: 'working' }) + '\n');
+  return name;
+}
+
+const { start, server } = require('./server');
+let base = '';
+
+test.before(async () => {
+  await start(0);
+  base = 'http://127.0.0.1:' + server.address().port;
+});
+test.after(() => {
+  try { server.close(); } catch { /* going away anyway */ }
+  terminal.setRunner(null);
+});
+
+async function launch(name) {
+  const res = await fetch(base + '/api/agent/' + encodeURIComponent(name) + '/launch-terminal', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+test('a live agent: opens Terminal attached to its session, command is shell-quoted', async () => {
+  lastRun = null;
+  const name = 'lt-live';
+  born(name);
+  const r = await launch(name);
+
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.ok, true, JSON.stringify(r.body));
+  assert.equal(r.body.session, name + '-discord', 'the route did not report the agent\'s real session: ' + JSON.stringify(r.body));
+
+  /* The osascript actually ran, as an `osascript -e <applescript>`. */
+  assert.ok(lastRun, 'no osascript call was made for a live agent');
+  assert.equal(lastRun.file, 'osascript');
+  assert.equal(lastRun.args[0], '-e');
+  const script = lastRun.args[1];
+  /* It tells Terminal to attach to THIS session, via the agent's tmux binary,
+     and every value that reaches the shell is single-quoted -- so a session
+     name could not break out of the command. */
+  assert.match(script, /do script/);
+  assert.ok(script.includes(`attach -t '${name}-discord'`),
+    'the attach command is not present or not single-quoted: ' + script);
+  assert.ok(script.includes(`exec '${TMUX_BIN}'`),
+    'the tmux binary is not present or not single-quoted: ' + script);
+});
+
+test('a stopped agent: refuses, and NO terminal is opened', async () => {
+  lastRun = null;
+  /* An agent with a job but NO live pane. Clear the pane file so paneRoster
+     finds nothing under its name. */
+  const name = 'lt-stopped';
+  fs.mkdirSync(create.AGENTS_DIR, { recursive: true });
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(create.plistPath(name), create.plistFor(name, CLAUDE_BIN, TMUX_BIN, null, null, 'claude'), 'utf8');
+  store.writeProfile(name, { provider: 'anthropic' });
+  fs.writeFileSync(PANES, '');
+
+  const r = await launch(name);
+  assert.equal(r.status, 400, JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, JSON.stringify(r.body));
+  assert.match(String(r.body.because || ''), /not running/, JSON.stringify(r.body));
+  assert.equal(lastRun, null, 'a terminal was opened for a stopped agent -- nothing should have run');
+});
+
+test('an environment failure (osascript fails / headless board) is a 503, not a 400', async () => {
+  /* A live agent, but the osascript call fails the way it would on a headless
+     board. That is an environment condition, not a bad request: the route must
+     answer 503 so a transient/headless failure does not read as a client
+     error. Contrast with the stopped-agent arm above, a genuine 400 refusal. */
+  const name = 'lt-headless';
+  born(name);
+  terminal.setRunner(() => ({ ok: false, because: 'no window server' }));
+  let r;
+  try {
+    r = await launch(name);
+  } finally {
+    terminal.setRunner((file, args) => { lastRun = { file, args }; return { ok: true }; });
+  }
+  assert.equal(r.status, 503, 'an osascript/headless failure was not reported as 503: ' + JSON.stringify(r.body));
+  assert.equal(r.body.ok, false, JSON.stringify(r.body));
+  assert.match(String(r.body.because || ''), /could not open a terminal/, JSON.stringify(r.body));
+});
+
+/* --- module-level arms: force states paneRoster cannot honestly produce, to
+   prove the two guards that protect the shell command. paneRoster is stubbed
+   synchronously and restored in the same test body (openTerminal is sync). --- */
+
+test('SAFE_SESSION guard: a hostile session name is refused, no osascript runs', () => {
+  lastRun = null;
+  /* Build a REAL "ours" roster row via fleet (never a hand-built card -- see
+     fixture-discipline.test.js), then override ONLY its session to a name that,
+     if it reached the shell unquoted, would run `rm -rf ~`. paneRoster cannot
+     honestly emit an ours row with such a name (that would need a @kosmos_agent
+     claim), so force it: stub paneRoster to return the mutated row. */
+  const board = fleet.install([fleet.agent('evil', { state: 'working' })], { strict: false });
+  const origPR = status.paneRoster;
+  try {
+    const row = board.roster.find((r) => r.sessionName === 'evil');
+    assert.ok(row && row.isNamedOurs === true, 'the fleet row is not an ours row, so the guard would not be the thing that refuses');
+    row.session = "evil'; rm -rf ~; '";
+    status.paneRoster = () => [row];
+    const out = terminal.openTerminal('evil');
+    assert.equal(out.ok, false, 'a hostile session name was accepted: ' + JSON.stringify(out));
+    assert.match(out.because, /will not hand to a terminal/, JSON.stringify(out));
+    assert.equal(lastRun, null, 'osascript ran for a hostile session -- the guard did not stop it');
+  } finally {
+    status.paneRoster = origPR;
+    fleet.restore();
+  }
+});
+
+test('fail closed: if we cannot ask tmux, we refuse rather than guess (and it is 503, not a bad request)', () => {
+  lastRun = null;
+  const orig = status.paneRoster;
+  status.paneRoster = () => { throw new Error('tmux is not answering'); };
+  try {
+    const out = terminal.openTerminal('whoever');
+    assert.equal(out.ok, false, JSON.stringify(out));
+    assert.match(out.because, /could not check/, JSON.stringify(out));
+    /* An unaskable tmux is an ENVIRONMENT failure, so it is marked `unavailable`
+       (the route answers 503), not a plain refusal. */
+    assert.equal(out.unavailable, true, 'a transient tmux failure is not marked unavailable, so the route would call it a 400: ' + JSON.stringify(out));
+    assert.equal(lastRun, null, 'osascript ran despite not being able to confirm the agent is live');
+  } finally {
+    status.paneRoster = orig;
+  }
+});
+
+test('the quoting layers neutralize adversarial input directly (tmuxBin has no allowlist)', () => {
+  const { shellSingleQuote, appleScriptString } = terminal;
+
+  /* shell single-quoting: a value is one literal, and an embedded ' becomes
+     '\'' so it cannot end the quote. Metacharacters inside are inert. */
+  assert.equal(shellSingleQuote("a'b"), "'a'\\''b'", 'single-quote is not escaped as the POSIX close-escape-reopen form');
+  assert.equal(shellSingleQuote('; rm -rf ~'), "'; rm -rf ~'", 'shell metacharacters are not contained in one literal');
+  assert.equal(shellSingleQuote('$(evil)`evil`'), "'$(evil)`evil`'", 'command substitution is not contained');
+  const q = shellSingleQuote("x'y'z");
+  assert.ok(q.startsWith("'") && q.endsWith("'"), 'the quoted value does not open and close with a quote: ' + q);
+
+  /* AppleScript string literal: backslash escaped BEFORE double-quote, so a
+     shell-escape (which contains a backslash) survives intact inside it. */
+  assert.equal(appleScriptString('a"b'), '"a\\"b"', 'double-quote not escaped in the AppleScript literal');
+  assert.equal(appleScriptString('a\\b'), '"a\\\\b"', 'backslash not escaped in the AppleScript literal');
+
+  /* THE COMPOSITION, which is the property the whole scheme rests on: a hostile
+     tmux path goes shell-quote THEN applescript-quote, and the backslash the
+     shell-escape introduces must survive as \\ so osascript hands the shell the
+     exact literal rather than a broken-out one. */
+  const hostile = "/tmp/ev'il/tmux";
+  const shellQuoted = shellSingleQuote(hostile);     // '/tmp/ev'\''il/tmux'
+  assert.equal(shellQuoted, "'/tmp/ev'\\''il/tmux'", 'shell layer wrong: ' + shellQuoted);
+  const composed = appleScriptString(shellQuoted);
+  /* Prove the composition by REVERSING the AppleScript escaping rather than
+     hand-building the doubly-escaped literal (that hand-escaping is exactly
+     where a false assertion hides). A valid AppleScript literal opens/closes
+     with " and its body un-escapes \\ -> \ and \" -> " back to the shell form.
+     If the shell-escape backslash had NOT survived, this would not round-trip. */
+  assert.ok(composed.startsWith('"') && composed.endsWith('"'), 'not a quoted AppleScript literal: ' + composed);
+  const unAppleScripted = composed.slice(1, -1).replace(/\\(["\\])/g, '$1');
+  assert.equal(unAppleScripted, shellQuoted,
+    'the shell form did not survive AppleScript escaping intact, so osascript would hand the shell a different string: ' + composed);
+});
+
+test('an empty name finds no live card and opens nothing', () => {
+  /* NOT the route's decodeSegment===null branch (that mirrors the /restart
+     sibling verbatim and answers 400 before openTerminal is called). This
+     drives the MODULE with an empty name, which cleans to '' and matches no
+     card, so nothing is opened. */
+  lastRun = null;
+  const orig = status.paneRoster;
+  status.paneRoster = () => ([]);
+  try {
+    const out = terminal.openTerminal('');
+    assert.equal(out.ok, false);
+    assert.equal(lastRun, null);
+  } finally {
+    status.paneRoster = orig;
+  }
+});

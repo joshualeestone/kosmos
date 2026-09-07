@@ -283,6 +283,11 @@ const create = require('./engine/create');
    #2382), so the one-click escape and the automatic create-time write can never
    disagree about the spelling. The codex-side writer lives in create. */
 const trust = require('./engine/trust');
+/* #2129 companion: the launch-terminal route opens a real Terminal.app window
+   attached to a live agent's tmux session (read-only -- adds a viewer, does not
+   touch the session). Its osascript call goes through terminal.js's own runner
+   seam so tests never open a window. */
+const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
@@ -3841,6 +3846,39 @@ const server = http.createServer((req, res) => {
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
         { error: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+
+  /**
+   * #2129 companion -- open the agent's ACTUAL terminal window.
+   *
+   * The board reads an agent by CAPTURING its tmux pane; it never attaches. So
+   * a person who wants the live session in front of them -- to answer a prompt
+   * the board cannot, or just to watch -- had no way in from the app. This
+   * opens a Terminal.app window attached to the agent's tmux session.
+   *
+   * 🔑 READ-ONLY ABOUT THE AGENT. tmux allows many clients on one session and
+   * the board's reading is capture-based (not a client), so this only ADDS a
+   * viewer: it does not restart the agent or touch what it is doing. All the
+   * resolution, refusals and the osascript seam live in engine/terminal.js; the
+   * route is the thin HTTP shell, matching the family above it. No request body
+   * is read (there is nothing to send). Response: {ok:true, session} on 200, or
+   * {ok:false, because} on 400 -- the same friendly-reason shape the restart
+   * family uses.
+   */
+  const lt = pathname.match(/^\/api\/agent\/([^/]+)\/launch-terminal$/);
+  if (lt && req.method === 'POST') {
+    const name = decodeSegment(lt[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let out;
+    try { out = terminal.openTerminal(name); }
+    catch (err) { sendJson(res, 500, { error: 'we could not open a terminal for this agent', detail: String(err && err.message || err) }); return; }
+    /* A refusal (not running / not ours / a name we will not shell out) is a
+       400; an ENVIRONMENT failure (tmux unaskable, or osascript failing on a
+       headless board) is a 503, so a transient "try again" is not reported to
+       monitoring as a bad request. The board reads `because` either way. */
+    const code = out && out.ok ? 200 : (out && out.unavailable ? 503 : 400);
+    sendJson(res, code, out);
     return;
   }
 
