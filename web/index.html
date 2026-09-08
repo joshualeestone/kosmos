@@ -25797,6 +25797,14 @@ let OPENAI_MODELS_GEN = 0;
    on each fetch; paintModelWhy searches it alongside CREATE_MODELS so a selected
    OpenAI model still shows its why. */
 let OPENAI_PICK_MODELS = [];
+/* #2453 follow-up (Mona, 2026-09-08): an IMPORTED OpenAI agent lands on the provider's
+   default model, not "Let OpenAI choose". The import response carries that default KEY
+   (server-side defaultModelKeyFor); we stash it here when the import sets the provider to
+   OpenAI, and paintOpenaiCreateModel pre-selects it once the account's model list loads --
+   the list is fetched async per account, so it cannot be set inline at import time. A
+   one-shot pref, consumed (cleared) on the next paint; null the rest of the time. The
+   Claude side already lands on its default via loadCreateExtras, so this is OpenAI-only. */
+let IMPORT_OPENAI_MODEL = null;
 
 /**
  * The model picker on an agent's page.
@@ -28451,6 +28459,13 @@ function paintOpenaiCreateModel() {
       if (sel) {
         sel.innerHTML = '<option value="" selected>Let OpenAI choose (recommended)</option>'
           + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join('');
+        /* #2453 follow-up (Mona): an import asked to land on the provider's default model.
+           If that key is one of THIS account's models, pre-select it (overriding "Let
+           OpenAI choose"); if the account does not offer it, leave "Let OpenAI choose" --
+           the same graceful fall-back, never worse than today. */
+        if (IMPORT_OPENAI_MODEL && out.models.some((m) => m.key === IMPORT_OPENAI_MODEL)) {
+          sel.value = IMPORT_OPENAI_MODEL;
+        }
       }
       paintModelWhy('create-model', 'create-model-why');
     } else {
@@ -28467,6 +28482,9 @@ function paintOpenaiCreateModel() {
       if (row) row.hidden = false;
       if (why) { why.textContent = openaiNoModelsNote(out && out.because); why.hidden = false; }
     }
+    /* One-shot: consume the import default after this first paint (whether or not it was
+       offered) so a later manual account change does not re-force it. */
+    IMPORT_OPENAI_MODEL = null;
   })();
 }
 
@@ -29161,7 +29179,16 @@ async function finishImport(data, gen, btn) {
     const provEl = document.getElementById('create-provider');
     const wanted = String(data.provider || '').toLowerCase();
     const okProv = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
-    if (okProv) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
+    if (okProv) {
+      /* #2453 follow-up (Mona): stash the import's default model KEY for OpenAI so the
+         model list, which the provider change fetches async per account, lands on it
+         rather than "Let OpenAI choose". Set before the dispatch that fires
+         paintOpenaiCreateModel. Only when OpenAI is actually the honoured provider;
+         Claude already lands on its default via loadCreateExtras. */
+      if (wanted === 'openai' && data.model) IMPORT_OPENAI_MODEL = data.model;
+      provEl.value = wanted;
+      provEl.dispatchEvent(new Event('change'));
+    }
 
     if (!AVATAR_FILE) drawCreateMark();
     cstep('name');
