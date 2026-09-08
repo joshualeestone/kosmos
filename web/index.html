@@ -27906,8 +27906,15 @@ function enhanceProviderSelect(selectId) {
   const listId = uid + '-list';
   const optId = (i) => uid + '-opt-' + i;
 
-  // Visually hide the native select but keep it in the DOM + focusable-by-code.
+  // Hide the native select from SIGHT (the clip class), from the TAB ORDER, and from the
+  // a11y tree. The clip alone would leave a phantom tab stop with no visible focus ring and a
+  // duplicate "Provider" combobox for a screen reader (the widget IS the control now). Both
+  // tabindex=-1 and aria-hidden are required together, and both are safe: selection is driven
+  // by `select.value=` + dispatch, and nothing programmatically focuses this select (verified:
+  // the sel.focus() sites target #acct-provider-pick, #d-model, and a created select).
   select.classList.add('pcombo-src');
+  select.tabIndex = -1;
+  select.setAttribute('aria-hidden', 'true');
   // Carry the select's accessible name onto the widget.
   const nameFrom = select.getAttribute('aria-label') || '';
 
@@ -27939,8 +27946,8 @@ function enhanceProviderSelect(selectId) {
   list.className = 'pcombo-list';
   list.id = listId;
   list.setAttribute('role', 'listbox');
+  // labelEl exists iff nameFrom is truthy, so this is the only branch (no dead aria-label fallback).
   if (labelEl) list.setAttribute('aria-labelledby', labelEl.id);
-  else if (nameFrom) list.setAttribute('aria-label', nameFrom);
   list.hidden = true;
 
   // Build one <li role=option> per <option>, mirroring value/label/disabled.

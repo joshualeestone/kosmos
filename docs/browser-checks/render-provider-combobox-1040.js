@@ -58,6 +58,9 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       // Source of truth preserved: the native select is hidden but still in the DOM with options.
       const selectStillHasOptions = select.options.length >= 2 && !!select.querySelector('option[value="anthropic"]');
       const selectHidden = getComputedStyle(select).position === 'absolute' && select.clientWidth <= 2;
+      // The native select must be out of the tab order AND the a11y tree, not merely clipped:
+      // otherwise it is a phantom tab stop with no focus ring and a duplicate "Provider" combobox.
+      const selectOutOfATandTab = select.getAttribute('aria-hidden') === 'true' && select.tabIndex === -1;
 
       // Closed state: role, collapsed, shows the selected label + a mark.
       const roleCombobox = trigger.getAttribute('role') === 'combobox';
@@ -144,7 +147,7 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const progLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
 
       return {
-        selectStillHasOptions, selectHidden, roleCombobox, collapsed, triggerLabelClosed, triggerHasMark,
+        selectStillHasOptions, selectHidden, selectOutOfATandTab, roleCombobox, collapsed, triggerLabelClosed, triggerHasMark,
         openedAfterClick, activeOnOpen, arrowMoved, selectSynced, changeFired, closedAfterEnter,
         disabledIsDisabled, disabledNotSelectable, grokChip, reopened, escClosed, escRefocus,
         accNameHasLabelAndValue, triggerLabelOpenai, disabledSyncsOn, disabledSyncsOff,
@@ -155,6 +158,7 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
     if (r.fatal) { problems.push(t + r.fatal); await page.close(); continue; }
     ok(t + 'the native select stays in the DOM with its options (source of truth)', r.selectStillHasOptions, JSON.stringify(r.selectStillHasOptions));
     ok(t + 'the native select is visually hidden', r.selectHidden, JSON.stringify(r.selectHidden));
+    ok(t + 'the native select is out of the tab order and a11y tree (no phantom tab stop / duplicate combobox)', r.selectOutOfATandTab);
     ok(t + 'the trigger is role=combobox', r.roleCombobox);
     ok(t + 'the trigger accessible name carries the field label AND its own value text (aria-labelledby, not aria-label)', r.accNameHasLabelAndValue);
     ok(t + 'the trigger mirrors select.disabled (disabled = trigger disabled)', r.disabledSyncsOn && r.disabledSyncsOff, JSON.stringify({ on: r.disabledSyncsOn, off: r.disabledSyncsOff }));
