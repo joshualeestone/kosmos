@@ -158,6 +158,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         const subs = document.getElementById('pj-one-subprojects');
         out.parentHidden = par.hidden; out.parentText = par.textContent;
         out.subsHidden = subs.hidden; out.subKid = !!subs.querySelector('.pj-subrow[data-project="gc"]');
+        // #2487: the row must actually OPEN on click. It lives in #pj-one-view, a
+        // sibling of #pj-list, so the list delegate does not cover it -- this proves
+        // the section's OWN delegate fires (a row that looks clickable but is inert
+        // was the iteration-1 blocker).
+        const kidBtn = subs.querySelector('.pj-subrow[data-project="gc"]');
+        if (kidBtn) { kidBtn.click(); out.opened = (PJ_CURRENT === 'gc'); } else { out.opened = false; }
         out.detailErr = null;
       } catch (e) { out.detailErr = String(e && e.message || e); }
       return out;
@@ -168,6 +174,7 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' ancestry: depth dots are decorative (aria-hidden)', anc.gcDots === 'true', 'aria-hidden=' + anc.gcDots);
     ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
+    ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
 
     // ---- Layer 2: the set-parent select ----
     const select = await page.evaluate(() => {

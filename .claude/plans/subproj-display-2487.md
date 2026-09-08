@@ -45,7 +45,8 @@ Design approved by Angel + Splinter (mockup at
 - Rail capped-indent + guide line: the ancestry line already carries depth in the rail.
 
 ## Verification
-- pjAncestry logic node-tested (chains, truncation, cycle, dangling).
+- pjAncestry has a committed node test (web.pj-ancestry-2487.test.js): chains at each
+  depth, dangling-parent fallback, and the self/two-node cycle guard.
 - Syntax + whole-file tag balance checked. Badge contrast computed (>=3:1 both grounds).
 - Actual CSS + emitted markup static-rendered, matches the approved mockup.
 - The rendered-view behaviour is covered by render-subprojects-1994.js (CI Playwright).

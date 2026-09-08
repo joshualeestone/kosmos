@@ -31336,9 +31336,11 @@ function unreadBadge(n) {
   return '<span class="pj-unread" aria-label="' + s + ' unread">' + s + '</span>';
 }
 /* #2487: the full ancestry name chain, root-first, for the tree "mouseprint".
-   Walks parent ids up via pjById (a dangling or archived parent still lends its
-   name so the path is never silently shortened), with a cycle guard so a bad
-   stored loop cannot hang. The single-parent chip this feeds replaced showed
+   Walks parent ids up via pjById. When the immediate parent record is not yet
+   loaded (a transient client-side sync gap) it falls back to the stored
+   parentName, so the line is not blank in that window; an archived parent whose
+   record IS loaded contributes its name normally. A cycle guard (seen seeded with
+   p.id) stops a bad stored loop from hanging. The single-parent chip this feeds replaced showed
    only the immediate parent, so a grandchild read as a top-level project; the
    chain shows depth at a glance in the grid and the narrow rail, where the
    wide-list indent has no room (Josh 2026-09-07). */
@@ -37153,6 +37155,15 @@ document.getElementById('pj-add-back').addEventListener('click', () => { PJ_CURR
 
 document.getElementById('pj-list').addEventListener('click', (e) => {
   if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }
+  const row = e.target.closest('[data-project]');
+  if (row) openProject(row.dataset.project);
+});
+
+/* #2487: the detail page's sub-projects section is its OWN delegate. Its rows carry
+   data-project like the cards, but it lives in #pj-one-view, a sibling of #pj-list,
+   so the list delegate above never sees it -- without this the rows look clickable
+   (cursor:pointer, hover) and do nothing. Same open handle the cards use. */
+document.getElementById('pj-one-subprojects').addEventListener('click', (e) => {
   const row = e.target.closest('[data-project]');
   if (row) openProject(row.dataset.project);
 });
