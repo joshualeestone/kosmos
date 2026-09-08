@@ -88,7 +88,7 @@ function announce(v) {
     /* Lazy on purpose. engine/remote.js binds its data root at module scope
        (`const BASE = store.ROOT`), so requiring it at engine/update.js load time
        would FREEZE the root before a caller can set AGENT_WORKFORCE_DATA. This
-       file is required by update.js, which is required early. update.js:254
+       file is required by update.js, which is required early. update.js:275
        already requires ./autoupdate late for the same reason. */
     const remote = require('./remote');
     if (!requestFactory && underTest()) return;

@@ -159,6 +159,42 @@ test('#988: an unenrolled machine says nothing, because there is nothing to say 
   assert.equal(calls.length, 0);
 });
 
+test('#988: the ENROLMENT gate is load-bearing, not shadowed by the certificate read', () => {
+  /* 🛑 THE ARM ABOVE CANNOT PROVE THIS, and I only noticed because a reviewer
+     mutated the code. unenrol() points at a directory with NONE of the four
+     files, so deleting `if (!remote.enrolled()) return;` still produces
+     calls.length === 0, just via the cert-read catch instead: the same observable
+     outcome down a different path, which is the definition of an arm that cannot
+     fail for its stated reason.
+     enrolled() requires FOUR files; the cert read looks at two. This fixture has
+     the two certs and neither identity file, which is a plausible mid-forget() or
+     partially written state dir, and it is the only shape that separates the
+     gates. Measured: with the guard removed it sends a real POST carrying a
+     possibly orphaned client certificate. */
+  const orphan = nodePath.join(SANDBOX, 'orphan');
+  fs.mkdirSync(orphan, { recursive: true });
+  fs.writeFileSync(nodePath.join(orphan, 'tls.crt'), 'CERT-BYTES\n');
+  fs.writeFileSync(nodePath.join(orphan, 'tls.key'), 'KEY-BYTES\n');
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = orphan;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
+  const remote = require('./remote');
+  assert.equal(remote.enrolled(), false, 'the fixture must be UNenrolled, or this arm proves nothing');
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls.length, 0, 'an unenrolled mac must not present a certificate it still happens to hold');
+});
+
+test('#988 CONTROL: the same fixture WITH the identity files present does send', () => {
+  const whole = nodePath.join(SANDBOX, 'orphan-complete');
+  fs.mkdirSync(whole, { recursive: true });
+  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(whole, f), 'x\n');
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = whole;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls.length, 1, 'the arm above must fail for the MISSING IDENTITY, not for the fixture');
+});
+
 test('#988: a certificate that vanishes AFTER the enrolment check says nothing rather than throwing', () => {
   /* 🛑 THE RACE THIS ARM IS FOR, and an earlier version of it never reached the
      code it named. It deleted tls.key and then called announce(), but
