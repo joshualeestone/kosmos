@@ -166,9 +166,10 @@ test('#1652 PR2 POSITIVE: a discovered agent file is read by path and parses int
 
 test('#2453: the FILE route also returns the default model key, so the second call site is covered too', async () => {
   // SHARED is a 'claude' export, so like the text route it must carry the
-  // default model key for the form to pre-select. Both /api/agent-import call
-  // sites are byte-identical; this asserts the file variant at the route level
-  // rather than trusting that identity (the plan flags the two-call-site gap).
+  // default model key for the form to pre-select. The injected model: line is
+  // identical across both /api/agent-import call sites; this asserts the file
+  // variant at the route level rather than trusting that line-level identity
+  // (the plan flags the two-call-site gap).
   const { status, json } = await post('/api/agent-import-file', { file: SHARED });
   assert.equal(status, 200);
   assert.equal(json.model, 'sonnet',
