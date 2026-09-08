@@ -41,12 +41,31 @@ const update = require('./update');
    does it once, globally, so no arm can forget. */
 update.setFetcher(async () => ({ ok: false, status: 503, json: async () => ({}) }));
 
+/* The COMMERCIAL switch lives in remote.json under the DATA root, not in the
+   state dir, so it is a separate axis from enrolment and has to be set
+   separately. remote is required lazily inside the helper for the same ordering
+   reason the arms below use: nothing at the top of this file may load remote.js,
+   or the ordering arms stop meaning anything. */
+function setPlus(on) {
+  const remote = require('./remote');
+  /* The data root is a sandbox that nothing has written to yet, so the directory
+     remote.json lives in does not exist. mkdir first, or the helper throws at
+     module load and the whole file dies with one ENOENT instead of running. */
+  fs.mkdirSync(nodePath.dirname(remote.FILE), { recursive: true });
+  fs.writeFileSync(remote.FILE, JSON.stringify({ on }));
+}
+/* An enrolled Mac with Plus ON: the ordinary state, and what every arm below
+   that calls enrol() means by "enrolled". Turning the switch on HERE rather than
+   per-arm is deliberate: announce() gates on both halves, so an arm that set only
+   the files would pass for the wrong reason. */
 function enrol() {
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
+  setPlus(true);
 }
 function unenrol() {
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = nodePath.join(SANDBOX, 'no-such-dir');
+  setPlus(true);   // isolate the enrolment axis: the switch is not what is off here
 }
 /* A fake request object with the surface announce() uses, and nothing else. */
 function fakeReq() {
@@ -70,6 +89,20 @@ test.afterEach(() => {
   updating.setRequestFactory(null);
   delete process.env.AGENT_WORKFORCE_TUNNEL_STATE;
   delete process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR;
+  /* The switch lives in a FILE, not in the environment, so unlike the two lines
+     above it survives the arm that set it. An arm that turns Plus off or corrupts
+     remote.json would otherwise silence every later arm that builds its own state
+     dir instead of calling enrol(), and those arms would fail as if the product
+     were broken. Reset to the ordinary state; arms that need it off say so. */
+  setPlus(true);
+});
+
+/* The repo's convention for a mkdtemp fixture: fixture-discipline.test.js,
+   web.links-everywhere.test.js, server.usage.test.js and four others all remove
+   their SANDBOX in test.after. Wrapped, because a removal that throws must not
+   turn a green run red at the very end. */
+test.after(() => {
+  try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
 /* ---- THE BLOCKER ARM ------------------------------------------------------ */
@@ -218,6 +251,54 @@ test('#988: the ENROLMENT gate is load-bearing, not shadowed by the certificate 
   const calls = capture();
   updating.announce(900);
   assert.equal(calls.length, 0, 'an unenrolled mac must not present a certificate it still happens to hold');
+});
+
+/* ---- THE COMMERCIAL SWITCH, WHICH IS A SEPARATE AXIS FROM ENROLMENT --------- */
+
+test('#988: an ENROLLED mac with Kosmos Plus switched OFF says nothing', () => {
+  /* Turning Plus off does NOT unenrol. remote.setOn(false) writes {on:false} and
+     calls ensure(); only forget()/retire removes the identity files. So a Mac that
+     once paid and then switched off keeps enrolled() === true forever, and a guard
+     that reads only the files would keep POSTing to the PAID coordinator with that
+     Mac's client certificate after the customer turned the feature off.
+     This is the arm the guard exists for, and the two assertions below are
+     deliberately BOTH present: the first proves the fixture is the dangerous one
+     (still enrolled, files intact), so a future change that quietly unenrols here
+     cannot make this arm pass for the ordinary reason. */
+  enrol();
+  setPlus(false);
+  const remote = require('./remote');
+  assert.equal(remote.enrolled(), true, 'the fixture must still be ENROLLED, or this arm proves nothing');
+  assert.equal(remote.read().on, false, 'the switch must actually read off, or this arm proves nothing');
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls.length, 0, 'a mac whose owner switched Plus off must not reach the paid coordinator');
+});
+
+test('#988 CONTROL: the same enrolled mac WITH the switch on does send', () => {
+  /* The discriminating half. Without it, an arm asserting 0 could be passing
+     because the fixture is broken rather than because the guard works: the same
+     shape that made six of my earlier arms vacuous on this branch. */
+  enrol();
+  setPlus(true);
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls.length, 1, 'with the switch on, the same enrolled mac must announce');
+});
+
+test('#988: a DAMAGED settings file fails CLOSED, it does not announce', () => {
+  /* read() returns {on:false} on ENOENT, on unreadable, on unparseable and on a
+     non-object, and this route is a paid one, so unreadable must mean silent
+     rather than "assume the customer is paying". Asserting the direction here
+     because it is the one place where an error path decides whether a client
+     certificate goes on the wire. */
+  enrol();
+  const remote = require('./remote');
+  fs.writeFileSync(remote.FILE, '{ this is not json');
+  assert.equal(remote.read().on, false, 'a damaged settings file must read off, or this arm proves nothing');
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls.length, 0, 'a damaged settings file must not authorise a POST to the paid coordinator');
 });
 
 test('#988 CONTROL: the same fixture WITH the identity files present does send', () => {
@@ -637,6 +718,18 @@ test('#988 END TO END: the REAL transport delivers the POST, with no factory and
       "for(const f of ['mac_id','address','tls.crt','tls.key']) fs.writeFileSync(p.join(st,f),'x');",
       "process.env.AGENT_WORKFORCE_TUNNEL_STATE=st;",
       "process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR='http://127.0.0.1:'+process.argv[2];",
+      /* The COMMERCIAL switch, which announce() gates on as well as the files. The
+         child's data root is a fresh sandbox, so remote.json does not exist and
+         read() correctly returns {on:false}: without this the production path is
+         silent and the arm fails for the right reason at the wrong place.
+         remote's OWN derivation of the path rather than a hardcoded
+         'Kosmos/remote.json', so a change to the data layout cannot make this arm
+         write to a path nothing reads and pass by being silently skipped.
+         Loading remote here is safe: the load-ordering guarantee has its own
+         subprocess arm above, and the data root is already set. */
+      "const R=require(p.join(process.argv[1],'engine/remote.js'));",
+      "fs.mkdirSync(p.dirname(R.FILE),{recursive:true});",
+      "fs.writeFileSync(R.FILE,JSON.stringify({on:true}));",
       "require(p.join(process.argv[1],'engine/updating.js')).announce(900);",
       "setTimeout(()=>{},400);",
     ].join('\n');

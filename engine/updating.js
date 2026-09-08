@@ -113,9 +113,25 @@ function announce(v) {
        supplies its own transport touches no network and must still run. */
     if (!requestFactory && process.env.NODE_TEST_CONTEXT) return;
     /* Still lazy: update.js is required early, and remote.js freezes its root at
-       module scope. update.js:275 requires ./autoupdate late for the same reason. */
+       module scope. update.js's autoPref() requires ./autoupdate late for the
+       same reason. CITED BY FUNCTION, NOT BY LINE: this comment has carried a
+       stale line number three times on this branch, because my own edits to
+       update.js moved the require each time and nothing re-checks a number. */
     const remote = require('./remote');
-    if (!remote.enrolled()) return;   // nothing to say, and nothing to say it with
+    /* BOTH halves, and the switch is the half that files cannot see. setOn(false)
+       writes {on:false} and calls ensure(); it does NOT remove the enrolment,
+       which only forget()/retire does. So enrolled() stays TRUE forever on a Mac
+       that turned Kosmos Plus off, and gating on it alone would keep POSTing to
+       the PAID coordinator, carrying that Mac's client certificate, after the
+       customer switched the feature off. remote.js gates every other "is there
+       anything live to say here" question on the switch as well: pendingDevices()
+       is `!settings.on || !enrolled()`, ensure()'s `wanted` is
+       `read().on && enrolled() && ...`, and status() answers 'the switch is off'.
+       This line is that same shape, deliberately.
+       read() never throws and returns {on:false} on every error path (ENOENT,
+       unreadable, unparseable, non-object), so a damaged settings file fails
+       CLOSED here, which is the safe direction for a paid route. */
+    if (!remote.read().on || !remote.enrolled()) return;
 
     const dir = remote.stateDir();
     let cert;
