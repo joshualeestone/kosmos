@@ -42,7 +42,21 @@ kosmos_release_diff_summary() {
   git -C "$from_repo" rev-parse --verify --quiet "${to_ref}^{commit}" >/dev/null 2>&1 || return 1
   # File/area-level only: --stat is names + change COUNTS, never hunk content. The
   # wide width keeps real paths from being truncated (paths are what a reader greps).
-  git -C "$from_repo" diff --stat=1000,1000 "$from_ref" "$to_ref"
+  rds_full="$(git -C "$from_repo" diff --stat=1000,1000 "$from_ref" "$to_ref")" || return 1
+  # 🛑 CAP THE OUTPUT so the caller's "never fails the commit" claim is ABSOLUTE. The
+  # body rides as a `git commit -m` argument; a pathological range (a store-dir rename
+  # touching thousands of files) could push argv past ARG_MAX (~1 MB) and E2BIG the
+  # commit, which under the release's `set -e` would abort the cut. 500 file lines is
+  # ~30 KB, far under ARG_MAX and far past any realistic release, and a truncation
+  # marker points at the full diff so nothing is silently lost.
+  rds_lines=$(printf '%s\n' "$rds_full" | wc -l | tr -d ' ')
+  if [ "${rds_lines:-0}" -gt 500 ]; then
+    printf '%s\n' "$rds_full" | head -n 500
+    printf '... (%s lines total; truncated to keep the commit under ARG_MAX -- see: git diff --stat %s %s)\n' \
+      "$rds_lines" "$from_ref" "$to_ref"
+  else
+    printf '%s\n' "$rds_full"
+  fi
 }
 
 # Derive the commit sha at which a given version was cut, from release.sh's OWN

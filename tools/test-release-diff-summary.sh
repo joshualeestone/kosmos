@@ -70,5 +70,24 @@ OUT="$(kosmos_release_bump_sha "$R" "9.9.99" 2>/dev/null)"; RC=$?
 chk "absent version returns non-zero" test "$RC" -ne 0
 chk "absent version prints nothing" test -z "$OUT"
 
+# ---- the cap: a pathological range is bounded so the commit stays under ARG_MAX ----
+BIG="$(mktemp -d "${TMPDIR:-/tmp}/reldiffbig.XXXXXX")"
+git -C "$BIG" init -q; git -C "$BIG" config user.email t@t; git -C "$BIG" config user.name t
+git -C "$BIG" commit -q --allow-empty -m base
+BASE="$(git -C "$BIG" rev-parse HEAD)"
+i=0; while [ "$i" -lt 600 ]; do printf 'x\n' > "$BIG/file_$i.txt"; i=$((i+1)); done
+git -C "$BIG" add -A; git -C "$BIG" commit -q -m "600 files"
+BIGTO="$(git -C "$BIG" rev-parse HEAD)"
+CAPPED="$(kosmos_release_diff_summary "$BIG" "$BASE" "$BIGTO")"
+CAP_LINES=$(printf '%s\n' "$CAPPED" | wc -l | tr -d ' ')
+chk "a 600-file range is CAPPED (<= ~502 lines, not 600+)" test "$CAP_LINES" -le 502
+chk "the cap emits a truncation marker pointing at the full diff" has "$CAPPED" "truncated to keep the commit under ARG_MAX"
+CAP_BYTES=$(printf '%s' "$CAPPED" | wc -c | tr -d ' ')
+chk "the capped body is well under ARG_MAX (< 200 KB)" test "$CAP_BYTES" -lt 200000
+# CONTROL: a small range (2 files) is NOT capped and carries no truncation marker.
+SMALL="$(kosmos_release_diff_summary "$R" "$PREV_BUMP" "$THIS")"
+chk "CONTROL: a small range is not truncated (no marker)" hasnt "$SMALL" "truncated to keep the commit"
+rm -rf "$BIG"
+
 echo "test-release-diff-summary: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
