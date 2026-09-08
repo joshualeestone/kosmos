@@ -30,11 +30,25 @@ chat.qwen.ai, the favicon and the wordmark were all checked, with the page
 rendered in a real browser to defeat a JS-only logo. Raster only. Do not look
 again; decide instead.
 
-**Still to source (kosmos#1040):** GLM, MiniMax, DeepSeek, Kimi. Each needs a
-vendor source URL and a note saying whether the mark is monochrome (takes
-`currentColor`, follows the theme) or brand-coloured (keeps its own values).
-Getting that backwards is what left the OpenAI mark hardcoded `fill="black"`
-and invisible in dark mode until 2026-08-26.
+**Sourced 2026-09-08 (kosmos#1040):** GLM, MiniMax, DeepSeek, Kimi. All four are
+official-vendor-only, rendered headless and visually confirmed, re-cropped so each
+viewBox is its own painted bounding box (~98-100% fill), and now inlined into
+`web/index.html`. Full per-mark records are in `docs/provider-marks/manifest.md`
+sections 7-10 (kosmos#2484). Vendor source + colour determination per mark:
+
+- **GLM** -- Z.ai "Z" glyph isolated from `zhipuai.cn/logo-en.svg` (the Z.AI wordmark).
+  **Monochrome** (`currentColor`).
+- **MiniMax** -- the soundwave "M" from MiniMax's own repo `MiniMax-AI/MiniMax-01`
+  (`figures/minimax.svg`). **Brand-coloured** (pink-to-red gradient, kept).
+- **DeepSeek** -- whale glyph isolated from `deepseek.com` page markup (a wrong-grab
+  that rendered as the Zhihu logo was caught and dropped). **Monochrome** (`currentColor`).
+- **Kimi** -- the "K" + notch-dot from the official `MoonshotAI/Branding-Guide`
+  (`04-k-only/k-only-light.svg`). **Two-tone**: K body `currentColor`, notch-dot a
+  constant brand-blue `#1783FF`, reproducing the vendor's own light/dark variants.
+
+Getting the monochrome-vs-brand-coloured call backwards is what left the OpenAI mark
+hardcoded `fill="black"` and invisible in dark mode until 2026-08-26; the four above
+were each checked on both grounds.
 
 ---
 
