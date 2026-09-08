@@ -44,3 +44,62 @@ and path-on-card (the other half of section 3) are pinned for later.
 - node validation + the full `run-tests.sh` gate; the projects-map browser-check locally
   (NODE_PATH=$HOME/work/pw-runtime/node_modules).
 - /challenge-loop to convergence; screenshot to the channel; merge on green (beta rule).
+
+## 🔄 DESIGN PIVOT (Mona, 2026-09-08 ~00:30 CT) -- the v1 above is HELD, not merged
+
+Mona (design owner) redirected: the projects Map must MIRROR the existing agent org-view
+(#137, April's `paintOrg`), reusing its pan / deep-tree / (manual) fold / horizontal-scroll
+mechanics, NOT the static 3-level CSS org-chart the v1 built from. The v1 is a held foundation.
+
+**Confirmed deltas (Mona, verbatim intent):**
+- A node is a PROJECT: its name + its OWN agent count + a needs-you mark when an agent inside
+  it is waiting. (The tree organises, it does not cascade -- each project's own count.)
+- Clicking a node OPENS that project (mirror `paintOrg`'s click-to-open-agent, opening the
+  project instead).
+- Kosmos root keeps the gold family accent.
+- Behind the Grid/Map toggle on the Projects tab.
+- **Expand/fold default: FULLY EXPANDED.** Nothing starts folded; no auto-collapse of deep
+  levels; let pan + scroll carry a big tree. Folding is a MANUAL per-branch affordance only.
+  **Match whatever `paintOrg` does for its own default** so the two org views stay consistent.
+
+**Carryover from v1 (Mona: keep all of it):** the Grid/Map toggle + LAYOUTS/localStorage
+integration; the project-tree build from the parent/child data with cycle+orphan guards; the
+per-node count / needs-you derivation; the browser-check scaffold. **Swap:** the static CSS
+chart -> the org-view render + clickability.
+
+**`paintOrg` mechanics survey (web/index.html, origin/main):**
+- `orgTreeOf(agents)` (~18540) builds the tree; `orgPlace(nodes)` (~18588) positions it as a
+  RADIAL / force-directed layout (a central hub + nodes by angle+radius: `Math.cos(ang)*r`,
+  `Math.sin(ang)*r`), NOT top-down. `orgStep` (~18480) is the force step (vx/vy/alpha).
+- `paintOrg` (~18642): centres on the DRAWING (not the hub), pads, honours a `?limit` slice,
+  and shows an empty/looking state gated on BOARD_SEEN. It draws EVERY node (no fold) -> its
+  default is already fully expanded, which matches Mona's ruling.
+- Pan: `orgmap` `pointerdown` drag handler (~18900). Click-to-open: `orgmap` `click` (~18944).
+- 🔴 OPEN RECONCILIATION (Mona's spec settles it, do NOT guess): `paintOrg` is RADIAL while the
+  subprojects.html mock is TOP-DOWN. Whether the projects Map is radial-like-paintOrg or
+  top-down-with-paintOrg's-pan/click is the one thing to read from her merged spec. Manual
+  per-branch fold appears to be NEW (paintOrg has no fold), so that is a delta to add.
+
+**Status:** waiting on Mona's strengthened `subprojects.html` (in challenge-loop review; she
+pings on merge). Build straight to it then, reusing the survey above.
+
+### Iteration-2 findings to FOLD INTO THE REBUILD (v1 confirmed solid otherwise)
+Iter-2 (blind) confirmed the boot-TDZ fix, the cycle/orphan invariants, the dark-mode CSS
+(both spellings), and the reason-grep/count discipline are all correct. Carry these into the
+org-view-mirror render:
+- **WARNING (real, carries over): empty-state parity.** The map must distinguish the list's TWO
+  empty states, or the two layouts contradict: `!PROJECTS.length` -> "No projects yet. Point
+  Kosmos at a folder you already have…" (+ Add a project); `!active.length` with `PROJECTS.length`
+  (all archived) -> "Nothing here right now. Everything you have is archived." The v1 collapses
+  both into the first (misleading when all-archived). Fix in the rebuild; drop the false
+  "same-empty-state-words" comment. (Or, in the org-view render, show the Kosmos root with no
+  children for all-archived.)
+- **NIT: browser-check worded error prefixes** (`console.error('render-projects-map: '+r.error)`
+  and the page-error line) have no `FAIL ` marker, so reason-grep cannot quote them if they fire.
+  Add the `FAIL ` prefix in the rebuild's check.
+- **NIT: cycle coverage completeness** -- assert a deep cycle (a->b->c->a) and self-parent (a->a),
+  not just the 2-node cycle. (Logic traced correct for all three; this is coverage only.)
+- Also unresolved on the v1: the theme-parity gate wants `node tools/sync-forced-theme.js` run to
+  regenerate the FORCED `:root[data-theme="dark"]` twins from the `@media` source (the manual
+  forced rules are in a generated region -- "edits inside a generated region are on loan"). Handle
+  the dark-mode CSS + the generator run when the rebuild's CSS is final, not before.
