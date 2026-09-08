@@ -10145,7 +10145,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
       <div class="pjhead">
         <div class="pjtitle">
           <h2 class="dname">All tasks</h2>
-          <p class="pj-desc">Across every project.</p>
+          <!-- #2498: set per open to the project this door was opened from; the
+               door is per-project and its list is now scoped to that project. -->
+          <p class="pj-desc" id="alltasks-desc">In this project.</p>
         </div>
       </div>
       <p class="dhint" id="alltasks-count" style="margin:0 0 8px;" hidden></p>
@@ -32399,11 +32401,20 @@ async function openAllTasksView() {
   const back = document.getElementById('alltasks-back');
   const here = pjById(PJ_CURRENT);
   back.textContent = '\u2190 ' + (here ? here.name : 'Projects');
+  /* #2498: this door is per-project and its list is scoped to the project it
+     was opened from, so the description names that project rather than the old
+     "Across every project." (which was true only while the screen was global). */
+  const desc = document.getElementById('alltasks-desc');
+  if (desc) desc.textContent = here ? here.name : 'In this project.';
   list.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
   pjView('alltasks');
   let body = null;
   try {
-    const r = await fetch('/api/tasks', { cache: 'no-store' });
+    /* #2498: carry the current project and let the route filter, rather than
+       fetching every project's tasks. PJ_CURRENT is always set when this door
+       is reachable; the empty fallback keeps a global read if it ever is not. */
+    const scope = PJ_CURRENT ? ('?project=' + encodeURIComponent(PJ_CURRENT)) : '';
+    const r = await fetch('/api/tasks' + scope, { cache: 'no-store' });
     body = await r.json();
     if (!r.ok) throw new Error((body && body.error) || 'we could not read your tasks');
   } catch (err) {
@@ -32414,7 +32425,7 @@ async function openAllTasksView() {
   const rows = (body && body.tasks) || [];
   if (!rows.length) {
     msg.textContent = '';
-    list.innerHTML = '<p class="tk-empty">No tasks on any project yet. Add one to start tracking progress.</p>';
+    list.innerHTML = '<p class="tk-empty">No tasks on this project yet. Add one to start tracking progress.</p>';
     return;
   }
   msg.textContent = '';
@@ -32444,9 +32455,10 @@ async function openAllTasksView() {
     + '</button>').join('');
 }
 
-/* A row opens its task ON ITS OWN PROJECT, which may not be the one we came
-   from: this screen crosses projects, so each row carries its project and the
-   handler switches before opening the task. */
+/* A row opens its task on the project it belongs to. #2498 scoped this door to
+   the project it was opened from, so every row is that same project and the
+   switch is a safe no-op today; it is kept (each row still carries its project)
+   so the handler stays correct if the list is ever un-scoped again. */
 document.getElementById('alltasks-list').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
   if (!card) return;

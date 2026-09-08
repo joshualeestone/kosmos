@@ -8631,8 +8631,17 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    /* #2498: the project view's "view all tasks" door scopes to the project it
+       was opened from. `?project=<id>` filters allTasks() (which tags each task
+       with projectId and keeps CLOSED ones) to that project - open AND finished,
+       so the #1382 finished-work purpose is preserved per project. No param =
+       the global set, unchanged: nothing serves a global all-tasks view today,
+       but the route stays backward-compatible for one if it is ever added. */
+    let projectScope = null;
+    try { projectScope = new URL(req.url, ROUTING_BASE).searchParams.get('project') || null; } catch { projectScope = null; }
     const all = tasks.allTasks();
-    sendJson(res, 200, { tasks: all, count: all.length });
+    const rows = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
     return;
   }
 
