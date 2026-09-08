@@ -275,6 +275,14 @@ FAKE_TMUX="$REPO/test-support/fake-tmux.sh"
 FAILED=()
 RAN=()
 RETRIED=()
+# #2445: the CI allowlist bookkeeping. SKIPPED = checks run_one was asked to run
+# but skipped because KOSMOS_BC_CI_ALLOWLIST was set and did not name them.
+# CI_MATCHED = allowlisted names that actually reached run_one and ran, so the
+# summary can HARD-FAIL if an allowlisted name never ran (a typo, or a check
+# gated out behind a board that did not boot) -- a filter that matches nothing
+# must not exit 0 green (test-filter-matching-nothing-exits-zero).
+SKIPPED=()
+CI_MATCHED=()
 # #1079: how many RICH boards booted this run. The card's hypothesis is that this
 # fifth concurrent server is what makes the heaviest check retry, so it is the
 # one variable the run log has to carry.
@@ -663,6 +671,34 @@ wait_up() {
 REASONS=()
 run_one() {
   local label="$1"; shift
+  # #2445: CI ALLOWLIST. When KOSMOS_BC_CI_ALLOWLIST is set (a space- or comma-
+  # separated list of check names), run ONLY the named checks and skip the rest.
+  # It exists so the per-PR CI gate runs the timing-INSENSITIVE DOM-state class
+  # (the #2085 gate class: element present / hidden / clickable / labeled) and
+  # leaves the timing/animation/paint checks -- which on the slow, headless
+  # runner are both fragile (a "within 20s" assertion flakes) and low-confidence
+  # (SwiftShader software rendering) -- to the headed cut-time 3b, where a real
+  # compositor makes them reliable. A green under this env is the DOM-state gate,
+  # NOT full 3b coverage. Unset (the release cut, a dev run) => every check runs,
+  # exactly as before. The case pattern is unquoted on purpose so the globs bind;
+  # the label is wrapped in literal spaces for a whole-word match.
+  #
+  # SCOPE (#2445): this gates run_one ONLY, not the board boots above each check
+  # group. So in CI mode a board is still booted for a group even when only some of
+  # its checks are allowlisted (cheap: an idle node HTTP server), and on the FAILURE
+  # path a board that does not boot still appends its WHOLE group to FAILED,
+  # off-allowlist names included. That is a safe false-RED, not a scope hole: an
+  # allowlisted check that could not run is independently caught by the summary's
+  # never-ran guard, so the run reds correctly; the extra names are noise on an
+  # already-failing run. Gating the ~12 board-boot branches too would cut that noise
+  # but is not worth the risk on this cut-critical driver -- boards boot on a clean
+  # runner and the direction is safe.
+  if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
+    case " ${KOSMOS_BC_CI_ALLOWLIST//,/ } " in
+      *" $label "*) CI_MATCHED+=("$label") ;;   # allowlisted -- fall through and run it
+      *) SKIPPED+=("$label"); log "SKIP  $label (not in KOSMOS_BC_CI_ALLOWLIST)"; return 0 ;;
+    esac
+  fi
   local cap; cap="$(mktemp "${TMPDIR:-/tmp}/kosmos-bc-out.XXXXXX")"
   RAN+=("$label")
   sec "$label"
@@ -1497,6 +1533,26 @@ browser_run_log_append \
 RUN_COMPLETED=1
 log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
+
+# #2445: in CI allowlist mode, verify the allowlist actually selected checks.
+# An allowlisted name that never ran is a HARD failure, not a silent coverage
+# gap: it means the name is misspelled or its check was gated out behind a board
+# that failed to boot, so the gate would go green having asserted LESS than it
+# was told to. A filter that matches nothing must never exit 0 green
+# (test-filter-matching-nothing-exits-zero; a-guard-that-only-checks-too-many
+# -cannot-see-zero). This runs BEFORE the FAILED gate below so a bad allowlist
+# lands in FAILED and reddens the run.
+if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
+  [ "${#SKIPPED[@]}" -gt 0 ] && log "skipped: ${#SKIPPED[@]} checks not in KOSMOS_BC_CI_ALLOWLIST (CI runs the DOM-state subset; timing/animation/paint stay at the headed cut 3b)"
+  for _want in ${KOSMOS_BC_CI_ALLOWLIST//,/ }; do
+    _seen=0
+    for _m in ${CI_MATCHED[@]+"${CI_MATCHED[@]}"}; do [ "$_m" = "$_want" ] && { _seen=1; break; }; done
+    [ "$_seen" = 0 ] && FAILED+=("$_want (in KOSMOS_BC_CI_ALLOWLIST but never ran -- misspelled name, or its check was gated out behind a board that did not boot)")
+  done
+  if [ "${#CI_MATCHED[@]}" -eq 0 ]; then
+    FAILED+=("KOSMOS_BC_CI_ALLOWLIST matched no checks at all -- refusing to report a green from zero checks")
+  fi
+fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"
