@@ -20777,9 +20777,14 @@ async function paintTalk(sessionName, agentName) {
        the one keystroke that ends the session. Said before the person types,
        not after a 409. Null for every other question, so the label is as it
        was. Plain text through textContent, like every sentence here. */
+    /* #2456: two sources, so say which. A live pane question is shown in the
+       screen treatment as the part of the screen that asked; a REPORTED one
+       (body.question.reported) is the agent's own words, framed as reported so
+       the screen-styled box is not read as its live screen right now. */
     qlab.textContent = name + ' is waiting on an answer'
-      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.');
-    // The agent's SCREEN, in the treatment the room already uses for it.
+      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.')
+      + (body.question.reported === true ? ' This is what it told us it needs:' : '');
+    // The agent's screen, or its reported words, in the treatment the room uses.
     pjSetScreen(qtext, body.question.text);
     qtext.hidden = false;
   } else if (!body.asking) {
