@@ -36,10 +36,19 @@
  * four agents launched concurrently, all four live on the board under their
  * RECORDED names, all four credentialed, clean teardown.
  *
- * ⚠️ WHAT THIS STILL DOES NOT MEAN: a win32 agent does NOT yet survive a reboot,
- * a crash, or a Windows Update restart. launchd gives the Mac that for free and
- * Windows has no equivalent yet, so keep-alive is a separate slice. Being on this
- * list means "an agent started here runs and is visible", not "it comes back". */
+ * 🔑 AND IT NOW COMES BACK, which this comment used to deny. Keep-alive was the
+ * separate slice it called for, and it landed as the two halves launchd bundles
+ * into one plist: `engine/win32job.js` registers an at-logon Scheduled Task
+ * (RunAtLoad) and `engine/win32supervisor.js` is the respawn loop with the same
+ * 30s throttle (KeepAlive + ThrottleInterval). `engine/win32anchor.js` is what
+ * makes that durable across a version update, which on a portable-zip platform is
+ * a real hazard rather than a theoretical one.
+ *
+ * ⚠️ WHAT IT STILL DOES NOT MEAN: an at-logon task needs a LOGIN, exactly as
+ * launchd's RunAtLoad does -- both are per-user agents, not system daemons. A box
+ * that reboots to a locked login screen brings back no fleet on either platform
+ * until somebody signs in. That is a property shared with the Mac, not a Windows
+ * shortfall, but it is the thing people read "survives a reboot" to mean. */
 const SUPPORTED = Object.freeze(['darwin', 'win32']);
 
 /* 🛑 AND THE SECOND QUESTION, WHICH THIS MODULE USED TO CONFLATE WITH THE FIRST.

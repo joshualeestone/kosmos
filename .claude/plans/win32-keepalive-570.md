@@ -10,7 +10,7 @@ and what the keep-alive slice adds to it.
 |---|---|---|
 | 1 | launch substrate (`engine/win32launch.js`) | landed `6538c46a` |
 | 2 | wire it into `create.js` | landed `6b3c6496` |
-| 3 | dress rehearsal: 3-4 agents in worktrees, roster shows all, each reports, each stops and restarts | NOT DONE |
+| 3 | dress rehearsal: 3-4 agents in worktrees, roster shows all, each reports, each stops and restarts | PARTLY DONE -- see below |
 | 4 | the flip: `SUPPORTED` gains win32 "because it has earned it" | landed `e3870c49` |
 
 🛑 PHASE 4 LANDED BEFORE PHASE 3. win32 is marked supported on the strength of
@@ -120,9 +120,9 @@ session to a bare prompt. Use:
 | 0 | `win32job.js` + `win32supervisor.js` written, 15/15 green | DONE (was uncommitted at the crash) |
 | 1 | `win32anchor.js` -- durable node + engine pointer + shim | DONE, 8/8 green |
 | 2 | `win32job.install()` anchors before registering | DONE, 18/18 green |
-| 3 | `create.js` win32 branch calls `win32job.install()`, `because` fixed | TODO |
+| 3 | `create.js` win32 branch calls `win32job.install()`, `because` fixed | DONE, 6/6 green |
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/remove/enable | TODO |
-| 5 | retire the two stale comments (`create.js`, `platform.js`) | TODO |
+| 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
 | 6 | PHASE 3 dress rehearsal: 3-4 agents, roster, stop + restart each | TODO |
 | 7 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 
@@ -142,3 +142,15 @@ vague risk. Adopt the Mac's spelling rather than inventing a sixth.
 main is RED on `web.change-dialog.test.js` from #2463 (fix in flight on
 `fix-change-dialog-control-drift`). A red gate on this branch is that, not this
 work.
+
+## Correction: Phase 3 was PARTLY done, not skipped
+
+`engine/platform.js` records a measurement I had written off: "Measured on a real
+Windows box 2026-09-07: four agents launched concurrently, all four live on the
+board under their RECORDED names, all four credentialed, clean teardown."
+
+So the launch-and-roster half of the dress rehearsal HAPPENED. What is still owed
+is the other half of the sentence -- "each can be stopped and restarted" -- which
+is precisely what step 4 (`remove.js`) unblocks. Phase 4 flipping before Phase 3
+is therefore a smaller overstep than it first looked: what it ran ahead of was
+stop/restart, not visibility.

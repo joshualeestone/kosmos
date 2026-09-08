@@ -57,6 +57,17 @@ function run(args) {
   }
 }
 
+/* The anchor seam, alongside the command seam above and for the same reason.
+   Tests replace it so a suite never copies a 92 MB interpreter, and never asks a
+   Mac to write a Windows path -- both of which happen the moment `installJob` is
+   driven with `platform: 'win32'` from the fleet's Macs, which is exactly how
+   this branch is asserted. Production anchors for real. */
+let anchorFn = null;
+function setAnchorer(fn) { anchorFn = typeof fn === 'function' ? fn : null; }
+function anchorFor(spec) {
+  return anchorFn ? anchorFn(spec) : win32anchor.ensureAnchored(spec);
+}
+
 /**
  * The command line the task runs: a node, an entry script, and the per-agent
  * facts as positional arguments.
@@ -98,7 +109,7 @@ function install(spec) {
      below names nothing that a version update can take away. A failure here
      refuses the job rather than registering a task that would never start --
      silently, at some logon months from now, which is the worst way to find out. */
-  const anchor = win32anchor.ensureAnchored({
+  const anchor = anchorFor({
     platform: s.platform, home: s.home, env: s.env,
     node: s.node, engineDir: s.engineDir,
   });
@@ -123,6 +134,38 @@ function disable(name) {
 function enable(name) {
   const r = run(['/Change', '/TN', taskName(name), '/ENABLE']);
   if (!r.ok) return { ok: false, because: 'we could not set it to start again (' + (r.out || '').trim().split('\n')[0] + ')' };
+  return { ok: true };
+}
+
+/**
+ * End the RUNNING instance -- launchd's `bootout`, and the other half of a stop.
+ *
+ * 🛑 DISABLING IS NOT STOPPING, and on this platform the gap is wider than on the
+ * Mac. `disable` only decides what happens at the NEXT logon; the supervisor
+ * started at the last one is still looping, and it will faithfully restart the
+ * agent it is watching. A "stop" that only disabled would leave the agent running
+ * and tell the person it had stopped -- so both acts are required, in the order
+ * `remove.js` already documents for the Mac (disable first, so a login in the
+ * window between the two cannot bring it back).
+ */
+function end(name) {
+  const r = run(['/End', '/TN', taskName(name)]);
+  /* A task that is not running is the end state we wanted -- the same posture the
+     Mac takes toward launchd's exit 3 ("no such service"). */
+  if (!r.ok && !/not running|cannot find|does not exist/i.test(r.out || '')) {
+    return { ok: false, because: 'we could not stop it now (' + (r.out || '').trim().split('\n')[0] + ')' };
+  }
+  return { ok: true };
+}
+
+/**
+ * Run it NOW without waiting for a logon -- launchd's `bootstrap`, and the other
+ * half of a restore. `enable` alone would leave the agent off until the person
+ * next signed in, which is not what "start it again" says.
+ */
+function start(name) {
+  const r = run(['/Run', '/TN', taskName(name)]);
+  if (!r.ok) return { ok: false, because: 'we could not start it again now (' + (r.out || '').trim().split('\n')[0] + ')' };
   return { ok: true };
 }
 
@@ -154,6 +197,6 @@ function status(name) {
 
 module.exports = {
   TASK_PREFIX, taskName, taskCommand,
-  install, disable, enable, remove, status,
-  setRunner,
+  install, disable, enable, end, start, remove, status,
+  setRunner, setAnchorer,
 };

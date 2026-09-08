@@ -2108,10 +2108,13 @@ function installJob(name, opts) {
 
      ⚠️ IT RETURNS THE SAME SHAPE, deliberately, so every caller and every
      `steps` record above reads identically on both platforms. What differs is
-     only `because`, which must not say "at every login" here: there is no
-     launchd job, so a Windows agent does NOT come back by itself yet. Saying it
-     would claim a durability this substrate does not have -- keep-alive is the
-     next slice, and the honest sentence is the one that says so.
+     only `because`, and it is now EARNED rather than hedged: the keep-alive half
+     landed (`engine/win32job.js` registers the at-logon Scheduled Task,
+     `engine/win32supervisor.js` is the KeepAlive loop), so a Windows agent does
+     come back at every login. The sentence still tracks the truth per agent --
+     if the job could not be registered the launch stands and the `because` says
+     plainly that it will not survive a restart, because promising a durability
+     we did not get is the one failure nobody discovers until a reboot.
 
      📌 DRY_RUN still spawns nothing: it short-circuits before the launch, the
      same way it skips the plist write and lets the stubbed `run` stand in for
@@ -2140,15 +2143,39 @@ function installJob(name, opts) {
       platform: jobPlatform,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
+    /* 🔑 THE KEEP-ALIVE HALF, and it is a SEPARATE act from the launch because
+       the two answer different questions: `win32launch` starts it NOW,
+       `win32job` brings it back at every future logon (launchd's RunAtLoad, with
+       KeepAlive living in engine/win32supervisor.js). The Mac gets both from one
+       plist write, which is why they read as one step there and as two here.
+
+       ⚠️ A FAILED JOB DOES NOT FAIL THE CREATE, and that asymmetry is deliberate.
+       The agent is ALREADY RUNNING by this line -- returning ok:false would tell
+       a person their agent was not created while it sits there working, and the
+       only route back would be the manual recipe this product exists to spare
+       them. So the launch decides ok, the job decides only WHAT WE PROMISE: the
+       `because` below is the one sentence that changes, and it never claims a
+       durability we did not get. */
+    const job = require('./win32job').install({
+      name: clean,
+      cwd: workerDir(clean),
+      runner: runner || 'claude',
+      model: modelArgWin,
+      configDir: configDirWin,
+      platform: jobPlatform,
+    });
     return {
       ok: true,
       started: true,
       model: modelArgWin,
+      atLogin: job.ok,
       guessed: {
         model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
         account: configDirWin ? null : 'it will run on your main Claude account',
       },
-      because: 'started now',
+      because: job.ok
+        ? 'set up and started now, and it will start again at every login'
+        : 'started now, but it will not come back by itself after a restart (' + job.because + ')',
     };
   }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
