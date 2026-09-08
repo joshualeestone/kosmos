@@ -1636,9 +1636,13 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
   // this codebase pays for). Validated BEFORE the write, like every other
   // refusal here, so a body mixing a bad parent with a good name applies whole
   // or not at all. A brand-new id is referenced by nothing, so cleanParent's
-  // self-parent and cycle arms are structurally no-ops at create; the type check
-  // and the parent-must-exist check are the ones that bite. Blank/absent/null =
-  // ungrouped, exactly as before.
+  // CYCLE arm cannot fire at create; the type check and the parent-must-exist
+  // check are the ones that normally bite. (The self-parent arm CAN fire in one
+  // edge case: idFor derives the id from the title, so creating "Alpha" with
+  // parent "alpha" -- naming a not-yet-existing project as its own parent --
+  // trips parentId === childId and refuses as self-parent rather than
+  // parent-missing. Either way it is a correct refusal with no row written; only
+  // the message differs.) Blank/absent/null = ungrouped, exactly as before.
   const parentAt = cleanParent(parent, id);
   const project = {
     id,

@@ -31,11 +31,15 @@ so create-time and edit-time parent rules cannot drift -- the two-definitions-of
 ### childId at create
 `cleanParent(value, childId)` needs the child's id. At create the id is minted
 (`idFor`) BEFORE the object is built, and passed as childId, exactly as edit
-passes the existing id. A brand-new id is referenced by nothing, so the
-self-parent (`parentId === childId`) and cycle arms are structurally unreachable
-at create; the parent-must-exist and type checks are the live ones. Passing the
-real new id (rather than null) keeps the call identical to the edit path and
-robust if the id ever became referenceable before the write.
+passes the existing id. A brand-new id is referenced by nothing, so the CYCLE
+arm cannot fire at create; the parent-must-exist and type checks are the live
+ones. The self-parent arm (`parentId === childId`) is reachable in one edge
+case, because `idFor` derives the id from the title: creating "Alpha" with
+parent "alpha" (naming a not-yet-existing project as its own parent) refuses as
+self-parent rather than parent-missing -- still a correct refusal with no row
+written, only the message differs. Passing the real new id (rather than null)
+keeps the call identical to the edit path and robust if the id ever became
+referenceable before the write.
 
 ### Validate before the write (whole or not at all)
 `cleanParent` runs before the project object is written, alongside the folder,
