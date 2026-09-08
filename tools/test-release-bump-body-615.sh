@@ -51,7 +51,7 @@ printf '{"version":"0.6.06"}\n' > "$R/package.json"
 git -C "$R" add package.json
 
 # Drive the extracted block with the release.sh variables it reads.
-( set -eu; REPO="$R"; V="0.6.06"; _prev="0.6.05"; eval "$BLOCK" ) || { echo "FAIL: the extracted block errored under set -eu" >&2; FAIL=$((FAIL+1)); }
+bash -c 'set -euo pipefail; REPO="$1"; V="0.6.06"; _prev="0.6.05"; eval "$2"' _ "$R" "$BLOCK" || { echo "FAIL: the extracted block errored under set -euo pipefail" >&2; FAIL=$((FAIL+1)); }
 
 BODY="$(git -C "$R" log -1 --format='%B')"
 SUBJECT="$(git -C "$R" log -1 --format='%s')"
@@ -70,7 +70,7 @@ R2="$(mktemp -d "${TMPDIR:-/tmp}/relbody2.XXXXXX")"
 git -C "$R2" init -q; git -C "$R2" config user.email t@t; git -C "$R2" config user.name t
 printf '{"version":"0.6.05"}\n' > "$R2/package.json"; git -C "$R2" add -A; git -C "$R2" commit -q -m "v0605 -- version"
 printf '{"version":"0.6.06"}\n' > "$R2/package.json"; git -C "$R2" add package.json
-( set -eu; REPO="$R2"; V="0.6.06"; _prev="0.6.05"; eval "$BLOCK" ) || { echo "FAIL: block errored with the lib absent" >&2; FAIL=$((FAIL+1)); }
+bash -c 'set -euo pipefail; REPO="$1"; V="0.6.06"; _prev="0.6.05"; eval "$2"' _ "$R2" "$BLOCK" || { echo "FAIL: block errored with the lib absent" >&2; FAIL=$((FAIL+1)); }
 chk "with the lib absent, the bump still commits (best-effort, never blocks the cut)" test "$(git -C "$R2" log -1 --format='%s')" = "v0606 -- version"
 chk "with the lib absent, the tree is CLEAN after the bump (no -DIRTY-guard trip)" test -z "$(git -C "$R2" status --porcelain)"
 rm -rf "$R2"
