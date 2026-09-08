@@ -18,6 +18,22 @@ const os = require('node:os');
 const path = require('node:path');
 
 const anchor = require('./win32anchor');
+const store = require('./store');
+
+test('#570 the anchor FOLLOWS store.js for the app directory name', () => {
+  /* 🛑 #2439 renamed the store dir AgentWorkforce -> Kosmos while this branch was
+     in flight. A hardcoded copy here would survive that merge silently and leave
+     the anchor as the one tree still under the old name -- with every registered
+     Scheduled Task pointing into it. This pins the delegation, so the rename
+     lands here for free and a re-added copy goes red.
+
+     Written to pass on BOTH sides of the merge: it asserts agreement with
+     store.js rather than a literal, so it does not have to be edited when the
+     rename arrives. */
+  const expected = store.APP || 'AgentWorkforce';
+  assert.ok(anchor.anchorDir('win32', 'C:\\Users\\jo', {}).includes(expected),
+    'the anchor must use store.js\'s name for the app directory, not a copy of it');
+});
 
 function tmp() { return fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-anchor-')); }
 

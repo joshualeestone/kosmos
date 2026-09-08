@@ -1,3 +1,116 @@
+# ⚑ RESUME HERE -- win32 keep-alive (#570)
+
+Last updated 2026-09-08. If a session died, read THIS BLOCK FIRST, then the
+checkpoint table further down. Everything below the block is design rationale and
+does not need re-reading to continue.
+
+## Where it stands right now
+
+    branch  win32-supported-flip-570   PUSHED through f2a11695
+    tests   46/46 green on the win32 slice
+    tree    clean
+
+Committed and pushed:
+
+    fc79bb43  win32anchor -- a task must outlive the app that registered it
+    d93b00ed  create -- a Windows agent comes back at every login now
+    f2a11695  remove -- stop/restore/restart reach the Scheduled Task
+
+## 🛑 THE ONE BLOCKER: this branch is 74 commits behind main
+
+`#2439` (`87b9f8ef`, on main) renamed the store directory `AgentWorkforce` ->
+`Kosmos` WITH A DATA MIGRATION, while this branch was in flight. It is the
+highest-risk thing about merging, because it moves the tree every agent's data
+lives in and this branch's win32 work derives paths from it.
+
+`engine/win32anchor.js` is already prepared: it reads `store.APP` rather than
+carrying a copy, with a fallback to the old name that is dead the moment main is
+merged, and `win32anchor.test.js` pins the delegation so a re-added copy goes red.
+Nothing else on this branch is known to collide -- but 74 commits were not
+reviewed one by one, so the merge is real work, not a formality.
+
+🔑 MERGE MAIN BEFORE THE PHASE 3 REHEARSAL. A rehearsal on a 74-behind branch
+proves the fleet works in a world that is not the one shipping, and the store
+rename in particular would invalidate it.
+
+## The order to do things in, and why
+
+1. **Windows Memory Diagnostic** (Josh, ~30 min, reboots the box). The 2026-09-04
+   `0x124` was a CPU machine check that was never followed up. Do this BEFORE
+   sustained multi-agent load, not after: discovering bad RAM by way of 10 agents
+   behaving strangely costs a day of chasing ghosts in the wrong layer.
+2. **Merge `origin/main`** into this branch and get the win32 slice green again.
+3. **Phase 3 dress rehearsal** (below).
+4. Follow-up card: refresh the engine pointer at server start on win32.
+5. Follow-up card: port `remove.test.js`'s launchd/tmux fixtures so a Windows box
+   can run the removal suite end to end.
+
+## The Phase 3 rehearsal, written out IN ADVANCE
+
+Written before running it on purpose, so a failure halfway has a map instead of a
+memory. Recovered from Slack, the original Phase 3 was: "3-4 agents in worktrees
+on this box. Roster shows all of them, each reports, each can be stopped and
+restarted."
+
+| # | Step | Passes when |
+|---|---|---|
+| R1 | create 3 agents in worktrees | three folders, three sessions, no refusals |
+| R2 | board roster | all three visible under their RECORDED names |
+| R3 | each reports | three agents heartbeating, each credentialed |
+| R4 | stop one | `schtasks /Query` shows it DISABLED, and it stays gone |
+| R5 | restart it | it comes back, and reports again |
+| R6 | remove one | task DELETED, agent gone, Restore offered |
+| R7 | restore it | task re-registered and enabled, agent back |
+| R8 | **reboot** | all remaining agents return AT LOGIN, unattended |
+
+⚠️ R8 IS THE ONE THAT MATTERS AND THE ONE NEVER YET RUN. Everything before it has
+either been measured (four agents launched concurrently, 2026-09-07, recorded in
+`platform.js`) or is unit-tested. R8 is the whole point of the keep-alive slice
+and it has no test that can stand in for it -- an at-logon task fires at LOGIN, so
+somebody has to actually sign in.
+
+## If the rehearsal half-fails: how to clean up
+
+State this box can be left in, and how to clear it by hand:
+
+    # what did we register?
+    schtasks /Query /FO LIST | findstr /C:"Kosmos"
+
+    # remove one agent's job (this is what remove.js does for you)
+    schtasks /Change /TN "Kosmos\agent-<name>" /DISABLE
+    schtasks /End    /TN "Kosmos\agent-<name>"
+    schtasks /Delete /F /TN "Kosmos\agent-<name>"
+
+    # the anchor (safe to delete; it is rebuilt on the next job install)
+    #   <LOCALAPPDATA>\AgentWorkforce\runtime   before the #2439 merge
+    #   <LOCALAPPDATA>\Kosmos\runtime           after it
+    # holds node.exe (~92 MB), engine-path, supervisor-boot.js
+
+📌 A HALF-REHEARSED BOX IS NOT DANGEROUS, just untidy: a registered task with no
+agent starts a supervisor that finds nothing to adopt and launches one, which is
+the designed behaviour. The thing to actually avoid is leaving a task registered
+that points at an anchor you deleted -- it fails silently at logon. Delete tasks
+BEFORE the anchor, in that order.
+
+## Running the tests on this box
+
+🛑 THERE IS NO node OR bun ON THIS BOX'S PATH -- the only interpreters are inside
+extracted Kosmos builds. This is very likely why a Bun call dropped the
+2026-09-07 session to a bare prompt and cost hours of uncommitted work.
+
+    C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/win32anchor.test.js engine/win32job.test.js engine/win32supervisor.test.js engine/create.win32-launch-570.test.js engine/remove.win32-job-570.test.js engine/platform.test.js
+
+Expect 46/46. `engine/remove.test.js` is PRE-EXISTING RED here (launchd/tmux
+fixtures) -- 13 pass/48 fail is the known-good state, not a regression.
+
+## The working rule that prevents another loss
+
+FINISH A STEP -> UPDATE THE CHECKPOINT TABLE -> COMMIT. The 2026-09-07 crash cost
+a session because four finished files sat uncommitted with nothing on disk saying
+what they were for. A green step that is not committed does not exist.
+
+---
+
 # win32 keep-alive + the durable anchor (#570)
 
 Written 2026-09-07 after a Bun crash lost the working session. The original
@@ -123,8 +236,10 @@ session to a bare prompt. Use:
 | 3 | `create.js` win32 branch calls `win32job.install()`, `because` fixed | DONE, 6/6 green |
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
-| 6 | PHASE 3 dress rehearsal: 3-4 agents, roster, stop + restart each | TODO |
-| 7 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
+| 6 | merge origin/main (74 behind; #2439 store rename) | TODO -- do before R1 |
+| 7 | PHASE 3 dress rehearsal R1-R8 (see RESUME HERE) | TODO |
+| 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
+| 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
 
 ## Open questions owned by Josh (neither blocks the code)
 - Windows Memory Diagnostic, for the 2026-09-04 `0x124` CPU machine check. Wanted

@@ -51,7 +51,27 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const APP = 'AgentWorkforce';
+const store = require('./store');
+
+/**
+ * 🛑 ONE SOURCE FOR THE APP DIRECTORY NAME, NEVER A SECOND COPY -- the lesson
+ * `supportdir-win32-2039` paid for. create.js once carried its own copy of the
+ * data-root formula and it drifted into a literal Mac path on NTFS; the fix there
+ * was explicitly "delegate, do not add a branch to the copy", because fixing the
+ * instance leaves the class open.
+ *
+ * ⚠️ AND THE CLASS BIT THIS FILE ALREADY. #2439 renamed the store directory
+ * `AgentWorkforce` -> `Kosmos` (with a migration) while this branch was in
+ * flight. A hardcoded constant here would have survived the merge silently and
+ * left the anchor as the ONE tree still under the old name -- pointing every
+ * registered Scheduled Task at a directory nothing else maintains.
+ *
+ * 📌 The fallback covers only the window before this branch merges #2439: this
+ * branch's `store.js` predates the rename and does not export `APP` yet. It is
+ * deliberately the OLD name, so behaviour on this base is unchanged, and it
+ * becomes dead the moment main is merged.
+ */
+const APP = store.APP || 'AgentWorkforce';
 
 /* The three files, named once so the writer and the shim cannot disagree about a
    spelling. `supervisor-boot.js` is the only one whose CONTENT we own. */
