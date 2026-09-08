@@ -48,6 +48,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
+const win32job = require('./win32job'); // #570: the Scheduled Task that stands in for a launchd job
 const sendertoken = require('./sendertoken'); // #2323: a removed agent's token must stop working
 const liveExec = require('./live-execution');
 const store = require('./store');
@@ -265,8 +266,97 @@ function existsExactly(full) {
   }
 }
 
-function jobFor(name) {
+/**
+ * The job-level acts, per platform -- the four things a removal or a restore
+ * does to the thing that starts an agent.
+ *
+ * 🛑 EVERY ONE OF THESE WAS A BARE `launchctl` CALL, AND THIS FILE HAD NO win32
+ * BRANCH AT ALL -- but the way that failed is worth stating exactly, because it
+ * is quieter than it looks. The launchctl calls were never REACHED on Windows:
+ * `jobFor` decides whether there is a job by stat-ing a `.plist`, no plist exists
+ * on win32, so it answered null and the whole `if (job)` block was skipped. A
+ * removal therefore reported success, and `recoveryRoute` told the person
+ * "nothing will start it again on its own" -- while the Scheduled Task sat there
+ * registered and enabled. At the next logon the agent came back, and the record
+ * said it had been removed. (Had the block been reached it would have thrown
+ * instead: `process.getuid` is not a function on win32, and `step` catches, so it
+ * would have surfaced as "we could not stop it".) #570's create half landed
+ * before this, which is exactly the window in which an agent could be made and
+ * never unmade.
+ *
+ * 🔑 THE MAC'S PAIRINGS ARE PRESERVED, because they are the design and not an
+ * implementation detail:
+ *
+ *      launchctl disable   <->  schtasks /Change /DISABLE   persisted across logins
+ *      launchctl bootout   <->  schtasks /End              ends the running one
+ *      launchctl enable    <->  schtasks /Change /ENABLE    the exact inverse
+ *      launchctl bootstrap <->  schtasks /Run              starts it now
+ *
+ * ⚠️ DISABLE-THEN-STOP ORDER IS LOAD-BEARING ON BOTH, and this file already says
+ * why for the Mac: between the two there is a window in which the job is stopped
+ * but still enabled, and a login inside that window brings it back. Windows has
+ * the same window and a wider one besides -- disabling a task does nothing to the
+ * SUPERVISOR already looping from the last logon, which is why `/End` is required
+ * rather than optional.
+ *
+ * `name` is the agent's clean name and is what win32 addresses; `job`/`record`
+ * carry the Mac's label and plist. Both are passed so neither platform has to
+ * reconstruct the other's identifier.
+ */
+function jobOps(platform) {
+  if ((platform || process.platform) === 'win32') {
+    return {
+      win32: true,
+      disable: (name) => Boolean(win32job.disable(name).ok),
+      stopNow: (name) => Boolean(win32job.end(name).ok),
+      enable: (name) => Boolean(win32job.enable(name).ok),
+      startNow: (name) => Boolean(win32job.start(name).ok),
+      /* The Mac asks whether the plist is still on disk; the analog is whether
+         the task is still registered. Same question, different substrate. */
+      startableGone: (name) => win32job.status(name).registered !== true,
+    };
+  }
+  return {
+    win32: false,
+    disable: (name, job) => {
+      const off = run('/bin/launchctl', ['disable', `gui/${process.getuid()}/${job.label}`]);
+      return Boolean(off && off.ok !== false);
+    },
+    stopNow: (name, job) => {
+      const out = run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${job.label}`]);
+      // 3 is launchd for "no such service", which is the end state we wanted.
+      return Boolean(out && (out.ok !== false || out.code === 3));
+    },
+    enable: (name, record) => {
+      const on = run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${record.label}`]);
+      return Boolean(on && on.ok !== false);
+    },
+    startNow: (name, record) => {
+      /* ⚠️ Only bootstrap a plist that is still there. Somebody may have removed
+         it by hand while the agent was off the board, and bootstrapping a file
+         that is gone fails in a way worth reporting rather than hiding -- the
+         enable still stands, so a later start by their own tooling works. */
+      if (!record.plist || !fs.existsSync(record.plist)) return true;
+      const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
+      // 5 is launchd for "already loaded", which is the end state we wanted.
+      return Boolean(up && (up.ok !== false || up.code === 5));
+    },
+    startableGone: (name, record) => !record.plist || !fs.existsSync(record.plist),
+  };
+}
+
+function jobFor(name, platform) {
   const clean = create.cleanName(name);
+  /* 🔑 ON WINDOWS THE JOB IS A SCHEDULED TASK, and there is no file to stat. The
+     registration itself is the record, so `status` answers the question
+     `existsExactly` answers below. `plist` stays null deliberately: every reader
+     of it is asking "is there still a file that starts this", and on this
+     platform the honest answer is "that is not how it starts" -- `jobOps`
+     provides `startableGone` so nobody has to infer it from a null. */
+  if ((platform || process.platform) === 'win32') {
+    const st = win32job.status(clean);
+    return st.registered ? { label: win32job.taskName(clean), plist: null, ours: true } : null;
+  }
   const candidates = [
     { label: create.serviceLabel(clean), plist: create.plistPath(clean), ours: true },
     {
@@ -458,8 +548,8 @@ function isHidden(name) {
  * Whether there is anything here to remove: a folder, a startup job, or a
  * session on the board. Any one is enough.
  */
-function exists(clean) {
-  if (jobFor(clean)) return true;
+function exists(clean, platform) {
+  if (jobFor(clean, platform)) return true;
   // ⚠️ Exact spelling again. Without it `exists('CASEY')` is true because
   // `casey`'s folder answers, and the removal proceeds under the wrong name.
   if (existsExactly(create.workerDir(clean))) return true;
@@ -535,7 +625,7 @@ function unsafeToActOn(name) {
   return null;
 }
 
-function plan(name) {
+function plan(name, platform) {
   const clean = create.cleanName(name);
   const problem = unsafeToActOn(clean);
   if (problem) return { ok: false, because: problem };
@@ -616,7 +706,7 @@ function plan(name) {
    * all count. Requiring all three would refuse the half-set-up agents this
    * feature is most useful for.
    */
-  const there = exists(clean);
+  const there = exists(clean, platform);
   if (there === UNKNOWN) {
     return { ok: false, because: `we could not check whether ${shown} is still there, so we have not offered to remove it. Try again in a moment.` };
   }
@@ -662,7 +752,7 @@ function plan(name) {
     // What the person is deciding, in two columns (#407, the Saturday design).
     // The jobless arm differs on one line only: Kosmos cannot start that one
     // again, so "put it back" is not on offer and the list must not imply it.
-    loses: jobFor(clean)
+    loses: jobFor(clean, platform)
       ? ['Its place on the board', 'Starting again on its own, until you put it back']
       : ['Its place on the board', 'Running, and Kosmos cannot start it again for you'],
     keeps: ['Its folder, on this computer', 'Its instructions', 'Everything it has written'],
@@ -689,7 +779,7 @@ function plan(name) {
      * will make one. Nothing is lost, because nothing is deleted; but the
      * reassurance was describing an undo that does not exist.
      */
-    hint: jobFor(clean)
+    hint: jobFor(clean, platform)
       ? 'It stops running and leaves the board, and Kosmos stops it starting again; you can put it back. '
         + 'Its folder, its instructions and everything it has written stay on this computer. '
         + 'Removing is not deleting.'
@@ -727,8 +817,8 @@ function markDryRun(result) {
   };
 }
 
-function removeInner(name, { tmuxBin } = {}) {
-  const intent = plan(name);
+function removeInner(name, { tmuxBin, platform } = {}) {
+  const intent = plan(name, platform);
   if (!intent.ok) return { outcome: OUTCOME.REFUSED, because: intent.because, steps: [] };
 
   const clean = intent.name;
@@ -745,7 +835,13 @@ function removeInner(name, { tmuxBin } = {}) {
   const shown = intent.label || intent.name;
   const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   const steps = [];
-  const job = jobFor(clean);
+  /* ⚠️ THE PLATFORM IS INJECTED, NOT READ, for the reason create.js states at its
+     own win32 branch: a hard read of `process.platform` cannot be asserted from
+     the fleet's Macs, and an unexercised win32 arm is precisely how every defect
+     in this lane has survived. Defaults to the real platform, so production is
+     unchanged. */
+  const ops = jobOps(platform);
+  const job = jobFor(clean, platform);
   /* 🔑 READ BEFORE ANYTHING IS TAKEN APART (#1414). The codex trust entry
      lives in the home the agent RAN in, and the only record of which home
      that was is `CODEX_HOME` inside the plist. Every step below exists to
@@ -872,10 +968,7 @@ function removeInner(name, { tmuxBin } = {}) {
      * removed list, had no Restore button, and the only way back was the
      * manual launchctl recipe this product exists to spare people.
      */
-    const disabled = step('stopped it starting again', () => {
-      const off = run('/bin/launchctl', ['disable', `gui/${process.getuid()}/${job.label}`]);
-      return Boolean(off && off.ok !== false);
-    });
+    const disabled = step('stopped it starting again', () => ops.disable(clean, job));
     if (!disabled) {
       // Nothing was changed here, so this sentence is true.
       return {
@@ -884,11 +977,7 @@ function removeInner(name, { tmuxBin } = {}) {
         steps,
       };
     }
-    const unloaded = step('stopped it now', () => {
-      const out = run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${job.label}`]);
-      // 3 is launchd for "no such service", which is the end state we wanted.
-      return Boolean(out && (out.ok !== false || out.code === 3));
-    });
+    const unloaded = step('stopped it now', () => ops.stopNow(clean, job));
     if (!unloaded) {
       /**
        * ⚠️ RECORD IT ANYWAY, then report the partial. The job is disabled, so
@@ -1119,8 +1208,9 @@ function removeInner(name, { tmuxBin } = {}) {
 
 /* ── putting it back ─────────────────────────────────────────────────────── */
 
-function restoreInner(name) {
+function restoreInner(name, platform) {
   const clean = create.cleanName(name);
+  const ops = jobOps(platform);
   /**
    * ⚠️ Same gate as `plan`, for symmetry rather than for a live hole. Restore's
    * launchctl arguments come from the stored RECORD, never from the request, so
@@ -1190,21 +1280,17 @@ function restoreInner(name) {
   // load and will not start it at the next login either. The comment inside the
   // step says a missing plist "fails in a way worth reporting rather than
   // hiding"; nothing reported it.
-  const plistGone = Boolean(record.label) && (!record.plist || !fs.existsSync(record.plist));
+  /* 🛑 "IS THERE STILL SOMETHING THAT WOULD START IT", asked per platform. The
+     Mac stats the plist; on win32 there is no file and `record.plist` is null, so
+     the old expression answered TRUE for every Windows restore and produced the
+     sentence "the file that starts it is no longer on this computer" about an
+     agent whose task was registered and fine. `startableGone` asks the real
+     question on each substrate (see jobOps). */
+  const plistGone = Boolean(record.label) && ops.startableGone(clean, record);
   if (record.label) {
     started = step('let it start again', () => {
-      const on = run('/bin/launchctl', ['enable', `gui/${process.getuid()}/${record.label}`]);
-      if (!(on && on.ok !== false)) return false;
-      /**
-       * ⚠️ Only bootstrap a plist that is still there. Somebody may have
-       * removed it by hand while the agent was off the board, and bootstrapping
-       * a file that is gone fails in a way worth reporting rather than hiding —
-       * the enable still stands, so a later start by their own tooling works.
-       */
-      if (!record.plist || !fs.existsSync(record.plist)) return true;
-      const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, record.plist]);
-      // 5 is launchd for "already loaded", which is the end state we wanted.
-      return Boolean(up && (up.ok !== false || up.code === 5));
+      if (!ops.enable(clean, record)) return false;
+      return ops.startNow(clean, record);
     });
   }
 
@@ -1291,7 +1377,7 @@ function restoreInner(name) {
  * lands on a partial whose text describes work that did not happen.
  */
 function remove(name, opts) { return markDryRun(removeInner(name, opts)); }
-function restore(name) { return markDryRun(restoreInner(name)); }
+function restore(name, opts) { return markDryRun(restoreInner(name, opts && opts.platform)); }
 
 /**
  * Start an agent's session over, so it reads its instructions again.
@@ -1322,13 +1408,14 @@ function restore(name) { return markDryRun(restoreInner(name)); }
  * pane merely borrowing the name is somebody else's work, and killing it would
  * be the most destructive thing this product can do to a bystander.
  */
-function restartInner(name, cause) {
+function restartInner(name, cause, platform) {
   const clean = create.cleanName(name);
   const unsafe = unsafeToActOn(clean);
   if (unsafe) return { outcome: OUTCOME.REFUSED, because: unsafe, steps: [] };
 
   const shown = status.readIdentity(clean).displayName || clean;
-  const job = jobFor(clean);
+  const ops = jobOps(platform);
+  const job = jobFor(clean, platform);
   if (!job) {
     return {
       outcome: OUTCOME.REFUSED,
@@ -1430,10 +1517,13 @@ function restartInner(name, cause) {
    * own documented case and is success for us: the point is that it is not
    * running with stale arguments when we bootstrap.
    */
+  /* The win32 pair is `/End` then `/Run`, and it preserves the property the
+     comment above turns on: a task re-reads its command line when it is run, so
+     a re-registered job (a model change, an account flip) takes effect rather
+     than starting again with the arguments the old instance was holding. */
   step('asked it to start again now', () => {
-    run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${job.label}`]);
-    const up = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, job.plist]);
-    return Boolean(up && up.ok !== false);
+    ops.stopNow(clean, job);
+    return ops.startNow(clean, job);
   });
 
   return {
@@ -1444,7 +1534,7 @@ function restartInner(name, cause) {
   };
 }
 
-function restart(name, cause) { return markDryRun(restartInner(name, cause)); }
+function restart(name, cause, opts) { return markDryRun(restartInner(name, cause, opts && opts.platform)); }
 
 /**
  * Drops an agent's removal record, and nothing else.
@@ -1489,6 +1579,7 @@ module.exports = {
   removedNames,
   removedAgents,
   jobFor,
+  jobOps,   // #570: exported so the win32 job-act dispatch is assertable from a Mac
   setRunner,
   setDryRun,
   resetForTests,

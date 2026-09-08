@@ -121,7 +121,7 @@ session to a bare prompt. Use:
 | 1 | `win32anchor.js` -- durable node + engine pointer + shim | DONE, 8/8 green |
 | 2 | `win32job.install()` anchors before registering | DONE, 18/18 green |
 | 3 | `create.js` win32 branch calls `win32job.install()`, `because` fixed | DONE, 6/6 green |
-| 4 | `remove.js` win32 branches: stop/delete/restore -> disable/remove/enable | TODO |
+| 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
 | 6 | PHASE 3 dress rehearsal: 3-4 agents, roster, stop + restart each | TODO |
 | 7 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
@@ -154,3 +154,21 @@ is the other half of the sentence -- "each can be stopped and restarted" -- whic
 is precisely what step 4 (`remove.js`) unblocks. Phase 4 flipping before Phase 3
 is therefore a smaller overstep than it first looked: what it ran ahead of was
 stop/restart, not visibility.
+
+## remove.test.js is PRE-EXISTING RED on Windows (measured, not assumed)
+
+`engine/remove.test.js` builds real agents through launchd- and tmux-shaped
+fixtures, so on this box it fails for reasons that have nothing to do with #570:
+
+    parent commit, remove.js untouched .... 11 pass / 50 fail
+    with the win32 job dispatch ........... 13 pass / 48 fail
+
+Verified by stashing the change and re-running. The port fixes two and breaks
+none. Porting those fixtures is a much larger piece of work than the branch under
+test, so the new branches are pinned directly in
+`engine/remove.win32-job-570.test.js` instead -- which asserts the DISPATCH from
+either platform rather than fighting the fixtures.
+
+📌 FOLLOW-UP WORTH A CARD: remove.test.js's fixtures are the last Mac-only
+assumption in this lane. Until they are ported, a Windows box cannot run the
+removal suite end to end.
