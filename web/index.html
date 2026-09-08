@@ -5635,6 +5635,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
   :root:not([data-theme="light"]) .astate.st-unknown { border-color: rgba(245,245,244,.40); }
   :root:not([data-theme="light"]) .lrow:hover { border-color: rgba(245,245,244,.30); }
   :root:not([data-theme="light"]) .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+  /* #2487: the detail sub-project rows follow the card/lrow hover, so they need the
+     same dark override -- the light rgba(20,22,26,.28) is lower contrast than the
+     resting rule on the dark ground and the hover would vanish. */
+  :root:not([data-theme="light"]) .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
 }
 /* A restore that half-worked, said on the row it happened to. Full width so it
    wraps under the name rather than squeezing the Restore button off the end. */
@@ -6425,6 +6429,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .astate.st-unknown { border-color: rgba(245,245,244,.40); }
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+:root[data-theme="dark"] .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 
@@ -31384,6 +31389,10 @@ function projectCard(p, unreadable, depth, childCount) {
   const anc = pjAncestry(p);
   let parentChip = '';
   if (anc.length) {
+    /* The dots count the TRUE depth (capped at 4), which deliberately can exceed the
+       elided name count: for a great-grandchild the chain shows root + immediate (2
+       names) while three dots still say "three levels deep". Decorative + aria-hidden;
+       the live text is the accessible signal. */
     const dots = '<span class="pj-dots" aria-hidden="true">' + '<i></i>'.repeat(Math.min(anc.length, 4)) + '</span>';
     const shown = anc.length > 2 ? [anc[0], null, anc[anc.length - 1]] : anc;
     const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';

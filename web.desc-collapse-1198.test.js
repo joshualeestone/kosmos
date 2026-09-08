@@ -33,13 +33,15 @@ test('the person\'s click is remembered against the project it was made on', () 
 });
 
 test('the arrival default does not run over a choice already made', () => {
-  /* #2487 raised 4000 -> 6500: the parent-trail + sub-projects fill was added at
-     the TOP of paintOneProject, pushing the desc-disclosure check from under 4000
-     to ~5384 chars in. 6500 includes it with headroom and still sits inside the
-     ~9012-char function (a slice that ran past it would false-match a
-     PJ_DESC_TOUCHED mention elsewhere). Raise again if the function grows. */
+  /* #2487 raised 4000 -> 7500: the parent-trail + sub-projects fill was added at
+     the TOP of paintOneProject, pushing the desc-disclosure check well past 4000
+     (it sits ~6000 chars in as of this commit). 7500 includes it with room and
+     still stops short of the function end (~9600 chars), so it cannot spill into
+     the next function and false-match a PJ_DESC_TOUCHED mention there. If more code
+     is added above the check, re-measure the check's offset and raise this to keep
+     it below the function's closing brace. */
   const painter = PAGE.slice(PAGE.indexOf('function paintOneProject()'),
-                             PAGE.indexOf('function paintOneProject()') + 6500);
+                             PAGE.indexOf('function paintOneProject()') + 7500);
   assert.match(painter, /if \(PJ_DESC_TOUCHED !== PJ_CURRENT\) \{/,
     'the empty-description default is unconditional again, so a poll will reopen what the person closed');
   assert.match(painter, /classList\.toggle\('is-open', isEmpty\)/,
