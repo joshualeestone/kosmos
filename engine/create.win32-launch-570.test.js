@@ -75,6 +75,60 @@ function recordingSpawn() {
   return calls;
 }
 
+test('#570 createAgent does not require tmux on win32 -- the third instance of #2304', () => {
+  /* 🛑 MEASURED LIVE, 2026-09-08, and this test exists because the unit suite was
+     fully green while the real thing was refused. The first end-to-end create on
+     this platform came back "we could not find tmux on this computer, so an agent
+     made now would never start" -- about a program Windows neither has nor needs.
+     The preflight loop in createAgentInner required tmux on EVERY platform.
+
+     ⚠️ Same shape as #2304 (installedCheck required tmux everywhere, so a healthy
+     Windows box reported it could not run agents) and as #1185's preflight inside
+     installJob. Three instances now, which is why this is pinned rather than
+     just fixed.
+
+     📌 SCOPE OF THE ASSERTION, stated so it is not read as more than it is: this
+     pins the GATE, not a successful creation. createAgent's launch block is still
+     launchd-only, so a win32 create gets past this gate and then fails at
+     "started it" -- that port is the next slice. What must never come back is a
+     refusal naming tmux. */
+  create.setRunner(() => ({ ok: true }));
+  create.setDryRun(false);
+  const r = create.createAgent({
+    name: 'winreh-tmuxgate', role: 'qa', instructions: 'A probe agent used to pin the tmux preflight gate for #570.',
+    platform: 'win32', claudeBin: REAL_BIN, tmuxBin: '/nonexistent/tmux',
+  });
+  assert.doesNotMatch(String(r.because || ''), /tmux/,
+    'a win32 create must never be refused for a program this platform does not use: ' + r.because);
+});
+
+test('#570 and darwin STILL requires tmux -- the two-sided control, source-pinned', () => {
+  /* The other half: a win32 branch that quietly stopped gating tmux on the Mac
+     would be a worse regression than the bug it fixed, and the arm above would
+     still pass. #1616's rule has to keep standing on darwin -- runnerRunnable,
+     not existsSync, for the runner AND for tmux.
+
+     🛑 WHY THIS IS A SOURCE PIN AND NOT A CALL. Driving the darwin arm needs a
+     Mac: from Windows the create refuses earlier, at "we could not check which
+     agents are already running", because that check is itself launchd/tmux
+     shaped. That is the exact mirror of why this whole lane's defects survive --
+     a Mac cannot exercise win32, and this box cannot exercise darwin -- so a
+     behavioural control here would simply not run on the platform the change is
+     for, which is the same as not having one.
+
+     🔑 SO PIN THE STRUCTURE, the technique supportdir-win32-2039 calls the
+     load-bearing half of its own guard: the non-win32 required-list must still
+     carry a tmux entry, and the win32 one must not. Deleting the branch, or
+     flattening both arms back to one list, goes red here on any platform. */
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  const loop = src.slice(src.indexOf('const required = jobPlatform'), src.indexOf('for (const [what, bin] of required)'));
+  assert.ok(loop.length > 0, 'the required-list construction must still exist in createAgentInner');
+
+  const [winArm, macArm] = loop.split(': [');
+  assert.ok(!/tmux/.test(winArm), 'the win32 arm must NOT probe tmux: ' + winArm);
+  assert.ok(/tmux/.test(macArm), 'the darwin arm MUST still probe tmux: ' + macArm);
+});
+
 test('#570 asked about win32, installJob launches through the substrate and NEVER touches launchd', () => {
   const calls = recordingSpawn();
   const tasks = stubJob();

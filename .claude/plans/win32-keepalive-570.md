@@ -237,7 +237,8 @@ session to a bare prompt. Use:
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
 | 6 | merge origin/main (74 behind; #2439 store rename) | DONE -- 89/89 win32 green |
-| 7 | PHASE 3 dress rehearsal R1-R8 (see RESUME HERE) | TODO |
+| 7 | PHASE 3 dress rehearsal R1-R8 | BLOCKED at R1 -- see "R1 blocked" below |
+| 7a | port createAgentInner's launch block to win32 | TODO -- THE NEXT SLICE |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
 
@@ -316,3 +317,61 @@ Measured after the merge:
 
 The 46 are pre-existing Windows fixture failures, verified by running them in a
 scratch worktree at `origin/main` rather than assumed.
+
+## R1 BLOCKED (2026-09-08): the create path was never ported
+
+The rehearsal stopped on its first step, and it found what a green unit suite
+could not. Running the real thing -- board up, `POST /api/agents` -- surfaced two
+defects in sequence:
+
+**1. A THIRD tmux GATE, and this one is the one people hit.** `createAgentInner`'s
+preflight loop required tmux on EVERY platform:
+
+    for (const [what, bin] of [[runnerLabel, runnerBin], ['tmux', tmuxBin], ...])
+
+so a Windows create was refused with "we could not find tmux on this computer, so
+an agent made now would never start" -- naming a program this platform neither has
+nor needs. FIXED, and pinned two ways (a live win32 arm, plus a source pin for the
+darwin control, because from Windows the darwin arm refuses earlier at a
+launchd-shaped running-agents check).
+
+🛑 THIS IS THE SAME CALL #2304 MADE, FOR THE THIRD TIME. #2304 fixed it in
+`machine.installedCheck`; #1185's preflight inside `installJob` was the second
+(handled during the main merge by ordering it below the win32 return); this is the
+third. THE CLASS IS THE BUG: "tmux is required" is written in three places and
+each one had to be found separately, live, on a real box.
+
+**2. `createAgent` HAS NO win32 BRANCH AT ALL -- and this is the real blocker.**
+With the gate fixed, the create proceeds and then fails:
+
+    made its folder ................... ok
+    wrote its instructions ............ ok
+    put the script that starts agents in place  ok
+    set it up to keep running ......... ok      <- WROTE A .plist. On Windows.
+    started it ........................ FAILED  <- launchctl bootstrap
+
+then rolls itself back cleanly ("we have taken it back off your computer").
+
+🔑 THE SCOPE MISTAKE, NAMED PLAINLY. All of #570's create work went into
+`installJob` -- which has NO production caller. It is the adopt/connect entry.
+The path a person actually uses is `createAgent` -> `createAgentInner`, which
+carries its OWN launchd block (installSupervisor, plistFor, `launchctl
+bootstrap`) and no platform branch. Every win32 test in this lane passes while
+the button on the board cannot make an agent.
+
+That also means the keep-alive work is not yet reachable from a real create: the
+Scheduled Task is registered inside `installJob`, so no created agent gets one.
+
+## 7a -- the next slice, and what it must NOT be
+
+Port `createAgentInner`'s launch block to win32. The win32 arm already exists and
+is proven in `installJob`; the work is to reach it from the real path.
+
+⚠️ DO NOT COPY THE win32 ARM INTO createAgentInner. Two copies of the launch
+sequence is the defect class this repo has paid for repeatedly (supportdir-2039's
+duplicated data-root formula; the three tmux gates above). The two entry points
+should share ONE win32 launch+register step.
+
+📌 Verified state at the block: no residue is left by the failed create (folder,
+tasks and store all clean afterwards -- checked), so R1 can simply be re-run once
+7a lands.

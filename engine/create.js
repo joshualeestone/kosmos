@@ -3087,7 +3087,32 @@ function createAgentInner(opts) {
    * engine-side `alternative`, never the person's sentence.
    */
   const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : 'Claude Code';
-  for (const [what, bin] of [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]]) {
+  /**
+   * 🛑 tmux IS NOT A REQUIRED PROGRAM ON win32, AND REQUIRING IT HERE REFUSED
+   * EVERY WINDOWS CREATE (#570). Measured, not reasoned: the first real
+   * end-to-end create on this platform came back "we could not find tmux on this
+   * computer, so an agent made now would never start" -- about a program Windows
+   * neither has nor needs, from a board whose whole win32 substrate was green.
+   *
+   * ⚠️ THIS IS THE SAME CALL #2304 ALREADY MADE ONE FUNCTION OVER, and finding it
+   * a third time is the point worth recording. `machine.installedCheck` required
+   * tmux on every platform, so a healthy Windows box permanently reported it
+   * could not run agents; #2304 fixed that by making the required part the
+   * RUNNER on win32 and not probing tmux at all. `installJob`'s own tmux
+   * preflight (#1185) is the second instance -- it sits BELOW the win32 return
+   * for exactly this reason. This is the third, and it is the one a person
+   * actually hits, because it fires before anything is written.
+   *
+   * 🔑 THE RUNNER IS STILL REQUIRED, on both platforms. What changes is only that
+   * the win32 agent path runs through the Claude CLI (win32launch + a Scheduled
+   * Task) rather than through a tmux pane under launchd, so tmux's absence says
+   * nothing about whether an agent can start.
+   */
+  const jobPlatform = (opts && opts.platform) || process.platform;
+  const required = jobPlatform === 'win32'
+    ? [[runnerLabel, runnerBin], ['the agents folder', workerDir(name)]]
+    : [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]];
+  for (const [what, bin] of required) {
     if (unusablePath(bin)) {
       return { outcome: OUTCOME.REFUSED, because: `we cannot use that path for ${what}`, steps };
     }
