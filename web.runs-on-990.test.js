@@ -56,8 +56,19 @@ test('the change path cannot arm Switch & Restart on the model already running',
 });
 
 test('the provider gate still refuses a no-op switch', () => {
-  assert.match(PAGE, /go\.disabled = !e\.target\.value \|\| !CURRENT \|\| e\.target\.value === providerOf\(CURRENT\)/,
-    'the provider button no longer refuses the provider the agent is already on');
+  /* Extract the gate and assert the no-op conditions are present, rather than pinning the
+     whole expression verbatim: the gate legitimately gained an `e.target.disabled ||` guard
+     (a disabled provider control must not re-arm Switch), and a full-string pin goes red on a
+     change that only strengthens the gate. The three conditions below are the no-op refusal
+     this test is named for. */
+  const a = PAGE.indexOf("getElementById('d-provider').addEventListener('change'");
+  assert.ok(a > -1, 'the d-provider change handler moved');
+  const gate = (PAGE.slice(a, PAGE.indexOf('});', a)).match(/go\.disabled = [^\n;]+/) || [])[0];
+  assert.ok(gate, 'the d-provider change handler no longer gates the button');
+  assert.match(gate, /!e\.target\.value/, 'the provider gate no longer refuses an empty pick: ' + gate);
+  assert.match(gate, /!CURRENT/, 'the provider gate no longer refuses when there is no current agent: ' + gate);
+  assert.match(gate, /e\.target\.value === providerOf\(CURRENT\)/,
+    'the provider button no longer refuses the provider the agent is already on: ' + gate);
 });
 
 /* The two model tables diverge TODAY (status.js knows Claude Opus 4.8, the
