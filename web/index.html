@@ -8355,18 +8355,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            itself. Cog size unchanged (Josh: the size is right). */
         .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;line-height:1;font-size:44px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
-        /* 🛑 #768-batch (Josh, 5.44.01, said THREE times) -- and the reason it kept
-           regressing: a BARE `.s4-nt` (0,1,0) LOSES to `#firstrun .fr-body p`
-           (0,1,1,1), which sets 400/1.0625rem on every first-run p element. So every past
-           "make it 700" edit to a bare `.s4-nt` was silently overridden to weight 400
-           -- the computed weight was 400 no matter what the rule said, which a source
-           read (and a casual screenshot) cannot see. Scope it `#firstrun .fr-body
-           p.s4-nt` (0,1,2,1) to WIN, exactly as the sibling captions already do
-           (p.fc-eyebrow / p.tier / p.s2-say / p.s3-step-cap; the trap is documented at
-           the p.s2-say rule above). Bold at the SAME 1.0625rem size the body renders,
-           so it is bold, NOT larger -- a real macOS notification's app-name line. */
-        #firstrun .fr-body p.s4-nt{font:700 1.0625rem/1.6 var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
-        .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
+        /* 🛑 #768-batch (Josh, 5.44.01, said THREE times; Mona third-round correction) --
+           the reason it kept regressing: a BARE class (0,1,0) LOSES to `#firstrun
+           .fr-body p` (0,1,1,1), which forces 400/1.0625rem on every first-run p
+           element. So BOTH the title AND the body were being dragged to 1.0625rem/17px:
+           past "make it 700" edits to a bare `.s4-nt` were silently overridden to weight
+           400, and the body's declared .6875rem was silently overridden UP to 1.0625rem.
+           The computed value is a cascade result a source read (and a casual screenshot)
+           cannot see. Josh's ask is "bold at the SAME size as the body", and the body's
+           intended size is .6875rem (a real macOS notice's small caption). So scope BOTH
+           `#firstrun .fr-body p.s4-nt` / `p.s4-nb` (0,1,2,1) to WIN the cascade at
+           .6875rem -- title 700 (bold), body 400 (normal), same size. Now the title is
+           bold, NOT larger, and the whole notice is the intended small size, matching the
+           sibling captions (p.fc-eyebrow / p.tier / p.s2-say / p.s3-step-cap). */
+        #firstrun .fr-body p.s4-nt{font:700 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
+        #firstrun .fr-body p.s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
         .s4-x{margin-left:auto;color:#8a8a86;font-size:.9rem;flex:none;line-height:1}
         </style>
 

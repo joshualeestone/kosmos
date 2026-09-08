@@ -139,10 +139,13 @@ function unhide(id) {
       const nbc = nb ? getComputedStyle(nb) : null;
       return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
         s4Text: nb ? nb.textContent : null,
-        // #768-batch (Josh, said 3x): the title must be BOLD, not LARGER. Weight >= 700
-        // and font-size EQUAL to the body, so a future edit cannot re-introduce the
-        // size-emphasis it kept regressing to.
+        // #768-batch (Josh, said 3x; Mona third round): the title must be BOLD, not
+        // LARGER, AND the whole notice is the intended SMALL body size (.6875rem/~11px).
+        // Both were being dragged to 1.0625rem/17px by the `#firstrun .fr-body p`
+        // cascade, so pin the absolute size AND equality AND the weights -- a size-bump
+        // (17px), a non-bold title, or a bold body all fail.
         ntWeight: ntc ? Number(ntc.fontWeight) : null,
+        nbWeight: nbc ? Number(nbc.fontWeight) : null,
         ntSize: ntc ? parseFloat(ntc.fontSize) : null,
         nbSize: nbc ? parseFloat(nbc.fontSize) : null,
         // The cog is centred by flex + line-height:1 on the glyph, not place-items on
@@ -165,14 +168,24 @@ function unhide(id) {
         gearOk, JSON.stringify(s4));
       check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
         /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
-      // #768-batch (Josh, said 3 times): "App Background Activity" must be BOLD, NOT a
-      // larger font. Weight >= 700 AND the SAME size as the body -- both arms, so
-      // neither a non-bold weight nor a size-bump can pass. A computed-cascade fact a
-      // source read cannot see, and the exact property that kept regressing.
+      // #768-batch (Josh, said 3 times; Mona third round): "App Background Activity" must
+      // be BOLD, NOT a larger font, AND the whole notice is the intended SMALL size
+      // (.6875rem == ~11px on a 16px root). Four arms, so none of the regressions pass:
+      // a non-bold title (weight<700), a bold body (weight>=700), a size-bump (17px),
+      // or title/body differing in size. Absolute-size arm is the one that was missing:
+      // the old check only pinned ntSize==nbSize, which passed at 17px==17px. A
+      // computed-cascade fact a source read cannot see, and the exact property that
+      // kept regressing.
+      // Band pins .6875rem (== 11px on a 16px root) tightly: 10.5-11.5 excludes both a
+      // 17px size-bump AND a shrink to a sibling caption size (.s3-step-cap is .625rem ==
+      // 10px), so neither regression can pass.
+      const bodySizeOk = s4.nbSize != null && s4.nbSize >= 10.5 && s4.nbSize <= 11.5;
+      const titleSizeOk = s4.ntSize != null && s4.ntSize >= 10.5 && s4.ntSize <= 11.5;
       const boldNotLarger = s4.ntWeight != null && s4.ntWeight >= 700
-        && s4.ntSize != null && s4.nbSize != null && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
-      check(`${engine}: the S4 title is BOLD (weight>=700) and the SAME size as the body (bold, not larger)`,
-        boldNotLarger, `ntWeight ${s4.ntWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
+        && s4.nbWeight != null && s4.nbWeight < 700
+        && titleSizeOk && bodySizeOk && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
+      check(`${engine}: the S4 title is BOLD (weight>=700) at the SMALL body size (~11px/.6875rem), body normal weight -- bold, not larger, not 17px`,
+        boldNotLarger, `ntWeight ${s4.ntWeight}, nbWeight ${s4.nbWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
       // flex + centre alignment AND line-height COLLAPSED to the glyph (== font size).
       // line-height is load-bearing: keeping flex but reverting line-height to `normal`
       // (which computes to ~1.2x = ~53px here) reintroduces the high-glyph offset while
