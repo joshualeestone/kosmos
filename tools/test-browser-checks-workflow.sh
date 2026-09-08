@@ -102,10 +102,12 @@ grep -qE "^[[:space:]]+KOSMOS_BC_CI_ALLOWLIST:" "$WF" \
   || fail "the workflow does not set the KOSMOS_BC_CI_ALLOWLIST env entry -- CI would run the full timing-fragile suite and false-red (the #2445 runner-flake defect)"
 # The install-flow GATE class this card exists for (#2085): render-gated-next is
 # the permission-gated Next on the install screens, a DOM-state check that PASSES
-# headless (measured). It is the keystone the allowlist must keep -- not
-# click-first-run, which is headless-weak and deliberately excluded (its
-# Welcome->Next transition does not paint under SwiftShader; see the workflow
-# note). Pin the entry as a folded-scalar list item, tolerating leading space.
+# headless (measured). It is the keystone the allowlist must keep. (click-first-run
+# rejoined the allowlist in #2445-followup, now that advanceToAnchor clicks whichever
+# control is forward; the earlier "headless-weak, the transition never paints"
+# rationale was wrong -- #fr-next was deterministically HIDDEN by the not-connected
+# Model step, see the workflow note.) Pin render-gated-next as a folded-scalar list
+# item, tolerating leading space -- it is the keystone, so this stays pinned on it.
 grep -qE '^[[:space:]]*render-gated-next([[:space:]]|$)' "$WF" \
   || fail "the CI allowlist does not name render-gated-next, the headless-robust install-flow gate check (the #2085 class this gate exists for)"
 pass "the workflow scopes CI to the DOM-state allowlist, naming the install-flow gate keystone"
