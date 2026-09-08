@@ -87,6 +87,12 @@ chk "the capped body is well under ARG_MAX (< 200 KB)" test "$CAP_BYTES" -lt 200
 # CONTROL: a small range (2 files) is NOT capped and carries no truncation marker.
 SMALL="$(kosmos_release_diff_summary "$R" "$PREV_BUMP" "$THIS")"
 chk "CONTROL: a small range is not truncated (no marker)" hasnt "$SMALL" "truncated to keep the commit"
+# 🛑 PIPEFAIL ARM: release.sh runs `set -euo pipefail`. The `set -u`-only arms above cannot
+# catch a SIGPIPE (141) in the cap's pipeline (a `head`-style early close would abort here).
+# Run the function in a fresh bash with release.sh's exact flags, on the pathological range.
+CAP_PF="$(bash -c 'set -euo pipefail; . "$1"; kosmos_release_diff_summary "$2" "$3" "$4"' _ "$LIB" "$BIG" "$BASE" "$BIGTO" 2>/dev/null)"; CAP_PF_RC=$?
+chk "under set -euo pipefail the cap does NOT abort (exit 0, not a SIGPIPE 141)" test "$CAP_PF_RC" -eq 0
+chk "under set -euo pipefail the truncation marker survives (not dropped by an aborted pipe)" has "$CAP_PF" "truncated to keep the commit under ARG_MAX"
 rm -rf "$BIG"
 
 echo "test-release-diff-summary: $PASS passed, $FAIL failed"

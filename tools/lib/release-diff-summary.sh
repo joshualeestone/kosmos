@@ -51,7 +51,13 @@ kosmos_release_diff_summary() {
   # marker points at the full diff so nothing is silently lost.
   rds_lines=$(printf '%s\n' "$rds_full" | wc -l | tr -d ' ')
   if [ "${rds_lines:-0}" -gt 500 ]; then
-    printf '%s\n' "$rds_full" | head -n 500
+    # 🔑 awk, NOT head. `head -n 500` closes the pipe at line 500, so `printf` takes
+    # SIGPIPE (exit 141) on the rest -- and under a `set -euo pipefail` caller without
+    # a `|| true` guard that 141 would ABORT, which is the very abort class this cap
+    # exists to prevent (just via SIGPIPE instead of E2BIG). `awk 'NR<=500'` DRAINS
+    # stdin (reads every line, prints only the first 500), so printf never SIGPIPEs
+    # and the pipeline exits 0 regardless of the caller's shell flags.
+    printf '%s\n' "$rds_full" | awk 'NR<=500'
     printf '... (%s lines total; truncated to keep the commit under ARG_MAX -- see: git diff --stat %s %s)\n' \
       "$rds_lines" "$from_ref" "$to_ref"
   else
