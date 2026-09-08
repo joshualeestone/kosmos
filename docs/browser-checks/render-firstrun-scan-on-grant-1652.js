@@ -10,10 +10,13 @@
  *
  * This check now guards the SUPPRESSION: with file access GRANTED and /api/scan-import holding
  * candidates (exactly the input that used to load agents onto S9), first-run S9 must land on the
- * create / Giddy Up screen, render NO scan rows, and NEVER auto-fetch /api/scan-import (nor
- * /api/scan-agents) from the onboarding flow, even after a wait long enough that a grant-flip poll
- * would have fired. The discovery engine + /api/scan-import route are kept for the manual Import
- * Agent path (#1652 on the Create Agent screen), which is not this flow.
+ * create / Giddy Up screen, render NO scan rows, and NEVER auto-fetch /api/scan-import (the
+ * onboarding granted-scan route) from the onboarding flow, even after a wait long enough that a
+ * grant-flip poll would have fired. (The bare /api/scan-agents IS still fetched -- by the
+ * DASHBOARD's own kept disk-scan poll (paintScanBoard #1938) loading underneath the overlay, which
+ * #2497 does not touch -- so this check does not assert on it.) The discovery engine +
+ * /api/scan-import route are kept for the manual Import Agent path (#1652 on the Create Agent
+ * screen), which is not this flow.
  *
  * Self-contained: boots its own sandboxed board.
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules HEADED=0 node docs/browser-checks/render-firstrun-scan-on-grant-1652.js
@@ -86,8 +89,12 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     if (/create your first agent/i.test(view.title)) ok('first run lands on the create heading even with a grant + candidates'); else bad('create heading', JSON.stringify(view.title));
     if (/let’s get started/i.test(view.box)) ok('the Giddy Up copy is present'); else bad('Giddy Up copy', view.box.slice(0, 160));
     if (view.scanRows === 0) ok('no scan/found rows render on first run'); else bad('scan/found rows still render', String(view.scanRows));
+    // The onboarding granted-scan is /api/scan-import (frScanAgents uses it when granted), so
+    // scan-import === 0 is the suppression signal: the onboarding auto-scan and the grant-flip
+    // re-scan never ran. (We do NOT assert /api/scan-agents === 0: that BARE route is also fetched
+    // by the DASHBOARD's own kept disk-scan poll, paintScanBoard #1938, which loads underneath the
+    // first-run overlay and is unaffected by #2497. scanAgentsCalls here counts only that dashboard poll, not onboarding.)
     if (scanImportCalls === 0) ok('onboarding never auto-fetched /api/scan-import (no auto-scan, no grant-flip re-scan)'); else bad('auto scan-import fired', String(scanImportCalls));
-    if (scanAgentsCalls === 0) ok('onboarding never auto-fetched /api/scan-agents'); else bad('auto scan-agents fired', String(scanAgentsCalls));
     if (errs.length === 0) ok('no page errors'); else bad('no page errors', errs.join(' | '));
 
     await p.close();
@@ -98,7 +105,7 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
     srv.kill();
   }
 
-  if (ran < 6) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
+  if (ran < 5) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
 })();
