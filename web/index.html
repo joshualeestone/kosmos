@@ -2450,6 +2450,34 @@ body.pj-mapmode #pj-list, body.pj-mapmode #pj-list-msg, body.pj-mapmode #pj-arch
    the wide-list rule below hides it and applies the indent instead. */
 .pjsub { display: inline-block; font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
 .pj-parent { display: inline-block; margin-top: 6px; font-size: .75rem; color: var(--k-ink-2); }
+/* #2487: the ancestry mouseprint (grid tiles + narrow rail; the wide list hides
+   it and uses the indent). Depth dots then the name chain; the chain truncates
+   with an ellipsis so a long path never blows a tile, on top of the JS middle-
+   elide past depth two. Centred in the grid (the tile centres its column),
+   left-aligned in the rail. */
+.pj-anc { display: flex; align-items: center; gap: 5px; min-width: 0; max-width: 100%; justify-content: center; }
+.pj-anc .pj-anc-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.pj-anc .pj-anc-sep { opacity: .55; }
+.pj-dots { display: inline-flex; gap: 2px; flex: none; }
+.pj-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--gold, #c8901a); opacity: .9; }
+body.consolidated .pj-anc { justify-content: flex-start; }
+/* #2487: the detail-page parent trail (above the name) and the sub-projects
+   section (between the head and the members/files/tasks grid). The rows are the
+   same open-on-click buttons the cards are, at a lighter weight. */
+.pj-one-parent { margin: 0 0 4px; font-size: .8125rem; color: var(--k-ink-2); }
+.pj-one-parent .pj-anc-sep { opacity: .55; }
+.pj-subs { margin: 4px 0 8px; }
+.pj-subs .dlab { margin: 0 0 8px; }
+.pj-subrows { display: flex; flex-direction: column; gap: 8px; }
+.pj-subrow { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; text-align: left; cursor: pointer; font-family: inherit; color: var(--k-ink);
+  background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 10px; padding: 10px 14px;
+  transition: border-color .12s ease; }
+.pj-subrow:hover { border-color: rgba(20,22,26,.28); }
+.pj-subrow.attn { border-color: rgba(179,38,30,.42); }
+.pj-subrow-n { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: .9375rem; }
+.pj-subrow-n b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pj-subrow-m { font-size: .8125rem; color: var(--k-ink-2); flex: none; }
 /* The tree indent lives ONLY in the wide Projects tab, list sub-view. Not in
    the asgrid grid (tiles), and not under body.consolidated (the narrow rail
    reuses this markup and would run out of room) -- both fall back to the chip. */
@@ -9487,6 +9515,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              arrival. A BUTTON with aria-expanded rather than a styled span,
              because this is the one control on the head and it has to be
              reachable by keyboard and announced as openable. -->
+        <!-- #2487: the parent trail. Where a project sits in the tree, shown
+             above its name on the detail page (Josh 2026-09-07). The ancestry
+             names are live text (the accessible signal); the › separators are
+             decorative. Hidden for a top-level project. Filled by
+             paintOneProject via pjAncestry, the same chain the cards use. -->
+        <p class="pj-one-parent" id="pj-one-parent" hidden></p>
         <div class="pjtitle-row">
           <button class="pjdisc" id="pj-one-more" type="button" aria-expanded="false" aria-controls="pj-one-desc">
             <span class="pjdisc-ar" aria-hidden="true">&#9656;</span>
@@ -9531,6 +9565,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            idiom as every other inline icon here. -->
       <button class="linkish pj-settings-cog" id="pj-settings-link" type="button" aria-label="Project settings" title="Project settings"><svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
     </div>
+
+    <!-- #2487: the sub-projects section (Josh 2026-09-07: "add a subprojects
+         section on the design page"). Sits between the head and the members/
+         files/tasks grid, OUTSIDE the view-order-sensitive .pj3, so it cannot
+         disturb the deliberate tab-vs-consolidated ordering that grid keeps.
+         paintOneProject fills it with this project's DIRECT children (deeper
+         descendants nest under those children in the list, not here); the whole
+         section is hidden when the project has none. -->
+    <section class="pj-subs" id="pj-one-subprojects" hidden></section>
 
     <div class="pj3">
     <!-- #534 (Josh, 2026-08-24 10:34): members and files are TWO containers,
@@ -31292,6 +31335,25 @@ function unreadBadge(n) {
   const s = k > 99 ? '99+' : String(k);
   return '<span class="pj-unread" aria-label="' + s + ' unread">' + s + '</span>';
 }
+/* #2487: the full ancestry name chain, root-first, for the tree "mouseprint".
+   Walks parent ids up via pjById (a dangling or archived parent still lends its
+   name so the path is never silently shortened), with a cycle guard so a bad
+   stored loop cannot hang. The single-parent chip this feeds replaced showed
+   only the immediate parent, so a grandchild read as a top-level project; the
+   chain shows depth at a glance in the grid and the narrow rail, where the
+   wide-list indent has no room (Josh 2026-09-07). */
+function pjAncestry(p) {
+  const names = [];
+  const seen = new Set(p && p.id ? [p.id] : []);   // a project is never its own ancestor (self/loop guard)
+  let cur = (p && p.parent) ? pjById(p.parent) : null;
+  if (!cur && p && p.parentName) return [p.parentName];   // parent record not loaded
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    names.unshift(cur.name);
+    cur = cur.parent ? pjById(cur.parent) : null;
+  }
+  return names;
+}
 function projectCard(p, unreadable, depth, childCount) {
   const s = p.summary || {};
   const folder = pjFolderLine(p);
@@ -31308,8 +31370,22 @@ function projectCard(p, unreadable, depth, childCount) {
      never silently dropped even when the row falls back to the top level. */
   const dep = Math.max(0, Number(depth) || 0);
   const subs = Number(childCount) || 0;
-  const parentChip = (p.parent && p.parentName)
-    ? '<span class="pj-parent">under ' + esc(p.parentName) + '</span>' : '';
+  /* #2487: the ancestry "mouseprint" replaces the single "under <parent>" chip.
+     Depth dots (decorative, aria-hidden) plus the name chain as LIVE text, which
+     is the accessible depth signal (Angel 2026-09-08); the dots would otherwise
+     read to a screen reader as a run of bullets. Root and the immediate parent are
+     kept with a middle ellipsis past depth two, so a long chain cannot blow out a
+     grid tile. The class stays `pj-parent` so the wide-list indent rule still hides
+     it there -- the indent carries depth in the one view with room. */
+  const anc = pjAncestry(p);
+  let parentChip = '';
+  if (anc.length) {
+    const dots = '<span class="pj-dots" aria-hidden="true">' + '<i></i>'.repeat(Math.min(anc.length, 4)) + '</span>';
+    const shown = anc.length > 2 ? [anc[0], null, anc[anc.length - 1]] : anc;
+    const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';
+    const chain = shown.map((n) => n === null ? '<span aria-hidden="true">…</span>' : esc(n)).join(sep);
+    parentChip = '<span class="pj-parent pj-anc">' + dots + '<span class="pj-anc-t">' + chain + '</span></span>';
+  }
   /* Faces: the avatar when the TIED agent has one, the initials chip
      otherwise (hasAvatar is gated on tied in the engine -- a borrowed
      pane must not lend the card somebody else's photograph). */
@@ -32937,6 +33013,34 @@ function paintOneProject() {
   const p = pjById(PJ_CURRENT);
   if (!p) { pjView('list'); PJ_CURRENT = null; pjMarkOpen(null); return; }
   document.getElementById('pj-one-name').textContent = p.name;
+  /* #2487: the parent trail (where this project sits) above the name, and the
+     sub-projects section below the head. Both derive from the same tree the list
+     cards use -- pjAncestry for the trail, a direct-children filter for the
+     section -- so the detail page and the list can never disagree. The rows are
+     `data-project` buttons, the same open handle the cards carry, so the existing
+     click delegate opens a sub-project with no new wiring. */
+  const parentEl = document.getElementById('pj-one-parent');
+  const anc = pjAncestry(p);
+  if (anc.length) {
+    const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';
+    parentEl.innerHTML = '<span class="vh">In </span>' + anc.map((n) => esc(n)).join(sep);
+    parentEl.hidden = false;
+  } else { parentEl.textContent = ''; parentEl.hidden = true; }
+  const subsEl = document.getElementById('pj-one-subprojects');
+  const kids = PROJECTS.filter((c) => !c.archived && c.parent === p.id);
+  if (kids.length) {
+    const rows = kids.map((c) => {
+      const cp = pjPillOf(c, PJ_AGENTS_UNREADABLE);
+      const meta = cp.label ? esc(cp.label)
+        : ((c.summary && c.summary.total) ? (c.summary.total + (c.summary.total === 1 ? ' agent' : ' agents')) : 'No agents yet');
+      return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
+        + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
+        + '<span class="pj-subrow-m">' + meta + '</span></button>';
+    }).join('');
+    subsEl.innerHTML = '<h3 class="dlab">' + kids.length + (kids.length === 1 ? ' sub-project' : ' sub-projects') + '</h3>'
+      + '<div class="pj-subrows">' + rows + '</div>';
+    subsEl.hidden = false;
+  } else { subsEl.innerHTML = ''; subsEl.hidden = true; }
   paintProjectTasks(p);
   const desc = document.getElementById('pj-one-desc');
   /* The empty slot SHOWS, by Josh's own ruling (2026-08-20: "leave a slot
