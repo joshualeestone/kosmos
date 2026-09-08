@@ -1571,6 +1571,13 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 @media (prefers-reduced-motion: reduce) {
   .kspin img { animation: none; opacity: 1; transform: none; }
 }
+/* #768-batch (Josh, 5.51.59): the restart interstitial shown in the change-model
+   dialog while an agent restarts. The Kosmos K (the same kbreathe mark, sized up)
+   over the "Restarting the agent" line, centred, so the wait reads as the restart
+   happening rather than a frozen dialog. */
+.chg-restart { display: flex; flex-direction: column; align-items: center; gap: 12px;
+  padding: 14px 0 6px; font: 600 .9375rem var(--font-ui); color: var(--k-ink); }
+.chg-restart .kspin img { width: 44px; height: 44px; }
 /* #2019 timedOut: an OVERRUN restart holds the K STILL and fully visible for
    everyone, not only reduced-motion users. The pulse means "in progress"; a
    restart that has not come back within its window is no longer in progress, so
@@ -27118,7 +27125,16 @@ async function moveAccountNow(say) {
    under the menus uses; confirming runs the existing request; the dialog stays
    open and carries the engine's own sentence for the outcome, success or
    refusal, so nobody has to refresh and say hello to find out. */
-function changeDialog({ title, small, go, run }) {
+/* #768-batch (Josh, 5.51.59): the OPT-IN restart interstitial. `busyHtml` replaces the
+   plain "Working…" line while `run` is in flight (the model switch passes the animating
+   Kosmos K + "Restarting the agent"); `minBusyMs` holds that interstitial on screen for
+   at least that long on SUCCESS, so a fast POST still shows the restart happening rather
+   than flashing straight to the result. Both are OPTIONAL and default to the exact prior
+   behaviour ("Working…", no hold), so the other three callers (account move, compact,
+   clear) are byte-unchanged. The hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
+   never trap the modal (#1313): a failure shows immediately, and `say` still always fires
+   the one exit. */
+function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   const back = document.getElementById('chg-modal');
   const t = document.getElementById('chg-title');
   const sm = document.getElementById('chg-small');
@@ -27128,6 +27144,7 @@ function changeDialog({ title, small, go, run }) {
   t.textContent = title; sm.textContent = small; goBtn.textContent = go; msg.textContent = '';
   keep.textContent = 'Keep it as it is';
   keep.hidden = false; goBtn.hidden = false; goBtn.disabled = false;
+  sm.hidden = false;   // reset: a prior interstitial (busyHtml) run may have hidden it
   /* 🔑 ESCAPE GETS YOU OUT (#1316). This is the modal Josh sat in on #1313, and
      the fix there gave it a way out AFTER the operation ends. It still had no
      way out BEFORE: no Escape, and no backdrop click either, so the only exit
@@ -27151,7 +27168,15 @@ function changeDialog({ title, small, go, run }) {
   keep.onclick = close;
   goBtn.onclick = async () => {
     goBtn.disabled = true; keep.hidden = true;
-    msg.textContent = 'Working…';
+    /* busyHtml is app-generated (kGlyph + a fixed string), never user input, so
+       innerHTML is safe here; the plain path keeps textContent. In the interstitial
+       (busyHtml) case, hide the now-decided confirm question's button and small text so
+       the restart reads as a clean interstitial rather than a line tacked under the
+       question -- the title stays for context and to keep the dialog's aria-labelledby
+       target present. Both are reset at the top of the next changeDialog. */
+    if (busyHtml) { goBtn.hidden = true; sm.hidden = true; msg.innerHTML = busyHtml; }
+    else { msg.textContent = 'Working…'; }
+    const busyStart = Date.now();
     /* 🛑 EVERY WAY OUT OF THIS MODAL USED TO LIVE INSIDE `say` (#1313). Press the
        button and both controls go: `goBtn` is disabled and `keep` is hidden, and
        only `say` brings one back. So a `run` that resolves WITHOUT calling it
@@ -27164,12 +27189,19 @@ function changeDialog({ title, small, go, run }) {
        out when it ends. A modal with no exit is a trap no copy can rescue. */
     let spoke = false;
     const say = (sentence, ok) => {
-      spoke = true;
-      msg.textContent = sentence;
-      goBtn.hidden = true;
-      keep.textContent = ok ? 'Done' : 'Close';
-      keep.hidden = false;
-      try { keep.focus(); } catch { /* the sentence stands on its own */ }
+      spoke = true;   // set NOW, even if the render is held, so the finally fallback never double-fires
+      const render = () => {
+        msg.textContent = sentence;
+        goBtn.hidden = true;
+        keep.textContent = ok ? 'Done' : 'Close';
+        keep.hidden = false;
+        try { keep.focus(); } catch { /* the sentence stands on its own */ }
+      };
+      /* Hold the busy interstitial for the remainder of minBusyMs on SUCCESS only, so a
+         fast restart still reads as "restarting" for the promised window. A failure or a
+         no-hold caller renders at once. Bounded by minBusyMs, so the modal always exits. */
+      const wait = (ok && minBusyMs) ? Math.max(0, minBusyMs - (Date.now() - busyStart)) : 0;
+      if (wait > 0) { setTimeout(render, wait); } else { render(); }
     };
     try {
       await run(say);
@@ -28004,6 +28036,13 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
     run: (say) => changeProviderNow(say),
   });
 });
+/* #768-batch (Josh, 5.51.59): the restart interstitial. The K breathes over
+   "Restarting the agent" while the switch is in flight, held for RESTART_HOLD_MS so a
+   fast POST still shows the restart. Josh's "arbitrary" ~10s; a named constant so it is
+   one edit to tune. App-generated markup only (no user input), safe for innerHTML. */
+const RESTART_HOLD_MS = 10000;
+const RESTART_BUSY_HTML = '<span class="chg-restart"><span class="kspin" aria-hidden="true">'
+  + '<img src="/icons/kosmos-32.png" alt="" width="44" height="44"></span>Restarting the agent</span>';
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
   if (!CURRENT || !sel.value) return;
@@ -28012,6 +28051,12 @@ document.getElementById('d-model-go').addEventListener('click', () => {
     title: 'Change ' + agentShown() + ' to ' + label + '?',
     small: agentShown() + ' restarts. It comes back with nothing in its memory, and anything it was part way through ends, including anything it agreed to and has not done yet. Its instructions and its files are untouched.',
     go: 'Change and restart',
+    busyHtml: RESTART_BUSY_HTML,
+    /* Read the hold at click time so a hermetic browser-check can shorten it via
+       `window.__kosmosRestartHoldMs` (a number) rather than waiting the full ~10s;
+       undefined in prod, so a real switch always holds RESTART_HOLD_MS. Same shape as
+       the server's `*_SWEEP_MS` test seams. */
+    minBusyMs: (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS),
     run: (say) => changeModelNow(say),
   });
 });
@@ -28385,7 +28430,17 @@ async function changeModelNow(say) {
        so a slow status read cannot delay the verdict. `changed` is the
        started-again outcome; `partial` is saved-but-not-restarted and is not
        a success to call Done on. */
-    if (say) say(out.because || 'Changed.', out.outcome === 'changed');
+    /* #768-batch (Josh, 5.51.59): on a real restart, the DIALOG reduces to the one
+       action left to take -- say hello to reactivate the agent -- instead of the
+       engine's full sentence (which still stands on the section line behind the dialog,
+       set above). Only on `changed`: `partial` (saved, still running the old model) and
+       failure keep the engine's exact words, because those are different facts. Provider
+       is unchanged by a model switch, so it names the agent's current one. */
+    const restarted = out.outcome === 'changed';
+    const provName = (providerOf(CURRENT) === 'openai') ? 'OpenAI' : 'Claude';
+    if (say) say(restarted
+      ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
+      : (out.because || 'Changed.'), restarted);
     sel.value = '';
     await tick();
     /**
