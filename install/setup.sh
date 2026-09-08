@@ -2581,7 +2581,7 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # board, or reinstall on a free port. NOT recorded as a board-would-not-pause
         # abort -- that streak is about OUR board, and inflating it here would mask a
         # machine whose own board really cannot pause.
-        die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this Mac. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
+        die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
       fi
       ;;
     "") ;;
