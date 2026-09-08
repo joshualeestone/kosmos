@@ -66,7 +66,7 @@ test.afterEach(() => {
 
 /* ---- THE BLOCKER ARM ------------------------------------------------------ */
 
-test('#988 BLOCKER: the suite never reaches a real coordinator', () => {
+test('#988 BLOCKER: an in-process announce with no factory injected reaches no transport', () => {
   enrol();
   updating.setRequestFactory(null);
   /* node --test sets NODE_TEST_CONTEXT, so underTest() is true here. Without the
@@ -214,8 +214,13 @@ test('#988: a caller typo must NOT be read as "finished"', () => {
   }
 });
 
-test('#988: a negative deadline clamps to 0 rather than being sent as negative', () => {
-  assert.equal(updating.seconds(-5), 0);
+test('#988: a NEGATIVE deadline asks for the default, it does not mean "finished"', () => {
+  /* An earlier version clamped a negative to 0, which is the FINISH signal, so a
+     caller typo of -1 cleared a live banner. Negatives are finite, so they slip
+     past the not-a-number rule; they need their own. */
+  assert.equal(updating.seconds(-5), updating.DEFAULT_SECONDS);
+  assert.equal(updating.seconds(-1), updating.DEFAULT_SECONDS);
+  assert.equal(updating.seconds(0), 0, 'only an explicit 0 means finished');
 });
 
 test('#988: the default asks for more than any install needs, because the server caps it', () => {
@@ -254,15 +259,29 @@ test('#988 FAIL-OPEN: announce returns undefined, so no caller can await or bran
 
 /* ---- the lifecycle wiring, which is the deliverable ----------------------- */
 
-test('#988 WIRING: beginning to apply announces a deadline', () => {
+/* beginInstall() opens with `if (installStarted) return;` and exports no reset,
+   so exactly ONE call per process ever wires a child. Capture that child's
+   listeners here, once, and let the arms below drive them. */
+const CHILD = { handlers: {}, announced: [] };
+{
   enrol();
   const calls = capture();
   update.setInstalledRoot(() => SANDBOX);
-  update.setInstallRunner(() => ({ on: () => {} }));
+  update.setInstallRunner(() => ({ on(ev, fn) { CHILD.handlers[ev] = fn; return this; } }));
   try { update.beginInstall({}); } catch { /* the fake child's shape is not under test */ }
   update.setInstallRunner(null);
   update.setInstalledRoot(null);
-  assert.ok(calls.some((c) => JSON.parse(c.body).seconds > 0), 'applying must announce a deadline');
+  CHILD.announced = calls.map((c) => JSON.parse(c.body).seconds);
+  updating.setRequestFactory(null);
+}
+
+test('#988 WIRING: beginning to apply announces a deadline', () => {
+  assert.ok(CHILD.announced.some((n) => n > 0), `applying must announce a deadline; got ${JSON.stringify(CHILD.announced)}`);
+});
+
+test('#988 WIRING: the installer child had its listeners wired', () => {
+  assert.equal(typeof CHILD.handlers.error, 'function');
+  assert.equal(typeof CHILD.handlers.exit, 'function');
 });
 
 test('#988 WIRING: a board coming back up clears, because success has no finish hook', () => {
@@ -312,7 +331,7 @@ test('#988: a handler that throws still cannot reach the caller', () => {
   assert.doesNotThrow(() => made.fire('error', new Error('socket')));
 });
 
-test('#988: a non-2xx answer is reported once on stderr and changes nothing', () => {
+test('#988: a non-2xx answer is reported on stderr, once per response, and changes nothing', () => {
   enrol();
   let made = null;
   updating.setRequestFactory(() => { made = fakeReq(); return made; });
@@ -337,6 +356,55 @@ test('#988 CONTROL: a 2xx answer is silent', () => {
   try { made.fire('response', { statusCode: 204, resume() {} }); }
   finally { process.stderr.write = real; }
   assert.equal(lines.length, 0);
+});
+
+test('#988: the error handler is REGISTERED, which is the line the fail-open guarantee rests on', () => {
+  /* Deleting req.on('error') left this suite green, so the one handler the
+     governing constraint depends on was unarmed. (Measured separately: on this
+     Node version its removal did NOT crash a refused or DNS-failed announce,
+     because the throw surfaces inside the outer guard. Armed anyway: an unguarded
+     line on the install route should not depend on that staying true.) */
+  enrol();
+  let made = null;
+  updating.setRequestFactory(() => { made = fakeReq(); return made; });
+  updating.announce(900);
+  assert.equal(typeof made.handlers.error, 'function', 'an error listener must be registered');
+  assert.equal(typeof made.handlers.timeout, 'function', 'a timeout listener must be registered');
+  assert.equal(typeof made.handlers.response, 'function', 'a response listener must be registered');
+});
+
+test('#988 WIRING: a child that fails to START clears the deadline', () => {
+  enrol();
+  const calls = capture();
+  CHILD.handlers.error(new Error('spawn failed'));
+  assert.ok(calls.length > 0, 'a child that never started must clear');
+  assert.equal(JSON.parse(calls[calls.length - 1].body).seconds, 0);
+});
+
+test('#988 WIRING: a child that EXITS ZERO still clears, because the shell masks the installer status', () => {
+  /* The spawned shell ends in an `if`, so an installer that fails still exits 0.
+     Measured: an installer exiting 7 records "7" in the status file while the
+     child exits 0. A clear placed inside `code !== 0` never ran on ordinary
+     failures, and the deadline then stood for the full cap on a healthy Mac. */
+  enrol();
+  const calls = capture();
+  CHILD.handlers.exit(0);
+  assert.ok(calls.length > 0, 'an exit that reaches this listener did NOT restart the board, so it must clear');
+  assert.equal(JSON.parse(calls[calls.length - 1].body).seconds, 0);
+});
+
+test('#988: the first-tick clear happens ONCE, not on every tick forever', async () => {
+  /* The arm that only counted ">= 2" could not tell "once more" from "a fresh
+     mTLS connection to the coordinator every 60 seconds from every enrolled
+     Mac". This one can. */
+  enrol();
+  const calls = capture();
+  const t = update.startPolling(10);
+  await new Promise((r) => setTimeout(r, 90));
+  clearInterval(t);
+  const cleared = calls.filter((c) => JSON.parse(c.body).seconds === 0).length;
+  assert.ok(cleared >= 2, `boot plus one tick expected; got ${cleared}`);
+  assert.ok(cleared <= 3, `the clear must not repeat every tick; got ${cleared} across ~8 ticks`);
 });
 
 test('#988 CONTROL: with the wiring driven and NO factory, nothing is sent and nothing throws', () => {

@@ -57,7 +57,13 @@ let requestFactory = null;
  * Keyed on an INJECTED FACTORY, not on the environment: a test that supplies its
  * own transport touches no network, so the guard must not disable it. */
 function underTest() {
-  return Boolean(process.env.NODE_TEST_CONTEXT);
+  /* ONE derivation, from the module this file's header already cites and that
+     notify.js calls directly. An earlier version re-implemented the
+     NODE_TEST_CONTEXT check here, which is the second-derivation problem the
+     #790 comment in remote.js describes: two copies disagree the moment one of
+     them learns something. Lazy require for the same data-root reason as below. */
+  try { return Boolean(require('./ping').underTest()); }
+  catch { return Boolean(process.env.NODE_TEST_CONTEXT); }
 }
 
 /* Only a real number is honoured. `Number(null)`, `Number('')`, `Number(false)`
@@ -67,7 +73,11 @@ function underTest() {
 function seconds(v) {
   if (v === undefined) return DEFAULT_SECONDS;
   if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_SECONDS;
-  return Math.max(0, Math.trunc(v));
+  /* A NEGATIVE is finite, so an earlier version clamped it to 0, which is the
+     FINISH signal: the exact direction the rule above exists to avoid. A caller
+     typo of -1 would have cleared a live banner. Only 0 itself means finished. */
+  if (v < 0) return DEFAULT_SECONDS;
+  return Math.trunc(v);
 }
 
 /* announce(n) -- best effort. Returns nothing, throws nothing, blocks nothing.
@@ -122,10 +132,16 @@ function announce(v) {
          that happens roughly twice per update. */
       agent: false,
     };
-    /* A private-CA coordinator, honoured the same way remote.js honours it for
-       the tunnel. TLS verification is never disabled. */
-    const ca = process.env.AGENT_WORKFORCE_TUNNEL_CA;
-    if (ca) { try { opts.ca = fs.readFileSync(ca); } catch { /* verify against the system store */ } }
+    /* 🛑 NO `ca` OPTION, DELIBERATELY. An earlier version honoured
+       AGENT_WORKFORCE_TUNNEL_CA here and claimed it was "the same way remote.js
+       honours it for the tunnel". That is false: remote.js documents that var as
+       "extra CA for a dev/self-host RELAY ONLY" and passes it as --tunnel-ca.
+       It is not the coordinator's CA. Worse, setting `ca` REPLACES the default
+       trust store, so a self-hoster who set it for their relay while still
+       talking to the public coordinator would fail verification on every
+       announce, silently, because this fails open. There is no documented
+       coordinator CA var; until there is, the system store is the right answer.
+       TLS verification is never disabled either way. */
 
     const make = requestFactory || defaultRequest;
     const req = make(opts, body);

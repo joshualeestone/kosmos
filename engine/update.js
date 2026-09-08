@@ -504,10 +504,24 @@ function wireChild(child, opts) {
   // server before the listener matters, which is why releasing on any
   // non-zero exit cannot double-run a good update.
   child.on('exit', (code) => {
+    /* 🛑 #988: THE CLEAR IS OUTSIDE THE `code !== 0` BRANCH, DELIBERATELY, AND AN
+       EARLIER VERSION HAD IT INSIDE. The spawned shell is
+       `curl … | sh; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi`,
+       so THE CHILD'S EXIT STATUS IS THE TRAILING `if`, NOT THE INSTALLER'S.
+       Measured: an installer exiting 7 records "7" in the status file and the
+       child still exits 0. So `code !== 0` is false on ordinary failures, and a
+       clear placed inside it never ran. Combined with the #2055 abort path,
+       which dies WITHOUT restarting the board, the deadline then stood for the
+       full 15-minute cap on a Mac that was up and serving: exactly the false
+       "back in a moment" this card exists to prevent, reached through
+       production rather than the suite.
+       Clearing on ANY exit is safe by this file's own argument two comments
+       below: a SUCCESSFUL install kills this server before the listener runs, so
+       an exit that reaches this line is one that did not restart the board. */
+    updating.announce(0);
     if (code !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
-      updating.announce(0);   // #988: stopped without restarting, so nothing is applying
       if (opts && opts.auto) autoFailedAt = Date.now();
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }
