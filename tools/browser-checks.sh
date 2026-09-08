@@ -682,6 +682,17 @@ run_one() {
   # NOT full 3b coverage. Unset (the release cut, a dev run) => every check runs,
   # exactly as before. The case pattern is unquoted on purpose so the globs bind;
   # the label is wrapped in literal spaces for a whole-word match.
+  #
+  # SCOPE (#2445): this gates run_one ONLY, not the board boots above each check
+  # group. So in CI mode a board is still booted for a group even when only some of
+  # its checks are allowlisted (cheap: an idle node HTTP server), and on the FAILURE
+  # path a board that does not boot still appends its WHOLE group to FAILED,
+  # off-allowlist names included. That is a safe false-RED, not a scope hole: an
+  # allowlisted check that could not run is independently caught by the summary's
+  # never-ran guard, so the run reds correctly; the extra names are noise on an
+  # already-failing run. Gating the ~12 board-boot branches too would cut that noise
+  # but is not worth the risk on this cut-critical driver -- boards boot on a clean
+  # runner and the direction is safe.
   if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
     case " ${KOSMOS_BC_CI_ALLOWLIST//,/ } " in
       *" $label "*) CI_MATCHED+=("$label") ;;   # allowlisted -- fall through and run it

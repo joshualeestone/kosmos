@@ -21,8 +21,20 @@ Advisory like `test.yml` (no required branch protection, #835), so create-pr's C
   starvation on the shared box (browser-checks.sh's own header; Baron measured the cut peak at load
   13.87 with other agents competing). A GitHub Actions runner is a SEPARATE machine with none of that
   fleet load, so the browser cost is paid off the box entirely. This is the load-wrinkle answer.
-- **Q1 (full vs subset): FULL suite.** With the load moved to CI, no leaky per-changed-check subset
-  is needed; the PATHS filter does the scoping.
+- **Q1 (full vs subset): a MEASURED headless-robust DOM-state SUBSET (Baron option d, #2445).** The
+  first real full-suite run on macos-latest (2026-09-07) FALSE-RED on the timing/animation/paint
+  checks: on a slow, headless (SwiftShader software-rendering) runner they are both slow-runner
+  -fragile and headless-weak, so they red without a defect. Those stay at the headed cut-time 3b.
+  CI runs only the timing-insensitive, headless-robust DOM-state class (the #2085 gate class:
+  element present/hidden/clickable/labeled), named in `KOSMOS_BC_CI_ALLOWLIST` on the run step.
+  browser-checks.sh runs ONLY the allowlisted checks and HARD-FAILS if the list matches nothing.
+  Note the TWO scopings are different axes: the PATHS filter (Q3) scopes WHICH PRs pay; the allowlist
+  scopes WHAT RUNS, and therefore what a green covers. A green here is the DOM-state gate, NOT full
+  3b coverage. click-first-run (the install-flow clickthrough) is deliberately NOT in the allowlist:
+  measured, it clears the Welcome screen then `page.click('#fr-next')` times out "not visible" under
+  SwiftShader (the Welcome->Next transition never paints), so it is headless-weak and stays at 3b;
+  the install-flow GATE class it exists for is still covered headless by render-gated-next and
+  render-connect-skip. The 7-check subset runs in ~3m20s.
 - **Q3 (scoping): PATHS filter** on `web/index.html`, `docs/browser-checks/**`, `tools/browser-checks.sh`,
   `tools/provision-pw.sh`, and the workflow file itself. Only PRs touching the rendered surface pay
   the ~15-20 min. #2085 touched `web/index.html`, so it WOULD have triggered and caught the break.

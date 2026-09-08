@@ -94,8 +94,11 @@ pass "the gate script the workflow calls exists and parses"
 #    the whole suite and false-red on real PRs, which is what un-shipped the first
 #    cut of this gate. Assert the env is set AND names at least the keystone
 #    install-flow check, so a silent drop back to the full suite is caught here.
-grep -q 'KOSMOS_BC_CI_ALLOWLIST' "$WF" \
-  || fail "the workflow does not set KOSMOS_BC_CI_ALLOWLIST -- CI would run the full timing-fragile suite and false-red (the #2445 runner-flake defect)"
+# Anchor on the YAML env-KEY form (`KOSMOS_BC_CI_ALLOWLIST:` at an indent), not a
+# bare name that the header comments also contain -- so dropping the actual env
+# entry while leaving the prose cannot false-pass (the comment-false-pass class).
+grep -qE "^[[:space:]]+KOSMOS_BC_CI_ALLOWLIST:" "$WF" \
+  || fail "the workflow does not set the KOSMOS_BC_CI_ALLOWLIST env entry -- CI would run the full timing-fragile suite and false-red (the #2445 runner-flake defect)"
 # The install-flow GATE class this card exists for (#2085): render-gated-next is
 # the permission-gated Next on the install screens, a DOM-state check that PASSES
 # headless (measured). It is the keystone the allowlist must keep -- not
@@ -110,7 +113,10 @@ pass "the workflow scopes CI to the DOM-state allowlist, naming the install-flow
 #    A filter that matched nothing (a typo, an empty env) must HARD-FAIL, never
 #    exit 0 having asserted nothing (test-filter-matching-nothing-exits-zero).
 #    Pin both the filter and the zero-match guard, so removing either reds here.
-grep -q 'KOSMOS_BC_CI_ALLOWLIST' "$GATE" \
+# Anchor on the shell READ of the var (`${KOSMOS_BC_CI_ALLOWLIST...`), not a bare
+# name the comments also contain -- so the filter can't be deleted while a comment
+# keeps this green.
+grep -qE '\$\{KOSMOS_BC_CI_ALLOWLIST' "$GATE" \
   || fail "browser-checks.sh does not read KOSMOS_BC_CI_ALLOWLIST -- the workflow env would do nothing and the full suite would run"
 grep -q 'matched no checks at all' "$GATE" \
   || fail "browser-checks.sh has no zero-match guard -- a typo'd/empty allowlist could green from zero checks"
