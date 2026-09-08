@@ -126,7 +126,27 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const clearedBySwitch = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;  // eslint-disable-line no-undef
     const lifecycle = { clearedByReset, clearedBySwitch };
 
-    return { listable, notListable, importDefault, lifecycle };
+    // SURVIVE-THE-ACCOUNT-LESS-PAINT (#2453, the named leak lesson): an import whose FIRST
+    // paint has no account must NOT clear the flag on the !acctDir early return, so a later
+    // account-selection paint still pre-picks. A regression that "defensively" cleared on
+    // the early return would silently reintroduce the bug this design avoids.
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-5', provider: 'openai', label: 'GPT-5', arg: 'gpt-5', default: false },
+      { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', default: true },
+    ] }) });
+    prov.value = 'openai';
+    IMPORT_OPENAI_DEFAULT = true;                               // eslint-disable-line no-undef
+    acct.innerHTML = '<option value="" selected>none yet</option>'; acct.value = '';   // no account
+    paintOpenaiCreateModel();                                   // account-less: early return, MUST keep the flag
+    await settle();
+    const survivedEmptyPaint = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;   // eslint-disable-line no-undef
+    acct.innerHTML = '<option value="/home/.codex" selected>the OpenAI sign-in</option>'; acct.value = '/home/.codex';
+    paintOpenaiCreateModel();                                   // account chosen: consumes the surviving flag
+    await settle();
+    const pickedAfterAccountChosen = sel.value;
+    const survive = { survivedEmptyPaint, pickedAfterAccountChosen };
+
+    return { listable, notListable, importDefault, lifecycle, survive };
   });
 
   await browser.close();
@@ -151,6 +171,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (r.importDefault.noDefaultFallback !== '') problems.push('IMPORT (fallback): a list with no default must stay on "Let OpenAI choose" (value ""): ' + JSON.stringify(r.importDefault.noDefaultFallback));
     if (r.lifecycle.clearedByReset !== false) problems.push('LIFECYCLE: resetCreateProvider did not clear the import flag: ' + JSON.stringify(r.lifecycle.clearedByReset));
     if (r.lifecycle.clearedBySwitch !== false) problems.push('LIFECYCLE: switching to Claude did not clear the import flag (the gen-mismatch strand fix): ' + JSON.stringify(r.lifecycle.clearedBySwitch));
+    if (r.survive.survivedEmptyPaint !== true) problems.push('SURVIVE: the account-less first paint wrongly cleared the import flag -- it must survive to the account-selection paint: ' + JSON.stringify(r.survive.survivedEmptyPaint));
+    if (r.survive.pickedAfterAccountChosen !== 'gpt-4o') problems.push('SURVIVE: after the account is chosen, the surviving import flag did not pre-pick the account default (gpt-4o): ' + JSON.stringify(r.survive.pickedAfterAccountChosen));
     // SOURCE-PIN the producer: the browser drove the flag by assignment, so pin that
     // finishImport SETS it authoritatively (true only for an OpenAI import) in source.
     const src = require('node:fs').readFileSync(PAGE, 'utf8');
