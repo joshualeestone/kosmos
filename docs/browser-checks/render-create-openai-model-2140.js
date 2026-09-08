@@ -89,7 +89,34 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       whyText: why.textContent || '',
       whyShown: !why.hidden,
     };
-    return { listable, notListable };
+    // IMPORT DEFAULT (#2453 follow-up): an OpenAI IMPORT lands on the account's default
+    // model. Stub a listable response where exactly one model is marked default:true.
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-5', provider: 'openai', label: 'GPT-5', arg: 'gpt-5', why: 'top', default: false },
+      { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', why: 'mid', default: true },
+    ] }) });
+    // Control: with NO import flag, a normal create stays on "Let OpenAI choose" (value "").
+    IMPORT_OPENAI_DEFAULT = false;   // eslint-disable-line no-undef
+    paintOpenaiCreateModel();
+    await settle();
+    const noImportValue = sel.value;
+    // Import: pre-picks the account default (gpt-4o), and consumes the one-shot flag.
+    IMPORT_OPENAI_DEFAULT = true;    // eslint-disable-line no-undef
+    paintOpenaiCreateModel();
+    await settle();
+    const importPicked = sel.value;
+    const clearedAfter = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;   // eslint-disable-line no-undef
+    // Fallback: import flag set but the list carries NO default -> stays "Let OpenAI choose".
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-5', provider: 'openai', label: 'GPT-5', arg: 'gpt-5', why: 'x', default: false },
+    ] }) });
+    IMPORT_OPENAI_DEFAULT = true;    // eslint-disable-line no-undef
+    paintOpenaiCreateModel();
+    await settle();
+    const noDefaultFallback = sel.value;
+    const importDefault = { noImportValue, importPicked, clearedAfter, noDefaultFallback };
+
+    return { listable, notListable, importDefault };
   });
 
   await browser.close();
@@ -107,6 +134,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.notListable.noClaude) problems.push('NOT LISTABLE: a Claude model appears under OpenAI');
     if (!r.notListable.noStaleValue) problems.push('NOT LISTABLE: a stale model value remains and could be submitted');
     if (!/signed in with ChatGPT/.test(r.notListable.whyText) || !r.notListable.whyShown) problems.push('NOT LISTABLE: the reason-keyed fallback note is missing');
+    // IMPORT DEFAULT (#2453 follow-up)
+    if (r.importDefault.noImportValue !== '') problems.push('IMPORT: with no import flag, a normal create must stay on "Let OpenAI choose" (value ""): ' + JSON.stringify(r.importDefault.noImportValue));
+    if (r.importDefault.importPicked !== 'gpt-4o') problems.push('IMPORT: an OpenAI import did not pre-pick the account default model (gpt-4o): ' + JSON.stringify(r.importDefault.importPicked));
+    if (r.importDefault.clearedAfter !== false) problems.push('IMPORT: the one-shot import flag was not consumed after the paint: ' + JSON.stringify(r.importDefault.clearedAfter));
+    if (r.importDefault.noDefaultFallback !== '') problems.push('IMPORT (fallback): a list with no default must stay on "Let OpenAI choose" (value ""): ' + JSON.stringify(r.importDefault.noDefaultFallback));
   }
 
   console.log('  ' + JSON.stringify(r));
