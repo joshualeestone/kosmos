@@ -128,7 +128,8 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
        0px 0px 0px 3px`, so the near-black token is the discriminating substring:
        'none' passes, a soft non-near-black halo passes, the dark ring FAILS. */
     say('a focused composer shows NO near-black focus ring',
-      !!(focusStyle && focusStyle.boxShadow.indexOf('74, 79, 87') === -1), 'box-shadow=' + (focusStyle && focusStyle.boxShadow));
+      !!(focusStyle && typeof focusStyle.boxShadow === 'string' && focusStyle.boxShadow.indexOf('74, 79, 87') === -1),
+      'box-shadow=' + (focusStyle && focusStyle.boxShadow));
     /* the near-black --k-ink-2 = rgb(74, 79, 87); focus must NOT repaint the
        border that colour (it stays the resting --k-rule). */
     say('a focused composer does not repaint its border near-black',

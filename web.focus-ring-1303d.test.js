@@ -22,6 +22,12 @@
  * not AA, so a thin caret is a tradeoff below our AA floor, not a failure of it.
  * This test therefore pins: no dark focus stroke, AND the caret is not hidden.
  *
+ * 📌 COMPLEMENTARY, NOT REDUNDANT, with docs/browser-checks/render-composer-reset.js.
+ * These source-string guards catch a re-add written the #1303 D way; the browser-check
+ * reads the focused composer's COMPUTED style, so it also catches a re-add spelled
+ * differently (grouped selector, different spacing) as long as it lands near-black. Keep
+ * both.
+ *
  *   node --test web.focus-ring-1303d.test.js
  */
 const test = require('node:test');
