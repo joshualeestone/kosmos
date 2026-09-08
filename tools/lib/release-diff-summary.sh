@@ -4,9 +4,10 @@
 # card and no commit-message line still SURFACES in a searchable per-release artifact.
 #
 # 🔑 WHY THIS EXISTS. #615: "a fix riding inside another PR, with no card and no
-# message line, is invisible to every search we run." Searching commit SUBJECTS
-# (`git log --grep`) and the board are the two instruments we had, and both are blind
-# to an uncarded fix by construction -- it exists only in the diff. Deriving the
+# message line, is invisible to every search we run." `git log --grep` (which matches
+# the whole commit message, but the bump body was EMPTY so there was nothing there to
+# match an uncarded fix) and the board are the two instruments we had, and both are
+# blind to an uncarded fix by construction -- it exists only in the diff. Deriving the
 # release notes from the DIFF (Shape B, ratified) cannot regress that way: an
 # unmentioned fix appears because its FILE appears, whether or not anyone remembered
 # to mention it. (Shape A, a `Fixes:` trailer convention, fails silently the moment
