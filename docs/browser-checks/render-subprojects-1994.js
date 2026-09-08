@@ -204,8 +204,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
       const mk = (id, name, archived) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
       PROJECTS = [mk('k', 'Kosmos'), mk('site', 'Site'), mk('arch', 'Archived one', true)];
       PJ_SORT = 'az';
-      openAddProject();                                   // populates #pj-parent, resets to top-level
-      const sel = document.getElementById('pj-parent');
+      openAddProject();                                   // populates #pj-add-parent, resets to top-level
+      const sel = document.getElementById('pj-add-parent');
       const opts = Array.from(sel.options).map((o) => o.value);
       const startValue = sel.value;
 

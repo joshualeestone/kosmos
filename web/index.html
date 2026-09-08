@@ -10299,11 +10299,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          its own agents and settings, which is why the hint says so plainly. The
          backend already accepts `parent` on create (#2467); this is the missing UI. -->
     <div class="field">
-      <label class="flabel" for="pj-parent">Parent project</label>
-      <select class="tk-inp" id="pj-parent" aria-describedby="pj-parent-hint">
+      <label class="flabel" for="pj-add-parent">Parent project</label>
+      <select class="tk-inp" id="pj-add-parent" aria-describedby="pj-add-parent-hint">
         <option value="">Top level (none)</option>
       </select>
-      <p class="fhint" id="pj-parent-hint">Optional. Makes this a sub-project, for organising the list only; it keeps its own agents and settings, nothing is shared or inherited through a parent.</p>
+      <p class="fhint" id="pj-add-parent-hint">Optional. Makes this a sub-project, for organising the list only; it keeps its own agents and settings, nothing is shared or inherited through a parent.</p>
     </div>
 
     <!-- The advanced route, one link away: for work that already lives
@@ -36873,7 +36873,7 @@ function addAgentsHtmlRetired() {
    degrades gracefully rather than blocking creation. Not re-run on the projects poll, so
    a parent the person is midway through choosing is never reset under them. */
 function pjPaintCreateParentSelect() {
-  const sel = document.getElementById('pj-parent');
+  const sel = document.getElementById('pj-add-parent');
   if (!sel) return;
   const opts = ['<option value="">Top level (none)</option>'];
   for (const q of sortProjects(PROJECTS.filter((x) => !x.archived), PJ_SORT)) {
@@ -37174,8 +37174,8 @@ document.getElementById('pj-create').addEventListener('click', async () => {
            absent-not-null discipline as folder/description; the engine refuses a
            missing/non-string parent and blank means top-level, so sending nothing is
            the honest "no parent" rather than parent:null. */
-        ...(document.getElementById('pj-parent').value
-          ? { parent: document.getElementById('pj-parent').value } : {}),
+        ...(document.getElementById('pj-add-parent').value
+          ? { parent: document.getElementById('pj-add-parent').value } : {}),
         agents: PJ_ADD_AGENTS,
       }),
     });
