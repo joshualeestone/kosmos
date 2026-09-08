@@ -91,6 +91,12 @@ fi
 # In its own process group (job control gives a background job one; macOS has
 # no setsid), so the kill at exit takes the supervisor's sleep with it rather
 # than leaving it to run out after the temp dir is gone.
+# #601 gap 3: `set -m` only puts the job in its OWN group when there is a controlling
+# terminal. Without one (a CI run, cron), the group is not created, the cleanup's
+# group kill (`kill -- -$SUPPID`) finds no such group and the fallback `kill $SUPPID`
+# reaches only the supervisor's bash -- not its child `sleep`, which then runs out on
+# its own. That is HARMLESS (a bounded sleep, and the temp dir is already gone), NOT a
+# leak: do not read a stray `sleep` lingering after a CI run of this witness as one.
 set -m
 env CLAUDE_CONFIG_DIR=/acct/B bash "$SUP" witness "$D/work" "$D/claude" "$D/tmux" >"$D/sup.log" 2>&1 &
 SUPPID=$!
@@ -100,6 +106,11 @@ for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$D/pane-saw" ] && break; sleep 1; done
 # printenv writes nothing for an unset variable, so the file is "rc=1" alone;
 # wait for the rc line so a read between the two writes cannot be half a report.
 for _ in 1 2 3 4 5; do grep -q '^rc=' "$D/pane-saw" && break; sleep 1; done
+# #601 gap 2: a missing rc= line after the wait is a SETUP failure, not a verdict.
+# "cannot be half a report" only held INSIDE the timeout; on a slow machine the loop
+# fell through and read an incomplete report as an account answer. Exit 2 like every
+# other setup failure above, so a half-written report is never scored as ok/FAIL.
+grep -q '^rc=' "$D/pane-saw" || { echo "the pane's report never got its rc= line (incomplete report); supervisor said:"; cat "$D/sup.log"; exit 2; }
 SAW="$(head -1 "$D/pane-saw")"; RC="$(tail -1 "$D/pane-saw")"
 case "$SAW" in rc=*) SAW="<unset>" ;; esac
 echo "server started under /acct/A, job carried /acct/B, the pane saw: $SAW ($RC)"

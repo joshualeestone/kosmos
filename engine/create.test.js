@@ -1188,32 +1188,41 @@ test('the startup script, actually run, hands the pane its account and its board
 
   // Unset means absent, the plist's own rule. A pane must not be handed an
   // empty directory as if it were one.
-  for (const [label, envCase] of [
+  // #601 gap 1: run EVERY launch line for the unset/empty cases too, not just the
+  // default (claude, no model). The set case above loops `branches`; these did not,
+  // so a codex or model line that grew a hardcoded `-e VAR=$VAR` beside PANE_ENV
+  // would ride an empty value into the pane and this test would stay green. Cross
+  // the two env cases with the same four branches.
+  for (const [envLabel, envCase] of [
     ['unset', { CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, KOSMOS_PORT: undefined }],
     ['empty', { CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', KOSMOS_PORT: '' }],
   ]) {
-    const r = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: envCase });
-    assert.ok(r.newSession, `${label}: nothing was launched, so the assertion below never ran`);
-    /* \u26a0\ufe0f #1139: the check is "no ACCOUNT OR BOARD variable rides", not "no
-       `-e` rides". The sender token is neither, and it is minted regardless of
-       whether those three are set -- so a bare `includes('-e')` now reads a
-       correct token as a leaked empty variable. Named exactly, so this still
-       fails on the thing it was written for: an unset var riding as empty. */
-    const passed = r.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
-    /* \u26a0\ufe0f #1160 rides here too, for the same reason the token does and
-       handled the same way: it is not FORWARDED from the environment, it is SET
-       by the supervisor, so it is present whether or not anything else is. Named
-       exactly rather than loosened, so this still fails on the thing it was
-       written for. */
-    const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
-      && v !== 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
-    assert.deepEqual(notToken, [],
-      `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
-    /* And the exclusion above must not become a place things hide: the thing it
-       excludes has to actually be there. Without this, deleting the renderer
-       preference entirely would pass both arms of this test. */
-    assert.ok(passed.includes('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'),
-      `${label}: the renderer preference stopped reaching the pane: ` + JSON.stringify(r.newSession));
+    for (const b of branches) {
+      const label = `${envLabel} ${b.runner || 'claude'}${b.model ? '+model' : ''}`;
+      const r = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: envCase, ...b });
+      assert.ok(r.newSession, `${label}: nothing was launched, so the assertion below never ran`);
+      /* \u26a0\ufe0f #1139: the check is "no ACCOUNT OR BOARD variable rides", not "no
+         `-e` rides". The sender token is neither, and it is minted regardless of
+         whether those three are set -- so a bare `includes('-e')` now reads a
+         correct token as a leaked empty variable. Named exactly, so this still
+         fails on the thing it was written for: an unset var riding as empty. */
+      const passed = r.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
+      /* \u26a0\ufe0f #1160 (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN) rides here too, for the
+         same reason the token does and handled the same way: it is not FORWARDED from
+         the environment, it is SET by the supervisor, so it is present whether or not
+         anything else is -- but ONLY for claude (codex has never heard of it, per the
+         set-case branch at expected.push above). Excluded per-runner, not blanket. */
+      const isClaude = (b.runner || 'claude') !== 'codex';
+      const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
+        && !(isClaude && v === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'));
+      assert.deepEqual(notToken, [],
+        `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+      /* And the exclusion above must not become a place things hide: on claude the
+         thing it excludes has to actually be there. Without this, deleting the
+         renderer preference entirely would pass both arms of this test. */
+      if (isClaude) assert.ok(passed.includes('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'),
+        `${label}: the renderer preference stopped reaching the pane: ` + JSON.stringify(r.newSession));
+    }
   }
 });
 
