@@ -162,8 +162,42 @@ function check(name, pass, detail) {
     const providerDone = /Say hello to FClaude-Casey to reactivate them on OpenAI\./.test(providerReducedText) && keep.textContent === 'Done';
     if (!back.hidden) keep.click();
 
+    // 6. THE PROVIDER FLOW, ANTHROPIC ARM: the switch names ONE vocabulary end to end. CURRENT
+    //    is now an OpenAI agent (runner 'codex'), so switching to Anthropic is a real change; the
+    //    interstitial must say "Setting up Anthropic" and the reduced line "reactivate them on
+    //    Anthropic" (the provider the person chose), NOT "Claude". want !== 'openai', so the
+    //    openaiAllDead guard does not apply. This arm was previously untested.
+    CURRENT = { sessionName: 'sess-2', name: 'FCodex-Casey', runner: 'codex', isNamedOurs: true };
+    window.fetch = async (url, opts) => {
+      const u = String(url);
+      if (u.indexOf('/api/agent/') !== -1 && u.indexOf('/provider') !== -1 && opts && opts.method === 'POST') {
+        return { ok: true, json: async () => ({ outcome: 'changed', provider: 'anthropic', because: 'Claude it is. It is starting again now, and it will look idle until you say something to it.' }) };
+      }
+      return realFetch(url, opts);
+    };
+    const psel2 = document.getElementById('d-provider');
+    psel2.innerHTML = '<option value="anthropic">Anthropic</option>';
+    psel2.value = 'anthropic';
+    const pgo2 = document.getElementById('d-provider-go');
+    pgo2.disabled = false;
+    pgo2.click();
+    document.getElementById('chg-go').click();
+    await sleep(70);
+    const providerAnthBusy = {
+      settingUp: /Setting up Anthropic/i.test(msg.innerHTML),
+      hasKMark: !!document.querySelector('#chg-msg .chg-restart .kspin img'),
+      notClaudeSetup: !/Setting up Claude/i.test(msg.innerHTML),
+    };
+    await sleep(400);
+    const providerAnthReducedText = msg.textContent;
+    // The whole dialog speaks "Anthropic", never "Claude": consistent last-screen vocabulary.
+    const providerAnthConsistent = /Say hello to FCodex-Casey to reactivate them on Anthropic\./.test(providerAnthReducedText)
+      && !/reactivate them on Claude/i.test(providerAnthReducedText) && keep.textContent === 'Done';
+    if (!back.hidden) keep.click();
+
     return { busyShown, stillHeld, rendered, failFast, plainWorking, curAfterSet, modelBusy, reducedText, modelDone,
-      providerBusy, providerReducedText, providerDone };
+      providerBusy, providerReducedText, providerDone,
+      providerAnthBusy, providerAnthReducedText, providerAnthConsistent };
   });
 
   if (r.error) { console.error('render-model-restart-interstitial: ' + r.error); await browser.close(); process.exit(1); }
@@ -183,6 +217,10 @@ function check(name, pass, detail) {
     r.providerBusy && r.providerBusy.settingUp && r.providerBusy.hasKMark && r.providerBusy.noReducedYet, JSON.stringify(r.providerBusy));
   check('PROVIDER: after the hold the provider dialog reduces to "Say hello to <agent> to reactivate them on OpenAI"',
     r.providerDone, JSON.stringify((r.providerReducedText || '').slice(0, 90)));
+  check('PROVIDER (Anthropic arm): the interstitial says "Setting up Anthropic" (not "Setting up Claude")',
+    r.providerAnthBusy && r.providerAnthBusy.settingUp && r.providerAnthBusy.hasKMark && r.providerAnthBusy.notClaudeSetup, JSON.stringify(r.providerAnthBusy));
+  check('PROVIDER (Anthropic arm): the dialog speaks ONE vocabulary -- reduces to "reactivate them on Anthropic", never "on Claude"',
+    r.providerAnthConsistent, JSON.stringify((r.providerAnthReducedText || '').slice(0, 90)));
 
   await browser.close();
   if (problems.length) {

@@ -27173,8 +27173,9 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   keep.onclick = close;
   goBtn.onclick = async () => {
     goBtn.disabled = true; keep.hidden = true;
-    /* busyHtml is an app-generated fixed literal (the .kspin K markup + a fixed string,
-       see RESTART_BUSY_HTML), never user input, so
+    /* busyHtml is app-generated markup (the .kspin K markup + a caption that is either a fixed
+       literal -- RESTART_BUSY_HTML for the model switch -- or an app-DERIVED provider label from
+       chgBusyHtml, e.g. "Setting up OpenAI"), never user input, so
        innerHTML is safe here; the plain path keeps textContent. In the interstitial
        (busyHtml) case, hide the now-decided confirm question's button and small text so
        the restart reads as a clean interstitial rather than a line tacked under the
@@ -27842,9 +27843,18 @@ async function changeProviderNow(say) {
        engine's exact words AND render at once (ok=false), because those are different facts
        and must not sit behind the K as though the restart happened. The reduced line is the
        DIALOG's answer (chg-msg via `say`), which is a different element from this section's
-       d-provider-msg; the row-control path passes no `say`, so it is unaffected. */
+       d-provider-msg; a caller that passes no `say` (the optional-say path -- `tell` is then a
+       no-op) is unaffected either way.
+       🛑 provName SPEAKS THE PROVIDER-SWITCH VOCABULARY, which is the dialog's own: the title
+       says "Switch to Anthropic?"/"to OpenAI?" and the interstitial "Setting up Anthropic"/
+       "Setting up OpenAI", so the reduced line names the same company the person just chose --
+       'Anthropic'/'OpenAI', NOT 'Claude'. This deliberately DIFFERS from changeModelNow, which
+       says 'Claude' because a model switch does not change provider and names the current
+       product; the provider switch names the provider it moved to, and mixing "Setting up
+       Anthropic" with "reactivate on Claude" in one dialog would be the last-screen inconsistency
+       this branch exists to avoid. */
     const restarted = out.outcome === 'changed';
-    const provName = want === 'openai' ? 'OpenAI' : 'Claude';
+    const provName = want === 'openai' ? 'OpenAI' : 'Anthropic';
     tell(restarted
       ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
       : (out.because || 'Switched.'), restarted);
