@@ -2,67 +2,85 @@
 pre_challenge: true
 method: challenge-loop
 branch: pr-browser-gate-2445
-diff_hash: 7b507eb1cf49eed67d926f3f8030027d01c63c70bc8fdea43f40ceb55008254c
+diff_hash: 08e6986f97d98e3b23fab2598038e14dd7d5d48d0be611e07bd0082ffe7a4a9f
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-07T23:49:44Z
-iterations: 5
+timestamp: 2026-09-08T02:17:00Z
+iterations: 8
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 5 blind independent passes
-**Converged:** Yes (iteration 5 returned no findings)
-**Total findings:** 8 (0 BLOCKERs, 4 WARNINGs, 4 NITs)
-**Fixed:** 7 | **Deferred:** 1 | **Asked:** 0
+**Iterations:** 8 (5 original workflow loop + 3 allowlist loop)
+**Converged:** Yes
+**Total findings:** many across both loops; the allowlist loop's are itemised below.
+**Fixed:** most | **Deferred:** the documented tradeoffs below | **Asked:** 0
 
-Card #2445: run the cut-time page-layer browser checks (`tools/browser-checks.sh`) in the per-PR gate,
-so a rendered-behavior change fails at PR instead of at cut (measured: #2085 flaked 0.6.47 twice).
-Adds a path-filtered `browser-checks.yml` CI job on macos-latest, a `test:shell` guard test pinning
-its invariants, and registers it. Baron (#2444) scoped and confirmed the design.
+Two review passes certify this branch. (A) The original per-PR browser-checks
+workflow + guard test converged over 5 blind iterations (the workflow file,
+provision, path filter, macos-latest, strict-version pin). (B) Tonight the
+timing-insensitive DOM-state CI ALLOWLIST (Baron option d) was added and converged
+over 3 more blind iterations, itemised here. Origin/main was then merged in to pick
+up the fleet control-test fix (#2464) and #2463/#2453; that merge is catch-up (my
+allowlist code unchanged, guard test still green, verified) and the branch was
+re-validated clean post-merge.
 
-### Per-Iteration Breakdown
+### The allowlist change (B)
+`run_one` skips any check not in `KOSMOS_BC_CI_ALLOWLIST` when it is set (unset =
+every check runs, so the cut/dev path is byte-identical). A summary guard HARD-FAILS
+if the allowlist matches nothing or names a check that never ran (no green from zero
+checks). The workflow sets the allowlist to 7 timing-insensitive, headless-robust
+DOM-state checks; click-first-run is deliberately excluded (measured headless-weak:
+its Welcome->Next transition does not paint #fr-next under SwiftShader). Baron (who
+owns the checks) concurred with dropping click-first-run and took the
+headless-robust follow-up. browser-checks CI is green on the 7-check subset (~3m20s).
+
+### Per-Iteration Breakdown (allowlist loop)
 
 #### Iteration 1
-- [WARNING] the paths filter is narrower than the surfaces that drive rendered behavior (server.js/engine data feeds the checks) --> DOCUMENTED as caveat 3: adding engine/**/server.js would fire the ~15-20min suite on most PRs and defeat the load-scoping, so the narrow filter is deliberate and the cut's 3b is the backstop.
-- [NIT] no Playwright caching --> DEFERRED (runs are path-filtered/infrequent; fresh provision avoids cache-staleness).
+**New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 2 NITs
+- [WARNING] workflow header asserted the FULL suite runs / "no subset needed" -->
+  FIXED: rewritten to the two-scopings model (paths = which PRs pay; allowlist =
+  what runs / what a green covers), caveats 1+2 corrected for the click-first-run drop.
+- [WARNING] plan file documented the superseded full-suite design --> FIXED: updated
+  to option (d).
+- [WARNING] board-boot else-branches append whole groups to FAILED unconditionally
+  (failure-path noise citing off-allowlist checks) --> DEFERRED: safe false-RED only
+  (green invariant holds; allowlisted checks still caught by the never-ran guard);
+  gating 12 boot branches is disproportionate risk on this cut-critical driver.
+  Documented at the filter site.
+- [NIT] "eight" checks in a comment but seven listed --> FIXED.
+- [NIT] two bare `grep -q KOSMOS_BC_CI_ALLOWLIST` match prose comments --> FIXED:
+  anchored on the env-key and shell-read forms.
 
 #### Iteration 2
-- [NIT] the guard test's path loop pinned only 3 of 5 filter entries --> FIXED: pins all entries.
-- [NIT] no note on the required-status-check + path-filter deadlock --> FIXED: added the warning.
+**New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
+- [WARNING] `timeout-minutes: 40` justification still cited the full 63-check
+  ~15-20 min runtime --> FIXED (subset ~3m20s + provision; full suite is cut-only).
+- [NIT] caveat 3 cited the same stale ~15-20 min figure --> FIXED.
+- [CONVENTION] plan Q3 cited "pay the ~15-20 min" contradicting its own 3m20s -->
+  FIXED.
 
 #### Iteration 3
-- [WARNING] test-support/ (fleet.js + fake-tmux.sh, a hard dep) omitted from the filter -- a CHEAP leak (rarely touched, unlike engine/**) --> FIXED: added test-support/** to the filter + pinned it in the guard test; clarified caveat 3.
-- [NIT] the guard test did not check YAML parseability --> FIXED: added a ruby-guarded parse assertion (broken indentation now reds it).
+**New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
+**Converged** - reviewer confirmed the filter, zero-match guard, and guard-test
+anchors all correct (4 strengths).
+- [NIT] guard-test comment said "All five entries" but the loop pins six
+  (test-support added) --> FIXED.
 
-#### Iteration 4
-- [WARNING] the iter-3 "cheap leaks ARE closed" claim was imprecise (browser-checks.sh also sources tools/lib/cut-guard.sh + browser-run-log.sh, not in the filter) --> FIXED by REWORDING (not widening to tools/lib/**, which would over-trigger on release-tooling PRs): stated precisely and verified that those libs each have their own test:shell guard firing on every PR, and release-freeze.sh is unreachable on the CI detached-HEAD path -- so the one genuinely uncovered leak is the engine/server DATA.
+### Outstanding questions (ASKED, still unresolved when the run ended)
+None.
 
-#### Iteration 5
-**No findings.** Three STRENGTHs, independently verified: the guard test is non-vacuous (list-item-form path assertions cannot false-pass on the header prose; the YAML-parse arm is real); the workflow cannot false-green (strict-version fail-closed, no skip env set, every early exit reds the job); and caveat 3's claims are factually true (the two sourced libs have real test:shell guards; release-freeze.sh is behind the attached-branch arm). **Converged.**
-
-### Final Ledger
-
-| # | Iter | Category | Description | Status |
-|---|------|----------|-------------|--------|
-| 1 | 1 | WARNING | engine/server data trigger leak | DOCUMENTED (deliberate, cut is backstop) |
-| 2 | 1 | NIT | no Playwright caching | DEFERRED |
-| 3 | 2 | NIT | guard pinned 3/5 filter entries | FIXED |
-| 4 | 2 | NIT | no required-check deadlock note | FIXED |
-| 5 | 3 | WARNING | test-support/ omitted (cheap leak) | FIXED (added to filter) |
-| 6 | 3 | NIT | guard did not check YAML parse | FIXED |
-| 7 | 4 | WARNING | imprecise completeness claim | FIXED (reworded + verified) |
-| - | 5 | - | no findings | CONVERGED |
-
-### Deferred
-- Playwright runtime caching (iter 1 NIT): a cheap CI-time speedup, deferred because runs are
-  path-filtered/infrequent and fresh provision avoids cache-staleness. Noted in the plan.
-
-### Strengths (across iterations)
-- The workflow is fail-closed (KOSMOS_PW_STRICT_VERSION=1, no skip env) with no false-green path;
-  fork-PR safe (pull_request + contents:read); correct on a CI detached-HEAD checkout (no-freeze path).
-- The guard test discriminates on real perturbations (every arm reds when its invariant breaks; the
-  path assertions match the YAML list-item form, not a bare string the header prose would satisfy).
-- The design correctly isolates the browser load off the fleet box (CI, not local) and documents its
-  honest limits (intra-run contention, headless SwiftShader, the engine/server trigger leak).
+### Key strengths (allowlist loop)
+- Cut/dev path byte-identical when the allowlist is unset (the filter and summary
+  guard both short-circuit) - no regression risk to the release cut.
+- Zero-match / never-ran guard is fail-closed and bash-3.2 empty-array safe under
+  set -uo pipefail; a typo'd or empty allowlist HARD-FAILS rather than greening.
+- Whole-word case match (comma-normalized, space-wrapped) with no substring
+  false-positives; all 7 names resolve to real run_one labels.
+- Guard test anchors on the YAML env-key / list-item / shell-read forms, not bare
+  names the header comments contain, so a prose mention cannot false-pass.
+- click-first-run exclusion is measured, not assumed (failed in the isolated subset
+  too), and the #2085 gate class stays covered headless by render-gated-next +
+  render-connect-skip.
