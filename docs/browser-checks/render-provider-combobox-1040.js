@@ -1,14 +1,21 @@
 'use strict';
 /**
- * kosmos#1040 2b: the provider logo combobox (enhanceProviderSelect over #d-provider).
- * Drives the SHIPPED widget in the real page and asserts the WAI-ARIA combobox contract:
- * the native <select> stays the source of truth (hidden, still in the DOM with its
+ * kosmos#1040 2b: the provider logo combobox (enhanceProviderSelect), over BOTH remaining
+ * provider selects (#d-provider, the switch dialog; #acct-provider-pick, the Add-a-provider
+ * screen). Drives the SHIPPED widget in the real page and asserts the WAI-ARIA combobox
+ * contract: the native <select> stays the source of truth (hidden, still in the DOM with its
  * options), the trigger shows the selected mark+label, open/close + keyboard nav +
  * Enter-select sync the hidden select's .value and fire `change`, Esc closes and refocuses,
  * a coming-soon option is aria-disabled and NOT selectable, Grok gets an initial-letter chip
  * (no wrong-brand mark), and a programmatic value change re-renders the trigger. Both themes,
- * plus a screenshot. This is the CI browser-checks (Playwright) verification of the a11y
- * CONTRACT; a real screen-reader pass is the human follow-up no Playwright can do.
+ * plus a screenshot. It also checks the #acct-provider-pick reauth-hide contract: the
+ * "Sign in again" screen hides the whole chooser container, widget included. This is the CI
+ * browser-checks (Playwright) verification of the a11y CONTRACT; a real screen-reader pass is
+ * the human follow-up no Playwright can do.
+ *
+ * The two selects use DIFFERENT option-value vocabularies for the SAME provider (#d-provider
+ * uses 'anthropic', #acct-provider-pick uses 'claude'), so claudeVal parametrizes the
+ * flip-to-Claude assertions; the display labels (Claude / OpenAI) are the same for both.
  *
  * Run: NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-provider-combobox-1040.js
  *      (HEADED=0 on a console-less machine.)
@@ -22,6 +29,13 @@ const PAGE = 'file://' + nodePath.join(__dirname, '..', '..', 'web', 'index.html
 const problems = [];
 function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  ' + detail : '')); }
 
+// The same contract over both remaining provider selects. claudeVal is the option value
+// that names Claude in that select (#d-provider: 'anthropic'; #acct-provider-pick: 'claude').
+const SELECTS = [
+  { id: 'd-provider', claudeVal: 'anthropic' },
+  { id: 'acct-provider-pick', claudeVal: 'claude' },
+];
+
 (async () => {
   let browser;
   try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
@@ -33,19 +47,21 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
   }
   const shots = [];
   for (const theme of ['light', 'dark']) {
+  for (const { id: selId, claudeVal } of SELECTS) {
     const page = await browser.newPage({ viewport: { width: 900, height: 700 }, colorScheme: theme });
     const pageErrors = [];
     page.on('pageerror', (e) => pageErrors.push(e.message));
     await page.goto(PAGE);
-    const t = '[' + theme + '] ';
+    const t = '[' + theme + '][' + selId + '] ';
 
-    const r = await page.evaluate(() => {
-      const select = document.getElementById('d-provider');
+    const r = await page.evaluate(({ selId, claudeVal }) => {
+      const select = document.getElementById(selId);
       const wrap = select && select.parentNode.querySelector('.pcombo');
-      if (!select || !wrap) return { fatal: 'no #d-provider or no .pcombo widget (enhanceProviderSelect did not run)' };
-      // #d-provider lives inside the (hidden) switch dialog; un-hide its ancestor path so
-      // the trigger is focusable (focus() no-ops in a display:none subtree). This mirrors
-      // the dialog being OPEN, which is the only state a user reaches Esc-refocus in.
+      if (!select || !wrap) return { fatal: 'no #' + selId + ' or no .pcombo widget (enhanceProviderSelect did not run)' };
+      // The select may live inside a hidden dialog/screen; un-hide its ancestor path so the
+      // trigger is focusable (focus() no-ops in a display:none subtree). This mirrors the
+      // dialog/screen being OPEN, the only state a user reaches Esc-refocus in. Generic ancestor
+      // walk, so it works for #d-provider (switch dialog) and #acct-provider-pick (Add screen).
       for (let p = select; p && p !== document.body; p = p.parentNode) {
         if (p.hasAttribute && p.hasAttribute('hidden')) p.hidden = false;
         if (p.style && p.style.display === 'none') p.style.display = '';
@@ -56,7 +72,7 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const activeLi = () => (trigger.getAttribute('aria-activedescendant') ? document.getElementById(trigger.getAttribute('aria-activedescendant')) : null);
 
       // Source of truth preserved: the native select is hidden but still in the DOM with options.
-      const selectStillHasOptions = select.options.length >= 2 && !!select.querySelector('option[value="anthropic"]');
+      const selectStillHasOptions = select.options.length >= 2 && !!select.querySelector('option[value="' + claudeVal + '"]');
       const selectHidden = getComputedStyle(select).position === 'absolute' && select.clientWidth <= 2;
       // The native select must be out of the tab order AND the a11y tree, not merely clipped:
       // otherwise it is a phantom tab stop with no focus ring and a duplicate "Provider" combobox.
@@ -71,12 +87,12 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const accNameHasLabelAndValue = !trigger.hasAttribute('aria-label') && lbIds.includes(trigger.id) && !!lblEl;
       const collapsed = trigger.getAttribute('aria-expanded') === 'false' && list.hidden === true;
       // The trigger shows the CURRENT selection and the select's own `change` listener re-renders
-      // it. Flip to a NON-default value and back so this cannot pass with a broken listener:
-      // anthropic is the page default (first non-disabled option), so asserting only Claude would
-      // be vacuous. Leave the value on anthropic for the open/ArrowDown/Enter flow below.
+      // it. Flip to OpenAI and back to Claude so this cannot pass with a broken listener:
+      // asserting only the default would be vacuous. Leave the value on Claude for the
+      // open/ArrowDown/Enter flow below.
       select.value = 'openai'; select.dispatchEvent(new Event('change', { bubbles: true }));
       const triggerLabelOpenai = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
-      select.value = 'anthropic'; select.dispatchEvent(new Event('change', { bubbles: true }));
+      select.value = claudeVal; select.dispatchEvent(new Event('change', { bubbles: true }));
       const triggerLabelClosed = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
       const triggerHasMark = !!trigger.querySelector('.pcombo-mark');
 
@@ -143,12 +159,12 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       // assertion below (flips to Claude, no longer OpenAI) fails. Setting the same value would
       // be vacuous.
       const progFrom = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
-      select.value = 'anthropic';   // NO dispatch on purpose; a value the trigger is NOT showing
+      select.value = claudeVal;   // NO dispatch on purpose; a value the trigger is NOT showing
       const progLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
 
       // A programmatic value change WHILE THE POPUP IS OPEN must also update the trigger and the
       // option aria-selected (a paintProviderPicker repaint can set select.value under an open
-      // popup). Open (value is anthropic), change to openai with NO dispatch, assert both flip.
+      // popup). Open (value is Claude), change to openai with NO dispatch, assert both flip.
       trigger.click();
       const openedForStale = list.hidden === false;
       select.value = 'openai';   // NO dispatch, popup OPEN
@@ -174,7 +190,7 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
         openedForDisableTest, closedOnDisable, progFrom, progLabel,
         openedForStale, openLabel, openAriaSelected, noTruncatedNames, truncatedNames,
       };
-    });
+    }, { selId, claudeVal });
 
     if (r.fatal) { problems.push(t + r.fatal); await page.close(); continue; }
     ok(t + 'the native select stays in the DOM with its options (source of truth)', r.selectStillHasOptions, JSON.stringify(r.selectStillHasOptions));
@@ -210,15 +226,57 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       r.noTruncatedNames, JSON.stringify(r.truncatedNames));
 
     if (pageErrors.length) problems.push(t + 'pageerror: ' + pageErrors.join(' | '));
-    const shot = nodePath.join(require('node:os').tmpdir(), 'provider-combobox-' + theme + '.png');
+    const shot = nodePath.join(require('node:os').tmpdir(), 'provider-combobox-' + theme + '-' + selId + '.png');
     try { await page.screenshot({ path: shot }); shots.push(shot); } catch { /* screenshot best-effort */ }
     await page.close();
   }
+  }
+
+  // #1040 2b reauth-hide contract (#acct-provider-pick only): the "Sign in again" screen
+  // decides the provider for you, so acctReauthChrome hides the chooser. It now hides the whole
+  // #acct-provider-field container; hiding only the <label> and native <select> (the prior code)
+  // left the enhanceProviderSelect .pcombo widget - a SIBLING of the select, inside the field -
+  // on screen and operable, so a Claude reauth could be steered to OpenAI. Drive the REAL
+  // acctReauthChrome against the REAL enhanced DOM with the dialog open, so this is rendered
+  // geometry. The unit test cannot see this: its stub never runs enhanceProviderSelect, so no
+  // widget exists there to leak.
+  {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(PAGE);
+    const r = await page.evaluate(() => {
+      const modal = document.getElementById('acct-add-modal');
+      const field = document.getElementById('acct-provider-field');
+      const select = document.getElementById('acct-provider-pick');
+      const wrap = select && select.parentNode.querySelector('.pcombo');
+      if (!modal || !field || !select || !wrap) return { fatal: 'no #acct-add-modal / #acct-provider-field / #acct-provider-pick / .pcombo widget' };
+      if (typeof acctReauthChrome !== 'function') return { fatal: 'acctReauthChrome is not a global function' };
+      const trigger = wrap.querySelector('.pcombo-trigger');
+      // The widget lives INSIDE the field container, so the container's hidden state governs it.
+      const widgetInField = field.contains(wrap);
+      modal.hidden = false; // open the dialog so offsetParent reflects real rendering
+      acctReauthChrome(true, 'her@example.com');
+      const hiddenOnReauth = field.hidden === true && trigger.offsetParent === null;
+      acctReauthChrome(false);
+      const shownOnAdd = field.hidden === false && trigger.offsetParent !== null;
+      return { widgetInField, hiddenOnReauth, shownOnAdd };
+    });
+    if (r.fatal) problems.push('[reauth] ' + r.fatal);
+    else {
+      ok('[reauth] the .pcombo widget lives inside #acct-provider-field (the container governs its visibility)', r.widgetInField);
+      ok('[reauth] acctReauthChrome(true) hides the whole chooser, widget included (not just the native select)', r.hiddenOnReauth, JSON.stringify(r.hiddenOnReauth));
+      ok('[reauth] acctReauthChrome(false) restores the chooser for a normal Add', r.shownOnAdd, JSON.stringify(r.shownOnAdd));
+    }
+    if (pageErrors.length) problems.push('[reauth] pageerror: ' + pageErrors.join(' | '));
+    await page.close();
+  }
+
   await browser.close();
   if (problems.length) {
     console.error('render-provider-combobox-1040: ' + problems.length + ' problem(s)');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-provider-combobox-1040: the #d-provider logo combobox keeps the native select as source of truth, opens/navigates/selects/closes by keyboard, syncs + fires change, disables coming-soon rows, falls back to a chip for Grok, and re-renders on a programmatic change. Screenshots: ' + shots.join(', '));
+  console.log('render-provider-combobox-1040: the #d-provider and #acct-provider-pick logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
 })();
