@@ -220,6 +220,10 @@ function check(name, pass, detail) {
     foldOf('Beta').click(); await sleep(10);
     const gammaHiddenAfterFold = !nodeByName('Gamma');
     const foldAria = foldOf('Beta') ? foldOf('Beta').getAttribute('aria-expanded') : null;
+    // Focus must survive the repaint: the fold button the person just pressed is
+    // recreated, so it is re-homed onto the same project's fold rather than lost to body.
+    const focusKeptAfterFold = !!(document.activeElement && document.activeElement.getAttribute
+      && document.activeElement.getAttribute('data-pjfold') === 'b');
     foldOf('Beta').click(); await sleep(10);
     const gammaBackAfterUnfold = !!nodeByName('Gamma');
     let opened = null;
@@ -234,7 +238,7 @@ function check(name, pass, detail) {
     const flatHasTree = pjHasSubprojects();
     PROJECTS.push({ id: 'y', name: 'Y', parent: 'x', archived: false, summary: {} });
     const treeHasTree = pjHasSubprojects();
-    return { nodeClickable, rootNotClickable, betaHasFold, alphaNoFold, gammaBefore, gammaHiddenAfterFold, foldAria, gammaBackAfterUnfold, opened, scrollBoth, flatHasTree, treeHasTree };
+    return { nodeClickable, rootNotClickable, betaHasFold, alphaNoFold, gammaBefore, gammaHiddenAfterFold, foldAria, focusKeptAfterFold, gammaBackAfterUnfold, opened, scrollBoth, flatHasTree, treeHasTree };
   });
   check('a project node is a clickable button carrying data-project', adds.nodeClickable, JSON.stringify(adds.nodeClickable));
   check('the Kosmos root is NOT clickable (not a button, no data-project)', adds.rootNotClickable, JSON.stringify(adds.rootNotClickable));
@@ -242,6 +246,7 @@ function check(name, pass, detail) {
   check('clicking a fold COLLAPSES the branch (child hidden, aria-expanded=false)',
     adds.gammaBefore && adds.gammaHiddenAfterFold && adds.foldAria === 'false', JSON.stringify({ before: adds.gammaBefore, hidden: adds.gammaHiddenAfterFold, aria: adds.foldAria }));
   check('clicking the fold again re-EXPANDS the branch (fully-expanded is restorable)', adds.gammaBackAfterUnfold, JSON.stringify(adds.gammaBackAfterUnfold));
+  check('folding KEEPS keyboard focus (re-homed onto the same fold button, not lost to body)', adds.focusKeptAfterFold, JSON.stringify(adds.focusKeptAfterFold));
   check('clicking a node opens that project (routes to openProject, not the fold)', adds.opened === 'a', 'opened=' + JSON.stringify(adds.opened));
   check('the map scrolls in BOTH directions (depth + width)', adds.scrollBoth, JSON.stringify(adds.scrollBoth));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',

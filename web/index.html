@@ -2411,7 +2411,9 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjonode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 /* The fold disclosure: a quiet triangle, muted like the connectors, its own button
    so a fold click never opens the project. */
-.pjfold { appearance: none; background: none; border: 0; color: var(--k-ink-2); font-size: .7rem; line-height: 1; padding: 1px 6px; cursor: pointer; border-radius: 5px; }
+/* A 24x24 hit area (WCAG 2.2 SC 2.5.8 target-size minimum) around the small triangle,
+   so a touch/low-dexterity user has a real target even though the glyph reads quiet. */
+.pjfold { appearance: none; background: none; border: 0; color: var(--k-ink-2); font-size: .7rem; line-height: 1; cursor: pointer; border-radius: 5px; min-width: 24px; min-height: 24px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
 .pjfold:hover { color: var(--k-ink); }
 .pjfold:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 1px; }
 .pjonode.top { border-color: color-mix(in srgb, var(--gold-deep) 55%, var(--k-rule)); background: color-mix(in srgb, var(--gold-deep) 7%, var(--k-surface)); }
@@ -31082,7 +31084,7 @@ function pjMapNode(p, hasKids, folded) {
   const s = p.summary || {};
   const attn = (s.needsYou || 0) > 0;
   const statusText = attn ? 'needs you'
-    : (s.total ? Number(s.total) + (Number(s.total) === 1 ? ' agent' : ' agents') : 'idle');
+    : (Number(s.total) > 0 ? Number(s.total) + (Number(s.total) === 1 ? ' agent' : ' agents') : 'idle');
   const line = '<span class="pjoc' + (attn ? ' a' : '') + '">' + statusText + '</span>';
   /* The status ("needs you" / "N agents" / "idle") is the Map's PRIMARY signal, and an
      explicit aria-label OVERRIDES the subtree, so naming only "Open <name>" would hide
@@ -31091,7 +31093,7 @@ function pjMapNode(p, hasKids, folded) {
   const node = '<button type="button" class="pjonode' + (attn ? ' attn' : '') + '" data-project="' + esc(p.id) + '"'
     + ' aria-label="Open ' + esc(p.name) + ', ' + statusText + '"><span class="pjonm">' + esc(p.name) + '</span>' + line + '</button>';
   const fold = hasKids
-    ? '<button type="button" class="pjfold" data-fold="' + esc(p.id) + '" aria-expanded="' + (folded ? 'false' : 'true')
+    ? '<button type="button" class="pjfold" data-pjfold="' + esc(p.id) + '" aria-expanded="' + (folded ? 'false' : 'true')
       + '" aria-label="' + (folded ? 'Unfold ' : 'Fold ') + esc(p.name) + '’s sub-projects">'
       + (folded ? '▸' : '▾') + '</button>'
     : '';
@@ -37004,11 +37006,17 @@ document.getElementById('pj-list').addEventListener('click', (e) => {
    use. (The Map's empty state carries no Add button -- adding a project is the grid's
    job, and the toggle is gated off before a board is that empty anyway.) */
 document.getElementById('pj-map').addEventListener('click', (e) => {
-  const fold = e.target.closest('[data-fold]');
+  const fold = e.target.closest('[data-pjfold]');
   if (fold) {
-    const id = fold.dataset.fold;
+    const id = fold.dataset.pjfold;
     if (PJ_MAP_FOLDED.has(id)) PJ_MAP_FOLDED.delete(id); else PJ_MAP_FOLDED.add(id);
     paintProjectsMap();
+    /* The repaint recreates every node, so the fold button just pressed is gone and
+       focus would fall to <body>. Re-home it onto the same project's fold button (it
+       still exists -- the branch still has children, only its ▾/▸ flipped), so a
+       keyboard user keeps their place. */
+    const again = document.querySelector('#pj-map [data-pjfold="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"]');
+    if (again) { try { again.focus(); } catch { /* the fold still happened */ } }
     return;
   }
   const node = e.target.closest('[data-project]');
