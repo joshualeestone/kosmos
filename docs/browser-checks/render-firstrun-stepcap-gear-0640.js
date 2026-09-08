@@ -176,8 +176,11 @@ function unhide(id) {
       // the old check only pinned ntSize==nbSize, which passed at 17px==17px. A
       // computed-cascade fact a source read cannot see, and the exact property that
       // kept regressing.
-      const bodySizeOk = s4.nbSize != null && s4.nbSize >= 10 && s4.nbSize <= 12;
-      const titleSizeOk = s4.ntSize != null && s4.ntSize >= 10 && s4.ntSize <= 12;
+      // Band pins .6875rem (== 11px on a 16px root) tightly: 10.5-11.5 excludes both a
+      // 17px size-bump AND a shrink to a sibling caption size (.s3-step-cap is .625rem ==
+      // 10px), so neither regression can pass.
+      const bodySizeOk = s4.nbSize != null && s4.nbSize >= 10.5 && s4.nbSize <= 11.5;
+      const titleSizeOk = s4.ntSize != null && s4.ntSize >= 10.5 && s4.ntSize <= 11.5;
       const boldNotLarger = s4.ntWeight != null && s4.ntWeight >= 700
         && s4.nbWeight != null && s4.nbWeight < 700
         && titleSizeOk && bodySizeOk && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
