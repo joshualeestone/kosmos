@@ -116,9 +116,21 @@ failed cut is not clean: it may have written into the site checkout before it
 died, and the next attempt trips on the leftovers with a message that describes
 a different problem.
 
-1. **The versions entry's stamp.** **Set `rel-d` to about FIFTEEN minutes AHEAD
-   of launch**, in the site's `versions.html`. That is the whole instruction; the
-   detail below is why.
+1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
+
+   **(a) Leave it as a FILE and let the cut stamp it (#1455, preferred).** Write the
+   entry into `$REPO/.release-entry.html` (or wherever `KOSMOS_ENTRY_FILE` points),
+   with the literal word `TIMESTAMP` where the time goes. Step 1 accepts it as pending;
+   step 6b inserts it and stamps it with the minute it actually publishes. **Nothing to
+   predict, so nothing to age.** The file is gitignored: it is an input to a release,
+   not a tracked file. The copy is still yours to write - only the timestamp and the
+   placement are mechanical.
+
+   **(b) Hand-stamp it on the page.** **Set `rel-d` to about FIFTEEN minutes AHEAD
+   of launch**, in the site's `versions.html`. This is the original flow, unchanged and
+   still fully gated. The detail below is why the window is what it is, and it applies
+   only to this shape: under (a) the stamp is written at the deploy, so it is zero
+   minutes old when the gate reads it.
 
    **Two gates read it, and they do not use the same window (#1463).**
 

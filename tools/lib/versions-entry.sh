@@ -425,3 +425,85 @@ kosmos_versions_entry_gate() {
   echo "   its timestamp agrees with the clock"
   return 0
 }
+
+# ── #1455: the entry may be PENDING as a file instead of hand-stamped on the page ──
+#
+# The cure for the stamp-drift class was built as tools/insert-release-entry.js and
+# then invoked by nothing. Its own header fixes where it belongs: it stamps NOW, and
+# now is only correct immediately before the deploy. So the operator gets a second,
+# optional shape: leave the entry as a FILE carrying TIMESTAMP, and let the cut
+# insert and stamp it at the moment it publishes.
+#
+# ⭐ WHY THIS IS ADDITIVE AND NOT A REPLACEMENT. The hand-stamped flow is unchanged
+# and still fully gated; a machine with no pending file behaves exactly as before.
+# The tool is IDEMPOTENT (it exits 0 with "nothing written" when the id is already
+# on the page), so the deploy-time call is a verified no-op on the old flow.
+#
+# ⚠️ REJECTED: a re-stamp function here that rewrites rel-d in place. It would be a
+# SECOND stamper beside the tool's, which is the two-spellings defect this tree keeps
+# finding, and it would break the page's insert-never-edit rule that the tool's header
+# argues for.
+
+## kosmos_versions_entry_pending_ok <version> <entry-file>
+##
+## True when <entry-file> is a usable pending entry for <version>: readable, carrying
+## this version's id anchor, and still carrying the TIMESTAMP placeholder.
+##
+## 🛑 THE TIMESTAMP CHECK IS NOT A FORMALITY. A file that has already been stamped
+## would be inserted verbatim, carrying whatever minute it was written for, which is
+## the drift this whole class is about arriving through the new door.
+kosmos_versions_entry_pending_ok() {
+  local v="$1" pending="${2:-}" id
+  # 📌 KEPT THOUGH A MUTATION SWEEP SHOWS IT REDS NOTHING HERE, unlike the -r check
+  # below which was removed for exactly that reason. The difference is the failure it
+  # defends against: measured on this box, `grep -qF x ''` returns 2 and the function
+  # returns 1 either way, but a grep that treated an empty operand as STDIN would
+  # BLOCK, and this function runs inside the release cut. A redundant test is cheap; a
+  # cut that hangs waiting on a terminal is not. Labelled rather than left looking
+  # armed.
+  [ -n "$pending" ] || return 1
+  # 📌 NO `[ -r "$pending" ]` HERE, AND THAT IS MEASURED RATHER THAN AN OVERSIGHT.
+  # It was written, then removed when a mutation sweep showed deleting it reddened
+  # NOTHING. The grep below already fails on both shapes it would have caught: a
+  # missing file (rc 2, no stderr under -q) and an existing unreadable one (rc 2,
+  # no stderr), and `|| return 1` normalises both to the same 1 this line returned.
+  # It is left out rather than kept as a comment-only guard, because an unarmed
+  # line that looks like a check is the thing this tree keeps finding.
+  # Same id derivation as everywhere else in this file: one spelling.
+  id="$(kosmos_versions_entry_id "$v")"
+  # grep -qF on both: the id is a fixed string and so is the placeholder.
+  grep -qF "id=\"$id\"" "$pending" || return 1
+  grep -qF 'TIMESTAMP' "$pending" || return 1
+  return 0
+}
+
+## kosmos_versions_entry_gate_or_pending <version> <page> <cost> <stamp_fix> <past_bound> <pending>
+##
+## Step 1's gate, widened by exactly one accepted state: an entry that is not on the
+## page yet because it is waiting as a file.
+##
+## 🔑 THE ORDER IS LOAD-BEARING. The page is checked FIRST, so a version already on
+## the page takes the original gate unchanged, stamp window and all. The pending
+## branch is reachable only when the page does not carry the entry at all, which today
+## is the state that refuses outright.
+##
+## ⚠️ AND EVERY FAILURE STILL LANDS ON THE ORIGINAL GATE, deliberately: a malformed
+## version, an unreadable page, a missing pending file and a pending file that is
+## already stamped all fall through to kosmos_versions_entry_gate, so the operator gets
+## the same diagnosis and the same remediation sentence they get today. This wrapper
+## can only ever ADD an accepted state; it cannot invent a refusal or soften one.
+kosmos_versions_entry_gate_or_pending() {
+  local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}" past_bound="${5:-}" pending="${6:-}"
+  local id
+  id="$(kosmos_versions_entry_id "$v")"
+  if [ -r "$file" ] && grep -qF "id=\"$id\"" "$file"; then
+    kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
+    return $?
+  fi
+  if kosmos_versions_entry_pending_ok "$v" "$pending"; then
+    echo "   $v is pending as an entry file: $pending"
+    echo "   It carries TIMESTAMP, so the deploy stamps it with the minute it goes out."
+    return 0
+  fi
+  kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
+}

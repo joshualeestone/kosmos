@@ -371,7 +371,7 @@ n="$(grep -c 'step "== 1b' "$HERE/release.sh")"
 if [ "$n" -eq 1 ]; then pass "the 1b step label exists, so step 1 refusals stay countable"; else fail "the 1b label is missing or duplicated (found $n); step 1 versions refusals would blend into step 1's bucket"; fi
 lbl="$(grep -n 'step "== 1b' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 div="$(grep -n 'local main has commits' "$HERE/release.sh" | head -1 | cut -d: -f1)"
-call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+call="$(grep -nE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 if [ -n "$lbl" ] && [ -n "$div" ] && [ -n "$call" ] && [ "$lbl" -gt "$div" ] && [ "$lbl" -lt "$call" ]; then
   pass "and it sits after the divergence guard and before the gate call ($div < $lbl < $call)"
 else fail "the 1b label is misplaced (divergence=$div label=$lbl call=$call)"; fi
@@ -397,8 +397,15 @@ if [ "$rc" -eq 0 ]; then pass "CONTROL: a 3-minute-old entry still passes, so th
 # fixed line count: awk joins lines while the previous one ends in a backslash,
 # so re-wrapping either call cannot silently make this read the wrong lines.
 # Each joined call is printed on ONE line, so line N is call N.
+# ⚠️ #1455 WIDENED THE PATTERN, AND ONLY THE PATTERN. Step 1 now calls
+# kosmos_versions_entry_gate_or_pending, a wrapper that adds ONE accepted state (an
+# entry still waiting as a file) and otherwise delegates to the same gate with the same
+# arguments. Matching `(_or_pending)?` keeps every assertion below pointed at the same
+# two call sites; nothing here was relaxed. Measured: before the widening this
+# extraction found ONE call site and eight arms went red, which is the guard doing
+# exactly its job on a rename.
 joined="$T/calls.txt"
-awk '/^kosmos_versions_entry_gate /{c=$0; while (c ~ /\\$/) {sub(/\\$/,"",c); if ((getline nx) <= 0) break; c=c nx} print c}' \
+awk '/^kosmos_versions_entry_gate(_or_pending)? /{c=$0; while (c ~ /\\$/) {sub(/\\$/,"",c); if ((getline nx) <= 0) break; c=c nx} print c}' \
   "$HERE/release.sh" > "$joined"
 ncalls="$(wc -l < "$joined" | tr -d ' ')"
 if [ "$ncalls" -eq 2 ]; then pass "found exactly two whole call sites to compare"; else fail "expected 2 call sites, parsed $ncalls -- the extraction, not the code, may be stale"; fi
@@ -419,10 +426,10 @@ if [ "$early" = "$late" ]; then fail "both call sites give the same stamp advice
 # ⚠️ counting occurrences is not enough: a comment naming the function inflates it,
 # and two calls both sitting in step 7 would still count 2. Assert the CALL shape
 # (line-anchored) and that one of them precedes the step 2 banner.
-n="$(grep -c '^kosmos_versions_entry_gate ' "$HERE/release.sh")"
+n="$(grep -cE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh")"
 if [ "$n" -eq 2 ]; then pass "release.sh calls the gate exactly twice"; else fail "release.sh should call the gate twice, found $n"; fi
-first_call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
-last_call="$(grep -n '^kosmos_versions_entry_gate ' "$HERE/release.sh" | tail -1 | cut -d: -f1)"
+first_call="$(grep -nE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
+last_call="$(grep -nE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh" | tail -1 | cut -d: -f1)"
 step2="$(grep -n 'step "== 2\. ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 # ⚠️ ANCHOR THE LATE CALL ON STEP 7, NOT MERELY ON "after step 2". Pinned only
 # as after-step-2, the late call could be moved to step 3 with every arm in both

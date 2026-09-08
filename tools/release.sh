@@ -343,9 +343,13 @@ git -C "$REPO" log --oneline -8 | cat
 # destroyed the measurement that justified it, and nobody would notice, because
 # the failures would simply blend into a busier bucket.
 step "== 1b. the versions entry, before anything is built =="
-kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." \
-  "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7." \
-  "$KOSMOS_STEP1_PAST_BOUND" || exit 1
+# #1455: where a PENDING entry file may be left instead of hand-stamping the page.
+# Overridable, and defaulted into $REPO rather than $SITE so a stray file can never
+# be picked up by the site deploy and published as a page.
+KOSMOS_ENTRY_FILE="${KOSMOS_ENTRY_FILE:-$REPO/.release-entry.html}"
+kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has been built yet." \
+  "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
+  "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
 
 step "== 2. the version, in one place =="
 node -e "
@@ -887,8 +891,30 @@ step "== 7. the versions page needs its entry BEFORE you deploy =="
 # and a reader of release.sh was left with a bare call. This paragraph is the
 # pointer back. The windows, the asymmetry and the six fail-open instances are
 # documented in the lib.
+# 🛑 #1455: STAMP IT HERE, AND ONLY HERE. tools/insert-release-entry.js stamps with
+# the minute it runs, and its own header says that is correct ONLY immediately before
+# the deploy: run at step 1 it would produce exactly the aged stamp the gate below
+# exists to reject. This is the last moment before publication.
+#
+# ⭐ SAFE ON THE OLD FLOW BY THE TOOL'S OWN CONTRACT: when the version is already on
+# the page it prints "nothing written" and exits 0, so a hand-stamped cut reaches this
+# line and passes straight through it unchanged.
+#
+# ⚠️ AND THE GATE BELOW STAYS AS THE BACKSTOP. If this insert does not happen, or
+# happens wrongly, the entry is missing or misstamped and step 7 refuses exactly as it
+# does today. Nothing here can turn a bad stamp into a shipped one; it can only remove
+# the operator's need to have guessed the minute right.
+if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
+  # 7a, not 6b: this runs INSIDE step 7, after its banner and before its gate. An
+  # earlier draft numbered it 6b, which would have printed a step that reads as
+  # belonging before step 6 while executing after step 7 -- the cut record is read
+  # top to bottom by whoever is diagnosing a failed cut.
+  step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
+  node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1
+fi
+
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \
-  "Paste the clock line above into the entry's rel-d and re-run." \
+  "Paste the clock line above into the entry's rel-d and re-run, or leave the entry as a file carrying TIMESTAMP and let the deploy stamp it (#1455)." \
   "$KOSMOS_LATE_PAST_BOUND" || exit 1
 
 step "== 7b. the site's release files are committed and pushed BEFORE they deploy =="
