@@ -1093,9 +1093,25 @@ function looseRow(file, text) {
   if (text == null) return null;
   const id = status.identityFromText(text);
   if (!((id && id.displayName) || INTRODUCES.test(text))) return null;
-  // #8: fall back to the H1 heading when the intro names nobody the parser can read, so the row
+  /* #2452: a Gemini-format file (identity in YAML front-matter, not a "You are <Name>"
+     line) dropped as a LOOSE file OUTSIDE the known gemini home (Documents/Downloads/a
+     Work folder -- the real import spread) is reached by the walk, not by the gemini
+     merge below (which only reads geminisession.agentFiles()). Without this it matched
+     INTRODUCES on its "You are a helpful assistant ..." body and was offered with an
+     EMPTY name. Read the SAME front-matter identity the merge uses (agentfile.geminiIdentity)
+     so a Gemini agent keeps its name wherever it is found -- ranked below a real
+     "You are <Name>" line (id.displayName) but above the #8 H1 heading, because the
+     front-matter name is authoritative where it exists and the heading is a last-resort
+     guess. A non-gemini file yields null here and is unchanged. */
+  const g = agentfile.geminiIdentity(text);
+  // #8: fall back to the H1 heading when nothing above names the agent, so the row
   // shows the same name the import form prepopulates.
-  return { file, name: (id && id.displayName) || agentfile.headingName(text) || '', role: (id && id.role) || null, preview: text };
+  return {
+    file,
+    name: (id && id.displayName) || (g && g.displayName) || agentfile.headingName(text) || '',
+    role: (id && id.role) || (g && g.role) || null,
+    preview: text,
+  };
 }
 
 function scan(opts) {
