@@ -122,13 +122,22 @@ function startPolling(intervalMs) {
      attempt finishes, success or clean failure alike. And clearing on every boot
      is idempotent and can only END a "back in a moment" early, never begin one
      falsely, which is the safe direction for a message a person reads. */
-  try { updating.announce(0); } catch { /* announce cannot throw; belt and braces at a boot path */ }
+  updating.announce(0);
+  /* ⚠️ AND ONCE MORE ON THE FIRST TICK. The clear above is a single, unretried,
+     fire-and-forget request made at the moment the machine is busiest and the
+     network least settled. If it is lost, the phone reads "back in a moment" for
+     the full 15-minute cap while the Mac is perfectly healthy. The comment that
+     a boot clear "can only end a message early, never begin one falsely" is true
+     of a REPEATED clear and not of a LOST one, which is the failure this shape is
+     most exposed to. A second clear a minute later costs one request. */
+  let clearedAgain = false;
   // Guard the cadence: a non-positive or non-numeric interval would make
   // setInterval a tight fn-per-tick loop that burns the event loop (poke() is
   // TTL-gated regardless, so it bounds the event-loop cost, not the network).
   // Owning the default here means a caller can pass a raw, unvalidated value.
   const ms = Number(intervalMs) > 0 ? Number(intervalMs) : 60 * 1000;
   const t = setInterval(() => {
+    if (!clearedAgain) { clearedAgain = true; updating.announce(0); }
     try { poke(); } catch { /* a look that cannot run must cost the board nothing */ }
   }, ms);
   if (t && typeof t.unref === 'function') t.unref();
@@ -476,11 +485,6 @@ function wireChild(child, opts) {
      here, microseconds after spawn; the shell's own `rm -f` of it runs only
      after the (multi-second) curl|sh pipeline, so there is no race. */
   markInstallStarted(owner && owner.startedAt);
-  /* #988: from a phone, an update restart is indistinguishable from a broken
-     Mac. Tell the coordinator we are applying, so it can answer "your Mac is
-     updating Kosmos, back in a moment" instead of "not answering". Best effort
-     by construction: it cannot throw, cannot block and cannot fail an install. */
-  updating.announce(updating.DEFAULT_SECONDS);
   child.on('error', (err) => {
     installStarted = false;
     noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
@@ -508,6 +512,14 @@ function wireChild(child, opts) {
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }
   });
+  /* #988: from a phone, an update restart is indistinguishable from a broken Mac.
+     Tell the coordinator we are applying, so it can answer "your Mac is updating
+     Kosmos, back in a moment" instead of "not answering".
+     ⚠️ AFTER both listeners, deliberately. announce() is synchronous and `error`
+     is emitted asynchronously, so announcing earlier happens to be safe; that
+     ordering was load-bearing and unstated. Announcing here removes the
+     dependency instead of documenting it. */
+  updating.announce(updating.DEFAULT_SECONDS);
 }
 
 function alreadyInstalling() { return installStarted; }

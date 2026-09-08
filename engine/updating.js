@@ -11,80 +11,142 @@
  * THE CONTRACT, from the coordinator route's author (Ice Cream Kitty, #988):
  *   POST /v1/mac/updating {"seconds": N}  when it begins applying
  *   POST /v1/mac/updating {"seconds": 0}  when it finishes
- * The deadline is capped at 15 minutes server-side, so asking for more is safe
- * and simply gets the cap.
+ * Authenticated with the mac's client certificate, like the other /v1/mac/*
+ * routes. The deadline is capped at 15 minutes server-side, so asking for more
+ * is safe and simply gets the cap.
  *
  * 🛑 WHY THIS SPEAKS HTTP DIRECTLY INSTEAD OF GOING THROUGH kosmos-tunnel.
  * remote.js does not speak HTTP to the coordinator; it spawns the tunnel binary
  * with subcommands. Adding an `updating` subcommand looks smaller and is
  * strictly slower: the tunnel source is not in this repo at all, and the binary
  * is bundled, so a new subcommand reaches no Mac until a release cut. The mac
- * already holds the client certificate this route needs (remote.js requires
- * mac_id, address, tls.crt and tls.key before it calls itself enrolled), and
- * node can present it directly.
+ * already holds the client certificate this route needs, and node can present it.
  *
  * 🛑 NOTHING HERE MAY FAIL AN UPDATE. The caller is the one route that installs
- * software. engine/notify.js is the precedent and this copies its shape: an
- * outer try/catch that swallows everything, a short abort, fire and forget. A
- * missed announce degrades to exactly today's behaviour, which is the whole
- * point of failing open rather than retrying.
+ * software. engine/notify.js is the precedent: an outer try/catch that swallows
+ * everything, a short timeout, fire and forget, no retry.
  */
 const fs = require('node:fs');
 const path = require('node:path');
 const https = require('node:https');
+const http = require('node:http');
 const { URL } = require('node:url');
-const remote = require('./remote');
 
 const ROUTE = '/v1/mac/updating';
 /* Short on purpose. This runs microseconds after the installer is spawned, on a
- * box that is about to be busy; a slow coordinator must not hold the update. */
+ * box about to be busy; a slow coordinator must not hold the update. */
 const TIMEOUT_MS = 3000;
 /* Ask for more than any install should need. The server caps at 15 minutes, so
  * this is a request for the cap rather than a promise about duration. */
 const DEFAULT_SECONDS = 900;
 
-let sender = null;   // test seam: replaces the transport, never the decision
+/* Test seam. It replaces THE TRANSPORT AND NOTHING ELSE: enrolment, the
+ * certificate read, and the URL derivation all still run, so an arm can catch a
+ * wrong path, a missing cert or a broken coordinator derivation. An earlier
+ * version replaced the whole send, which made every one of those invisible. */
+let requestFactory = null;
 
-/* announce(seconds) -- best effort, returns nothing, throws nothing, blocks
- * nothing. `seconds` 0 means "finished". */
-function announce(seconds, opts) {
+/* 🛑 THE GUARD THAT KEEPS THE SUITE OFF THE REAL COORDINATOR (kosmos#988).
+ * engine/ping.js's underTest(), which engine/notify.js consults for exactly this
+ * reason. Without it, running the test suite on an ENROLLED Mac posts real
+ * `{"seconds":900}` with the operator's client certificate, and one existing
+ * suite (update.marker-1728) drives a child stub that never exits, so nothing
+ * ever clears it: the operator's phone then reads "your Mac is updating Kosmos,
+ * back in a moment" for the full 15-minute cap while nothing is updating. That
+ * is this card's own message, inverted, by its own test suite.
+ * Keyed on an INJECTED FACTORY, not on the environment: a test that supplies its
+ * own transport touches no network, so the guard must not disable it. */
+function underTest() {
+  return Boolean(process.env.NODE_TEST_CONTEXT);
+}
+
+/* Only a real number is honoured. `Number(null)`, `Number('')`, `Number(false)`
+ * and `Number([])` are all 0, so coercing would turn a caller's typo into the
+ * FINISH signal and clear a banner that should be showing. Anything that is not
+ * a finite number asks for the default instead, which is the safe direction. */
+function seconds(v) {
+  if (v === undefined) return DEFAULT_SECONDS;
+  if (typeof v !== 'number' || !Number.isFinite(v)) return DEFAULT_SECONDS;
+  return Math.max(0, Math.trunc(v));
+}
+
+/* announce(n) -- best effort. Returns nothing, throws nothing, blocks nothing.
+ * n === 0 means "finished". */
+function announce(v) {
   try {
-    const n = Number.isFinite(Number(seconds)) ? Math.max(0, Math.trunc(Number(seconds))) : DEFAULT_SECONDS;
-    /* Not enrolled means there is no coordinator to tell and no client
-       certificate to tell it with. Silence is correct, not an error. */
-    if (!sender && !remote.enrolled()) return;
-    const dir = remote.stateDir();
-    let cert = null;
-    let key = null;
-    if (!sender) {
-      try {
-        cert = fs.readFileSync(path.join(dir, 'tls.crt'));
-        key = fs.readFileSync(path.join(dir, 'tls.key'));
-      } catch { return; /* enrolled() said they exist; if they vanished, stay quiet */ }
-    }
-    const body = JSON.stringify({ seconds: n });
-    if (sender) { try { sender({ seconds: n, body, route: ROUTE, opts: opts || null }); } catch { /* a test seam may not break the caller either */ } return; }
+    const n = seconds(v);
+    /* Lazy on purpose. engine/remote.js binds its data root at module scope
+       (`const BASE = store.ROOT`), so requiring it at engine/update.js load time
+       would FREEZE the root before a caller can set AGENT_WORKFORCE_DATA. This
+       file is required by update.js, which is required early. update.js:254
+       already requires ./autoupdate late for the same reason. */
+    const remote = require('./remote');
+    if (!requestFactory && underTest()) return;
+    if (!remote.enrolled()) return;   // nothing to say, and nothing to say it with
 
-    const u = new URL(ROUTE, remote.coordinator());
-    const req = https.request({
-      protocol: u.protocol,
-      hostname: u.hostname,
-      port: u.port || undefined,
-      path: u.pathname,
+    const dir = remote.stateDir();
+    let cert;
+    let key;
+    try {
+      cert = fs.readFileSync(path.join(dir, 'tls.crt'));
+      key = fs.readFileSync(path.join(dir, 'tls.key'));
+    } catch { return; /* enrolled() said they exist; if they vanished, stay quiet */ }
+
+    const base = new URL(remote.coordinator());
+    /* Keep any path prefix a self-hosted coordinator carries: `https://h/kosmos`
+       must become `/kosmos/v1/mac/updating`, not `/v1/mac/updating`. */
+    const prefix = base.pathname.replace(/\/+$/, '');
+    const body = JSON.stringify({ seconds: n });
+    const opts = {
+      protocol: base.protocol,
+      hostname: base.hostname,
+      port: base.port || undefined,
+      path: prefix + ROUTE,
       method: 'POST',
       headers: { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) },
       cert,
       key,
       timeout: TIMEOUT_MS,
-    });
+      /* Node's global agent silently ignores per-request cert/key. It happens to
+         work today because the pool keys on the credentials, which is not the
+         documented contract; being explicit also avoids parking a keep-alive
+         socket keyed on the identity certificate. */
+      agent: false,
+    };
+    /* A private-CA coordinator, honoured the same way remote.js honours it for
+       the tunnel. TLS verification is never disabled. */
+    const ca = process.env.AGENT_WORKFORCE_TUNNEL_CA;
+    if (ca) { try { opts.ca = fs.readFileSync(ca); } catch { /* verify against the system store */ } }
+
+    const make = requestFactory || defaultRequest;
+    const req = make(opts, body);
+    if (!req || typeof req.on !== 'function') return;
     /* Every one of these is a path an update must survive. */
-    req.on('error', () => { /* unreachable coordinator, TLS refusal, DNS */ });
+    req.on('error', () => { /* unreachable coordinator, TLS refusal, DNS, bad protocol */ });
     req.on('timeout', () => { try { req.destroy(); } catch { /* already gone */ } });
-    req.on('response', (res) => { try { res.resume(); } catch { /* drain, ignore body */ } });
-    req.end(body);
+    req.on('response', (res) => {
+      try {
+        const code = res.statusCode;
+        /* One line, on the log launchd keeps, for the case nobody could
+           otherwise see: this route is merged but not yet deployed, so the first
+           real deployment has no other client-side way to be checked.
+           remote.js:242 sets the same precedent. Still fail-open: a bad status
+           changes nothing the caller does. */
+        if (!(code >= 200 && code < 300)) {
+          process.stderr.write('kosmos#988: coordinator answered ' + String(code) + ' for ' + ROUTE + '\n');
+        }
+        res.resume();
+      } catch { /* draining must not throw either */ }
+    });
+    if (typeof req.end === 'function') req.end(body);
   } catch { /* nothing here may reach the caller */ }
 }
 
-function setSender(f) { sender = typeof f === 'function' ? f : null; }
+function defaultRequest(opts) {
+  return (opts.protocol === 'http:' ? http : https).request(opts);
+}
 
-module.exports = { ROUTE, TIMEOUT_MS, DEFAULT_SECONDS, announce, setSender };
+/* Replaces the transport only. Pass null to restore the real one. */
+function setRequestFactory(f) { requestFactory = typeof f === 'function' ? f : null; }
+
+module.exports = { ROUTE, TIMEOUT_MS, DEFAULT_SECONDS, announce, seconds, underTest, setRequestFactory };
