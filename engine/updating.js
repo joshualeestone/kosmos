@@ -84,29 +84,32 @@ function seconds(v) {
 function announce(v) {
   try {
     const n = seconds(v);
-    /* 🛑 THE GUARD RUNS BEFORE ANY require(), AND THAT ORDER IS THE POINT.
-       An earlier version required ./remote first and only then checked. Measured:
-       that made a NODE_TEST_CONTEXT process which merely calls startPolling()
-       load remote, ping AND store, none of which origin/main's update path
-       touches. Both remote.js and ping.js bind `const BASE = store.ROOT` at
-       module scope, so the first announce() froze the data root for both, and it
-       newly reached store.root() and its legacy-store migration from the update
-       path. The lazy require moved the freeze from import time to first-announce
-       time; it did not remove it. Checking first does.
+    /* 🛑 THE GUARD THAT KEEPS THE SUITE OFF THE REAL COORDINATOR (kosmos#988),
+       AND IT RUNS BEFORE ANY require(), WHICH IS HALF THE POINT.
+
+       WITHOUT THE GUARD: running the suite on an ENROLLED Mac posts a real
+       `{"seconds":900}` carrying the operator's client certificate, and
+       update.marker-1728 drives a child stub that never exits, so nothing ever
+       clears it. The operator's phone then reads "your Mac is updating Kosmos,
+       back in a moment" for the full 15-minute cap while nothing is updating:
+       this card's own message, inverted, by its own test suite.
+
+       WITHOUT THE ORDERING: an earlier version required ./remote first and
+       checked second. Measured, a NODE_TEST_CONTEXT process merely calling
+       startPolling() then loaded remote, ping AND store, none of which
+       origin/main's update path touches. Both remote.js and ping.js bind
+       `const BASE = store.ROOT` at module scope, so the first announce() froze
+       the data root for both and newly reached store.root()'s legacy migration
+       from the update path. A lazy require moved that freeze from import time to
+       first-announce time; it did not remove it. Checking first does.
+
        The predicate is inlined rather than calling ping.underTest(), which is a
-       deliberate reversal: consulting ping would load the very module this order
-       exists to avoid. It is one boolean against an env var, ping.js:171 is its
-       single line, and underTest() below still delegates so nothing else copies
-       it. Keyed on an INJECTED FACTORY, not the environment, so a test that
-       supplies its own transport is not disabled. */
-    /* 🛑 THE GUARD THAT KEEPS THE SUITE OFF THE REAL COORDINATOR (kosmos#988).
-       Without it, running the test suite on an ENROLLED Mac posts real
-       `{"seconds":900}` with the operator's client certificate, and one existing
-       suite (update.marker-1728) drives a child stub that never exits, so nothing
-       ever clears it: the operator's phone then reads "your Mac is updating
-       Kosmos, back in a moment" for the full 15-minute cap while nothing is
-       updating. This card's own message, inverted, by its own test suite.
-       Keyed on an INJECTED FACTORY, not on the environment, so a test that
+       deliberate reversal: consulting ping would load the very module this
+       ordering exists to avoid. It is one boolean against an env var, whose
+       single line is the body of ping.js's underTest(), and the exported
+       underTest() above still delegates so nothing else copies it.
+
+       Keyed on an INJECTED FACTORY rather than on the environment, so a test that
        supplies its own transport touches no network and must still run. */
     if (!requestFactory && process.env.NODE_TEST_CONTEXT) return;
     /* Still lazy: update.js is required early, and remote.js freezes its root at
@@ -181,7 +184,7 @@ function announce(v) {
            real deployment has no other client-side way to be checked.
            remote.js's setupRun sets the same precedent. Still fail-open: a bad status
            changes nothing the caller does. */
-        if (!(code >= 200 && code < 300)) {
+        if (typeof code !== 'number' || code < 200 || code >= 300) {
           process.stderr.write('kosmos#988: coordinator answered ' + String(code) + ' for ' + ROUTE + '\n');
         }
         res.resume();

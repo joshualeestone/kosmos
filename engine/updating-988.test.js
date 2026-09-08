@@ -347,7 +347,10 @@ const CHILD = { handlers: {}, announced: [] };
 }
 
 test('#988 WIRING: beginning to apply announces a deadline', () => {
-  assert.ok(CHILD.announced.some((n) => n > 0), `applying must announce a deadline; got ${JSON.stringify(CHILD.announced)}`);
+  /* Equality, not `> 0`: announce(1) survived the looser assertion, and a
+     one-second deadline is a banner that clears before the download finishes. */
+  assert.ok(CHILD.announced.includes(updating.DEFAULT_SECONDS),
+    `applying must announce the DEFAULT deadline; got ${JSON.stringify(CHILD.announced)}`);
 });
 
 test('#988 WIRING: the installer child had its listeners wired', () => {
@@ -571,6 +574,63 @@ test('#988: the update path does not drag remote/ping/store into a test process'
   assert.equal(loaded.remote, false, 'requiring remote from the update path freezes the data root');
   assert.equal(loaded.ping, false, 'ping.js freezes it too');
   assert.equal(loaded.store, false, 'and store.root() reaches the legacy-store migration');
+});
+
+test('#988 END TO END: the REAL transport delivers the POST, with no factory and no test context', async () => {
+  /* 🛑 THE CARD'S DELIVERABLE, AND UNTIL NOW IT HAD ZERO COVERAGE. Every other arm
+     either injects a factory or runs under NODE_TEST_CONTEXT, so nothing connected
+     announce() to defaultRequest. Measured: making the feature COMPLETELY INERT on
+     a real Mac (`if (!requestFactory) return;`) left the whole suite green.
+     This runs a child WITHOUT NODE_TEST_CONTEXT against a local http coordinator.
+     http is deliberate: it ignores cert/key, so no TLS fixture is needed and the
+     request still travels the production path. */
+  const http = require('node:http');
+  const received = [];
+  const server = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => { body += c; });
+    req.on('end', () => {
+      received.push({ method: req.method, url: req.url, body, type: req.headers['content-type'] });
+      res.writeHead(204).end();
+    });
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const port = server.address().port;
+  try {
+    const { execFileSync } = require('node:child_process');
+    const script = [
+      "const fs=require('node:fs'),os=require('node:os'),p=require('node:path');",
+      "const box=fs.mkdtempSync(p.join(os.tmpdir(),'e2e-'));",
+      "process.env.AGENT_WORKFORCE_DATA=box;",
+      "const st=p.join(box,'st'); fs.mkdirSync(st,{recursive:true});",
+      "for(const f of ['mac_id','address','tls.crt','tls.key']) fs.writeFileSync(p.join(st,f),'x');",
+      "process.env.AGENT_WORKFORCE_TUNNEL_STATE=st;",
+      "process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR='http://127.0.0.1:'+process.argv[2];",
+      "require(p.join(process.argv[1],'engine/updating.js')).announce(900);",
+      "setTimeout(()=>{},400);",
+    ].join('\n');
+    const env = { ...process.env };
+    delete env.NODE_TEST_CONTEXT;          // the whole point: production conditions
+    delete env.AGENT_WORKFORCE_TUNNEL_CA;
+    execFileSync(process.execPath, ['-e', script, nodePath.join(__dirname, '..'), String(port)], { env, encoding: 'utf8' });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(received.length, 1, 'the production path must actually deliver the POST');
+    assert.equal(received[0].method, 'POST');
+    assert.equal(received[0].url, '/v1/mac/updating');
+    assert.equal(received[0].type, 'application/json');
+    assert.deepEqual(JSON.parse(received[0].body), { seconds: 900 });
+  } finally { server.close(); }
+});
+
+test('#988: announce() actually CALLS seconds(), it does not just export it', () => {
+  /* seconds() had six arms as a pure function and none proving announce() uses it.
+     Measured: replacing `const n = seconds(v)` with `const n = v` left the suite
+     green, and a real server then received {"seconds":-1} for announce(-1), which
+     is the caller-typo-clears-the-banner direction seconds() exists to prevent. */
+  enrol();
+  const calls = capture();
+  updating.announce(-1);
+  assert.deepEqual(JSON.parse(calls[0].body), { seconds: updating.DEFAULT_SECONDS });
 });
 
 test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => {
