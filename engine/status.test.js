@@ -2384,6 +2384,12 @@ test('#2378: the CODEX call site is narrowed too, and a hard wrap still reads li
     'a live codex progress line stopped being read as working');
   assert.equal(classify(codex, '• Reconnecting... 4/5 (4s •\nesc to interrupt)').state, 'working',
     'a HARD-WRAPPED codex progress line fell through to the false calm, which is a regression against origin/main');
+  /* And the wrap can fall INSIDE the phrase itself, not only before/after it. The
+     no-separator join makes `esc\nto interrupt` -> `escto interrupt`, so the phrase
+     matcher must be space-tolerant (`esc\s*to\s*interrupt`) or this misses = false
+     calm on a narrow pane, the shape this reader exists for (found by review). */
+  assert.equal(classify(codex, '• Reconnecting... 4/5 (4s • esc\nto interrupt)').state, 'working',
+    'a hard wrap INSIDE the esc-to-interrupt phrase fell through to the false calm');
   assert.notEqual(classify(codex, '  he said (press esc to interrupt) earlier').state, 'working',
     'a parenthesised quotation was read as a live codex turn');
   assert.notEqual(classify(codex, 'I told him esc to interrupt is what the old UI said.').state, 'working',
@@ -2461,6 +2467,7 @@ test('#2378: EVERY spinner frame is a live turn, and the anchor is behaviour', (
     'the docs say (esc to interrupt) works',
     '  he said (press esc to interrupt) earlier',
     '* running the tool (esc to interrupt) to cancel',
+    '* note (fixed in 5s, see esc to interrupt) ok',
   ]) {
     assert.equal(flagOf(quoted + '\n' + W), true,
       'a quotation was read as a live turn: ' + quoted.trim());

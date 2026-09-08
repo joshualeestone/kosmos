@@ -2046,13 +2046,21 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    (Ice Cream Kitty, verified against every fixture): keep `*` but GATE it. Two
    arms below - the unambiguous glyphs `[·•✢✳✶✻✽]` are unchanged (no timer needed,
    so the old-UI timerless `· Working (esc to interrupt)` still matches), and the
-   `*` arm adds `(?=[^)]*\d+s)` right after the `(` so a `*`-led row counts only
-   when a `\d+s` timer sits INSIDE the same interrupt parenthetical. A LIVE `*`-frame
-   always carries that timer (WORKING_LINE bets the same, requiring `\d+s` and
-   keeping `*`); the only observed timerless live shape is the old-UI `·` one, on
-   the untouched arm. Would change if a timerless `*`-led "esc to interrupt" row is
-   ever observed - none has been. */
-const INTERRUPT_LINE_LIVE = /^\s*(?:[·•✢✳✶✻✽]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)|\*\s*\S[^\n]*\((?=[^)]*\d+s)[^)]*esc to interrupt[^)]*\))/i;
+   `*` arm adds `(?=\s*(?:\d+h\s+)?(?:\d+m\s+)?\d+s)` right after the `(` so a
+   `*`-led row counts only when a live timer sits at the START of the interrupt
+   parenthetical - the SAME shape WORKING_LINE anchors (`\((?:\d+h\s+)?...\d+s`),
+   not merely "some \d+s somewhere in the paren" (that looser form read
+   `* note (fixed in 5s, see esc to interrupt)` as live - a stray duration
+   mention; found by challenge-loop review). A LIVE `*`-frame always carries the
+   timer at the paren start; the only observed timerless live shape is the old-UI
+   `·` one, on the untouched arm. Would change if a timerless `*`-led row is ever
+   observed - none has been.
+   📌 THE PHRASE IS `esc\s*to\s*interrupt`, not literal single spaces, so a hard
+   wrap that splits it (`... esc\nto interrupt)`, joined with no separator by
+   hasLiveInterruptLine) still matches - the false-calm the join otherwise left on
+   a narrow pane (also found by review). `esctointerrupt` is not a real token, so
+   the tolerance cannot over-match prose. */
+const INTERRUPT_LINE_LIVE = /^\s*(?:[·•✢✳✶✻✽]\s*\S[^\n]*\([^)]*esc\s*to\s*interrupt[^)]*\)|\*\s*\S[^\n]*\((?=\s*(?:\d+h\s+)?(?:\d+m\s+)?\d+s)[^)]*esc\s*to\s*interrupt[^)]*\))/i;
 
 /* #2378. True when the tail carries a LIVE interrupt line. Shared by both call
    sites (Claude and codex) so the two cannot drift apart.
