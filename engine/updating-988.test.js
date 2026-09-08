@@ -43,7 +43,15 @@ function unenrol() {
 }
 /* A fake request object with the surface announce() uses, and nothing else. */
 function fakeReq() {
-  return { on() { return this; }, end() {}, destroy() {} };
+  const handlers = {};
+  return {
+    handlers,
+    destroyed: false,
+    on(ev, fn) { handlers[ev] = fn; return this; },
+    end() {},
+    destroy() { this.destroyed = true; },
+    fire(ev, arg) { if (handlers[ev]) handlers[ev](arg); },
+  };
 }
 function capture() {
   const calls = [];
@@ -151,15 +159,44 @@ test('#988: an unenrolled machine says nothing, because there is nothing to say 
   assert.equal(calls.length, 0);
 });
 
-test('#988: a state dir whose certificate has vanished says nothing rather than throwing', () => {
+test('#988: a certificate that vanishes AFTER the enrolment check says nothing rather than throwing', () => {
+  /* 🛑 THE RACE THIS ARM IS FOR, and an earlier version of it never reached the
+     code it named. It deleted tls.key and then called announce(), but
+     remote.enrolled() re-checks existsSync on every call, so the function
+     returned at the enrolment gate and the readFileSync catch below it was never
+     entered. That made the arm redundant with the unenrolled arm above and left
+     a real branch uncovered. Forcing enrolled() true with the key absent is the
+     only way in: it is exactly the window the code's own comment describes.
+     ⚠️ SCOPE, so this arm does not overclaim a second time: it asserts the
+     OUTCOME (nothing sent, nothing thrown) and cannot say WHICH guard produced
+     it. Removing the inner catch leaves this green, because the outer guard
+     swallows the same throw and builds no request either way. That is measured,
+     and the library says so at the site. */
   const partial = nodePath.join(SANDBOX, 'partial');
   fs.mkdirSync(partial, { recursive: true });
   for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(partial, f), 'x\n');
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = partial;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
   fs.rmSync(nodePath.join(partial, 'tls.key'));
   const calls = capture();
-  assert.doesNotThrow(() => updating.announce(900));
-  assert.equal(calls.length, 0);
+  const remote = require('./remote');
+  const real = remote.enrolled;
+  remote.enrolled = () => true;   // the gate has already passed; the file goes now
+  try {
+    assert.doesNotThrow(() => updating.announce(900));
+    assert.equal(calls.length, 0, 'no request may be built without a key');
+  } finally { remote.enrolled = real; }
+});
+
+test('#988 CONTROL: the same fixture WITH the key present does send, so the arm above is not vacuous', () => {
+  const whole = nodePath.join(SANDBOX, 'whole');
+  fs.mkdirSync(whole, { recursive: true });
+  for (const f of ['mac_id', 'address', 'tls.crt', 'tls.key']) fs.writeFileSync(nodePath.join(whole, f), 'x\n');
+  process.env.AGENT_WORKFORCE_TUNNEL_STATE = whole;
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls.length, 1, 'the cert-vanished arm must fail for the MISSING KEY, not for the fixture');
 });
 
 /* ---- the deadline value --------------------------------------------------- */
@@ -252,6 +289,54 @@ test('#988 WIRING: a boot may only ever clear, never set', () => {
   const t = update.startPolling(60000);
   clearInterval(t);
   assert.ok(calls.every((c) => JSON.parse(c.body).seconds === 0));
+});
+
+test('#988: the timeout handler destroys the request rather than leaving it hanging', () => {
+  enrol();
+  let made = null;
+  updating.setRequestFactory(() => { made = fakeReq(); return made; });
+  updating.announce(900);
+  assert.ok(made, 'a request must have been built');
+  assert.equal(made.destroyed, false);
+  made.fire('timeout');
+  assert.equal(made.destroyed, true, 'a timed-out request must be destroyed, not left to hang');
+});
+
+test('#988: a handler that throws still cannot reach the caller', () => {
+  enrol();
+  let made = null;
+  updating.setRequestFactory(() => { made = fakeReq(); return made; });
+  updating.announce(900);
+  made.destroy = () => { throw new Error('already gone'); };
+  assert.doesNotThrow(() => made.fire('timeout'));
+  assert.doesNotThrow(() => made.fire('error', new Error('socket')));
+});
+
+test('#988: a non-2xx answer is reported once on stderr and changes nothing', () => {
+  enrol();
+  let made = null;
+  updating.setRequestFactory(() => { made = fakeReq(); return made; });
+  updating.announce(900);
+  const real = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(String(s)); return true; };
+  try { made.fire('response', { statusCode: 401, resume() {} }); }
+  finally { process.stderr.write = real; }
+  assert.equal(lines.length, 1, 'a route that is merged but undeployed has no other client-side check');
+  assert.match(lines[0], /401/);
+});
+
+test('#988 CONTROL: a 2xx answer is silent', () => {
+  enrol();
+  let made = null;
+  updating.setRequestFactory(() => { made = fakeReq(); return made; });
+  updating.announce(900);
+  const real = process.stderr.write;
+  const lines = [];
+  process.stderr.write = (s) => { lines.push(String(s)); return true; };
+  try { made.fire('response', { statusCode: 204, resume() {} }); }
+  finally { process.stderr.write = real; }
+  assert.equal(lines.length, 0);
 });
 
 test('#988 CONTROL: with the wiring driven and NO factory, nothing is sent and nothing throws', () => {

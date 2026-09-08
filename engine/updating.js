@@ -90,7 +90,13 @@ function announce(v) {
     try {
       cert = fs.readFileSync(path.join(dir, 'tls.crt'));
       key = fs.readFileSync(path.join(dir, 'tls.key'));
-    } catch { return; /* enrolled() said they exist; if they vanished, stay quiet */ }
+      /* Locality, not behaviour. enrolled() said these exist; if one vanished in
+         the window since, this returns quietly. Removing this catch changes
+         NOTHING observable, because the outer guard swallows the same throw and
+         no request gets built either way (measured by perturbation). It is kept
+         because the local return says what happens here, and it is documented as
+         indistinguishable so nobody writes an arm claiming to discriminate it. */
+    } catch { return; }
 
     const base = new URL(remote.coordinator());
     /* Keep any path prefix a self-hosted coordinator carries: `https://h/kosmos`
@@ -107,10 +113,13 @@ function announce(v) {
       cert,
       key,
       timeout: TIMEOUT_MS,
-      /* Node's global agent silently ignores per-request cert/key. It happens to
-         work today because the pool keys on the credentials, which is not the
-         documented contract; being explicit also avoids parking a keep-alive
-         socket keyed on the identity certificate. */
+      /* Not a claim about whether the global agent would work: an earlier version
+         of this comment asserted that it "silently ignores per-request cert/key",
+         which is not something I measured and which Agent#getName appears to
+         contradict. What IS true and is the reason: a fresh connection per call
+         needs no assumption about how the socket pool is keyed, and it avoids
+         parking a keep-alive socket keyed on the identity certificate for a call
+         that happens roughly twice per update. */
       agent: false,
     };
     /* A private-CA coordinator, honoured the same way remote.js honours it for
