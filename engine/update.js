@@ -494,7 +494,14 @@ function wireChild(child, opts) {
        status was written -- a shell killed by a signal before its `printf`. The
        startedAt match stops us acting on a PREVIOUS attempt's stale status file
        when this child died before writing its own; single-flight guarantees the
-       file is this attempt's whenever this attempt wrote one. */
+       file is this attempt's whenever this attempt wrote one.
+       ⚠️ Residual, pre-existing and out of scope for #2503: if the installer FAILS
+       but the shell cannot WRITE the status (a full disk, a read-only logs dir)
+       while the trailing `if` still exits 0, there is no signal left that says
+       "failed" -- the fallback sees a code-0 child and a stale/absent status and
+       treats it as success. The old code had the identical blind spot for every
+       child-exits-0 case; distinguishing it needs a signal the status file was
+       expected-but-unwritten, which is a separate change. */
     const status = readStatusRaw();
     const realCode = (status && status.startedAt === (owner && owner.startedAt)) ? status.code : code;
     if (realCode !== 0) {

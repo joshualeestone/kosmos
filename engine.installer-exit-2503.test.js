@@ -27,8 +27,10 @@ const path = require('node:path');
 const { EventEmitter } = require('node:events');
 const updates = require('./engine/update');
 
+const ROOTS = [];
 function freshRoot() {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-2503-'));
+  ROOTS.push(dir);
   return dir;
 }
 function writeStatus(root, code, startedAt) {
@@ -41,6 +43,13 @@ function cleanup() {
   updates.setInstalledRoot(null);
   updates.resetCache();
 }
+// Match the repo pattern (e.g. server.usage.test.js): every mkdtempSync is paired
+// with a recursive rmSync so the suite leaves no temp dirs behind.
+test.after(() => {
+  for (const dir of ROOTS) {
+    try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best-effort */ }
+  }
+});
 
 test('#2503 arm 1 (the bug): a masked failure -- child exits 0, status file says 7 -- releases the flag and records 7', () => {
   updates.resetCache();
