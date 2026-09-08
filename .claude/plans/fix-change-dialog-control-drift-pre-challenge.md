@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: fix-change-dialog-control-drift
-diff_hash: fed96288b36e9337edc3e3af66702a7fb5bf0cdbf9271a62db9e97d439f4a952
+diff_hash: bc0bb38ff76ec6a30b974e936adc8ee44125437b9399075a7c8a4caf6b7bb0b3
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-08T01:58:43Z
