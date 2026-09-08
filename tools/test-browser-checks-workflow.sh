@@ -66,10 +66,11 @@ pass "the workflow triggers on pull_request"
 #    false pass survived a perturbation). A quoted YAML list item is the filter entry
 #    and prose is not, so this asserts the entry, not a mention of it.
 grep -qE "^[[:space:]]*paths:" "$WF" || fail "the workflow has no paths filter"
-# All five entries, not just the rendered surface: provision-pw.sh pins the runtime
-# (a change there can alter what the checks see), and the self-path re-runs the job
-# when the workflow itself changes (also how THIS PR triggers it). Pinning every
-# entry means a dropped path reds here rather than silently narrowing the trigger.
+# All six entries, not just the rendered surface: provision-pw.sh pins the runtime
+# (a change there can alter what the checks see), test-support/ builds the board the
+# checks assert against, and the self-path re-runs the job when the workflow itself
+# changes (also how THIS PR triggers it). Pinning every entry means a dropped path
+# reds here rather than silently narrowing the trigger.
 for p in 'web/index\.html' 'docs/browser-checks/' 'tools/browser-checks\.sh' 'tools/provision-pw\.sh' 'test-support/' '\.github/workflows/browser-checks\.yml'; do
   grep -qE "^[[:space:]]*-[[:space:]]*'${p}" "$WF" \
     || fail "the paths filter has no list entry for '${p}'; a change there would not trigger the gate (the #2445 defect)"
