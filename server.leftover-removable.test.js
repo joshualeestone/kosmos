@@ -24,6 +24,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -42,7 +43,7 @@ const create = require('./engine/create');
  */
 function boardWithJobOnlyLeftover() {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-lr-'));
-  const profiles = nodePath.join(sb, 'data', 'Kosmos', 'profiles');
+  const profiles = nodePath.join(sb, 'data', store.APP, 'profiles');
   const launch = nodePath.join(sb, 'launch');
   fs.mkdirSync(profiles, { recursive: true });
   fs.mkdirSync(launch, { recursive: true });

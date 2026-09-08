@@ -18,6 +18,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -30,7 +31,7 @@ const REPO = __dirname;
 // source-channel file in the store root the server reads, and return /api/status.
 function statusWithChannelFile(content) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-sc-'));
-  const dataRoot = nodePath.join(sb, 'data', 'Kosmos'); // store.ROOT resolves here
+  const dataRoot = nodePath.join(sb, 'data', store.APP); // store.ROOT resolves here
   fs.mkdirSync(nodePath.join(dataRoot, 'profiles'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers'), { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'launch'), { recursive: true });

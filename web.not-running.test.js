@@ -20,6 +20,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -50,7 +51,7 @@ function board({ mangle = false } = {}) {
   const key = String(mangle);
   if (BOARDS.has(key)) return BOARDS.get(key);
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-nr-'));
-  const profiles = nodePath.join(sb, 'data', 'Kosmos', 'profiles');
+  const profiles = nodePath.join(sb, 'data', store.APP, 'profiles');
   fs.mkdirSync(profiles, { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers', 'ghosty'), { recursive: true });
   fs.writeFileSync(nodePath.join(profiles, 'ghosty.json'),

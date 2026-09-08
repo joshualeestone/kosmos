@@ -12,6 +12,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -35,14 +36,14 @@ const REPO = __dirname;
 function boardWithSeededIds(tmuxScript) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-id-'));
   const data = nodePath.join(sb, 'data');
-  const profiles = nodePath.join(data, 'Kosmos', 'profiles');
+  const profiles = nodePath.join(data, store.APP, 'profiles');
   const workers = nodePath.join(sb, 'workers');
   fs.mkdirSync(profiles, { recursive: true });
 
   // Pin this sandbox's install id BEFORE the server ever runs.
   // #1856: ping.js now routes through store.ROOT, so ping.json lives under the
   // Kosmos leaf (like profiles above), not the bare data root.
-  fs.writeFileSync(nodePath.join(data, 'Kosmos', 'ping.json'),
+  fs.writeFileSync(nodePath.join(data, store.APP, 'ping.json'),
     JSON.stringify({ installId: 'install-under-test' }));
 
   // `homegrown`: minted HERE. The board must carry its id.
