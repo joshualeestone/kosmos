@@ -324,6 +324,16 @@ func boardTokenValue() -> String? {
 // resolve 'Kosmos'. Mirrors the same legacy-vs-new choice install/setup.sh's
 // source-channel write makes, for the same reason. Swift cannot require the node store
 // module, so this re-derives the one formula rather than being the single source itself.
+//
+// Residual, accepted: there is no lock across the language boundary, so a TOCTOU window
+// exists during the one-time migration -- if this resolves the legacy leaf (Kosmos absent)
+// and the JS renameSync(legacy -> Kosmos) completes before the caller's write lands, the
+// write (which mkdir's first) re-creates base/AgentWorkforce/ holding one stale coordination
+// file the board (now reading Kosmos) never sees. It is NOT data loss (the user's store was
+// already relocated to Kosmos), the window is milliseconds and only during a migrating
+// update, the file is an ephemeral status/handoff that is rewritten, and the next write here
+// resolves Kosmos. Left as-is rather than adding cross-process locking for a self-correcting
+// millisecond race.
 func storeLeaf(base: URL) -> String {
     let fm = FileManager.default
     var isDir: ObjCBool = false
