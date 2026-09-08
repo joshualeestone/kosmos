@@ -2597,6 +2597,13 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
         # board, or reinstall on a free port. NOT recorded as a board-would-not-pause
         # abort -- that streak is about OUR board, and inflating it here would mask a
         # machine whose own board really cannot pause.
+        # ⚠️ ONE FALSE-NEGATIVE, the same fail-safe residual BOARD_OURS carries: if OUR
+        # board is genuinely alive and serving but board.pid is absent/stale, we land
+        # here and the message wrongly says "your board is not running". It is still
+        # fail-safe (dies, writes nothing, no brick), and it only fires after `kosmos
+        # stop` already failed to pause a board on our port, so the window is narrow --
+        # but the "quit it" advice could nudge that user at their own live board. Fixing
+        # it needs a stronger own-board signal than board.pid; out of scope here.
         die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
       fi
       ;;
