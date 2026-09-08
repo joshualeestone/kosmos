@@ -229,13 +229,30 @@ test('selfRestart via kosmos STRIPS the world-override env (a switch to default 
   delete process.env.AGENT_WORKFORCE_WORKERS; delete process.env.KOSMOS_HOME;
 });
 
-test('selfRestart via kosmos reports a spawn failure instead of throwing', () => {
+test('selfRestart via kosmos reports a SYNCHRONOUS spawn throw instead of throwing itself', () => {
   writePlist(NO_KEEPALIVE);
   board.setInstalledCli(() => '/home/bin/kosmos');
   board.setSpawner(() => { throw new Error('EAGAIN'); });
   const r = board.selfRestart();
   assert.equal(r.ok, false);
   assert.match(r.because, /EAGAIN|could not start/i);
+});
+
+test('selfRestart via kosmos attaches an ASYNC error handler -- a real spawn error fires on \'error\', not a throw, and an unhandled one would crash the installed board launchd will NOT relaunch', () => {
+  // The realistic failure: spawn returns a child, THEN emits 'error' asynchronously
+  // (ENOENT/EACCES/EMFILE/EAGAIN). Without a listener that is an uncaught exception ->
+  // the board process dies and (RunAtLoad, no KeepAlive) never comes back. The old
+  // synchronous-throw stub could not catch this class -- this is the guard for it.
+  writePlist(NO_KEEPALIVE);
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  const handlers = {};
+  const child = { on(ev, fn) { handlers[ev] = fn; }, unref() {} };
+  board.setSpawner(() => child);
+  const r = board.selfRestart();
+  assert.equal(r.ok, true, r.because);   // the spawn was issued; async outcome is observed by the client reconnect
+  assert.equal(typeof handlers.error, 'function', 'an \'error\' listener must be attached the moment the child exists');
+  // Firing the async spawn failure must NOT throw (it would be an uncaught exception -> board crash).
+  assert.doesNotThrow(() => handlers.error(new Error('EAGAIN')), 'the error handler must swallow the async spawn failure, never rethrow');
 });
 
 test.after(() => { try { fs.rmSync(LAUNCH, { recursive: true, force: true }); } catch { /* best effort */ } });

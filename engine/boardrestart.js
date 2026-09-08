@@ -192,12 +192,27 @@ function kosmosRestart(cli) {
   delete env.AGENT_WORKFORCE_DATA;
   delete env.AGENT_WORKFORCE_PROJECTS;
   delete env.AGENT_WORKFORCE_WORKERS;
+  let child;
   try {
-    const child = spawner(cli, ['restart'], { detached: true, stdio: 'ignore', env });
-    if (child && typeof child.unref === 'function') child.unref();
+    child = spawner(cli, ['restart'], { detached: true, stdio: 'ignore', env });
   } catch (e) {
+    // A SYNCHRONOUS spawn throw is rare (e.g. bad options); the real failures are async.
     return { ok: false, because: `could not start the board restart: ${String((e && e.message) || e)}` };
   }
+  // 🛑 spawn signals ENOENT / EACCES / EMFILE / EAGAIN via an ASYNCHRONOUS 'error'
+  // event, NOT a throw -- so the try/catch above catches almost nothing real. With no
+  // 'error' listener that event becomes an uncaught exception, which on an installed
+  // board (RunAtLoad + no KeepAlive) crashes the very process launchd will NOT
+  // relaunch: a bricked board, the exact fail-safe violation this module exists to
+  // avoid. Attach the listener the moment the child exists (mirrors update.js's
+  // wireChild). Best-effort: log to stderr, never rethrow -- the client's reconnect
+  // then times out to the honest manual banner rather than the board dying silently.
+  if (child && typeof child.on === 'function') {
+    child.on('error', (err) => {
+      try { process.stderr.write(`Kosmos board restart could not start: ${String((err && err.message) || err)}\n`); } catch { /* stderr gone with the dying process */ }
+    });
+  }
+  if (child && typeof child.unref === 'function') child.unref();
   return { ok: true };
 }
 
