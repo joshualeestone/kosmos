@@ -108,4 +108,4 @@ const bad = (n, why) => { ran++; failures++; console.log('FAIL  ' + n + '  --  '
   if (ran < 5) { console.log('scan-on-grant: only ' + ran + ' checks ran, so this proved nothing'); process.exit(1); }
   if (failures) { console.log('scan-on-grant: ' + failures + ' FAILED'); process.exit(1); }
   console.log('scan-on-grant: all good, ' + ran + ' checks');
-})();
+})().catch((e) => { console.error('FAIL  render-firstrun-scan-on-grant-1652 threw: ' + ((e && e.stack) || e)); process.exit(1); });
