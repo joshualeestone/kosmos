@@ -31042,10 +31042,14 @@ function paintProjectsMap() {
   if (!wrap) return;
   const active = sortProjects(PROJECTS.filter((p) => !p.archived), PJ_SORT);
   if (!active.length) {
-    // Same empty-state words as the list, so the two layouts never disagree about
-    // whether there is anything here.
-    setIfChanged(wrap, '<div class="pj-empty"><p><b>No projects yet.</b><br>'
-      + 'Point Kosmos at a folder you already have, and put an agent on it.</p></div>');
+    /* TWO empty states, matching the list's exactly, or the two layouts contradict
+       each other: genuinely no projects, versus projects that all happen to be
+       archived. Collapsing them would tell someone who archived everything "No
+       projects yet. Point Kosmos at a folder" -- false, and the opposite of what
+       the list says one toggle away. */
+    setIfChanged(wrap, PROJECTS.length
+      ? '<div class="pj-empty"><p><b>Nothing here right now.</b><br>Everything you have is archived.</p></div>'
+      : '<div class="pj-empty"><p><b>No projects yet.</b><br>Point Kosmos at a folder you already have, and put an agent on it.</p></div>');
     return;
   }
   const inActive = new Set(active.map((p) => p.id));

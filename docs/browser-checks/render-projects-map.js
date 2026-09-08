@@ -166,6 +166,25 @@ function check(name, pass, detail) {
   check('the attn "needs you" text is lightened in dark mode (WCAG AA)',
     dark.color === 'rgb(255, 140, 130)', 'color=' + JSON.stringify(dark.color));
 
+  // Empty states must not contradict the list one toggle away: a board whose
+  // projects are ALL archived reads "everything you have is archived", while a
+  // genuinely empty board reads "no projects yet".
+  const empties = await page.evaluate(() => {
+    const wrap = document.getElementById('pj-map');
+    PROJECTS.length = 0;
+    PROJECTS.push({ id: 'arch', name: 'Old', parent: null, archived: true, summary: {} });
+    paintProjectsMap();
+    const archived = wrap.textContent;
+    PROJECTS.length = 0;
+    paintProjectsMap();
+    const none = wrap.textContent;
+    return { archived, none };
+  });
+  check('an all-archived board reads "everything you have is archived" (not "no projects yet")',
+    /archived/i.test(empties.archived) && !/No projects yet/i.test(empties.archived), JSON.stringify(empties.archived.slice(0, 70)));
+  check('a genuinely empty board reads "No projects yet"',
+    /No projects yet/i.test(empties.none), JSON.stringify(empties.none.slice(0, 70)));
+
   await browser.close();
   if (problems.length) {
     console.error('render-projects-map: ' + problems.length + ' problem(s)');
