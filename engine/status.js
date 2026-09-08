@@ -2425,11 +2425,19 @@ function closedEnvelope(text) {
  * real red is never suppressed. That means a scraped false positive silently
  * overrides an agent's own accurate account of itself.
  *
- * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR POSITION. Both were
- * tried on the card and both fail: requiring a selector glyph anywhere fails on
- * a sentence quoting one, and requiring the match in the last N lines fails
+ * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR COARSE POSITION. Both
+ * were tried on the card and both fail: requiring a selector glyph anywhere fails
+ * on a sentence quoting one, and requiring the match in the last N lines fails
  * whenever the prose IS the newest output, which for a chatty agent is most of
- * the time. Position narrows the window; it does not discriminate.
+ * the time. A last-N-lines window narrows but does not discriminate.
+ *
+ * 📌 BUT SEE #2456 (`blockingProseAtBottom` below): the LAST NON-BLANK line is a
+ * structural signal, not the coarse last-N-lines position rejected here. A live
+ * Claude pane always draws a status line or the composer footer beneath live
+ * output, so a prose question that is genuinely the bottom of the screen means
+ * the dialog replaced the composer -- i.e. the agent is blocked. That is exactly
+ * the "marker opens the line and closes at ?" rule below, applied to the one line
+ * that carries structural meaning rather than to any line.
  *
  * A real prompt line is the QUESTION AND NOTHING ELSE: the marker opens the
  * line and the line closes at the question mark (optionally `(y/N)`). Prose
