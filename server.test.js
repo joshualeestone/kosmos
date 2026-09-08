@@ -191,6 +191,11 @@ const fleet = require('./test-support/fleet');
 
 let base;
 test.before(async () => {
+  // #2454: pin the installed-board self-restart probe to "not installed" so the
+  // world-switch route's restarting:false assertion cannot be flaked by a
+  // coincidental bin/kosmos+app/server.js layout in a parent directory. The test
+  // process is neither the dev KeepAlive job nor an installed board.
+  try { require('./engine/boardrestart').setInstalledCli(() => null); } catch { /* older tree */ }
   await start(0); // 0 = let the OS pick, so tests never collide with a real board
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -300,6 +305,13 @@ test('#1704 2b-ii: POST /api/worlds/active switches the active world and reports
     // running board still serves the previous world's roots until it restarts.
     const after = JSON.parse((await req('/api/worlds')).body);
     assert.equal(after.activeWorldId, targetId, 'GET /api/worlds reflects the switch');
+    /* #2454b: bootedWorldId reports the world the LIVE board booted into, which does
+       NOT move on a switch (the test process never restarted) -- so the pointer and
+       the booted world DIVERGE here, and the switcher UI marks current by the booted
+       one. This is the server half of the "no restart demanded for the Kosmos you are
+       already on" fix. */
+    assert.equal(after.bootedWorldId, 'default', 'GET /api/worlds reports the still-booted world, not the flipped pointer');
+    assert.notEqual(after.bootedWorldId, after.activeWorldId, 'the pointer flipped but the booted world did not -- the divergence the marker must key on');
   } finally {
     // Leave the sandbox on the default world so later tests that assume it are unaffected.
     const back = await postJson('/api/worlds/active', { id: 'default' });

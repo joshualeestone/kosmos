@@ -2712,7 +2712,24 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase(); // can throw only on a broken login env (worldRegistryBase null -> baseRoot rethrows)
-      sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+      /* #2454: TWO different "active" facts, and the switcher needs both.
+         - activeWorldId is the REGISTRY POINTER (the desired world), which
+           POST /api/worlds/active flips the instant it is called.
+         - bootedWorldId is the world the LIVE board actually BOOTED into
+           (engine/worldenv.bootedWorld()), which does not change until the board
+           restarts.
+         They DIVERGE between a switch and the restart that applies it (and stay
+         diverged on a board that cannot self-restart, e.g. a from-source board).
+         The UI must mark the CURRENT world by the booted one -- otherwise the
+         world you are actually running on shows as a switchable row, and clicking
+         it demands a needless restart into the Kosmos you are already on (#2454b).
+         bootedWorldId is null only if the board never bootstrapped (a unit test);
+         the client falls back to activeWorldId there, so behaviour is unchanged. */
+      sendJson(res, 200, {
+        worlds: worlds.listWorlds(base),
+        activeWorldId: worlds.activeWorld(base).id,
+        bootedWorldId: require('./engine/worldenv').bootedWorld(),
+      });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
@@ -2799,12 +2816,14 @@ const server = http.createServer((req, res) => {
         const isNoop = bootedId != null && bootedId === world.id;
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
         sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
-        /* AFTER the response has been sent, drop the board so launchd relaunches it
-           onto the new world. The delay lets the 200 flush to the client before
-           launchctl stop terminates this process -- the stop kills the very
-           connection that asked for the switch. selfRestart re-checks the fail-safe
-           guard, so a launchd state that changed in the interim still cannot brick
-           the board (it no-ops, and Angel's reconnect degrades to the manual path). */
+        /* AFTER the response has been sent, restart the board so it comes back on the
+           new world. The delay lets the 200 flush to the client first, because the
+           restart kills the very connection that asked for the switch. selfRestart
+           picks the mechanism canSelfRestart chose: a `launchctl stop` for the dev
+           KeepAlive board, or (#2454) a detached `kosmos restart` for an installed
+           board (which launchd does not supervise). It re-checks the fail-safe guard,
+           so a state that changed in the interim still cannot brick the board (it
+           no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
           setTimeout(() => {
             try { require('./engine/boardrestart').selfRestart(); }
