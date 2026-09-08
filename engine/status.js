@@ -1645,6 +1645,16 @@ const CONSENT_PROMPT_MARKER = /^[\s>│├└─*❯›]*No, exit$/;
  */
 const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER, CONSENT_PROMPT_MARKER]);
 
+/* #2456: the placeholder `because` for a NEEDS_YOU with no words of its own -
+   a scraped question we located on the screen but did not read, or a reported
+   needs_you the agent raised without saying why. ONE derivation, exported, for
+   the reason `NEEDS_YOU_MARKERS` is exported: the route that decides whether it
+   has an actual question to show must compare against the SAME string this
+   engine emits, and a second copy in the route would drift the first time this
+   wording changes. It is deliberately NOT a real question, so a caller can tell
+   "the board is asking, in general" from "the agent told us this". */
+const ASKING_GENERIC = 'it is asking you something';
+
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
  *
@@ -2598,7 +2608,7 @@ function classify(pane, paneText) {
     }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
-      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
     }
     // Observed: codex draws "(4s • esc to interrupt)" on its live progress
     // line, the same phrase Claude's older UI used. Vocabulary coincidence,
@@ -2761,7 +2771,7 @@ function classify(pane, paneText) {
      stays ABOVE the working checks. The #1155/#2146 "blocked beats busy" test
      pins this precedence. */
   if (drawsOptionMenu(tail)) {
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   /* #2456: the PROSE half, position-gated to the BOTTOM of the screen. A prose
      question is a real blocking prompt only when it is the last non-blank line
@@ -2773,7 +2783,7 @@ function classify(pane, paneText) {
      question -- which always has the status line or footer below it -- from
      firing. See the `blockingProseAtBottom` docblock for the full rationale. */
   if (blockingProseAtBottom(tail)) {
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   if (SPINNER.test(pane.title)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is producing output right now' };
@@ -4811,7 +4821,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
       const asked = reported.because ? ' Its last report asked: ' + reported.because : '';
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: false, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
     }
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, ...project };
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, ...project };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -5681,6 +5691,10 @@ module.exports = {
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
+  /* #2456: the placeholder `because` string, so the routes can tell a real
+     reported question from the board's generic "asking" and never render the
+     placeholder as if the agent had said it. */
+  ASKING_GENERIC,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

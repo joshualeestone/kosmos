@@ -20832,9 +20832,14 @@ async function paintTalk(sessionName, agentName) {
        the one keystroke that ends the session. Said before the person types,
        not after a 409. Null for every other question, so the label is as it
        was. Plain text through textContent, like every sentence here. */
+    /* #2456: two sources, so say which. A live pane question is shown in the
+       screen treatment as the part of the screen that asked; a REPORTED one
+       (body.question.reported) is the agent's own words, framed as reported so
+       the screen-styled box is not read as its live screen right now. */
     qlab.textContent = name + ' is waiting on an answer'
-      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.');
-    // The agent's SCREEN, in the treatment the room already uses for it.
+      + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.')
+      + (body.question.reported === true ? ' This is what it told us it needs:' : '');
+    // The agent's screen, or its reported words, in the treatment the room uses.
     pjSetScreen(qtext, body.question.text);
     qtext.hidden = false;
   } else if (!body.asking) {
@@ -35939,11 +35944,20 @@ function paintThread(body) {
   if (body.asking && body.question) {
     /* #1629: `answerNote` is the route's own sentence for the trust dialog
        (see the agent page's label for why); null for every other question. */
+    /* #2456: two sources for the question, so two closing clauses. A LIVE pane
+       question really is the part of its screen that asked. A REPORTED one
+       (body.question.reported) is the agent's own words the board already
+       quotes - saying "part of its screen" over it is the same false claim the
+       "we cannot find the question" banner made, one branch over. */
+    const reported = body.question.reported === true;
     qLabel.textContent = name + ' is waiting on an answer'
       + (body.answerNote ? ', but not one typed here: ' + body.answerNote : '.')
-      + ' This is the part of its screen that asked:';
+      + (reported ? ' This is what it told us it needs:' : ' This is the part of its screen that asked:');
     pjSetScreen(qText, body.question.text);
-    document.getElementById('pj-answer-how').hidden = false;
+    /* #2456: the "answer by the number" hint belongs to a numbered on-screen
+       menu. A reported question is prose with no numbers, so the hint is hidden
+       for it (a live pane question keeps it, unchanged). */
+    document.getElementById('pj-answer-how').hidden = reported;
     qWrap.hidden = false;
     pjApplyEngMode();
   } else if (body.asking) {

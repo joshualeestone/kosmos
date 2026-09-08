@@ -123,6 +123,16 @@ function reset() {
   try { fs.rmSync(projects.file()); } catch { /* nothing yet */ }
 }
 
+// #2456: a self-report PERSISTS across tests in one data dir (reset() clears
+// projects, not reports), so a test that writes one would classify a later
+// test's agent off the leftover. withThread clears the spec's record in its
+// finally so no report outlives the test that wrote it. Same rmSync the report
+// tests in server.test.js use.
+function clearReport(name) {
+  try { fs.rmSync(require('./engine/selfreport').fileFor(name), { force: true }); }
+  catch { /* no record kept yet */ }
+}
+
 // ---------------------------------------------------------------------------
 // The list
 // ---------------------------------------------------------------------------
@@ -1001,6 +1011,7 @@ async function withThread(spec, answers, fn) {
   } finally {
     chat.resetForTests();
     board.restore();
+    clearReport(spec.name); // #2456: no self-report outlives the test that wrote it
   }
 }
 
@@ -1119,6 +1130,134 @@ test('a "Needs you" card over a READABLE screen missing the markers says that, n
       assert.ok(body.viewport.text != null, 'control: the screen really was read');
     });
   } finally { restoreEng(); }
+});
+
+// ---------------------------------------------------------------------------
+// #2456: a REPORTED needs_you handed us its question in the card's own
+// `because`. When the live pane no longer shows it (a report does not decay,
+// the TUI redrew past the marker), the thread shows those reported words
+// rather than "we cannot find the question on its screen" - the three-surfaces
+// -disagree gap Josh hit on the 0.6.47 re-test (the pill says needs-you, the
+// header quotes a question, and the banner denied one existed).
+//
+// withThread clears each spec's self-report in its finally (see reset() above),
+// so these arms need no per-test cleanup - a report written in one does not
+// leak into the next.
+// ---------------------------------------------------------------------------
+
+test('#2456 (project) a reported needs_you shows its reported question when the live pane redrew past it', async () => {
+  const restoreEng = withEngMode(true);
+  reset();
+  try {
+  // The pane scrapes IDLE (no marker); the agent REPORTED needs_you with a
+  // real question. So the fallback question comes from the report, not a menu.
+  await withThread(fleet.agent('zeta', { state: 'idle' }),
+    [said('an ordinary screen, nothing waiting on it\n')],
+    async ({ project }) => {
+      const rec = require('./engine/selfreport').record('zeta',
+        { state: 'needs_you', because: 'What should this project produce?' });
+      assert.equal(rec.recorded, true, 'the report was not kept: ' + JSON.stringify(rec));
+      const body = json(await req(`/api/project/${project.id}/thread/zeta`));
+      // Controls: the needs_you is REPORTED (not scraped) and the live pane
+      // genuinely has no question, so the ONLY source left is the report.
+      assert.equal(body.agent.state, 'needs_you');
+      // Control via /api/status: the roster card carries `stateReported` (the
+      // reduced project membership does not), and it confirms this needs_you is
+      // REPORTED - the property the reported-question fallback turns on.
+      const card1 = json(await req('/api/status')).agents.find((a) => a.sessionName === 'zeta');
+      assert.equal(card1.stateReported, true, 'control: the needs_you is reported, not scraped');
+      assert.equal(body.asking, true);
+      assert.ok(body.question, 'a reported needs_you must not leave an empty question box');
+      assert.equal(body.question.text, 'What should this project produce?');
+      assert.equal(body.question.reported, true, 'tagged reported: the page says it told us, not that it is on screen');
+      assert.equal(body.questionBecause, null, 'we are not failing to find a question the agent handed us');
+    });
+  } finally { restoreEng(); }
+});
+
+test('#2456 (project) a SCRAPED needs_you with no on-screen markers still says cannot-find, never a fabricated question', async () => {
+  const restoreEng = withEngMode(true);
+  reset();
+  try {
+  // The don't-regress arm: NO report, so stateReported is false and there are
+  // no reported words to fall back to. The honest "cannot find" clause must
+  // stand exactly as before - the fix must not invent a question from nothing.
+  await withThread(fleet.agent('zeta', { state: 'needs_you' }),
+    [said('an ordinary screen with no prompt on it')],
+    async ({ project }) => {
+      const body = json(await req(`/api/project/${project.id}/thread/zeta`));
+      const card2 = json(await req('/api/status')).agents.find((a) => a.sessionName === 'zeta');
+      assert.equal(card2.stateReported, false, 'control: this needs_you is SCRAPED, so no reported words exist');
+      assert.equal(body.asking, true);
+      assert.equal(body.question, null, 'no report + no on-screen marker = no question, not a fabricated one');
+      assert.match(body.questionBecause, /cannot find the question on its screen/);
+    });
+  } finally { restoreEng(); }
+});
+
+test('#2456 (project) a reported needs_you whose because is only the generic placeholder is not offered as a question', async () => {
+  const restoreEng = withEngMode(true);
+  reset();
+  try {
+  // The defensive gate: a `because` equal to the board's generic ASKING_GENERIC
+  // carries no more than "it is asking, in general", so it is not shown as the
+  // question the person should answer - the honest clause stands instead.
+  await withThread(fleet.agent('zeta', { state: 'idle' }),
+    [said('an ordinary screen, nothing waiting on it\n')],
+    async ({ project }) => {
+      const rec = require('./engine/selfreport').record('zeta',
+        { state: 'needs_you', because: require('./engine/status').ASKING_GENERIC });
+      assert.equal(rec.recorded, true, 'the report was not kept: ' + JSON.stringify(rec));
+      const body = json(await req(`/api/project/${project.id}/thread/zeta`));
+      const card3 = json(await req('/api/status')).agents.find((a) => a.sessionName === 'zeta');
+      assert.equal(card3.stateReported, true, 'control: the needs_you is reported');
+      assert.equal(body.asking, true);
+      assert.equal(body.question, null, 'the generic placeholder is not a question to answer');
+      assert.match(body.questionBecause, /cannot find the question on its screen/);
+    });
+  } finally { restoreEng(); }
+});
+
+test('#2456 (agent thread) a reported needs_you shows the reported question and draws no menu buttons', async () => {
+  reset();
+  // The agent-DM route runs the same fallback AND computes `options`. A
+  // reported question is prose with no on-screen numbers, so it never draws
+  // buttons even though a question is shown.
+  await withThread(fleet.agent('zeta', { state: 'idle' }),
+    [said('an ordinary screen, nothing waiting on it\n')],
+    async () => {
+      const rec = require('./engine/selfreport').record('zeta',
+        { state: 'needs_you', because: 'No brief for Project 1C. What should it produce?' });
+      assert.equal(rec.recorded, true, 'the report was not kept: ' + JSON.stringify(rec));
+      const body = json(await req('/api/agent/zeta/thread'));
+      assert.equal(body.asking, true);
+      assert.ok(body.question, 'the agent thread must not leave an empty question box either');
+      assert.equal(body.question.text, 'No brief for Project 1C. What should it produce?');
+      assert.equal(body.question.reported, true);
+      assert.equal(body.questionBecause, null);
+      assert.equal(body.options, null, 'a reported prose question carries no numbered menu');
+    });
+});
+
+test('#2456 (agent thread) a LIVE pane menu wins over the reported words, and still draws its buttons', async () => {
+  reset();
+  // Precedence: when the pane really is showing a menu now, that is the prompt
+  // in front of the person and the only source that can carry buttons - it wins
+  // over the reported words, which are the fallback for when it does not.
+  await withThread(fleet.agent('zeta', { state: 'idle' }),
+    [said('I want to delete the old build folder.\n\nDo you want to proceed?\n❯ 1. Yes\n  2. No\n')],
+    async () => {
+      const rec = require('./engine/selfreport').record('zeta',
+        { state: 'needs_you', because: 'stale reported words that must NOT win' });
+      assert.equal(rec.recorded, true, 'the report was not kept: ' + JSON.stringify(rec));
+      const body = json(await req('/api/agent/zeta/thread'));
+      assert.equal(body.asking, true);
+      assert.ok(body.question, 'the live pane question must show');
+      assert.match(body.question.text, /Do you want to proceed\?/, 'the LIVE pane question wins, not the report');
+      assert.doesNotMatch(body.question.text, /stale reported words/);
+      assert.ok(!body.question.reported, 'a pane question is not tagged reported');
+      assert.ok(body.options && body.options.length === 2, 'the live menu still draws its buttons');
+    });
 });
 
 test('a POST to a project that is not there is the 404 sentence, not a raw throw', async () => {
@@ -1979,6 +2118,7 @@ async function withAgent(spec, answers, fn) {
   } finally {
     chat.resetForTests();
     board.restore();
+    clearReport(spec.name); // #2456: no self-report outlives the test that wrote it
   }
 }
 
@@ -3031,6 +3171,32 @@ test('#1629: an agent stopped on the trust dialog is asking, its question is on 
       assert.match(body.question.text, /Quick safety check/);
       assert.match(body.question.text, /❯ No, exit/, 'the highlighted answer is visible, which is the whole point');
       assert.equal(body.options, null, 'no buttons: a button types a digit and nobody has measured what this dialog does with one');
+    });
+});
+
+test('#2456: a REPORTED needs_you with a LIVE trust dialog shows the dialog, never the reported words', async () => {
+  reset();
+  // The scraped-with-evidence seam: reconcileReport makes a live trust dialog LEAD
+  // over a self-report (reported:false, engine/status.js), so the card is NOT
+  // reported here and the reported-question fallback must stay excluded end to
+  // end. Without this the composed gate in server.js could, in principle, let a
+  // report masquerade as the question while a real blocking dialog is on screen.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said(TRUST_DIALOG_SCREEN)],
+    async () => {
+      const rec = require('./engine/selfreport').record('zeta',
+        { state: 'needs_you', because: 'stale reported words that must never win over a live dialog' });
+      assert.equal(rec.recorded, true, 'the report was not kept: ' + JSON.stringify(rec));
+      const body = json(await req('/api/agent/zeta/thread'));
+      assert.equal(body.asking, true);
+      assert.ok(body.question, 'the live trust dialog must be shown');
+      assert.match(body.question.text, /Quick safety check/, 'the live dialog leads');
+      assert.doesNotMatch(body.question.text, /stale reported words/, 'the report must not masquerade as the on-screen question');
+      assert.ok(!body.question.reported, 'a screen-led question is not tagged reported');
+      assert.ok(body.answerNote, 'the trust dialog still carries its answerNote (not one typed here)');
+      // Control: the trust dialog leads, so reconcile marks the card NOT reported.
+      const card = json(await req('/api/status')).agents.find((a) => a.sessionName === 'zeta');
+      assert.equal(card.stateReported, false, 'control: the trust dialog leads, so the card is screen-led, not reported');
     });
 });
 
