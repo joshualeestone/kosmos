@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 # #708: board_origin_label must say WHICH kind of checkout a live board runs from,
 # and run-tests.sh must actually use it.
 #
@@ -7,8 +7,8 @@
 # `.git` file. A hand-rolled fixture would not fail loudly if git changed the
 # layout; it would quietly answer a different question and still pass.
 set -uo pipefail
-cd "$(dirname "$0")/.." || exit 1
-. tools/lib/board-origin.sh
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+. "$REPO/tools/lib/board-origin.sh"
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/board-origin.XXXXXX")"; trap 'rm -rf "$T"' EXIT
 # Hermetic: an operator's global core.hooksPath / init.templateDir would otherwise
@@ -34,13 +34,13 @@ printf 'x\n' > "$T/mainco/engine/f"
 m="$(board_origin_label "$T/mainco")"
 case "$m" in *"MAIN CHECKOUT"*) ok "a main checkout is named as the MAIN CHECKOUT" ;;
   *) bad "a main checkout was not named: $m" ;; esac
-# Compare against the RESOLVED path: `rev-parse --show-toplevel` resolves symlinks,
-# and on macOS $TMPDIR lives under /var, which is a symlink to /private/var. The
-# label naming the real location is correct and more useful than echoing an alias;
-# asserting the literal fixture string would fail for a symlink rather than a defect.
-MAINCO_REAL="$(cd "$T/mainco" && pwd -P)"
-case "$m" in *"$MAINCO_REAL"*) ok "the main-checkout label carries the resolved checkout path" ;;
+case "$m" in *"$T/mainco"*) ok "the main-checkout label carries the path" ;;
   *) bad "the path was dropped from the main-checkout label: $m" ;; esac
+# The label must claim only what was measured. "read-only reference" is true of
+# ~/work/<repo> and false of e.g. a dotfiles repo, and this function cannot tell
+# them apart, so it must not say it.
+case "$m" in *"read-only"*) bad "the label asserts a house rule it cannot verify for an arbitrary repo: $m" ;;
+  *) ok "CONTROL: the label claims only the .git shape and what follows from it" ;; esac
 
 w="$(board_origin_label "$T/wt")"
 case "$w" in *worktree*) ok "a linked worktree is named as a worktree" ;;
@@ -49,17 +49,26 @@ case "$w" in *worktree*) ok "a linked worktree is named as a worktree" ;;
 # MAIN CHECKOUT for both would pass every arm above.
 case "$w" in *"MAIN CHECKOUT"*) bad "a worktree was labelled the MAIN CHECKOUT -- the two are not discriminated: $w" ;;
   *) ok "CONTROL: a worktree is NOT labelled the main checkout" ;; esac
-# The worktree arm is detected by matching the word "worktree", so the OTHER label
-# must not contain it or the two collide on any substring match.
 case "$m" in *worktree*) bad "the MAIN CHECKOUT label contains the word 'worktree', so it collides with the worktree match: $m" ;;
   *) ok "CONTROL: the main-checkout label does not contain the word 'worktree'" ;; esac
 
-# A board's cwd is very often a SUBDIRECTORY of the checkout, not its root.
+# --- THE ACCEPTED LIMITATION, asserted so it stays a decision rather than drifting.
+# A subdirectory is NOT classified: it prints the bare path, the pre-#708 output,
+# which is always true. An earlier version searched upward with `git rev-parse` and
+# that one call brought three failure modes; see the library header.
 sub="$(board_origin_label "$T/mainco/engine")"
-case "$sub" in *"MAIN CHECKOUT"*) ok "a SUBDIRECTORY of the main checkout is still classified" ;;
-  *) bad "a subdirectory fell through to the bare path, the pre-#708 output: $sub" ;; esac
-case "$sub" in *"$T/mainco/engine"*) ok "the subdirectory label names where the board actually sits" ;;
-  *) bad "the actual cwd was dropped: $sub" ;; esac
+[ "$sub" = "$T/mainco/engine" ] \
+  && ok "ACCEPTED: a subdirectory is not classified, it prints the bare path (always true)" \
+  || bad "a subdirectory was classified, so the upward search is back: $sub"
+
+# The function must not consult git at all, which is what makes the environment
+# below irrelevant rather than merely handled.
+env_probe="$(GIT_DIR="$T/mainco/.git" GIT_WORK_TREE="$T/mainco" board_origin_label "$T/plainenv" 2>/dev/null)"
+mkdir -p "$T/plainenv"
+env_probe="$(GIT_DIR="$T/mainco/.git" GIT_WORK_TREE="$T/mainco" board_origin_label "$T/plainenv")"
+[ "$env_probe" = "$T/plainenv" ] \
+  && ok "CONTROL: GIT_DIR/GIT_WORK_TREE in the environment cannot make it describe another directory" \
+  || bad "the environment changed the answer: $env_probe"
 
 mkdir -p "$T/plain"
 p="$(board_origin_label "$T/plain")"
@@ -73,7 +82,6 @@ gone="$T/does-not-exist"
 [ "$(board_origin_label "")" = "an unknown directory" ] \
   && ok "an empty cwd reads 'an unknown directory', the pre-#708 wording" \
   || bad "empty cwd: $(board_origin_label "")"
-# `set -u` is on in run-tests.sh, so a missing argument must not abort the run.
 [ "$(board_origin_label)" = "an unknown directory" ] \
   && ok "a MISSING argument does not trip set -u" \
   || bad "a missing argument did not produce the unknown-directory wording"
@@ -86,17 +94,26 @@ case "$s" in *"MAIN CHECKOUT"*"has space"*) ok "a path containing a space surviv
 
 # --- INTEGRATION. Every arm above calls the library directly. Delete the source
 # line or the call in run-tests.sh and all of them stay green while the feature is
-# gone, because the fail-open path is deliberately silent. These two arms are what
-# make the deliverable, rather than the library, the thing under test.
-grep -q 'tools/lib/board-origin.sh' tools/run-tests.sh \
-  && ok "INTEGRATION: run-tests.sh sources the library" \
-  || bad "INTEGRATION: run-tests.sh no longer sources tools/lib/board-origin.sh -- the feature is silently gone"
-# Match the CALL, not the bare name: the `command -v` guard one line above also
-# contains the name, so a bare-name grep stays green when the call is deleted.
-# Found by perturbing this very arm -- it did not go red until it matched this.
-grep -qF 'board_origin_label "$cwd"' tools/run-tests.sh \
+# gone, because the fail-open path is deliberately silent.
+# Both arms match the LINE, not a mention: a bare path/name grep also matches a
+# comment or the `command -v` guard, which is how the first version of the second
+# arm stayed green when the call was deleted.
+grep -qF '. "$REPO/tools/lib/board-origin.sh"' "$REPO/tools/run-tests.sh" \
+  && ok "INTEGRATION: run-tests.sh SOURCES the library" \
+  || bad "INTEGRATION: run-tests.sh no longer sources the library -- the feature is silently gone"
+grep -qF 'board_origin_label "$cwd"' "$REPO/tools/run-tests.sh" \
   && ok "INTEGRATION: run-tests.sh CALLS board_origin_label on the board's cwd" \
-  || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label \"\$cwd\" -- the feature is silently gone"
+  || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label -- the feature is silently gone"
+
+# --- THE FAIL-OPEN PATH, EXECUTED rather than reasoned about. With the function
+# undefined, the caller's guard must reproduce the pre-#708 wording exactly.
+fo="$(bash -c 'set -uo pipefail
+  cwd=""
+  if command -v board_origin_label >/dev/null 2>&1; then where="$(board_origin_label "$cwd")"; else where="${cwd:-an unknown directory}"; fi
+  printf "%s" "$where"')"
+[ "$fo" = "an unknown directory" ] \
+  && ok "FAIL-OPEN: with the library absent the caller reproduces the pre-#708 wording" \
+  || bad "FAIL-OPEN produced: $fo"
 
 [ "$FAILS" -eq 0 ] && echo "board-origin: all arms passed" || echo "board-origin: $FAILS FAILED"
 exit "$FAILS"

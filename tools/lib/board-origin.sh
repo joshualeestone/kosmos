@@ -8,24 +8,40 @@
 # printed the board's cwd beside a red; a bare path leaves the reader to
 # recognise the string, and at 4am reading someone else's failure nobody does.
 #
-# 🛑 ASK GIT, FROM ANY DEPTH. A board's cwd is often a SUBDIRECTORY of the
-# checkout, not its root. An earlier version tested `$dir/.git` directly, which
-# sees the git fact ONLY at the top level: a board running in `<repo>/engine`
-# fell through to the bare path, i.e. exactly the output this function exists to
-# replace. It also made the header's "keys on the git fact, not the path shape"
-# claim FALSE, since testing for `.git` in the directory you were handed IS a
-# path shape. `rev-parse --show-toplevel` resolves the root from any depth and
-# errors (empty) when the path is not in a repo at all.
+# The discriminator: at a checkout root, a MAIN checkout's `.git` is a DIRECTORY
+# and a linked worktree's `.git` is a FILE. Measured both ways, and asserted by
+# two FIXTURE arms in the test so the assertions cannot go vacuous if git ever
+# changes the layout.
 #
-# The discriminator at that root: a main checkout's `.git` is a DIRECTORY; a
-# linked worktree's `.git` is a FILE pointing at the real gitdir. Measured both
-# ways on this machine, and asserted by two FIXTURE arms in the test so the
-# assertions cannot go vacuous if git changes the layout.
+# 🛑 THIS TESTS THE DIRECTORY IT WAS HANDED. IT DOES NOT SEARCH UPWARD, AND THAT
+# IS THE DECISION, NOT AN OVERSIGHT. An earlier version of this file called
+# `git rev-parse --show-toplevel` so a board sitting in a SUBDIRECTORY of a
+# checkout would still be classified. Blind review measured three new failure
+# modes that arrived with that one call, all of them in the one place designed
+# to stop a misread:
+#   1. `rev-parse` searches UPWARD, so a board merely somewhere under a repo was
+#      labelled the MAIN CHECKOUT. With a git-managed $HOME (an ordinary
+#      dotfiles setup) the INSTALLED board, which is not a violation at all,
+#      would be reported as one.
+#   2. `GIT_WORK_TREE` in the caller's environment made it describe a directory
+#      the board is NOT running from.
+#   3. It was the only unbounded probe in `seen_before()` against an arbitrary,
+#      possibly remote path. `lsof` beside it is self-bounded (`-S`, default 15s
+#      per lsof(8)); this was not, and neither `timeout` nor `gtimeout` exists on
+#      this fleet (kosmos#2474).
 #
-# Deliberately DESCRIBES and never refuses. ~30 agents share this Mac and a
-# board is normally up (one was, while this was written), so refusing on a live
-# board would fail correct work constantly; a gate that fails correct work is
-# worse than no gate. Naming it lets a person decide.
+# ⇒ ACCEPTED LIMITATION: a board whose cwd is a SUBDIRECTORY of a checkout is
+# NOT classified; it prints the bare path, which is what this file printed before
+# #708 and is ALWAYS TRUE. A label that is silent is strictly better than one
+# that can assert a violation that is not happening, because the whole purpose
+# here is to stop somebody misreading a red. The #708 incident itself was a board
+# at a checkout ROOT, which is where a server is normally started.
+#
+# 🛑 AND THE LABEL CLAIMS ONLY WHAT IS MEASURED. It says the `.git` shape and the
+# consequence that follows for ANY repo (a server here holds the port and writes
+# into the shared tree). It does NOT say "house rules keep this read-only",
+# because that is true of ~/work/<repo> and false of, say, a dotfiles repo, and
+# this function cannot tell them apart.
 #
 # 🛑 THE MAIN-CHECKOUT LABEL'S OWN PROSE MUST NOT CONTAIN THE WORD "worktree".
 # The worktree arm is recognised by matching that word, so putting it in the
@@ -36,23 +52,10 @@
 # only consumer that substring-matches the output is this library's own test;
 # run-tests.sh interpolates the label into free text and never matches on it.
 #
-# KNOWN RESIDUALS, stated rather than probed for. All three are exotic here:
-#   - a bare repo, and a `--separate-git-dir` checkout: no `.git` directory in
-#     the tree, so not labelled the main checkout
-#   - a git SUBMODULE working directory: its `.git` is a FILE too, so it is
-#     labelled a worktree
-#
-# ⚠️ THE `git` CALL IS UNBOUNDED, DELIBERATELY, AND THAT IS A REAL RESIDUAL.
-# On a wedged mount it could hang the pre-PR gate every agent runs. Measured
-# before accepting it: this machine has NEITHER `timeout` NOR `gtimeout`
-# (kosmos#2474), and `seen_before()` already runs `lsof -a -p <pid> -d cwd`
-# against the same path THREE LINES EARLIER, plus an unbounded `find` over
-# TMPDIR after it. So a bound here would be a visible guard that cannot help:
-# the call before it reaches the same wedged mount first. Bounding one of four
-# unbounded probes is the "safety mechanism that does nothing" shape.
-# WHAT WOULD CHANGE THIS: a portable bound existing on the fleet, or a
-# measurement showing `git` blocks where `lsof -d cwd` does not. The right fix
-# is bounding the whole function, which is a different card.
+# KNOWN RESIDUALS, stated rather than probed for, all exotic here:
+#   - a bare repo has no work tree and no `.git` inside one, so it is unclassified
+#   - a `--separate-git-dir` checkout's `.git` is a FILE, so it reads as a worktree
+#   - a git SUBMODULE working directory's `.git` is a FILE too, same reading
 board_origin_label() {
   # `set -u` is on in the caller, so default every positional.
   local dir="${1:-}"
@@ -61,27 +64,11 @@ board_origin_label() {
   # told and nothing more. Inventing a classification here would be a guess.
   [ -d "$dir" ] || { printf '%s' "$dir"; return 0; }
 
-  # ONE git call for both answers. --show-prefix is $dir's path relative to the
-  # top level and is EMPTY exactly when $dir IS the top level, which is a precise
-  # test where comparing the two strings is not: a symlinked path resolves to a
-  # different string for the same directory and would otherwise print a redundant
-  # "(cwd ...)" naming the same place twice.
-  local out top prefix where
-  out="$(git -C "$dir" rev-parse --show-toplevel --show-prefix 2>/dev/null)"
-  # Not inside a work tree (an installed board runs from $HOME; a bare repo has
-  # none): unchanged wording.
-  [ -n "$out" ] || { printf '%s' "$dir"; return 0; }
-  top="${out%%$'\n'*}"
-  if [ "$out" = "$top" ]; then prefix=""; else prefix="${out#*$'\n'}"; fi
-
-  if [ -d "$top/.git" ]; then
-    where="the MAIN CHECKOUT $top, which house rules keep as a read-only reference, so a server running there holds the port and writes state"
-  elif [ -f "$top/.git" ]; then
-    where="the worktree $top"
+  if [ -d "$dir/.git" ]; then
+    printf 'the MAIN CHECKOUT %s, whose .git is a directory rather than a link, so a server running here holds the port and writes into the shared tree' "$dir"
+  elif [ -f "$dir/.git" ]; then
+    printf 'the worktree %s' "$dir"
   else
-    printf '%s' "$dir"; return 0
+    printf '%s' "$dir"
   fi
-  # A board started in a subdirectory: name the checkout AND where it actually sits.
-  [ -z "$prefix" ] || where="$where (cwd $dir)"
-  printf '%s' "$where"
 }
