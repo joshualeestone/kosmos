@@ -526,7 +526,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 74;   // +1: render-projects-map.js (the problems FAIL-emit loop, #2458)
+  const EXPECTED_SITES = 75;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b)
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
@@ -688,7 +688,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `console.error('FAIL  render-sound-master-2436: could not start a browser' ...)`
      is one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
      Its per-problem finding-emit loop is counted once by the finding-emit scan above (72). */
-  const EXPECTED_CATCH_SITES = 46;   // +1: render-projects-map.js (the could-not-start-a-browser launch catch, #2458)
+  const EXPECTED_CATCH_SITES = 47;   // +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '
