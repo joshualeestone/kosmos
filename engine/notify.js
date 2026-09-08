@@ -7,9 +7,10 @@
  * architecturally as we're building it").
  *
  * 🔑 THE SHAPE IS DECIDED NOW SO THE WEB VERSION AND THE APP DO NOT FIGHT
- * LATER. One POST per event, fire and forget, to an endpoint that today is
- * nobody's (off by default, and the relay that will answer it does not exist
- * yet). The payload carries WHO and WHAT and WHEN and never the words: the
+ * LATER. One POST per event, fire and forget. The send is ON by default (the
+ * #2020 honesty rule below), but no notification relay answers that POST yet,
+ * so do not report notifications as delivered on the strength of the flip.
+ * The payload carries WHO and WHAT and WHEN and never the words: the
  * agent's name, the kind of event, the project's name when there is one, the
  * time, and this install's random id. The words stay on the Mac; the phone
  * fetches them from the Mac when it is opened.
@@ -57,7 +58,9 @@ const endpoint = () => process.env.AGENT_WORKFORCE_NOTIFY_URL || DEFAULT_ENDPOIN
    at the relay's POST /v1/mac/notify, which requires x-kosmos-notify-token. */
 const notifyToken = () => process.env.AGENT_WORKFORCE_NOTIFY_TOKEN || '';
 
-/** Off until somebody turns it on: there is nothing on the other end yet. */
+/** The persisted on/off, with the never-asked default ON (#2020 step 3); only an
+    explicit `false`, or a pref that is unreadable, unparseable, or not a plain
+    object, is off (see below). */
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
