@@ -7087,6 +7087,10 @@ const server = http.createServer((req, res) => {
           name: parsed.name,
           displayName: parsed.displayName,
           provider: parsed.provider,
+          // #2453: the provider's default model KEY, so the import-prefilled create
+          // form lands the agent ON a model (not 'unknown model' + not reachable).
+          // 'sonnet' for a Claude import; null for OpenAI (codex picks its own).
+          model: create.defaultModelKeyFor(parsed.provider),
           instructions: parsed.body,
           /* #1939: true when the file was recognized as agent INSTRUCTIONS (a raw
              CLAUDE.md) rather than a Kosmos export. The form can note that and,
@@ -7210,6 +7214,10 @@ const server = http.createServer((req, res) => {
           name: parsed.name,
           displayName: parsed.displayName,
           provider: parsed.provider,
+          // #2453: the provider's default model KEY, so the import-prefilled create
+          // form lands the agent ON a model (not 'unknown model' + not reachable).
+          // 'sonnet' for a Claude import; null for OpenAI (codex picks its own).
+          model: create.defaultModelKeyFor(parsed.provider),
           instructions: parsed.body,
           recognizedFromContent: parsed.recognizedFromContent,
         });
