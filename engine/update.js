@@ -505,12 +505,21 @@ function wireChild(child, opts) {
   markInstallStarted(owner && owner.startedAt);
   child.on('error', (err) => {
     installStarted = false;
-    /* #988: OWNER IDENTITY, the same guard noteAttemptEnd makes right below and
-       for the same reason it gives ("a superseded attempt's late exit would
-       overwrite the current one"). Captured BEFORE noteAttemptEnd, which replaces
-       lastAttempt. Without it: child A errors and clears, the person presses
-       Install, child B announces 900, then A's late exit clears a LIVE install's
-       banner. */
+    /* #988: OWNER IDENTITY, mirroring the guard noteAttemptEnd makes right below.
+       Captured BEFORE noteAttemptEnd, which replaces lastAttempt.
+       🛑 DEFENSIVE ONLY, AND UNREACHABLE TODAY. An earlier version of this comment
+       described child A erroring, the person pressing Install, and A's late EXIT
+       clearing a live banner: that is the EXIT listener's scenario, not this one's,
+       and stating it here overclaimed what this line does. Single-flight makes the
+       error case different: beginInstall refuses while installStarted is true, and
+       THIS HANDLER is what releases it, so no second attempt can exist when this
+       line runs and `mine` is always true. Measured: replacing it with `true`
+       leaves all suites green, and no test can construct the scenario without
+       breaking single-flight, so it is UNARMED BY CONSTRUCTION rather than by
+       oversight. Kept for symmetry with its armed twin in the exit listener and
+       because it costs one comparison; if single-flight ever stops holding (a
+       second concurrent installer, a partial reset), this is the line that stops
+       it corrupting a live banner. */
     const mine = (owner === lastAttempt);
     noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
     if (mine) updating.announce(0);   // never started, so nothing is applying
@@ -545,6 +554,16 @@ function wireChild(child, opts) {
        such argument below): a SUCCESSFUL install kills this server before the listener runs, so
        an exit that reaches this line is one that did not restart the board. */
     if (owner === lastAttempt) updating.announce(0);   // #988: only THIS attempt may clear
+    /* 🛑 AND THE SAME MASKING MAKES THE BLOCK BELOW DEAD, WHICH THIS BRANCH DOES
+       NOT FIX. `code` is the trailing `if`'s status, so on an ordinary installer
+       failure it is 0 and none of installStarted / noteAttemptEnd / autoFailedAt
+       runs: the flag stays true, every retry answers "already updating", and
+       lastAttempt reports a perpetually in-flight attempt until the board
+       restarts. Pre-existing on main; the clear above is the one line in this
+       listener that handles the masked case, which is why it sits outside.
+       Filed as kosmos#2503 rather than widened into the announce card, and the
+       card carries the trap: a test that makes the child exit non-zero passes
+       while production still never reaches this. */
     if (code !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');

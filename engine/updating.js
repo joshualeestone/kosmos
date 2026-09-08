@@ -36,8 +36,15 @@ const ROUTE = '/v1/mac/updating';
 /* Short on purpose. This runs microseconds after the installer is spawned, on a
  * box about to be busy; a slow coordinator must not hold the update. */
 const TIMEOUT_MS = 3000;
-/* Ask for more than any install should need. The server caps at 15 minutes, so
- * this is a request for the cap rather than a promise about duration. */
+/* 🛑 EXACTLY THE SERVER'S CAP, WITH NO HEADROOM AND NO RENEWAL, AND AN EARLIER
+ * VERSION OF THIS COMMENT SAID "more than any install should need", WHICH IS NOT
+ * TRUE OF A VALUE EQUAL TO THE CAP. The server caps at 15 minutes; this asks for
+ * all of it and nothing renews. An install that runs past fifteen minutes drops
+ * the banner mid-apply and the phone reverts to the same "not answering" this
+ * card exists to remove. A couple-hundred-MB bundle over a slow link reaches
+ * that, so it is a real limit rather than a theoretical one. Left as is because a
+ * renewal timer adds a second moving part to the install path, and the failure
+ * direction is today's behaviour; recorded as a weakest premise in the plan. */
 const DEFAULT_SECONDS = 900;
 
 /* Test seam. It replaces THE TRANSPORT AND NOTHING ELSE: enrolment, the
@@ -76,7 +83,15 @@ function seconds(v) {
      FINISH signal: the exact direction the rule above exists to avoid. A caller
      typo of -1 would have cleared a live banner. Only 0 itself means finished. */
   if (v < 0) return DEFAULT_SECONDS;
-  return Math.trunc(v);
+  const n = Math.trunc(v);
+  /* And the SAME inversion from the other side, which the sentence above claimed
+     was already covered and was not: Math.trunc maps every 0 < v < 1 to 0, so
+     announce(0.5) asked for half a second and got the FINISH signal. Measured
+     before the fix: seconds(0.5), seconds(0.9) and seconds(0.0001) all returned
+     0. A sub-second request is not a finish; floor it at one second, which is the
+     nearest honest answer and keeps "only 0 itself means finished" true. */
+  if (v > 0 && n === 0) return 1;
+  return n;
 }
 
 /* announce(n) -- best effort. Returns nothing, throws nothing, blocks nothing.

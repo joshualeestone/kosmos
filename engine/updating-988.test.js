@@ -39,7 +39,31 @@ const update = require('./update');
    can curl installkosmos.com from every agent's suite run. engine.update-poll-1945
    injects a fetcher before every startPolling for exactly this reason; this file
    does it once, globally, so no arm can forget. */
-update.setFetcher(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+const IDLE_FETCH = async () => ({ ok: false, status: 503, json: async () => ({}) });
+update.setFetcher(IDLE_FETCH);
+
+/* Wait until pred() holds, or a generous deadline passes. A FIXED SLEEP asserts a
+   scheduling guarantee node does not give: this fleet routinely sits at load 25 on
+   10 cores, and a 10ms interval can miss a 40ms window, which reds the arm for a
+   scheduling reason while printing a message about the product. Polling is fast
+   when the box is idle and correct when it is not. */
+async function until(pred, ms = 5000) {
+  const deadline = Date.now() + ms;
+  while (!pred() && Date.now() < deadline) await new Promise((r) => setTimeout(r, 5));
+  return pred();
+}
+
+/* TICK EVIDENCE, so an arm asserting "nothing was announced" cannot pass because
+   no tick ever ran. poke() is TTL-gated, so this counts at most one call per
+   resetCache() window: it proves AT LEAST ONE tick fired and is NOT a tick counter.
+   Measured with a discriminating control: a 10ms interval produces 1 call in 90ms
+   and a 60s interval produces 0, so a call is tick evidence and startPolling does
+   not fetch at boot. */
+function countTicks() {
+  const state = { n: 0, restore() { update.setFetcher(IDLE_FETCH); } };
+  update.setFetcher(async (...a) => { state.n += 1; return IDLE_FETCH(...a); });
+  return state;
+}
 
 /* The COMMERCIAL switch lives in remote.json under the DATA root, not in the
    state dir, so it is a separate axis from enrolment and has to be set
@@ -85,6 +109,12 @@ function capture() {
   updating.setRequestFactory((opts, body) => { calls.push({ opts, body }); return fakeReq(); });
   return calls;
 }
+/* The switch is a FILE, so an arm run ALONE (--test-name-pattern) would find
+   remote.json missing and read off, failing for a fixture reason. afterEach alone
+   made the arms order-dependent: each one relied on a PREVIOUS arm having written
+   it. Setting it before as well as after removes the dependency. */
+test.beforeEach(() => { setPlus(true); });
+
 test.afterEach(() => {
   updating.setRequestFactory(null);
   delete process.env.AGENT_WORKFORCE_TUNNEL_STATE;
@@ -376,8 +406,26 @@ test('#988: a NEGATIVE deadline asks for the default, it does not mean "finished
   assert.equal(updating.seconds(0), 0, 'only an explicit 0 means finished');
 });
 
-test('#988: the default asks for more than any install needs, because the server caps it', () => {
-  assert.ok(updating.DEFAULT_SECONDS >= 900);
+test('#988: a SUB-SECOND deadline is not "finished" either', () => {
+  /* The mirror of the negative case, and the sentence above it claimed to cover
+     this and did not. Math.trunc maps every 0 < v < 1 to 0, which is the FINISH
+     signal, so announce(0.5) asked for half a second and cleared a live banner.
+     Measured before the fix: 0.5, 0.9 and 0.0001 all returned 0. */
+  assert.equal(updating.seconds(0.5), 1, 'half a second is a request, not a finish');
+  assert.equal(updating.seconds(0.9), 1);
+  assert.equal(updating.seconds(0.0001), 1);
+  assert.equal(updating.seconds(1.7), 1, 'truncation still applies at and above one second');
+  assert.equal(updating.seconds(0), 0, 'and 0 itself still means finished');
+});
+
+test('#988: the default is EXACTLY the cap, which is a limit and not headroom', () => {
+  /* The arm's own name used to say the default "asks for more than any install
+     needs", repeating a claim the code comment made and that is false of a value
+     equal to the cap. It is 900 and the server caps at 900: an install running
+     past fifteen minutes loses the banner mid-apply. Asserting equality rather
+     than `>= 900` so that raising it (which would need a renewal story) cannot
+     pass silently under an assertion written to be generous. */
+  assert.equal(updating.DEFAULT_SECONDS, 900, 'the documented server cap, with no headroom');
 });
 
 /* ---- fail-open, which is the governing constraint ------------------------- */
@@ -464,13 +512,16 @@ test('#988 WIRING: the boot clear repeats once on the first tick, because a lost
      and clears the flag. */
   update.resetCache();
   const calls = capture();
+  const clears = () => calls.filter((c) => JSON.parse(c.body).seconds === 0).length;
   update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(10);
-  await new Promise((r) => setTimeout(r, 40));
-  clearInterval(t);
-  update.setInstalledRoot(null);
-  const cleared = calls.filter((c) => JSON.parse(c.body).seconds === 0);
-  assert.ok(cleared.length >= 2, `a single unretried clear is the exposure; got ${cleared.length}`);
+  try {
+    await until(() => clears() >= 2);
+  } finally {
+    clearInterval(t);
+    update.setInstalledRoot(null);
+  }
+  assert.ok(clears() >= 2, `a single unretried clear is the exposure; got ${clears()}`);
 });
 
 test('#988 WIRING: a boot may only ever clear, never set', () => {
@@ -590,12 +641,21 @@ test('#988: the first-tick clear happens ONCE, not on every tick forever', async
   enrol();
   update.resetCache();
   const calls = capture();
+  const clears = () => calls.filter((c) => JSON.parse(c.body).seconds === 0).length;
   update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(10);
-  await new Promise((r) => setTimeout(r, 90));
-  clearInterval(t);
-  update.setInstalledRoot(null);
-  const cleared = calls.filter((c) => JSON.parse(c.body).seconds === 0).length;
+  try {
+    /* Poll for the LOW side (a missed tick is a scheduling flake), then give the
+       interval a further fixed window for the HIGH side. The asymmetry is
+       deliberate: load can only REDUCE the number of ticks, so a busy box cannot
+       manufacture the extra clear this arm is looking for. */
+    await until(() => clears() >= 2);
+    await new Promise((r) => setTimeout(r, 90));
+  } finally {
+    clearInterval(t);
+    update.setInstalledRoot(null);
+  }
+  const cleared = clears();
   assert.ok(cleared >= 2, `boot plus one tick expected; got ${cleared}`);
   /* Exactly 2 is what the code can produce (boot + one eligible tick); the bound
      was 3 and the slack was never reachable. */
@@ -782,14 +842,24 @@ test('#988: the first-tick clear does NOT cancel a RUNNING install', async () =>
   update.resetCache();
   const calls = capture();
   update.setInstalledRoot(() => SANDBOX);
+  const ticks = countTicks();
   const t = update.startPolling(20);
   update.setInstallRunner(() => ({ on() { return this; } }));
-  try { update.beginInstall({}); } catch { /* fake child shape is not under test */ }
-  await new Promise((r) => setTimeout(r, 90));
-  clearInterval(t);
-  update.setInstallRunner(null);
-  update.setInstalledRoot(null);
+  try {
+    try { update.beginInstall({}); } catch { /* fake child shape is not under test */ }
+    /* 🛑 WAIT FOR A TICK, DO NOT SLEEP FOR ONE. This arm asserts that NOTHING was
+       announced by the tick, which is exactly what a run where no tick ever fired
+       also produces. A fixed sleep on a loaded box therefore passes it for the
+       wrong reason. */
+    await until(() => ticks.n >= 1);
+  } finally {
+    clearInterval(t);
+    update.setInstallRunner(null);
+    update.setInstalledRoot(null);
+    ticks.restore();
+  }
   const seq = calls.map((c) => JSON.parse(c.body).seconds);
+  assert.ok(ticks.n >= 1, 'a tick must actually have fired, or "no tick clear" proves nothing');
   assert.ok(update.alreadyInstalling(), 'the fixture must leave an install in flight, or this proves nothing');
   assert.deepEqual(seq, [0, updating.DEFAULT_SECONDS],
     `boot clear then the begin announce, and NO tick clear while installing; got ${JSON.stringify(seq)}`);
@@ -835,11 +905,19 @@ test('#988: a SOURCE CHECKOUT is silent on the first TICK too, not just at boot'
      whole suite stayed green. Two gates, two arms. */
   enrol();
   const calls = capture();
+  const ticks = countTicks();
   update.setInstalledRoot(() => null);
   const t = update.startPolling(10);
-  await new Promise((r) => setTimeout(r, 60));
-  clearInterval(t);
-  update.setInstalledRoot(null);
+  try {
+    /* Same reason as the install-in-flight arm: "announced nothing" and "never
+       ticked" are the same observation, so the tick has to be witnessed. */
+    await until(() => ticks.n >= 1);
+  } finally {
+    clearInterval(t);
+    update.setInstalledRoot(null);
+    ticks.restore();
+  }
+  assert.ok(ticks.n >= 1, 'a tick must actually have fired, or this arm proves nothing');
   assert.equal(calls.length, 0, 'the first-tick clear needs its own installedRoot gate');
 });
 
