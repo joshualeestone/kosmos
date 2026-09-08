@@ -5544,15 +5544,18 @@ test('the way back is on the last step, on every ending a person can get', () =>
   }
 });
 
-test('the fleet screen renders every path, and a broken payload lands on "we could not see"', () => {
+test('#2497: the fleet screen lands on Giddy Up on every path, including a broken payload', () => {
   const adopt = firstRunHarness('frPaintFleet', {
     FR: { path: 'adopt', fleetCount: 13, fleetNames: ['Splinter', 'Angel'] },
   });
-  assert.match(adopt.els['fr-fleet-title'].textContent, /13 agents/);
-  // No name chips, at Josh's word (2026-08-17): the heading's count is the
-  // claim, and a 600-agent fleet must not become a 600-chip screen.
-  assert.ok(!/fr-name/.test(adopt.els['fr-fleet'].innerHTML), 'the chip list came back');
-  assert.match(adopt.els['fr-fleet'].innerHTML, /nothing to import/i);
+  // #2497: even an adopt machine (13 running agents) lands on the no-agent create / Giddy Up
+  // screen. Onboarding no longer counts a fleet or offers to import it (Josh, watching Ben/Nacho:
+  // a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
+  // later via the manual Import Agent (#1652) on the Create Agent screen.
+  assert.match(adopt.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.ok(!/already have|nothing to import|fr-name/.test(adopt.els['fr-fleet'].innerHTML),
+    'onboarding still counts or offers the fleet on the adopt path');
 
   const create = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
@@ -5561,8 +5564,11 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   // The endings ARE this screen's actions now, buttons verbatim from the
   // pack (spec ed29b78): adopt and create carry ONE action each; only the
   // unknown ending gets two, asserted in the broken-payload loop below.
-  assert.equal(adopt.actions.primary, 'Take me to my agents', JSON.stringify(adopt.actions));
-  assert.equal(adopt.actions.alt, undefined, 'the adopt ending grew a second button');
+  // #2497: frPaintFleet renders the Giddy Up action directly on every path now, not the
+  // path-specific ending. (frForkActions' own per-path buttons are still asserted below - it is
+  // retained machinery, just no longer reached from the bypassed frPaintFleet arms.)
+  assert.equal(adopt.actions.primary, 'Giddy Up', JSON.stringify(adopt.actions));
+  assert.equal(adopt.actions.alt, undefined, 'the Giddy Up ending grew a second button');
   /* Josh, 2026-08-27 20:31 CT: "Instead of the button saying 'Create my first
      agent,' I want it to say 'Giddy Up.'"
      ⚠️ THIS ASSERTION WAS PINNED TO THE PACK ("buttons verbatim from the pack,
@@ -5575,9 +5581,11 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   assert.equal(create.actions.alt, undefined, 'the create ending grew a second button');
 
   /**
-   * ⚠️ EVERY MALFORMED SHAPE LANDS ON "we could not see", never on a fork. The
-   * board is built from `tmux`, and guessing "make your first agent" at somebody
-   * with a running fleet is the version of this mistake that looks broken.
+   * ⚠️ #2497: EVERY MALFORMED SHAPE LANDS ON THE CREATE / GIDDY UP SCREEN. Onboarding no longer
+   * reads the payload's path/count before rendering (the forced return precedes the fork), so a
+   * bad payload can neither crash into a placeholder nor drop the person onto a "we could not see"
+   * two-way fork; it lands on the same no-agent create screen every first run gets. (Before #2497
+   * this loop asserted "we could not see" for these shapes; that fork no longer runs on first run.)
    */
   for (const FR of [
     null,
@@ -5598,18 +5606,18 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
      * malformed shape lands on "we could not see"; nothing tested it, and one
      * of the shapes in its own list did not.
      */
-    assert.match(title, /could not see/i,
-      `payload ${JSON.stringify(FR)} rendered a fork rather than "we could not see": "${title}"`);
+    // #2497: onboarding renders the create / Giddy Up screen for EVERY payload, including a
+    // malformed one -- the forced return runs before the path fork, so a bad payload never
+    // crashes into a placeholder and never drops the person onto a two-way "we could not see" fork.
+    assert.match(title, /Create your first agent/i,
+      `payload ${JSON.stringify(FR)} did not land on the create screen: "${title}"`);
     assert.ok(!/undefined|NaN|null/.test(title + body),
       `payload ${JSON.stringify(FR)} put a placeholder on screen: "${title}"`);
     assert.ok(body.length > 0, `payload ${JSON.stringify(FR)} rendered an empty screen`);
-    // Every malformed shape lands on the pack's ending C, the one screen
-    // in the flow with TWO actions -- it refuses to choose because either
-    // single guess would be a lie (spec ed29b78, pack ENDINGS verbatim).
-    assert.equal(got.actions && got.actions.primary, 'Show me my agents',
-      `payload ${JSON.stringify(FR)} left the person short of a way onward: ${JSON.stringify(got.actions)}`);
-    assert.equal(got.actions.alt, 'Create an agent',
-      `payload ${JSON.stringify(FR)} lost ending C's second door: ${JSON.stringify(got.actions)}`);
+    assert.equal(got.actions && got.actions.primary, 'Giddy Up',
+      `payload ${JSON.stringify(FR)} did not render the Giddy Up action: ${JSON.stringify(got.actions)}`);
+    assert.equal(got.actions.alt, undefined,
+      `payload ${JSON.stringify(FR)} grew a second button: ${JSON.stringify(got.actions)}`);
   }
 
   // The pack's endings' buttons, per path: adopt and create carry ONE,
@@ -5646,17 +5654,22 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   }
 });
 
-test('the fork step does not promise a working agent over a check screen that disagreed', () => {
+test('#2497: the fleet step makes no machine-state promise (now the unconditional Giddy Up screen)', () => {
   /**
-   * ⚠️ THREE CASES, and the first version of this collapsed them to two. "We
-   * never checked" is not "we checked and it was fine", and an `unknown` row is
-   * not a clean one — filtering only `attention` dropped three "we could not
-   * check" findings and made the promise anyway.
+   * ⚠️ #2497 STRENGTHENS this test's concern by construction: the fleet step (frPaintFleet) now
+   * ALWAYS renders the no-agent "Create your first agent." / Giddy Up screen, whatever the machine
+   * state, so it can never repeat a check-screen finding NOR promise a working agent. Each case
+   * below anchors on that positive render (so the absence assertions are NOT vacuous -- they only
+   * pass because the Giddy Up screen genuinely rendered and carries no machine copy), then keeps
+   * the original absence guards. FR_MACHINE is now ignored by this screen (retired from the create
+   * arm; the machine check lives one step earlier).
    */
   const clean = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: { checks: [{ key: 'sleep', state: 'ok', title: 'fine', detail: 'fine' }], attention: 0, unknown: 0 },
   });
+  assert.match(clean.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'the fleet step no longer lands on the Giddy Up screen');
   assert.ok(!/still outstanding|did not get to look/.test(clean.els['fr-fleet'].innerHTML),
     'warned about a machine that checked out clean');
 
@@ -5672,6 +5685,8 @@ test('the fork step does not promise a working agent over a check screen that di
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
+  assert.match(snagged.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'a snagged machine no longer lands on the Giddy Up screen (would make the absence checks vacuous)');
   /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
      own screen: "I'm still seeing this: this computer goes to sleep after 1
      minute. An agent made now may not run until I sort. Let's delete that whole
@@ -5698,6 +5713,8 @@ test('the fork step does not promise a working agent over a check screen that di
      claim at all, so there is nothing to caveat. Asserting the absence of the
      claim is the stronger form -- it fails if anyone puts an "everything is
      ready" back, which a confession-shaped test never could. */
+  assert.match(never.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'a person who never saw the check screen no longer lands on the Giddy Up screen');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
     'a person who never saw the check screen is being told everything is in place');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /did not get to look/,
@@ -9847,41 +9864,40 @@ test('the rows arrive one at a time, and an unrevealed row says it is working', 
   assert.doesNotMatch(globalThis.__el2.innerHTML, /class="tick working"/);
 });
 
-test('somebody who already has agents is never told they have none', () => {
+test('#2497: first run lands on Giddy Up regardless of what is on the disk (no auto-surfaced fleet)', () => {
   /**
-   * 🛑 THE SENTENCE THIS REMOVES. "There are none on this computer yet" was
-   * shown to the first person outside this team to install Kosmos, on a Mac
-   * running two of her own agents. Josh, 2026-08-22: "the most catastrophic
-   * flaw in the entire system."
+   * 🛑 #2497 (Josh, 2026-09-08, watching Ben + Nacho test) SUPERSEDES the #320/2026-08-22
+   * "look on the disk before saying anybody has nothing" behavior FOR ONBOARDING. That behavior
+   * surfaced found agents on the first-run screen; on a developer's box (many tmux Claude Code
+   * sessions) it filled the board with garbage throwaway agents. Josh ruled that first run always
+   * lands on the no-agent "Create your first agent." / Giddy Up screen, even when agents ARE found,
+   * and that the manual Import Agent (#1652) on the Create Agent screen is the way to pull real
+   * ones in later. So none of the disk states (not-looked / found-some / found-none / could-not-
+   * look) changes what the first-run screen shows now: it is always the create / Giddy Up screen.
    *
-   * The cause was that `path` is decided from tmux, which is processes running
-   * RIGHT NOW, while a person means the agents they have made. The fix looks on
-   * the disk before saying anybody has nothing.
-   *
-   * ⚠️ THREE STATES, AND THE MIDDLE ONE IS THE POINT: not looked yet, looked and
-   * found some, looked and found none. Only the third may say "none".
+   * ⚠️ The #320 concern (never tell someone with agents they have none) was real and is knowingly
+   * traded away here by Josh's explicit ruling; the mitigation is the manual Import path, and the
+   * discovery engine that reaches the disk (/api/scan-import) is kept for it - only its automatic
+   * invocation on first run is gone.
    */
   const create = { path: 'create', fleetCount: 0 };
 
-  /* Not looked yet: it must not say either thing. */
+  /* Not looked yet (FR_FOUND null): no "looking" state anymore - onboarding does not scan. */
   const looking = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: null });
-  assert.match(looking.els['fr-fleet-title'].textContent, /Looking for agents/i);
-  assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /none on this computer/i,
-    'the empty claim was made before the search had run');
+  assert.match(looking.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /Looking for agents|none on this computer/i,
+    'onboarding still shows a looking/empty-claim state instead of the Giddy Up screen');
 
-  /* Looked and found some: the empty state is replaced outright. */
+  /* Found agents on disk: they are NOT surfaced on first run (the #2497 reversal). */
   const found = firstRunHarness('frPaintFleet', {
     FR: create,
     FR_FOUND: { ok: true, agents: [{ dir: '/w/mike', name: 'Mike', role: 'copywriter' }] },
   });
-  assert.doesNotMatch(found.els['fr-fleet'].innerHTML || '', /none on this computer/i,
-    'somebody with agents was still told they have none');
-  assert.match(found.els['fr-fleet-title'].textContent, /found an agent on this computer/i,
-    'the title conflates being on the Mac with being in Kosmos');
-  assert.match(found.els['fr-fleet'].innerHTML, /not in Kosmos yet/i,
-    'the screen no longer says what has NOT happened, which is the whole distinction');
-  assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /<input/i,
-    'a control that cannot act is back on the row');
+  assert.match(found.els['fr-fleet-title'].textContent, /Create your first agent/i,
+    'first run surfaced found agents instead of the create / Giddy Up screen');
+  assert.match(found.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /found an agent|not in Kosmos yet|<input/i,
+    'first run still renders a found-agents list; #2497 removed auto-import from onboarding');
 
   /* Looked and found none: says what the search did, not what the machine
      holds (#320). "None on this computer" was a claim about the computer. */

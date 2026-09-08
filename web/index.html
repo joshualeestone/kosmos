@@ -8875,10 +8875,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fc-eyebrow">Your agents</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
-             text below is only the default; the live flow rewrites it per path:
-             found -> "We found N agents on this computer", adopt -> "You already
-             have N agents here.", create -> "Create your first agent." -->
-        <h2 id="fr-fleet-title">We found existing AGENTS on this computer</h2>
+             text below is only the pre-JS default. #2497: first run now ALWAYS
+             lands on the no-agent create screen, so the default matches that
+             outcome to avoid a flash of the wrong heading before JS runs. The
+             kept-but-bypassed engine can still rewrite it to "We found N agents
+             on this computer" / "You already have N agents here." elsewhere. -->
+        <h2 id="fr-fleet-title">Create your first agent.</h2>
         <!-- install-flow-9screen: the found/create/adopt fork renders into
              #fr-fleet below (the existing, tested add/undo/adopt flow, which
              already implements S9a's intent: "We found N agents..." + a per-row
@@ -41275,6 +41277,25 @@ function frPaintFleet() {
      cannot drift back to this step or fall out of the flow unnoticed. */
 
   const count = FR && FR.fleetCount;
+
+  /* 🛑 #2497: ONBOARDING NEVER AUTO-SCANS OR AUTO-IMPORTS. Josh, 2026-09-08, watching Ben and
+     Nacho test: a developer's many tmux Claude Code sessions filled first run with garbage
+     throwaway agents. First run ALWAYS lands on the no-agent "Create your first agent." / Giddy
+     Up screen, exactly as if the machine had no agents, whatever the real path (adopt/create/
+     unknown) or fleetCount. Real agents are pulled in LATER via the manual Import Agent (#1652)
+     on the Create Agent screen (openCreate -> pickMode('import') -> /api/scan-import), a separate
+     flow this does not touch. Force the create empty state here and fire NO discovery
+     (frFindAgents / frScanAgents), so the auto /api/scan-agents walk never runs on first launch.
+     ⚠️ The action is the create-path "Giddy Up" (-> Create Agent) explicitly, NOT frForkActions,
+     which honors the real FR.path and would render "Take me to my agents" on an adopt machine -
+     the card wants the no-agent path regardless. The three scan arms below are DELIBERATELY
+     unreachable now and KEPT as the discovery machinery (the card: "do not delete discovery, just
+     stop invoking it automatically during onboarding"); they are re-enabled by removing this
+     block. The grant-flip poll never arms (frArmRescanOnGrant is reached only from those arms). */
+  title.textContent = 'Create your first agent.';
+  box.innerHTML = '<p>Let\u2019s get started.</p>';
+  frActions({ label: 'Giddy Up', go: () => frFinish(openCreate) });
+  return;
 
   /**
    * ⚠️ THE ADOPT SCREEN NEEDS A REAL COUNT, not just the word "adopt". Without

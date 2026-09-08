@@ -58,6 +58,46 @@ test('FR_STEPS equals the number of fr-pane-N containers, so the tail steps are 
   assert.equal(steps, 9, 'the 9-screen flow should have FR_STEPS = 9');
 });
 
+test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fires no auto-scan', () => {
+  // The onboarding S9 painter must land every first run on the create / "Giddy Up" screen
+  // (as if the machine had no agents) and must NOT auto-scan/auto-import: the forced create
+  // render returns BEFORE any frScanAgents/frFindAgents call, and ahead of the adopt/create/
+  // unknown path fork, so a non-empty roster still lands on Giddy Up. (#2497, Josh 2026-09-08.)
+  const open = PAGE.indexOf('function frPaintFleet() {');
+  assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
+  const end = PAGE.indexOf('\n}', open);   // the file's function terminator (} at column 0)
+  assert.ok(end !== -1, 'could not find the end of frPaintFleet');
+  const body = PAGE.slice(open, end);
+
+  // The forced no-agent create / Giddy Up render is present.
+  assert.match(body, /title\.textContent = 'Create your first agent\.';/,
+    'frPaintFleet no longer forces the create heading on first run');
+  assert.match(body, /Let\\u2019s get started\./,
+    'frPaintFleet no longer shows the Giddy Up "Let’s get started" copy');
+  assert.match(body, /frActions\(\{ label: 'Giddy Up', go: \(\) => frFinish\(openCreate\) \}\)/,
+    'frPaintFleet no longer renders the Giddy Up action');
+
+  const forced = body.indexOf("frActions({ label: 'Giddy Up'");
+  const forcedReturn = body.indexOf('return;', forced);
+  assert.ok(forced !== -1 && forcedReturn !== -1, 'the forced Giddy Up block or its return is gone');
+
+  // Discovery must still EXIST in the function (kept-but-bypassed arms; the card says do not
+  // delete the engine) -- but every call must sit AFTER the forced return, so none fires on first run.
+  const firstScan = body.indexOf('frScanAgents(');
+  const firstFind = body.indexOf('frFindAgents(');
+  assert.ok(firstScan !== -1 || firstFind !== -1,
+    'no frScanAgents/frFindAgents in frPaintFleet: discovery was deleted (keep it) or this guard is vacuous');
+  if (firstScan !== -1) assert.ok(forcedReturn < firstScan,
+    'a frScanAgents call runs before the forced Giddy Up return: onboarding still auto-scans');
+  if (firstFind !== -1) assert.ok(forcedReturn < firstFind,
+    'a frFindAgents call runs before the forced Giddy Up return: onboarding still auto-discovers');
+
+  // The forced return precedes the path fork, so first run lands on Giddy Up regardless of fleet.
+  const firstPathBranch = body.search(/if \(path === /);
+  assert.ok(firstPathBranch === -1 || forcedReturn < firstPathBranch,
+    'the forced Giddy Up return comes after a path branch; a non-empty roster would miss it');
+});
+
 test('every fr-pane-N carries its own <h2> (frFocusActiveHead focuses it; a null head breaks focus/aria)', () => {
   // frGo -> frFocusActiveHead(pane) does paneEl.querySelector('h2'); a pane with
   // no <h2> would leave FR_ACTIVE_H2 null and the dialog with no accessible name.
