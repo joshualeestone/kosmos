@@ -32259,9 +32259,11 @@ function paintProjectTasks(p) {
      `behind > 0` to `(behind + hiddenByCap) > 0` so a project with eight open
      tasks and none finished did not lose three of them with no control on
      screen to reach them.
-     ⇒ THE DOOR IS UNCONDITIONAL NOW, because its destination is every project
-     rather than this one's hidden rows, so `behind` and `hiddenByCap` have no
-     consumer and are gone. The cap itself is unchanged and still five. */
+     ⇒ THE DOOR IS UNCONDITIONAL NOW, because its destination is ALL of this
+     project's tasks (past the column's cap, finished included, #2498 scoped it
+     back to this one project), so this project's hidden rows are always
+     reachable through it and `behind`/`hiddenByCap` have no consumer and are
+     gone. The cap itself is unchanged and still five. */
   const TK_COLUMN_MAX = 5;
   const showing = column.slice(0, TK_COLUMN_MAX);
   // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN
@@ -32371,9 +32373,10 @@ function paintProjectTasks(p) {
  * ALL of the tasks".
  *
  * 🔑 THE BEHAVIOUR IT REPLACES IS NOT LOST, IT MOVED. Revealing in place showed
- * this project's tasks past the five-cap and its finished ones. This screen is
- * a strict superset: every task on every project, capped-off and finished
- * included.
+ * this project's tasks past the five-cap and its finished ones. This screen
+ * shows all of THIS project's tasks (#2498 scoped it to the project the door
+ * was opened from), capped-off and finished included - a superset of the
+ * project's column, not of every project.
  */
 document.getElementById('pj-alltasks').addEventListener('click', openAllTasksView);
 
@@ -32382,7 +32385,8 @@ document.getElementById('alltasks-back').addEventListener('click', () => {
 });
 
 /**
- * Every task on every project.
+ * Every task on the current project, open and finished (#2498 scoped it from
+ * the old every-project set to the project this door was opened from).
  *
  * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
  * tasks yet" is a claim about somebody's own work; the route refuses to serve
@@ -32405,7 +32409,7 @@ async function openAllTasksView() {
      was opened from, so the description names that project rather than the old
      "Across every project." (which was true only while the screen was global). */
   const desc = document.getElementById('alltasks-desc');
-  if (desc) desc.textContent = here ? here.name : 'In this project.';
+  if (desc) desc.textContent = here ? ('In ' + here.name + '.') : 'In this project.';
   list.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
   pjView('alltasks');
   let body = null;
