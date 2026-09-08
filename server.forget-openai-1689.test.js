@@ -50,7 +50,7 @@ function codexAccount(home, label) {
 
 /** The profile IS Kosmos's record that an agent exists, independent of any process. */
 function profileFor(ctx, name) {
-  const dir = nodePath.join(ctx.sb, 'data', 'AgentWorkforce', 'profiles');
+  const dir = nodePath.join(ctx.sb, 'data', 'Kosmos', 'profiles');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, name + '.json'), JSON.stringify({ displayName: name }));
 }
@@ -184,7 +184,7 @@ test('#1689 CONTROL: a REMOVED agent does NOT block, so the union cannot resurre
     const dir = codexAccount(ctx.home, 'ghosted');
     agentOn(ctx, 'departed', dir, 'codex', false);
     /* Record it as removed, the way the product does. */
-    const dataDir = nodePath.join(ctx.sb, 'data', 'AgentWorkforce');
+    const dataDir = nodePath.join(ctx.sb, 'data', 'Kosmos');
     fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(nodePath.join(dataDir, 'removed.json'),
       JSON.stringify([{ name: 'departed', removedAt: new Date().toISOString(), stopped: true }]));

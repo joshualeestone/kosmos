@@ -42,7 +42,7 @@ const create = require('./engine/create');
  */
 function boardWithJobOnlyLeftover() {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-lr-'));
-  const profiles = nodePath.join(sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(sb, 'data', 'Kosmos', 'profiles');
   const launch = nodePath.join(sb, 'launch');
   fs.mkdirSync(profiles, { recursive: true });
   fs.mkdirSync(launch, { recursive: true });

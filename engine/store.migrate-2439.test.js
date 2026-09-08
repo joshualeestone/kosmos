@@ -27,10 +27,17 @@ const store = require('./store');
 function sandbox() { return fs.mkdtempSync(path.join(os.tmpdir(), 'store-migrate-2439-')); }
 function withData(dir, fn) {
   const prev = process.env.AGENT_WORKFORCE_DATA;
+  // This suite EXERCISES the migration, so clear the #2439 fleet-safety opt-out that the
+  // test harness / a shared box sets to keep un-sandboxed runs from migrating the real
+  // store (KOSMOS_NO_LEGACY_MIGRATION). Restore it after, so the ambient env is unchanged.
+  const prevNoMig = process.env.KOSMOS_NO_LEGACY_MIGRATION;
   process.env.AGENT_WORKFORCE_DATA = dir;
+  delete process.env.KOSMOS_NO_LEGACY_MIGRATION;
   try { return fn(); } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA;
     else process.env.AGENT_WORKFORCE_DATA = prev;
+    if (prevNoMig === undefined) delete process.env.KOSMOS_NO_LEGACY_MIGRATION;
+    else process.env.KOSMOS_NO_LEGACY_MIGRATION = prevNoMig;
   }
 }
 const legacyLeaf = (dir) => path.join(dir, store.LEGACY_APP);
@@ -50,6 +57,30 @@ test('#2439: a legacy store with no new store is MOVED to the new leaf, intact',
       'the data moved intact under the new leaf');
     assert.equal(fs.existsSync(legacy), false, 'the legacy store was MOVED, not left orphaned');
   });
+});
+
+test('#2439: KOSMOS_NO_LEGACY_MIGRATION=1 skips the migration (fleet-safety opt-out; legacy intact, no new leaf)', () => {
+  // Sets the opt-out directly (NOT via withData, which clears it), then proves a legacy
+  // store is LEFT in place: this is the guard that stops un-sandboxed test runs (and the
+  // shared box) from renaming the real fleet store.
+  const dir = sandbox();
+  const prevData = process.env.AGENT_WORKFORCE_DATA;
+  const prevNoMig = process.env.KOSMOS_NO_LEGACY_MIGRATION;
+  process.env.AGENT_WORKFORCE_DATA = dir;
+  process.env.KOSMOS_NO_LEGACY_MIGRATION = '1';
+  try {
+    const legacy = legacyLeaf(dir);
+    fs.mkdirSync(path.join(legacy, 'profiles'), { recursive: true });
+    fs.writeFileSync(path.join(legacy, 'profiles', 'ben.json'), '{"name":"ben"}');
+    void store.ROOT;  // would MOVE legacy -> new if the opt-out were not honored (see the arm above)
+    assert.equal(fs.existsSync(legacy), true, 'the opt-out was ignored: the legacy store was migrated');
+    assert.equal(fs.existsSync(newLeaf(dir)), false, 'the opt-out was ignored: a new leaf was created');
+    assert.equal(fs.readFileSync(path.join(legacy, 'profiles', 'ben.json'), 'utf8'), '{"name":"ben"}',
+      'the legacy data was disturbed while the opt-out was set');
+  } finally {
+    if (prevData === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prevData;
+    if (prevNoMig === undefined) delete process.env.KOSMOS_NO_LEGACY_MIGRATION; else process.env.KOSMOS_NO_LEGACY_MIGRATION = prevNoMig;
+  }
 });
 
 test('#2439: an existing new store with no legacy is left untouched', () => {

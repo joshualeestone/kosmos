@@ -35,14 +35,14 @@ const REPO = __dirname;
 function boardWithSeededIds(tmuxScript) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-id-'));
   const data = nodePath.join(sb, 'data');
-  const profiles = nodePath.join(data, 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(data, 'Kosmos', 'profiles');
   const workers = nodePath.join(sb, 'workers');
   fs.mkdirSync(profiles, { recursive: true });
 
   // Pin this sandbox's install id BEFORE the server ever runs.
   // #1856: ping.js now routes through store.ROOT, so ping.json lives under the
-  // AgentWorkforce leaf (like profiles above), not the bare data root.
-  fs.writeFileSync(nodePath.join(data, 'AgentWorkforce', 'ping.json'),
+  // Kosmos leaf (like profiles above), not the bare data root.
+  fs.writeFileSync(nodePath.join(data, 'Kosmos', 'ping.json'),
     JSON.stringify({ installId: 'install-under-test' }));
 
   // `homegrown`: minted HERE. The board must carry its id.

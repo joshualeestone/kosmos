@@ -210,6 +210,17 @@ function dataRootFor(platform, home, env, app = APP) {
 const migrationAttempted = new Set();
 function maybeMigrateLegacyStore() {
   try {
+    // #2439 fleet-safety opt-out. This migration is triggered by store.root(), so ANY
+    // un-sandboxed store.root() call migrates the REAL operator store. On a shared dev
+    // box that runs this branch's tests, that renamed the live fleet store out from under
+    // the running board (measured: it split the live store, and a re-merge was undone by
+    // the next test run). An explicit opt-out lets a shared box / the test harness
+    // (tools/run-tests.sh sets it) skip the destructive rename. A real end-user install
+    // never sets it, so it still migrates. The migration test clears it per-arm (see
+    // store.migrate-2439.test.js) so its sandboxed arms still exercise the rename. This
+    // does NOT weaken the never-clobber / never-throw guarantees below; it only lets a
+    // shared test environment stay put.
+    if (process.env.KOSMOS_NO_LEGACY_MIGRATION === '1') return;
     const platform = process.platform;
     const home = process.env.AGENT_WORKFORCE_HOME || os.homedir();
     const env = process.env;

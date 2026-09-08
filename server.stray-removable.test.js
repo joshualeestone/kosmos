@@ -40,7 +40,7 @@ const create = require('./engine/create');
  */
 function boardWithStrays() {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-stray-'));
-  const profiles = nodePath.join(sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(sb, 'data', 'Kosmos', 'profiles');
   const launch = nodePath.join(sb, 'launch');
   const workers = nodePath.join(sb, 'workers');
   fs.mkdirSync(profiles, { recursive: true });
@@ -54,7 +54,7 @@ function boardWithStrays() {
 
   // The stray folder: a directory plus the birth receipt, and NO profile.
   fs.mkdirSync(nodePath.join(workers, 'strayfolder'), { recursive: true });
-  fs.writeFileSync(nodePath.join(sb, 'data', 'AgentWorkforce', 'created.jsonl'),
+  fs.writeFileSync(nodePath.join(sb, 'data', 'Kosmos', 'created.jsonl'),
     JSON.stringify({ at: new Date().toISOString(), name: 'strayfolder', outcome: 'created' }) + '\n');
 
   // The stranger's checkout: a directory, a valid name, and no birth line.

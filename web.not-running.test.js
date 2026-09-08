@@ -50,7 +50,7 @@ function board({ mangle = false } = {}) {
   const key = String(mangle);
   if (BOARDS.has(key)) return BOARDS.get(key);
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-nr-'));
-  const profiles = nodePath.join(sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(sb, 'data', 'Kosmos', 'profiles');
   fs.mkdirSync(profiles, { recursive: true });
   fs.mkdirSync(nodePath.join(sb, 'workers', 'ghosty'), { recursive: true });
   fs.writeFileSync(nodePath.join(profiles, 'ghosty.json'),

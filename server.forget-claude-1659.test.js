@@ -123,7 +123,7 @@ function registeredNotRunning(ctx, name, configDir) {
   fs.mkdirSync(nodePath.join(ctx.workers, name), { recursive: true });
   fs.writeFileSync(create.plistPath(name),
     create.plistFor(name, '/bin/claude', '/bin/tmux', null, configDir, 'claude'), 'utf8');
-  const profiles = nodePath.join(ctx.sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(ctx.sb, 'data', 'Kosmos', 'profiles');
   fs.mkdirSync(profiles, { recursive: true });
   fs.writeFileSync(nodePath.join(profiles, name + '.json'), JSON.stringify({ name }));
   assert.ok(fs.existsSync(create.plistPath(name)), 'the launch file is missing, so the arm proves nothing');
@@ -344,7 +344,7 @@ test('#1697 CONTROL: a REMOVED agent does NOT block, so the union cannot resurre
     registeredNotRunning(ctx, 'departed', dir);
     /* Recorded as removed the way the product does it, so this arm depends on the
        same store `safeRoster` reads rather than on a flag invented here. */
-    const dataDir = nodePath.join(ctx.sb, 'data', 'AgentWorkforce');
+    const dataDir = nodePath.join(ctx.sb, 'data', 'Kosmos');
     fs.mkdirSync(dataDir, { recursive: true });
     fs.writeFileSync(nodePath.join(dataDir, 'removed.json'),
       JSON.stringify([{ name: 'departed', removedAt: new Date().toISOString(), stopped: true }]));

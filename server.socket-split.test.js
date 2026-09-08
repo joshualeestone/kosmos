@@ -40,7 +40,7 @@ const create = require('./engine/create');
  */
 function boardWithUnseenAgent(launchctlListStdout) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-split-'));
-  const profiles = nodePath.join(sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(sb, 'data', 'Kosmos', 'profiles');
   const launch = nodePath.join(sb, 'launch');
   const worker = nodePath.join(sb, 'workers', 'ghost');
   fs.mkdirSync(profiles, { recursive: true });
