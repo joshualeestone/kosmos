@@ -25,6 +25,9 @@ for less looping," and the list's default is the flagship; flagged the escape ha
   (pre-pick the account default), overriding "Let OpenAI choose"; if the list has no default, it stays
   on "Let OpenAI choose" (graceful, never worse). One-shot: cleared at the end of the async paint.
 - `resetCreateProvider`: clears the flag (a fresh create is not an import), beside `LAST_CLAUDE_MODEL`.
+- `applyCreateProviderUI` Claude branch: clears the flag when the user switches the provider to Claude
+  (abandons the OpenAI import intent, and covers a superseded in-flight OpenAI paint whose gen-mismatch
+  early-return skips its own clear). Added in the iteration-1 round.
 - The `!acctDir` early-return does NOT clear the flag, so it survives an account-less first paint through
   to the account-selection paint (the parked branch's iteration-1 leak lesson: clear in reset + set
   authoritatively in finishImport, never on the early return).

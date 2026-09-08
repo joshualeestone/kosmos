@@ -177,6 +177,15 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // finishImport SETS it authoritatively (true only for an OpenAI import) in source.
     const src = require('node:fs').readFileSync(PAGE, 'utf8');
     if (!/IMPORT_OPENAI_DEFAULT = \(wanted === 'openai'\)/.test(src)) problems.push('SOURCE: finishImport does not set IMPORT_OPENAI_DEFAULT authoritatively (= (wanted === openai))');
+    // SOURCE-PIN resetCreateProvider's OWN clear: the behavioral clearedByReset case above
+    // routes through applyCreateProviderUI's Claude branch (CREATE_ACCOUNTS is empty -> the
+    // provider defaults to anthropic), which independently clears the flag, so that case
+    // cannot notice resetCreateProvider's own clear going missing. That clear is load-bearing
+    // on an OpenAI-only reset (prov.value = 'openai', so the Claude branch never runs and its
+    // clear does not fire), where its absence would let a fresh create pre-pick. Pin it directly.
+    const resetAt = src.indexOf('function resetCreateProvider');
+    const resetSrc = resetAt >= 0 ? src.slice(resetAt, src.indexOf('\n}\n', resetAt)) : '';
+    if (!/IMPORT_OPENAI_DEFAULT = false/.test(resetSrc)) problems.push('SOURCE: resetCreateProvider does not clear IMPORT_OPENAI_DEFAULT (load-bearing on an OpenAI-only reset where the Claude-branch clear does not fire)');
   }
 
   console.log('  ' + JSON.stringify(r));
