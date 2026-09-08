@@ -27130,8 +27130,8 @@ async function moveAccountNow(say) {
    Kosmos K + "Restarting the agent"); `minBusyMs` holds that interstitial on screen for
    at least that long on SUCCESS, so a fast POST still shows the restart happening rather
    than flashing straight to the result. Both are OPTIONAL and default to the exact prior
-   behaviour ("Working…", no hold), so the other three callers (account move, compact,
-   clear) are byte-unchanged. The hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
+   behaviour ("Working…", no hold), so the other four callers (account move, provider
+   switch, compact, clear) are byte-unchanged. The hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
    never trap the modal (#1313): a failure shows immediately, and `say` still always fires
    the one exit. */
 function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {

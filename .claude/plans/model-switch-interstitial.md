@@ -2,9 +2,9 @@
 
 ## What finished looks like
 When you switch an agent's model (Change & Restart), the confirm dialog shows a clean
-interstitial — the breathing Kosmos K over "Restarting the agent" — held while the agent
+interstitial -- the breathing Kosmos K over "Restarting the agent" -- held while the agent
 restarts, then reduces to "Say hello to <agent> to reactivate them on <provider>." The
-other change dialogs (account move, compact, clear) are unchanged.
+other change dialogs (account move, provider switch, compact, clear) are unchanged.
 
 ## Josh's ask
 "An interstitial of the K animating for some amount of time (arbitrary, ~10s) saying
@@ -12,14 +12,14 @@ other change dialogs (account move, compact, clear) are unchanged.
 <agent name> to reactivate them on <provider>.'"
 
 ## Changes (web/index.html)
-- `changeDialog({..., busyHtml, minBusyMs})` — both OPT-IN, default to the exact prior
-  behaviour (plain "Working…", no hold), so the account-move / compact / clear callers
+- `changeDialog({..., busyHtml, minBusyMs})` -- both OPT-IN, default to the exact prior
+  behaviour (plain "Working…", no hold), so the account-move / provider-switch / compact / clear callers
   are byte-unchanged. When `busyHtml` is set: it replaces "Working…" and the now-decided
   confirm button + small text are hidden for a clean interstitial (the title stays, both
   for context and as the dialog's aria-labelledby target). `minBusyMs` holds the
   interstitial on SUCCESS for at least that long (a fast POST still shows the restart);
   the hold is success-only and bounded, so a failure renders at once and the modal can
-  never trap (#1313 — every path still calls `say`, which is the one exit).
+  never trap (#1313 -- every path still calls `say`, which is the one exit).
 - The model click handler passes `RESTART_BUSY_HTML` (K + "Restarting the agent") and
   `RESTART_HOLD_MS` (10000, Josh's "arbitrary" ~10s; a named constant, read at click
   time so a hermetic browser-check can shorten it via `window.__kosmosRestartHoldMs`).
@@ -37,7 +37,7 @@ other change dialogs (account move, compact, clear) are unchanged.
   is an option; kept the title for context + a11y. This is the visual latitude Mona may
   refine.
 - The K asset (`/icons/kosmos-32.png`) is server-served, so it renders in the real app
-  but not in a `file://` browser-check — the check verifies the img markup + the text,
+  but not in a `file://` browser-check -- the check verifies the img markup + the text,
   not the pixels (the pixels are verified by a served screenshot).
 
 ## Tests
