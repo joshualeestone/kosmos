@@ -133,6 +133,24 @@ test('#988: TLS verification is never disabled', () => {
   const calls = capture();
   updating.announce(900);
   assert.notEqual(calls[0].opts.rejectUnauthorized, false);
+  assert.equal(calls[0].opts.agent, false, 'a fresh connection per call, not a pooled keep-alive socket');
+});
+
+test('#988: the RELAY CA is never applied to the coordinator, even when it is set', () => {
+  /* 🛑 THIS ARM MUST SET THE VAR. Asserting `opts.ca === undefined` with the var
+     UNSET is vacuous: reintroducing `ca: process.env.AGENT_WORKFORCE_TUNNEL_CA`
+     then yields undefined too, and the mutation survives. Measured. The var is
+     documented in remote.js as relay-only, and setting `ca` REPLACES the trust
+     store, so a self-hoster with a relay CA would fail verification on every
+     announce, silently, because this fails open. That is exactly the person who
+     HAS the var set. */
+  enrol();
+  process.env.AGENT_WORKFORCE_TUNNEL_CA = '/tmp/some-relay-ca.pem';
+  try {
+    const calls = capture();
+    updating.announce(900);
+    assert.equal(calls[0].opts.ca, undefined, 'the relay CA must not reach the coordinator connection');
+  } finally { delete process.env.AGENT_WORKFORCE_TUNNEL_CA; }
 });
 
 test('#988: a self-hosted coordinator keeps its path prefix', () => {
@@ -356,6 +374,7 @@ test('#988 WIRING: a boot may only ever clear, never set', () => {
   const t = update.startPolling(60000);
   clearInterval(t);
   update.setInstalledRoot(null);
+  assert.ok(calls.length > 0, 'every() is vacuously true on an empty array, so assert there IS something');
   assert.ok(calls.every((c) => JSON.parse(c.body).seconds === 0));
 });
 
@@ -558,6 +577,21 @@ test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => 
   assert.equal(calls.length, 0, 'a source checkout must not clear the installed board\'s banner');
 });
 
+test('#988: a SOURCE CHECKOUT is silent on the first TICK too, not just at boot', async () => {
+  /* The arm above starts a 60s interval and clears it immediately, so NO TICK
+     EVER FIRES: it covers the boot clear only. Measured: with the tick's gate
+     removed, a source checkout announces {"seconds":0} on the first tick and the
+     whole suite stayed green. Two gates, two arms. */
+  enrol();
+  const calls = capture();
+  update.setInstalledRoot(() => null);
+  const t = update.startPolling(10);
+  await new Promise((r) => setTimeout(r, 60));
+  clearInterval(t);
+  update.setInstalledRoot(null);
+  assert.equal(calls.length, 0, 'the first-tick clear needs its own installedRoot gate');
+});
+
 test('#988 CONTROL: the same call WITH an installed root does announce', () => {
   enrol();
   const calls = capture();
@@ -569,7 +603,11 @@ test('#988 CONTROL: the same call WITH an installed root does announce', () => {
 });
 
 test('#988 CONTROL: with the wiring driven and NO factory, nothing is sent and nothing throws', () => {
+  /* This arm never set an installed root, so startPolling()'s boot clear was
+     skipped and announce() was never entered: it asserted 0 against a call that
+     was never attempted, and caught nothing in a 41-mutation sweep. */
   enrol();
+  update.setInstalledRoot(() => SANDBOX);
   updating.setRequestFactory(null);
   const https = require('node:https');
   const realHttps = https.request;
@@ -577,6 +615,6 @@ test('#988 CONTROL: with the wiring driven and NO factory, nothing is sent and n
   https.request = () => { reached++; return fakeReq(); };
   try {
     assert.doesNotThrow(() => { const t = update.startPolling(60000); clearInterval(t); });
-  } finally { https.request = realHttps; }
+  } finally { https.request = realHttps; update.setInstalledRoot(null); }
   assert.equal(reached, 0, 'the boot path must not reach the real transport under test either');
 });

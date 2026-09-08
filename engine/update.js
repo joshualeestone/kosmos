@@ -117,12 +117,14 @@ function startPolling(intervalMs) {
      listener's own comment below says so), so `seconds: 0` after a good update
      can only come from the board that comes BACK. This is that moment: the board
      is up, therefore it is not mid-update.
-     Unconditional on purpose. The #1728 in-flight marker cannot stand in for
+     Unconditional with respect to WHETHER AN UPDATE JUST HAPPENED (it is still
+     gated on installedRoot() below, which is a different question). The #1728
+     in-flight marker cannot stand in for
      "we just updated", because the installer's own shell removes it when the
      attempt finishes, success or clean failure alike. And clearing on every boot
      is idempotent and can only END a "back in a moment" early, never begin one
      falsely, which is the safe direction for a message a person reads. */
-  /* 🛑 GATED ON installedRoot(), matching this file's own convention at maybeAutoInstall (line 238)
+  /* 🛑 GATED ON installedRoot(), matching this file's own convention in maybeAutoInstall()
      and its four state-file paths. Without it, a board run from a SOURCE
      CHECKOUT on an enrolled Mac (node server.js, tools/restart-local-board.sh,
      routine on this fleet) makes real mTLS POSTs to the production coordinator
@@ -522,8 +524,9 @@ function wireChild(child, opts) {
        full 15-minute cap on a Mac that was up and serving: exactly the false
        "back in a moment" this card exists to prevent, reached through
        production rather than the suite.
-       Clearing on ANY exit is safe by this file's own argument two comments
-       below: a SUCCESSFUL install kills this server before the listener runs, so
+       Clearing on ANY exit is safe by the argument in the comment ABOVE this
+       listener (an earlier version of this line said "below", and there is no
+       such argument below): a SUCCESSFUL install kills this server before the listener runs, so
        an exit that reaches this line is one that did not restart the board. */
     updating.announce(0);
     if (code !== 0) {

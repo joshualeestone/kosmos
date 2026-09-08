@@ -171,7 +171,7 @@ function announce(v) {
         /* One line, on the log launchd keeps, for the case nobody could
            otherwise see: this route is merged but not yet deployed, so the first
            real deployment has no other client-side way to be checked.
-           remote.js:243 sets the same precedent. Still fail-open: a bad status
+           remote.js's setupRun sets the same precedent. Still fail-open: a bad status
            changes nothing the caller does. */
         if (!(code >= 200 && code < 300)) {
           process.stderr.write('kosmos#988: coordinator answered ' + String(code) + ' for ' + ROUTE + '\n');
