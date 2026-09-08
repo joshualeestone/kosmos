@@ -27191,6 +27191,12 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
     const say = (sentence, ok) => {
       spoke = true;   // set NOW, even if the render is held, so the finally fallback never double-fires
       const render = () => {
+        /* #768-batch: a HELD success render (setTimeout under minBusyMs) must not paint
+           into a modal that was closed during the hold -- bail if the modal is hidden.
+           The synchronous (wait===0) path is unaffected (the modal is open). Not
+           reachable today (no exit exists while busy), but the deferred render is a new
+           window this closes; a later backdrop-click-to-close would otherwise expose it. */
+        if (back.hidden) return;
         msg.textContent = sentence;
         goBtn.hidden = true;
         keep.textContent = ok ? 'Done' : 'Close';
