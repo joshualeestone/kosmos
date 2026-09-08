@@ -2438,14 +2438,18 @@ test('#2378: EVERY spinner frame is a live turn, and the anchor is behaviour', (
       'a LIVE spinner on frame ' + JSON.stringify(frame) + ' was not recognised, so a queued message is described as read immediately');
   }
 
-  /* 🛑 AND THE QUOTATIONS MUST STILL BE REJECTED, including the markdown bullet
-     that the `*` exclusion was wrongly justified by. It is rejected by the REQUIRED
-     PARENTHESISED phrase, which a bullet does not carry, never by the glyph. */
+  /* 🛑 AND THE QUOTATIONS MUST STILL BE REJECTED, including the markdown bullet.
+     A `*` bullet CAN carry the parenthesised phrase - the old comment claiming
+     it could not was wrong, and these first fixtures pass only INCIDENTALLY (they
+     put `(` right after `* `, eaten by `\S`). The realistic bullet at the end
+     (a WORD before the paren, no `\d+s` timer inside it) is the case that
+     regressed and is now rejected by the `*` arm's timer gate, not by the glyph. */
   for (const quoted of [
     '  * (esc to interrupt) in a markdown bullet',
     '  - note: (esc to interrupt) cancels',
     'the docs say (esc to interrupt) works',
     '  he said (press esc to interrupt) earlier',
+    '* running the tool (esc to interrupt) to cancel',
   ]) {
     assert.equal(flagOf(quoted + '\n' + W), true,
       'a quotation was read as a live turn: ' + quoted.trim());

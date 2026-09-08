@@ -2037,11 +2037,22 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    about a pane whose turn is in flight and whose composer QUEUES. The spinner
    cycles, so that is roughly one capture in seven of any pane both mid-turn and
    holding a frozen wait row.
-   ✅ AND RESTORING IT COSTS NOTHING, which is the tell that the exclusion was never
-   load-bearing: this constant additionally requires a PARENTHESISED
-   `esc to interrupt` on the row, which a markdown bullet does not carry. The
-   `*`-bullet quotation fixture is rejected by that requirement, not by the glyph. */
-const INTERRUPT_LINE_LIVE = /^\s*[·•✢✳✶✻✽*]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)/i;
+   ✅ AND RESTORING IT COSTS NOTHING FOR THE LIVE CASE, but `*` is ALSO the markdown
+   bullet, so a real markdown bullet CAN carry the parenthesised phrase
+   (`* running the tool (esc to interrupt) to cancel` matched, a false busy that
+   drops backgroundWait). An earlier version of this comment claimed the paren
+   requirement rejected bullets; it does not, and the old negative fixtures passed
+   only incidentally (they put `(` right after `* `, eaten by `\S`). #2378 fix
+   (Ice Cream Kitty, verified against every fixture): keep `*` but GATE it. Two
+   arms below - the unambiguous glyphs `[·•✢✳✶✻✽]` are unchanged (no timer needed,
+   so the old-UI timerless `· Working (esc to interrupt)` still matches), and the
+   `*` arm adds `(?=[^)]*\d+s)` right after the `(` so a `*`-led row counts only
+   when a `\d+s` timer sits INSIDE the same interrupt parenthetical. A LIVE `*`-frame
+   always carries that timer (WORKING_LINE bets the same, requiring `\d+s` and
+   keeping `*`); the only observed timerless live shape is the old-UI `·` one, on
+   the untouched arm. Would change if a timerless `*`-led "esc to interrupt" row is
+   ever observed - none has been. */
+const INTERRUPT_LINE_LIVE = /^\s*(?:[·•✢✳✶✻✽]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)|\*\s*\S[^\n]*\((?=[^)]*\d+s)[^)]*esc to interrupt[^)]*\))/i;
 
 /* #2378. True when the tail carries a LIVE interrupt line. Shared by both call
    sites (Claude and codex) so the two cannot drift apart.
@@ -2067,7 +2078,14 @@ const INTERRUPT_LINE_LIVE = /^\s*[·•✢✳✶✻✽*]\s*\S[^\n]*\([^)]*esc to
    row ending mid-parenthesis whose next row closes it and carries the phrase is
    BYTE-IDENTICAL to a genuine wrapped live spinner. No reader can separate them,
    so this resolves it as live, which is the direction that avoids the codex false
-   calm. Recorded so nobody re-derives it as a bug. */
+   calm. Recorded so nobody re-derives it as a bug.
+   📌 KNOWN LIMIT: the join reconstructs a line split across exactly TWO physical
+   rows (`rows[i] + rows[i+1]`). A live line hard-wrapped across THREE or more
+   rows (a very long spinner/codex description on a narrow pane) is not rejoined
+   and falls through undetected - the codex false-calm direction, same as the
+   single-wrap this closed, but for a rarer shape. Stated as a boundary like the
+   sibling wait-row constants, not left implicit; widen to an N-row join if such
+   a shape is ever observed. */
 function hasLiveInterruptLine(text) {
   const rows = String(text == null ? '' : text).split('\n');
   for (let i = 0; i < rows.length; i += 1) {
