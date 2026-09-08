@@ -367,7 +367,36 @@ else console.log('   already $V');"
 # which is exactly the question a release exists to make cheap.
 if ! git -C "$REPO" diff --quiet -- package.json; then
   git -C "$REPO" add package.json
-  git -C "$REPO" commit -q -m "v${V//./} -- version"
+  # kosmos#615: put a file/area-level summary of what changed since the PRIOR release
+  # into the bump commit's BODY, so a drive-by fix that rode inside another PR with no
+  # card and no message line still SURFACES -- `git log --grep '<path>'` (the exact
+  # instrument #615 found blind, because it searched SUBJECTS only) now finds it via
+  # its file. Best-effort and NON-FATAL: it must never dirty the tree (the -DIRTY guard
+  # below aborts the cut on a dirty tree) or fail the commit, so it only adds a `-m`
+  # body and only when it can compute one. It writes NO file (no clean-tree risk, no
+  # dist/ deploy-exposure) and stays internal to this private repo (never the tweet,
+  # never the public versions.html note). The range is prior-shipped .. pre-bump HEAD:
+  # the pointer (latest.json) is version-only and records no sha, so the prior version's
+  # sha is derived from release.sh's own distinctive `v<ver> -- version` bump subject.
+  # See tools/lib/release-diff-summary.sh and its test.
+  _RDS_BODY=""
+  if [ -r "$REPO/tools/lib/release-diff-summary.sh" ]; then
+    # shellcheck disable=SC1090
+    . "$REPO/tools/lib/release-diff-summary.sh" 2>/dev/null || true
+    if command -v kosmos_release_bump_sha >/dev/null 2>&1; then
+      _RDS_PREV_SHA="$(kosmos_release_bump_sha "$REPO" "$_prev" 2>/dev/null || true)"
+      if [ -n "${_RDS_PREV_SHA:-}" ]; then
+        _RDS_BODY="$(kosmos_release_diff_summary "$REPO" "$_RDS_PREV_SHA" HEAD 2>/dev/null || true)"
+      fi
+    fi
+  fi
+  if [ -n "$_RDS_BODY" ]; then
+    git -C "$REPO" commit -q -m "v${V//./} -- version" \
+      -m "Changed since $_prev (file/area-level; #615, so an uncarded drive-by fix surfaces):" \
+      -m "$_RDS_BODY"
+  else
+    git -C "$REPO" commit -q -m "v${V//./} -- version"
+  fi
   echo "   committed the bump, so the build is stamped at a real commit"
   # 🛑 AND PUSHED, BECAUSE A COMMIT THAT NEVER LEAVES IS NOT A STAMP. This
   # script committed the bump and stopped, so every release left its version
