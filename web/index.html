@@ -22224,7 +22224,12 @@ const SVC_DOORS = {
      engine/tokendoors.js carries a `hint` (a real scoping step the person
      performs on the service's page, e.g. Notion, Airtable). A no-hint
      service holds a broad token, so its line stays broad and must not imply
-     the person can restrict what is exposed. Mona Lisa, 2026-09-08. */
+     the person can restrict what is exposed. And where the hint names a
+     capability or a unit, the line must match it: no "write" over a
+     read-only hint (Notion's says "may read"), and the same scoping unit the
+     hint uses (Airtable scopes by base, not table). The hint renders one line
+     below this sentence on the door, so a mismatch shows on one screen. Mona
+     Lisa, 2026-09-08. */
   'Discord': 'A place for team and community chat. Connect it and your agents can post updates and read messages in the channels you allow.',
   'Brave Search': 'Web search. Connect it and your agents can look things up on the web while they work.',
   'Exa': 'Web search for finding real sources. Connect it and your agents can search the web and pull back pages.',
@@ -22236,9 +22241,9 @@ const SVC_DOORS = {
   'Hetzner': 'Cloud servers. Connect it and your agents can set up and manage servers when you ask them to.',
   'Netlify': 'Where your sites deploy. Connect it and your agents can ship a site and tell you when it is live.',
   'Render': 'Where apps and sites run. Connect it and your agents can deploy and tell you when it is live.',
-  'Notion': 'Your notes and docs. Connect it and your agents can read and write the pages you share with them.',
+  'Notion': 'Your notes and docs. Connect it and your agents can read the pages you share with them.',
   'Linear': 'Where a team tracks its work. Connect it and your agents can read and file issues across your workspace.',
-  'Airtable': 'Spreadsheets that work like a database. Connect it and your agents can read and update the tables you share.',
+  'Airtable': 'Spreadsheets that work like a database. Connect it and your agents can read and update the bases you share.',
   'Neon': 'A cloud database. Connect it and your agents can read and change the databases in your Neon account.',
   'Postmark': 'Sends email for your apps. Connect it and your agents can send the messages you set up.',
   'SendGrid': 'Sends email from your apps. Connect it and your agents can send what you have set up.',

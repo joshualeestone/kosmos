@@ -33,15 +33,18 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
      capability one-liner the core four have, so a person meets "what this is
      and what connecting lets your agents do" rather than a bare service name.
      Sliced to the SVC_DOORS object so this pins the pill sentence, not the
-     SVC_BUILT route of the same name. Each key must carry a NON-EMPTY
-     sentence, so blanking a line ('Discord': '') fails the guard too, not
-     only removing the key outright. */
+     SVC_BUILT route of the same name. Each key must carry a sentence with real
+     content, so blanking OR whitespacing a line ('Discord': '' or ' ') fails
+     the guard too, not only removing the key outright. */
   const doorSentences = fn.slice(0, fn.indexOf('const SVC_BUILT'));
+  const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   for (const name of ['Discord', 'Brave Search', 'Exa', 'Tavily', 'Serper', 'GitLab', 'Fly.io',
     'DigitalOcean', 'Hetzner', 'Netlify', 'Render', 'Notion', 'Linear', 'Airtable', 'Neon',
     'Postmark', 'SendGrid', 'Better Stack']) {
-    assert.ok(doorSentences.includes("'" + name + "': '"), name + ' lacks a pill sentence in SVC_DOORS');
-    assert.ok(!doorSentences.includes("'" + name + "': ''"), name + ' has an empty pill sentence');
+    // requires the key AND a sentence whose first non-space char is real (not
+    // the closing quote), so '', ' ', and a missing key all fail.
+    assert.match(doorSentences, new RegExp("'" + reEsc(name) + "': '\\s*[^'\\s]"),
+      name + ' lacks a non-empty pill sentence in SVC_DOORS');
   }
   // The generic door is an ANSWER (how it will work), not a bare label.
   assert.match(fn, /you sign in on/, 'the generic door lost its how-it-works sentence');
