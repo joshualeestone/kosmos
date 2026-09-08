@@ -4160,6 +4160,20 @@ test('#1026: modelFor refuses a real model belonging to the OTHER provider', () 
   assert.equal(create.modelFor('anthropic', 'no-such-model'), null);
 });
 
+test('#2453: defaultModelKeyFor returns the provider default key -- sonnet for Claude, null for OpenAI', () => {
+  // The same model the create form pre-selects, so an import default cannot drift from it.
+  const anthDefault = create.MODELS.find((m) => m.provider === 'anthropic' && m.default);
+  assert.ok(anthDefault, 'the anthropic list has a default model (the control for the assertions below)');
+  assert.equal(create.defaultModelKeyFor('anthropic'), anthDefault.key, 'anthropic default is the list default');
+  assert.equal(create.defaultModelKeyFor('anthropic'), 'sonnet', 'and it is sonnet today');
+  // 'claude' is the provider hint import returns; it maps to the anthropic models.
+  assert.equal(create.defaultModelKeyFor('claude'), 'sonnet', 'the claude hint resolves to the anthropic default');
+  // A null/absent provider (an unrecognized .md) means anthropic -- the connected-Claude case.
+  assert.equal(create.defaultModelKeyFor(null), 'sonnet', 'a null provider defaults to the anthropic default');
+  // OpenAI has no static models (codex picks its own), so there is no default to hand a form.
+  assert.equal(create.defaultModelKeyFor('openai'), null, 'openai has no static default -- codex picks its own');
+});
+
 test('#1026: setModel refuses a Claude model on a codex agent, and says why in a sentence that survives OpenAI models existing', () => {
   /* ⚠️ THE OLD REFUSAL WAS A SENTENCE, NOT A CHECK: "OpenAI picks its own
      model for now" was true while this list had one vendor and would have

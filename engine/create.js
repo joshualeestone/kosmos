@@ -175,6 +175,23 @@ function modelsFor(provider) {
 function modelFor(provider, modelKey) {
   return modelsFor(provider).find((m) => m.key === String(modelKey)) || null;
 }
+
+/**
+ * The KEY of a provider's default model, or null (#2453).
+ *
+ * The `default: true` model of the provider -- the same one the create form
+ * pre-selects. Used to give an IMPORTED agent a model to land on, so it is not
+ * created model-less and shown as 'unknown model' + not reachable (Josh, 0.6.47
+ * re-test). Anthropic returns 'sonnet'; OpenAI has no static models (codex picks
+ * its own), so it answers null -- an openai import carries no model key, which is
+ * the intended 'let codex choose' state. A null/absent provider means anthropic
+ * (modelsFor's own default), the connected-Claude case the re-test hit. Single
+ * source, so the import default cannot drift from the picker's default.
+ */
+function defaultModelKeyFor(provider) {
+  const m = modelsFor(provider).find((x) => x.default);
+  return m ? m.key : null;
+}
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already
 // running", and this codebase's worst defects have all been two definitions of
@@ -3656,6 +3673,7 @@ module.exports = {
   // exists because two definitions of one fact is where its worst defects came
   // from. The menu, the create check and the change check now all read one.
   modelsFor,
+  defaultModelKeyFor,
   modelFor,
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
