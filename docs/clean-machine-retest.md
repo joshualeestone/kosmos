@@ -6,7 +6,7 @@ remembering.
 
 ## The trap
 
-`--uninstall` deliberately preserves the AgentWorkforce store, except
+`--uninstall` deliberately preserves the Kosmos store, except
 the app's own `bin/` plumbing inside it (install/setup.sh: "the STORE
 next to it is the user's agent records and stays" -- uninstalling the
 app must never delete somebody's work).
@@ -23,7 +23,7 @@ mean to lose.
 
 ```
 curl -fsSL https://installkosmos.com/setup | sh -s -- --uninstall
-rm -rf ~/Library/Application\ Support/AgentWorkforce ~/Kosmos/Projects
+rm -rf ~/Library/Application\ Support/Kosmos ~/Kosmos/Projects
 curl -fsSL https://installkosmos.com/setup | sh
 ```
 
@@ -32,7 +32,7 @@ curl -fsSL https://installkosmos.com/setup | sh
 One file: the flag. Agents, records, and projects survive.
 
 ```
-rm ~/Library/Application\ Support/AgentWorkforce/first-run.json
+rm ~/Library/Application\ Support/Kosmos/first-run.json
 ```
 
 Relaunch Kosmos and the wizard runs again. No uninstall needed if you
