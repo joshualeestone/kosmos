@@ -92,6 +92,21 @@ h_as_home="$(HOME="$T/fakehome" board_origin_label "$T/fakehome")"
 h_not_home="$(HOME="$T/nowhere" board_origin_label "$T/fakehome")"
 case "$h_not_home" in *"MAIN CHECKOUT"*) ok "CONTROL: the same directory DOES classify when it is not \$HOME" ;;
   *) bad "CONTROL failed: classification is broken generally, so the arm above proves nothing: $h_not_home" ;; esac
+# The decline must survive a SPELLING difference between $HOME and the cwd lsof
+# reports. A string compare passed the arm above and failed both of these; `-ef`
+# compares device and inode, so the same directory matches however it is spelled.
+ln -s "$T/fakehome" "$T/symhome"
+h_sym="$(HOME="$T/symhome" board_origin_label "$T/fakehome")"
+[ "$h_sym" = "$T/fakehome" ] \
+  && ok "the \$HOME decline survives a SYMLINKED \$HOME (spelling differs, directory is the same)" \
+  || bad "a symlinked \$HOME defeated the decline: $h_sym"
+h_slash="$(HOME="$T/fakehome/" board_origin_label "$T/fakehome")"
+[ "$h_slash" = "$T/fakehome" ] \
+  && ok "the \$HOME decline survives a TRAILING SLASH on \$HOME" \
+  || bad "a trailing slash defeated the decline: $h_slash"
+h_unset="$(env -u HOME bash -c '. "$1"; board_origin_label "$2"' _ "$REPO/tools/lib/board-origin.sh" "$T/fakehome")"
+case "$h_unset" in *"MAIN CHECKOUT"*) ok "CONTROL: with \$HOME unset the decline does not fire and set -u is not tripped" ;;
+  *) bad "an unset \$HOME changed behaviour unexpectedly: $h_unset" ;; esac
 
 gone="$T/does-not-exist"
 [ "$(board_origin_label "$gone")" = "$gone" ] && ok "a vanished cwd is reported as given, not classified" \

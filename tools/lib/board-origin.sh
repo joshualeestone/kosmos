@@ -67,6 +67,9 @@
 #   - a git SUBMODULE working directory's `.git` is a FILE too, same reading
 #   - a directory holding a stray `.git` DIRECTORY that is not a repo at all
 #     reads as a main checkout; cheaper to name here than to guard
+#   - a $HOME that is a SUBDIRECTORY of a git repo is not declined, because the
+#     decline matches $HOME itself; the subdirectory rule then applies and the
+#     board prints the bare path, which is the safe direction
 board_origin_label() {
   # `set -u` is on in the caller, so default every positional.
   local dir="${1:-}"
@@ -76,9 +79,16 @@ board_origin_label() {
   [ -d "$dir" ] || { printf '%s' "$dir"; return 0; }
   # $HOME is where the INSTALLED board runs, which is not a violation. Without
   # this, a git-managed $HOME (ordinary dotfiles) makes every red suite accuse
-  # the installed board. Textual compare, deliberately: resolving would need a
-  # subprocess, and the caller's cwd comes from lsof in the same spelling.
-  [ -n "${HOME:-}" ] && [ "$dir" = "$HOME" ] && { printf '%s' "$dir"; return 0; }
+  # the installed board.
+  #
+  # 🛑 `-ef` (same device and inode), NOT a string compare. An earlier version
+  # compared the strings and claimed "the caller's cwd comes from lsof in the
+  # same spelling", which is false in general and was measured false two ways: a
+  # symlinked $HOME, and a $HOME carrying a trailing slash, each defeating the
+  # decline so the installed board was labelled again. `-ef` is a `test` builtin,
+  # so this stays subprocess-free. It is false when either path is missing, which
+  # is the safe direction: an absent $HOME simply does not match.
+  [ -n "${HOME:-}" ] && [ "$dir" -ef "$HOME" ] && { printf '%s' "$dir"; return 0; }
 
   if [ -d "$dir/.git" ]; then
     printf 'the MAIN CHECKOUT %s, whose .git is a directory rather than a link, so a server running here holds the port and writes into the shared tree' "$dir"
