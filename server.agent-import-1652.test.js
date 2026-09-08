@@ -164,6 +164,17 @@ test('#1652 PR2 POSITIVE: a discovered agent file is read by path and parses int
   assert.match(String(json.instructions || ''), /You answer one question well/);
 });
 
+test('#2453: the FILE route also returns the default model key, so the second call site is covered too', async () => {
+  // SHARED is a 'claude' export, so like the text route it must carry the
+  // default model key for the form to pre-select. Both /api/agent-import call
+  // sites are byte-identical; this asserts the file variant at the route level
+  // rather than trusting that identity (the plan flags the two-call-site gap).
+  const { status, json } = await post('/api/agent-import-file', { file: SHARED });
+  assert.equal(status, 200);
+  assert.equal(json.model, 'sonnet',
+    `the file import route should default a Claude agent to sonnet, got ${JSON.stringify(json.model)}`);
+});
+
 test('#1652 PR2 SECURITY: an arbitrary path the scan never returned is REFUSED, not read', async () => {
   // The canonical attack: name a real file outside the discovered set. It must be
   // refused on membership BEFORE any read, so a request cannot exfiltrate /etc/passwd.
