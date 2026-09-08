@@ -108,8 +108,10 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const escClosed = list.hidden === true;
       const escRefocus = document.activeElement === trigger;
 
-      // Programmatic value change (resetCreateProvider-style) re-renders the trigger.
-      select.value = 'openai'; select.dispatchEvent(new Event('change', { bubbles: true }));
+      // Programmatic value change WITHOUT dispatching change (resetCreateProvider sets .value
+      // then calls applyCreateProviderUI directly, no change event) must still re-render the
+      // trigger, via the value-setter wrap. This is the case a change-listener-only re-sync misses.
+      select.value = 'openai';   // NO dispatch on purpose
       const progLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
 
       return {

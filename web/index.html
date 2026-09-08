@@ -28058,9 +28058,21 @@ function enhanceProviderSelect(selectId) {
   document.addEventListener('mousedown', (e) => {
     if (isOpen() && !wrap.contains(e.target)) close(false);
   });
-  // Re-sync when code changes select.value (resetCreateProvider/applyCreateProviderUI
-  // dispatch `change` after setting .value); ignore our own commit (already rendered).
+  // Re-sync when code changes select.value and DOES dispatch change.
   select.addEventListener('change', () => { if (!isOpen()) renderTrigger(); });
+  /* And when code sets select.value WITHOUT dispatching change: resetCreateProvider sets
+     prov.value then calls applyCreateProviderUI DIRECTLY (no change event), which would
+     otherwise leave the trigger stale. Wrap this instance's value setter so any assignment
+     refreshes the trigger; the getter delegates to native so reads are unchanged. Our own
+     commit() renders explicitly and only fires this while open (skipped by !isOpen). */
+  const valDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  if (valDesc && valDesc.set && valDesc.get) {
+    Object.defineProperty(select, 'value', {
+      configurable: true,
+      get() { return valDesc.get.call(this); },
+      set(v) { valDesc.set.call(this, v); if (!isOpen()) renderTrigger(); },
+    });
+  }
 
   renderTrigger();
 }
