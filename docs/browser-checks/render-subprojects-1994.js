@@ -1,9 +1,10 @@
 'use strict';
 /* #1994: sub-projects UI: a project can name a parent, shown as a tree in the
  * wide Projects tab (indent) and a "under <parent>" chip everywhere narrow, plus
- * a set-parent <select> in project settings that can only offer a valid parent.
- * Drives the SHIPPED paintProjects / projectCard / paintProjectSettings against a
- * real fixture PROJECTS tree in the real page, not a copy. Controls that can
+ * a set-parent <select> in project settings that can only offer a valid parent,
+ * and (#2458) a parent <select> on the CREATE page that sends `parent` on create.
+ * Drives the SHIPPED paintProjects / projectCard / paintProjectSettings / openAddProject
+ * + the #pj-create handler against a real fixture PROJECTS tree in the real page, not a copy. Controls that can
  * return the dangerous answer: nothing vanishes (a child of an archived/dangling
  * parent still renders), a stored cycle still renders every row without hanging,
  * and the parent select excludes self + descendants (offer a cycle and the
@@ -191,6 +192,56 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' CONTROL field was marked bad', reopen.before);
     ok(t + ' reopening clears stale invalid state', !reopen.badAfter && !reopen.ariaAfter, JSON.stringify(reopen));
+
+    // ---- Layer 3: the CREATE-page parent select (#2458) ----
+    // The backend has accepted `parent` on create since #2467; this is the UI that
+    // sends it. Drive the SHIPPED openAddProject (which populates #pj-parent) and the
+    // SHIPPED #pj-create click handler, and prove: the select offers Top level + the
+    // active projects (archived excluded), a fresh create starts top-level, a chosen
+    // parent reaches the POST body, and -- the control that can return the dangerous
+    // answer -- a top-level create OMITS parent rather than sending parent:null.
+    const create = await page.evaluate(async () => {
+      const mk = (id, name, archived) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('site', 'Site'), mk('arch', 'Archived one', true)];
+      PJ_SORT = 'az';
+      openAddProject();                                   // populates #pj-parent, resets to top-level
+      const sel = document.getElementById('pj-parent');
+      const opts = Array.from(sel.options).map((o) => o.value);
+      const startValue = sel.value;
+
+      // Capture the POST body via a one-shot fetch stub that REFUSES, so the handler
+      // stops before loadProjects/openProject (no file:// side effects) after recording.
+      const realFetch = window.fetch;
+      let sent = null;
+      window.fetch = async (url, o) => {
+        if (String(url).indexOf('/api/projects') !== -1 && o && o.method === 'POST') {
+          sent = JSON.parse(o.body);
+          return { ok: false, json: async () => ({ error: 'stub: captured' }) };
+        }
+        return realFetch(url, o);
+      };
+      document.getElementById('pj-name').value = 'Login screen';
+      sel.value = 'k';
+      document.getElementById('pj-create').click();
+      await new Promise((r) => setTimeout(r, 30));
+      const withParent = sent;
+
+      sent = null;
+      sel.value = '';                                     // top-level
+      document.getElementById('pj-create').click();
+      await new Promise((r) => setTimeout(r, 30));
+      const topLevel = sent;
+
+      window.fetch = realFetch;
+      return { opts, startValue, withParent, topLevel };
+    });
+    ok(t + ' create select offers Top level (none) first', create.opts[0] === '', JSON.stringify(create.opts));
+    ok(t + ' create select lists active projects (k, site)', create.opts.includes('k') && create.opts.includes('site'), JSON.stringify(create.opts));
+    ok(t + ' create select excludes archived', !create.opts.includes('arch'), JSON.stringify(create.opts));
+    ok(t + ' create starts top-level', create.startValue === '', create.startValue);
+    ok(t + ' a chosen parent is sent in the create body', create.withParent && create.withParent.parent === 'k', JSON.stringify(create.withParent));
+    // CONTROL: top-level MUST omit parent, not send parent:null (absent-not-null discipline).
+    ok(t + ' top-level create OMITS parent (absent, not null)', create.topLevel && !('parent' in create.topLevel), JSON.stringify(create.topLevel));
 
     await page.close();
   }
