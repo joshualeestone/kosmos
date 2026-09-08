@@ -27,6 +27,7 @@ const EXCUSED = {
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   resetForTests: 'test seam',
+  setRequestFactory: 'test seam (#988): replaces the coordinator TRANSPORT only, so enrolment, the certificate read and the URL derivation still run under test',
   agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
   setPaneSource: 'test seam: keeps status reads off the real machine',

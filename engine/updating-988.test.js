@@ -48,7 +48,8 @@ function fakeReq() {
     handlers,
     destroyed: false,
     on(ev, fn) { handlers[ev] = fn; return this; },
-    end() {},
+    ended: undefined,
+    end(b) { this.ended = b; },
     destroy() { this.destroyed = true; },
     fire(ev, arg) { if (handlers[ev]) handlers[ev](arg); },
   };
@@ -295,9 +296,15 @@ test('#988 FAIL-OPEN: announce returns undefined, so no caller can await or bran
 
 /* ---- the lifecycle wiring, which is the deliverable ----------------------- */
 
-/* beginInstall() opens with `if (installStarted) return;` and exports no reset,
-   so exactly ONE call per process ever wires a child. Capture that child's
-   listeners here, once, and let the arms below drive them. */
+/* beginInstall() opens with `if (installStarted) return;`, so a second call while
+   the flag is set wires no child. Capture the first child's listeners here, once,
+   and let the arms below drive them.
+   ⚠️ An earlier version of this comment said the flag "exports no reset, so
+   exactly ONE call per process ever wires a child". BOTH HALVES ARE FALSE:
+   update.resetCache() is exported and clears it, and the child's own `error`
+   listener clears it too, which is a listener THIS FILE FIRES below. The block is
+   still sound (it captures before any arm runs, snapshots what was announced, and
+   restores the factory and both runner hooks), but that was not the reason. */
 const CHILD = { handlers: {}, announced: [] };
 {
   enrol();
@@ -323,17 +330,21 @@ test('#988 WIRING: the installer child had its listeners wired', () => {
 test('#988 WIRING: a board coming back up clears, because success has no finish hook', () => {
   enrol();
   const calls = capture();
+  update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(60000);
   clearInterval(t);
+  update.setInstalledRoot(null);
   assert.ok(calls.some((c) => JSON.parse(c.body).seconds === 0), 'a restarted board is by definition not mid-update');
 });
 
 test('#988 WIRING: the boot clear repeats once on the first tick, because a lost clear costs 15 minutes', async () => {
   enrol();
   const calls = capture();
+  update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(10);
   await new Promise((r) => setTimeout(r, 40));
   clearInterval(t);
+  update.setInstalledRoot(null);
   const cleared = calls.filter((c) => JSON.parse(c.body).seconds === 0);
   assert.ok(cleared.length >= 2, `a single unretried clear is the exposure; got ${cleared.length}`);
 });
@@ -341,8 +352,10 @@ test('#988 WIRING: the boot clear repeats once on the first tick, because a lost
 test('#988 WIRING: a boot may only ever clear, never set', () => {
   enrol();
   const calls = capture();
+  update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(60000);
   clearInterval(t);
+  update.setInstalledRoot(null);
   assert.ok(calls.every((c) => JSON.parse(c.body).seconds === 0));
 });
 
@@ -435,12 +448,92 @@ test('#988: the first-tick clear happens ONCE, not on every tick forever', async
      Mac". This one can. */
   enrol();
   const calls = capture();
+  update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(10);
   await new Promise((r) => setTimeout(r, 90));
   clearInterval(t);
+  update.setInstalledRoot(null);
   const cleared = calls.filter((c) => JSON.parse(c.body).seconds === 0).length;
   assert.ok(cleared >= 2, `boot plus one tick expected; got ${cleared}`);
   assert.ok(cleared <= 3, `the clear must not repeat every tick; got ${cleared} across ~8 ticks`);
+});
+
+test('#988: the body reaches the WIRE, not just the seam argument', () => {
+  /* defaultRequest(opts) ignores the factory's second argument, so the body
+     travels only through req.end(body). Deleting that call left the whole suite
+     green: content-length would still say 15 and the coordinator would learn
+     nothing, silently, until the 3s timeout. */
+  enrol();
+  let made = null;
+  updating.setRequestFactory(() => { made = fakeReq(); return made; });
+  updating.announce(900);
+  assert.ok(made.ended !== undefined, 'req.end() must be called WITH the body');
+  assert.deepEqual(JSON.parse(made.ended), { seconds: 900 });
+});
+
+test('#988: the coordinator HOST and PORT are derived, not hardcoded', () => {
+  enrol();
+  process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://host.example:8443/base';
+  const calls = capture();
+  updating.announce(0);
+  assert.equal(calls[0].opts.hostname, 'host.example', 'hardcoding a host left the suite green');
+  assert.equal(calls[0].opts.port, '8443', 'the port was never asserted either');
+  assert.equal(calls[0].opts.path, '/base/v1/mac/updating');
+});
+
+test('#988: content-type and content-length are set for the coordinator', () => {
+  enrol();
+  const calls = capture();
+  updating.announce(900);
+  assert.equal(calls[0].opts.headers['content-type'], 'application/json');
+  assert.equal(calls[0].opts.headers['content-length'], Buffer.byteLength(JSON.stringify({ seconds: 900 })));
+});
+
+test('#988: a NON-INTEGER deadline is truncated rather than put on the wire as a float', () => {
+  assert.equal(updating.seconds(900.7), 900);
+});
+
+test('#988: defaultRequest picks the module the protocol names', () => {
+  /* The real dispatch had NO coverage: rewriting it to always use https left the
+     suite green, and https.request({protocol:'http:'}) throws ERR_INVALID_PROTOCOL
+     which the outer catch swallows, i.e. exactly the "silently dead" case the
+     http arm claims to guard. */
+  const https = require('node:https');
+  const http = require('node:http');
+  const realHttps = https.request;
+  const realHttp = http.request;
+  const seen = [];
+  https.request = () => { seen.push('https'); return fakeReq(); };
+  http.request = () => { seen.push('http'); return fakeReq(); };
+  try {
+    updating.dispatch({ protocol: 'http:' });
+    updating.dispatch({ protocol: 'https:' });
+  } finally { https.request = realHttps; http.request = realHttp; }
+  assert.deepEqual(seen, ['http', 'https'], 'each protocol must reach its own module');
+});
+
+test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => {
+  /* No installedRoot() means a dev checkout (node server.js,
+     tools/restart-local-board.sh), which is routine on this fleet. Without the
+     gate it makes real mTLS POSTs with the operator's certificate and can CLEAR
+     a deadline the INSTALLED board just set. */
+  enrol();
+  const calls = capture();
+  update.setInstalledRoot(() => null);
+  const t = update.startPolling(60000);
+  clearInterval(t);
+  update.setInstalledRoot(null);
+  assert.equal(calls.length, 0, 'a source checkout must not clear the installed board\'s banner');
+});
+
+test('#988 CONTROL: the same call WITH an installed root does announce', () => {
+  enrol();
+  const calls = capture();
+  update.setInstalledRoot(() => SANDBOX);
+  const t = update.startPolling(60000);
+  clearInterval(t);
+  update.setInstalledRoot(null);
+  assert.ok(calls.length > 0, 'the arm above must fail for the MISSING ROOT, not because clearing broke');
 });
 
 test('#988 CONTROL: with the wiring driven and NO factory, nothing is sent and nothing throws', () => {

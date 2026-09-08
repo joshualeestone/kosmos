@@ -122,7 +122,14 @@ function startPolling(intervalMs) {
      attempt finishes, success or clean failure alike. And clearing on every boot
      is idempotent and can only END a "back in a moment" early, never begin one
      falsely, which is the safe direction for a message a person reads. */
-  updating.announce(0);
+  /* 🛑 GATED ON installedRoot(), matching this file's own convention at line 231
+     and its four state-file paths. Without it, a board run from a SOURCE
+     CHECKOUT on an enrolled Mac (node server.js, tools/restart-local-board.sh,
+     routine on this fleet) makes real mTLS POSTs to the production coordinator
+     with the operator's certificate, and can CLEAR a legitimate deadline the
+     installed board just set. Only a clear, so the harm is bounded, but a dev
+     checkout should not be able to cancel the installed board's banner. */
+  if (installedRoot()) updating.announce(0);
   /* ⚠️ AND ONCE MORE ON THE FIRST TICK. The clear above is a single, unretried,
      fire-and-forget request made at the moment the machine is busiest and the
      network least settled. If it is lost, the phone reads "back in a moment" for
@@ -137,7 +144,7 @@ function startPolling(intervalMs) {
   // Owning the default here means a caller can pass a raw, unvalidated value.
   const ms = Number(intervalMs) > 0 ? Number(intervalMs) : 60 * 1000;
   const t = setInterval(() => {
-    if (!clearedAgain) { clearedAgain = true; updating.announce(0); }
+    if (!clearedAgain && installedRoot()) { clearedAgain = true; updating.announce(0); }
     try { poke(); } catch { /* a look that cannot run must cost the board nothing */ }
   }, ms);
   if (t && typeof t.unref === 'function') t.unref();
