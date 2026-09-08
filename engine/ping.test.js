@@ -21,7 +21,7 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const ping = require('./ping');
 const { codeOnly } = require('../test-support/code-only');
 
-// #1856: ping.FILE now lives under the AgentWorkforce leaf, so ensure its dir
+// #1856: ping.FILE now lives under the Kosmos leaf, so ensure its dir
 // exists before the tests write to ping.FILE directly.
 function fresh() { fs.mkdirSync(nodePath.dirname(ping.FILE), { recursive: true }); try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
 

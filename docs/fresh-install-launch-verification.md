@@ -85,7 +85,7 @@ bogus #2279 regression. Two consequences the recipe has to respect:
   clears the cross-site check still 403s without the token.)
 
 ```
-# Served, never-seeded store. STORE = that account's Application Support/AgentWorkforce;
+# Served, never-seeded store. STORE = that account's Application Support/Kosmos;
 # BOARD = its URL from `kosmos status` (NOT an assumed port).
 hdr="$(mktemp)"; chmod 600 "$hdr"
 printf 'x-kosmos-board-token: %s\n' "$(cat "$STORE/board.token")" > "$hdr"

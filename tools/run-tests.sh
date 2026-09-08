@@ -23,6 +23,19 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #2439 fleet-safety: disable the one-time AgentWorkforce -> Kosmos migration for the
+# WHOLE suite. That migration is triggered by store.root(), so ANY test that reaches
+# store.root() without first setting its own sandbox would RENAME the operator's REAL
+# store (measured: it split the live fleet store, and a re-merge was undone by the next
+# test run). This opt-out (honored by engine/store.js maybeMigrateLegacyStore) stops the
+# destructive rename during tests while a real end-user install, which never sets it,
+# still migrates. It is the migration only -- it does not sandbox DATA/PROJECTS/WORKERS
+# etc., so it does not trip the board's #634 "half-sandboxed" refusal. The migration
+# test clears it per-arm so its sandboxed arms still exercise the rename; tests that
+# seed a fixture do so under the CURRENT leaf (store.APP) rather than relying on the
+# migration to relocate a legacy seed.
+export KOSMOS_NO_LEGACY_MIGRATION=1
+
 # --- what the machine was doing, taken before the first test ---------------
 seen_before() {
   local lines=()

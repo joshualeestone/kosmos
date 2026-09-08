@@ -285,9 +285,9 @@ _instance_table_actual="$(perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/b
 # fail, same as every hatch above. Writes to a throwaway data dir, never the real one.
 _ax_data="$(mktemp -d "${TMPDIR:-/tmp}/ax-smoke.XXXXXXXXXX")"
 AGENT_WORKFORCE_DATA="$_ax_data" KOSMOS_AXCHECK_FORCE_TRUSTED=0 perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-axcheck >/dev/null 2>&1 || { echo "the native app's --kosmos-app-axcheck failed to run or hung (a drifted hatch flag falls through to app.run())" >&2; exit 1; }
-grep -q '"trusted":false' "$_ax_data/AgentWorkforce/a11y-status.json" 2>/dev/null || { echo "the native app's --kosmos-app-axcheck (mock not-trusted) did not write trusted:false where the engine reads it (store.ROOT/a11y-status.json) -- the writer and reader would miss each other" >&2; exit 1; }
+grep -q '"trusted":false' "$_ax_data/Kosmos/a11y-status.json" 2>/dev/null || { echo "the native app's --kosmos-app-axcheck (mock not-trusted) did not write trusted:false where the engine reads it (store.ROOT/a11y-status.json) -- the writer and reader would miss each other" >&2; exit 1; }
 AGENT_WORKFORCE_DATA="$_ax_data" KOSMOS_AXCHECK_FORCE_TRUSTED=1 perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-axcheck >/dev/null 2>&1 || { echo "the native app's --kosmos-app-axcheck (mock trusted) failed to run or hung" >&2; exit 1; }
-grep -q '"trusted":true' "$_ax_data/AgentWorkforce/a11y-status.json" 2>/dev/null || { echo "the native app's --kosmos-app-axcheck (mock trusted) did not write trusted:true" >&2; exit 1; }
+grep -q '"trusted":true' "$_ax_data/Kosmos/a11y-status.json" 2>/dev/null || { echo "the native app's --kosmos-app-axcheck (mock trusted) did not write trusted:true" >&2; exit 1; }
 # --kosmos-app-axprompt shows the system Accessibility prompt (non-blocking) and adds
 # Tmux to the list; prove it loads and exits cleanly under hardened runtime.
 perl -e 'alarm 15; exec @ARGV; exit 127' "$STAGE/app/bin/kosmos-app" --kosmos-app-axprompt >/dev/null 2>&1 || { echo "the native app's --kosmos-app-axprompt failed to run or hung" >&2; exit 1; }

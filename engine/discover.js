@@ -53,7 +53,7 @@ const promptrequest = require('./promptrequest');
    cannot read is one that exists, so the person's answer stands.
    ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
    AGENT_WORKFORCE_DATA (it joins the env var with the app's own
-   'AgentWorkforce' subfolder when set). `process.env.AGENT_WORKFORCE_DATA
+   store leaf (store.APP, 'Kosmos') when set). `process.env.AGENT_WORKFORCE_DATA
    || store.ROOT` looked like the identical fallback but short-circuits
    PAST that join whenever the env var is set, landing this file one
    directory above every sibling it is meant to sit beside -- unnoticed

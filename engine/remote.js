@@ -68,7 +68,7 @@ const store = require('./store');
 // #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
 // than reading AGENT_WORKFORCE_DATA directly. The direct read bypassed both #1820's
 // p.isAbsolute refusal (a relative override scattered this file's state to a
-// cwd-relative path) and the `AgentWorkforce` leaf the rest of the store appends, so
+// cwd-relative path) and the `Kosmos` leaf the rest of the store appends, so
 // under an override remote.json landed in a DIFFERENT directory than avatars/profiles.
 // It is also the #1704 prerequisite: under a multi-Kosmos switcher AGENT_WORKFORCE_DATA
 // is the switch, and every data-root read must go through the one derivation, not

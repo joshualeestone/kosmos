@@ -258,6 +258,18 @@ function supportDir() {
   // AGENT_WORKFORCE_HOME still applies, and the running platform + env so the
   // sandbox var and the Windows roaming var are honoured. The sandbox and mac
   // results are byte-identical to before; win32 is the only change, to correct.
+  //
+  // #2439: DELIBERATELY a PURE resolver, NOT store.ROOT. store.ROOT routes through
+  // root() -> maybeMigrateLegacyStore(), which fires the one-time rename on the FIRST
+  // access. supportDir() is called in read-only contexts too (path assembly, tests that
+  // only compare the resolved string), so routing it through the migration would give a
+  // pure resolve a real-store mutation side-effect -- which on a shared dev box migrates
+  // the operator's LIVE store from any un-sandboxed test call (this happened, #2439). The
+  // migration seam is instead protected by call ordering: the board touches store.ROOT at
+  // boot (sourceChannelNow / boardauth.ensureToken) before any create path runs, so the
+  // rename always happens before recordBirth()'s mkdirSync(supportDir()) could pre-create
+  // the new leaf. A future early-writer that runs a create BEFORE boot would need to touch
+  // store.ROOT first; the migrate test + review guard that, and it is not reachable today.
   return store.dataRootFor(process.platform, homeDir(), process.env);
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };

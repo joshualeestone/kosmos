@@ -28,14 +28,22 @@ test('imports ApplicationServices (AXIsProcessTrusted lives there)', () => {
 
 test('the writer path MATCHES the engine reader path (the cross-language seam agrees)', () => {
   // engine/a11ystatus.js: FILE = path.join(store.ROOT, 'a11y-status.json'), and
-  // store.ROOT is <app-support-base>/AgentWorkforce. The Swift writer resolves the
-  // SAME base and MUST append the SAME "AgentWorkforce/a11y-status.json", or the
-  // writer and reader miss each other silently (the two-copies-of-one-fact defect).
+  // store.ROOT is <app-support-base>/<store.APP> = <base>/Kosmos (#2439 renamed the leaf
+  // from AgentWorkforce, with a one-time migration). The Swift writer resolves the SAME
+  // base and MUST append the SAME "<store-leaf>/a11y-status.json", or the writer and
+  // reader miss each other silently (the two-copies-of-one-fact defect). Swift resolves
+  // the leaf via storeLeaf(), which returns the CURRENT leaf (legacy pre-migration, else
+  // Kosmos) so it never pre-creates Kosmos and orphans the legacy store on an update.
   assert.match(ENGINE, /path\.join\(store\.ROOT,\s*'a11y-status\.json'\)/,
     'the engine reader no longer reads a11y-status.json under store.ROOT; the writer assertion below is checking a stale contract');
+  const STORE_JS = fs.readFileSync('engine/store.js', 'utf8');
+  assert.match(STORE_JS, /const APP = 'Kosmos'/,
+    'engine/store.js APP is no longer Kosmos; the Swift leaf below must track store.APP or the cross-language seam diverges');
   assert.ok(SRC.includes('func a11yStatusURL()'), 'a11yStatusURL() moved or was renamed');
-  assert.ok(SRC.includes('appendingPathComponent("AgentWorkforce/a11y-status.json")'),
-    'the writer does not append "AgentWorkforce/a11y-status.json"; it would write where the engine does not read');
+  assert.ok(SRC.includes('appendingPathComponent("\\(storeLeaf(base: base))/a11y-status.json")'),
+    'the writer does not append "\\(storeLeaf(base: base))/a11y-status.json"; it would write where the engine does not read');
+  assert.match(SRC, /func storeLeaf\(base: URL\) -> String \{[\s\S]*?return "Kosmos"\n\}/,
+    'storeLeaf() no longer defaults to the "Kosmos" leaf that store.APP uses; the Swift writer and JS reader would resolve different dirs');
   // The base resolution mirrors boardTokenValue()/relaunchHandoffURL(): the DATA
   // override first (so a moved data dir is followed), else HOME + Library/Application
   // Support, else the OS app-support dir. Pin the override arm -- getting it wrong is

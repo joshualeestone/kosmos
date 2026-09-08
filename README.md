@@ -27,7 +27,7 @@ confirms its own board is running ends by opening the dashboard in the
 browser (updates stay quiet; `KOSMOS_NO_OPEN=1` suppresses it).
 `kosmos start|stop|restart|status|open|version` manages it after that.
 `sh -s -- --uninstall` reverses everything except the agents' own folders,
-the AgentWorkforce store (profiles, avatars, commitments, and the messages
+the Kosmos store (profiles, avatars, commitments, and the messages
 you have sent agents from a project) and `~/Kosmos/Projects` (the folders
 Kosmos makes when you name a project rather than pointing at one): user
 work and records about it stay; the app and its plumbing go.
@@ -206,9 +206,9 @@ not enough:
     tmux kill-session -t "=<name>"
     rm -rf ~/work/workers/<name>
     # and what this app remembered about it, which is kept elsewhere:
-    rm -f ~/Library/Application\ Support/AgentWorkforce/avatars/<name>.*
-    rm -f ~/Library/Application\ Support/AgentWorkforce/profiles/<name>.json
-    rm -f ~/Library/Application\ Support/AgentWorkforce/commitments/<name>.json
+    rm -f ~/Library/Application\ Support/Kosmos/avatars/<name>.*
+    rm -f ~/Library/Application\ Support/Kosmos/profiles/<name>.json
+    rm -f ~/Library/Application\ Support/Kosmos/commitments/<name>.json
 
 ⚠️ **The `enable` line first, and it is the one people will not think of.** A
 removal that got as far as disabling the job and then could not finish leaves a

@@ -45,10 +45,11 @@ for (const b of [CLAUDE_BIN, TMUX_BIN]) fs.writeFileSync(b, '#!/bin/sh\nexit 0\n
 process.env.AGENT_WORKFORCE_CLAUDE_BIN = CLAUDE_BIN;
 process.env.AGENT_WORKFORCE_TMUX_BIN = TMUX_BIN;
 
-// store.ROOT resolves to AGENT_WORKFORCE_DATA/AgentWorkforce (engine/store.js), where
+// store.ROOT resolves to AGENT_WORKFORCE_DATA/<store.APP> (engine/store.js), where
 // a11ystatus.js reads a11y-status.json. nativePresent() is a11ystatus.read().checkable
 // === true, which is true iff that file is present, well-formed, and fresh (< 5 min).
-const STORE = nodePath.join(DATA, 'AgentWorkforce');
+const store = require('./engine/store');
+const STORE = nodePath.join(DATA, store.APP);
 fs.mkdirSync(STORE, { recursive: true });
 const A11Y = nodePath.join(STORE, 'a11y-status.json');
 function seedNativePresent() {

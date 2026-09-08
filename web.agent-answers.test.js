@@ -29,6 +29,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const chat = require('./engine/chat');
 const fleet = require('./test-support/fleet');
+const store = require('./engine/store');
 const PAGE = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
 
 const readBack = (agent) => chat.readThread(chat.DIRECT, agent).messages;
@@ -72,7 +73,7 @@ test('a thread written before this field existed still reads', () => {
    * every thread file already on somebody's disk was written without this
    * field. A required one would have made the change a migration.
    */
-  const file = nodePath.join(SANDBOX, 'AgentWorkforce', 'chats', 'direct..old.json');
+  const file = nodePath.join(SANDBOX, store.APP, 'chats', 'direct..old.json');
   fs.mkdirSync(nodePath.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({
     project: '@you', agent: 'old',
@@ -86,7 +87,7 @@ test('a thread written before this field existed still reads', () => {
 });
 
 test('a sender that is not a string is refused, because it reaches the renderer', () => {
-  const file = nodePath.join(SANDBOX, 'AgentWorkforce', 'chats', 'direct..bad.json');
+  const file = nodePath.join(SANDBOX, store.APP, 'chats', 'direct..bad.json');
   fs.mkdirSync(nodePath.dirname(file), { recursive: true });
   fs.writeFileSync(file, JSON.stringify({
     project: '@you', agent: 'bad',

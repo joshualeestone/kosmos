@@ -23,6 +23,7 @@ process.env.AGENT_WORKFORCE_DATA = DATA;
 const taskchat = require('./engine/taskchat');
 const tasks = require('./engine/tasks');
 const projects = require('./engine/projects');
+const store = require('./engine/store');
 
 function freshProject(agents) {
   const name = 'P' + Math.random().toString(36).slice(2, 8);
@@ -110,7 +111,7 @@ test('#992 retention-safe: recording APPENDS, it does not rewrite the file', () 
 
 test('#992 the transcript lives under app data, never the project folder', () => {
   const file = taskchat.taskChatFile('proj-G', 2);
-  assert.ok(file.startsWith(path.join(DATA, 'AgentWorkforce', 'task-chats')),
+  assert.ok(file.startsWith(path.join(DATA, store.APP, 'task-chats')),
     'task transcript must live under store.ROOT/task-chats, not the user project folder');
 });
 

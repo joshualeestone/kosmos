@@ -43,7 +43,7 @@ const { version: VERSION } = require('../package.json');
 
 // #1856: route through the one data-root derivation (store.ROOT = dataRootFor), not the raw
 // AGENT_WORKFORCE_DATA switch -- prod-inert when it is unset (byte-identical), and under a
-// multi-Kosmos switcher (#1704) it inherits the AgentWorkforce leaf + #1820's isAbsolute guard.
+// multi-Kosmos switcher (#1704) it inherits the Kosmos leaf + #1820's isAbsolute guard.
 const BASE = store.ROOT;
 const FILE = path.join(BASE, 'ping.json');
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';

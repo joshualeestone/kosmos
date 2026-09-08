@@ -30,7 +30,7 @@ test('the shipped default equals the previously hard-coded rate: nothing changes
 });
 
 test('an unreadable or malformed file fails toward ON at the default, and says ok:false', () => {
-  // #1856: limits.FILE now lives under the AgentWorkforce leaf; make its dir.
+  // #1856: limits.FILE now lives under the Kosmos leaf; make its dir.
   fs.mkdirSync(require('node:path').dirname(limits.FILE), { recursive: true });
   for (const bad of ['{not json', '"a string"', '{"on":"yes","perHour":20}', '{"on":true,"perHour":33}', 'null']) {
     fs.writeFileSync(limits.FILE, bad);

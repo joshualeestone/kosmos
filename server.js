@@ -7905,7 +7905,7 @@ const server = http.createServer((req, res) => {
     let seen = null;
     // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
     // AGENT_WORKFORCE_DATA (engine/store.js joins it with the app's own
-    // 'AgentWorkforce' subfolder when the env var is set, and falls back
+    // store leaf (store.APP, 'Kosmos') when the env var is set, and falls back
     // to the real default otherwise). `process.env.AGENT_WORKFORCE_DATA ||
     // store.ROOT` looked like the same fallback but is not: when the env
     // var IS set it short-circuits PAST that join, landing this file one

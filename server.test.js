@@ -71,6 +71,7 @@ const nodePath = require('node:path');
 const { mkTemp } = require('./test-support/tmpdir.js');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const store = require('./engine/store');
 const WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-workers-'));
 process.env.AGENT_WORKFORCE_WORKERS = WORKERS;
 
@@ -1814,7 +1815,7 @@ test('a borrowed name is refused by every name-keyed read, including its alias s
   // test asserted an absence that was already absent.
   const fsx = require('node:fs');
   const nodePathx = require('node:path');
-  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fsx.mkdirSync(avatarDir, { recursive: true });
   fsx.writeFileSync(nodePathx.join(avatarDir, 'angel.png'), 'seeded', 'utf8');
 
@@ -2009,7 +2010,7 @@ test('a stranger cannot fetch the real agent’s picture under the stranger’s 
   const status = require('./engine/status');
   const fsx = require('node:fs');
   const nodePathx = require('node:path');
-  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fsx.mkdirSync(avatarDir, { recursive: true });
   fsx.writeFileSync(nodePathx.join(avatarDir, 'angel.png'), 'seeded', 'utf8');
 
@@ -3586,7 +3587,7 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
   // branch below is real: safeKey() strips the hostile characters, so an
   // avatar stored under the stripped key is reachable from the hostile
   // name (the collision path -- another agent whose name strips the same).
-  const avatarsDir = nodePath.join(SANDBOX, 'AgentWorkforce', 'avatars');
+  const avatarsDir = nodePath.join(SANDBOX, store.APP, 'avatars');
   fs.mkdirSync(avatarsDir, { recursive: true });
   fs.writeFileSync(nodePath.join(avatarsDir, 'xonloadalert1.png'), 'not-a-real-png', 'utf8');
   const board = fleet.install([

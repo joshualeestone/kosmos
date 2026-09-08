@@ -26,6 +26,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -49,7 +50,7 @@ const SAYS_ANSWER_SENDER = 'You answer whoever sent the message';
 function sandbox(agents) {
   const sb = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-rep-1676-'));
   const workers = path.join(sb, 'workers');
-  const profiles = path.join(sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = path.join(sb, 'data', store.APP, 'profiles');
   fs.mkdirSync(workers, { recursive: true });
   fs.mkdirSync(profiles, { recursive: true });
   const lines = [];
