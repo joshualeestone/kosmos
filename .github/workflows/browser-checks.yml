@@ -155,24 +155,40 @@ jobs:
       # bash/node/a program is missing (the runner is broken, not the page), and it
       # is still correct for the job to go red so the breakage is visible.
       #
-      # 🔑 CI RUNS ONLY THE TIMING-INSENSITIVE DOM-STATE SUBSET (#2445). The full
-      # 3b suite has many timing/animation/paint checks ("within 20s a progress row
-      # appeared", "the mark drew") that FLAKE on the slow, headless macos-latest
-      # runner -- they are both slow-runner-fragile AND headless-weak (SwiftShader
-      # software rendering), so in CI they are false-RED-prone and low-confidence.
-      # KOSMOS_BC_CI_ALLOWLIST names the DOM-state class this gate exists for (the
-      # #2085 class: element present / hidden / clickable / labeled), which is
-      # timing-robust and headless-fine. browser-checks.sh runs ONLY these and
-      # HARD-FAILS if the list matches nothing (no green from zero checks). The
-      # timing/animation/paint coverage stays at the headed cut-time 3b, on a real
-      # compositor -- so a GREEN HERE IS THE DOM-STATE GATE, NOT FULL 3b COVERAGE.
+      # 🔑 CI RUNS ONLY THE TIMING-INSENSITIVE, HEADLESS-ROBUST DOM-STATE SUBSET
+      # (#2445). The full 3b suite has many timing/animation/paint checks ("within
+      # 20s a progress row appeared", "the mark drew") that FLAKE on the slow,
+      # headless macos-latest runner -- they are both slow-runner-fragile AND
+      # headless-weak (SwiftShader software rendering), so in CI they are
+      # false-RED-prone and low-confidence. KOSMOS_BC_CI_ALLOWLIST names the
+      # DOM-state gate class this card exists for (the #2085 class: element
+      # present / hidden / clickable / labeled), which is timing-robust and
+      # headless-fine. browser-checks.sh runs ONLY these and HARD-FAILS if the
+      # list matches nothing (no green from zero checks). The timing/animation/
+      # paint coverage stays at the headed cut-time 3b, on a real compositor -- so
+      # a GREEN HERE IS THE DOM-STATE GATE, NOT FULL 3b COVERAGE.
+      #
+      # ⚠️ click-first-run is DELIBERATELY NOT here, and this is measured, not an
+      # oversight (#2445). It is the full linear install-flow clickthrough; on the
+      # headless runner it clears the Welcome screen and then page.click('#fr-next')
+      # times out with "element is not visible" -- the Welcome->Next transition
+      # does not complete under SwiftShader, so it is headless-WEAK (caveat 2), not
+      # the pure DOM-state check it looks like. A timeout bump does not fix a button
+      # that never paints. It stays at the headed cut 3b, where a real compositor
+      # completes the transition. The install-flow GATE class it exists for is
+      # still covered headless here by render-gated-next (the permission-gated Next
+      # on the install screens) and render-connect-skip (the confirm-skip), both of
+      # which PASS headless. If click-first-run is later made headless-robust, add
+      # it back.
       - name: the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)
         env:
-          # The #2085 gate class: install-flow clickthrough + the permission/gate
-          # DOM-state checks (present/hidden/clickable/labeled). Grows as needed;
-          # keep it to assertion TYPE (DOM-state), never timing/animation/paint.
+          # The #2085 gate class: install-flow permission/gate DOM-state checks +
+          # the settings/telemetry DOM-state checks (present/hidden/clickable/
+          # labeled). All eight below were MEASURED green headless on the runner
+          # (3m58s). Grows as needed; keep it to assertion TYPE (DOM-state that is
+          # ALSO headless-robust), never timing/animation/paint, never a check that
+          # depends on a transition completing (that is click-first-run's failure).
           KOSMOS_BC_CI_ALLOWLIST: >-
-            click-first-run
             render-gated-next
             render-connect-skip
             render-switch-states

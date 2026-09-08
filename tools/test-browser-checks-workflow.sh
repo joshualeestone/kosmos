@@ -96,9 +96,15 @@ pass "the gate script the workflow calls exists and parses"
 #    install-flow check, so a silent drop back to the full suite is caught here.
 grep -q 'KOSMOS_BC_CI_ALLOWLIST' "$WF" \
   || fail "the workflow does not set KOSMOS_BC_CI_ALLOWLIST -- CI would run the full timing-fragile suite and false-red (the #2445 runner-flake defect)"
-grep -q 'click-first-run' "$WF" \
-  || fail "the CI allowlist does not name the keystone install-flow check click-first-run (the #2085 class this gate exists for)"
-pass "the workflow scopes CI to the DOM-state allowlist, naming the keystone check"
+# The install-flow GATE class this card exists for (#2085): render-gated-next is
+# the permission-gated Next on the install screens, a DOM-state check that PASSES
+# headless (measured). It is the keystone the allowlist must keep -- not
+# click-first-run, which is headless-weak and deliberately excluded (its
+# Welcome->Next transition does not paint under SwiftShader; see the workflow
+# note). Pin the entry as a folded-scalar list item, tolerating leading space.
+grep -qE '^[[:space:]]*render-gated-next([[:space:]]|$)' "$WF" \
+  || fail "the CI allowlist does not name render-gated-next, the headless-robust install-flow gate check (the #2085 class this gate exists for)"
+pass "the workflow scopes CI to the DOM-state allowlist, naming the install-flow gate keystone"
 
 # 8. The gate script HONORS the allowlist AND refuses a green from zero checks.
 #    A filter that matched nothing (a typo, an empty env) must HARD-FAIL, never
