@@ -35,7 +35,9 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
      Sliced to the SVC_DOORS object so this pins the pill sentence, not the
      SVC_BUILT route of the same name. Removing them regresses the copy. */
   const doorSentences = fn.slice(0, fn.indexOf('const SVC_BUILT'));
-  for (const name of ['Discord', 'Brave Search', 'GitLab', 'Notion', 'Linear', 'Neon', 'Better Stack', 'Fly.io']) {
+  for (const name of ['Discord', 'Brave Search', 'Exa', 'Tavily', 'Serper', 'GitLab', 'Fly.io',
+    'DigitalOcean', 'Hetzner', 'Netlify', 'Render', 'Notion', 'Linear', 'Airtable', 'Neon',
+    'Postmark', 'SendGrid', 'Better Stack']) {
     assert.ok(doorSentences.includes("'" + name + "':"), name + ' lacks a pill sentence in SVC_DOORS');
   }
   // The generic door is an ANSWER (how it will work), not a bare label.
