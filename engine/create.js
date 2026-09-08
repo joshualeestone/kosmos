@@ -187,6 +187,11 @@ function modelFor(provider, modelKey) {
  * the intended 'let codex choose' state. A null/absent provider means anthropic
  * (modelsFor's own default), the connected-Claude case the re-test hit. Single
  * source, so the import default cannot drift from the picker's default.
+ *
+ * NOTE (#2453): this only supplies the model. The model is downstream of the
+ * PROVIDER: the import-prefilled form must still submit a RUNNABLE provider
+ * ('anthropic', not the 'claude' display hint) to POST /api/agents, or
+ * createAgentInner refuses the create before the model key is ever consulted.
  */
 function defaultModelKeyFor(provider) {
   const m = modelsFor(provider).find((x) => x.default);
