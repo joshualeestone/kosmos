@@ -116,7 +116,17 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const noDefaultFallback = sel.value;
     const importDefault = { noImportValue, importPicked, clearedAfter, noDefaultFallback };
 
-    return { listable, notListable, importDefault };
+    // LIFECYCLE clears: resetCreateProvider (fresh create) and switching to Claude both
+    // drop the one-shot, so an abandoned/detoured import cannot pre-pick on a later create.
+    IMPORT_OPENAI_DEFAULT = true;                                   // eslint-disable-line no-undef
+    resetCreateProvider();                                         // eslint-disable-line no-undef
+    const clearedByReset = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;   // eslint-disable-line no-undef
+    IMPORT_OPENAI_DEFAULT = true;                                   // eslint-disable-line no-undef
+    prov.value = 'anthropic'; applyCreateProviderUI();            // eslint-disable-line no-undef
+    const clearedBySwitch = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;  // eslint-disable-line no-undef
+    const lifecycle = { clearedByReset, clearedBySwitch };
+
+    return { listable, notListable, importDefault, lifecycle };
   });
 
   await browser.close();
@@ -139,6 +149,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (r.importDefault.importPicked !== 'gpt-4o') problems.push('IMPORT: an OpenAI import did not pre-pick the account default model (gpt-4o): ' + JSON.stringify(r.importDefault.importPicked));
     if (r.importDefault.clearedAfter !== false) problems.push('IMPORT: the one-shot import flag was not consumed after the paint: ' + JSON.stringify(r.importDefault.clearedAfter));
     if (r.importDefault.noDefaultFallback !== '') problems.push('IMPORT (fallback): a list with no default must stay on "Let OpenAI choose" (value ""): ' + JSON.stringify(r.importDefault.noDefaultFallback));
+    if (r.lifecycle.clearedByReset !== false) problems.push('LIFECYCLE: resetCreateProvider did not clear the import flag: ' + JSON.stringify(r.lifecycle.clearedByReset));
+    if (r.lifecycle.clearedBySwitch !== false) problems.push('LIFECYCLE: switching to Claude did not clear the import flag (the gen-mismatch strand fix): ' + JSON.stringify(r.lifecycle.clearedBySwitch));
+    // SOURCE-PIN the producer: the browser drove the flag by assignment, so pin that
+    // finishImport SETS it authoritatively (true only for an OpenAI import) in source.
+    const src = require('node:fs').readFileSync(PAGE, 'utf8');
+    if (!/IMPORT_OPENAI_DEFAULT = \(wanted === 'openai'\)/.test(src)) problems.push('SOURCE: finishImport does not set IMPORT_OPENAI_DEFAULT authoritatively (= (wanted === openai))');
   }
 
   console.log('  ' + JSON.stringify(r));

@@ -25818,10 +25818,13 @@ let OPENAI_MODELS_GEN = 0;
 let OPENAI_PICK_MODELS = [];
 /* #2453 follow-up (Josh 2026-09-08): a one-shot -- an OpenAI IMPORT should land the new
    agent ON the account's default model (the live per-account list marks exactly one),
-   not "Let OpenAI choose". Set in finishImport for an OpenAI import, consumed + cleared
-   on the next paintOpenaiCreateModel (so a later manual account change never re-forces
-   it), and cleared by resetCreateProvider on a fresh create. A normal manual create
-   leaves it false, so it keeps defaulting to "Let OpenAI choose". */
+   not "Let OpenAI choose". Set in finishImport for an OpenAI import. Cleared on: the next
+   COMPLETING paintOpenaiCreateModel (LISTABLE or not-listable, so a later manual account
+   change never re-forces it); switching the provider to Claude (applyCreateProviderUI,
+   which abandons the OpenAI import intent and also covers a superseded in-flight paint);
+   and resetCreateProvider on a fresh create. It deliberately SURVIVES the account-less
+   early return, so an import that first paints with no account still pre-picks once an
+   account is chosen. A normal manual create leaves it false: it keeps "Let OpenAI choose". */
 let IMPORT_OPENAI_DEFAULT = false;
 
 /**
@@ -28537,6 +28540,12 @@ function applyCreateProviderUI() {
        REPAINT the Claude options, because the OpenAI branch overwrote #create-model
        with "Let OpenAI choose" + gpt rows and switching back must not leave those. */
     OPENAI_MODELS_GEN += 1;
+    /* #2453 follow-up: switching to Claude abandons any pending OpenAI import default, so
+       drop the one-shot here. Without this, an OpenAI import whose in-flight paint is
+       superseded by this switch (gen bumped above) would strand the flag true -- the async
+       paint returns early on the gen mismatch before its own clear -- and a later manual
+       return to OpenAI would wrongly pre-pick. Clearing on the switch closes that strand. */
+    IMPORT_OPENAI_DEFAULT = false;
     model.disabled = false;
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = false;
