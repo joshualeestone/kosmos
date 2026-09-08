@@ -19,8 +19,9 @@ for less looping," and the list's default is the flagship; flagged the escape ha
 
 ## Change (web/index.html only + one browser-check)
 - `let IMPORT_OPENAI_DEFAULT = false;` one-shot module flag.
-- `finishImport`: `IMPORT_OPENAI_DEFAULT = (wanted === 'openai')` in the okProv block, BEFORE the
-  provider-change dispatch (authoritative -- true only for an OpenAI import).
+- `finishImport`: `IMPORT_OPENAI_DEFAULT = (wanted === 'openai')` on EVERY import, OUTSIDE the okProv
+  guard (so an unmapped/coming-soon import still resets a dangling flag), before the provider-change
+  dispatch (authoritative -- true only for an OpenAI import; iteration 4 hoisted it out of the guard).
 - `paintOpenaiCreateModel` LISTABLE branch: if the flag is set, `sel.value = out.models.find(m=>m.default).key`
   (pre-pick the account default), overriding "Let OpenAI choose"; if the list has no default, it stays
   on "Let OpenAI choose" (graceful, never worse). One-shot: cleared at the end of the async paint.
