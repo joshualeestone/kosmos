@@ -3235,3 +3235,47 @@ test('#1994: after un-grouping the child, the parent deletes cleanly (200)', asy
   const res = await req(`/api/project/${parent.id}`, { method: 'DELETE', headers: { origin: base } });
   assert.equal(res.status, 200);
 });
+
+// Sub-projects at CREATION (#2458): a parent chosen on the create page, so a
+// subproject is made directly rather than created top-level then re-parented in
+// settings. The route forwards body.parent into projects.create, which runs the
+// SAME cleanParent as the edit path (#1994). These prove the create-route wiring.
+
+test('#2458: POST with a parent creates a sub-project directly, and the response resolves the parent name', async () => {
+  reset();
+  const parent = json(await post('/api/projects', { name: 'Parent', folder: folder('sp-cp') })).project;
+  const res = await post('/api/projects', { name: 'Born Under', folder: folder('sp-cc'), parent: parent.id });
+  assert.equal(res.status, 200);
+  const made = json(res).project;
+  assert.equal(made.parent, parent.id, 'the subproject is grouped at creation, not left top-level');
+  assert.equal(made.parentName, 'Parent', 'describe resolves the parent name through the create route');
+});
+
+test('#2458: POST with an unknown parent is a 400 refusal (not a 500), and leaves no project behind', async () => {
+  reset();
+  const before = json(await req('/api/projects')).projects.length;
+  const res = await post('/api/projects', { name: 'Orphan', folder: folder('sp-orphan'), parent: 'no-such-parent-id' });
+  assert.equal(res.status, 400, 'a bad parent is the caller’s to fix, not a server error');
+  assert.match(json(res).error, /no project to group this one under/);
+  const after = json(await req('/api/projects')).projects.length;
+  assert.equal(after, before, 'the refused create wrote no project row (validated before the write)');
+});
+
+test('#2458: POST creates a sub-project WITH agents in one step (create-page can add both)', async () => {
+  reset();
+  const parent = json(await post('/api/projects', { name: 'Parent', folder: folder('sp-pa') })).project;
+  const res = await post('/api/projects', { name: 'Staffed Child', folder: folder('sp-sc'), parent: parent.id, agents: ['april', 'april', ' leo '] });
+  assert.equal(res.status, 200);
+  const made = json(res).project;
+  assert.equal(made.parent, parent.id, 'grouped at creation');
+  // The route describes each member as a rich agent object; assert on the
+  // sessionName, which is the raw membership the create carried through.
+  assert.deepEqual(made.agents.map((a) => a.sessionName), ['april', 'leo'], 'agents added at creation, de-duped and trimmed, in one step');
+});
+
+test('#2458: POST with a blank parent is top-level, unchanged from before', async () => {
+  reset();
+  const res = await post('/api/projects', { name: 'Top Level', folder: folder('sp-top'), parent: '' });
+  assert.equal(res.status, 200);
+  assert.equal(json(res).project.parent, null, 'a blank parent means ungrouped, exactly as omitting it does');
+});
