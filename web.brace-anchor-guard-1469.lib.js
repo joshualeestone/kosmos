@@ -22,9 +22,10 @@
 //   - It does NOT cover #1430's deferred surfaces (web.room-761,
 //     web.layout-picker, web.project-page, +10 by count) - never loosened.
 //   - It does NOT cover the two robust replacements #1430 also made: the
-//     effective() cascade check and the DUP_RULE occurrence-count assertion.
-//     Those are not brace-anchored, and the count one legitimately changes to
-//     1 when #1459 lands, so pinning it would false-red.
+//     effective() cascade check and the RAIL_RULE occurrence-count assertion.
+//     Those are not brace-anchored, and the count one changed from 2 to 1 when
+//     #1459 landed (the duplicate rail rule was removed), so pinning it would
+//     false-red.
 //   - It does NOT stop a DELIBERATELY self-defeating edit: re-anchor one pinned
 //     assertion (its count -> 0) AND paste a byte-identical copy of that same
 //     loosened source elsewhere in the file (count back to expected). Per-assertion
