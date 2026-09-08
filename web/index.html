@@ -22217,6 +22217,37 @@ const SVC_DOORS = {
   'Vercel': 'Where your sites deploy. Connect it and your agents can ship a site and tell you when it is live. It needs GitHub connected first.',
   'Cloudflare': 'Your domains and DNS. Connect it and your agents can point a domain at a site when you ask them to.',
   'Gmail': 'Connect an address you choose and your agents can send and read the email you approve, never your personal inbox unless you say so.',
+  /* The token-service pills (#529): one line each, same shape as the four
+     above, so a person meets a plain "what this is and what connecting lets
+     your agents do" instead of a bare service name. A "the X you allow /
+     share" framing is honest ONLY for a service whose spec in
+     engine/tokendoors.js carries a `hint` (a real scoping step the person
+     performs on the service's page, e.g. Notion, Airtable). A no-hint
+     service holds a broad token, so its line stays broad and must not imply
+     the person can restrict what is exposed. And where the hint names a
+     capability or a unit, the line must match it: no "write" over a
+     read-only hint (Notion's says "may read"), and the same scoping unit the
+     hint uses (Airtable scopes by base, not table). The hint renders one line
+     below this sentence on the door, so a mismatch shows on one screen. Mona
+     Lisa, 2026-09-08. */
+  'Discord': 'A place for team and community chat. Connect it and your agents can post updates and read messages for you.',
+  'Brave Search': 'Web search. Connect it and your agents can look things up on the web while they work.',
+  'Exa': 'Web search for finding real sources. Connect it and your agents can search the web and pull back pages.',
+  'Tavily': 'Web search made for agents. Connect it and your agents can look things up and get back tidy answers.',
+  'Serper': 'Google search results as data. Connect it and your agents can search Google while they work.',
+  'GitLab': 'Where your code lives, like GitHub. Connect it and your agents can read your projects and open merge requests, working as you.',
+  'Fly.io': 'Where apps run. Connect it and your agents can deploy an app and tell you when it is live.',
+  'DigitalOcean': 'Cloud servers and hosting. Connect it and your agents can set up and run servers for you.',
+  'Hetzner': 'Cloud servers. Connect it and your agents can set up and manage servers when you ask them to.',
+  'Netlify': 'Where your sites deploy. Connect it and your agents can ship a site and tell you when it is live.',
+  'Render': 'Where apps and sites run. Connect it and your agents can deploy and tell you when it is live.',
+  'Notion': 'Your notes and docs. Connect it and your agents can read the pages you share with them.',
+  'Linear': 'Where a team tracks its work. Connect it and your agents can read and file issues across your workspace.',
+  'Airtable': 'Spreadsheets that work like a database. Connect it and your agents can read and update the bases you share.',
+  'Neon': 'A cloud database. Connect it and your agents can read and change the databases in your Neon account.',
+  'Postmark': 'Sends email for your apps. Connect it and your agents can send the messages you set up.',
+  'SendGrid': 'Sends email from your apps. Connect it and your agents can send what you have set up.',
+  'Better Stack': 'Watches your services and keeps their logs. Connect it and your agents can check how things are running.',
 };
 /* The services with a REAL flow behind their door (#529). A name here means
    svcDoorLive paints the door from the engine's state and may offer a
@@ -22246,7 +22277,7 @@ function svcDoorText(name) {
    meet, and the ABSENT one is written as the main road, because on a clean
    Mac it is the only one they will ever see: GitHub needs the GitHub CLI on
    this Mac today, and the no-install way is a card, not a promise made here.
-   ⚠️ Every sentence is placeholder until Mona Lisa says it. */
+   Copy reviewed and blessed by Mona Lisa, 2026-09-08 (#529). */
 let SVC_LIVE_TIMER = null;
 function svcDoorLiveStop() { if (SVC_LIVE_TIMER) { clearInterval(SVC_LIVE_TIMER); SVC_LIVE_TIMER = null; } }
 function svcDoorLiveHtml(name, st) {
@@ -22260,7 +22291,7 @@ function svcDoorLiveHtml(name, st) {
        then the engine's own sentence replaces "coming", so the door never
        promises what it cannot do. On this road Kosmos holds the key, and the
        door says so in the Cloudflare door's words rather than borrowing the
-       CLI road's promise. ⚠️ Placeholder copy until Mona Lisa says it. */
+       CLI road's promise. Copy reviewed by Mona Lisa, 2026-09-08 (#529). */
     const dev = st.device || null;
     const cliRoad = '<p class="dhint" style="margin:8px 0 0;"><b>To connect ' + esc(name) + ', this computer needs ' + esc(t.cli) + ', and it is not here yet.</b> '
       + 'Install it from <a class="xlink" href="' + esc(t.install) + '" target="_blank" rel="noopener">' + esc(t.installText) + '</a>, '
@@ -22305,7 +22336,7 @@ function svcDoorLiveHtml(name, st) {
    own dashboard, the person pastes it, Kosmos checks it with the service
    before keeping it, and keeps it in one file on this Mac that agents are
    handed at launch. Different promise from the CLI doors, said as such:
-   Kosmos holds this one. ⚠️ Placeholder copy until Mona Lisa says it. */
+   Kosmos holds this one. Copy reviewed by Mona Lisa, 2026-09-08 (#529). */
 function svcDoorTokenHtml(name, st) {
   const own = SVC_DOORS[name] ? '<b>' + esc(name) + '.</b> ' + esc(SVC_DOORS[name]) + ' ' : '<b>' + esc(name) + '.</b> ';
   if (!st) return own + '<span class="dhint">Checking…</span>';
