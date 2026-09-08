@@ -29211,10 +29211,13 @@ async function finishImport(data, gen, btn) {
     const provEl = document.getElementById('create-provider');
     const wanted = String(data.provider || '').toLowerCase();
     const okProv = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
-    /* #2453 follow-up: an OpenAI import lands on the account's default model. Set the
-       one-shot BEFORE the change dispatch that fires paintOpenaiCreateModel; authoritative
-       (true only for an OpenAI import) so a dangling value never survives a later import. */
-    if (okProv) { IMPORT_OPENAI_DEFAULT = (wanted === 'openai'); provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
+    /* #2453 follow-up: an OpenAI import lands on the account's default model. Set the one-shot
+       authoritatively on EVERY import (OUTSIDE the okProv guard, so an import whose provider is
+       unmapped/coming-soon still resets any value left dangling by an earlier account-less
+       import, rather than only OpenAI-honoured imports doing so) -- true only for an OpenAI
+       import. Set before the change dispatch that fires paintOpenaiCreateModel. */
+    IMPORT_OPENAI_DEFAULT = (wanted === 'openai');
+    if (okProv) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
 
     if (!AVATAR_FILE) drawCreateMark();
     cstep('name');
