@@ -55,8 +55,11 @@ kosmos_release_diff_summary() {
   # can cause is a BYTE limit, not a line count: macOS ARG_MAX is ~1 MB but Linux caps a
   # single argument at MAX_ARG_STRLEN (~128 KB), well below what 500 un-truncated long
   # paths could reach. So bound bytes too (100 KB, under the Linux per-arg limit and far
-  # under macOS), making the "never fails the commit" guarantee absolute on both OSes and
-  # not merely line-bounded.
+  # under macOS) -- the DECISION below uses `wc -c` (true bytes). The awk ENFORCEMENT uses
+  # length(), which is bytes on macOS awk but CHARACTERS on gawk/UTF-8; for git paths
+  # (effectively ASCII, char==byte) that is exact, and the 28 KB margin to 128 KB absorbs
+  # any multibyte slack. Not "byte-perfect on gawk with non-ASCII paths", but far inside
+  # the real limit on both OSes -- the practical failure this guards is closed.
   if [ "${rds_lines:-0}" -gt 500 ] || [ "${rds_bytes:-0}" -gt 100000 ]; then
     # 🔑 awk that DRAINS, never `exit`s. `head -n N` (or an `awk ...; exit`) closes stdin
     # early, so `printf` takes SIGPIPE (141) on the rest -- and under a `set -euo pipefail`
