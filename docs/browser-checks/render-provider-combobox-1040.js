@@ -67,6 +67,12 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const lblEl = lbIds.map((id) => document.getElementById(id)).find((el) => el && /Provider/i.test(el.textContent || ''));
       const accNameHasLabelAndValue = !trigger.hasAttribute('aria-label') && lbIds.includes(trigger.id) && !!lblEl;
       const collapsed = trigger.getAttribute('aria-expanded') === 'false' && list.hidden === true;
+      // The trigger shows the CURRENT selection and the select's own `change` listener re-renders
+      // it. Flip to a NON-default value and back so this cannot pass with a broken listener:
+      // anthropic is the page default (first non-disabled option), so asserting only Claude would
+      // be vacuous. Leave the value on anthropic for the open/ArrowDown/Enter flow below.
+      select.value = 'openai'; select.dispatchEvent(new Event('change', { bubbles: true }));
+      const triggerLabelOpenai = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
       select.value = 'anthropic'; select.dispatchEvent(new Event('change', { bubbles: true }));
       const triggerLabelClosed = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
       const triggerHasMark = !!trigger.querySelector('.pcombo-mark');
@@ -113,15 +119,18 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const escClosed = list.hidden === true;
       const escRefocus = document.activeElement === trigger;
 
-      // The trigger mirrors select.disabled: paintProviderPicker disables #d-provider for a
-      // non-usable agent, and the widget button must then be non-operable (it could otherwise
-      // re-arm Switch). Set via the wrapped setter, confirm the sync + that open is inert, restore.
-      select.disabled = true;   // NO dispatch; the disabled-setter wrap must sync the trigger
-      const disabledSyncsOn = trigger.disabled === true;
-      trigger.click();          // a disabled trigger must not open
-      const stayedClosedWhileDisabled = list.hidden === true;
+      // The trigger mirrors select.disabled, AND disabling while the popup is OPEN closes it
+      // (no stale aria-expanded=true on a disabled trigger). Testing "a disabled button does not
+      // open" via .click() would be vacuous: .click() on a disabled <button> is a spec no-op, so
+      // it can never fail. Test the observable close-on-disable instead, with a positive control.
       select.disabled = false;
       const disabledSyncsOff = trigger.disabled === false;
+      trigger.click();          // open while ENABLED (positive control: the open path runs)
+      const openedForDisableTest = list.hidden === false;
+      select.disabled = true;   // NO dispatch; the disabled-setter wrap must sync + close
+      const disabledSyncsOn = trigger.disabled === true;
+      const closedOnDisable = list.hidden === true && trigger.getAttribute('aria-expanded') === 'false';
+      select.disabled = false;  // restore
 
       // Programmatic value change WITHOUT dispatching change (resetCreateProvider sets .value
       // then calls applyCreateProviderUI directly, no change event) must still re-render the
@@ -138,7 +147,8 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
         selectStillHasOptions, selectHidden, roleCombobox, collapsed, triggerLabelClosed, triggerHasMark,
         openedAfterClick, activeOnOpen, arrowMoved, selectSynced, changeFired, closedAfterEnter,
         disabledIsDisabled, disabledNotSelectable, grokChip, reopened, escClosed, escRefocus,
-        accNameHasLabelAndValue, disabledSyncsOn, stayedClosedWhileDisabled, disabledSyncsOff, progFrom, progLabel,
+        accNameHasLabelAndValue, triggerLabelOpenai, disabledSyncsOn, disabledSyncsOff,
+        openedForDisableTest, closedOnDisable, progFrom, progLabel,
       };
     });
 
@@ -148,9 +158,11 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
     ok(t + 'the trigger is role=combobox', r.roleCombobox);
     ok(t + 'the trigger accessible name carries the field label AND its own value text (aria-labelledby, not aria-label)', r.accNameHasLabelAndValue);
     ok(t + 'the trigger mirrors select.disabled (disabled = trigger disabled)', r.disabledSyncsOn && r.disabledSyncsOff, JSON.stringify({ on: r.disabledSyncsOn, off: r.disabledSyncsOff }));
-    ok(t + 'a disabled provider control does not open', r.stayedClosedWhileDisabled);
+    ok(t + 'disabling the provider control while open closes the popup (no stale aria-expanded)', r.openedForDisableTest && r.closedOnDisable, JSON.stringify({ opened: r.openedForDisableTest, closed: r.closedOnDisable }));
     ok(t + 'closed: aria-expanded=false and the list is hidden', r.collapsed);
-    ok(t + 'closed: the trigger shows the selected label', /Claude/.test(r.triggerLabelClosed), JSON.stringify(r.triggerLabelClosed));
+    ok(t + 'the select change listener re-renders the trigger to the current selection (flips to OpenAI and back to Claude)',
+      /GPT|OpenAI/i.test(r.triggerLabelOpenai) && /Claude/.test(r.triggerLabelClosed),
+      JSON.stringify({ openai: r.triggerLabelOpenai, closed: r.triggerLabelClosed }));
     ok(t + 'closed: the trigger shows a mark', r.triggerHasMark);
     ok(t + 'click opens the listbox', r.openedAfterClick);
     ok(t + 'opening sets an active option (aria-activedescendant)', r.activeOnOpen);

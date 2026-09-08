@@ -27870,17 +27870,28 @@ const PROVIDER_MARK_KEY = {
   /* 2b-roster (deferred to #770): glm, minimax, deepseek */
 };
 function providerMarkNode(value, label) {
+  /* The mark is DECORATIVE: every place it is used (each option li, and the trigger) also
+     carries a visible `.pcombo-name` text node with the provider name, so the mark must be
+     hidden from the a11y tree or the name is announced twice ("Claude Anthropic / Claude").
+     The firstrun source marks carry their own role="img"/aria-label; strip those and hide. */
   const key = PROVIDER_MARK_KEY[value];
   if (key) {
     const src = document.querySelector('#firstrun [data-pmark="' + key + '"]');
-    if (src) { const n = src.cloneNode(true); n.classList.remove('live', 'dim'); n.removeAttribute('id'); return n; }
+    if (src) {
+      const n = src.cloneNode(true);
+      n.classList.remove('live', 'dim');
+      n.removeAttribute('id');
+      n.setAttribute('aria-hidden', 'true');
+      n.removeAttribute('role');
+      n.removeAttribute('aria-label');
+      return n;
+    }
   }
   /* Fallback (Grok, or any unmapped value): an initial-letter chip, never a wrong-brand
-     lookalike. Decorative + labelled so a screen reader still names the provider. */
+     lookalike. Decorative (aria-hidden), because the adjacent .pcombo-name names the provider. */
   const chip = document.createElement('span');
   chip.className = 'pmark pcombo-chip';
-  chip.setAttribute('role', 'img');
-  chip.setAttribute('aria-label', label || value || '');
+  chip.setAttribute('aria-hidden', 'true');
   chip.textContent = ((label || value || '?').trim().charAt(0) || '?').toUpperCase();
   return chip;
 }
@@ -27973,12 +27984,18 @@ function enhanceProviderSelect(selectId) {
   let active = -1;
 
   function renderTrigger() {
-    const cur = opts.find((o) => o.value === select.value) || opts[0];
-    const label = (cur ? cur.textContent : '').replace(/\s*·\s*coming soon\s*$/i, '').trim();
+    /* Reflect the native select as the source of truth. NO `|| opts[0]` fallback: when
+       select.value matches no option (paintProviderPicker sets `sel.value = current || ''`
+       for an unrecognised provider, leaving selectedIndex -1 / a blank native select), the
+       trigger must show blank too, not silently present the first option as selected. */
+    const cur = opts.find((o) => o.value === select.value) || null;
+    const label = cur ? cur.textContent.replace(/\s*·\s*coming soon\s*$/i, '').trim() : '';
     trigger.textContent = '';
-    const mark = providerMarkNode(cur ? cur.value : '', label);
-    mark.classList.add('pcombo-mark');
-    trigger.appendChild(mark);
+    if (cur) {
+      const mark = providerMarkNode(cur.value, label);
+      mark.classList.add('pcombo-mark');
+      trigger.appendChild(mark);
+    }
     const nm = document.createElement('span');
     nm.className = 'pcombo-name';
     nm.textContent = label;
@@ -27997,7 +28014,12 @@ function enhanceProviderSelect(selectId) {
      select could then never fire `change`, but the widget's button would stay operable and
      could re-arm Switch. A disabled button is also removed from the a11y tree, matching the
      native select. The `disabled` setter is wrapped below so this fires on any assignment. */
-  function syncDisabled() { trigger.disabled = !!select.disabled; }
+  function syncDisabled() {
+    trigger.disabled = !!select.disabled;
+    // Becoming disabled while open would strand the popup visibly open with aria-expanded=true
+    // on a now-disabled trigger. close() no-ops if already closed.
+    if (select.disabled) close(false);
+  }
   function setActive(i) {
     if (active >= 0 && lis[active]) lis[active].classList.remove('pcombo-active');
     active = i;
