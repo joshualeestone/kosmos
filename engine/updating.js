@@ -157,6 +157,10 @@ function announce(v) {
 
     const make = requestFactory || defaultRequest;
     const req = make(opts, body);
+    /* Observationally indistinguishable from the outer guard, like the cert-read
+       catch above: deleting it leaves the suite green because the outer catch
+       swallows the TypeError either way. Kept for locality, documented so nobody
+       writes an arm claiming to discriminate it. */
     if (!req || typeof req.on !== 'function') return;
     /* Every one of these is a path an update must survive. */
     req.on('error', () => { /* unreachable coordinator, TLS refusal, DNS, bad protocol */ });

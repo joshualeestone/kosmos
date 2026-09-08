@@ -122,7 +122,7 @@ function startPolling(intervalMs) {
      attempt finishes, success or clean failure alike. And clearing on every boot
      is idempotent and can only END a "back in a moment" early, never begin one
      falsely, which is the safe direction for a message a person reads. */
-  /* 🛑 GATED ON installedRoot(), matching this file's own convention at line 231
+  /* 🛑 GATED ON installedRoot(), matching this file's own convention at maybeAutoInstall (line 238)
      and its four state-file paths. Without it, a board run from a SOURCE
      CHECKOUT on an enrolled Mac (node server.js, tools/restart-local-board.sh,
      routine on this fleet) makes real mTLS POSTs to the production coordinator

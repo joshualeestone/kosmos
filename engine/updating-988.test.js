@@ -512,6 +512,38 @@ test('#988: defaultRequest picks the module the protocol names', () => {
   assert.deepEqual(seen, ['http', 'https'], 'each protocol must reach its own module');
 });
 
+test('#988: the update path does not drag remote/ping/store into a test process', () => {
+  /* 🛑 THE ORDERING INVARIANT, WHICH HAD NO ARM UNTIL A REVIEWER MUTATED IT.
+     The guard must run BEFORE require('./remote'), because remote.js and ping.js
+     both bind `const BASE = store.ROOT` at module scope and freeze the data root
+     for the process. Moving the require above the guard restores the exact
+     historical bug and left this suite green.
+     It needs a CHILD process: this file already requires remote for its own
+     mocks, so the parent's require.cache can never show the difference. */
+  const { execFileSync } = require('node:child_process');
+  const script = [
+    "const os=require('node:os'),fs=require('node:fs'),p=require('node:path');",
+    "process.env.AGENT_WORKFORCE_DATA=fs.mkdtempSync(p.join(os.tmpdir(),'ord-'));",
+    // require update.js to model the REAL import graph, then drive announce()
+    // DIRECTLY. An earlier version drove it through startPolling(), which is now
+    // gated on installedRoot(); a temp dir has none, so announce never ran and
+    // the arm passed with the bug reintroduced. Measured: it was vacuous.
+    "require(p.join(process.argv[1],'engine/update.js'));",
+    "require(p.join(process.argv[1],'engine/updating.js')).announce(900);",
+    "const has=(m)=>Object.keys(require.cache).some(k=>k.endsWith(p.join('engine',m)));",
+    "process.stdout.write(JSON.stringify({remote:has('remote.js'),ping:has('ping.js'),store:has('store.js')}));",
+  ].join('\n');
+  const repo = nodePath.join(__dirname, '..');
+  const out = execFileSync(process.execPath, ['-e', script, repo], {
+    env: { ...process.env, NODE_TEST_CONTEXT: '1' },
+    encoding: 'utf8',
+  });
+  const loaded = JSON.parse(out);
+  assert.equal(loaded.remote, false, 'requiring remote from the update path freezes the data root');
+  assert.equal(loaded.ping, false, 'ping.js freezes it too');
+  assert.equal(loaded.store, false, 'and store.root() reaches the legacy-store migration');
+});
+
 test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => {
   /* No installedRoot() means a dev checkout (node server.js,
      tools/restart-local-board.sh), which is routine on this fleet. Without the
