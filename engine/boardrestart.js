@@ -21,9 +21,26 @@
  */
 const fs = require('node:fs');
 const path = require('node:path');
-const { execFileSync } = require('node:child_process');
+const { execFileSync, spawn } = require('node:child_process');
+const { installedKosmosCli } = require('./clipath');
 
 const BOARD_LABEL = 'com.kosmos.board';
+
+/* #2454: THE INSTALLED BOARD IS NOT A LAUNCHD-SUPERVISED PROCESS, so the
+   launchctl-stop path below cannot restart it. The login job `com.kosmos.board`
+   runs `kosmos start`, which DAEMONISES a detached node board and EXITS
+   (RunAtLoad + NO KeepAlive, deliberately -- see install/setup.sh); the running
+   board is a detached grandchild, never the launchd job's pid. So `launchctl
+   stop` targets an already-exited job and never touches the board, and
+   canSelfRestart's launchctl arm correctly reports the installed board as
+   not-self-restartable (no unconditional KeepAlive). The restart that DOES work
+   for it is `kosmos restart` -- the SAME CLI the software-update path drives --
+   spawned detached so it outlives the board it stops. Injectable so tests never
+   spawn a real kosmos or probe a real install. */
+let installedCliFn = () => installedKosmosCli();
+function setInstalledCli(fn) { installedCliFn = fn; }
+let spawner = (cmd, args, opts) => spawn(cmd, args, opts);
+function setSpawner(fn) { spawner = fn; }
 
 // The LaunchAgents dir, honouring the product's test seam (#332): a suite sets
 // AGENT_WORKFORCE_LAUNCH so it never reads (or restarts against) the operator's
@@ -103,11 +120,11 @@ function loadedJob() {
  * pid with keepalive active. Requiring the loaded state (not just the disk plist)
  * closes the divergence hole: a disabled or edited-without-reload job whose disk
  * plist still says KeepAlive would otherwise be a false positive that bricks the
- * board. Every uncertainty -> false -> the caller reports restartRequired and
- * never exits.
+ * board. Every uncertainty -> false. This is the DEV board's path (com.kosmos.board
+ * runs `node server.js` directly as the KeepAlive job).
  * @returns {{canRestart:boolean, because:string}}
  */
-function canSelfRestart() {
+function launchctlKeepAlive() {
   if (!fs.existsSync(plistPath())) {
     return { canRestart: false, because: 'this board is not the com.kosmos.board launchd job (from-source or unmanaged); restart it by hand' };
   }
@@ -128,15 +145,74 @@ function canSelfRestart() {
 }
 
 /**
- * Stop the board so launchd relaunches it on the world env now on disk. ONLY
- * call after canSelfRestart().canRestart === true AND after the HTTP response
- * has flushed (this stops THIS process). Mirrors restart-local-board.sh's stop
- * form: the gui-domain target, falling back to the bare label.
+ * Can this board restart itself onto the newly-active world, and by which path?
+ * Two mechanisms, tried most-specific first, each fail-safe:
+ *   via 'launchctl' -- the dev com.kosmos.board KeepAlive job IS this process; a
+ *                      `launchctl stop` relaunches it (one atomic launchd op).
+ *   via 'kosmos'    -- an INSTALLED board (runtime + app present). launchd does NOT
+ *                      supervise it (the login job daemonises `kosmos start` and
+ *                      exits, RunAtLoad + no KeepAlive), so it is restarted with a
+ *                      detached `kosmos restart` -- the SAME CLI the update path
+ *                      drives. Gated on the installed layout (engine/clipath), so a
+ *                      from-source `node server.js` -- which a stop would never
+ *                      bring back -- resolves to null and is NEVER restarted.
+ * Every uncertainty -> canRestart:false, and the caller reports restartRequired for
+ * a manual restart instead.
+ * @returns {{canRestart:boolean, because:string, via?:string, cli?:string}}
+ */
+function canSelfRestart() {
+  const la = launchctlKeepAlive();
+  if (la.canRestart) return { canRestart: true, because: la.because, via: 'launchctl' };
+  const cli = installedCliFn();
+  if (cli) {
+    return { canRestart: true, via: 'kosmos', cli, because: 'the installed board will be restarted with `kosmos restart` onto the new world' };
+  }
+  // Neither path viable: surface the launchctl reason for the manual banner.
+  return { canRestart: false, because: la.because, via: null };
+}
+
+/**
+ * Restart an INSTALLED board with a detached `kosmos restart` that OUTLIVES it:
+ * the child stops this board (kosmos stop kills this process by pidfile) then
+ * starts a fresh one (kosmos start) that boots the now-active world. Mirrors
+ * engine/update.js's detached installer -- the proven pattern for a child that
+ * must survive killing its own parent.
+ *
+ * 🛑 STRIP THE WORLD-OVERRIDE ENV. This board applied the OLD world's data-root
+ * overrides at boot (engine/worldenv). `kosmos start` inherits our env, and a
+ * switch TO the default world sets NO overrides -- so an inherited
+ * AGENT_WORKFORCE_DATA/_PROJECTS/_WORKERS would silently keep the fresh board on
+ * the OLD world's data (a cross-world bleed, the exact class worldenv exists to
+ * prevent). Deleting them makes the fresh board re-derive its roots purely from
+ * the registry, exactly as a login `kosmos start` does.
+ * @returns {{ok:boolean, because?:string}}
+ */
+function kosmosRestart(cli) {
+  const env = { ...process.env };
+  delete env.AGENT_WORKFORCE_DATA;
+  delete env.AGENT_WORKFORCE_PROJECTS;
+  delete env.AGENT_WORKFORCE_WORKERS;
+  try {
+    const child = spawner(cli, ['restart'], { detached: true, stdio: 'ignore', env });
+    if (child && typeof child.unref === 'function') child.unref();
+  } catch (e) {
+    return { ok: false, because: `could not start the board restart: ${String((e && e.message) || e)}` };
+  }
+  return { ok: true };
+}
+
+/**
+ * Restart the board so it comes back on the world env now on disk. ONLY call
+ * after canSelfRestart().canRestart === true AND after the HTTP response has
+ * flushed (either path ends THIS process). Routes by the path canSelfRestart
+ * chose: a detached `kosmos restart` for an installed board, else the dev
+ * launchctl stop (gui-domain target, falling back to the bare label).
  * @returns {{ok:boolean, because?:string}}
  */
 function selfRestart() {
   const can = canSelfRestart();
   if (!can.canRestart) return { ok: false, because: can.because };
+  if (can.via === 'kosmos') return kosmosRestart(can.cli);
   const u = uid();
   let r = runner('launchctl', ['stop', `gui/${u}/${BOARD_LABEL}`]);
   if (!r.ok) r = runner('launchctl', ['stop', BOARD_LABEL]);
@@ -144,4 +220,4 @@ function selfRestart() {
   return { ok: true };
 }
 
-module.exports = { canSelfRestart, selfRestart, setRunner };
+module.exports = { canSelfRestart, selfRestart, setRunner, setInstalledCli, setSpawner };

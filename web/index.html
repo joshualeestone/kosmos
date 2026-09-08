@@ -16850,9 +16850,18 @@ function worldswRender(data) {
   const nameEl = document.getElementById('worldsw-name');
   const list = document.getElementById('worldsw-list');
   if (!sw || !nameEl || !list) return;
-  // The world used for the promoted name is the SAME one marked below (activeId),
-  // so a stale activeWorldId cannot make the name and the marked row disagree.
-  const active = data.worlds.find((w) => w.id === data.activeWorldId) || data.worlds[0];
+  /* #2454b: mark the CURRENT world by the world the board actually BOOTED into
+     (data.bootedWorldId), NOT the registry pointer (data.activeWorldId). The
+     pointer flips the instant a switch POSTs, but the running board keeps serving
+     the booted world until it restarts; keying the marker on the pointer showed
+     the world you are actually on as a switchable row, so clicking it demanded a
+     needless restart into the Kosmos you were already on. The server sends
+     bootedWorldId null only when the board never bootstrapped (a unit test) -- fall
+     back to the pointer there so behaviour is unchanged. The world used for the
+     promoted name is the SAME one marked below (activeId), so the name and the
+     marked row can never disagree. */
+  const currentId = data.bootedWorldId || data.activeWorldId;
+  const active = data.worlds.find((w) => w.id === currentId) || data.worlds[0];
   const activeId = active ? active.id : null;
   const activeName = (active && active.name) || 'Kosmos';
   nameEl.textContent = activeName;

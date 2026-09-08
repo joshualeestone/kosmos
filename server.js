@@ -2712,7 +2712,24 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase(); // can throw only on a broken login env (worldRegistryBase null -> baseRoot rethrows)
-      sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+      /* #2454: TWO different "active" facts, and the switcher needs both.
+         - activeWorldId is the REGISTRY POINTER (the desired world), which
+           POST /api/worlds/active flips the instant it is called.
+         - bootedWorldId is the world the LIVE board actually BOOTED into
+           (engine/worldenv.bootedWorld()), which does not change until the board
+           restarts.
+         They DIVERGE between a switch and the restart that applies it (and stay
+         diverged on a board that cannot self-restart, e.g. a from-source board).
+         The UI must mark the CURRENT world by the booted one -- otherwise the
+         world you are actually running on shows as a switchable row, and clicking
+         it demands a needless restart into the Kosmos you are already on (#2454b).
+         bootedWorldId is null only if the board never bootstrapped (a unit test);
+         the client falls back to activeWorldId there, so behaviour is unchanged. */
+      sendJson(res, 200, {
+        worlds: worlds.listWorlds(base),
+        activeWorldId: worlds.activeWorld(base).id,
+        bootedWorldId: require('./engine/worldenv').bootedWorld(),
+      });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }

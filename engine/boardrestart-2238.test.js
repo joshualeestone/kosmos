@@ -52,7 +52,11 @@ function printStub(pid, { keepalive = true } = {}) {
   };
 }
 
-test.beforeEach(() => { rmPlist(); board.setRunner(printStub(process.pid)); });
+// #2454: isolate the launchctl-KeepAlive arm below from the new installed-board
+// `kosmos restart` arm -- installedCli null means "not an installed board", so
+// these tests exercise ONLY the dev launchd path (no real install can leak in and
+// turn a fail-safe FALSE into a TRUE). The kosmos-path tests set it explicitly.
+test.beforeEach(() => { rmPlist(); board.setRunner(printStub(process.pid)); board.setInstalledCli(() => null); });
 
 // ── the ONE happy path ──────────────────────────────────────────────────────
 test('canRestart TRUE only when: plist + unconditional KeepAlive + launchd runs THIS pid', () => {
@@ -144,6 +148,94 @@ test('selfRestart falls back to the bare-label stop when the gui-domain form fai
   assert.equal(r.ok, true, r.because);
   assert.equal(stops.length, 2, 'tried gui-domain then bare label');
   assert.equal(stops[1], 'com.kosmos.board');
+});
+
+// ── #2454: the INSTALLED-board `kosmos restart` path ────────────────────────
+// The installed board is RunAtLoad + no KeepAlive and is a detached grandchild of
+// launchd, so the launchctl arm is (correctly) FALSE for it -- the kosmos arm is
+// what restarts it. These tests stub the installed-cli probe and the spawner so no
+// real kosmos is located or run.
+
+test('kosmos path: canRestart TRUE via kosmos when installed, even with NO KeepAlive', () => {
+  writePlist(NO_KEEPALIVE);           // the installed board's real plist shape
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  const r = board.canSelfRestart();
+  assert.equal(r.canRestart, true, r.because);
+  assert.equal(r.via, 'kosmos');
+  assert.equal(r.cli, '/home/bin/kosmos');
+});
+
+test('kosmos path: canRestart TRUE via kosmos even with NO plist at all', () => {
+  rmPlist();
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  const r = board.canSelfRestart();
+  assert.equal(r.canRestart, true, r.because);
+  assert.equal(r.via, 'kosmos');
+});
+
+test('launchctl WINS over kosmos when the dev KeepAlive job is viable', () => {
+  // A dev box that is ALSO somehow installed still prefers the atomic launchd op.
+  writePlist(KEEPALIVE_TRUE);
+  board.setRunner(printStub(process.pid));
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  const r = board.canSelfRestart();
+  assert.equal(r.canRestart, true, r.because);
+  assert.equal(r.via, 'launchctl');
+});
+
+test('FALSE: not installed AND not a KeepAlive job (from-source node server.js) -> manual', () => {
+  rmPlist();
+  board.setInstalledCli(() => null);  // clipath returns null for a from-source board
+  const r = board.canSelfRestart();
+  assert.equal(r.canRestart, false);
+  assert.match(r.because, /from-source|by hand/i);
+});
+
+test('selfRestart via kosmos spawns a DETACHED `kosmos restart`, unref\'d, and NEVER issues launchctl stop', () => {
+  writePlist(NO_KEEPALIVE);
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  let stopped = false;
+  board.setRunner((cmd, args) => { if (args && args[0] === 'stop') stopped = true; return { ok: true, stdout: '' }; });
+  let spawned = null;
+  let unrefd = false;
+  board.setSpawner((cmd, args, opts) => { spawned = { cmd, args, opts }; return { unref() { unrefd = true; } }; });
+  const r = board.selfRestart();
+  assert.equal(r.ok, true, r.because);
+  assert.equal(stopped, false, 'the kosmos path must never issue launchctl stop (would target an exited login job)');
+  assert.ok(spawned, 'spawned a child');
+  assert.equal(spawned.cmd, '/home/bin/kosmos');
+  assert.deepEqual(spawned.args, ['restart']);
+  assert.equal(spawned.opts.detached, true, 'detached so it outlives the board it stops');
+  assert.equal(spawned.opts.stdio, 'ignore');
+  assert.equal(unrefd, true, 'unref\'d so it never holds a handle');
+});
+
+test('selfRestart via kosmos STRIPS the world-override env (a switch to default must not bleed old-world data)', () => {
+  writePlist(NO_KEEPALIVE);
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  process.env.AGENT_WORKFORCE_DATA = '/old/world/data';
+  process.env.AGENT_WORKFORCE_PROJECTS = '/old/world/projects';
+  process.env.AGENT_WORKFORCE_WORKERS = '/old/world/workers';
+  process.env.KOSMOS_HOME = '/keep/me';   // a non-world var must survive
+  let spawned = null;
+  board.setSpawner((cmd, args, opts) => { spawned = { cmd, args, opts }; return { unref() {} }; });
+  const r = board.selfRestart();
+  assert.equal(r.ok, true, r.because);
+  assert.equal(spawned.opts.env.AGENT_WORKFORCE_DATA, undefined, 'stripped -> fresh board re-derives from the registry');
+  assert.equal(spawned.opts.env.AGENT_WORKFORCE_PROJECTS, undefined);
+  assert.equal(spawned.opts.env.AGENT_WORKFORCE_WORKERS, undefined);
+  assert.equal(spawned.opts.env.KOSMOS_HOME, '/keep/me', 'non-world env is preserved');
+  delete process.env.AGENT_WORKFORCE_DATA; delete process.env.AGENT_WORKFORCE_PROJECTS;
+  delete process.env.AGENT_WORKFORCE_WORKERS; delete process.env.KOSMOS_HOME;
+});
+
+test('selfRestart via kosmos reports a spawn failure instead of throwing', () => {
+  writePlist(NO_KEEPALIVE);
+  board.setInstalledCli(() => '/home/bin/kosmos');
+  board.setSpawner(() => { throw new Error('EAGAIN'); });
+  const r = board.selfRestart();
+  assert.equal(r.ok, false);
+  assert.match(r.because, /EAGAIN|could not start/i);
 });
 
 test.after(() => { try { fs.rmSync(LAUNCH, { recursive: true, force: true }); } catch { /* best effort */ } });
