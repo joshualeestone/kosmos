@@ -89,7 +89,7 @@ function enforced(env) {
 
 /**
  * The token path. ONE source of truth: `store.ROOT` (the per-account data dir,
- * `~/Library/Application Support/AgentWorkforce` in prod, an
+ * `~/Library/Application Support/Kosmos` in prod, an
  * `AGENT_WORKFORCE_DATA` sandbox otherwise). The CLI and native app read the same
  * path via the same `store.ROOT`, so there is no second copy of the formula.
  */
@@ -166,7 +166,7 @@ function readToken() {
  *
  * ⚖️ DECISION (#2040, ratified 2026-09-06): the token is NOT thereby exposed to
  * other local users, and an explicit owner-only ACL was considered and DECLINED.
- * The token lives under `%APPDATA%\AgentWorkforce` (`store.dataRootFor('win32', ...)`,
+ * The token lives under `%APPDATA%\Kosmos` (`store.dataRootFor('win32', ...)`,
  * pinned by `engine/store.dataroot-570.test.js`), a per-user PROFILE root whose
  * inherited ACL is exactly SYSTEM + Administrators + the owning user, with NO
  * `Users`/`Everyone` entry -- so another NON-admin local account already cannot read

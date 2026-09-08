@@ -411,12 +411,12 @@ cd "$PW" && npm init -y && npm i playwright && npx playwright install chromium w
 #    <repo>/docs/browser-checks/node_modules … / and exit MODULE_NOT_FOUND.
 NODE_PATH="$PW/node_modules" node <repo>/docs/browser-checks/render-first-run.js /tmp/frshots
 NODE_PATH="$PW/node_modules" node <repo>/docs/browser-checks/click-first-run.js \
-  "$SB/data/AgentWorkforce/first-run.json"
+  "$SB/data/Kosmos/first-run.json"
 ```
 
 ⚠️ **Sandbox the roots — all FOUR of them.** `click-first-run.js` drives the
 real completion flag through the real route. Run unsandboxed and it writes to
-`~/Library/Application Support/AgentWorkforce/`, which is the flag the live
+`~/Library/Application Support/Kosmos/`, which is the flag the live
 board reads. And `AGENT_WORKFORCE_PROJECTS` is a root the server WRITES to
 (adding a project on the default path makes its folder there): leave it unset
 and a test click creates directories in the operator's real ~/Kosmos/Projects.
@@ -716,8 +716,8 @@ longer exists is decidable and always wrong.** No threshold, no judgement.
 before the server starts:
 
 ```sh
-mkdir -p "$SB/data/AgentWorkforce"
-echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/first-run.json"
+mkdir -p "$SB/data/Kosmos"
+echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
 ```
 
 ⚠️ **Skip that and onboarding covers the entire app.** The script asserts nothing

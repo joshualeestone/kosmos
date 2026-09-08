@@ -69,9 +69,9 @@ AGENT_WORKFORCE_DATA="$d0" KOSMOS_AXCHECK_FORCE_TRUSTED=0 "$BIN" --kosmos-app-ax
 check "axcheck(mock=0) exits 0" 0 "$?"
 # The file lands where the engine reads it (store.ROOT/a11y-status.json).
 check "axcheck(mock=0) wrote the reading at the store path" yes \
-  "$([ -f "$d0/AgentWorkforce/a11y-status.json" ] && echo yes || echo no)"
+  "$([ -f "$d0/Kosmos/a11y-status.json" ] && echo yes || echo no)"
 check "the reading is trusted:false" yes \
-  "$(grep -q '"trusted":false' "$d0/AgentWorkforce/a11y-status.json" && echo yes || echo no)"
+  "$(grep -q '"trusted":false' "$d0/Kosmos/a11y-status.json" && echo yes || echo no)"
 # The whole point: a not-trusted reading is checkable AND gating.
 check "engine reads trusted:false as checkable/false (GATES Continue)" "checkable/false" "$(engine_verdict "$d0")"
 
@@ -80,7 +80,7 @@ d1="$tmp/data-true"
 AGENT_WORKFORCE_DATA="$d1" KOSMOS_AXCHECK_FORCE_TRUSTED=1 "$BIN" --kosmos-app-axcheck
 check "axcheck(mock=1) exits 0" 0 "$?"
 check "the reading is trusted:true" yes \
-  "$(grep -q '"trusted":true' "$d1/AgentWorkforce/a11y-status.json" && echo yes || echo no)"
+  "$(grep -q '"trusted":true' "$d1/Kosmos/a11y-status.json" && echo yes || echo no)"
 check "engine reads trusted:true as checkable/true (UNBLOCKS Continue)" "checkable/true" "$(engine_verdict "$d1")"
 
 # --- absent reading -- the FAIL-SAFE control ---------------------------------------
@@ -127,10 +127,10 @@ if command -v tmux >/dev/null 2>&1; then
   AGENT_WORKFORCE_DATA="$d5" KOSMOS_AXCHECK_FORCE_TRUSTED=0 \
     tmux -L "$sock" new-session -d "'$BIN' --kosmos-app-axcheck"
   # the hatch is detached; poll briefly for its write, then tear down the private server.
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -f "$d5/AgentWorkforce/a11y-status.json" ] && break; sleep 0.3; done
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -f "$d5/Kosmos/a11y-status.json" ] && break; sleep 0.3; done
   tmux -L "$sock" kill-server >/dev/null 2>&1
   check "the under-tmux spawn wrote the reading to the store the engine reads" yes \
-    "$([ -f "$d5/AgentWorkforce/a11y-status.json" ] && echo yes || echo no)"
+    "$([ -f "$d5/Kosmos/a11y-status.json" ] && echo yes || echo no)"
   check "the under-tmux (mock=0) reading gates: engine reads checkable/false" "checkable/false" "$(engine_verdict "$d5")"
 else
   echo "SKIP  the under-tmux spawn arm (no tmux on this host; direct-invocation checks above still cover the writer)"

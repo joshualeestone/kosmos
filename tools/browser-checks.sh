@@ -517,11 +517,11 @@ write_fleet_rich() {
   # the check. Seeding only one made render-survival fail IN THE RUNNER after
   # passing on a board booted by hand: the exact fresh-board-versus-in-sequence
   # gap this whole card is about, reproduced in the fix for it.
-  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
+  mkdir -p "$sb/data/Kosmos/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
   printf '%s\n' '{"role":"Copywriter","displayName":"Ghosty"}' \
-    > "$sb/data/AgentWorkforce/profiles/ghosty.json"
+    > "$sb/data/Kosmos/profiles/ghosty.json"
   printf '%s\n' '{"role":"helper"}' \
-    > "$sb/data/AgentWorkforce/profiles/brigitte.json"
+    > "$sb/data/Kosmos/profiles/brigitte.json"
 }
 # 🛑 THE BOARD SCANS THE OPERATOR'S REAL $HOME UNLESS THIS IS SET.
 # `status.configRoots()` (engine/status.js:56) returns [CONFIG_ROOT] when the
@@ -568,7 +568,7 @@ boot_board_rich() {
 # board would take that check red. This board is separate for that reason.
 write_fleet_org() {
   local sb="$1"
-  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers"
+  mkdir -p "$sb/data/Kosmos/profiles" "$sb/workers"
   SB_ORG="$sb" node -e '
     const f = require("./test-support/fleet");
     const fs = require("fs");
@@ -579,7 +579,7 @@ write_fleet_org() {
     for (const [a, to] of tree) {
       lines.push(f.line({ session: a + "-discord" }));
       fs.mkdirSync(sb + "/workers/" + a, { recursive: true });
-      fs.writeFileSync(sb + "/data/AgentWorkforce/profiles/" + a + ".json",
+      fs.writeFileSync(sb + "/data/Kosmos/profiles/" + a + ".json",
         JSON.stringify({ role: "Worker", reportsTo: to, dir: sb + "/workers/" + a }, null, 2) + "\n");
     }
     fs.writeFileSync(sb + "/panes.txt", lines.join("\n") + "\n");
@@ -1305,7 +1305,7 @@ run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/brow
 sbc="$(new_sandbox)"
 if boot_board_rich "$sbc" "$P12"; then
   run_one "click-first-run" env KOSMOS_URL="http://127.0.0.1:$P12" HEADED=0 \
-    node docs/browser-checks/click-first-run.js "$sbc/data/AgentWorkforce/first-run.json"
+    node docs/browser-checks/click-first-run.js "$sbc/data/Kosmos/first-run.json"
 else
   FAILED+=("click-first-run (board did not boot)")
 fi
