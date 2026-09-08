@@ -121,11 +121,14 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
         borderColor: cs.borderColor, caret: getComputedStyle(ta).caretColor };
     });
     say('the composer text box takes focus', !!(focusStyle && focusStyle.focused), JSON.stringify(focusStyle));
-    /* box-shadow none is the discriminating assertion: a re-added focus ring
-       paints `0 0 0 3px ...` here and this FAILS, so the check can return the
-       dangerous answer. */
-    say('a focused composer shows NO dark focus ring (box-shadow: none)',
-      !!(focusStyle && focusStyle.boxShadow === 'none'), 'box-shadow=' + (focusStyle && focusStyle.boxShadow));
+    /* Forbid the near-black RING specifically, not every box-shadow. Josh's ask
+       was to remove the dark stroke; the JSDOM guard deliberately leaves room for
+       a future SOFT non-dark focus treatment, so this layer must too or it would
+       false-red one. The re-added #1303 D ring computes as `rgba(74, 79, 87, .12)
+       0px 0px 0px 3px`, so the near-black token is the discriminating substring:
+       'none' passes, a soft non-near-black halo passes, the dark ring FAILS. */
+    say('a focused composer shows NO near-black focus ring',
+      !!(focusStyle && focusStyle.boxShadow.indexOf('74, 79, 87') === -1), 'box-shadow=' + (focusStyle && focusStyle.boxShadow));
     /* the near-black --k-ink-2 = rgb(74, 79, 87); focus must NOT repaint the
        border that colour (it stays the resting --k-rule). */
     say('a focused composer does not repaint its border near-black',
