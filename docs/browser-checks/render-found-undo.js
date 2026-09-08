@@ -46,6 +46,7 @@ const FOUND = {
   const page = await ctx.newPage();
   const errors = [];
   let connectCalls = 0;
+  let declineCalls = 0;
   let disconnectCalls = 0;
   page.on('pageerror', (e) => errors.push(String(e.message)));
   page.on('console', (m) => {
@@ -61,7 +62,11 @@ const FOUND = {
   }));
   await page.route('**/api/scan-agents', (r) => r.fulfill({ json: { ok: true, candidates: [] } }));
   await page.route('**/api/connect-agent', (r) => { connectCalls += 1; r.fulfill({ json: { ok: true, name: 'x', started: true } }); });
-  await page.route('**/api/found-agents/decline', (r) => { disconnectCalls += 1; r.fulfill({ json: { ok: true } }); });
+  // The adopt-row Skip control posts to /api/found-agents/decline; the found-row post-add Undo
+  // (.fr-foundundo) posts to /api/disconnect-agent. Stub and count BOTH so a regression that
+  // partially restored rendering and auto-fired EITHER route is caught, not just the decline route.
+  await page.route('**/api/found-agents/decline', (r) => { declineCalls += 1; r.fulfill({ json: { ok: true } }); });
+  await page.route('**/api/disconnect-agent', (r) => { disconnectCalls += 1; r.fulfill({ json: { ok: true } }); });
 
   const step = await gotoStepForAnchor(page, BASE, '#fr-fleet');
   await page.waitForSelector('#fr-fleet', { timeout: 8000 });
@@ -81,7 +86,8 @@ const FOUND = {
   check('no Add or Undo controls render', view.addButtons === 0 && view.undoButtons === 0,
     `add=${view.addButtons} undo=${view.undoButtons}`);
   check('nothing was auto-connected on first run', connectCalls === 0, `connectCalls=${connectCalls}`);
-  check('nothing was auto-declined on first run', disconnectCalls === 0, `disconnectCalls=${disconnectCalls}`);
+  check('nothing was auto-declined on first run (adopt Skip route)', declineCalls === 0, `declineCalls=${declineCalls}`);
+  check('nothing was auto-disconnected on first run (found Undo route)', disconnectCalls === 0, `disconnectCalls=${disconnectCalls}`);
   check('no page errors and no unexpected console errors', errors.length === 0, errors.slice(0, 4).join(' | '));
 
   await browser.close();

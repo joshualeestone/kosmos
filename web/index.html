@@ -8867,10 +8867,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fc-eyebrow">Your agents</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
-             text below is only the default; the live flow rewrites it per path:
-             found -> "We found N agents on this computer", adopt -> "You already
-             have N agents here.", create -> "Create your first agent." -->
-        <h2 id="fr-fleet-title">We found existing AGENTS on this computer</h2>
+             text below is only the pre-JS default. #2497: first run now ALWAYS
+             lands on the no-agent create screen, so the default matches that
+             outcome to avoid a flash of the wrong heading before JS runs. The
+             kept-but-bypassed engine can still rewrite it to "We found N agents
+             on this computer" / "You already have N agents here." elsewhere. -->
+        <h2 id="fr-fleet-title">Create your first agent.</h2>
         <!-- install-flow-9screen: the found/create/adopt fork renders into
              #fr-fleet below (the existing, tested add/undo/adopt flow, which
              already implements S9a's intent: "We found N agents..." + a per-row
