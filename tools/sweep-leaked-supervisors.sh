@@ -11,11 +11,14 @@
 # 🔑 ONE JUDGING, NOT TWO. The classification is tools/lib/launchd-witness.sh's
 # `lw_judge` (#566), fed an empty "before" so every currently-registered
 # com.kosmos.* job is judged: REAL under ~/Library/LaunchAgents, SANDBOX
-# anywhere else, UNKNOWN when the job vanished between list and read. A second
+# anywhere else, PERSIST for a SANDBOX job that also carries a persistence key
+# (#1163), UNKNOWN when the job vanished between list and read. A second
 # spelling of those rules here would drift from the witness the day either is
 # edited. The sweep adds ONE further fact the witness has no reason to hold:
-# whether a SANDBOX job's plist file still exists. A temp dir that has been
-# cleaned is a job whose harness is gone -- LEAKED, the thing this tool is for.
+# whether a SANDBOX/PERSIST job's plist file still exists. A temp dir that has
+# been cleaned is a job whose harness is gone -- LEAKED, the thing this tool is
+# for. PERSIST is reaped exactly as SANDBOX (plist gone => leaked); if that arm
+# were missing the persistent leak would fall through and read as a clean sweep.
 #
 # ⚠️ NAME BEFORE REAPING (#579's rule, held twice today). The sweep REPORTS by
 # default. Reaping is a flag a person passes, and even then only LEAKED jobs
@@ -70,20 +73,29 @@ while read -r verdict label path; do
       echo "REAL     $label  $path  (the installed product; not this tool's business)" ;;
     UNKNOWN)
       echo "UNKNOWN  $label  (vanished between list and read; nothing left to act on)" ;;
-    SANDBOX)
+    SANDBOX|PERSIST)
+      # PERSIST (#1163) is a SANDBOX-shaped job that ALSO carries a persistence
+      # key (RunAtLoad/KeepAlive), so it is built to outlive the run. It is a new
+      # lw_judge verdict; handle it at least as strongly as SANDBOX so a persistent
+      # leak is never silently swallowed by this reaper (which was the regression
+      # risk of adding the verdict). Same plist-existence logic: reaped when the
+      # plist is gone (a persistent job whose harness was cleaned is the worst
+      # leak), surfaced but left alone when the plist still exists (it may be a
+      # live test bootstrapped with RunAtLoad this very minute).
+      if [ "$verdict" = PERSIST ]; then _p="  [persistent: RunAtLoad/KeepAlive - built to outlive the run, investigate]"; else _p=""; fi
       if [ -e "$path" ]; then
-        echo "SANDBOX  $label  $path  (its plist still exists, so its harness may be running; left alone)"
+        echo "$verdict  $label  $path  (its plist still exists, so its harness may be running; left alone)$_p"
       else
         LEAKED=$((LEAKED+1))
         if [ "$REAP" -eq 1 ]; then
           if _lw_launchctl bootout "gui/$(id -u)/$label" >/dev/null 2>&1; then
-            echo "REAPED   $label  $path  (plist gone, harness gone; job booted out. Any session it already made is NOT touched)"
+            echo "REAPED   $label  $path  (plist gone, harness gone; job booted out. Any session it already made is NOT touched)$_p"
           else
             UNREAPED=$((UNREAPED+1))
-            echo "LEAKED   $label  $path  (plist gone, and bootout FAILED; still registered -- reap it by hand)"
+            echo "LEAKED   $label  $path  (plist gone, and bootout FAILED; still registered -- reap it by hand)$_p"
           fi
         else
-          echo "LEAKED   $label  $path  (plist gone: its harness was cleaned and the job survived it. --reap boots it out)"
+          echo "LEAKED   $label  $path  (plist gone: its harness was cleaned and the job survived it. --reap boots it out)$_p"
         fi
       fi ;;
   esac

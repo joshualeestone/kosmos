@@ -64,6 +64,30 @@ test('#1652 ROUND TRIP over HTTP: a valid exported file parses into create-form 
     'the body is returned as `instructions`, the field POST /api/agents uses');
 });
 
+// #2453: the parse response carries the provider's DEFAULT model key, so the
+// import-prefilled create form lands the agent ON a model rather than creating it
+// model-less and showing 'unknown model' + not reachable (Josh, 0.6.47 re-test).
+test('#2453: a Claude import returns the default model key (sonnet) for the form to pre-select', async () => {
+  const file = exportedFile('modelimp', '# You are Modelled\n\nYou do one thing.\n', 'claude');
+  const { status, json } = await post('/api/agent-import', { file });
+  assert.equal(status, 200);
+  assert.equal(json.ok, true, json.because);
+  assert.equal(json.model, 'sonnet',
+    'a Claude import must carry the provider default model, so the created agent is not model-less');
+});
+
+// The OpenAI-returns-null case is covered at the unit level (defaultModelKeyFor('openai')
+// === null in create.test.js) plus this route's uniform `create.defaultModelKeyFor(parsed.provider)`
+// call; a route-level openai fixture would need a codex AGENTS.md export, out of scope here.
+test('#2453: a raw CLAUDE.md import (no provider hint) still carries a default model, so it is not model-less', async () => {
+  const claudeMd = '# You are Rawmodel\n\nRawmodel does one thing well, introduced here by name.\n';
+  const { status, json } = await post('/api/agent-import', { file: claudeMd });
+  assert.equal(status, 200);
+  assert.equal(json.ok, true, json.because);
+  assert.equal(json.model, 'sonnet',
+    'a provider-less import (an unrecognized .md) defaults to the anthropic base, the connected-Claude case');
+});
+
 test('#1939 REFUSED WHOLE: a document that is not an agent is refused with a redirecting reason', async () => {
   const bad = await post('/api/agent-import', { file: '# Just a document\n\nno frontmatter here\n' });
   assert.equal(bad.status, 200);
@@ -138,6 +162,18 @@ test('#1652 PR2 POSITIVE: a discovered agent file is read by path and parses int
   assert.equal(json.ok, true, json.because);
   assert.equal(json.name, 'sharedagent');
   assert.match(String(json.instructions || ''), /You answer one question well/);
+});
+
+test('#2453: the FILE route also returns the default model key, so the second call site is covered too', async () => {
+  // SHARED is a 'claude' export, so like the text route it must carry the
+  // default model key for the form to pre-select. The injected model: line is
+  // identical across both /api/agent-import call sites; this asserts the file
+  // variant at the route level rather than trusting that line-level identity
+  // (the plan flags the two-call-site gap).
+  const { status, json } = await post('/api/agent-import-file', { file: SHARED });
+  assert.equal(status, 200);
+  assert.equal(json.model, 'sonnet',
+    `the file import route should default a Claude agent to sonnet, got ${JSON.stringify(json.model)}`);
 });
 
 test('#1652 PR2 SECURITY: an arbitrary path the scan never returned is REFUSED, not read', async () => {
