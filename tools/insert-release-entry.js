@@ -24,7 +24,7 @@
  * by the time step 7 reads it. So running this BEFORE launching a cut produces
  * exactly the stamp the gates are built to reject.
  *
- * ✅ WIRED, #1455 (2026-09-08). tools/release.sh calls this at step 6b, immediately
+ * ✅ WIRED, #1455 (2026-09-08). tools/release.sh calls this at step 7a, immediately
  * before the step 7 gate, when a pending entry file is present -- the moment this
  * header's rule above says is the only correct one. The old hand-stamped flow is
  * untouched and still works: this exits 0 with "nothing written" when the version is
@@ -86,7 +86,11 @@ const when = new Date().toLocaleString('en-US', {
   month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   timeZoneName: 'short',
 }).replace(' at ', ', ');
-const stamped = entry.replace('TIMESTAMP', when);
+/* 🛑 EVERY OCCURRENCE, NOT THE FIRST. `String.replace` with a string pattern
+   replaces once, so an entry carrying TIMESTAMP twice went out with a literal
+   `TIMESTAMP` on the public page. Pre-existing, and harmless only while nothing
+   called this; #1455 makes the path live, which is what turns it into a defect. */
+const stamped = entry.split('TIMESTAMP').join(when);
 
 /* Above the newest entry, and above its comment if it has one: the comment
    belongs to the entry below it, so inserting between them would orphan it. */

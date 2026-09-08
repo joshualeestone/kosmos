@@ -121,7 +121,7 @@ a different problem.
    **(a) Leave it as a FILE and let the cut stamp it (#1455, preferred).** Write the
    entry into `$REPO/.release-entry.html` (or wherever `KOSMOS_ENTRY_FILE` points),
    with the literal word `TIMESTAMP` where the time goes. Step 1 accepts it as pending;
-   step 6b inserts it and stamps it with the minute it actually publishes. **Nothing to
+   step 7a inserts it and stamps it with the minute it actually publishes. **Nothing to
    predict, so nothing to age.** The file is gitignored: it is an input to a release,
    not a tracked file. The copy is still yours to write - only the timestamp and the
    placement are mechanical.

@@ -128,6 +128,31 @@ else
   bad "the stamp took the machine's timezone: $(grep -o 'rel-d">[^<]*<' "$T/versions.html" | head -1)"
 fi
 
+# 🛑 EVERY placeholder, not just the first. A `String.replace` with a string pattern
+# replaces once, so an entry carrying TIMESTAMP twice used to go out with a literal
+# TIMESTAMP on the public page. Harmless while nothing called the tool; this card is
+# what makes the path live.
+page
+printf '    <article class="rel" id="v0-6-43">\n      <p class="rel-d">TIMESTAMP</p>\n      <p class="rel-x">TIMESTAMP</p>\n    </article>\n' > "$T/two.html"
+node tools/insert-release-entry.js "$T/two.html" --site "$T" >/dev/null 2>&1
+if grep -q 'TIMESTAMP' "$T/versions.html"; then
+  bad "an entry with two placeholders shipped a literal TIMESTAMP to the page"
+else
+  ok "an entry with TWO placeholders has both stamped, so nothing literal ships"
+fi
+[ "$(grep -c 'C[DS]T' "$T/versions.html")" -ge 2 ] \
+  && ok "and both carry a real Central stamp" || bad "the second placeholder was not stamped"
+
+# An operator who wrote a pending file must learn it was SEEN and rejected, not just
+# that the page has no entry: the old refusal describes the page and never their file.
+page
+printf '    <article class="rel" id="v0-6-99">\n      <p class="rel-d">TIMESTAMP</p>\n    </article>\n' > "$T/wrongid.html"
+out="$(kosmos_versions_entry_gate_or_pending "0.6.41" "$T/versions.html" "cost." "fix." 4 "$T/wrongid.html" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && ok "a pending file for the WRONG version still refuses" || bad "a wrong-version pending file was accepted"
+printf '%s' "$out" | grep -q 'is not usable for' \
+  && ok "and the refusal SAYS the pending file was found and turned down" \
+  || bad "the operator is not told their pending file was even looked at: $out"
+
 # ---- WIRING: the cure must be CALLED, which is this card's entire subject -------
 
 grep -q 'kosmos_versions_entry_gate_or_pending "\$V"' tools/release.sh \
@@ -138,7 +163,12 @@ grep -q 'node "\$REPO/tools/insert-release-entry.js" "\$KOSMOS_ENTRY_FILE" --sit
   || bad "WIRING: nothing in release.sh invokes the tool, which is exactly kosmos#1455"
 # 🛑 Placement, not just presence: stamping at step 1 produces the aged stamp the
 # gate exists to reject, which is the tool's own header's rule.
-awk '/insert-release-entry.js/{ins=NR} /kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(ins>0 && gate>0 && ins<gate)}' tools/release.sh \
+# ⚠️ BOTH PATTERNS ARE ANCHORED TO THE CALL SHAPE, not to the bare filename. An
+# unanchored /insert-release-entry.js/ also matches the COMMENT above the call, so the
+# assertion would have been measuring whichever mention came last -- the same "a comment
+# naming the function inflates the count" failure tools/test-versions-entry-gate.sh
+# guards against by line-anchoring its own patterns.
+awk '/^ *node "\$REPO\/tools\/insert-release-entry\.js"/{ins=NR} /^kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(ins>0 && gate>0 && ins<gate)}' tools/release.sh \
   && ok "WIRING: the insert runs BEFORE the step 7 gate, so the gate still judges what shipped" \
   || bad "WIRING: the insert is not positioned before the deploy gate"
 

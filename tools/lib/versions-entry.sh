@@ -505,5 +505,15 @@ kosmos_versions_entry_gate_or_pending() {
     echo "   It carries TIMESTAMP, so the deploy stamps it with the minute it goes out."
     return 0
   fi
+  # ⚠️ SAY WHEN A PENDING FILE WAS FOUND AND REJECTED. Without this the operator who
+  # meant to use the file flow gets only the original "has no entry" refusal, which
+  # describes the page and never mentions the file they wrote -- so they re-read the
+  # page instruction and never learn their file was seen and turned down. The refusal
+  # itself is unchanged and still comes from the gate below; this only adds the line
+  # that says which door was tried.
+  if [ -n "$pending" ] && [ -e "$pending" ]; then
+    echo "   (a pending entry file exists at $pending but is not usable for $v:"
+    echo "    it must carry id=\"$id\" and still carry the TIMESTAMP placeholder.)"
+  fi
   kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
 }
