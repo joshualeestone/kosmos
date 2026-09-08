@@ -2546,16 +2546,32 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
       # own board is already dead. A pre-#910 stale install records port 16180, which
       # a second Kosmos can now hold, so this is a real returning-user shape (the
       # aged-specimen walk that found this, 2026-08-26). Our install records its
-      # board's pid in board.pid; if that pid is DEAD (or absent), whatever answers
-      # on $PORT is not ours. Only OUR-board-will-not-pause takes the #2055 abort
+      # board's pid in board.pid; whatever answers on $PORT is ours only if that pid
+      # is the running board. Only OUR-board-will-not-pause takes the #2055 abort
       # streak + the "kosmos stop" die; a foreign board gets actionable port advice.
-      _ourpid=""
+      #
+      # STRICTER THAN A BARE kill -0. The #964 target is a returning user whose board
+      # died weeks ago on a machine that has since REBOOTED, so the stale board.pid
+      # NUMBER has very likely been reused by an unrelated live process -- kill -0
+      # would return 0 and wrongly take the "our board" branch, re-arming the exact
+      # forever-loop this fixes. Match the command against THIS install's full
+      # server path, mirroring the BOARD_OURS check later in this file (the one whose
+      # comment warns "a recycled pid, or another install's live server behind a
+      # stale pidfile, must not read as ours"); do not "align" it down to kill -0.
+      _ourboard=no
       if [ -f "$KOSMOS_HOME/board.pid" ]; then
         _ourpid="$(cat "$KOSMOS_HOME/board.pid" 2>/dev/null || true)"
+        case "$_ourpid" in
+          ''|*[!0-9]*) ;;
+          *)
+            case "$(/bin/ps -ww -p "$_ourpid" -o command= 2>/dev/null)" in
+              *"$KOSMOS_HOME/app/server.js"*) _ourboard=yes ;;
+            esac
+            ;;
+        esac
       fi
-      case "$_ourpid" in ''|*[!0-9]*) _ourpid="" ;; esac
-      if [ -n "$_ourpid" ] && kill -0 "$_ourpid" 2>/dev/null; then
-        # OUR board is genuinely alive and did not pause -- the #2055 behavior.
+      if [ "$_ourboard" = yes ]; then
+        # OUR board is genuinely running and did not pause -- the #2055 behavior.
         # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
         # in-process updater spawned this curl|sh, so the message goes to stderr /
         # install.log and nobody reads it. One machine aborted here 155 times before

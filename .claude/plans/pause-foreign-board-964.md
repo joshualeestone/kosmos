@@ -20,16 +20,23 @@ forever. Found on the aged specimen (0.2.36, ~30 versions stale), 2026-08-26.
 
 ## The fix
 
-The install records its board's pid in `$KOSMOS_HOME/board.pid`. If that pid is DEAD (or
-the file is absent/garbage), our board is already stopped and whatever answers on $PORT is
-a DIFFERENT Kosmos. Branch on it:
+The install records its board's pid in `$KOSMOS_HOME/board.pid`. The answering board on
+$PORT is ours only if that pid is running THIS install's server -- matched by command
+against `$KOSMOS_HOME/app/server.js`, exactly the strict identity check the same file
+already uses for `BOARD_OURS` (whose comment warns "a recycled pid, or another install's
+live server behind a stale pidfile, must not read as ours"). A bare `kill -0` is NOT
+enough: the card's primary scenario is a board dead for weeks on a machine that has since
+REBOOTED, so the stale pid NUMBER has very likely been reused by an unrelated live
+process -- `kill -0` would pass it and wrongly take the "our board" branch, re-arming the
+forever-loop. Branch on the strict match:
 
-- **our board pid ALIVE** — genuinely will not pause: unchanged #2055 behavior (record the
-  board-would-not-pause abort streak, die with the "kosmos stop" advice).
-- **our board pid DEAD / absent** — a foreign Kosmos holds our port: die with actionable
-  advice (quit that board, or reinstall on a free port via `KOSMOS_PORT`), and do NOT
-  inflate the board-would-not-pause streak (that streak is about OUR board; inflating it
-  here would mask a machine whose own board really cannot pause).
+- **pid runs our server (`_ourboard=yes`)** — genuinely will not pause: unchanged #2055
+  behavior (record the board-would-not-pause abort streak, die with the "kosmos stop"
+  advice).
+- **pid dead / absent / garbage / a live but foreign process** — a foreign Kosmos holds
+  our port: die with actionable advice (quit that board, or reinstall on a free port via
+  `KOSMOS_PORT`), and do NOT inflate the board-would-not-pause streak (that streak is about
+  OUR board; inflating it here would mask a machine whose own board really cannot pause).
 
 ## Why it is fail-safe
 
@@ -41,17 +48,22 @@ either direction is a suboptimal sentence on a path that was already aborting.
 ## Rejected / not done
 
 - Comparing the served /api/status identity (version + store path) was the card's second
-  option. The board.pid liveness check is sufficient, simpler, and needs no HTTP parsing —
-  a dead own-pid already proves the answering board is not ours. Left the served-identity
-  comparison unbuilt as unnecessary.
+  option. The board.pid command-match already answers "is this our board?" without an HTTP
+  parse, so the served-identity comparison is unnecessary and left unbuilt.
+- A bare `kill -0` liveness check (the first draft) was rejected in review: it fails the
+  card's own primary scenario (a reused pid on a rebooted machine reads as "our board
+  alive"). The ps-command match against `app/server.js` is what handles it, and a test arm
+  now exercises a live-but-foreign pid.
 
 ## Verification
 
 - `tools/test-pause-foreign-board-964.sh` (wired into `test:shell`) extracts the shipped
-  `case "$_pausebody"` arm and drives it with `die` stubbed and board.pid alive/dead/absent:
-  asserts the alive path keeps the "could not be paused" die + records the streak; the
-  dead/absent path gives the "Another Kosmos ... KOSMOS_PORT" die, dispels `kosmos stop`,
-  and does NOT record the streak; plus controls (non-Kosmos body, empty body).
+  `case "$_pausebody"` arm and drives it with `die` stubbed across: our running board (a
+  real sleeper AT `$H/app/server.js` so the ps-command match reads it as ours) -> keeps the
+  "could not be paused" die + records the streak; a LIVE but foreign pid (the reused-pid
+  case) -> foreign die, streak NOT recorded; a dead pid and an absent board.pid -> foreign
+  die; plus controls (non-Kosmos body -> "Another app" die, empty body -> no die). Runs the
+  arm under `set -eu`.
 - The existing `tools/test-update-abort-2055.sh` still passes (the #2055 record block is
   kept contiguous inside the alive branch, so its anchors are unchanged).
 - **Not verified by me:** the end-to-end update on the aged specimen at
