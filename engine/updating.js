@@ -175,6 +175,20 @@ function announce(v) {
     if (!req || typeof req.on !== 'function') return;
     /* Every one of these is a path an update must survive. */
     req.on('error', () => { /* unreachable coordinator, TLS refusal, DNS, bad protocol */ });
+    /* 🛑 THIS DESTROY IS THE ONLY THING THAT EVER CLOSES A CONNECTION THIS MODULE
+       OPENS, INCLUDING ON SUCCESS. Measured, not assumed: after a 204 from a live
+       server, `process.getActiveResourcesInfo()` still reports a TCPSocketWrap for
+       the full TIMEOUT_MS, and a short-lived process exits at ~3016ms rather than
+       at ~10ms. Removing the `timeout` OPTION makes it hang indefinitely (a child
+       hit a 15s kill without exiting).
+       ⚠️ I TRIED THREE FIXES AND NONE CHANGED IT: `connection: close`, destroying
+       the request on the response's `end`, and attaching that listener before
+       resume() rather than after. All three still measured ~3016ms, so all three
+       were reverted rather than shipped with a rationale I could not verify.
+       CONSEQUENCE, and it is bounded: the board holds one socket for 3s per
+       announce, which is two per boot and two per update. That is a cost, not a
+       leak, and it is why the end-to-end arm bounds its child process: a
+       regression here HANGS a runner rather than failing it. */
     req.on('timeout', () => { try { req.destroy(); } catch { /* already gone */ } });
     req.on('response', (res) => {
       try {
@@ -187,6 +201,10 @@ function announce(v) {
         if (typeof code !== 'number' || code < 200 || code >= 300) {
           process.stderr.write('kosmos#988: coordinator answered ' + String(code) + ' for ' + ROUTE + '\n');
         }
+        /* Drain, then release. res.resume() alone is NOT covered by any arm
+           (deleting it leaves the suite green), stated here because two other
+           lines in this file carry the same disclosure and a reader would
+           otherwise assume this one is covered like its neighbours. */
         res.resume();
       } catch { /* draining must not throw either */ }
     });

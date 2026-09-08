@@ -487,7 +487,9 @@ test('#988: the first-tick clear happens ONCE, not on every tick forever', async
   update.setInstalledRoot(null);
   const cleared = calls.filter((c) => JSON.parse(c.body).seconds === 0).length;
   assert.ok(cleared >= 2, `boot plus one tick expected; got ${cleared}`);
-  assert.ok(cleared <= 3, `the clear must not repeat every tick; got ${cleared} across ~8 ticks`);
+  /* Exactly 2 is what the code can produce (boot + one eligible tick); the bound
+     was 3 and the slack was never reachable. */
+  assert.equal(cleared, 2, `boot plus exactly one tick; got ${cleared} across ~8 ticks`);
 });
 
 test('#988: the body reaches the WIRE, not just the seam argument', () => {
@@ -612,7 +614,11 @@ test('#988 END TO END: the REAL transport delivers the POST, with no factory and
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;          // the whole point: production conditions
     delete env.AGENT_WORKFORCE_TUNNEL_CA;
-    execFileSync(process.execPath, ['-e', script, nodePath.join(__dirname, '..'), String(port)], { env, encoding: 'utf8' });
+    /* A TIMEOUT, because a regression at the request's timeout handler turns this
+       arm from a failure into a HANG: measured, the runner wedged indefinitely
+       rather than reporting red. A bounded child fails loudly instead. */
+    execFileSync(process.execPath, ['-e', script, nodePath.join(__dirname, '..'), String(port)],
+      { env, encoding: 'utf8', timeout: 15000 });
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(received.length, 1, 'the production path must actually deliver the POST');
     assert.equal(received[0].method, 'POST');
