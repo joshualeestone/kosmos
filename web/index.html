@@ -5639,6 +5639,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      same dark override -- the light rgba(20,22,26,.28) is lower contrast than the
      resting rule on the dark ground and the hover would vanish. */
   :root:not([data-theme="light"]) .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
+  :root:not([data-theme="light"]) .pj-subrow.attn { border-color: rgba(255,140,130,.55); }
 }
 /* A restore that half-worked, said on the row it happened to. Full width so it
    wraps under the name rather than squeezing the Restore button off the end. */
@@ -6433,6 +6434,7 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
      same dark override -- the light rgba(20,22,26,.28) is lower contrast than the
      resting rule on the dark ground and the hover would vanish. */
 :root[data-theme="dark"] .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
+:root[data-theme="dark"] .pj-subrow.attn { border-color: rgba(255,140,130,.55); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
 
@@ -31398,7 +31400,7 @@ function projectCard(p, unreadable, depth, childCount) {
        the live text is the accessible signal. */
     const dots = '<span class="pj-dots" aria-hidden="true">' + '<i></i>'.repeat(Math.min(anc.length, 4)) + '</span>';
     const shown = anc.length > 2 ? [anc[0], null, anc[anc.length - 1]] : anc;
-    const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';
+    const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span><span class="vh">, </span>';
     const chain = shown.map((n) => n === null ? '<span aria-hidden="true">…</span>' : esc(n)).join(sep);
     parentChip = '<span class="pj-parent pj-anc">' + dots + '<span class="pj-anc-t">' + chain + '</span></span>';
   }
@@ -33043,7 +33045,7 @@ function paintOneProject() {
   if (parentEl) {
     const anc = pjAncestry(p);
     if (anc.length) {
-      const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';
+      const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span><span class="vh">, </span>';
       parentEl.innerHTML = '<span class="vh">In </span>' + anc.map((n) => esc(n)).join(sep);
       parentEl.hidden = false;
     } else { parentEl.textContent = ''; parentEl.hidden = true; }
