@@ -2816,12 +2816,14 @@ const server = http.createServer((req, res) => {
         const isNoop = bootedId != null && bootedId === world.id;
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
         sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
-        /* AFTER the response has been sent, drop the board so launchd relaunches it
-           onto the new world. The delay lets the 200 flush to the client before
-           launchctl stop terminates this process -- the stop kills the very
-           connection that asked for the switch. selfRestart re-checks the fail-safe
-           guard, so a launchd state that changed in the interim still cannot brick
-           the board (it no-ops, and Angel's reconnect degrades to the manual path). */
+        /* AFTER the response has been sent, restart the board so it comes back on the
+           new world. The delay lets the 200 flush to the client first, because the
+           restart kills the very connection that asked for the switch. selfRestart
+           picks the mechanism canSelfRestart chose: a `launchctl stop` for the dev
+           KeepAlive board, or (#2454) a detached `kosmos restart` for an installed
+           board (which launchd does not supervise). It re-checks the fail-safe guard,
+           so a state that changed in the interim still cannot brick the board (it
+           no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
           setTimeout(() => {
             try { require('./engine/boardrestart').selfRestart(); }
