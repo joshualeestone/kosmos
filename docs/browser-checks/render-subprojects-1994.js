@@ -180,7 +180,11 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // along as vh text, so the accessible textContent still carries the full chain
     // (space is the only reason to elide and it does not bind a screen reader).
     ok(t + ' ancestry: the elided middle name still reaches a screen reader (vh)', /App/.test(anc.gcChain), anc.gcChain);
-    ok(t + ' ancestry: child shows the one parent', anc.appChain === 'Kosmos', anc.appChain);
+    // #2487: like the multi-ancestor chains above, the single-parent chain carries
+    // the vh "In " lead-in (see the assertion below). Strip it, then require EXACTLY
+    // the one parent name and nothing else - this stays distinct from a nested child
+    // ("In Kosmos › App"), which is the point of the exact match.
+    ok(t + ' ancestry: child shows the one parent', anc.appChain.replace(/^In\s+/, '') === 'Kosmos', anc.appChain);
     ok(t + ' ancestry: depth dots are decorative (aria-hidden)', anc.gcDots === 'true', 'aria-hidden=' + anc.gcDots);
     ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
