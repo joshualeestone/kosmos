@@ -34,7 +34,12 @@ printf 'x\n' > "$T/mainco/engine/f"
 m="$(board_origin_label "$T/mainco")"
 case "$m" in *"MAIN CHECKOUT"*) ok "a main checkout is named as the MAIN CHECKOUT" ;;
   *) bad "a main checkout was not named: $m" ;; esac
-case "$m" in *"$T/mainco"*) ok "the main-checkout label still carries the path" ;;
+# Compare against the RESOLVED path: `rev-parse --show-toplevel` resolves symlinks,
+# and on macOS $TMPDIR lives under /var, which is a symlink to /private/var. The
+# label naming the real location is correct and more useful than echoing an alias;
+# asserting the literal fixture string would fail for a symlink rather than a defect.
+MAINCO_REAL="$(cd "$T/mainco" && pwd -P)"
+case "$m" in *"$MAINCO_REAL"*) ok "the main-checkout label carries the resolved checkout path" ;;
   *) bad "the path was dropped from the main-checkout label: $m" ;; esac
 
 w="$(board_origin_label "$T/wt")"
