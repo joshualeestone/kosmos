@@ -27915,8 +27915,15 @@ function enhanceProviderSelect(selectId) {
   select.classList.add('pcombo-src');
   select.tabIndex = -1;
   select.setAttribute('aria-hidden', 'true');
-  // Carry the select's accessible name onto the widget.
-  const nameFrom = select.getAttribute('aria-label') || '';
+  // Carry the select's field label onto the widget: aria-label if present, else an associated
+  // <label for="<id>">. #d-provider uses aria-label; the next rollout targets (e.g.
+  // #acct-provider-pick) are labelled with a <label for>, and without this fallback their
+  // trigger would have no field-label context in its accessible name.
+  let nameFrom = select.getAttribute('aria-label') || '';
+  if (!nameFrom && select.id) {
+    const forLabel = document.querySelector('label[for="' + select.id + '"]');
+    if (forLabel) nameFrom = (forLabel.textContent || '').trim();
+  }
 
   const wrap = document.createElement('div');
   wrap.className = 'pcombo';
@@ -28110,19 +28117,24 @@ function enhanceProviderSelect(selectId) {
   document.addEventListener('mousedown', (e) => {
     if (isOpen() && !wrap.contains(e.target)) close(false);
   });
-  // Re-sync when code changes select.value and DOES dispatch change.
-  select.addEventListener('change', () => { if (!isOpen()) renderTrigger(); });
+  // Re-sync when code changes select.value and DOES dispatch change. Unconditionally, NOT only
+  // while closed: a value change while the popup is open must still update the trigger label and
+  // every option's aria-selected, or an open popup announces a stale selection.
+  select.addEventListener('change', () => renderTrigger());
   /* And when code sets select.value WITHOUT dispatching change: resetCreateProvider sets
-     prov.value then calls applyCreateProviderUI DIRECTLY (no change event), which would
-     otherwise leave the trigger stale. Wrap this instance's value setter so any assignment
-     refreshes the trigger; the getter delegates to native so reads are unchanged. Our own
-     commit() renders explicitly and only fires this while open (skipped by !isOpen). */
+     prov.value then calls applyCreateProviderUI DIRECTLY (no change event), and paintProviderPicker
+     sets `sel.value = current || ''` on a detail (re)open, either of which would otherwise leave
+     the trigger stale. Wrap this instance's value setter so any assignment refreshes the trigger;
+     the getter delegates to native so reads are unchanged. Renders unconditionally (an earlier
+     `!isOpen()` guard left the trigger + aria-selected stale when the value changed under an open
+     popup, e.g. a detail repaint); commit() also renders explicitly, so this is at worst a
+     redundant idempotent render, never a stale one. */
   const valDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
   if (valDesc && valDesc.set && valDesc.get) {
     Object.defineProperty(select, 'value', {
       configurable: true,
       get() { return valDesc.get.call(this); },
-      set(v) { valDesc.set.call(this, v); if (!isOpen()) renderTrigger(); },
+      set(v) { valDesc.set.call(this, v); renderTrigger(); },
     });
   }
   /* Same treatment for `disabled`: paintProviderPicker sets `sel.disabled = !usable` AFTER

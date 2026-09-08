@@ -146,12 +146,24 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       select.value = 'anthropic';   // NO dispatch on purpose; a value the trigger is NOT showing
       const progLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
 
+      // A programmatic value change WHILE THE POPUP IS OPEN must also update the trigger and the
+      // option aria-selected (a paintProviderPicker repaint can set select.value under an open
+      // popup). Open (value is anthropic), change to openai with NO dispatch, assert both flip.
+      trigger.click();
+      const openedForStale = list.hidden === false;
+      select.value = 'openai';   // NO dispatch, popup OPEN
+      const openLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
+      const openaiLi = Array.from(list.children).find((li) => li.dataset.value === 'openai');
+      const openAriaSelected = !!(openaiLi && openaiLi.getAttribute('aria-selected') === 'true');
+      dispatchKey('Escape');   // close
+
       return {
         selectStillHasOptions, selectHidden, selectOutOfATandTab, roleCombobox, collapsed, triggerLabelClosed, triggerHasMark,
         openedAfterClick, activeOnOpen, arrowMoved, selectSynced, changeFired, closedAfterEnter,
         disabledIsDisabled, disabledNotSelectable, grokChip, reopened, escClosed, escRefocus,
         accNameHasLabelAndValue, triggerLabelOpenai, disabledSyncsOn, disabledSyncsOff,
         openedForDisableTest, closedOnDisable, progFrom, progLabel,
+        openedForStale, openLabel, openAriaSelected,
       };
     });
 
@@ -182,6 +194,9 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
     ok(t + 'a no-dispatch programmatic value change re-renders the trigger (value-setter wrap)',
       /GPT|OpenAI/i.test(r.progFrom) && /Claude/i.test(r.progLabel) && !/GPT|OpenAI/i.test(r.progLabel),
       JSON.stringify({ from: r.progFrom, to: r.progLabel }));
+    ok(t + 'a value change WHILE THE POPUP IS OPEN updates the trigger and option aria-selected',
+      r.openedForStale && /GPT|OpenAI/i.test(r.openLabel) && r.openAriaSelected,
+      JSON.stringify({ opened: r.openedForStale, label: r.openLabel, ariaSelected: r.openAriaSelected }));
 
     if (pageErrors.length) problems.push(t + 'pageerror: ' + pageErrors.join(' | '));
     const shot = nodePath.join(require('node:os').tmpdir(), 'provider-combobox-' + theme + '.png');
