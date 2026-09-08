@@ -22219,9 +22219,12 @@ const SVC_DOORS = {
   'Gmail': 'Connect an address you choose and your agents can send and read the email you approve, never your personal inbox unless you say so.',
   /* The token-service pills (#529): one line each, same shape as the four
      above, so a person meets a plain "what this is and what connecting lets
-     your agents do" instead of a bare service name. The token is scoped by
-     the person on the service's own page, so "the X you allow / share / give
-     access to" is honest. Mona Lisa, 2026-09-08. */
+     your agents do" instead of a bare service name. A "the X you allow /
+     share" framing is honest ONLY for a service whose spec in
+     engine/tokendoors.js carries a `hint` (a real scoping step the person
+     performs on the service's page, e.g. Notion, Airtable). A no-hint
+     service holds a broad token, so its line stays broad and must not imply
+     the person can restrict what is exposed. Mona Lisa, 2026-09-08. */
   'Discord': 'A place for team and community chat. Connect it and your agents can post updates and read messages in the channels you allow.',
   'Brave Search': 'Web search. Connect it and your agents can look things up on the web while they work.',
   'Exa': 'Web search for finding real sources. Connect it and your agents can search the web and pull back pages.',
