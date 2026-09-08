@@ -27910,12 +27910,26 @@ function enhanceProviderSelect(selectId) {
   trigger.setAttribute('aria-haspopup', 'listbox');
   trigger.setAttribute('aria-expanded', 'false');
   trigger.setAttribute('aria-controls', listId);
-  if (nameFrom) trigger.setAttribute('aria-label', nameFrom);
+  /* The field label goes in its OWN visually-hidden element, and the trigger is named by
+     BOTH it and itself (aria-labelledby "<label> <trigger>"), the APG select-only pattern.
+     An aria-label here would REPLACE the button's text, so a screen reader would announce
+     "Provider, combobox" and drop the selected value (Claude / OpenAI) the button shows,
+     a name/role/value gap on the very control this is. labelledby keeps both: the label
+     and the button's own text, which is the current value. */
+  let labelEl = null;
+  if (nameFrom) {
+    labelEl = document.createElement('span');
+    labelEl.className = 'vh';
+    labelEl.id = uid + '-lbl';
+    labelEl.textContent = nameFrom;
+    trigger.setAttribute('aria-labelledby', labelEl.id + ' ' + trigger.id);
+  }
   const list = document.createElement('ul');
   list.className = 'pcombo-list';
   list.id = listId;
   list.setAttribute('role', 'listbox');
-  if (nameFrom) list.setAttribute('aria-label', nameFrom);
+  if (labelEl) list.setAttribute('aria-labelledby', labelEl.id);
+  else if (nameFrom) list.setAttribute('aria-label', nameFrom);
   list.hidden = true;
 
   // Build one <li role=option> per <option>, mirroring value/label/disabled.
@@ -27949,6 +27963,7 @@ function enhanceProviderSelect(selectId) {
     list.appendChild(li);
   });
 
+  if (labelEl) wrap.appendChild(labelEl);
   wrap.appendChild(trigger);
   wrap.appendChild(list);
   select.parentNode.insertBefore(wrap, select.nextSibling);
@@ -27975,7 +27990,14 @@ function enhanceProviderSelect(selectId) {
     trigger.appendChild(chev);
     lis.forEach((li) => li.setAttribute('aria-selected',
       (li.dataset.value === select.value && !li.hasAttribute('aria-disabled')) ? 'true' : 'false'));
+    syncDisabled();
   }
+  /* Mirror the native select's disabled state onto the trigger. paintProviderPicker sets
+     `#d-provider.disabled = !usable` for a non-ours / never-recorded agent; the native
+     select could then never fire `change`, but the widget's button would stay operable and
+     could re-arm Switch. A disabled button is also removed from the a11y tree, matching the
+     native select. The `disabled` setter is wrapped below so this fires on any assignment. */
+  function syncDisabled() { trigger.disabled = !!select.disabled; }
   function setActive(i) {
     if (active >= 0 && lis[active]) lis[active].classList.remove('pcombo-active');
     active = i;
@@ -27989,7 +28011,7 @@ function enhanceProviderSelect(selectId) {
   }
   function isOpen() { return !list.hidden; }
   function open(toActive) {
-    if (isOpen()) return;
+    if (isOpen() || select.disabled) return;
     list.hidden = false;
     trigger.setAttribute('aria-expanded', 'true');
     // Start on the selected option, else the first selectable one.
@@ -28005,6 +28027,7 @@ function enhanceProviderSelect(selectId) {
     if (refocus) trigger.focus();
   }
   function commit(i) {
+    if (select.disabled) return;
     const li = lis[i];
     if (!li || li.hasAttribute('aria-disabled')) return;
     if (select.value !== li.dataset.value) {
@@ -28073,13 +28096,29 @@ function enhanceProviderSelect(selectId) {
       set(v) { valDesc.set.call(this, v); if (!isOpen()) renderTrigger(); },
     });
   }
+  /* Same treatment for `disabled`: paintProviderPicker sets `sel.disabled = !usable` AFTER
+     `sel.value = current`, so the value-wrap's renderTrigger runs before the disabled flip
+     and cannot see it. Wrapping the setter refreshes the trigger's disabled state on any
+     assignment, whichever order the paint uses. */
+  const disDesc = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'disabled');
+  if (disDesc && disDesc.set && disDesc.get) {
+    Object.defineProperty(select, 'disabled', {
+      configurable: true,
+      get() { return disDesc.get.call(this); },
+      set(v) { disDesc.set.call(this, v); syncDisabled(); },
+    });
+  }
 
   renderTrigger();
 }
 
 document.getElementById('d-provider').addEventListener('change', (e) => {
   const go = document.getElementById('d-provider-go');
-  if (go) go.disabled = !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
+  /* `|| e.target.disabled` matches the sibling account-change gate: a disabled provider
+     control must not re-arm Switch. Pre-combobox a disabled native select could never fire
+     change; the widget guards its own commit on select.disabled, and this holds the same
+     invariant for any change from another path. */
+  if (go) go.disabled = e.target.disabled || !e.target.value || !CURRENT || e.target.value === providerOf(CURRENT);
   fillSwitchAccountsSafely();
 });
 enhanceProviderSelect('d-provider');   // #1040 2b: the switch dialog's provider combobox (shipped first)

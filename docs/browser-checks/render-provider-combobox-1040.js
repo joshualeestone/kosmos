@@ -61,6 +61,11 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
 
       // Closed state: role, collapsed, shows the selected label + a mark.
       const roleCombobox = trigger.getAttribute('role') === 'combobox';
+      // The trigger is named by a hidden field label AND its own text (the value), via
+      // aria-labelledby "<label> <trigger>", not an aria-label that would REPLACE the value.
+      const lbIds = (trigger.getAttribute('aria-labelledby') || '').split(/\s+/).filter(Boolean);
+      const lblEl = lbIds.map((id) => document.getElementById(id)).find((el) => el && /Provider/i.test(el.textContent || ''));
+      const accNameHasLabelAndValue = !trigger.hasAttribute('aria-label') && lbIds.includes(trigger.id) && !!lblEl;
       const collapsed = trigger.getAttribute('aria-expanded') === 'false' && list.hidden === true;
       select.value = 'anthropic'; select.dispatchEvent(new Event('change', { bubbles: true }));
       const triggerLabelClosed = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
@@ -108,16 +113,32 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const escClosed = list.hidden === true;
       const escRefocus = document.activeElement === trigger;
 
+      // The trigger mirrors select.disabled: paintProviderPicker disables #d-provider for a
+      // non-usable agent, and the widget button must then be non-operable (it could otherwise
+      // re-arm Switch). Set via the wrapped setter, confirm the sync + that open is inert, restore.
+      select.disabled = true;   // NO dispatch; the disabled-setter wrap must sync the trigger
+      const disabledSyncsOn = trigger.disabled === true;
+      trigger.click();          // a disabled trigger must not open
+      const stayedClosedWhileDisabled = list.hidden === true;
+      select.disabled = false;
+      const disabledSyncsOff = trigger.disabled === false;
+
       // Programmatic value change WITHOUT dispatching change (resetCreateProvider sets .value
       // then calls applyCreateProviderUI directly, no change event) must still re-render the
       // trigger, via the value-setter wrap. This is the case a change-listener-only re-sync misses.
-      select.value = 'openai';   // NO dispatch on purpose
+      // The trigger currently shows OpenAI (the Enter-commit above selected it), so assign a
+      // DIFFERENT value: without the value-setter wrap the label would stay on OpenAI and the
+      // assertion below (flips to Claude, no longer OpenAI) fails. Setting the same value would
+      // be vacuous.
+      const progFrom = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
+      select.value = 'anthropic';   // NO dispatch on purpose; a value the trigger is NOT showing
       const progLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
 
       return {
         selectStillHasOptions, selectHidden, roleCombobox, collapsed, triggerLabelClosed, triggerHasMark,
         openedAfterClick, activeOnOpen, arrowMoved, selectSynced, changeFired, closedAfterEnter,
-        disabledIsDisabled, disabledNotSelectable, grokChip, reopened, escClosed, escRefocus, progLabel,
+        disabledIsDisabled, disabledNotSelectable, grokChip, reopened, escClosed, escRefocus,
+        accNameHasLabelAndValue, disabledSyncsOn, stayedClosedWhileDisabled, disabledSyncsOff, progFrom, progLabel,
       };
     });
 
@@ -125,6 +146,9 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
     ok(t + 'the native select stays in the DOM with its options (source of truth)', r.selectStillHasOptions, JSON.stringify(r.selectStillHasOptions));
     ok(t + 'the native select is visually hidden', r.selectHidden, JSON.stringify(r.selectHidden));
     ok(t + 'the trigger is role=combobox', r.roleCombobox);
+    ok(t + 'the trigger accessible name carries the field label AND its own value text (aria-labelledby, not aria-label)', r.accNameHasLabelAndValue);
+    ok(t + 'the trigger mirrors select.disabled (disabled = trigger disabled)', r.disabledSyncsOn && r.disabledSyncsOff, JSON.stringify({ on: r.disabledSyncsOn, off: r.disabledSyncsOff }));
+    ok(t + 'a disabled provider control does not open', r.stayedClosedWhileDisabled);
     ok(t + 'closed: aria-expanded=false and the list is hidden', r.collapsed);
     ok(t + 'closed: the trigger shows the selected label', /Claude/.test(r.triggerLabelClosed), JSON.stringify(r.triggerLabelClosed));
     ok(t + 'closed: the trigger shows a mark', r.triggerHasMark);
@@ -139,7 +163,9 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
     ok(t + 'Grok/xai renders an initial-letter chip, not a brand mark', r.grokChip);
     ok(t + 'Esc closes the listbox', r.reopened && r.escClosed);
     ok(t + 'Esc returns focus to the trigger', r.escRefocus);
-    ok(t + 'a programmatic value change re-renders the trigger', /GPT|OpenAI/i.test(r.progLabel), JSON.stringify(r.progLabel));
+    ok(t + 'a no-dispatch programmatic value change re-renders the trigger (value-setter wrap)',
+      /GPT|OpenAI/i.test(r.progFrom) && /Claude/i.test(r.progLabel) && !/GPT|OpenAI/i.test(r.progLabel),
+      JSON.stringify({ from: r.progFrom, to: r.progLabel }));
 
     if (pageErrors.length) problems.push(t + 'pageerror: ' + pageErrors.join(' | '));
     const shot = nodePath.join(require('node:os').tmpdir(), 'provider-combobox-' + theme + '.png');
