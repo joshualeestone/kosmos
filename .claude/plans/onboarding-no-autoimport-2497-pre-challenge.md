@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: onboarding-no-autoimport-2497
-diff_hash: b1d8b0f4a0ea700f4669f6e570ea733865086b99fbbd5a5e53a324eec9c3f6d1
+diff_hash: ce1e91f3f20540328c053954733365a2cb5471c5ec731f463858e064f3086a59
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-08T21:58:15Z
+timestamp: 2026-09-08T22:27:00Z
 iterations: 3
 converged: true
 ---
@@ -91,3 +91,19 @@ Giddy-Up anchor with a failable suppression assertion; confirmed `EXPECTED_SITES
 
 Converged at iteration 3: an independent blind pass (opus, model-rotated) found zero new
 BLOCKER/WARNING/CONVENTION. Only cosmetic NITs remain, all read-and-judged deferrals.
+
+### Post-convergence: one CI-found reconciliation (browser-checks, the strongest reviewer)
+
+After the loop converged and the PR opened (#2507), the enforced browser-checks CI job went red on
+`click-first-run` -- a first-run wizard-walk check in the CI allowlist that the 3 blind passes did
+not surface (it is not one of the 7 render-* checks I reconciled, and it runs only on a fleet-present
+"rich" board that the blind reviewers, reading the diff, had no reason to enumerate). It asserted the
+old step-9 ending "the board is there" (`#grid` visible); #2497 makes step 9 always end in Giddy Up
+-> `frFinish(openCreate)`, which opens `#panel-create` instead. Reproduced locally on the exact
+rich-board fixture, reconciled the assertion to `#panel-create` (mirroring the check's own dedicated
+create-fork section), and re-ran the harness frozen at the fix commit: PASS. This is a test-check
+reconciliation surfaced and validated by CI, not new product logic; recorded here so the proof
+reflects what actually happened and the diff_hash above is re-attested over the fix.
+- [BLOCKER] docs/browser-checks/click-first-run.js:232 -- stale step-9 ending assertion (`#grid`
+  visible) contradicts the #2497 Giddy Up -> create-panel ending. Origin: CI (browser-checks).
+  --> FIXED (commit c5f2477e); harness frozen at the fix = PASS on the rich-board fixture.
