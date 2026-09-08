@@ -150,21 +150,30 @@ function check(name, pass, detail) {
     boot.afterBoot.mode === true && boot.afterBoot.painted === 0, JSON.stringify(boot.afterBoot));
   check('a click (paint=true) then paints the map', boot.afterClick.painted > 0, JSON.stringify(boot.afterClick));
 
-  // Dark mode lightens the attn red: the #b3261e whisper fails WCAG AA on the dark
-  // surface, so under [data-theme="dark"] the "needs you" text must be the lighter
-  // #ff8c82 = rgb(255, 140, 130), not the light-mode #b3261e = rgb(179, 38, 30).
-  const dark = await page.evaluate(() => {
-    document.documentElement.dataset.theme = 'dark';
+  // Dark mode lightens the attn red -- BOTH the "needs you" text AND the node border,
+  // in BOTH dark spellings (the explicit [data-theme="dark"] toggle and the system
+  // @media path). The #b3261e whisper fails WCAG AA on the dark surface; #ff8c82 =
+  // rgb(255, 140, 130) is the lift. The border and the @media twin are the ones most
+  // likely to drift out of the generated forced-theme section, so both are pinned.
+  const LIGHT_RED = 'rgb(255, 140, 130)';
+  const darkRead = () => page.evaluate(() => {
     PROJECTS.length = 0;
     PROJECTS.push({ id: 'n', name: 'Ned', parent: null, archived: false, summary: { total: 1, needsYou: 1 } });
     paintProjectsMap();
-    const oc = document.querySelector('#pj-map .pjonode.attn .pjoc.a');
-    const c = oc ? getComputedStyle(oc).color : null;
-    document.documentElement.removeAttribute('data-theme');
-    return { color: c };
+    const node = document.querySelector('#pj-map .pjonode.attn');
+    const oc = node && node.querySelector('.pjoc.a');
+    return { text: oc ? getComputedStyle(oc).color : null, border: node ? getComputedStyle(node).borderTopColor : null };
   });
-  check('the attn "needs you" text is lightened in dark mode (WCAG AA)',
-    dark.color === 'rgb(255, 140, 130)', 'color=' + JSON.stringify(dark.color));
+  await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+  const forcedDark = await darkRead();
+  await page.evaluate(() => { document.documentElement.removeAttribute('data-theme'); });
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const systemDark = await darkRead();
+  await page.emulateMedia({ colorScheme: 'light' });
+  check('forced dark ([data-theme="dark"]): the attn text AND node border are lightened (WCAG AA)',
+    forcedDark.text === LIGHT_RED && forcedDark.border === LIGHT_RED, JSON.stringify(forcedDark));
+  check('system dark (@media prefers-color-scheme): the attn text AND node border are lightened too',
+    systemDark.text === LIGHT_RED && systemDark.border === LIGHT_RED, JSON.stringify(systemDark));
 
   // Empty states must not contradict the list one toggle away: a board whose
   // projects are ALL archived reads "everything you have is archived", while a
@@ -237,6 +246,23 @@ function check(name, pass, detail) {
   check('the map scrolls in BOTH directions (depth + width)', adds.scrollBoth, JSON.stringify(adds.scrollBoth));
   check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
     adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
+
+  // The node is a button whose accessible name must carry the STATUS, not just
+  // "Open <name>" -- an aria-label overrides the subtree, so without the status in
+  // the label a screen reader loses the needs-you signal (the Map's whole point).
+  const aria = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    PROJECTS.push(
+      { id: 'n', name: 'Ned', parent: null, archived: false, summary: { total: 1, needsYou: 1 } },
+      { id: 's', name: 'Sam', parent: null, archived: false, summary: { total: 3 } },
+    );
+    paintProjectsMap();
+    const map = document.getElementById('pj-map');
+    const byName = (nm) => Array.from(map.querySelectorAll('.pjonode')).find((el) => { const t = el.querySelector('.pjonm'); return t && t.textContent === nm; });
+    return { needs: byName('Ned').getAttribute('aria-label'), staffed: byName('Sam').getAttribute('aria-label') };
+  });
+  check('the node accessible name carries its status (a screen reader hears the needs-you signal)',
+    aria.needs === 'Open Ned, needs you' && aria.staffed === 'Open Sam, 3 agents', JSON.stringify(aria));
 
   await browser.close();
   if (problems.length) {

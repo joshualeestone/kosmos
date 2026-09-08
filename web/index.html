@@ -2405,7 +2405,7 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* A project node is a BUTTON that opens the project, so it carries the button reset
    (font/colour inherit, no UA chrome) on top of the card look. The Kosmos root is a
    plain div (`.top`), not clickable, so it keeps the default cursor. */
-.pjonode { display: inline-flex; flex-direction: column; gap: 1px; align-items: center; border: 1px solid var(--k-rule); border-radius: 10px; padding: 7px 13px; background: var(--k-surface); min-width: 70px; font: inherit; color: inherit; cursor: pointer; text-align: center; }
+.pjonode { appearance: none; display: inline-flex; flex-direction: column; gap: 1px; align-items: center; border: 1px solid var(--k-rule); border-radius: 10px; padding: 7px 13px; background: var(--k-surface); min-width: 70px; font: inherit; color: inherit; cursor: pointer; text-align: center; }
 .pjonode.top { cursor: default; }
 .pjonode:hover:not(.top) { border-color: var(--k-ink-2); }
 .pjonode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
@@ -31081,13 +31081,15 @@ let PJ_MAP_FOLDED = new Set();
 function pjMapNode(p, hasKids, folded) {
   const s = p.summary || {};
   const attn = (s.needsYou || 0) > 0;
-  const line = attn
-    ? '<span class="pjoc a">needs you</span>'
-    : (s.total
-      ? '<span class="pjoc">' + Number(s.total) + (Number(s.total) === 1 ? ' agent' : ' agents') + '</span>'
-      : '<span class="pjoc">idle</span>');
+  const statusText = attn ? 'needs you'
+    : (s.total ? Number(s.total) + (Number(s.total) === 1 ? ' agent' : ' agents') : 'idle');
+  const line = '<span class="pjoc' + (attn ? ' a' : '') + '">' + statusText + '</span>';
+  /* The status ("needs you" / "N agents" / "idle") is the Map's PRIMARY signal, and an
+     explicit aria-label OVERRIDES the subtree, so naming only "Open <name>" would hide
+     the needs-you state from a screen reader in the one view whose whole job is that
+     signal. Fold the status into the accessible name. */
   const node = '<button type="button" class="pjonode' + (attn ? ' attn' : '') + '" data-project="' + esc(p.id) + '"'
-    + ' aria-label="Open ' + esc(p.name) + '"><span class="pjonm">' + esc(p.name) + '</span>' + line + '</button>';
+    + ' aria-label="Open ' + esc(p.name) + ', ' + statusText + '"><span class="pjonm">' + esc(p.name) + '</span>' + line + '</button>';
   const fold = hasKids
     ? '<button type="button" class="pjfold" data-fold="' + esc(p.id) + '" aria-expanded="' + (folded ? 'false' : 'true')
       + '" aria-label="' + (folded ? 'Unfold ' : 'Fold ') + esc(p.name) + '’s sub-projects">'
@@ -31111,6 +31113,9 @@ function paintProjectsMap() {
     return;
   }
   const inActive = new Set(active.map((p) => p.id));
+  // Prune fold state to live projects: a folded project that is later archived or
+  // deleted must not leave a stale id lingering in the set.
+  for (const id of PJ_MAP_FOLDED) { if (!inActive.has(id)) PJ_MAP_FOLDED.delete(id); }
   const kids = new Map();                 // parent id -> [children], top level under ''
   for (const p of active) {
     const par = (p.parent && inActive.has(p.parent)) ? p.parent : '';
@@ -36996,9 +37001,9 @@ document.getElementById('pj-list').addEventListener('click', (e) => {
 /* #2458: the Map's clicks. A fold-disclosure click is checked FIRST and returns, so
    folding a branch never also opens the project (the two are separate sibling
    buttons). Otherwise a node click opens the project, the same openProject the cards
-   use. The empty-state's Add button is handled too. */
+   use. (The Map's empty state carries no Add button -- adding a project is the grid's
+   job, and the toggle is gated off before a board is that empty anyway.) */
 document.getElementById('pj-map').addEventListener('click', (e) => {
-  if (e.target.closest('#pj-new-empty')) { openAddProject(); return; }
   const fold = e.target.closest('[data-fold]');
   if (fold) {
     const id = fold.dataset.fold;
