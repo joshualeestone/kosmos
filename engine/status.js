@@ -2032,11 +2032,47 @@ const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
    `*`-bullet quotation fixture is rejected by that requirement, not by the glyph. */
 const INTERRUPT_LINE_LIVE = /^\s*[·•✢✳✶✻✽*]\s*\S[^\n]*\([^)]*esc to interrupt[^)]*\)/i;
 
-/* #2378. True when the tail carries a LIVE interrupt line on its own row. Shared
-   by both call sites (Claude and codex) so the two cannot drift apart, which is
-   how one of them would quietly keep the old behaviour. */
+/* #2378. True when the tail carries a LIVE interrupt line. Shared by both call
+   sites (Claude and codex) so the two cannot drift apart.
+   ⚠️ THAT SHARING IS NOT ITSELF COVERAGE, and an earlier version of this comment
+   implied it was. Reverting ONLY the codex call site left the whole 5030-test
+   suite byte-identical, so the two sites could have drifted with no signal. Both
+   are pinned now.
+
+   🛑 WRAP TOLERANCE, AND ITS ABSENCE WAS A REGRESSION AGAINST `origin/main`. Ink
+   hard-wraps this row and `-J` does NOT rejoin what Ink split, which is the
+   premise the sibling constants state repeatedly. Testing each row in isolation
+   therefore missed a wrapped live line: measured, a hard-wrapped codex progress
+   row read `working` on main and stopped doing so here. The codex arm is the
+   serious one because it has only three checks and no `WORKING_LINE` beneath it,
+   so a miss falls straight through to the FALSE CALM.
+
+   🔑 THE JOIN IS GATED ON AN UNCLOSED PARENTHESIS, which is the structural trace a
+   hard wrap INSIDE the group leaves on the first row. Joining unconditionally
+   would read a settled spinner row plus a following prose row as one live line:
+   `· Working (12s)` then `he said (esc to interrupt) yesterday` matches when
+   joined and must not. Measured across ten shapes, the gate is right on nine.
+   ⚠️ THE TENTH IS AN INHERENT AMBIGUITY, NOT A DEFECT I DECLINED TO FIX. A glyph
+   row ending mid-parenthesis whose next row closes it and carries the phrase is
+   BYTE-IDENTICAL to a genuine wrapped live spinner. No reader can separate them,
+   so this resolves it as live, which is the direction that avoids the codex false
+   calm. Recorded so nobody re-derives it as a bug. */
 function hasLiveInterruptLine(text) {
-  return String(text == null ? '' : text).split('\n').some((r) => INTERRUPT_LINE_LIVE.test(r));
+  const rows = String(text == null ? '' : text).split('\n');
+  for (let i = 0; i < rows.length; i += 1) {
+    if (INTERRUPT_LINE_LIVE.test(rows[i])) return true;
+    if (i + 1 < rows.length && hasUnclosedParen(rows[i])
+      && INTERRUPT_LINE_LIVE.test(rows[i] + rows[i + 1])) return true;
+  }
+  return false;
+}
+
+/* #2378. Joined with NO separator, the same rule the tail-joining above records:
+   a wrap eats the character at the boundary, so any separator leaves a word no
+   marker matches. */
+function hasUnclosedParen(row) {
+  const r = String(row == null ? '' : row);
+  return (r.match(/\(/g) || []).length > (r.match(/\)/g) || []).length;
 }
 
 /* #1889. A no-timer shape `WORKING_LINE` cannot match:
@@ -2150,11 +2186,28 @@ const BACKGROUND_AGENT_WAIT =
    Unlike `WORKING_LINE` (which needs a live, changing timer) this line is static
    text, so an agent displaying a document that quotes it verbatim would classify
    `working` while sitting idle at its prompt.
-   📌 The branch's own files no longer demonstrate that: with the single-glyph
-   class and the `$` anchor, zero rows in this file, the test or the plan match.
-   An earlier version of this note cited the plan file as a measured example; that
-   was true under the old seven-glyph class and stopped being true when the class
-   narrowed.
+   🛑 DO NOT ASSERT A COUNT HERE. THIS SENTENCE HAS NOW ROTTED TWICE, IN OPPOSITE
+   DIRECTIONS, AND EACH TIME IT WAS TRUE WHEN WRITTEN.
+     v1 cited the plan as a measured example of a self-match. True under the old
+        seven-glyph class; false once the class narrowed.
+     v2 said "zero rows in this file, the test or the plan match". True when the
+        class narrowed; FALSE again once `\s*` wrap-joining widened the matcher,
+        which put two rows of the plan back in scope with nothing to signal it.
+   ⇒ It is a count over a MOVING TARGET (this repo's own files) taken with a MOVING
+   INSTRUMENT (this regex). Either one changing falsifies it, and the reassuring
+   direction is the dangerous one: it tells the next reader the self-match hazard
+   is closed.
+   ✅ SO THE CONVENTION REPLACES THE COUNT: any sample of this row written into
+   this repo gets a `*` prefix so it cannot match, and the check is one command
+   rather than a sentence to trust:
+
+     node -e 'const re=/<this constant>/u; ...split by line, print matches'
+     with a positive control (`    ✻ Waiting for 2 background agents to finish`)
+     and a negative one (`  x Waiting for 2 background agents to finish`)
+
+   ⭐ A sentence that reports a measurement of the repo it lives in cannot stay
+   true, because editing the repo is the normal case. State the convention and the
+   check; let the reader run it.
 
    🛑 ANCHORED TO THE COMPOSER, NOT TO THE LAST ROW, AND THE FIRST VERSION HAD
    THIS WRONG IN THE QUIET DIRECTION. Measuring from the screen's last non-empty

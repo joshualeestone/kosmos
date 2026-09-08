@@ -231,6 +231,56 @@ round's fix, so a round that returns nothing is a result I have not yet had. The
 brief for 25 says so explicitly and asks it to show what it tried, because a clean
 round and a shallow round are indistinguishable from the outside.
 
+## ITERATION 25, SECOND HALF: A REGRESSION, A BLIND SPOT, AND A SENTENCE THAT ROTTED TWICE
+
+### The regression: I made the codex path WORSE than `origin/main`
+
+`INTERRUPT_LINE_LIVE` is applied per row, and Ink hard-wraps this row while `-J`
+does not rejoin what Ink split. So a wrapped live progress line stopped matching.
+Measured against main's behaviour on the same inputs:
+
+| input | shipped | main |
+|---|---|---|
+| codex progress row hard-wrapped | **not working** | working |
+| claude wrapped spinner + wait row | working, **flag kept** | working, flag suppressed |
+
+🛑 **The codex arm is the serious one: it has three checks and NO `WORKING_LINE`
+beneath it, so a miss falls straight through to the FALSE CALM.** I introduced that.
+
+✅ Fixed by joining a row to the next **only when its parenthesis is still open**,
+which is the structural trace a hard wrap inside the group leaves. Joining
+unconditionally reads a settled `· Working (12s)` plus following prose as one live
+line. Ten shapes measured, the gate is right on nine.
+⚠️ **The tenth is an INHERENT AMBIGUITY, not a defect I declined to fix.** A glyph
+row ending mid-parenthesis whose next row closes it carrying the phrase is
+BYTE-IDENTICAL to a wrapped live spinner. It resolves as live, the direction that
+avoids the codex false calm, and it is asserted so nobody re-derives it as a bug.
+
+### The blind spot: sharing a function is not coverage
+
+Reverting **only** the codex call site left the whole 5030-test suite
+byte-identical. My comment claimed the shared helper meant the two sites "cannot
+drift apart, which is how one of them would quietly keep the old behaviour" -
+**and that was precisely what was unprotected.** The nearest existing fixture uses
+the phrase without parentheses, so it never matched the old constant either and
+could not see the narrowing in any direction. Both sites are pinned now.
+
+### The sentence that rotted twice, in opposite directions
+
+A note claimed `zero rows in this file, the test or the plan match`. It already
+carried a correction of ITSELF (an earlier version had cited the plan as a live
+example, true under the old seven-glyph class). Then it went false **again** when
+`\s*` wrap-joining widened the matcher and put two plan rows back in scope.
+
+⭐ **It is a count over a MOVING TARGET taken with a MOVING INSTRUMENT.** Either
+changing falsifies it, and the reassuring direction is the dangerous one: it tells
+the next reader the self-match hazard is closed. **A sentence reporting a
+measurement of the repo it lives in cannot stay true, because editing the repo is
+the normal case.**
+✅ Replaced with the CONVENTION (`*`-prefix any sample) plus the CHECK (a two-control
+sweep). The two rows are prefixed; the sweep now returns zero with both controls
+passing.
+
 ## FINDINGS 4 AND 5: MY OWN CONVENTIONS, TURNED ON MY OWN CODE
 
 Both arrived from the blind reviewer, both verified here, and both are cases where
@@ -677,8 +727,12 @@ and one completion resolved a wait on N: the iteration-20 false calm restored, i
 the wrap mode the module already treats as live. Measured, each reading `working`
 alone and `idle` with one completion below it:
 
-    ✻ Waiting for 2 backgroundagents to finish
-    ✻ Waiting for 2background agents to finish
+    * ✻ Waiting for 2 backgroundagents to finish
+    * ✻ Waiting for 2background agents to finish
+    (`*`-prefixed per this file's own convention, so the plan does not match
+     the reader it documents. They DID match until now: the `\s*` wrap-join
+     widening landed after these rows were written, so a true sentence became
+     false underneath them.)
     ✻ Waiting for 3 background agentsto finish     (2 running agents hidden)
 
 ⭐ **TWO REGEXES READING ONE ROW MUST SHARE ITS WHITESPACE PREMISE.** Neither was

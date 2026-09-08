@@ -2350,6 +2350,62 @@ test('#1889: the evidence contract for the background-agent wait line', () => {
   assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
 });
 
+test('#2378: the CODEX call site is narrowed too, and a hard wrap still reads live', () => {
+  /**
+   * 🛑 THE CODEX SITE HAD ZERO COVERAGE ACROSS ALL 496 TEST FILES. Reverting only
+   * `hasLiveInterruptLine(codexTail)` to the old unanchored test left the whole
+   * suite byte-identical. The shared helper's comment claimed the two sites
+   * "cannot drift apart"; sharing a function is not coverage, and that is exactly
+   * what was unprotected. The nearest existing fixture uses a phrase with NO
+   * parentheses, so it never matched the old constant either and could not see the
+   * narrowing in any direction.
+   *
+   * 🛑 AND THE WRAP CASE IS A REGRESSION THIS PINS AGAINST. Ink hard-wraps the
+   * progress row and `-J` does not rejoin what Ink split. Testing rows in isolation
+   * missed it, so a wrapped live codex row read `working` on origin/main and
+   * stopped doing so here. The codex arm has only three checks and NO
+   * `WORKING_LINE` beneath it, so a miss falls straight through to the FALSE CALM.
+   */
+  const codex = { session: 'kid', name: 'kid', claim: 'kid', command: 'node', runner: 'codex', title: 't' };
+
+  assert.equal(classify(codex, '• Reconnecting... 4/5 (4s • esc to interrupt)').state, 'working',
+    'a live codex progress line stopped being read as working');
+  assert.equal(classify(codex, '• Reconnecting... 4/5 (4s •\nesc to interrupt)').state, 'working',
+    'a HARD-WRAPPED codex progress line fell through to the false calm, which is a regression against origin/main');
+  assert.notEqual(classify(codex, '  he said (press esc to interrupt) earlier').state, 'working',
+    'a parenthesised quotation was read as a live codex turn');
+  assert.notEqual(classify(codex, 'I told him esc to interrupt is what the old UI said.').state, 'working',
+    'prose without parentheses was read as a live codex turn');
+});
+
+test('#2378: the wrap join is gated on an UNCLOSED parenthesis, and that gate is load-bearing', () => {
+  /**
+   * Joining a glyph row to the next unconditionally reads a SETTLED spinner row
+   * plus a following prose row as one live line. The gate is the structural trace
+   * a hard wrap inside the parenthesised group leaves: the paren is still open.
+   *
+   * ⚠️ The last row here is an INHERENT AMBIGUITY rather than a defect. A glyph row
+   * ending mid-parenthesis whose next row closes it and carries the phrase is
+   * BYTE-IDENTICAL to a genuine wrapped live spinner. It resolves as live, which is
+   * the direction that avoids the codex false calm, and it is asserted so nobody
+   * re-derives it as a bug.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const W = '✻ Waiting for 1 background agent to finish';
+  const flagOf = (body) => classify(pane, body + footer).backgroundWait === true;
+
+  assert.equal(flagOf('· Improvising… (35s · ↓ 1.5k tokens ·\nesc to interrupt)\n' + W), false,
+    'a WRAPPED live spinner was not recognised, so a queued message reads as read immediately');
+  assert.equal(flagOf('· Working (12s)\nhe said (esc to interrupt) yesterday\n' + W), true,
+    'a SETTLED spinner row joined to following prose was read as one live line; the unclosed-paren gate is gone');
+  assert.equal(flagOf('· Working (12s)\n────\n' + W), true,
+    'a settled spinner row joined to a rule was read as live');
+  assert.equal(flagOf('· Working (12s\nhe said esc to interrupt) yesterday\n' + W), false,
+    'the inherent-ambiguity row changed; it resolves as LIVE on purpose, see the comment above');
+});
+
 test('#2378: EVERY spinner frame is a live turn, and the anchor is behaviour', () => {
   /**
    * 🛑 THE FRAME THAT WAS MISSING WAS `*`, AND EXCLUDING IT INVERTED THE SENTENCE.
