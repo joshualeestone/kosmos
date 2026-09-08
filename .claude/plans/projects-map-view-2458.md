@@ -45,11 +45,32 @@ and path-on-card (the other half of section 3) are pinned for later.
   (NODE_PATH=$HOME/work/pw-runtime/node_modules).
 - /challenge-loop to convergence; screenshot to the channel; merge on green (beta rule).
 
-## 🔄 DESIGN PIVOT (Mona, 2026-09-08 ~00:30 CT) -- the v1 above is HELD, not merged
+## ✅ DIRECTION (Mona, 2026-09-08 ~00:34 CT, after a self-correction) -- KEEP THE v1 TOP-DOWN CHART
 
-Mona (design owner) redirected: the projects Map must MIRROR the existing agent org-view
-(#137, April's `paintOrg`), reusing its pan / deep-tree / (manual) fold / horizontal-scroll
-mechanics, NOT the static 3-level CSS org-chart the v1 built from. The v1 is a held foundation.
+⚠️ A brief radial detour (00:30) is REVERSED (00:34). Mona first said mirror the agent
+org-view (`paintOrg`, #137); a blind review caught that `org-view.html` is a RADIAL
+hub-and-spoke chart with NO pan/fold/scroll -- she had inferred those from grep counts
+("span"/"panel" read as "pan", the count-is-not-instances trap) without reading the file.
+**Correction: the v1 TOP-DOWN CSS org-chart is the RIGHT shape for a project hierarchy. Keep
+it. Do NOT rebuild radial. `paintOrg` is the wrong reference -- drop it.**
+
+The v1 is the validated base, NOT a throwaway. Three things get ADDED FRESH onto the top-down
+tree (they are top-down-tree features, not borrowed from the radial org):
+1. **Click a node opens that project** (v1 nodes were static). Reuse the card's `data-project`
+   + open path.
+2. **Manual per-branch fold** on a parent node -- FULLY-EXPANDED default, nothing auto-folds,
+   no auto-collapse of deep levels. (Built fresh; there is NO paintOrg default to inherit.)
+3. **Scroll in BOTH directions** -- vertical for depth, horizontal for wide sibling rows (v1
+   already has horizontal via `.pjorgwrap` overflow-x; add vertical).
+Everything else stands: node = project (name + own agent count + needs-you), gold Kosmos
+accent, behind the Grid/Map toggle, plus the whole v1 foundation.
+
+**Status:** hold the ADDITIONS until Mona's rewritten `subprojects.html` merges (she pings), so
+the fold/scroll interaction is built to her exact spec. The v1 base stays as-is meanwhile.
+
+--- (superseded radial notes kept for the record) ---
+Mona (design owner) first redirected: mirror the agent org-view (#137, April's `paintOrg`).
+REVERSED, see above. The v1 is a held foundation.
 
 **Confirmed deltas (Mona, verbatim intent):**
 - A node is a PROJECT: its name + its OWN agent count + a needs-you mark when an agent inside
