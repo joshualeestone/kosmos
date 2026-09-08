@@ -24,3 +24,38 @@ pre-picks.
   Claude import still lands on its default (control). Wire per #1720 (hermetic runner + reason-grep
   + README) OR extend an existing import/openai check.
 - Full run-tests.sh; challenge-loop; PR (merge on green).
+
+## 2026-09-08 HALT (Angel): the OpenAI premise is FALSE, this branch is a production no-op
+
+Challenge-loop iteration 2 (blind, sonnet) surfaced, and I verified against the engine source, that
+the OpenAI half of this branch CANNOT fire in production. The plan's premise (stash the import
+response's `defaultModelKeyFor(provider)` key) is contradicted by the engine, deliberately:
+
+- `engine/create.js` MODELS has ZERO `provider: 'openai'` entries, so `modelsFor('openai')` is empty
+  and `defaultModelKeyFor('openai')` returns `null`.
+- `server.js` (both import handlers, ~7112 and ~7239) returns `model: create.defaultModelKeyFor(parsed.provider)`
+  with the comment: "'sonnet' for a Claude import; null for OpenAI (codex picks its own)."
+- `modelsFor`'s own doc comment calls the null the "intended 'let codex choose' state."
+
+So for every real OpenAI import `data.model === null`, `IMPORT_OPENAI_MODEL` is set to null, and the
+pre-pick guard never fires. The change is invisible in production; the tests only pass by
+hand-injecting `IMPORT_OPENAI_MODEL = 'gpt-mid'`, which masks the gap. Claude imports already land on
+their default (`loadCreateExtras`), untouched by this branch. Net observable behavior change: none.
+
+There is no concrete middle-low OpenAI key to pre-pick: the engine has no OpenAI models by design
+(codex picks its own), and the only per-account "default" (`chatModelsFromList`) is the MOST-capable
+model, the opposite of Josh's "middle-to-low" intent, and using it would override the deliberate
+"codex picks its own" design + Josh's 2026-09-04 "OpenAI picks its own model for now" refinement.
+
+### DECISION (Angel): do NOT merge this branch. Route the design conflict to Mona.
+Recommendation: OpenAI imports correctly land on "Let OpenAI choose" (codex picks its own) TODAY, so
+Item 8 is satisfied for Claude (already works) and not-applicable to OpenAI as the stack stands. If
+Josh still wants an OpenAI import on a concrete middle-low GPT, that is an ENGINE change for Pete
+FIRST (define OpenAI models + a middle-low default in `engine/create.js`); this web pre-pick is then
+the ready client half. Merging the web half now ships either dead code (if OpenAI stays
+codex-picks-its-own) or a mechanism waiting indefinitely on an engine half with no committed plan.
+Weakest premise in THIS decision: that Pete has no plan to add OpenAI models; if he does, the web
+half here is correct and forward-compatible and could merge as such. Parked pending Mona's ruling.
+
+The iteration-1 leak fixes (authoritative stash, resetCreateProvider clear, the harness declarations)
+are correct and stay on the branch, but they harden a mechanism that does not yet fire.
