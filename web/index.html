@@ -28552,6 +28552,9 @@ function resetCreateProvider() {
   // #2140: a form reset starts fresh -- forget a Claude pick remembered for a
   // provider round-trip, so a reopen defaults rather than restoring a stale pick.
   LAST_CLAUDE_MODEL = '';
+  /* #2453 follow-up: forget a pending OpenAI import default too (the sibling of the
+     line above), so an abandoned import cannot pre-pick a model on a fresh create. */
+  IMPORT_OPENAI_MODEL = null;
   /* #2097: default to a provider the machine actually has an account for, rather
      than forcing an OpenAI-only user to correct "Anthropic Claude" on every create.
      Start on OpenAI ONLY when there is an OpenAI account AND no Claude account;
@@ -29185,7 +29188,10 @@ async function finishImport(data, gen, btn) {
          rather than "Let OpenAI choose". Set before the dispatch that fires
          paintOpenaiCreateModel. Only when OpenAI is actually the honoured provider;
          Claude already lands on its default via loadCreateExtras. */
-      if (wanted === 'openai' && data.model) IMPORT_OPENAI_MODEL = data.model;
+      /* Authoritative on every import: the default key when OpenAI is the honoured
+         provider, else null, so a dangling prior value never leaks into a later import
+         or account change. */
+      IMPORT_OPENAI_MODEL = (wanted === 'openai' && data.model) ? data.model : null;
       provEl.value = wanted;
       provEl.dispatchEvent(new Event('change'));
     }

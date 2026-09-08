@@ -83,8 +83,15 @@ function check(name, pass, detail) {
     await sleep(60);
     const noPref = sel.value;
 
+    // Case 4 (leak fix): a fresh-form reset clears a dangling import default, so an
+    // abandoned import cannot pre-pick a model on a later, unrelated create. The clear
+    // is the sibling of LAST_CLAUDE_MODEL at the top of resetCreateProvider.
+    IMPORT_OPENAI_MODEL = 'gpt-mid';   // eslint-disable-line no-undef
+    resetCreateProvider();             // eslint-disable-line no-undef
+    const clearedByReset = (typeof IMPORT_OPENAI_MODEL === 'undefined') ? 'undef' : IMPORT_OPENAI_MODEL;   // eslint-disable-line no-undef
+
     window.fetch = realFetch;
-    return { picked, clearedAfterPick, fellBack, clearedAfterFallback, noPref };
+    return { picked, clearedAfterPick, fellBack, clearedAfterFallback, noPref, clearedByReset };
   });
 
   if (pageErrors.length) { console.error('page error(s): ' + pageErrors.join(' | ')); await browser.close(); process.exit(1); }
@@ -96,6 +103,8 @@ function check(name, pass, detail) {
     r.fellBack === '', 'value=' + JSON.stringify(r.fellBack));
   check('the one-shot pref is consumed even on the fall-back', r.clearedAfterFallback === null, JSON.stringify(r.clearedAfterFallback));
   check('with no import pref, the default stays "Let OpenAI choose"', r.noPref === '', 'value=' + JSON.stringify(r.noPref));
+  check('a fresh-form reset clears a dangling import default (no leak into a later create)',
+    r.clearedByReset === null, JSON.stringify(r.clearedByReset));
 
   await browser.close();
   if (problems.length) {
