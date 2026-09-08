@@ -30029,17 +30029,25 @@ document.getElementById('create-go').addEventListener('click', async () => {
     // watched.
     paintMade((result.steps || []).map((st) => ({ ...st, undone: st.ok })), null);
     document.getElementById('made-head').textContent = name + ' was not made';
+    /* #1185 copy nit: `because` reads as a new sentence here (it follows the
+       full stop after "... was not made." and after the bolded "Nothing was
+       made."), but every engine `because` starts lowercase ("we could not ...",
+       "we set it up ...") because it is also spoken mid-sentence elsewhere. Fix
+       the CLASS at the render site rather than one string: capitalize the first
+       letter only for this screen. Idempotent -- a `because` that already starts
+       with a capital (a proper noun) is unchanged. */
+    const becauseSentence = (result.because || '').replace(/^([a-z])/, (c) => c.toUpperCase());
     // ⚠️ SAY IT OUT LOUD. `paintMade` only writes the live region when there is
     // a line being watched, and a partial has none -- so the single outcome
     // this screen exists to communicate was the only one that announced
     // nothing, while the live region still held "Waiting for the board to see
     // it running", which had just become false.
     document.getElementById('made-say').textContent =
-      name + ' was not made. ' + (result.because || '');
+      name + ' was not made. ' + becauseSentence;
     const warn = document.getElementById('made-warn');
     // The heading and this line have to agree. They did not: "This one is only
     // half made" sat above a sentence saying nothing was left on the computer.
-    warn.innerHTML = '<b>Nothing was made.</b> ' + esc(result.because || '');
+    warn.innerHTML = '<b>Nothing was made.</b> ' + esc(becauseSentence);
     warn.hidden = false;
     /* 🛑 NO "See it under Agents" HERE, AND THIS ONE IS NOT A COPY PREFERENCE.
        The heading says the agent was not made and the line under it says
