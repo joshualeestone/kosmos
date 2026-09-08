@@ -269,6 +269,42 @@ function check(name, pass, detail) {
   check('the node accessible name carries its status (a screen reader hears the needs-you signal)',
     aria.needs === 'Open Ned, needs you' && aria.staffed === 'Open Sam, 3 agents', JSON.stringify(aria));
 
+  // The connector lines are how the Map draws the shape, so they are load-bearing and
+  // must clear WCAG SC 1.4.11 (3:1 non-text) on the card surface -- a step darker than
+  // the faint --k-rule, in BOTH themes (the color-mix uses theme-aware tokens).
+  const connContrast = async () => page.evaluate(() => {
+    PROJECTS.length = 0;
+    PROJECTS.push(
+      { id: 'p', name: 'Par', parent: null, archived: false, summary: { total: 1 } },
+      { id: 'c1', name: 'C1', parent: 'p', archived: false, summary: { total: 1 } },
+      { id: 'c2', name: 'C2', parent: 'p', archived: false, summary: { total: 1 } },
+    );
+    paintProjectsMap();
+    // The vertical connector `.pjorg ul ul::before` is always present for a parent
+    // with children and always carries a real border; read its colour. Surface from a
+    // NON-top node (the .top root is gold-tinted, not the plain card surface).
+    const nested = document.querySelector('#pj-map .pjorg ul ul');
+    const conn = nested ? getComputedStyle(nested, '::before').borderLeftColor : null;
+    const plain = document.querySelector('#pj-map .pjonode:not(.top)');
+    const surface = plain ? getComputedStyle(plain).backgroundColor : null;
+    // Handle both `rgb(r,g,b[/a])` (0-255) and `color(srgb r g b …)` (0-1) formats.
+    const chan = (c) => {
+      const m = String(c).match(/-?\d*\.?\d+/g) || [];
+      const nums = m.map(Number);
+      return /srgb/.test(c) ? nums.slice(0, 3).map((v) => v * 255) : nums.slice(0, 3);
+    };
+    const lum = (c) => { const [r, g, b] = chan(c).map((v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); }); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+    if (!conn || !surface) return { ratio: 0, conn, surface };
+    const l1 = lum(conn) + 0.05, l2 = lum(surface) + 0.05;
+    return { ratio: Math.round((Math.max(l1, l2) / Math.min(l1, l2)) * 100) / 100, conn, surface };
+  });
+  const connLight = await connContrast();
+  await page.emulateMedia({ colorScheme: 'dark' });
+  const connDark = await connContrast();
+  await page.emulateMedia({ colorScheme: 'light' });
+  check('the Map connector lines clear 3:1 on the card surface, light (SC 1.4.11)', connLight.ratio >= 3, JSON.stringify(connLight));
+  check('the Map connector lines clear 3:1 on the card surface, dark', connDark.ratio >= 3, JSON.stringify(connDark));
+
   await browser.close();
   if (problems.length) {
     console.error('render-projects-map: ' + problems.length + ' problem(s)');

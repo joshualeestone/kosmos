@@ -2392,16 +2392,22 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 /* The node + its fold disclosure stack, so the disclosure reads as sitting at the
    junction down to the branch it folds. */
 .pjnodewrap { display: inline-flex; flex-direction: column; align-items: center; gap: 3px; }
-.pjorg { display: flex; justify-content: center; min-width: max-content; }
+/* #2458 (Mona): the connector lines are how the Map draws the SHAPE, so on the map
+   they are load-bearing, not a generic divider. Give them a dedicated colour a step
+   darker than --k-rule -- aimed near 3:1 on the card surface -- kept a thin 1px
+   hairline (deepened, not thickened). It is a color-mix of two theme-aware tokens, so
+   it adapts to dark on its own; --k-rule itself is left untouched for borders and
+   dividers elsewhere. */
+.pjorg { display: flex; justify-content: center; min-width: max-content; --pj-connector: color-mix(in srgb, var(--k-ink-2) 55%, var(--k-rule)); }
 .pjorg ul { position: relative; padding-top: 19px; display: flex; justify-content: center; margin: 0; list-style: none; }
 .pjorg li { list-style: none; position: relative; padding: 19px 9px 0; text-align: center; }
-.pjorg li::before, .pjorg li::after { content: ""; position: absolute; top: 0; right: 50%; width: 50%; height: 19px; border-top: 1px solid var(--k-rule); }
-.pjorg li::after { right: auto; left: 50%; border-left: 1px solid var(--k-rule); }
+.pjorg li::before, .pjorg li::after { content: ""; position: absolute; top: 0; right: 50%; width: 50%; height: 19px; border-top: 1px solid var(--pj-connector); }
+.pjorg li::after { right: auto; left: 50%; border-left: 1px solid var(--pj-connector); }
 .pjorg li:only-child { padding-top: 0; }
 .pjorg li:only-child::before, .pjorg li:only-child::after { display: none; }
 .pjorg li:first-child::before, .pjorg li:last-child::after { border: 0 none; }
-.pjorg li:last-child::before { border-right: 1px solid var(--k-rule); }
-.pjorg ul ul::before { content: ""; position: absolute; top: 0; left: 50%; width: 0; height: 19px; border-left: 1px solid var(--k-rule); }
+.pjorg li:last-child::before { border-right: 1px solid var(--pj-connector); }
+.pjorg ul ul::before { content: ""; position: absolute; top: 0; left: 50%; width: 0; height: 19px; border-left: 1px solid var(--pj-connector); }
 /* A project node is a BUTTON that opens the project, so it carries the button reset
    (font/colour inherit, no UA chrome) on top of the card look. The Kosmos root is a
    plain div (`.top`), not clickable, so it keeps the default cursor. */
