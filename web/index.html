@@ -10134,18 +10134,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          reached from `#pj-alltasks`, the per-project door, and #1009 already
          put every OPEN task in the column, so what that door still reveals is
          FINISHED work. Taking the door without taking its contents would leave
-         finished work unreachable anywhere in Kosmos.
-         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door sits on ONE project and this
-         screen shows EVERY project, so a per-project number beside it could
-         only ever disagree with its own destination, which is the #1346 defect
-         the card asked us to avoid. Two numbers cannot disagree if there is
-         one. -->
+         this project's finished work unreachable. (#2498 scoped the screen to
+         the door's own project; finished work stays reachable PER project,
+         each through its own door.)
+         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door and the screen now sit on the
+         SAME one project (#2498), so a per-project number COULD agree with its
+         destination - it is still not added, as scope discipline rather than a
+         new feature, so there is no second number to disagree with the screen's
+         own count (the #1346 defect the card asked us to avoid). -->
     <div id="pj-alltasks-view" hidden>
       <button class="back" id="alltasks-back" type="button"></button>
       <div class="pjhead">
         <div class="pjtitle">
           <h2 class="dname">All tasks</h2>
-          <p class="pj-desc">Across every project.</p>
+          <!-- #2498: set per open to the project this door was opened from; the
+               door is per-project and its list is now scoped to that project. -->
+          <p class="pj-desc" id="alltasks-desc">In this project.</p>
         </div>
       </div>
       <p class="dhint" id="alltasks-count" style="margin:0 0 8px;" hidden></p>
@@ -32257,9 +32261,11 @@ function paintProjectTasks(p) {
      `behind > 0` to `(behind + hiddenByCap) > 0` so a project with eight open
      tasks and none finished did not lose three of them with no control on
      screen to reach them.
-     ⇒ THE DOOR IS UNCONDITIONAL NOW, because its destination is every project
-     rather than this one's hidden rows, so `behind` and `hiddenByCap` have no
-     consumer and are gone. The cap itself is unchanged and still five. */
+     ⇒ THE DOOR IS UNCONDITIONAL NOW, because its destination is ALL of this
+     project's tasks (past the column's cap, finished included, #2498 scoped it
+     back to this one project), so this project's hidden rows are always
+     reachable through it and `behind`/`hiddenByCap` have no consumer and are
+     gone. The cap itself is unchanged and still five. */
   const TK_COLUMN_MAX = 5;
   const showing = column.slice(0, TK_COLUMN_MAX);
   // kosmos#1009 retired the reasoning that used to sit here ("an empty COLUMN
@@ -32349,16 +32355,19 @@ function paintProjectTasks(p) {
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
      deliberate.
-     🔑 ALWAYS SHOWN, because its destination is EVERY project. The old rule
-     revealed this project's hidden tasks in place, so it correctly stayed away
-     when this project hid nothing. A screen listing all projects must not be
-     unreachable from a project that happens to have five tasks and none
-     finished, which is the normal state of a new project.
-     🛑 AND NO COUNT. The door sits on ONE project; the screen shows EVERY
-     project. A per-project number beside a global destination can only ever
-     disagree with it, which is exactly the #1346 defect the card asked us to
-     avoid. Two numbers cannot disagree if there is one, and the count the
-     person actually needs is on the screen, derived from the rows it renders. */
+     🔑 ALWAYS SHOWN, because its destination is ALL of THIS project's tasks -
+     past the column's five-cap, finished included (#2498 scoped it to this one
+     project). The old rule revealed this project's hidden tasks in place, so it
+     stayed away when the project hid nothing; the door must not be unreachable
+     from a project whose finished or capped-off rows live only behind it. A
+     brand-new project with nothing yet now shows the door onto an empty scoped
+     list, which the screen's own "No tasks on this project yet" handles.
+     🛑 AND NO COUNT. The door and the screen now sit on the SAME one project
+     (#2498), so a per-project number COULD agree with its destination - it is
+     still not added, as scope discipline rather than a new feature, so there is
+     no second number to disagree with the screen's own count (the #1346 defect
+     the card asked us to avoid). The count the person needs is on the screen,
+     derived from the rows it renders. */
   door.hidden = false;
   door.textContent = 'View all tasks \u2192';
 }
@@ -32369,9 +32378,10 @@ function paintProjectTasks(p) {
  * ALL of the tasks".
  *
  * 🔑 THE BEHAVIOUR IT REPLACES IS NOT LOST, IT MOVED. Revealing in place showed
- * this project's tasks past the five-cap and its finished ones. This screen is
- * a strict superset: every task on every project, capped-off and finished
- * included.
+ * this project's tasks past the five-cap and its finished ones. This screen
+ * shows all of THIS project's tasks (#2498 scoped it to the project the door
+ * was opened from), capped-off and finished included - a superset of the
+ * project's column, not of every project.
  */
 document.getElementById('pj-alltasks').addEventListener('click', openAllTasksView);
 
@@ -32380,7 +32390,8 @@ document.getElementById('alltasks-back').addEventListener('click', () => {
 });
 
 /**
- * Every task on every project.
+ * Every task on the current project, open and finished (#2498 scoped it from
+ * the old every-project set to the project this door was opened from).
  *
  * 🛑 AN UNREADABLE ANSWER IS SAID OUT LOUD, NEVER SHOWN AS AN EMPTY LIST. "No
  * tasks yet" is a claim about somebody's own work; the route refuses to serve
@@ -32399,11 +32410,20 @@ async function openAllTasksView() {
   const back = document.getElementById('alltasks-back');
   const here = pjById(PJ_CURRENT);
   back.textContent = '\u2190 ' + (here ? here.name : 'Projects');
+  /* #2498: this door is per-project and its list is scoped to the project it
+     was opened from, so the description names that project rather than the old
+     "Across every project." (which was true only while the screen was global). */
+  const desc = document.getElementById('alltasks-desc');
+  if (desc) desc.textContent = here ? ('In ' + here.name + '.') : 'In this project.';
   list.textContent = ''; count.hidden = true; msg.textContent = 'Looking\u2026';
   pjView('alltasks');
   let body = null;
   try {
-    const r = await fetch('/api/tasks', { cache: 'no-store' });
+    /* #2498: carry the current project and let the route filter, rather than
+       fetching every project's tasks. PJ_CURRENT is always set when this door
+       is reachable; the empty fallback keeps a global read if it ever is not. */
+    const scope = PJ_CURRENT ? ('?project=' + encodeURIComponent(PJ_CURRENT)) : '';
+    const r = await fetch('/api/tasks' + scope, { cache: 'no-store' });
     body = await r.json();
     if (!r.ok) throw new Error((body && body.error) || 'we could not read your tasks');
   } catch (err) {
@@ -32414,7 +32434,7 @@ async function openAllTasksView() {
   const rows = (body && body.tasks) || [];
   if (!rows.length) {
     msg.textContent = '';
-    list.innerHTML = '<p class="tk-empty">No tasks on any project yet. Add one to start tracking progress.</p>';
+    list.innerHTML = '<p class="tk-empty">No tasks on this project yet. Add one to start tracking progress.</p>';
     return;
   }
   msg.textContent = '';
@@ -32444,9 +32464,10 @@ async function openAllTasksView() {
     + '</button>').join('');
 }
 
-/* A row opens its task ON ITS OWN PROJECT, which may not be the one we came
-   from: this screen crosses projects, so each row carries its project and the
-   handler switches before opening the task. */
+/* A row opens its task on the project it belongs to. #2498 scoped this door to
+   the project it was opened from, so every row is that same project and the
+   switch is a safe no-op today; it is kept (each row still carries its project)
+   so the handler stays correct if the list is ever un-scoped again. */
 document.getElementById('alltasks-list').addEventListener('click', (e) => {
   const card = e.target.closest('.tkcard');
   if (!card) return;
