@@ -55,6 +55,10 @@ function world(html, fetchImpl) {
     document: { getElementById: el, addEventListener: () => {}, removeEventListener: () => {} },
     CURRENT: currentCard(),
     fetch: fetchImpl, encodeURIComponent, tick: async () => {}, agentShown: () => 'Mara', console,
+    /* #768-batch: changeModelNow now names the provider in the reduced success line.
+       Lift the real (const arrow) providerOf into the VM ctx, since `lift` only pulls
+       the two `function` declarations. */
+    providerOf: (a) => ((a && a.runner === 'codex') ? 'openai' : 'anthropic'),
   };
   vm.runInNewContext(lift(script, 'function changeDialog(') + '\n' + lift(script, 'async function changeModelNow('), ctx);
   return { ctx, el };
@@ -69,7 +73,10 @@ const CURRENT_PAGE = fs.readFileSync('web/index.html', 'utf8');
 
 test('a successful change is said in the dialog with Done; a saved-but-not-restarted one with Close; a refusal with Close', async () => {
   let got = await change(world(CURRENT_PAGE, ok('changed', 'Mara is starting again on Claude Fable 5.')));
-  assert.equal(got.msg, 'Mara is starting again on Claude Fable 5.');
+  /* #768-batch: on a real restart the dialog now reduces to the one action left --
+     say hello to reactivate -- naming the provider (Mara has no codex runner -> Claude).
+     The engine's fuller sentence still stands on the section line behind the dialog. */
+  assert.equal(got.msg, 'Say hello to Mara to reactivate them on Claude.');
   assert.equal(got.keep.textContent, 'Done'); assert.equal(got.keep.hidden, false);
   got = await change(world(CURRENT_PAGE, ok('partial', 'We saved Claude Fable 5, but could not start it again.')));
   assert.match(got.msg, /^We saved/); assert.equal(got.keep.textContent, 'Close'); assert.equal(got.keep.hidden, false);
