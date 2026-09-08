@@ -31407,7 +31407,10 @@ function projectCard(p, unreadable, depth, childCount) {
        Mobile") while the tile shows "Kosmos > ... > Mobile". */
     const midNames = anc.slice(1, -1).map((n) => esc(n)).join(', ');
     const chain = shown.map((n) => n === null ? '<span aria-hidden="true">…</span><span class="vh">' + midNames + '</span>' : esc(n)).join(sep);
-    parentChip = '<span class="pj-parent pj-anc">' + dots + '<span class="pj-anc-t">' + chain + '</span></span>';
+    /* vh "In " lead-in matches the detail-page trail and frames the bare names for a
+       screen reader, so a card reads "In Kosmos, App" rather than a run of unlabelled
+       names after the project's own title (the old chip's "under" gave this cue). */
+    parentChip = '<span class="pj-parent pj-anc">' + dots + '<span class="pj-anc-t"><span class="vh">In </span>' + chain + '</span></span>';
   }
   /* Faces: the avatar when the TIED agent has one, the initials chip
      otherwise (hasAvatar is gated on tied in the engine -- a borrowed

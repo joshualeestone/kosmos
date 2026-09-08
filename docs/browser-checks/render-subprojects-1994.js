@@ -187,6 +187,29 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
     ok(t + ' detail: a top-level project hides the parent trail', anc.detailErr === null && anc.topParentHidden === true, JSON.stringify({ err: anc.detailErr, topParentHidden: anc.topParentHidden }));
     ok(t + ' detail: a leaf project hides the sub-projects section', anc.detailErr === null && anc.leafSubsHidden === true, JSON.stringify({ err: anc.detailErr, leafSubsHidden: anc.leafSubsHidden }));
+    // #2487: the card chain gets a vh "In " lead-in so a screen reader frames the
+    // names as ancestry rather than a run of unlabelled text after the card title.
+    ok(t + ' ancestry: a vh "In " lead-in frames the names for a screen reader', /In\s/.test(anc.mobChain), anc.mobChain);
+
+    // #2487: the consolidated rail reuses projectCard but ships one rail-specific rule
+    // (body.consolidated .pj-anc { justify-content: flex-start }). Assert the ancestry
+    // line actually renders (and is displayed, not display:none) under consolidated, so
+    // that rule and this surface are not shipped with zero coverage.
+    const rail = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? name + ' parent' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app')];
+      PJ_SORT = 'az';
+      document.getElementById('pj-list').classList.remove('asgrid');
+      document.body.classList.add('consolidated');
+      paintProjects();
+      const row = document.querySelector('#pj-list .pj-row[data-project="mob"]');
+      const t2 = row && row.querySelector('.pj-anc-t');
+      const anchor = row && row.querySelector('.pj-anc');
+      const out = { txt: t2 ? t2.textContent : '', disp: anchor ? getComputedStyle(anchor).display : 'none' };
+      document.body.classList.remove('consolidated');   // restore for later layers
+      return out;
+    });
+    ok(t + ' rail (consolidated): the ancestry line renders and is displayed', /Kosmos/.test(rail.txt) && /App/.test(rail.txt) && rail.disp !== 'none', JSON.stringify(rail));
 
     // ---- Layer 2: the set-parent select ----
     const select = await page.evaluate(() => {
