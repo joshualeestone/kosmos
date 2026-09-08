@@ -605,7 +605,7 @@ test('#988 END TO END: the REAL transport delivers the POST, with no factory and
   await new Promise((r) => server.listen(0, '127.0.0.1', r));
   const port = server.address().port;
   try {
-    const { execFileSync } = require('node:child_process');
+    const { spawn } = require('node:child_process');
     const script = [
       "const fs=require('node:fs'),os=require('node:os'),p=require('node:path');",
       "const box=fs.mkdtempSync(p.join(os.tmpdir(),'e2e-'));",
@@ -620,12 +620,21 @@ test('#988 END TO END: the REAL transport delivers the POST, with no factory and
     const env = { ...process.env };
     delete env.NODE_TEST_CONTEXT;          // the whole point: production conditions
     delete env.AGENT_WORKFORCE_TUNNEL_CA;
-    /* A TIMEOUT, because a regression at the request's timeout handler turns this
-       arm from a failure into a HANG: measured, the runner wedged indefinitely
-       rather than reporting red. A bounded child fails loudly instead. */
-    execFileSync(process.execPath, ['-e', script, nodePath.join(__dirname, '..'), String(port)],
-      { env, encoding: 'utf8', timeout: 15000 });
-    await new Promise((r) => setTimeout(r, 150));
+    /* 🛑 spawn, NOT execFileSync. execFileSync BLOCKS this process's event loop,
+       so the server above cannot accept the connection while the child is alive:
+       the child then hits its own 3s timeout and the arm silently measures a
+       timeout instead of a round trip. (The assertions still passed, because TCP
+       delivers the written bytes into the kernel buffer regardless of when the JS
+       server drains them, so it was real wire coverage measuring the wrong thing.)
+       With spawn the parent stays free, the server answers, and the child's
+       RESPONSE path runs too. Bounded by a kill timer: a regression in the
+       request timeout handling can hang rather than fail. */
+    const child = spawn(process.execPath, ['-e', script, nodePath.join(__dirname, '..'), String(port)],
+      { env, stdio: ['ignore', 'ignore', 'inherit'] });
+    const killer = setTimeout(() => { try { child.kill('SIGKILL'); } catch { /* gone */ } }, 15000);
+    const code = await new Promise((r) => child.on('exit', r));
+    clearTimeout(killer);
+    assert.equal(code, 0, 'the production announce path must not crash the child');
     assert.equal(received.length, 1, 'the production path must actually deliver the POST');
     assert.equal(received[0].method, 'POST');
     assert.equal(received[0].url, '/v1/mac/updating');
