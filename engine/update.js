@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
+const updating = require('./updating');
 const { version: RUNNING } = require('../package.json');
 
 const DEFAULT_BASE = 'https://installkosmos.com/dist';
@@ -111,6 +112,17 @@ function poke() {
  * Returns the handle so a caller can clear it.
  */
 function startPolling(intervalMs) {
+  /* 🛑 #988: THE SUCCESS PATH HAS NO FINISH HOOK, BY CONSTRUCTION. A successful
+     install kills this server before either child listener can matter (the exit
+     listener's own comment below says so), so `seconds: 0` after a good update
+     can only come from the board that comes BACK. This is that moment: the board
+     is up, therefore it is not mid-update.
+     Unconditional on purpose. The #1728 in-flight marker cannot stand in for
+     "we just updated", because the installer's own shell removes it when the
+     attempt finishes, success or clean failure alike. And clearing on every boot
+     is idempotent and can only END a "back in a moment" early, never begin one
+     falsely, which is the safe direction for a message a person reads. */
+  try { updating.announce(0); } catch { /* announce cannot throw; belt and braces at a boot path */ }
   // Guard the cadence: a non-positive or non-numeric interval would make
   // setInterval a tight fn-per-tick loop that burns the event loop (poke() is
   // TTL-gated regardless, so it bounds the event-loop cost, not the network).
@@ -464,9 +476,15 @@ function wireChild(child, opts) {
      here, microseconds after spawn; the shell's own `rm -f` of it runs only
      after the (multi-second) curl|sh pipeline, so there is no race. */
   markInstallStarted(owner && owner.startedAt);
+  /* #988: from a phone, an update restart is indistinguishable from a broken
+     Mac. Tell the coordinator we are applying, so it can answer "your Mac is
+     updating Kosmos, back in a moment" instead of "not answering". Best effort
+     by construction: it cannot throw, cannot block and cannot fail an install. */
+  updating.announce(updating.DEFAULT_SECONDS);
   child.on('error', (err) => {
     installStarted = false;
     noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
+    updating.announce(0);   // #988: never started, so nothing is applying
     /* Only the unattended path is held back. A person pressing Install is
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
@@ -485,6 +503,7 @@ function wireChild(child, opts) {
     if (code !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
+      updating.announce(0);   // #988: stopped without restarting, so nothing is applying
       if (opts && opts.auto) autoFailedAt = Date.now();
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }
