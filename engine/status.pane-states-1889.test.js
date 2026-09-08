@@ -188,18 +188,22 @@ const CAPTURED_OPTION_ROW = ' ❯ 1. Yes';
 test('the rendered `❯ 1. Yes` row satisfies the matcher static analysis cannot confirm (the card residual)', () => {
   // The card's core point: the bundle holds no literal "1. Yes" (it is composed
   // at render time), so `/❯\s*1\.\s*Yes/` can ONLY be checked against a rendered
-  // pane. classify() alone does NOT pin it -- ` Do you want to proceed?` sits
-  // above the option row and satisfies NEEDS_YOU_MARKERS first in asksSomething's
-  // top-down scan, so a retired option-row matcher would still ship green. These
-  // assertions pin BOTH readers of the row against the real captured bytes, so a
-  // regression of either turns this file red.
+  // pane. Since #2456, classify() DOES pin OPTION_LINE for this dialog:
+  // `blockingProseAtBottom` reads only the LAST non-blank line -- here
+  // ` Esc to cancel · Tab to amend`, not the mid-dialog ` Do you want to
+  // proceed?` -- so if the option-row matcher were retired, PERMISSION_DIALOG
+  // would fall through to UNKNOWN and the first test above would go red. The
+  // `❯ 1. Yes` NEEDS_YOU-marker half, though, stays classify-invisible (the prose
+  // rule strips the glyph; `drawsOptionMenu` keys on OPTION_LINE, not that
+  // marker). These assertions pin BOTH readers of the row against the real
+  // captured bytes, so a regression of either turns this file red.
   const markers = needsYouMarkers();
   const optionMarker = markers.find((re) => /Yes/.test(re.source));
   assert.ok(optionMarker, 'the `❯ 1. Yes` marker is gone from NEEDS_YOU_MARKERS');
   assert.match(CAPTURED_OPTION_ROW, optionMarker,
     'the live-rendered option row no longer matches its NEEDS_YOU marker');
   assert.match(CAPTURED_OPTION_ROW, optionLine(),
-    'the live-rendered option row no longer matches OPTION_LINE (asksSomething checks this first, per line)');
+    'the live-rendered option row no longer matches OPTION_LINE (drawsOptionMenu checks this first, per line)');
 });
 
 // ---------------------------------------------------------------------------

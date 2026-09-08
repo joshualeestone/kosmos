@@ -1376,7 +1376,8 @@ const NEEDS_YOU_MARKERS = Object.freeze([
   /❯\s*1\.\s*Yes/,
 ]);
 
-/* Companions to NEEDS_YOU_MARKERS, used by `asksSomething` below. OPTION_LINE is
+/* Companions to NEEDS_YOU_MARKERS, used by `drawsOptionMenu` / `blockingProseAtBottom`
+   below (the two halves of the former `asksSomething`, #2456). OPTION_LINE is
    anchored so a quoted glyph mid-sentence is not a prompt; ENDS_AT_QUESTION is what
    separates a question from a sentence that merely contains one. */
 /* ❯ ONLY, NOT ›. This qualifies the CLAUDE marker list; Codex's › is owned by
@@ -1508,7 +1509,7 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  *    Enter to confirm · Esc to cancel
  *
  * 🛑 THE QUESTION ROW DOES NOT END AT ITS QUESTION MARK. It runs on into a
- * parenthetical, so `asksSomething`'s "marker opens the line and the line
+ * parenthetical, so `blockingProseAtBottom`'s "marker opens the line and the line
  * closes at ?" rule cannot see it -- measured: the shipped classifier read this
  * whole screen as `unknown`. The card's own capture (2026-08-30) was the same
  * dialog abbreviated to its first sentence, which DOES end at `?`; both shapes
@@ -1538,7 +1539,7 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  * it, so `gh issue view 1629` prints it) satisfies both, because the glyph
  * strip removes the tool-result indentation and the option label then owns a
  * row. That false red would stand over the agent's own fresh `working` report
- * (rule 3), which is the exact harm the `asksSomething` docblock names.
+ * (rule 3), which is the exact harm the `blockingProseAtBottom` docblock names.
  * What a paste cannot do is be the bottom of the screen: a live agent draws
  * its composer footer, a working line or more prose beneath the paste, while
  * the real dialog REPLACES the composer. Observed on the capture above: the
@@ -1596,7 +1597,7 @@ const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
  *
  * Like the trust dialog it draws at the TOP of a fresh pane, so `classify` reads it from
  * the same trailing-trimmed tail, and its options are UN-numbered (so `OPTION_LINE`'s
- * `❯ <digit>.` never matched it and `asksSomething` on the untrimmed tail saw only blank
+ * `❯ <digit>.` never matched it and the prose check on the untrimmed tail saw only blank
  * padding -> UNKNOWN). This detector keys on the SHARED consent CHROME, not on this one
  * banner, so the NEXT unforeseen confirm dialog reads as needs_you by default rather than
  * unknown; the headings below only LABEL the evidence.
@@ -2424,11 +2425,19 @@ function closedEnvelope(text) {
  * real red is never suppressed. That means a scraped false positive silently
  * overrides an agent's own accurate account of itself.
  *
- * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR POSITION. Both were
- * tried on the card and both fail: requiring a selector glyph anywhere fails on
- * a sentence quoting one, and requiring the match in the last N lines fails
+ * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR COARSE POSITION. Both
+ * were tried on the card and both fail: requiring a selector glyph anywhere fails
+ * on a sentence quoting one, and requiring the match in the last N lines fails
  * whenever the prose IS the newest output, which for a chatty agent is most of
- * the time. Position narrows the window; it does not discriminate.
+ * the time. A last-N-lines window narrows but does not discriminate.
+ *
+ * 📌 BUT SEE #2456 (`blockingProseAtBottom` below): the LAST NON-BLANK line is a
+ * structural signal, not the coarse last-N-lines position rejected here. A live
+ * Claude pane always draws a status line or the composer footer beneath live
+ * output, so a prose question that is genuinely the bottom of the screen means
+ * the dialog replaced the composer -- i.e. the agent is blocked. That is exactly
+ * the "marker opens the line and closes at ?" rule below, applied to the one line
+ * that carries structural meaning rather than to any line.
  *
  * A real prompt line is the QUESTION AND NOTHING ELSE: the marker opens the
  * line and the line closes at the question mark (optionally `(y/N)`). Prose
@@ -2441,15 +2450,102 @@ function closedEnvelope(text) {
  * 📌 Structural options only when the glyph OPENS the line. `and then ❯ 1. Yes
  * underneath it.` is prose about a prompt, not a prompt.
  */
-function asksSomething(tail) {
+/**
+ * 🔑 #2456: THE OLD `asksSomething` FUSED TWO SIGNALS OF DIFFERENT RELIABILITY,
+ * AND A POSITION SUITED TO ONE IS WRONG FOR THE OTHER. SPLIT INTO TWO CHECKS.
+ *
+ * The old single function combined a STRUCTURAL signal (a runner DREW a numbered
+ * option menu, `OPTION_LINE`) with a LOOSE prose signal (a `NEEDS_YOU_MARKERS`
+ * phrase opens a line and the line closes at `?`). Both fed one `needs_you`
+ * branch placed ABOVE the working checks, so a prose marker matching ANYWHERE in
+ * the tail outranked the working signals:
+ *
+ *   A freshly-imported / reactivated agent's FIRST-BREATH output is full of
+ *   "Would you like to ...?" / "Do you want to proceed ...?" prose while it is
+ *   actively producing -- it is thinking out loud, not blocked. With that prose
+ *   line anywhere in the tail beating the working checks, every such agent read
+ *   `needs_you`. Measured at scale 2026-09-07 (Josh: "a TON of agents" flagged
+ *   "needs me" while not waiting); the "we cannot find the question on its
+ *   screen" banner is the symptom -- `classify` caught a transient prose line the
+ *   pane has since redrawn past, so the route's `questionIn` re-read finds
+ *   nothing.
+ *
+ * The split, and why BOTH halves stay ABOVE the working checks:
+ *   - `drawsOptionMenu` (STRUCTURAL): a TUI that draws `❯ 1. …` beneath `2. …`
+ *     is genuinely waiting even mid-turn with the spinner line still in the tail
+ *     -- pinned by the #1155/#2146 "blocked beats busy" test.
+ *   - `blockingProseAtBottom` (LOOSE, but POSITION-GATED): a prose question is a
+ *     real blocking prompt only when it is the LAST non-blank line of the tail.
+ *     A live blocking prompt is the BOTTOM of the screen -- its dialog has
+ *     replaced the composer -- which is the exact premise the idle-footer and
+ *     trust/consent rules already rest on. So a prose question with the live
+ *     status line, more output, or the composer footer BELOW it is not blocking
+ *     (the agent is producing or idle), and only a prose question that nothing
+ *     meaningful sits below is `needs_you`.
+ *
+ * 🛑 WHY BOTTOM-ANCHORED RATHER THAN "BELOW THE WORKING CHECKS" (the first cut of
+ * this fix, rejected in review): moving the prose check below the working checks
+ * fixed the false RED but opened a false CALM -- a real bottom-anchored prompt
+ * that shared its 25-line tail with a STALE work line (a title spinner frame that
+ * had not cleared, a status line captured a frame before the redraw) would be
+ * outranked by the working check and read `working` over a blocked agent. That is
+ * the module's cardinal sin, worse than the annoyance it fixed. Anchoring to the
+ * bottom keeps the prose check ABOVE the working checks -- so a real prompt is
+ * never suppressed by a stale work line -- while the bottom rule is what stops a
+ * mid-stream prose question (which always has the status line or footer beneath
+ * it) from firing. A working agent's prose is essentially never the last
+ * non-blank line; only a dialog that replaced the composer is.
+ *
+ * 🔑 WHAT THE "ANY LINE -> LAST LINE" NARROWING GIVES UP, STATED HONESTLY (the
+ * old `asksSomething` matched a marker ANYWHERE in the tail, so this is a real
+ * scope reduction, not a limit inherited from elsewhere):
+ *   - A prose question with the COMPOSER FOOTER or the LIVE STATUS LINE below it
+ *     now reads idle/working instead of needs_you. This is the FIX, not a loss:
+ *     an agent that asked and returned to its composer is sitting at its prompt,
+ *     not blocked in a dialog -- which is exactly the #2456 false positive.
+ *   - The one genuine residual is a real, MENU-LESS blocking prompt whose last
+ *     non-blank line is a trailing CHROME line rather than the question itself,
+ *     e.g. `Do you want to proceed?\nEnter to confirm · Esc to cancel` with no
+ *     option rows. That shape has NOT been observed: every observed Claude
+ *     blocking dialog draws a numbered/labelled menu (caught by `drawsOptionMenu`
+ *     or the trust/consent detectors ABOVE, where the question need not be last),
+ *     and the inline `(y/N)` prompt is bottom-anchored. Catching the hypothetical
+ *     would mean scanning more than the last line, which re-admits the live status
+ *     line sitting ONE line below a mid-stream prose question -- i.e. it reopens
+ *     the widespread false positive this fix exists to close. Per this file's
+ *     observe-don't-guess rule, it is left uncovered and gets a fixture the day it
+ *     is seen, rather than a speculative chrome matcher now.
+ *
+ * ⚠️ The genuinely INHERITED premise (shared with the idle-footer rule's own
+ * docblock, asserted not measured): a blocking prompt REPLACES the composer, so
+ * the footer is gone. A future Claude that drew a prompt WITH the footer still
+ * beneath it would read idle here, the trap that rule already documents.
+ *
+ * The #1155 discrimination rules (`hit.index === 0` + `ENDS_AT_QUESTION`) are
+ * unchanged; only the "which line" scope narrowed from "any" to "the last".
+ */
+function drawsOptionMenu(tail) {
   for (const raw of String(tail == null ? '' : tail).split('\n')) {
     if (OPTION_LINE.test(raw)) return true;
-    const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
-    if (!line) continue;
-    for (const re of NEEDS_YOU_MARKERS) {
-      const hit = line.match(re);
-      if (hit && hit.index === 0 && ENDS_AT_QUESTION.test(line)) return true;
-    }
+  }
+  return false;
+}
+
+function blockingProseAtBottom(tail) {
+  const lines = String(tail == null ? '' : tail).split('\n');
+  // The last non-blank line, chrome stripped. A live blocking prompt is the
+  // bottom of the screen; a prose question with anything meaningful below it
+  // (the live status line, more output, the composer footer) is the agent
+  // producing or idle, not blocked.
+  let last = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].replace(/^[\s>│├└─*❯›]+/, '').trim()) last = i;
+  }
+  if (last < 0) return false;
+  const line = lines[last].replace(/^[\s>│├└─*❯›]+/, '').trim();
+  for (const re of NEEDS_YOU_MARKERS) {
+    const hit = line.match(re);
+    if (hit && hit.index === 0 && ENDS_AT_QUESTION.test(line)) return true;
   }
   return false;
 }
@@ -2607,7 +2703,7 @@ function classify(pane, paneText) {
     };
   }
   /**
-   * #1629 point 3. Before `asksSomething`, because that rule cannot see this
+   * #1629 point 3. Before the prose check (`blockingProseAtBottom`), because that rule cannot see this
    * dialog (its question row runs past the `?`), and because the reason has to
    * say WHICH question: an agent stopped here reads as ignoring you, and the
    * DEFAULT answer ends the session. Same state as any other question --
@@ -2646,7 +2742,8 @@ function classify(pane, paneText) {
   }
   /* #1919: the bypass-permissions acceptance (and any other Claude consent dialog) sits at
      the TOP of a fresh pane like the trust dialog, so it reads from the same trimmed tail
-     and BEFORE `asksSomething`, whose untrimmed tail sees only the blank padding beneath it.
+     and BEFORE the prose check (`blockingProseAtBottom`), whose untrimmed tail sees only the
+     blank padding beneath it.
      An agent parked here is waiting on the person, exactly like any other prompt -- the one
      thing the board must never render as "can't tell" for a state it can see. */
   const consent = consentPrompt(trustTail);
@@ -2658,7 +2755,24 @@ function classify(pane, paneText) {
       evidence: consent.evidence,
     };
   }
-  if (asksSomething(tail)) {
+  /* #2456: the STRUCTURAL half of the old `asksSomething` -- a runner DREW a
+     numbered `❯ 1. …` menu. A menu on screen means the agent is genuinely
+     waiting even mid-turn (the spinner line can still be in the tail), so it
+     stays ABOVE the working checks. The #1155/#2146 "blocked beats busy" test
+     pins this precedence. */
+  if (drawsOptionMenu(tail)) {
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+  }
+  /* #2456: the PROSE half, position-gated to the BOTTOM of the screen. A prose
+     question is a real blocking prompt only when it is the last non-blank line
+     (its dialog replaced the composer); with the live status line, more output,
+     or the footer beneath it, the agent is producing or idle, not blocked. It
+     stays ABOVE the working checks so a real bottom-anchored prompt is never
+     suppressed by a STALE work line above it (the false-CALM a below-working
+     placement would open); the bottom rule is what keeps a mid-stream prose
+     question -- which always has the status line or footer below it -- from
+     firing. See the `blockingProseAtBottom` docblock for the full rationale. */
+  if (blockingProseAtBottom(tail)) {
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
   }
   if (SPINNER.test(pane.title)) {
