@@ -36,7 +36,7 @@ other change dialogs (account move, provider switch, compact, clear) are unchang
 - The interstitial keeps the title visible. A fully bare "Restarting the agent" screen
   is an option; kept the title for context + a11y. This is the visual latitude Mona may
   refine.
-- The K asset (`/icons/kosmos-32.png`) is server-served, so it renders in the real app
+- The K asset (`/icons/kosmos-48.png`) is server-served, so it renders in the real app
   but not in a `file://` browser-check -- the check verifies the img markup + the text,
   not the pixels (the pixels are verified by a served screenshot).
 
