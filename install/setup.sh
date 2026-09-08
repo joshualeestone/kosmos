@@ -2539,24 +2539,50 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   _pausebody="$(curl -fsS -m 2 "http://127.0.0.1:$PORT/" 2>/dev/null)" || _pausebody=""
   case "$_pausebody" in
     *"Agent Workforce"*|*Kosmos*)
-      # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
-      # in-process updater spawned this curl|sh, so the message goes to stderr /
-      # install.log and nobody reads it. One machine aborted here 155 times before
-      # anyone noticed. Record the abort durably (in the same logs/ dir the board
-      # reads install.status from) with a CONSECUTIVE count, so the board can surface
-      # "this machine keeps failing to update". The count is cleared below once an
-      # update gets past the pause, so a machine that recovers stops showing it.
-      _abortf="$LOG_DIR/update-abort"
-      _abortn=0
-      if [ -f "$_abortf" ]; then
-        _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+      # #964: is the board that answered actually OURS? The check above matches ANY
+      # Kosmos-shaped body, so on a multi-account Mac a DIFFERENT install's board
+      # (or another account's) legitimately holding this port reads as "our board
+      # will not pause" -- and the "kosmos stop" advice is then a no-op, because our
+      # own board is already dead. A pre-#910 stale install records port 16180, which
+      # a second Kosmos can now hold, so this is a real returning-user shape (the
+      # aged-specimen walk that found this, 2026-08-26). Our install records its
+      # board's pid in board.pid; if that pid is DEAD (or absent), whatever answers
+      # on $PORT is not ours. Only OUR-board-will-not-pause takes the #2055 abort
+      # streak + the "kosmos stop" die; a foreign board gets actionable port advice.
+      _ourpid=""
+      if [ -f "$KOSMOS_HOME/board.pid" ]; then
+        _ourpid="$(cat "$KOSMOS_HOME/board.pid" 2>/dev/null || true)"
       fi
-      case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
-      _abortn=$((_abortn + 1))
-      { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
-          "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
-          > "$_abortf"; } 2>/dev/null || true
-      die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
+      case "$_ourpid" in ''|*[!0-9]*) _ourpid="" ;; esac
+      if [ -n "$_ourpid" ] && kill -0 "$_ourpid" 2>/dev/null; then
+        # OUR board is genuinely alive and did not pause -- the #2055 behavior.
+        # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
+        # in-process updater spawned this curl|sh, so the message goes to stderr /
+        # install.log and nobody reads it. One machine aborted here 155 times before
+        # anyone noticed. Record the abort durably (in the same logs/ dir the board
+        # reads install.status from) with a CONSECUTIVE count, so the board can surface
+        # "this machine keeps failing to update". The count is cleared below once an
+        # update gets past the pause, so a machine that recovers stops showing it.
+        _abortf="$LOG_DIR/update-abort"
+        _abortn=0
+        if [ -f "$_abortf" ]; then
+          _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+        fi
+        case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
+        _abortn=$((_abortn + 1))
+        { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
+            "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+            > "$_abortf"; } 2>/dev/null || true
+        die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
+      else
+        # #964: our own board is not running, so a DIFFERENT Kosmos is holding this
+        # port. "kosmos stop" would do nothing (ours is already stopped), so name the
+        # real situation and give an action that can actually unstick it: quit that
+        # board, or reinstall on a free port. NOT recorded as a board-would-not-pause
+        # abort -- that streak is about OUR board, and inflating it here would mask a
+        # machine whose own board really cannot pause.
+        die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this Mac. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
+      fi
       ;;
     "") ;;
     *)
