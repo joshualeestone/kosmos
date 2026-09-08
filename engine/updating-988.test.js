@@ -370,6 +370,11 @@ test('#988 WIRING: a board coming back up clears, because success has no finish 
 
 test('#988 WIRING: the boot clear repeats once on the first tick, because a lost clear costs 15 minutes', async () => {
   enrol();
+  /* The module-level beginInstall block above leaves installStarted TRUE for the
+     rest of this file (its fake child never exits), and the tick clear is now
+     correctly suppressed while an install is running. resetCache() is exported
+     and clears the flag. */
+  update.resetCache();
   const calls = capture();
   update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(10);
@@ -479,6 +484,7 @@ test('#988: the first-tick clear happens ONCE, not on every tick forever', async
      mTLS connection to the coordinator every 60 seconds from every enrolled
      Mac". This one can. */
   enrol();
+  update.resetCache();
   const calls = capture();
   update.setInstalledRoot(() => SANDBOX);
   const t = update.startPolling(10);
@@ -637,6 +643,32 @@ test('#988: announce() actually CALLS seconds(), it does not just export it', ()
   const calls = capture();
   updating.announce(-1);
   assert.deepEqual(JSON.parse(calls[0].body), { seconds: updating.DEFAULT_SECONDS });
+});
+
+test('#988: the first-tick clear does NOT cancel a RUNNING install', async () => {
+  /* 🛑 THE BOOT CLEAR'S ARGUMENT DOES NOT TRANSFER TO THE TICK. "The board is up,
+     therefore it is not mid-update" is sound at process start and false sixty
+     seconds later: both the Install button and maybeAutoInstall can start an
+     install inside the first interval, and a real install runs for minutes.
+     Measured without the guard: boot, then install, then tick gives the sequence
+     [0,900,0], so the coordinator holds "not updating" while the Mac is mid-apply
+     and about to restart with no banner. */
+  enrol();
+  update.resetCache();
+  const calls = capture();
+  update.setInstalledRoot(() => SANDBOX);
+  const t = update.startPolling(20);
+  update.setInstallRunner(() => ({ on() { return this; } }));
+  try { update.beginInstall({}); } catch { /* fake child shape is not under test */ }
+  await new Promise((r) => setTimeout(r, 90));
+  clearInterval(t);
+  update.setInstallRunner(null);
+  update.setInstalledRoot(null);
+  const seq = calls.map((c) => JSON.parse(c.body).seconds);
+  assert.ok(update.alreadyInstalling(), 'the fixture must leave an install in flight, or this proves nothing');
+  assert.deepEqual(seq, [0, updating.DEFAULT_SECONDS],
+    `boot clear then the begin announce, and NO tick clear while installing; got ${JSON.stringify(seq)}`);
+  update.resetCache();
 });
 
 test('#988: a board run from a SOURCE CHECKOUT does not announce at all', () => {

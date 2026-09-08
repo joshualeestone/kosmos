@@ -175,20 +175,19 @@ function announce(v) {
     if (!req || typeof req.on !== 'function') return;
     /* Every one of these is a path an update must survive. */
     req.on('error', () => { /* unreachable coordinator, TLS refusal, DNS, bad protocol */ });
-    /* 🛑 THIS DESTROY IS THE ONLY THING THAT EVER CLOSES A CONNECTION THIS MODULE
-       OPENS, INCLUDING ON SUCCESS. Measured, not assumed: after a 204 from a live
-       server, `process.getActiveResourcesInfo()` still reports a TCPSocketWrap for
-       the full TIMEOUT_MS, and a short-lived process exits at ~3016ms rather than
-       at ~10ms. Removing the `timeout` OPTION makes it hang indefinitely (a child
-       hit a 15s kill without exiting).
-       ⚠️ I TRIED THREE FIXES AND NONE CHANGED IT: `connection: close`, destroying
-       the request on the response's `end`, and attaching that listener before
-       resume() rather than after. All three still measured ~3016ms, so all three
-       were reverted rather than shipped with a rationale I could not verify.
-       CONSEQUENCE, and it is bounded: the board holds one socket for 3s per
-       announce, which is two per boot and two per update. That is a cost, not a
-       leak, and it is why the end-to-end arm bounds its child process: a
-       regression here HANGS a runner rather than failing it. */
+    /* The backstop for a coordinator that accepts a connection and never
+       answers. Measured: against a server that cannot reply, the request is torn
+       down at TIMEOUT_MS and the process exits; without the `timeout` option it
+       waits indefinitely.
+       ⚠️ AN EARLIER VERSION OF THIS COMMENT CLAIMED THIS DESTROY WAS THE ONLY
+       THING THAT EVER CLOSED A CONNECTION, "INCLUDING ON SUCCESS", AND THAT THE
+       BOARD HELD A SOCKET FOR 3s PER ANNOUNCE. THAT WAS FALSE, AND IT WAS MY OWN
+       HARNESS. I measured it with execFileSync, which BLOCKS the measuring
+       process's event loop, so the local server never accepted the connection at
+       all (server log empty) and the 3s I recorded was the timeout firing against
+       a server that could not answer. Re-measured with spawn, the parent free to
+       run: the request is answered and the process exits at ~16ms. There is no
+       socket hold on the success path. */
     req.on('timeout', () => { try { req.destroy(); } catch { /* already gone */ } });
     req.on('response', (res) => {
       try {

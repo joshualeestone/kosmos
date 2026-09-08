@@ -146,7 +146,16 @@ function startPolling(intervalMs) {
   // Owning the default here means a caller can pass a raw, unvalidated value.
   const ms = Number(intervalMs) > 0 ? Number(intervalMs) : 60 * 1000;
   const t = setInterval(() => {
-    if (!clearedAgain && installedRoot()) { clearedAgain = true; updating.announce(0); }
+    /* 🛑 AND NOT WHILE AN INSTALL IS RUNNING. The boot clear's argument is "the
+       board is up, therefore it is not mid-update", which is sound at process
+       start and FALSE sixty seconds later. Both entry paths can begin an install
+       within the first interval (the Install button, and maybeAutoInstall off
+       refresh()), and a real install runs for minutes. Measured without this
+       guard: boot at t=0, install at t=20ms, tick at t=50ms gives the announce
+       sequence [0,900,0], so the coordinator ends up holding "not updating" while
+       the Mac is mid-apply and about to restart with no banner: the exact symptom
+       this card exists to remove, reintroduced by its own repeat clear. */
+    if (!clearedAgain && installedRoot() && !alreadyInstalling()) { clearedAgain = true; updating.announce(0); }
     try { poke(); } catch { /* a look that cannot run must cost the board nothing */ }
   }, ms);
   if (t && typeof t.unref === 'function') t.unref();
