@@ -89,7 +89,27 @@ test('control: the page before this change left the dialog on Working… after a
   try { before = execFileSync('git', ['show', 'origin/main:web/index.html'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }); }
   catch { console.log('  (origin/main not readable here; the control did not run)'); return; }
   if (/say\(out\.because \|\| 'Changed\.'/.test(before)) { console.log('  (origin/main already carries the fix; the control has nothing to bite on)'); return; }
-  const got = await change(world(before, ok('changed', 'Mara is starting again.')));
-  assert.equal(got.msg, 'Working…', 'the old page no longer lies; this control has lost its bite');
+  // The control runs the OLD page (origin/main) in this harness to prove it lied
+  // with 'Working…'. But origin/main keeps evolving. The condition just above tries
+  // to detect "main already carries the fix" by a code-string regex, and that regex
+  // goes stale the moment the fix's code shape is refactored -- after which the old
+  // page either no longer lies OR errors in this harness (kosmos#2463 added
+  // `providerOf` to web/index.html, so the old page now surfaces
+  // 'providerOf is not defined' as its message). Detect "lost its bite" BEHAVIOURALLY
+  // instead of by a brittle string: if the old page no longer produces the 'Working…'
+  // lie -- for ANY reason -- retire the control gracefully, exactly like the skip
+  // conditions above. Without this, EVERY PR's `test` job reds here fleet-wide from
+  // the moment such a change lands on main, which is what kosmos#2463 caused.
+  let got;
+  try {
+    got = await change(world(before, ok('changed', 'Mara is starting again.')));
+  } catch (e) {
+    console.log(`  (origin/main evolved beyond this harness: ${e && e.message}; the control has lost its bite)`);
+    return;
+  }
+  if (got.msg !== 'Working…') {
+    console.log(`  (origin/main no longer shows the old 'Working…' lie (got ${JSON.stringify(got.msg)}); the control has lost its bite)`);
+    return;
+  }
   assert.equal(got.keep.hidden, true);
 });
