@@ -112,6 +112,60 @@ function check(name, pass, detail) {
   check('an empty project reads "idle"', r.gammaLine === 'idle', 'gammaLine=' + JSON.stringify(r.gammaLine));
   check('a staffed project reads its agent count', r.alphaLine === '2 agents', 'alphaLine=' + JSON.stringify(r.alphaLine));
 
+  // A stored cycle (a<->b, neither reachable from the top) must render every
+  // member exactly ONCE -- the "never double, never drop" invariant. The backstop
+  // that rescues cycle-trapped nodes must not also re-emit one a recursion already
+  // placed.
+  const cyc = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    PROJECTS.push(
+      { id: 'x', name: 'Xed', parent: 'y', archived: false, summary: { total: 1 } },
+      { id: 'y', name: 'Yed', parent: 'x', archived: false, summary: { total: 1 } },
+    );
+    paintProjectsMap();
+    const map = document.getElementById('pj-map');
+    const names = Array.from(map.querySelectorAll('.pjonm')).map((n) => n.textContent);
+    return { xCount: names.filter((n) => n === 'Xed').length, yCount: names.filter((n) => n === 'Yed').length };
+  });
+  check('a stored cycle renders each member exactly once (never double, never drop)',
+    cyc.xCount === 1 && cyc.yCount === 1, JSON.stringify(cyc));
+
+  // The boot-restore contract: layoutApply('projects','map') WITHOUT the click's
+  // paint flag sets the mode but does NOT paint (at real boot the render's data
+  // globals are still in their temporal dead zone, so painting there halts the
+  // whole boot). A click (paint=true) paints. Guards the crash regression.
+  const boot = await page.evaluate(() => {
+    PROJECTS.length = 0;
+    PROJECTS.push({ id: 'z', name: 'Zed', parent: null, archived: false, summary: { total: 1 } });
+    const map = document.getElementById('pj-map');
+    map.innerHTML = '';                       // start empty, as at boot
+    layoutApply('projects', 'grid', true);    // leave map mode cleanly first
+    layoutApply('projects', 'map');           // boot signature: NO paint arg
+    const afterBoot = { mode: document.body.classList.contains('pj-mapmode'), painted: map.querySelectorAll('.pjonode').length };
+    layoutApply('projects', 'map', true);     // a click: paints now
+    const afterClick = { painted: map.querySelectorAll('.pjonode').length };
+    return { afterBoot, afterClick };
+  });
+  check('boot-style layoutApply sets map mode but does NOT paint (no data-global read at boot)',
+    boot.afterBoot.mode === true && boot.afterBoot.painted === 0, JSON.stringify(boot.afterBoot));
+  check('a click (paint=true) then paints the map', boot.afterClick.painted > 0, JSON.stringify(boot.afterClick));
+
+  // Dark mode lightens the attn red: the #b3261e whisper fails WCAG AA on the dark
+  // surface, so under [data-theme="dark"] the "needs you" text must be the lighter
+  // #ff8c82 = rgb(255, 140, 130), not the light-mode #b3261e = rgb(179, 38, 30).
+  const dark = await page.evaluate(() => {
+    document.documentElement.dataset.theme = 'dark';
+    PROJECTS.length = 0;
+    PROJECTS.push({ id: 'n', name: 'Ned', parent: null, archived: false, summary: { total: 1, needsYou: 1 } });
+    paintProjectsMap();
+    const oc = document.querySelector('#pj-map .pjonode.attn .pjoc.a');
+    const c = oc ? getComputedStyle(oc).color : null;
+    document.documentElement.removeAttribute('data-theme');
+    return { color: c };
+  });
+  check('the attn "needs you" text is lightened in dark mode (WCAG AA)',
+    dark.color === 'rgb(255, 140, 130)', 'color=' + JSON.stringify(dark.color));
+
   await browser.close();
   if (problems.length) {
     console.error('render-projects-map: ' + problems.length + ' problem(s)');

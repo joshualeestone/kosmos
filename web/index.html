@@ -2402,6 +2402,16 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjonode .pjonm { font-weight: 600; font-size: .8125rem; color: var(--k-ink); white-space: nowrap; }
 .pjonode .pjoc { font-size: .625rem; color: var(--k-ink-2); }
 .pjonode .pjoc.a { color: #b3261e; }
+/* The #b3261e attn red is a ~2:1 whisper on the dark surface, under WCAG AA for
+   the 10px "needs you" line and under 3:1 for the node border. Lighten both to
+   #ff8c82 in dark, the exact colour the sibling agents org-view already uses for
+   its dark attn ring -- in both dark spellings (system and the explicit toggle). */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .pjonode.attn { border-color: #ff8c82; }
+  :root:not([data-theme="light"]) .pjonode .pjoc.a { color: #ff8c82; }
+}
+:root[data-theme="dark"] .pjonode.attn { border-color: #ff8c82; }
+:root[data-theme="dark"] .pjonode .pjoc.a { color: #ff8c82; }
 /* Map mode swaps the list for the org chart: the list, its message line, and the
    archived disclosure step aside (the map draws active projects only), and
    #pj-map (hidden by default) is revealed by JS toggling its `hidden`. `!important`
@@ -19026,7 +19036,15 @@ const LAYOUTS = {
   projects: { el: 'pj-list', cls: 'asgrid', flip: 'grid', fallback: 'grid', layouts: ['grid', 'list', 'map'], mapEl: 'pj-map' },
 };
 
-function layoutApply(scope, want) {
+/* `paint` is true only on a user CLICK. On the boot-restore path below it is
+   omitted, and that is load-bearing: this function runs at boot BEFORE PROJECTS /
+   PJ_SORT / LAST are declared further down the same script, so calling
+   paintProjectsMap() there would read them in their temporal dead zone and throw
+   an uncaught ReferenceError that halts the rest of the boot. Boot does not need
+   the paint anyway -- there is no project data yet, and paintProjects paints the
+   map the moment loadProjects populates it. A click happens long after the script
+   has evaluated, so it paints immediately for instant feedback. */
+function layoutApply(scope, want, paint) {
   const lay = LAYOUTS[scope];
   if (!lay) return;
   if (lay.swap) {
@@ -19035,13 +19053,13 @@ function layoutApply(scope, want) {
   } else {
     document.getElementById(lay.el).classList.toggle(lay.cls, want === lay.flip);
     /* #2458: the map layout reveals its own container and hides the list surfaces
-       (via body.pj-mapmode), then paints once now so the switch is immediate;
-       paintProjects keeps it fresh on later data polls. */
+       (via body.pj-mapmode). It paints now only on a click (see `paint` above);
+       paintProjects keeps it fresh on later data polls either way. */
     if (lay.mapEl) {
       const mapOn = want === 'map';
       document.getElementById(lay.mapEl).hidden = !mapOn;
       document.body.classList.toggle('pj-mapmode', mapOn);
-      if (mapOn) paintProjectsMap();
+      if (mapOn && paint) paintProjectsMap();
     }
   }
   const box = document.querySelector('.viewtoggle[data-scope="' + scope + '"]');
@@ -19058,7 +19076,7 @@ for (const box of document.querySelectorAll('.viewtoggle')) {
     const btn = e.target.closest('[data-layout]');
     if (!btn) return;
     const scope = box.dataset.scope;
-    layoutApply(scope, btn.dataset.layout);
+    layoutApply(scope, btn.dataset.layout, true);   // #2458: a click paints immediately
     // Storage can be refused (private windows, storage pressure); the toggle
     // still works for this page either way.
     try { localStorage.setItem('kosmos.layout.' + scope, btn.dataset.layout); } catch { /* display preference only */ }
@@ -31052,6 +31070,11 @@ function paintProjectsMap() {
   const stranded = active.filter((p) => !seen.has(p.id));
   if (stranded.length) {
     topItems += stranded.map((p) => {
+      /* Re-check inside the map, not just when the snapshot was taken: emitting an
+         earlier stranded node recurses into its kids and may mark a LATER member of
+         this same snapshot as seen (a stored cycle a->b->a). Without this re-check
+         that member renders a second time, breaking the "never double" invariant. */
+      if (seen.has(p.id)) return '';
       seen.add(p.id);
       const sub = liItems(p.id);
       return '<li>' + pjMapNode(p) + (sub ? '<ul>' + sub + '</ul>' : '') + '</li>';
