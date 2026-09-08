@@ -8339,12 +8339,26 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           box-shadow:0 8px 22px rgba(0,0,0,.16);color:#1c1b19}
         /* Gear sizing, latest wins: 0.6.39 was 38/22, 0.6.40 doubled it (Josh),
            then 0.6.45 (Josh) tightened the gray BOX back down -- the cog size was
-           right, the 76px box was too big for it. 52x52 hugs the cog, and
-           place-items:center keeps it centred so it reads like the real macOS
-           notification icon. */
-        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:grid;place-items:center;font-size:44px;
+           right, the 76px box was too big for it. 52x52 hugs the cog.
+           #768-batch (Josh, 0.6.45 notes, 5.44.01): the cog was reading high and
+           slightly left inside the box. `place-items:center` centres the glyph's
+           LINE BOX, but the U+2699 gear carries font ascent/descent so its visual
+           mass sat above centre. flex centring WITH line-height:1 collapses the
+           line box to the glyph, so vertical + horizontal centring is on the glyph
+           itself. Cog size unchanged (Josh: the size is right). */
+        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;line-height:1;font-size:44px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
-        .s4-nt{font:700 .8125rem var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
+        /* 🛑 #768-batch (Josh, 5.44.01, said THREE times) -- and the reason it kept
+           regressing: a BARE `.s4-nt` (0,1,0) LOSES to `#firstrun .fr-body p`
+           (0,1,1,1), which sets 400/1.0625rem on every first-run p element. So every past
+           "make it 700" edit to a bare `.s4-nt` was silently overridden to weight 400
+           -- the computed weight was 400 no matter what the rule said, which a source
+           read (and a casual screenshot) cannot see. Scope it `#firstrun .fr-body
+           p.s4-nt` (0,1,2,1) to WIN, exactly as the sibling captions already do
+           (p.fc-eyebrow / p.tier / p.s2-say / p.s3-step-cap; the trap is documented at
+           the p.s2-say rule above). Bold at the SAME 1.0625rem size the body renders,
+           so it is bold, NOT larger -- a real macOS notification's app-name line. */
+        #firstrun .fr-body p.s4-nt{font:700 1.0625rem/1.6 var(--font-ui,-apple-system,sans-serif);margin:0 0 2px;color:#1c1b19}
         .s4-nb{font:400 .6875rem/1.4 var(--font-ui,-apple-system,sans-serif);color:#4a4a47;margin:0}
         .s4-x{margin-left:auto;color:#8a8a86;font-size:.9rem;flex:none;line-height:1}
         </style>
