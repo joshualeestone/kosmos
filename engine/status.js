@@ -2441,9 +2441,50 @@ function closedEnvelope(text) {
  * 📌 Structural options only when the glyph OPENS the line. `and then ❯ 1. Yes
  * underneath it.` is prose about a prompt, not a prompt.
  */
-function asksSomething(tail) {
+/**
+ * 🔑 #2456: THE TWO HALVES OF THE OLD `asksSomething` ARE NOT EQUALLY RELIABLE,
+ * SO THEY NO LONGER SHARE A POSITION IN `classify`.
+ *
+ * The old single function combined a STRUCTURAL signal (a runner DREW a numbered
+ * option menu, `OPTION_LINE`) with a LOOSE prose signal (a `NEEDS_YOU_MARKERS`
+ * phrase opens a line and the line closes at `?`). Both fed one `needs_you`
+ * branch placed ABOVE the working checks. That was correct for the structural
+ * half and wrong for the prose half:
+ *
+ *   A freshly-imported / reactivated agent's FIRST-BREATH output is full of
+ *   "Would you like to ...?" / "Do you want to proceed ...?" prose while it is
+ *   actively producing -- it is thinking out loud, not blocked. With the prose
+ *   check above the working checks, every such agent read `needs_you`. Measured
+ *   at scale 2026-09-07 (Josh: "a TON of agents" flagged "needs me" while not
+ *   waiting); the "we cannot find the question on its screen" banner is the
+ *   symptom -- `classify` caught a transient prose line the pane has since
+ *   redrawn past, so the route's `questionIn` re-read finds nothing.
+ *
+ * The split, and where each half now sits in `classify`:
+ *   - `drawsOptionMenu` (STRUCTURAL) stays ABOVE the working checks. A TUI that
+ *     draws `❯ 1. …` beneath `2. …` is genuinely waiting even mid-turn with the
+ *     spinner line still in the tail -- pinned by the #1155/#2146 "blocked beats
+ *     busy" test.
+ *   - `asksInProse` (LOOSE) moves BELOW the working checks (spinner, interrupt,
+ *     working-line) and ABOVE the finished/footer idle rules. A genuinely blocked
+ *     agent shows NONE of the working signals -- its dialog has replaced the
+ *     composer -- which is the exact premise the idle-footer rule already rests
+ *     on; so a static prose prompt is still caught, and a prose question drawn
+ *     WHILE working now reads `working`, not `needs_you`.
+ *
+ * See the ordering comment and the split call sites in `classify` below, and the
+ * docblock above the original single call for the #1155 discrimination rules the
+ * prose half still enforces (`hit.index === 0` + `ENDS_AT_QUESTION`).
+ */
+function drawsOptionMenu(tail) {
   for (const raw of String(tail == null ? '' : tail).split('\n')) {
     if (OPTION_LINE.test(raw)) return true;
+  }
+  return false;
+}
+
+function asksInProse(tail) {
+  for (const raw of String(tail == null ? '' : tail).split('\n')) {
     const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
     if (!line) continue;
     for (const re of NEEDS_YOU_MARKERS) {
@@ -2658,7 +2699,13 @@ function classify(pane, paneText) {
       evidence: consent.evidence,
     };
   }
-  if (asksSomething(tail)) {
+  /* #2456: the STRUCTURAL half of the old `asksSomething` -- a runner DREW a
+     numbered `❯ 1. …` menu. A menu on screen means the agent is genuinely
+     waiting even mid-turn (the spinner line can still be in the tail), so it
+     stays ABOVE the working checks. The #1155/#2146 "blocked beats busy" test
+     pins this precedence. The PROSE half moves below the working checks (see
+     `asksInProse` further down). */
+  if (drawsOptionMenu(tail)) {
     return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
   }
   if (SPINNER.test(pane.title)) {
@@ -2752,6 +2799,20 @@ function classify(pane, paneText) {
                if (line.length > 240) return line.slice(0, 240) + '…';
                return closed ? line : line + '…';
              })() };
+  }
+  /* #2456: the LOOSE half of the old `asksSomething` -- a `NEEDS_YOU_MARKERS`
+     phrase that opens a line and closes at `?`. It is NOT a reliable blocking
+     signal: an agent thinking out loud in first-breath output ("Would you like
+     to ...?", "Do you want to proceed ...?") draws exactly this shape WHILE
+     working, which is the #2456 false-positive at scale. So it is checked only
+     after the working signals above -- a genuinely blocked agent shows none of
+     them, its dialog having replaced the composer (the same premise the
+     idle-footer rule below rests on) -- and BEFORE the finished/footer idle
+     rules, so a static prose prompt is still `needs_you`. The #1155 rows
+     (index-0 marker + ends-at-`?`) run here unchanged; the only cases that flip
+     are the ones that ALSO satisfied a working check, which are now `working`. */
+  if (asksInProse(tail)) {
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
   }
   if (/✱|Worked for|Brewed for|Baked for|to save .* tokens/i.test(tail)) {
     return { state: STATE.IDLE, confidence: CONFIDENCE.SCRAPED, because: 'it finished and is waiting for you' };
