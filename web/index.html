@@ -33019,28 +33019,35 @@ function paintOneProject() {
      section -- so the detail page and the list can never disagree. The rows are
      `data-project` buttons, the same open handle the cards carry, so the existing
      click delegate opens a sub-project with no new wiring. */
+  /* Both blocks self-guard their element lookups so extracting paintOneProject
+     for an unrelated concern (e.g. the desc-collapse harness) does not require
+     every test to mock these new nodes, and a partial render never throws. */
   const parentEl = document.getElementById('pj-one-parent');
-  const anc = pjAncestry(p);
-  if (anc.length) {
-    const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';
-    parentEl.innerHTML = '<span class="vh">In </span>' + anc.map((n) => esc(n)).join(sep);
-    parentEl.hidden = false;
-  } else { parentEl.textContent = ''; parentEl.hidden = true; }
+  if (parentEl) {
+    const anc = pjAncestry(p);
+    if (anc.length) {
+      const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span>';
+      parentEl.innerHTML = '<span class="vh">In </span>' + anc.map((n) => esc(n)).join(sep);
+      parentEl.hidden = false;
+    } else { parentEl.textContent = ''; parentEl.hidden = true; }
+  }
   const subsEl = document.getElementById('pj-one-subprojects');
-  const kids = PROJECTS.filter((c) => !c.archived && c.parent === p.id);
-  if (kids.length) {
-    const rows = kids.map((c) => {
-      const cp = pjPillOf(c, PJ_AGENTS_UNREADABLE);
-      const meta = cp.label ? esc(cp.label)
-        : ((c.summary && c.summary.total) ? (c.summary.total + (c.summary.total === 1 ? ' agent' : ' agents')) : 'No agents yet');
-      return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
-        + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
-        + '<span class="pj-subrow-m">' + meta + '</span></button>';
-    }).join('');
-    subsEl.innerHTML = '<h3 class="dlab">' + kids.length + (kids.length === 1 ? ' sub-project' : ' sub-projects') + '</h3>'
-      + '<div class="pj-subrows">' + rows + '</div>';
-    subsEl.hidden = false;
-  } else { subsEl.innerHTML = ''; subsEl.hidden = true; }
+  if (subsEl) {
+    const kids = PROJECTS.filter((c) => !c.archived && c.parent === p.id);
+    if (kids.length) {
+      const rows = kids.map((c) => {
+        const cp = pjPillOf(c, PJ_AGENTS_UNREADABLE);
+        const meta = cp.label ? esc(cp.label)
+          : ((c.summary && c.summary.total) ? (c.summary.total + (c.summary.total === 1 ? ' agent' : ' agents')) : 'No agents yet');
+        return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
+          + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
+          + '<span class="pj-subrow-m">' + meta + '</span></button>';
+      }).join('');
+      subsEl.innerHTML = '<h3 class="dlab">' + kids.length + (kids.length === 1 ? ' sub-project' : ' sub-projects') + '</h3>'
+        + '<div class="pj-subrows">' + rows + '</div>';
+      subsEl.hidden = false;
+    } else { subsEl.innerHTML = ''; subsEl.hidden = true; }
+  }
   paintProjectTasks(p);
   const desc = document.getElementById('pj-one-desc');
   /* The empty slot SHOWS, by Josh's own ruling (2026-08-20: "leave a slot
