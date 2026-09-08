@@ -6,17 +6,19 @@ does not need re-reading to continue.
 
 ## Where it stands right now
 
-    branch  win32-supported-flip-570   PUSHED through f2a11695
-    tests   46/46 green on the win32 slice
+    branch  win32-supported-flip-570   PUSHED through 2818532a
+    tests   89/89 green on the win32 slice (post-merge)
     tree    clean
+    merge   DONE -- level with main as of e1d73fae
 
-Committed and pushed:
+R8 PASSED 2026-09-08 on a real reboot: the agent came back at logon with nobody
+touching anything. That is the whole point of the slice, and it is now evidence
+rather than intent -- see "R8 PASSES" at the bottom of this file.
 
-    fc79bb43  win32anchor -- a task must outlive the app that registered it
-    d93b00ed  create -- a Windows agent comes back at every login now
-    f2a11695  remove -- stop/restore/restart reach the Scheduled Task
+Next step is 7b: `remove.js` still ends an agent by closing a tmux window, which
+is what leaves R4-R7 unrunnable.
 
-## 🛑 THE ONE BLOCKER: this branch is 74 commits behind main
+## ~~🛑 THE ONE BLOCKER: this branch is 74 commits behind main~~ MERGED 2026-09-08
 
 `#2439` (`87b9f8ef`, on main) renamed the store directory `AgentWorkforce` ->
 `Kosmos` WITH A DATA MIGRATION, while this branch was in flight. It is the
@@ -237,14 +239,19 @@ session to a bare prompt. Use:
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
 | 6 | merge origin/main (74 behind; #2439 store rename) | DONE -- 89/89 win32 green |
-| 7 | PHASE 3 dress rehearsal R1-R8 | R1 PASSES; R6 partial (see below) |
+| 7 | PHASE 3 dress rehearsal R1-R8 | R1 and R8 PASS; R6 partial; R2-R5/R7 not run |
 | 7a | port createAgentInner's launch block to win32 | DONE -- R1 PASSES on the box |
+| 7b | port remove.js's process-ending half off tmux | NEXT -- unblocks R4-R7 |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
 
 ## Open questions owned by Josh (neither blocks the code)
-- Windows Memory Diagnostic, for the 2026-09-04 `0x124` CPU machine check. Wanted
-  BEFORE sustained multi-agent load, not after.
+- ~~Windows Memory Diagnostic~~ RUN 2026-09-08, "detected no errors" (events 1101
+  and 1201). ⚠️ READ THAT NARROWLY: it speaks to the 2026-09-05 `0x1a
+  MEMORY_MANAGEMENT`, NOT to the `0x124`, which the logs report as `Processor
+  Core` / `Machine Check Exception` / APIC ID 7 -- a CPU-side fault a RAM test
+  does not address. If crashes return under multi-agent load, look at
+  temperatures and whether XMP is enabled before suspecting the DIMMs again.
 - A second DIMM. Caps how many agents Phase 3 can rehearse (3-4 now, 6+ with it);
   changes nothing about correctness.
 
@@ -446,3 +453,44 @@ so the step that ends it is still Mac-shaped. The job-level acts are ported
 📌 NEXT SLICE (7b): port the session-ending half of remove.js. `sessionFor` and
 the "closed its window" step are tmux-based. win32 has `win32sessions` (the
 ownership record) and the launch returns a pid; that is what a stop should use.
+
+## R8 PASSES (2026-09-08, 18:18): the fleet survives a reboot, unattended
+
+The one step no test could stand in for. The box was restarted for the memory
+diagnostic; `winreh-2` was left staged with a live at-logon task, so the reboot
+doubled as R8. Nobody typed anything after signing in.
+
+Measured against Windows, not against a return value:
+
+    boot .................. 2026-09-08 18:18:03
+    task fired ............ 18:18:46   Last Run Time, Status: Running
+    supervisor up ......... 18:18:46   pid 2576
+    agent live ............ 18:18:53   pid 12052, status idle, in `claude agents --json`
+
+Seven seconds from logon to a working agent, with no human in the loop.
+
+🔑 THE SUPERVISOR CAME UP FROM THE ANCHOR, which is the durability claim itself.
+The registered command Windows actually ran:
+
+    C:\Users\joshu\AppData\Local\Kosmos\runtime\node.exe
+    C:\Users\joshu\AppData\Local\Kosmos\runtime\supervisor-boot.js "winreh-2" ...
+
+No path under the extract root appears in it. The shim then resolved
+`engine-path` -> `C:\Users\joshu\src\kosmos\engine` and booted the supervisor
+from there. So all four untested pieces fired in sequence on the first real
+attempt: the task trigger, the durable shim, the pointer indirection, and the
+supervisor's launch decision.
+
+⚠️ WHAT R8 DID **NOT** PROVE, stated so nobody reads it as more than it is:
+
+- **The adopt half of adopt-not-replace never ran.** A reboot leaves nothing
+  alive, so the supervisor took the launch branch. Adoption is still only
+  unit-tested -- it is exercised by restarting the SUPERVISOR against a live
+  agent, not by restarting the box.
+- **One agent, not a fleet.** R8 was a single agent. The 8-12 target adds logon
+  contention -- N supervisors and N `claude` processes starting inside the same
+  few seconds -- which nothing here measures.
+- **The 30s respawn throttle was not exercised**, because nothing crashed.
+
+📌 R2-R5 and R7 remain unrun, and 7b is what unblocks them: every one of those
+steps is a stop or a restart, and stopping still reaches for tmux.
