@@ -27,7 +27,7 @@ function sliceFn(name) {
 const paintFn = sliceFn('paintOpenaiCreateModel');
 const noteFn = sliceFn('openaiNoModelsNote');
 
-async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
+async function runPicker({ fetchOk, fetchBody, acctDir, seedModels, importModel }) {
   const els = {
     'create-model-row': { hidden: false },
     'create-model': { disabled: false, innerHTML: '' },
@@ -40,6 +40,7 @@ async function runPicker({ fetchOk, fetchBody, acctDir, seedModels }) {
     let OPENAI_MODELS_GEN = 0;
     let CREATE_MODELS = ${JSON.stringify(seedModels || [])};
     let OPENAI_PICK_MODELS = [];
+    let IMPORT_OPENAI_MODEL = ${JSON.stringify(importModel || null)};   /* #2453 follow-up: paintOpenaiCreateModel reads this one-shot import default */
     const esc = (s) => String(s == null ? '' : s);
     const paintModelWhy = () => { _calls.paintWhy += 1; };
     const fetch = async (url) => { _calls.fetchUrl = url; return { ok: ${fetchOk ? 'true' : 'false'}, json: async () => (${JSON.stringify(fetchBody || {})}) }; };
