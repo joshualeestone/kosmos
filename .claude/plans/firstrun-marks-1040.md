@@ -24,7 +24,7 @@ update `web.firstrun-model.test.js` from six providers to ten.
   mostly-coming-soon. Reversible in the running app; trivial to trim or reorder. Recorded
   on kosmos#1040 for his override.
 
-## Deferred, tracked on kosmos#1040 (piece 2b-roster) — NOT this PR
+## Deferred, tracked on kosmos#1040 (piece 2b-roster) -- NOT this PR
 The blind review (correctly) flagged that this widens a cross-surface roster gap: firstrun
 now lists DeepSeek/GLM/MiniMax that no `<select>` menu offers, while every select
 (`#d-provider`, `#acct-provider-pick`, `#create-provider`) lists xAI Grok that firstrun does
@@ -33,7 +33,7 @@ cannot see this. Full reconciliation is deferred because it is genuinely coupled
 - The selects' roster is a Josh-flagged placeholder (#770: "six is what we ship, not what
   he chose"), awaiting his pass.
 - The roster is coupled to the shipped agent instruction block ("those six appear in the
-  menu marked coming soon", index.html ~7834) — a roster change is a two-place edit.
+  menu marked coming soon", index.html ~7834) -- a roster change is a two-place edit.
 - xAI/Grok has no official mark (xAI 403s; confirmed absent from xai-org GitHub too), so a
   select logo widget needs a no-mark fallback for Grok.
 This PR moves the prominent onboarding surface to the desired state; 2b reconciles the

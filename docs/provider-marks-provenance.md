@@ -24,6 +24,8 @@ trademarks into this repo.
 The app renders 6 `data-pmark` values, and they are **not the same six**: the
 library holds Anthropic's corporate A which the app never renders, and the app
 renders Qwen, which exists only as raster.
+(As of kosmos#1040, 2026-09-08, the app renders **ten** `data-pmark` values: the
+four sourced below are now inlined into the first-run picker as coming-soon rows.)
 
 ⚠️ **Qwen has no official SVG and the search is finished** — qwen.ai,
 chat.qwen.ai, the favicon and the wordmark were all checked, with the page
@@ -33,8 +35,10 @@ again; decide instead.
 **Sourced 2026-09-08 (kosmos#1040):** GLM, MiniMax, DeepSeek, Kimi. All four are
 official-vendor-only, rendered headless and visually confirmed, re-cropped so each
 viewBox is its own painted bounding box (~98-100% fill), and now inlined into
-`web/index.html`. Full per-mark records are in `docs/provider-marks/manifest.md`
-sections 7-10 (kosmos#2484). Vendor source + colour determination per mark:
+`web/index.html`. Full per-mark records will be added to
+`docs/provider-marks/manifest.md` (sections 7-10) by kosmos#2484, the sourcing PR;
+until it merges, the self-contained summary below is the record. Vendor source +
+colour determination per mark:
 
 - **GLM** -- Z.ai "Z" glyph isolated from `zhipuai.cn/logo-en.svg` (the Z.AI wordmark).
   **Monochrome** (`currentColor`).
