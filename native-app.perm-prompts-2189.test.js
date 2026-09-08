@@ -26,12 +26,14 @@ test('the instrument is reading something', () => {
   assert.ok(SRC.length > 40000, `main.swift read back only ${SRC.length} bytes; assertions would pass for the wrong reason`);
 });
 
-test('storeFileURL resolves the shared store dir the DATA override first, then appends AgentWorkforce/<name>', () => {
+test('storeFileURL resolves the shared store dir the DATA override first, then appends <store-leaf>/<name>', () => {
   assert.ok(SRC.includes('func storeFileURL('), 'storeFileURL moved or was renamed');
   const fn = SRC.slice(SRC.indexOf('func storeFileURL('), SRC.indexOf('func a11yStatusURL()'));
   assert.ok(fn.includes('AGENT_WORKFORCE_DATA'), 'storeFileURL does not honor AGENT_WORKFORCE_DATA; a moved data dir would desync from the engine');
-  assert.ok(fn.includes('appendingPathComponent("AgentWorkforce/\\(name)")'),
-    'storeFileURL does not append AgentWorkforce/<name>; the request/status files would land where the engine does not look');
+  // #2439: the leaf is store.APP (Kosmos), resolved via storeLeaf() so the Swift writer never
+  // pre-creates Kosmos before the JS migration and orphans the legacy store.
+  assert.ok(fn.includes('appendingPathComponent("\\(storeLeaf(base: base))/\\(name)")'),
+    'storeFileURL does not append <storeLeaf>/<name>; the request/status files would land where the engine does not look');
 });
 
 test('the file-access writer path MATCHES the engine reader path (cross-language seam agrees)', () => {
