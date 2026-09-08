@@ -27,7 +27,10 @@ Design approved by Angel + Splinter (mockup at
   Keeps the `pj-parent` class so the wide-list indent rule still hides it there (the
   indent carries depth in the one view with room).
 - `paintOneProject`: fills #pj-one-parent (ancestry trail) and #pj-one-subprojects
-  (direct children, `data-project` open-buttons reusing the existing click delegate).
+  (direct children as `data-project` open-buttons). #pj-one-subprojects lives in
+  #pj-one-view (a sibling of #pj-list), so the list's click delegate does NOT reach
+  it; a dedicated click delegate on #pj-one-subprojects opens the rows (added
+  because iteration 1 caught the rows inert without it).
 - Markup: #pj-one-parent in .pjtitle above the name; #pj-one-subprojects between .pjhead
   and .pj3 (OUTSIDE the view-order-sensitive members/files/tasks grid, so it cannot
   disturb the deliberate tab-vs-consolidated ordering).

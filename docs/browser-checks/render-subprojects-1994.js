@@ -164,6 +164,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
         // was the iteration-1 blocker).
         const kidBtn = subs.querySelector('.pj-subrow[data-project="gc"]');
         if (kidBtn) { kidBtn.click(); out.opened = (PJ_CURRENT === 'gc'); } else { out.opened = false; }
+        // #2487 hidden branches (both empty states, like the Map check): a top-level
+        // project hides the parent trail; a leaf hides the sub-projects section.
+        PJ_CURRENT = 'k'; paintOneProject();
+        out.topParentHidden = document.getElementById('pj-one-parent').hidden;
+        PJ_CURRENT = 'gc'; paintOneProject();   // gc is a leaf (no children)
+        out.leafSubsHidden = document.getElementById('pj-one-subprojects').hidden;
         out.detailErr = null;
       } catch (e) { out.detailErr = String(e && e.message || e); }
       return out;
@@ -175,6 +181,8 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
     ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
     ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
+    ok(t + ' detail: a top-level project hides the parent trail', anc.detailErr === null && anc.topParentHidden === true, JSON.stringify({ err: anc.detailErr, topParentHidden: anc.topParentHidden }));
+    ok(t + ' detail: a leaf project hides the sub-projects section', anc.detailErr === null && anc.leafSubsHidden === true, JSON.stringify({ err: anc.detailErr, leafSubsHidden: anc.leafSubsHidden }));
 
     // ---- Layer 2: the set-parent select ----
     const select = await page.evaluate(() => {

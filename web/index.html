@@ -9575,7 +9575,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          paintOneProject fills it with this project's DIRECT children (deeper
          descendants nest under those children in the list, not here); the whole
          section is hidden when the project has none. -->
-    <section class="pj-subs" id="pj-one-subprojects" hidden></section>
+    <section class="pj-subs" id="pj-one-subprojects" aria-label="Sub-projects" hidden></section>
 
     <div class="pj3">
     <!-- #534 (Josh, 2026-08-24 10:34): members and files are TWO containers,
@@ -33020,9 +33020,10 @@ function paintOneProject() {
   /* #2487: the parent trail (where this project sits) above the name, and the
      sub-projects section below the head. Both derive from the same tree the list
      cards use -- pjAncestry for the trail, a direct-children filter for the
-     section -- so the detail page and the list can never disagree. The rows are
-     `data-project` buttons, the same open handle the cards carry, so the existing
-     click delegate opens a sub-project with no new wiring. */
+     section -- so the detail page and the list can never disagree. The rows carry
+     `data-project` like the cards, but #pj-one-subprojects lives in #pj-one-view,
+     a SIBLING of #pj-list, so the list's click delegate never sees it: a dedicated
+     delegate on #pj-one-subprojects (search for it below) opens them. */
   /* Both blocks self-guard their element lookups so extracting paintOneProject
      for an unrelated concern (e.g. the desc-collapse harness) does not require
      every test to mock these new nodes, and a partial render never throws. */
@@ -33044,7 +33045,11 @@ function paintOneProject() {
         /* Match the card: pjPillOf returns an EMPTY label for a project with no
            agents (Josh: do not show "no agents" as a status on the Projects tab),
            and returns a non-empty label whenever it has agents -- so an empty
-           child shows its name with no meta, never "No agents yet". */
+           child shows its name with no meta, never "No agents yet".
+           The status is text-only here (label without cp.glyph): the card is a
+           tile with room for the animated glyph, the sub-row is a compact list
+           line where the word alone carries the state and the attn border marks
+           "Needs you". Deliberate lighter-weight treatment. */
         const meta = cp.label ? esc(cp.label) : '';
         return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
           + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
