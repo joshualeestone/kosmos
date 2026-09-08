@@ -612,6 +612,12 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   deviceAllow,
   deviceDeny,
   deviceRemove,
+  /* #988: ONE derivation of each of these, for the same reason the #790 comment
+     above gives. engine/updating.js speaks to the coordinator directly and must
+     not re-derive either, or the two disagree the moment one of them learns
+     something. */
+  coordinator: COORDINATOR,
+  stateDir: STATE_DIR,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) */
   resetForTests: stopChild,
