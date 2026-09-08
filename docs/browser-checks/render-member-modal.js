@@ -119,14 +119,65 @@ const chk = (ok, label, extra) => {
       await page.waitForTimeout(400);
       chk((await box()) === null, 'clicking the backdrop closes it');
 
-      /* ⚠️ AND THE BACKDROP MUST NOT SWALLOW A CLICK ON THE BOX ITSELF, which is
+      /* ⚠️ AND THE BACKDROP MUST NOT SWALLOW A CLICK INSIDE THE BOX, which is
          the usual way this idiom breaks: the dialog shuts the moment somebody
-         reaches for the field inside it. */
+         reaches for something inside it. Click the TITLE, not the box centre:
+         the 0.6.45 box is taller (the error line moved inside it), so a
+         centre-click now lands on the <select> and opens its native dropdown,
+         which then swallows the later selectOption. The title is inside the box
+         and non-interactive, so it tests the same close-safety cleanly. */
       await (await page.$('#pj-add-member')).click();
       await page.waitForTimeout(400);
-      await page.click('#am-modal .rm-box');
+      await page.click('#am-t');
       await page.waitForTimeout(400);
       chk((await box()) !== null, 'clicking inside the box does NOT close it');
+
+      /* 0.6.45 (Josh): the way out is an X in the corner (not a Cancel button that
+         crowded the dropdown), and the go button reads "Add to project". The modal
+         is open here. */
+      const goText = await page.$eval('#pj-one-add-go', (el) => el.textContent.trim()).catch(() => '');
+      chk(goText === 'Add to project', 'the go button reads "Add to project"', goText);
+      chk(!/\bCancel\b/.test(await page.$eval('#am-modal', (el) => el.innerText).catch(() => '')),
+        'the Cancel button is gone (replaced by the corner X)');
+      const x = await page.$eval('#am-keep', (el) => {
+        const r = el.getBoundingClientRect(); const bx = el.closest('.rm-box').getBoundingClientRect();
+        return { txt: el.textContent.trim(), nearTop: Math.round(r.top - bx.top), nearRight: Math.round(bx.right - r.right) };
+      }).catch(() => null);
+      chk(!!x && x.txt === '×' && x.nearTop < 26 && x.nearRight < 26,
+        'the close is an X in the top-right corner', JSON.stringify(x));
+
+      /* Way out 4: the corner X. */
+      await page.click('#am-keep');
+      await page.waitForTimeout(400);
+      chk((await box()) === null, 'the corner X closes it');
+
+      /* Reopen for the add-then-close test (the X above closed it). */
+      await (await page.$('#pj-add-member')).click();
+      await page.waitForTimeout(400);
+      chk((await box()) !== null, 'it reopens for the add-then-close test');
+
+      /* 0.6.45: on a FAILED add the modal stays open and the reason goes to
+         #pj-one-msg, so that element must be INSIDE the modal box -- it used to
+         sit behind the fixed .rm-back backdrop, where a failure reason would be
+         invisible. Structural check (the failure POST is hard to force here). */
+      const msgInside = await page.$eval('#pj-one-msg', (el) => !!el.closest('#am-modal .rm-box')).catch(() => false);
+      chk(msgInside, 'the error line is inside the modal box (a failure reason is not hidden behind the backdrop)');
+
+      /* 0.6.45 (Josh) close-on-add: adding a member CLOSES the modal (no lingering
+         "everyone is already on it" empty state) AND the member is really added.
+         The fixture puts mikey free on this project, so assert he is selectable
+         rather than masking a missing option behind a silent fallback. */
+      const mikeyOption = await page.$eval('#pj-one-add', (sel) =>
+        [...sel.options].some((o) => o.textContent.trim() === 'Mikey')).catch(() => false);
+      chk(mikeyOption, 'Mikey is a selectable free agent (the fixture precondition holds)');
+      await page.selectOption('#pj-one-add', { label: 'Mikey' });
+      await page.click('#pj-one-add-go');
+      await page.waitForTimeout(900);
+      chk((await box()) === null, 'clicking Add to project closes the modal (Josh item 5)');
+      const gotMikey = await page.waitForFunction(
+        () => { const el = document.getElementById('pj-one-agents'); return el && /Mikey/.test(el.innerText || ''); },
+        null, { timeout: 6000 }).then(() => true).catch(() => false);
+      chk(gotMikey, 'the member was actually added (Mikey now shows in Project Members)');
     }
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));

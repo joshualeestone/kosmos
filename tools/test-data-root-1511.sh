@@ -70,6 +70,16 @@ r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
   && ok "the product's own dataRootFor wins when the install can answer" \
   || bad "the product's own dataRootFor wins when the install can answer" "$r"
 
+# 3b. #2439: the store leaf is 'Kosmos' now, so a consult answer carrying the /Kosmos
+#     leaf must be ACCEPTED exactly like /AgentWorkforce. Without this the guard would
+#     refuse every migrated install's data root and abort the uninstall entirely. Both
+#     leaves are accepted for the migration window (setup.sh guard case block).
+printf '%s\n' "module.exports = { dataRootFor: () => '/tmp/ONLY-NODE-1511/Kosmos' };" > "$FAKE/app/engine/store.js"
+r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
+[ "$r" = "/tmp/ONLY-NODE-1511/Kosmos" ] \
+  && ok "a consult answer carrying the new /Kosmos leaf is accepted (migrated install uninstalls)" \
+  || bad "a consult answer carrying the new /Kosmos leaf is accepted (migrated install uninstalls)" "$r"
+
 # 4. CONTROL for arm 3: same store.js, runtime gone, must fall back
 rm -f "$FAKE/runtime/bin/node"
 r=$(run "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA")
@@ -137,7 +147,8 @@ d=$(refused "KOSMOS_HOME=$FAKE; unset AGENT_WORKFORCE_DATA" 'does not end in /Ag
 #     environment and setup.sh always exports this variable.
 cp "$(dirname "$SETUP")/../engine/store.js" "$FAKE/app/engine/store.js"
 r=$(run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511")
-[ "$r" = "/tmp/sbx-1511/AgentWorkforce" ] \
+# #2439: dataRootFor now builds the 'Kosmos' leaf (store.js APP); the consult returns it.
+[ "$r" = "/tmp/sbx-1511/Kosmos" ] \
   && ok "the consult, through the real store.js, honours an exported sandbox seam" \
   || bad "the consult, through the real store.js, honours an exported sandbox seam" "$r"
 

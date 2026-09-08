@@ -1109,13 +1109,14 @@ _kosmos_data_root() {
   # THE WORD FIVE. Every one is a delete that a bad input would have steered, and
   # each was found by construction:
   #   1 not absolute    `AGENT_WORKFORCE_DATA=rel` deleted relative to the cwd
-  #   2 no /AgentWorkforce leaf   every rm below is bounded by that leaf; a consult
-  #                    answer of "/" or "$HOME" would have made "$_support/bin"
+  #   2 no store leaf   every rm below is bounded by the store leaf (/AgentWorkforce
+  #                    OR /Kosmos -- both accepted during the #2439 migration window);
+  #                    a consult answer of "/" or "$HOME" would have made "$_support/bin"
   #                    mean /bin or ~/bin. The trust boundary moved from a literal
   #                    to whatever the installed store.js returns, so the leaf is
-  #                    checked here rather than assumed. (`/AgentWorkforce` directly
-  #                    under the root has the leaf and no parent, and is refused by
-  #                    the same rule.)
+  #                    checked here rather than assumed. (`/AgentWorkforce` or `/Kosmos`
+  #                    directly under the root has the leaf and no parent, and is refused
+  #                    by the same rule.)
   #   3 the system Library   HOME="" (set -u does not catch empty), HOME=/ and
   #                    HOME=// all resolve to /Library/Application Support, which no
   #                    per-user install owns. Refused by RESULT, and compared by
@@ -1162,10 +1163,10 @@ _kosmos_data_root() {
         _kdr_why="the folder it names sits in the system-wide Library, which no per-user install owns (an empty or / HOME, or a link there, resolves here)"
       else
         case "$_kdr_canon" in
-          "/Library/Application Support/AgentWorkforce")
+          "/Library/Application Support/AgentWorkforce"|"/Library/Application Support/Kosmos")
             _kdr_why="that is the system-wide Library, which no per-user install owns (an empty or / HOME resolves here)" ;;
-          /*/AgentWorkforce) printf '%s' "$_kdr"; return 0 ;;
-          /*) _kdr_why="it does not end in /AgentWorkforce with a parent folder above it, the shape every removal below is bounded by" ;;
+          /*/AgentWorkforce|/*/Kosmos) printf '%s' "$_kdr"; return 0 ;;
+          /*) _kdr_why="it does not end in /AgentWorkforce or /Kosmos with a parent folder above it, the shape every removal below is bounded by" ;;
           *)  _kdr_why="it is not an absolute path" ;;
         esac
       fi ;;
@@ -2538,24 +2539,73 @@ if [ "$FRESH_INSTALL" = "no" ] && [ -f "$KOSMOS_HOME/bin/kosmos" ] && [ -x "$KOS
   _pausebody="$(curl -fsS -m 2 "http://127.0.0.1:$PORT/" 2>/dev/null)" || _pausebody=""
   case "$_pausebody" in
     *"Agent Workforce"*|*Kosmos*)
-      # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
-      # in-process updater spawned this curl|sh, so the message goes to stderr /
-      # install.log and nobody reads it. One machine aborted here 155 times before
-      # anyone noticed. Record the abort durably (in the same logs/ dir the board
-      # reads install.status from) with a CONSECUTIVE count, so the board can surface
-      # "this machine keeps failing to update". The count is cleared below once an
-      # update gets past the pause, so a machine that recovers stops showing it.
-      _abortf="$LOG_DIR/update-abort"
-      _abortn=0
-      if [ -f "$_abortf" ]; then
-        _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+      # #964: is the board that answered actually OURS? The check above matches ANY
+      # Kosmos-shaped body, so on a multi-account Mac a DIFFERENT install's board
+      # (or another account's) legitimately holding this port reads as "our board
+      # will not pause" -- and the "kosmos stop" advice is then a no-op, because our
+      # own board is already dead. A pre-#910 stale install records port 16180, which
+      # a second Kosmos can now hold, so this is a real returning-user shape (the
+      # aged-specimen walk that found this, 2026-08-26). Our install records its
+      # board's pid in board.pid; whatever answers on $PORT is ours only if that pid
+      # is the running board. Only OUR-board-will-not-pause takes the #2055 abort
+      # streak + the "kosmos stop" die; a foreign board gets actionable port advice.
+      #
+      # STRICTER THAN A BARE kill -0. The #964 target is a returning user whose board
+      # died weeks ago on a machine that has since REBOOTED, so the stale board.pid
+      # NUMBER has very likely been reused by an unrelated live process -- kill -0
+      # would return 0 and wrongly take the "our board" branch, re-arming the exact
+      # forever-loop this fixes. Match the command against THIS install's full
+      # server path, mirroring the BOARD_OURS check later in this file (the one whose
+      # comment warns "a recycled pid, or another install's live server behind a
+      # stale pidfile, must not read as ours"); do not "align" it down to kill -0.
+      _ourboard=no
+      if [ -f "$KOSMOS_HOME/board.pid" ]; then
+        _ourpid="$(cat "$KOSMOS_HOME/board.pid" 2>/dev/null || true)"
+        case "$_ourpid" in
+          ''|*[!0-9]*) ;;
+          *)
+            case "$(/bin/ps -ww -p "$_ourpid" -o command= 2>/dev/null)" in
+              *"$KOSMOS_HOME/app/server.js"*) _ourboard=yes ;;
+            esac
+            ;;
+        esac
       fi
-      case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
-      _abortn=$((_abortn + 1))
-      { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
-          "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
-          > "$_abortf"; } 2>/dev/null || true
-      die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
+      if [ "$_ourboard" = yes ]; then
+        # OUR board is genuinely running and did not pause -- the #2055 behavior.
+        # #2055: on the AUTOMATIC update path this die is SILENT -- the board's own
+        # in-process updater spawned this curl|sh, so the message goes to stderr /
+        # install.log and nobody reads it. One machine aborted here 155 times before
+        # anyone noticed. Record the abort durably (in the same logs/ dir the board
+        # reads install.status from) with a CONSECUTIVE count, so the board can surface
+        # "this machine keeps failing to update". The count is cleared below once an
+        # update gets past the pause, so a machine that recovers stops showing it.
+        _abortf="$LOG_DIR/update-abort"
+        _abortn=0
+        if [ -f "$_abortf" ]; then
+          _abortn="$(sed -n 's/^count=\([0-9][0-9]*\)$/\1/p' "$_abortf" 2>/dev/null || true)"
+        fi
+        case "$_abortn" in ''|*[!0-9]*) _abortn=0 ;; esac
+        _abortn=$((_abortn + 1))
+        { printf 'count=%s\nreason=board-would-not-pause\nport=%s\nts=%s\n' \
+            "$_abortn" "$PORT" "$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)" \
+            > "$_abortf"; } 2>/dev/null || true
+        die "A Kosmos board is still running on port $PORT and could not be paused for the update. Stop it first ('kosmos stop', or quit whatever started it), then paste the install line again."
+      else
+        # #964: our own board is not running, so a DIFFERENT Kosmos is holding this
+        # port. "kosmos stop" would do nothing (ours is already stopped), so name the
+        # real situation and give an action that can actually unstick it: quit that
+        # board, or reinstall on a free port. NOT recorded as a board-would-not-pause
+        # abort -- that streak is about OUR board, and inflating it here would mask a
+        # machine whose own board really cannot pause.
+        # ⚠️ ONE FALSE-NEGATIVE, the same fail-safe residual BOARD_OURS carries: if OUR
+        # board is genuinely alive and serving but board.pid is absent/stale, we land
+        # here and the message wrongly says "your board is not running". It is still
+        # fail-safe (dies, writes nothing, no brick), and it only fires after `kosmos
+        # stop` already failed to pause a board on our port, so the window is narrow --
+        # but the "quit it" advice could nudge that user at their own live board. Fixing
+        # it needs a stronger own-board signal than board.pid; out of scope here.
+        die "Another Kosmos is answering on port $PORT, but this install's own board is not running -- so 'kosmos stop' would do nothing and the update cannot pause it. That board belongs to a different install or account on this computer. Quit it, or reinstall on a free port by running the install line with KOSMOS_PORT set to a different number."
+      fi
       ;;
     "") ;;
     *)
@@ -3454,10 +3504,25 @@ fi
 # AGENT_WORKFORCE_HOME arm is load-bearing: root() reads AGENT_WORKFORCE_HOME||os.homedir(),
 # so a bare $HOME here would write under a different root than the board reads when that seam
 # is set (DATA unset), and the badge would silently never light.
+# #2439: the store leaf is 'Kosmos' now (engine/store.js APP), migrated from the
+# legacy 'AgentWorkforce' leaf by maybeMigrateLegacyStore() at the top of store.root()
+# on the board's first access. 🛑 THIS WRITE RUNS BEFORE `kosmos start`, so a naive
+# mkdir of the NEW leaf here would create it before the board migrates -- and the
+# migration NEVER CLOBBERS an existing new root (store.js:221), so the person's OLD
+# AgentWorkforce data (agents, profiles, chats) would be orphaned, unread, on every
+# update. So write to the CURRENT root: the legacy leaf when it exists and the new one
+# does not (the pre-migration update case), else the new leaf. The board's migration
+# then renames legacy -> new with this source-channel file inside it, and reads it
+# correctly. Fresh install (neither leaf yet) writes straight to the new leaf.
 if [ -n "${AGENT_WORKFORCE_DATA:-}" ]; then
-  _wf_data_root="$AGENT_WORKFORCE_DATA/AgentWorkforce"
+  _wf_base="$AGENT_WORKFORCE_DATA"
 else
-  _wf_data_root="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support/AgentWorkforce"
+  _wf_base="${AGENT_WORKFORCE_HOME:-$HOME}/Library/Application Support"
+fi
+if [ -d "$_wf_base/AgentWorkforce" ] && [ ! -d "$_wf_base/Kosmos" ]; then
+  _wf_data_root="$_wf_base/AgentWorkforce"
+else
+  _wf_data_root="$_wf_base/Kosmos"
 fi
 if [ "$_PTR_FILE" = "latest-staging.json" ]; then _source_channel=staging; else _source_channel=prod; fi
 if mkdir -p "$_wf_data_root" 2>/dev/null; then

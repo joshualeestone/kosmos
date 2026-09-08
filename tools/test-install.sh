@@ -120,7 +120,7 @@ DATA_FINGERPRINT="$(cd "$SB/data" && find . -type f -exec shasum {} \; | sort)"
 # 🔑 THE PERSON'S FILES AND THE APP'S OWN PLUMBING ARE DIFFERENT QUESTIONS, and
 # one whole-tree comparison could not tell them apart. It went red the day the
 # board began installing its agent supervisor at boot -- `create.installSupervisor`
-# writes `AgentWorkforce/bin/agent-supervisor.sh`, which has to be current for an
+# writes `Kosmos/bin/agent-supervisor.sh`, which has to be current for an
 # agent to survive a restart at all. Nothing of the person's was touched: one file
 # APPEARED, and an equality check called the upgrade promise broken while it was
 # being kept.
@@ -155,7 +155,7 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # catch); what is wrong is that the list is updated AFTER a red cut instead of
 # in the commit that adds the file.
 # ⇒ IF YOU ADD A FILE TO installSupervisor, ADD IT HERE IN THE SAME COMMIT.
-EXPECTED_ADDS="$(printf '%s\n' ./AgentWorkforce/bin/agent-supervisor.sh ./AgentWorkforce/bin/codex-report-bridge.js ./AgentWorkforce/bin/engine-path ./AgentWorkforce/source-channel)"
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/source-channel)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
@@ -402,10 +402,10 @@ EXPECTED_SURVIVORS="$(printf '%s\n' "$DATA_FINGERPRINT" | while read -r _h _f; d
 done)"
 ADDED="$(printf '%s\n' "$DATA_PATHS_BEFORE" > "$SB/.before.txt"; data_paths > "$SB/.after.txt"; comm -13 "$SB/.before.txt" "$SB/.after.txt")"
 # 🛑 EXPECTED_ADDS is what the INSTALL writes (installSupervisor: the supervisor,
-# the codex bridge, engine-path; plus AgentWorkforce/source-channel, which setup.sh
+# the codex bridge, engine-path; plus Kosmos/source-channel, which setup.sh
 # writes to record which channel pointer the build was fetched from, #2066). It is
 # NOT the place for what the app writes
-# during its own BOOT: #1494 makes the board write AgentWorkforce/wouldping/
+# during its own BOOT: #1494 makes the board write Kosmos/wouldping/
 # needs-you.jsonl when it starts, which the smoke boot in this gate triggers, so
 # it lands in ADDED as an "unexpected" file and reds a correct cut. The
 # data-safety check below already exempts this same litter (its comment names
@@ -416,7 +416,7 @@ ADDED="$(printf '%s\n' "$DATA_PATHS_BEFORE" > "$SB/.before.txt"; data_paths > "$
 # unexpected file into a person's home) and stops it firing on the app's own
 # runtime log. A file the UNINSTALL should have removed is a real but SEPARATE
 # product bug, carded on its own (see the data-safety note below).
-ADDED="$(printf '%s\n' "$ADDED" | grep -vE '^\./AgentWorkforce/wouldping/' | grep -v '^$' || true)"
+ADDED="$(printf '%s\n' "$ADDED" | grep -vE '^\./Kosmos/wouldping/' | grep -v '^$' || true)"
 GONE="$(comm -23 "$SB/.before.txt" "$SB/.after.txt")"
 
 chk "installing over an existing home leaves the person's own files byte for byte" \
@@ -740,7 +740,7 @@ echo "== uninstall reverses the machine =="
 # only a job whose ProgramArguments name THIS install's supervisor, so an
 # empty <plist/> is, correctly, nobody's and survives. One of each here:
 # ours must go, and the anonymous one must stay.
-printf '<plist version="1.0"><dict><key>ProgramArguments</key><array><string>/bin/bash</string><string>%s/AgentWorkforce/bin/agent-supervisor.sh</string><string>tiharness</string></array></dict></plist>\n' "$SB/data" > "$SB/launch/com.kosmos.agent.tiharness.plist"
+printf '<plist version="1.0"><dict><key>ProgramArguments</key><array><string>/bin/bash</string><string>%s/Kosmos/bin/agent-supervisor.sh</string><string>tiharness</string></array></dict></plist>\n' "$SB/data" > "$SB/launch/com.kosmos.agent.tiharness.plist"
 printf '<plist/>' > "$SB/launch/com.kosmos.agent.tinobody.plist"
 seed_residue "$SB/apps/.Kosmos.app.stage.333" "$SB/home"
 seed_residue "$SB/apps/.Kosmos.app.old.444" "$SB/home"
@@ -754,17 +754,17 @@ seed_residue "$SB/apps/.Kosmos.app.old.444" "$SB/home"
 # few lines up (`seed_residue`) for a plumbing shape the product writes but
 # this harness does not need to exercise the write path itself to prove the
 # sweep.
-mkdir -p "$SB/data/AgentWorkforce"
-printf '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/first-run.json"
-printf '{"version":"0.5.32"}' > "$SB/data/AgentWorkforce/seen-version.json"
-printf '{"dismissedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/found-agents-dismissed.json"
+mkdir -p "$SB/data/Kosmos"
+printf '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
+printf '{"version":"0.5.32"}' > "$SB/data/Kosmos/seen-version.json"
+printf '{"dismissedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/found-agents-dismissed.json"
 # ⚠️ THE PREMISE OF THE REMOVAL CHECK, ASSERTED. The agent plist above is
 # seeded here for exactly this reason; the board's is written by the install
 # instead, so "it is gone" would pass vacuously on any run where it was never
 # written - which is precisely the bug this change fixes.
 chk "the board's login job is there before the uninstall (or its removal cannot fail)" "[ -f \"$BOARD_PLIST\" ]"
 chk "the three remembered-answer files are there before the uninstall too" \
-  "[ -f \"$SB/data/AgentWorkforce/first-run.json\" ] && [ -f \"$SB/data/AgentWorkforce/seen-version.json\" ] && [ -f \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
+  "[ -f \"$SB/data/Kosmos/first-run.json\" ] && [ -f \"$SB/data/Kosmos/seen-version.json\" ] && [ -f \"$SB/data/Kosmos/found-agents-dismissed.json\" ]"
 RC=0; sh -s -- --uninstall < "$SETUP" > "$SB/uninstall.log" 2>&1 || RC=$?
 chk "uninstall exits 0" "rc_ok $RC"
 chk "home gone" "[ ! -d \"$SB/home\" ]"
@@ -772,9 +772,9 @@ chk "symlink gone" "[ ! -e \"$SB/bin/kosmos\" ] && [ ! -L \"$SB/bin/kosmos\" ]"
 chk "app gone" "[ ! -d \"$SB/apps/Kosmos.app\" ]"
 chk "override-branch stage and aside residue swept" "[ ! -e \"$SB/apps/.Kosmos.app.stage.333\" ] && [ ! -e \"$SB/apps/.Kosmos.app.old.444\" ]"
 # #891: the app's remembered answers do not survive the uninstall either.
-chk "first-run.json swept" "[ ! -e \"$SB/data/AgentWorkforce/first-run.json\" ]"
-chk "seen-version.json swept" "[ ! -e \"$SB/data/AgentWorkforce/seen-version.json\" ]"
-chk "found-agents-dismissed.json swept" "[ ! -e \"$SB/data/AgentWorkforce/found-agents-dismissed.json\" ]"
+chk "first-run.json swept" "[ ! -e \"$SB/data/Kosmos/first-run.json\" ]"
+chk "seen-version.json swept" "[ ! -e \"$SB/data/Kosmos/seen-version.json\" ]"
+chk "found-agents-dismissed.json swept" "[ ! -e \"$SB/data/Kosmos/found-agents-dismissed.json\" ]"
 chk "agent plist removed" "[ ! -e \"$SB/launch/com.kosmos.agent.tiharness.plist\" ]"
 chk "a job naming no supervisor of ours survives the uninstall (#931)" "[ -e \"$SB/launch/com.kosmos.agent.tinobody.plist\" ]"
 # ⚠️ THE BOARD'S JOB DOES NOT MATCH THE AGENTS' GLOB, so it needs its own
@@ -803,7 +803,7 @@ chk "user data folder survives" "[ -d \"$SB/data\" ]"
 # present, byte for byte" -- a subset test, not folder equality. The gate's own
 # NAME is "every USER file survives", which is subset.
 # ⚠️ An ADDITION the app WROTE during its own run (e.g. #1494's wouldping log at
-# AgentWorkforce/wouldping/needs-you.jsonl) is litter, not a data-safety
+# Kosmos/wouldping/needs-you.jsonl) is litter, not a data-safety
 # violation. Equality here also failed on such additions and broke cut 0.6.06 at
 # 4b on exactly that file (2026-08-29). The uninstall leaving app litter behind
 # is a real product bug, but a SEPARATE one, carded on its own.
@@ -1784,9 +1784,9 @@ echo "== #924: uninstall derives its data root the same way install does, or it 
 # has to be a planted, observable file, not the operator's real
 # Application Support.
 D924_HOME="$SB/d924-realhome"
-mkdir -p "$D924_HOME/Library/Application Support/AgentWorkforce/bin"
-printf 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK\n' > "$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel"
-printf '{"real":true}\n' > "$D924_HOME/Library/Application Support/AgentWorkforce/first-run.json"
+mkdir -p "$D924_HOME/Library/Application Support/Kosmos/bin"
+printf 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK\n' > "$D924_HOME/Library/Application Support/Kosmos/bin/sentinel"
+printf '{"real":true}\n' > "$D924_HOME/Library/Application Support/Kosmos/first-run.json"
 
 echo "-- Pete's exact incident, reproduced: KOSMOS_HOME set, AGENT_WORKFORCE_DATA unset --"
 D924_KHOME="$SB/d924-sandboxedhome"
@@ -1803,14 +1803,14 @@ RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_DATA -u AGENT_WORKFORCE_PROJECTS -u 
   sh -s -- --uninstall > "$SB/d924-uninstall.log" 2>&1 || RC=$?
 chk "#924 uninstall exits 0" "rc_ok $RC"
 chk "the real Application Support's shared supervisor survives byte for byte" \
-  "[ \"\$(cat \"$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
-chk "the real Application Support's first-run.json survives" "[ -f \"$D924_HOME/Library/Application Support/AgentWorkforce/first-run.json\" ]"
+  "[ \"\$(cat \"$D924_HOME/Library/Application Support/Kosmos/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
+chk "the real Application Support's first-run.json survives" "[ -f \"$D924_HOME/Library/Application Support/Kosmos/first-run.json\" ]"
 chk "the sandboxed KOSMOS_HOME itself is gone" "[ ! -d \"$D924_KHOME\" ]"
 
 echo "-- an explicit AGENT_WORKFORCE_DATA at uninstall time still wins over the derived default --"
 D924_EXPLICIT_DATA="$SB/d924-explicit-data"
-mkdir -p "$D924_EXPLICIT_DATA/AgentWorkforce/bin"
-printf 'explicit-scenario supervisor\n' > "$D924_EXPLICIT_DATA/AgentWorkforce/bin/sentinel"
+mkdir -p "$D924_EXPLICIT_DATA/Kosmos/bin"
+printf 'explicit-scenario supervisor\n' > "$D924_EXPLICIT_DATA/Kosmos/bin/sentinel"
 RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS \
   HOME="$D924_HOME" KOSMOS_HOME="$D924_KHOME" AGENT_WORKFORCE_DATA="$D924_EXPLICIT_DATA" \
   AGENT_WORKFORCE_LAUNCH="$SB/launch924b" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-b" KOSMOS_APP_DIR="$SB/apps924b" \
@@ -1823,9 +1823,9 @@ RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS 
   AGENT_WORKFORCE_LAUNCH="$SB/launch924b" KOSMOS_HOME_APP_DIR="$SB/d924home-apps-b" KOSMOS_APP_DIR="$SB/apps924b" \
   sh -s -- --uninstall > "$SB/d924-explicit-uninstall.log" 2>&1 || RC=$?
 chk "explicit-override uninstall exits 0" "rc_ok $RC"
-chk "the caller's explicit AGENT_WORKFORCE_DATA is what got swept, not the KOSMOS_HOME-derived default" "[ ! -f \"$D924_EXPLICIT_DATA/AgentWorkforce/bin/sentinel\" ]"
+chk "the caller's explicit AGENT_WORKFORCE_DATA is what got swept, not the KOSMOS_HOME-derived default" "[ ! -f \"$D924_EXPLICIT_DATA/Kosmos/bin/sentinel\" ]"
 chk "the caller's explicit AGENT_WORKFORCE_DATA scenario never touched the real Application Support sentinel" \
-  "[ \"\$(cat \"$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
+  "[ \"\$(cat \"$D924_HOME/Library/Application Support/Kosmos/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
 
 echo "-- the belt: a non-default KOSMOS_HOME whose AGENT_WORKFORCE_DATA is forced back to the real default is refused, not swept --"
 # Defense in depth for the derivation above ever not firing (a future
@@ -1850,7 +1850,7 @@ RC=0; cat "$SETUP" | env -u AGENT_WORKFORCE_PROJECTS -u AGENT_WORKFORCE_WORKERS 
 chk "the belt-scenario uninstall refuses (exit 1), it does not silently sweep" "[ \"$RC\" = 1 ]"
 chk "the belt-scenario names why it refused" "grep -q 'refusing to touch' \"$SB/d924-belt-uninstall.log\""
 chk "the belt-scenario never touched the real Application Support sentinel" \
-  "[ \"\$(cat \"$D924_HOME/Library/Application Support/AgentWorkforce/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
+  "[ \"\$(cat \"$D924_HOME/Library/Application Support/Kosmos/bin/sentinel\" 2>/dev/null)\" = 'REAL SHARED SUPERVISOR, OUTSIDE THE SANDBOXED WALK' ]"
 
 echo "-- control: a DEFAULT KOSMOS_HOME with AGENT_WORKFORCE_DATA unset still targets Application Support as before (unchanged) --"
 # The belt above must never fire for a genuine real-machine uninstall --
@@ -1858,8 +1858,8 @@ echo "-- control: a DEFAULT KOSMOS_HOME with AGENT_WORKFORCE_DATA unset still ta
 # "KOSMOS_HOME != _kosmos_home_default" condition is false and the sweep
 # proceeds exactly as it always has.
 D924_DEFHOME="$SB/d924-defaulthome"
-mkdir -p "$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin"
-printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin/sentinel"
+mkdir -p "$D924_DEFHOME/Library/Application Support/Kosmos/bin"
+printf 'default-scenario supervisor\n' > "$D924_DEFHOME/Library/Application Support/Kosmos/bin/sentinel"
 # ⚠️ NO AGENT_WORKFORCE_LAUNCH OVERRIDE HERE, DELIBERATELY. An earlier
 # version of this scenario passed one anyway (copy-pasted from the
 # sandboxed scenarios above) while leaving KOSMOS_HOME at its real
@@ -1902,7 +1902,7 @@ RC=0; cat "$SETUP" | env -u KOSMOS_HOME -u AGENT_WORKFORCE_DATA -u AGENT_WORKFOR
   sh -s -- --uninstall > "$SB/d924-default-uninstall.log" 2>&1 || RC=$?
 chk "control uninstall exits 0" "rc_ok $RC"
 chk "control: the real (for this scenario's fake HOME) Application Support supervisor IS swept, matching pre-#924 behavior" \
-  "[ ! -f \"$D924_DEFHOME/Library/Application Support/AgentWorkforce/bin/sentinel\" ]"
+  "[ ! -f \"$D924_DEFHOME/Library/Application Support/Kosmos/bin/sentinel\" ]"
 
 echo "== #931: a sandboxed uninstall removes only the agent jobs that name ITS supervisor, never another install's =="
 # 🔑 THE EXACT INCIDENT SHAPE, with a fake HOME standing in for the real
@@ -1921,7 +1921,7 @@ D931_HOME="$SB/d931-realhome"
 D931_KHOME="$SB/d931-sandboxedhome"
 mkdir -p "$D931_HOME/Library/LaunchAgents" "$D931_KHOME"
 plist931() {
-  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n  <key>Label</key><string>com.kosmos.agent.%s</string>\n  <key>ProgramArguments</key>\n  <array>\n    <string>/bin/bash</string>\n    <string>%s/AgentWorkforce/bin/agent-supervisor.sh</string>\n    <string>%s</string>\n  </array>\n</dict>\n</plist>\n' "$1" "$2" "$1"
+  printf '<?xml version="1.0" encoding="UTF-8"?>\n<plist version="1.0">\n<dict>\n  <key>Label</key><string>com.kosmos.agent.%s</string>\n  <key>ProgramArguments</key>\n  <array>\n    <string>/bin/bash</string>\n    <string>%s/Kosmos/bin/agent-supervisor.sh</string>\n    <string>%s</string>\n  </array>\n</dict>\n</plist>\n' "$1" "$2" "$1"
 }
 plist931 d931own "$D931_KHOME/data" > "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931own.plist"
 plist931 d931foreign "$D931_HOME/Library/Application Support" > "$D931_HOME/Library/LaunchAgents/com.kosmos.agent.d931foreign.plist"

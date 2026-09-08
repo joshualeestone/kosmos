@@ -27,6 +27,9 @@ const EXCUSED = {
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   resetForTests: 'test seam',
+  dispatch: 'test-only export (#988): engine/updating.js exports its real protocol dispatch so an arm can cover it. Named here rather than passing by luck: it otherwise survives only by colliding with boardauth/server, which is what the setRelay excuse warns against',
+  underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/notify/feedbacksend',
+  setRequestFactory: 'test seam (#988): replaces the coordinator TRANSPORT only, so enrolment, the certificate read and the URL derivation still run under test',
   agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
   setPaneSource: 'test seam: keeps status reads off the real machine',
@@ -50,6 +53,17 @@ const EXCUSED = {
   setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file (feedbacksend.js\'s equivalent, setSender, escapes only by a name-collision); production pull() uses the default fetch transport.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
+  // checkLive's excuse was removed in the #2420 listing slice because it is no longer
+  // TRUE, not because the guard gained coverage. accounts.listLiveNow() now calls
+  // claudeaccounts.checkLive for an api-key Claude row (the live-badge reader for a
+  // stored api-key account), so it is no longer "genuinely dormant" -- and an excuse
+  // is a claim, so a discharged one is removed to keep the EXCUSED set honest.
+  // ⚠️ The #265 sweep does NOT independently re-verify this: "checkLive" collides by
+  // name with subscription.js/openaiaccounts.js, so it could never have been flagged
+  // as an orphan anyway (the old excuse said exactly this), and it could not flag a
+  // future regression that dropped the real caller either. What protects it is the
+  // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
+  // already reachable via server.js's failed-store cleanup.)
 };
 
 const engineDir = path.join(__dirname, 'engine');

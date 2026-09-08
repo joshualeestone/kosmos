@@ -102,7 +102,7 @@ function seedRegistryAndAvatar(name) {
     'utf8',
   );
 
-  const avatars = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatars = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fs.mkdirSync(avatars, { recursive: true });
   fs.writeFileSync(nodePath.join(avatars, `${name}.png`), 'not-a-real-png', 'utf8');
   return file;
@@ -128,6 +128,7 @@ const {
   rank,
   paneOrder,
 } = require('./status');
+const store = require('./store');
 
 // A pane as the engine sees it. `command` is a version string when Claude Code
 // is running and a shell name when it is not.
@@ -3954,7 +3955,7 @@ test('#1315 CONTROL: the constant comes from selfreport, not this module', () =>
 
 /* OBSERVED 2026-09-01 on this machine (a fresh folder, `claude` started in it),
    path shortened. The question row runs past its `?`, which is why the
-   `asksSomething` rule cannot see it -- see TRUST_PROMPT_QUESTION in status.js. */
+   prose-prompt rule (`blockingProseAtBottom`) cannot see it -- see TRUST_PROMPT_QUESTION in status.js. */
 const TRUST_DIALOG_LIVE = [
   ' Accessing workspace:',
   ' /Users/somebody/work/workers/rosie',
@@ -4037,8 +4038,8 @@ test('#1629: trustPrompt returns the question row alone, capped, and nothing for
 // ---------------------------------------------------------------------------
 // #1919: a fresh agent parked on the Bypass-Permissions consent must read
 // needs_you, not UNKNOWN. Its options are UN-numbered and it sits at the TOP of
-// a fresh pane under tmux blank padding, so `asksSomething` on the untrimmed tail
-// (OPTION_LINE = numbered `❯ <digit>.`) cannot see it -- exactly like the trust
+// a fresh pane under tmux blank padding, so the prose-prompt rule on the untrimmed
+// tail (OPTION_LINE = numbered `❯ <digit>.`, in `drawsOptionMenu`) cannot see it -- exactly like the trust
 // dialog, one function over. The general consent detector reads the trimmed tail.
 // ---------------------------------------------------------------------------
 

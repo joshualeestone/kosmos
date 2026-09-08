@@ -153,8 +153,12 @@ test('#727/#770: one provider at a time, a key field the row sizes, an exit at b
      the defect.
      ⇒ What is asserted is the CLAIM: some other provider is listed and
      disabled, so a person can see what is coming. How it is punctuated is copy,
-     and copy is allowed to improve without asking a test for permission. */
-  assert.match(modal, /<option disabled>[^<]*coming soon<\/option>/, 'no other provider is listed, disabled, as coming soon');
+     and copy is allowed to improve without asking a test for permission.
+     #1040 2b: the coming-soon options now carry a `value` (google/xai/...) so the
+     logo combobox can render each provider's mark; the CLAIM is unchanged, so the
+     value is allowed here the same way the punctuation is (assert disabled + coming
+     soon, not the absence of a value). */
+  assert.match(modal, /<option value="[^"]*" disabled>[^<]*coming soon<\/option>/, 'no other provider is listed, disabled, as coming soon');
   assert.doesNotMatch(modal, /id="acct-add-openai"/, 'the old toggle would show the OpenAI form beside the Claude one');
   assert.match(modal, /id="acct-claude-flow" hidden/); assert.match(modal, /id="acct-openai-flow" hidden/);
   const claude = modal.slice(modal.indexOf('id="acct-claude-flow"'), modal.indexOf('id="acct-openai-flow"'));

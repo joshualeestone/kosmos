@@ -98,7 +98,51 @@ RC5=$?
 [ "$RC5" -eq 1 ] && ok "a failed reap exits 1" || bad "failed-reap exit (got $RC5 want 1)"
 echo "$OUT5" | grep -q "bootout FAILED" && ok "a failed reap is named, not swallowed" || bad "failed reap output: $OUT5"
 
+# 6. The lifetime axis (#1163): a PERSIST verdict must be reaped exactly as
+#    SANDBOX. Before the sweep learned PERSIST, a persistent leaked job fell
+#    through its case SILENTLY and the sweep read "nothing leaked" - this arm is
+#    the regression guard (it goes red on a sweep with no PERSIST arm).
+PLIVE_DIR="$T/kosmos-persist-live/home/Library/LaunchAgents"
+mkdir -p "$PLIVE_DIR"
+printf 'x' > "$PLIVE_DIR/com.kosmos.agent.plive.plist"
+PGONE_PLIST="$T/kosmos-persist-gone/home/Library/LaunchAgents/com.kosmos.agent.pgone.plist"
+# (its dir is deliberately never created: a persistent job whose harness is gone)
+PBOOTLOG="$T/persist-bootouts"
+: > "$PBOOTLOG"
+PSTUB="$T/launchctl-persist"
+cat > "$PSTUB" <<PSTUBEOF
+#!/bin/sh
+case "\$1" in
+  list)  printf 'PID\tStatus\tLabel\n'
+         printf -- '-\t0\tcom.kosmos.agent.plive\n'
+         printf -- '-\t0\tcom.kosmos.agent.pgone\n' ;;
+  print) case "\$2" in
+           */com.kosmos.agent.plive) printf '  path = $PLIVE_DIR/com.kosmos.agent.plive.plist\n  properties = keepalive | runatload | inferred program\n' ;;
+           */com.kosmos.agent.pgone) printf '  path = $PGONE_PLIST\n  properties = runatload\n' ;;
+         esac ;;
+  bootout) printf '%s\n' "\$2" >> "$PBOOTLOG" ;;
+esac
+PSTUBEOF
+chmod 755 "$PSTUB"
+
+# Report mode: the live persistent job is surfaced as PERSIST and left alone; the
+# gone persistent job is LEAKED (NOT swallowed); exit 1; nothing booted.
+OUT6="$(SWEEP_REAL_LAUNCH_DIR="$REAL_DIR" LAUNCHD_WITNESS_LAUNCHCTL="$PSTUB" tools/sweep-leaked-supervisors.sh)"
+RC6=$?
+[ "$RC6" -eq 1 ] && ok "a persistent leak makes report mode exit 1 (not swallowed)" || bad "persist report exit (got $RC6 want 1): $OUT6"
+echo "$OUT6" | grep -q "PERSIST  com.kosmos.agent.plive" && ok "a live persistent job is surfaced as PERSIST, left alone" || bad "persist-live row wrong: $OUT6"
+echo "$OUT6" | grep -q "LEAKED   com.kosmos.agent.pgone" && ok "a persistent leaked job is named LEAKED, not silently dropped (#1163 guard)" || bad "persist-gone leak missing (the #1163 regression): $OUT6"
+[ -s "$PBOOTLOG" ] && bad "persist report mode called bootout" || ok "persist report mode never boots"
+
+# Reap mode: ONLY the gone persistent job is booted; the live persistent job survives.
+OUT7="$(SWEEP_REAL_LAUNCH_DIR="$REAL_DIR" LAUNCHD_WITNESS_LAUNCHCTL="$PSTUB" tools/sweep-leaked-supervisors.sh --reap)"
+RC7=$?
+[ "$RC7" -eq 0 ] && ok "persist reap exits 0 when the persistent leak is reaped" || bad "persist reap exit (got $RC7 want 0): $OUT7"
+PWANT_BOOT="gui/$(id -u)/com.kosmos.agent.pgone"
+PGOT_BOOT="$(cat "$PBOOTLOG")"
+[ "$PGOT_BOOT" = "$PWANT_BOOT" ] && ok "exactly the persistent leak is booted, the live persistent job survives" || bad "persist bootouts (got '$PGOT_BOOT' want '$PWANT_BOOT')"
+
 if [ "$FAILS" -eq 0 ]; then
-  echo "sweep: all arms hold (report, reap, clean, could-not-look, stubborn)"
+  echo "sweep: all arms hold (report, reap, clean, could-not-look, stubborn, persist)"
 fi
 exit "$FAILS"

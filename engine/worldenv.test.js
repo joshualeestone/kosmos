@@ -21,6 +21,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const worlds = require('./worlds');
 const worldenv = require('./worldenv');
+const store = require('./store'); // #2439: for store.APP (the per-world store leaf)
 
 const ENGINE_DIR = __dirname;
 
@@ -76,7 +77,7 @@ function probe(data, order) {
 
 test('FIX: booting into a named world, require-time-frozen modules resolve to that world', () => {
   const { data, base } = makeSandbox('alpha');
-  const alphaRoot = path.join(base, 'worlds', 'alpha', 'AgentWorkforce');
+  const alphaRoot = path.join(base, 'worlds', 'alpha', store.APP);
   const got = probe(data, 'after');
   assert.equal(got.storeROOT, alphaRoot, 'store.ROOT follows the active world');
   assert.equal(got.commitmentsDIR, path.join(alphaRoot, 'commitments'), 'commitments (const BASE = store.ROOT) follows');
@@ -93,7 +94,7 @@ test('CONTROL: the default world moves NOTHING (no false relocation)', () => {
   assert.equal(got.activityDIR, path.join(base, 'activity'), 'activity stays');
   // The control is aimed at the exact arm under test: it proves the probe CAN
   // report the default root, so the FIX test's alpha result is a real move.
-  assert.notEqual(got.commitmentsDIR, path.join(base, 'worlds', 'alpha', 'AgentWorkforce', 'commitments'));
+  assert.notEqual(got.commitmentsDIR, path.join(base, 'worlds', 'alpha', store.APP, 'commitments'));
 });
 
 test('PERTURBATION: applying the env AFTER the freeze (2a\'s bug) leaves modules on the default root', () => {
@@ -103,7 +104,7 @@ test('PERTURBATION: applying the env AFTER the freeze (2a\'s bug) leaves modules
   // modules serve the DEFAULT world's files. Proves ordering is load-bearing.
   assert.equal(got.storeROOT, base, 'store.ROOT read live sees the default (no override applied yet at freeze)');
   assert.equal(got.commitmentsDIR, path.join(base, 'commitments'), 'BLEED: commitments frozen at default while alpha is active');
-  assert.notEqual(got.commitmentsDIR, path.join(base, 'worlds', 'alpha', 'AgentWorkforce', 'commitments'));
+  assert.notEqual(got.commitmentsDIR, path.join(base, 'worlds', 'alpha', store.APP, 'commitments'));
 });
 
 test('fail-open: a broken env (non-absolute AGENT_WORKFORCE_DATA) returns null, never throws', () => {

@@ -71,6 +71,7 @@ const nodePath = require('node:path');
 const { mkTemp } = require('./test-support/tmpdir.js');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const store = require('./engine/store');
 const WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-workers-'));
 process.env.AGENT_WORKFORCE_WORKERS = WORKERS;
 
@@ -190,6 +191,11 @@ const fleet = require('./test-support/fleet');
 
 let base;
 test.before(async () => {
+  // #2454: pin the installed-board self-restart probe to "not installed" so the
+  // world-switch route's restarting:false assertion cannot be flaked by a
+  // coincidental bin/kosmos+app/server.js layout in a parent directory. The test
+  // process is neither the dev KeepAlive job nor an installed board.
+  try { require('./engine/boardrestart').setInstalledCli(() => null); } catch { /* older tree */ }
   await start(0); // 0 = let the OS pick, so tests never collide with a real board
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -299,6 +305,13 @@ test('#1704 2b-ii: POST /api/worlds/active switches the active world and reports
     // running board still serves the previous world's roots until it restarts.
     const after = JSON.parse((await req('/api/worlds')).body);
     assert.equal(after.activeWorldId, targetId, 'GET /api/worlds reflects the switch');
+    /* #2454b: bootedWorldId reports the world the LIVE board booted into, which does
+       NOT move on a switch (the test process never restarted) -- so the pointer and
+       the booted world DIVERGE here, and the switcher UI marks current by the booted
+       one. This is the server half of the "no restart demanded for the Kosmos you are
+       already on" fix. */
+    assert.equal(after.bootedWorldId, 'default', 'GET /api/worlds reports the still-booted world, not the flipped pointer');
+    assert.notEqual(after.bootedWorldId, after.activeWorldId, 'the pointer flipped but the booted world did not -- the divergence the marker must key on');
   } finally {
     // Leave the sandbox on the default world so later tests that assume it are unaffected.
     const back = await postJson('/api/worlds/active', { id: 'default' });
@@ -1814,7 +1827,7 @@ test('a borrowed name is refused by every name-keyed read, including its alias s
   // test asserted an absence that was already absent.
   const fsx = require('node:fs');
   const nodePathx = require('node:path');
-  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fsx.mkdirSync(avatarDir, { recursive: true });
   fsx.writeFileSync(nodePathx.join(avatarDir, 'angel.png'), 'seeded', 'utf8');
 
@@ -2009,7 +2022,7 @@ test('a stranger cannot fetch the real agent’s picture under the stranger’s 
   const status = require('./engine/status');
   const fsx = require('node:fs');
   const nodePathx = require('node:path');
-  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fsx.mkdirSync(avatarDir, { recursive: true });
   fsx.writeFileSync(nodePathx.join(avatarDir, 'angel.png'), 'seeded', 'utf8');
 
@@ -3586,7 +3599,7 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
   // branch below is real: safeKey() strips the hostile characters, so an
   // avatar stored under the stripped key is reachable from the hostile
   // name (the collision path -- another agent whose name strips the same).
-  const avatarsDir = nodePath.join(SANDBOX, 'AgentWorkforce', 'avatars');
+  const avatarsDir = nodePath.join(SANDBOX, store.APP, 'avatars');
   fs.mkdirSync(avatarsDir, { recursive: true });
   fs.writeFileSync(nodePath.join(avatarsDir, 'xonloadalert1.png'), 'not-a-real-png', 'utf8');
   const board = fleet.install([
@@ -5365,6 +5378,13 @@ function firstRunHarness(name, state, opts = {}) {
        docs/browser-checks/render-scan-board.js and render-first-run.js. */
     let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
     let FR_SCAN_GEN = 0;
+    /* #2389: frPaintFleet's adopt arm now reads FR_SCAN_INFLIGHT to hold the "checking"
+       copy while a granted two-phase scan is mid-flight (so it never flashes the verbatim
+       "nothing to import" over a scanning:true partial). Default false (settled), so every
+       existing ending assertion reads its usual branch; a caller wanting the in-flight
+       state passes it explicitly. Without this declaration the adopt arm throws a
+       ReferenceError, exactly as the frImportOffer note below warns. */
+    let FR_SCAN_INFLIGHT = ${JSON.stringify(state.FR_SCAN_INFLIGHT === undefined ? false : state.FR_SCAN_INFLIGHT)};
     function frScanAgents() {}
     /* #3/#4(a): frPaintFleet's create AND unknown arms now call frArmRescanOnGrant() (arms
        the S9 grant-flip re-scan poll). Stubbed here like frScanAgents -- this harness tests
@@ -9682,14 +9702,14 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
 
   /* 📌 THE TELL AND NOTIFY SWITCHES ARE BACK (#2020, Josh 2026-09-03: "on, and
      they can turn it off" needs the opt-out controls he removed 08-26). They are
-     restored as controls; the create-ping (tell) default has SINCE been flipped
-     ON (#2020/#2013, Josh 2026-09-05) while notify stays OFF - so ping is an
-     on-by-default opt-out and notify an off-by-default opt-in. They are tested
+     restored as controls; BOTH send defaults have SINCE been flipped ON - the
+     create-ping (tell) on 2026-09-05 (#2020/#2013) and the notify send in #2020
+     step 3 on 2026-09-03 - so both are on-by-default OPT-OUTS. They are tested
      here on the SAME three-state rule as autoPaint - and it matters MORE for
      these two: they are the telemetry opt-outs, so an unread setting drawing a
      confident Off would tell a person nothing is sent while the engine may be
      (#2047). engine/notify.test.js pins the rows present + each send's default
-     (ping ON, notify OFF). */
+     (both ON now). */
   for (const [paint, toggle, msg] of [
     ['autoPaint', 'auto-toggle', 'auto-msg'],
     ['tellPaint', 'tell-toggle', 'tell-msg'],
@@ -10313,8 +10333,10 @@ test('notify: an agent posting or replying sends one outbound call when on, neve
   const sent = [];
   notifyEngine.setSender(async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true }; });
   try {
-    // The setting: off by default, round-trips.
-    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, false);
+    // The setting: ON by default now (#2020 step 3), and it round-trips both ways.
+    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, true);
+    const off = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
+    assert.equal(JSON.parse(off.body).on, false);
     const put = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
     assert.equal(JSON.parse(put.body).on, true);
 

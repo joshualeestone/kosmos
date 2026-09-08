@@ -1376,7 +1376,8 @@ const NEEDS_YOU_MARKERS = Object.freeze([
   /❯\s*1\.\s*Yes/,
 ]);
 
-/* Companions to NEEDS_YOU_MARKERS, used by `asksSomething` below. OPTION_LINE is
+/* Companions to NEEDS_YOU_MARKERS, used by `drawsOptionMenu` / `blockingProseAtBottom`
+   below (the two halves of the former `asksSomething`, #2456). OPTION_LINE is
    anchored so a quoted glyph mid-sentence is not a prompt; ENDS_AT_QUESTION is what
    separates a question from a sentence that merely contains one. */
 /* ❯ ONLY, NOT ›. This qualifies the CLAUDE marker list; Codex's › is owned by
@@ -1508,7 +1509,7 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  *    Enter to confirm · Esc to cancel
  *
  * 🛑 THE QUESTION ROW DOES NOT END AT ITS QUESTION MARK. It runs on into a
- * parenthetical, so `asksSomething`'s "marker opens the line and the line
+ * parenthetical, so `blockingProseAtBottom`'s "marker opens the line and the line
  * closes at ?" rule cannot see it -- measured: the shipped classifier read this
  * whole screen as `unknown`. The card's own capture (2026-08-30) was the same
  * dialog abbreviated to its first sentence, which DOES end at `?`; both shapes
@@ -1538,7 +1539,7 @@ const CODEX_NEEDS_YOU_MARKERS = Object.freeze([
  * it, so `gh issue view 1629` prints it) satisfies both, because the glyph
  * strip removes the tool-result indentation and the option label then owns a
  * row. That false red would stand over the agent's own fresh `working` report
- * (rule 3), which is the exact harm the `asksSomething` docblock names.
+ * (rule 3), which is the exact harm the `blockingProseAtBottom` docblock names.
  * What a paste cannot do is be the bottom of the screen: a live agent draws
  * its composer footer, a working line or more prose beneath the paste, while
  * the real dialog REPLACES the composer. Observed on the capture above: the
@@ -1596,7 +1597,7 @@ const TRUST_PROMPT_MARKER = /^[\s>│├└─*❯›]*Quick safety check:/;
  *
  * Like the trust dialog it draws at the TOP of a fresh pane, so `classify` reads it from
  * the same trailing-trimmed tail, and its options are UN-numbered (so `OPTION_LINE`'s
- * `❯ <digit>.` never matched it and `asksSomething` on the untrimmed tail saw only blank
+ * `❯ <digit>.` never matched it and the prose check on the untrimmed tail saw only blank
  * padding -> UNKNOWN). This detector keys on the SHARED consent CHROME, not on this one
  * banner, so the NEXT unforeseen confirm dialog reads as needs_you by default rather than
  * unknown; the headings below only LABEL the evidence.
@@ -1643,6 +1644,16 @@ const CONSENT_PROMPT_MARKER = /^[\s>│├└─*❯›]*No, exit$/;
  * lands on the live one (tested in chat.test.js).
  */
 const ALL_NEEDS_YOU_MARKERS = Object.freeze([...NEEDS_YOU_MARKERS, ...CODEX_NEEDS_YOU_MARKERS, TRUST_PROMPT_MARKER, CONSENT_PROMPT_MARKER]);
+
+/* #2456: the placeholder `because` for a NEEDS_YOU with no words of its own -
+   a scraped question we located on the screen but did not read, or a reported
+   needs_you the agent raised without saying why. ONE derivation, exported, for
+   the reason `NEEDS_YOU_MARKERS` is exported: the route that decides whether it
+   has an actual question to show must compare against the SAME string this
+   engine emits, and a second copy in the route would drift the first time this
+   wording changes. It is deliberately NOT a real question, so a caller can tell
+   "the board is asking, in general" from "the agent told us this". */
+const ASKING_GENERIC = 'it is asking you something';
 
 /**
  * 🛑 THE FIRST FOUR WERE GUESSES AT WORDING AND CLAUDE CODE SAYS SOMETHING ELSE.
@@ -2424,11 +2435,19 @@ function closedEnvelope(text) {
  * real red is never suppressed. That means a scraped false positive silently
  * overrides an agent's own accurate account of itself.
  *
- * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR POSITION. Both were
- * tried on the card and both fail: requiring a selector glyph anywhere fails on
- * a sentence quoting one, and requiring the match in the last N lines fails
+ * 🔑 WHAT SEPARATES THEM IS STRUCTURE, NOT VOCABULARY OR COARSE POSITION. Both
+ * were tried on the card and both fail: requiring a selector glyph anywhere fails
+ * on a sentence quoting one, and requiring the match in the last N lines fails
  * whenever the prose IS the newest output, which for a chatty agent is most of
- * the time. Position narrows the window; it does not discriminate.
+ * the time. A last-N-lines window narrows but does not discriminate.
+ *
+ * 📌 BUT SEE #2456 (`blockingProseAtBottom` below): the LAST NON-BLANK line is a
+ * structural signal, not the coarse last-N-lines position rejected here. A live
+ * Claude pane always draws a status line or the composer footer beneath live
+ * output, so a prose question that is genuinely the bottom of the screen means
+ * the dialog replaced the composer -- i.e. the agent is blocked. That is exactly
+ * the "marker opens the line and closes at ?" rule below, applied to the one line
+ * that carries structural meaning rather than to any line.
  *
  * A real prompt line is the QUESTION AND NOTHING ELSE: the marker opens the
  * line and the line closes at the question mark (optionally `(y/N)`). Prose
@@ -2441,15 +2460,102 @@ function closedEnvelope(text) {
  * 📌 Structural options only when the glyph OPENS the line. `and then ❯ 1. Yes
  * underneath it.` is prose about a prompt, not a prompt.
  */
-function asksSomething(tail) {
+/**
+ * 🔑 #2456: THE OLD `asksSomething` FUSED TWO SIGNALS OF DIFFERENT RELIABILITY,
+ * AND A POSITION SUITED TO ONE IS WRONG FOR THE OTHER. SPLIT INTO TWO CHECKS.
+ *
+ * The old single function combined a STRUCTURAL signal (a runner DREW a numbered
+ * option menu, `OPTION_LINE`) with a LOOSE prose signal (a `NEEDS_YOU_MARKERS`
+ * phrase opens a line and the line closes at `?`). Both fed one `needs_you`
+ * branch placed ABOVE the working checks, so a prose marker matching ANYWHERE in
+ * the tail outranked the working signals:
+ *
+ *   A freshly-imported / reactivated agent's FIRST-BREATH output is full of
+ *   "Would you like to ...?" / "Do you want to proceed ...?" prose while it is
+ *   actively producing -- it is thinking out loud, not blocked. With that prose
+ *   line anywhere in the tail beating the working checks, every such agent read
+ *   `needs_you`. Measured at scale 2026-09-07 (Josh: "a TON of agents" flagged
+ *   "needs me" while not waiting); the "we cannot find the question on its
+ *   screen" banner is the symptom -- `classify` caught a transient prose line the
+ *   pane has since redrawn past, so the route's `questionIn` re-read finds
+ *   nothing.
+ *
+ * The split, and why BOTH halves stay ABOVE the working checks:
+ *   - `drawsOptionMenu` (STRUCTURAL): a TUI that draws `❯ 1. …` beneath `2. …`
+ *     is genuinely waiting even mid-turn with the spinner line still in the tail
+ *     -- pinned by the #1155/#2146 "blocked beats busy" test.
+ *   - `blockingProseAtBottom` (LOOSE, but POSITION-GATED): a prose question is a
+ *     real blocking prompt only when it is the LAST non-blank line of the tail.
+ *     A live blocking prompt is the BOTTOM of the screen -- its dialog has
+ *     replaced the composer -- which is the exact premise the idle-footer and
+ *     trust/consent rules already rest on. So a prose question with the live
+ *     status line, more output, or the composer footer BELOW it is not blocking
+ *     (the agent is producing or idle), and only a prose question that nothing
+ *     meaningful sits below is `needs_you`.
+ *
+ * 🛑 WHY BOTTOM-ANCHORED RATHER THAN "BELOW THE WORKING CHECKS" (the first cut of
+ * this fix, rejected in review): moving the prose check below the working checks
+ * fixed the false RED but opened a false CALM -- a real bottom-anchored prompt
+ * that shared its 25-line tail with a STALE work line (a title spinner frame that
+ * had not cleared, a status line captured a frame before the redraw) would be
+ * outranked by the working check and read `working` over a blocked agent. That is
+ * the module's cardinal sin, worse than the annoyance it fixed. Anchoring to the
+ * bottom keeps the prose check ABOVE the working checks -- so a real prompt is
+ * never suppressed by a stale work line -- while the bottom rule is what stops a
+ * mid-stream prose question (which always has the status line or footer beneath
+ * it) from firing. A working agent's prose is essentially never the last
+ * non-blank line; only a dialog that replaced the composer is.
+ *
+ * 🔑 WHAT THE "ANY LINE -> LAST LINE" NARROWING GIVES UP, STATED HONESTLY (the
+ * old `asksSomething` matched a marker ANYWHERE in the tail, so this is a real
+ * scope reduction, not a limit inherited from elsewhere):
+ *   - A prose question with the COMPOSER FOOTER or the LIVE STATUS LINE below it
+ *     now reads idle/working instead of needs_you. This is the FIX, not a loss:
+ *     an agent that asked and returned to its composer is sitting at its prompt,
+ *     not blocked in a dialog -- which is exactly the #2456 false positive.
+ *   - The one genuine residual is a real, MENU-LESS blocking prompt whose last
+ *     non-blank line is a trailing CHROME line rather than the question itself,
+ *     e.g. `Do you want to proceed?\nEnter to confirm · Esc to cancel` with no
+ *     option rows. That shape has NOT been observed: every observed Claude
+ *     blocking dialog draws a numbered/labelled menu (caught by `drawsOptionMenu`
+ *     or the trust/consent detectors ABOVE, where the question need not be last),
+ *     and the inline `(y/N)` prompt is bottom-anchored. Catching the hypothetical
+ *     would mean scanning more than the last line, which re-admits the live status
+ *     line sitting ONE line below a mid-stream prose question -- i.e. it reopens
+ *     the widespread false positive this fix exists to close. Per this file's
+ *     observe-don't-guess rule, it is left uncovered and gets a fixture the day it
+ *     is seen, rather than a speculative chrome matcher now.
+ *
+ * ⚠️ The genuinely INHERITED premise (shared with the idle-footer rule's own
+ * docblock, asserted not measured): a blocking prompt REPLACES the composer, so
+ * the footer is gone. A future Claude that drew a prompt WITH the footer still
+ * beneath it would read idle here, the trap that rule already documents.
+ *
+ * The #1155 discrimination rules (`hit.index === 0` + `ENDS_AT_QUESTION`) are
+ * unchanged; only the "which line" scope narrowed from "any" to "the last".
+ */
+function drawsOptionMenu(tail) {
   for (const raw of String(tail == null ? '' : tail).split('\n')) {
     if (OPTION_LINE.test(raw)) return true;
-    const line = raw.replace(/^[\s>│├└─*❯›]+/, '').trim();
-    if (!line) continue;
-    for (const re of NEEDS_YOU_MARKERS) {
-      const hit = line.match(re);
-      if (hit && hit.index === 0 && ENDS_AT_QUESTION.test(line)) return true;
-    }
+  }
+  return false;
+}
+
+function blockingProseAtBottom(tail) {
+  const lines = String(tail == null ? '' : tail).split('\n');
+  // The last non-blank line, chrome stripped. A live blocking prompt is the
+  // bottom of the screen; a prose question with anything meaningful below it
+  // (the live status line, more output, the composer footer) is the agent
+  // producing or idle, not blocked.
+  let last = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (lines[i].replace(/^[\s>│├└─*❯›]+/, '').trim()) last = i;
+  }
+  if (last < 0) return false;
+  const line = lines[last].replace(/^[\s>│├└─*❯›]+/, '').trim();
+  for (const re of NEEDS_YOU_MARKERS) {
+    const hit = line.match(re);
+    if (hit && hit.index === 0 && ENDS_AT_QUESTION.test(line)) return true;
   }
   return false;
 }
@@ -2502,7 +2608,7 @@ function classify(pane, paneText) {
     }
     const codexTail = paneText.split('\n').slice(-25).join('\n');
     if (CODEX_NEEDS_YOU_MARKERS.some((re) => re.test(codexTail))) {
-      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+      return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
     }
     // Observed: codex draws "(4s • esc to interrupt)" on its live progress
     // line, the same phrase Claude's older UI used. Vocabulary coincidence,
@@ -2607,7 +2713,7 @@ function classify(pane, paneText) {
     };
   }
   /**
-   * #1629 point 3. Before `asksSomething`, because that rule cannot see this
+   * #1629 point 3. Before the prose check (`blockingProseAtBottom`), because that rule cannot see this
    * dialog (its question row runs past the `?`), and because the reason has to
    * say WHICH question: an agent stopped here reads as ignoring you, and the
    * DEFAULT answer ends the session. Same state as any other question --
@@ -2646,7 +2752,8 @@ function classify(pane, paneText) {
   }
   /* #1919: the bypass-permissions acceptance (and any other Claude consent dialog) sits at
      the TOP of a fresh pane like the trust dialog, so it reads from the same trimmed tail
-     and BEFORE `asksSomething`, whose untrimmed tail sees only the blank padding beneath it.
+     and BEFORE the prose check (`blockingProseAtBottom`), whose untrimmed tail sees only the
+     blank padding beneath it.
      An agent parked here is waiting on the person, exactly like any other prompt -- the one
      thing the board must never render as "can't tell" for a state it can see. */
   const consent = consentPrompt(trustTail);
@@ -2658,8 +2765,25 @@ function classify(pane, paneText) {
       evidence: consent.evidence,
     };
   }
-  if (asksSomething(tail)) {
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: 'it is asking you something' };
+  /* #2456: the STRUCTURAL half of the old `asksSomething` -- a runner DREW a
+     numbered `❯ 1. …` menu. A menu on screen means the agent is genuinely
+     waiting even mid-turn (the spinner line can still be in the tail), so it
+     stays ABOVE the working checks. The #1155/#2146 "blocked beats busy" test
+     pins this precedence. */
+  if (drawsOptionMenu(tail)) {
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
+  }
+  /* #2456: the PROSE half, position-gated to the BOTTOM of the screen. A prose
+     question is a real blocking prompt only when it is the last non-blank line
+     (its dialog replaced the composer); with the live status line, more output,
+     or the footer beneath it, the agent is producing or idle, not blocked. It
+     stays ABOVE the working checks so a real bottom-anchored prompt is never
+     suppressed by a STALE work line above it (the false-CALM a below-working
+     placement would open); the bottom rule is what keeps a mid-stream prose
+     question -- which always has the status line or footer below it -- from
+     firing. See the `blockingProseAtBottom` docblock for the full rationale. */
+  if (blockingProseAtBottom(tail)) {
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: ASKING_GENERIC };
   }
   if (SPINNER.test(pane.title)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is producing output right now' };
@@ -3152,32 +3276,71 @@ function byWorkdirDetailed(agentName) {
   let dir;
   try { dir = require('./create').workerDir(agentName); } catch { return nothing; }
   if (!dir) return nothing;
-  const flat = dir.replace(/[^A-Za-z0-9]/g, '-');
+
+  /* 🔑 #2406: FLATTEN AND COMPARE THE ON-DISK CANONICAL SPELLING, NOT THE RAW
+     RECORDED PATH. The agent is launched through the launchd `WorkingDirectory =
+     workerDir(name)` key (create.js), and Claude Code writes its transcript under
+     `projects/<flatten(process.cwd())>/` -- and process.cwd() is the path getcwd
+     hands back, which resolves CASE and SYMLINKS. So a folder recorded as
+     `.../work` but stored on disk as `.../Work` (exactly Josh's imported seed
+     agents, 2026-09-07, whose "Work" folder he named himself) has its transcript
+     under `projects/<flatten("...Work...")>/`, while this reader used
+     `flatten("...work...")` -- a DIFFERENT directory, because flatten is
+     case-sensitive -- and found nothing, so a running agent read as "we cannot
+     find a transcript". It is a property of the PATH, not the runtime, which is
+     why the Claude and OpenAI context rings broke together.
+
+     This is the SAME divergence already fixed for the codex trust key in #2129/#5
+     (create.js trustCodexFolder), so it reuses the SAME helper rather than growing
+     a second answer. `canonicalOnDisk` recovers the stored case, resolves symlinks
+     and the macOS `/private` twin, and falls back to path.resolve when the folder
+     is gone. Strictly additive: with no divergence canon is the resolved raw path,
+     flatten(canon) === flatten(dir), and nothing changes for the common case. */
+  const trust = require('./trust');
+  const flatten = (p) => String(p).replace(/[^A-Za-z0-9]/g, '-');
+  const canon = trust.canonicalOnDisk(dir);
+  // Both spellings, deduped: the canonical folder the runner actually wrote into,
+  // and the raw recorded one (identical when there is no case/symlink divergence).
+  const flats = [...new Set([flatten(canon), flatten(dir)])];
+  // A transcript is this agent's when its recorded cwd is the same real folder.
+  // The two-paths-flatten-to-one collision guard is preserved: distinct real
+  // paths stay distinct under canonicalOnDisk. The direct `=== dir`/`=== canon`
+  // arms short-circuit the common case before any per-candidate realpath syscall.
+  const belongs = (cwd) => cwd != null
+    && (cwd === dir || cwd === canon || trust.canonicalOnDisk(cwd) === canon);
   let sawTranscripts = false;
 
+  // Gather candidates from EVERY searched folder first, then rank globally.
+  // ⚠️ Collecting across the (canon, raw) folders before sorting keeps the
+  // "newest first" invariant honest: were both folders populated, a per-folder
+  // return would hand back the first folder's newest rather than the newest
+  // overall. In practice getcwd canonicalizes, so real transcripts only land in
+  // `flatten(canon)` and the two folders do not both fill -- but the ranking
+  // must not depend on that being true.
+  const candidates = [];
   for (const root of configRoots()) {
-    const projects = path.join(root, 'projects', flat);
-    let names;
-    try { names = fs.readdirSync(projects); } catch { continue; }
-    const jsonl = names.filter((n) => n.endsWith('.jsonl'));
-    if (!jsonl.length) continue;
-    // Something has been written for this agent, whether or not it turns out to
-    // be readable. That fact is what separates "has not started" from "broken".
-    sawTranscripts = true;
-    // Newest first: a running agent is writing to its current session, and an
-    // agent that has been restarted has older ones beside it.
-    const byNewest = jsonl
-      .map((n) => {
+    for (const flat of flats) {
+      const projects = path.join(root, 'projects', flat);
+      let names;
+      try { names = fs.readdirSync(projects); } catch { continue; }
+      const jsonl = names.filter((n) => n.endsWith('.jsonl'));
+      if (!jsonl.length) continue;
+      // Something has been written for this agent, whether or not it turns out to
+      // be readable. That fact is what separates "has not started" from "broken".
+      sawTranscripts = true;
+      for (const n of jsonl) {
         const full = path.join(projects, n);
         let mtime = 0;
-        try { mtime = fs.statSync(full).mtimeMs; } catch { /* skip below */ }
-        return { full, mtime };
-      })
-      .filter((f) => f.mtime > 0)
-      .sort((a, b) => b.mtime - a.mtime);
-    for (const f of byNewest) {
-      if (transcriptCwd(f.full) === dir) return { file: f.full, sawTranscripts };
+        try { mtime = fs.statSync(full).mtimeMs; } catch { continue; }
+        if (mtime > 0) candidates.push({ full, mtime });
+      }
     }
+  }
+  // Newest first ACROSS every candidate folder: a running agent is writing to
+  // its current session, and a restarted one has older ones beside it.
+  candidates.sort((a, b) => b.mtime - a.mtime);
+  for (const f of candidates) {
+    if (belongs(transcriptCwd(f.full))) return { file: f.full, sawTranscripts };
   }
   return { file: null, sawTranscripts };
 }
@@ -3313,6 +3476,58 @@ function headBytes(file, bytes) {
  * the agent's age. Age would have been a threshold wearing a dimension's
  * clothes: it looks principled, and the number is somebody's guess.
  */
+
+/**
+ * #2257: the context-ring result SHAPES, shared by the Claude reader
+ * (`readContext`) and the Codex reader (`readCodexContext`) so both providers say
+ * the SAME sentence about the same condition -- the `NO_READING` principle,
+ * extended to the not-started / never-recorded / measured / unscaled cases. A
+ * single source is also what the memory-panel wording pins protect: a second
+ * inline copy of a sentence drifts, and the pin fires precisely to stop that.
+ */
+const NONE_BASE = { tokens: null, percent: null, confidence: CONFIDENCE.NONE };
+function notYetResult() {
+  /* ⚠️ NOT "it has not started a session yet" -- "session" is agent vocabulary;
+     this sentence is read by the person on the Memory panel (Mona Lisa's jargon
+     rule). Nobody needs to know a session exists to understand nothing has
+     happened yet. */
+  return { ...NONE_BASE, notYet: true, because: 'it has not done anything yet' };
+}
+function neverRecordedResult() {
+  return { ...NONE_BASE, notYet: false, neverRecorded: true,
+           because: 'made before Kosmos recorded this, so there is no record to read' };
+}
+function measuredResult(tokens, ceiling, assumed) {
+  const percent = Math.round((tokens / ceiling) * 100);
+  return {
+    tokens,
+    percent: Math.min(100, percent),
+    overCeiling: percent > 100,
+    notYet: false,
+    ceiling,
+    ceilingAssumed: assumed,
+    confidence: CONFIDENCE.STRUCTURED,
+    because: assumed
+      ? 'measured, against a limit we have assumed rather than watched'
+      : 'measured, against a limit we have watched it hit',
+  };
+}
+function noCeilingResult(tokens, model) {
+  /* ⚠️ `noCeiling` is an EXPLICIT flag, not a null the UI has to infer: the
+     surfaces need to tell "we read it and cannot scale it" from "we could not
+     read it", and every other shape leaves `ceiling` undefined rather than null. */
+  return {
+    tokens,
+    percent: null,
+    ceiling: null,
+    ceilingSource: null,
+    notYet: false,
+    noCeiling: true,
+    confidence: CONFIDENCE.STRUCTURED,
+    because: `measured, but we do not know how much ${model || 'this model'} can hold`,
+  };
+}
+
 function readContext(agentName, model, exactSession) {
   const file = transcriptFor(agentName, exactSession);
   if (!file) {
@@ -3378,32 +3593,15 @@ function readContext(agentName, model, exactSession) {
      * ninety minutes earlier: `sessionIdsFor` returning nothing used to mean
      * "never registered" and now means "this is a normal machine".
      */
-    if (notYetStarted(agentName)) {
-      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: true,
-               /* ⚠️ NOT "it has not started a session yet", which is what this said
-                  when it shipped in 0.2.23 and which Mona Lisa's jargon check
-                  caught within minutes. "Session" is agent vocabulary; this
-                  sentence is read by the person, on the Memory panel. The word
-                  arrived from the LAYER the fact was computed in, which is how
-                  most of these get in.
-                  📌 And the fact is easier to say than the mechanism: nobody
-                  needs to know a session exists to understand that nothing has
-                  happened yet. Beside `lead: 'memory has nothing recorded yet.'`
-                  the pair reads as one thought rather than two vocabularies. */
-               because: 'it has not done anything yet' };
-    }
+    if (notYetStarted(agentName)) return notYetResult();
     /* #149/#150: the no-plist case CAN be separated, by the same bookkeeping
        fact the notYet gate above trusts. "We cannot find a transcript" reads
        as a fault somebody should fix; for an agent Kosmos never recorded a
        launch file for, the truth is there was never anywhere to look, and no
        amount of restarting fills it in. Only reached for a TIED pane: the
        untied refusal returns before readContext is called. */
-    if (neverRecorded(agentName)) {
-      return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false, neverRecorded: true,
-               because: 'made before Kosmos recorded this, so there is no record to read' };
-    }
-    return { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
-             because: NO_READING.NO_TRANSCRIPT };
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
   }
   const { text, whole } = tailBytes(file);
   // ⚠️ `text === null` AND `text === ''` ARE NOT THE SAME ANSWER, and `if
@@ -3435,9 +3633,8 @@ function readContext(agentName, model, exactSession) {
        admission, because it could have run anywhere. Same gate as the
        no-transcript branch above, same reason. */
     return notYetStarted(agentName)
-      ? { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: true,
-          because: 'it has not done anything yet' }
-      : { tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
+      ? notYetResult()
+      : { ...NONE_BASE, notYet: false,
           because: 'its transcript is empty, which tells us about the file rather than the agent' };
   }
 
@@ -3514,36 +3711,82 @@ function readContext(agentName, model, exactSession) {
     // the card still shows the unknown badge, since pctOf is null. Whether
     // Unknown is the right WORD for a measured-but-unscaled agent is a
     // separate question and belongs with the unknown-model cards (#149/#150).
-    return {
-      tokens,
-      percent: null,
-      ceiling: null,
-      ceilingSource: null,
-      notYet: false,
-      // ⚠️ AN EXPLICIT FLAG, not a null the UI has to infer. The surfaces need
-      // to tell "we read it and cannot scale it" from "we could not read it",
-      // and `ceiling === null` distinguishes those only if you also know that
-      // every other shape leaves the field UNDEFINED rather than null. That is
-      // a rule nothing states and a test fixture broke within an hour.
-      noCeiling: true,
-      confidence: CONFIDENCE.STRUCTURED,
-      because: `measured, but we do not know how much ${model || 'this model'} can hold`,
-    };
+    return noCeilingResult(tokens, model);
   }
 
-  const percent = Math.round((tokens / ceiling) * 100);
-  return {
-    tokens,
-    percent: Math.min(100, percent),
-    overCeiling: percent > 100,
-    notYet: false,
-    ceiling,
-    ceilingAssumed: found.assumed,
-    confidence: CONFIDENCE.STRUCTURED,
-    because: found.assumed
-      ? 'measured, against a limit we have assumed rather than watched'
-      : 'measured, against a limit we have watched it hit',
-  };
+  return measuredResult(tokens, ceiling, found.assumed);
+}
+
+/**
+ * The context ring for a Codex (OpenAI) agent (#2257).
+ *
+ * 🔑 A DIFFERENT SOURCE, THE SAME SHAPE. `readContext` reads a Claude `.jsonl`
+ * transcript; a Codex agent does not write one, so that path returned
+ * NO_TRANSCRIPT for every OpenAI agent and the ring read "Not yet read" forever
+ * regardless of activity. Codex writes a JSONL ROLLOUT instead, and
+ * `codexsession.read`, keyed on the launch folder, returns both halves of the
+ * ring: the window (the tool states it on `task_started`) and the used tokens
+ * (the last `token_count` event's `last_token_usage.input_tokens` -- the last
+ * prompt, i.e. current window occupancy; see codexsession.js's note on why the
+ * cumulative total is the wrong number).
+ *
+ * ⭐ THE CEILING IS MEASURED, NOT ASSUMED. Claude's limit is a number we guess
+ * ("against a limit we have assumed"); Codex states its own window, so
+ * `ceilingAssumed` is false and this ring rests on a firmer footing.
+ *
+ * ⚠️ THE not-yet / admission SPLIT IS THE SAME as `readContext`'s, and reuses the
+ * same provider-agnostic bookkeeping (`notYetStarted`/`neverRecorded`): a Codex
+ * agent Kosmos launched (plist) with no rollout has not started; anything else
+ * with no reading is the admission. The reasons come from the shared `NO_READING`,
+ * so a person cannot tell which provider an agent runs on from the words.
+ *
+ * 📌 SCOPE: this reads the fill from a MATCHED rollout. `codexsession.forWorkdir`
+ * now matches on `trust.canonicalOnDisk` (realpathSync.native -- folds the `/private`
+ * twin AND case, exactly as codex's std::fs::canonicalize wrote `meta.cwd`), so a
+ * case-divergent launch folder matches its rollout. That door -- the #2406 class --
+ * was closed by the #2417 canonicalOnDisk sweep.
+ */
+function readCodexContext(agentName) {
+  let dir;
+  try { dir = require('./create').workerDir(agentName); } catch { dir = null; }
+  let sess;
+  try { sess = dir ? require('./codexsession').read(dir) : { found: false }; }
+  catch { sess = { found: false }; }
+
+  // A rollout that EXISTS but could not be read is a genuine read failure, not a
+  // fresh agent -- keep that admission rather than collapsing it into "not yet".
+  if (!sess.found && sess.because === NO_READING.UNREADABLE) {
+    return { ...NONE_BASE, notYet: false, because: NO_READING.UNREADABLE };
+  }
+
+  // No rollout matched this folder, or a session that has reported no usage yet:
+  // the same not-started / never-recorded / admission split `readContext` makes
+  // for a missing Claude transcript, via the shared result builders.
+  //
+  // 🛑 RESIDUAL, STATED RATHER THAN HIDDEN (#2257 scope): `notYetStarted` reads
+  // `byWorkdirDetailed`, which looks for a Claude `.jsonl` -- a Codex agent never
+  // writes one, so `sawTranscripts` is always false and, for a Kosmos-managed
+  // (plist) Codex agent, this resolves to `notYet` before the admissions are
+  // reached. So a Codex agent that HAS run but whose rollout `forWorkdir` fails to
+  // MATCH re-presents "Not yet read" rather than admitting a fault. It fails SOFT
+  // (never a wrong number). The case-divergent match-miss (the #2406 class) that
+  // used to be the dominant cause here is now CLOSED -- #2417 switched
+  // `forWorkdir` to `trust.canonicalOnDisk`, which folds case; a match-miss now
+  // needs some OTHER divergence, which this still soft-handles.
+  if (!sess.found || sess.contextUsed == null) {
+    if (notYetStarted(agentName)) return notYetResult();
+    if (neverRecorded(agentName)) return neverRecordedResult();
+    return { ...NONE_BASE, notYet: false, because: NO_READING.NO_TRANSCRIPT };
+  }
+
+  const tokens = sess.contextUsed;
+  // No window means task_started carried none: measured usage, no percentage --
+  // the same seventh case readContext has. `model` is null here (the Codex model
+  // id is out of scope, #12), which the shared builder renders as "this model".
+  if (!sess.contextWindow) return noCeilingResult(tokens, null);
+  // The Codex window is MEASURED (task_started), not assumed like Claude's -- so
+  // `assumed` is false and the ring rests on a firmer footing.
+  return measuredResult(tokens, sess.contextWindow, false);
 }
 
 /**
@@ -4578,7 +4821,7 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
       const asked = reported.because ? ' Its last report asked: ' + reported.because : '';
       return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.SCRAPED, because: scraped.because, evidence: scraped.evidence, reported: false, conflict: 'its screen shows a question its last report did not mention.' + asked, ...project };
     }
-    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said('it is asking you something'), reported: true, conflict: null, ...project };
+    return { state: STATE.NEEDS_YOU, confidence: CONFIDENCE.STRUCTURED, because: said(ASKING_GENERIC), reported: true, conflict: null, ...project };
   }
   if (reported.state === 'blocked') {
     const what = reported.on ? 'it is waiting on ' + reported.on + (reported.owner ? ', which ' + reported.owner + ' owns' : '')
@@ -5076,8 +5319,14 @@ function snapshot() {
     // answer, because we do not know whose conversation it is.
     const tied = isNamedOurs(pane);
     const { model } = tied ? readModel(pane.name, pane.session) : { model: null };
+    /* #2257: a Codex (OpenAI) agent does not write a Claude `.jsonl`, so
+       `readContext` returned NO_TRANSCRIPT for every OpenAI agent and the ring
+       read "Not yet read" forever. Its context lives in the Codex rollout, which
+       `readCodexContext` reads instead. Same `isCodexPane` discriminator the
+       account-badge gate above (~5053) uses. */
+    const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
     const context = tied
-      ? readContext(pane.name, model, pane.session)
+      ? (isCodexPane ? readCodexContext(pane.name) : readContext(pane.name, model, pane.session))
       // ⚠️ Unknown, and not because it is ambiguous: this one is a REFUSAL. We
       // can see there is something to read and are declining to read it, so
       // 'not yet' would be false about us as well as about the agent.
@@ -5415,7 +5664,7 @@ module.exports = {
   sessionStartedAtFromTmux, transcriptForSession, setSessionSource,
   identityFromText, configRoots, transcriptCwd,
   countAgents, snapshot, paneRoster, readPanes, isParseable, classify, isNamedOurs,
-  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor,
+  rank, paneOrder, modelDisplayName, readIdentity, transcriptFor, readCodexContext,
   /* ⚠️ Exported so the ROUTE can say what tmux said. The alternative is a
      second caller of `list-panes` asking the same question a second time,
      which would report a different moment from the one that failed. */
@@ -5442,6 +5691,10 @@ module.exports = {
   NEEDS_YOU_MARKERS,
   CODEX_NEEDS_YOU_MARKERS,
   ALL_NEEDS_YOU_MARKERS,
+  /* #2456: the placeholder `because` string, so the routes can tell a real
+     reported question from the board's generic "asking" and never render the
+     placeholder as if the agent had said it. */
+  ASKING_GENERIC,
   trustPrompt,
   consentPrompt,
   isTrustDialogEvidence,

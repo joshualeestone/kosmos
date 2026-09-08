@@ -77,25 +77,74 @@ async function activeHead(page) {
    a fixed click count (identity, not index -- an inserted/removed step is walked
    through, never mis-counted; kosmos#1801). With the gates mocked uncheckable, no
    step before the target disables Next; a disabled Next on a non-target step means
-   an intermediate step grew a required-answer gate this walk does not handle. */
+   an intermediate step grew a required-answer gate this walk does not handle.
+
+   🛑 THE PRIMARY IS NOT ALWAYS #fr-next, AND ASSUMING SO TIMED OUT ON A CLEAN
+   MACHINE (kosmos#2445). The Model step (S5) HIDES #fr-next and offers only
+   "Skip connecting a model" as #fr-alt whenever nothing is connected --
+   frPaintSubscription's non-`connected` arm calls frActions(null, { alt }), so
+   `next.hidden = true`. A machine signed into Claude reports subscription
+   `connected` and shows a #fr-next "Next"; a CLEAN machine (every CI runner, and
+   a real fresh install) reports not-connected and shows only the #fr-alt Skip
+   link. A walk that only ever clicks #fr-next therefore passed on the signed-in
+   build box and timed out for the full 30s on the headless macos-latest runner
+   ("<button hidden id=fr-next>Next</button> ... element is not visible"). It read
+   as a SwiftShader paint weakness; it is not -- `hidden` is a DOM attribute, and
+   the button is deterministically hidden by the not-connected arm. The fix is to
+   click whatever control is ACTUALLY forward: #fr-next when it is usable, else the
+   sole forward #fr-alt link a "no primary" step offers instead. #fr-next is
+   preferred, so the connected arm (whose #fr-alt is "Check again", NOT forward) is
+   still driven by its Next; #fr-alt is used only when #fr-next is unusable, which
+   in a straight walk to #fr-success is only ever the S5 Skip. */
 async function advanceToAnchor(page, anchorSel, max = 12) {
   for (let i = 0; i < max; i += 1) {
+    // Let the step SETTLE into an actionable state before reading it: the target
+    // pane is showing, or a forward control (#fr-next, else #fr-alt) is usable.
+    await page.waitForFunction((sel) => {
+      const el = document.querySelector(sel);
+      const pane = el && el.closest('.fr-pane');
+      if (pane && !pane.hidden) return true;
+      const usable = (b) => !!(b && !b.hidden && !b.disabled);
+      return usable(document.getElementById('fr-next')) || usable(document.getElementById('fr-alt'));
+    }, anchorSel, { timeout: 6000 }).catch(() => {});
     const state = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       const pane = el && el.closest('.fr-pane');
       const next = document.getElementById('fr-next');
-      return { atTarget: !!(pane && !pane.hidden), nextDisabled: !!(next && next.disabled) };
+      const alt = document.getElementById('fr-alt');
+      const usable = (b) => !!(b && !b.hidden && !b.disabled);
+      return {
+        atTarget: !!(pane && !pane.hidden),
+        nextUsable: usable(next),
+        nextDisabled: !!(next && next.disabled),
+        altUsable: usable(alt),
+      };
     }, anchorSel);
     if (state.atTarget) return;
-    if (state.nextDisabled) {
+    if (state.nextUsable) {
+      await page.click('#fr-next');
+    } else if (state.nextDisabled) {
+      // #1801: a DISABLED Next (present but disabled) means an intermediate step
+      // grew a required-answer gate this walk does not handle. Diagnose it BEFORE
+      // falling to #fr-alt -- a gated step that ALSO exposes a usable alt would
+      // otherwise be silently walked via the alt and this signal lost. The S5 Skip
+      // case is Next HIDDEN, not disabled, so it does not reach here (gates are
+      // mocked uncheckable, so a disabled Next is unexpected; kosmos#1801).
       throw new Error(`Continue is disabled on a step before ${anchorSel} -- an `
         + 'intermediate step grew a required-answer gate this walk does not handle '
         + '(gates are mocked uncheckable, so this is unexpected; kosmos#1801).');
+    } else if (state.altUsable) {
+      // #fr-next is hidden (the S5 not-connected arm), and the step's sole
+      // forward action is the #fr-alt "Skip connecting a model" link. Reached only
+      // when Next is neither usable nor disabled -- i.e. genuinely hidden, not gated.
+      await page.click('#fr-alt');
+    } else {
+      throw new Error(`no forward control (neither #fr-next nor #fr-alt is usable) `
+        + `on a step before ${anchorSel} -- the step painted no way onward.`);
     }
-    await page.click('#fr-next');
     await page.waitForTimeout(150);
   }
-  throw new Error(`never reached ${anchorSel} in ${max} Next clicks`);
+  throw new Error(`never reached ${anchorSel} in ${max} advances`);
 }
 
 async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
@@ -517,7 +566,17 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   {
     // #1: S3 tmux "Turn On" FIRES the native a11y prompt (/api/a11y-prompt); the
     // sleep row is programmatic and opens Energy settings (no trigger).
-    const { ctx, page } = await fresh(browser);
+    // The two S3 gates must be mocked CHECKABLE-not-granted, not the walk-through's
+    // uncheckable default: since #2085 an uncheckable gate row is `data-checking`,
+    // which hides .s3-req (the "Turn On" button) behind a "Checking..." state, so a
+    // click on .s3-on can never become visible. "Turn On" is only shown to a real
+    // user when the gate is checkable and not granted, which is exactly what this
+    // section clicks. The S2 file-access gate is mocked granted so the walk can
+    // advance past it to reach the S3 anchor.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
     let sleepPosts = 0; let a11yPromptPosts = 0; let a11ySettingsPosts = 0;
     await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
     await page.route('**/api/a11y-prompt', (r) => { a11yPromptPosts += 1; r.fulfill({ json: { ok: true } }); });

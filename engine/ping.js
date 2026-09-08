@@ -43,7 +43,7 @@ const { version: VERSION } = require('../package.json');
 
 // #1856: route through the one data-root derivation (store.ROOT = dataRootFor), not the raw
 // AGENT_WORKFORCE_DATA switch -- prod-inert when it is unset (byte-identical), and under a
-// multi-Kosmos switcher (#1704) it inherits the AgentWorkforce leaf + #1820's isAbsolute guard.
+// multi-Kosmos switcher (#1704) it inherits the Kosmos leaf + #1820's isAbsolute guard.
 const BASE = store.ROOT;
 const FILE = path.join(BASE, 'ping.json');
 const DEFAULT_ENDPOINT = 'https://installkosmos.com/api/created';
@@ -77,7 +77,13 @@ function read() {
   }
   let parsed;
   try { parsed = JSON.parse(raw); } catch { return { on: false, installId: null, ok: false }; }
-  if (!parsed || typeof parsed !== 'object') return { on: false, installId: null, ok: false };
+  /* ⚠️ Array.isArray IS LOAD-BEARING, not tidiness: `typeof [] === 'object'`, so
+     a ping.json corrupted to a top-level JSON array would fall through to the ON
+     default below (`typeof parsed.on === 'boolean' ? parsed.on : true` -> true)
+     and send against a possible opt-out. Mirrors the engine/notify.js #2020 fix:
+     any non-plain-object pref fails to OFF, the safe direction for a body that
+     leaves the Mac. */
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { on: false, installId: null, ok: false };
   return {
     on: typeof parsed.on === 'boolean' ? parsed.on : true,
     installId: typeof parsed.installId === 'string' && parsed.installId ? parsed.installId : null,

@@ -273,29 +273,42 @@ esac
 # domain, so any honest create-and-chat verification on this Mac bootstraps
 # a real com.kosmos.agent.* job into it even when its store is sealed -- the
 # strict equality failed on every such run, forever. The lib names each
-# changed job REAL / OURS / SANDBOX / UNKNOWN; only the first, second and
-# fourth fail. A SANDBOX job is somebody else's test create: ignored, and
-# SAID, because a transient job must read as "observed, ignored" rather
-# than as silence -- while ignoring OURS would let this harness's own
-# uninstall leak hide behind the same word.
+# changed job REAL / OURS / PERSIST / SANDBOX / UNKNOWN; REAL, OURS and
+# UNKNOWN fail, PERSIST warns loudly (#1163), and a plain SANDBOX is somebody
+# else's transient test create: ignored, and SAID, because a transient job
+# must read as "observed, ignored" rather than as silence -- while ignoring
+# OURS would let this harness's own uninstall leak hide behind the same word.
 AFTER_JOBS="$(lw_snapshot)"
 if [ "$BEFORE_JOBS" = "$AFTER_JOBS" ]; then
   pass "the launchd domain holds the same com.kosmos jobs it started with"
 else
   LW_REAL_CHANGES=0
+  LW_PERSIST_SEEN=0
   while IFS=' ' read -r _kind _label _path; do
     [ -n "$_kind" ] || continue
     case "$_kind" in
       REAL)    fail "a REAL com.kosmos job changed during the run: $_label ($_path)"; LW_REAL_CHANGES=1 ;;
       OURS)    fail "uninstall left this sandbox's job registered in launchd: $_label ($_path)"; LW_REAL_CHANGES=1 ;;
       UNKNOWN) fail "a com.kosmos job appeared or vanished too fast to read where it was registered from: $_label; rerun to be sure"; LW_REAL_CHANGES=1 ;;
+      # PERSIST (#1163): a sandboxed create that is NOT from this install but
+      # carries a persistence key, so it survives a logout. Not failed here (a
+      # concurrent create-verification legitimately bootstraps RunAtLoad
+      # com.kosmos.agent.* jobs, and failing on those is the #566 false-failure
+      # this witness exists to avoid) - but flagged LOUDLY and named, never the
+      # quiet SANDBOX note, because it is the un-attributable leak shape from the
+      # incident. To make it hard-fail instead, move this into the fail set above.
+      PERSIST) say "   WARNING: a sandboxed job on this Mac carries a persistence key (RunAtLoad/KeepAlive), so it is built to outlive the run: $_label (plist at $_path, not ~/Library/LaunchAgents and not this run's sandbox). Investigate and remove - a test artifact should not persist, and this one cannot be attributed from its label alone (#1163)."; LW_PERSIST_SEEN=1 ;;
       SANDBOX) say "   sandboxed create observed elsewhere on this Mac, ignored: $_label (plist at $_path, not ~/Library/LaunchAgents)" ;;
     esac
   done <<LWEOF
 $(lw_judge "$BEFORE_JOBS" "$AFTER_JOBS" "$HOME/Library/LaunchAgents" "$SB")
 LWEOF
   if [ "$LW_REAL_CHANGES" -eq 0 ]; then
-    pass "the launchd domain's changes were all sandboxed test creates, named above"
+    if [ "$LW_PERSIST_SEEN" -eq 0 ]; then
+      pass "the launchd domain's changes were all sandboxed test creates, named above"
+    else
+      say "the launchd domain's changes were sandboxed creates, but at least one PERSISTENT job was flagged above - investigate before calling this Mac clean (#1163)"
+    fi
   fi
 fi
 

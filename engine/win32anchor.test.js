@@ -44,7 +44,10 @@ test('#570 the runtime anchors in LOCAL AppData, never Roaming', () => {
      domain profile and could land an x64 binary on a machine that cannot run it.
      Config roams; the runtime does not. */
   const dir = anchor.anchorDir('win32', 'C:\\Users\\jo', { LOCALAPPDATA: 'C:\\Users\\jo\\AppData\\Local' });
-  assert.match(dir, /AppData\\Local\\AgentWorkforce\\runtime$/);
+  /* Built from store.APP rather than written out, for the reason the delegation
+     test above exists: #2439 renamed the directory mid-branch, and a literal here
+     would have gone red on the merge for a reason that was not a defect. */
+  assert.equal(dir, 'C:\\Users\\jo\\AppData\\Local\\' + store.APP + '\\runtime');
   assert.ok(!/Roaming/.test(dir), 'a 92 MB machine-specific binary must not roam: ' + dir);
 });
 
@@ -53,7 +56,7 @@ test('#570 the anchor is derived for the platform ASKED ABOUT, so a Mac can asse
      the machines that run the suite, which is how every defect in this lane has
      survived. */
   const dir = anchor.anchorDir('win32', 'C:\\Users\\jo', {});
-  assert.match(dir, /^C:\\Users\\jo\\AppData\\Local\\AgentWorkforce\\runtime$/,
+  assert.equal(dir, 'C:\\Users\\jo\\AppData\\Local\\' + store.APP + '\\runtime',
     'the win32 derivation must use backslashes and the documented location: ' + dir);
 });
 

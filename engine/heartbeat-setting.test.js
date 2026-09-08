@@ -12,7 +12,7 @@ const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-heartbeat-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const hb = require('./heartbeat-setting');
 
-// #1856: hb.FILE now lives under the AgentWorkforce leaf (store.ROOT), and afterEach
+// #1856: hb.FILE now lives under the Kosmos leaf (store.ROOT), and afterEach
 // removes only the file, not the dir -- so ensure the dir before each test. Without
 // this the tests that write hb.FILE DIRECTLY (below) only passed because an earlier
 // test's write() had created the leaf dir first: green in the full run, ENOENT in

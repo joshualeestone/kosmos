@@ -17,7 +17,7 @@
  *
  * Seeds one project of its own to open, inside the sandbox, and PROVES the
  * server writes there before it touches anything (the seed lands in
- * <sandbox>/data/AgentWorkforce/projects.json or the check refuses). Puts the
+ * <sandbox>/data/Kosmos/projects.json or the check refuses). Puts the
  * board's saved layout back to what it was, and removes the seeded folder.
  */
 const { chromium } = require('playwright');
@@ -79,7 +79,7 @@ const path = require('path');
   seedFolder = fs.mkdtempSync(path.join(SANDBOX, 'cons-774-seed-'));
   const made = await pg.evaluate((f) => fetch('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Consolidated check', folder: f }) }).then((r) => r.status), seedFolder);
   say(made >= 200 && made < 300, 'seeded one project for the check', String(made));
-  const store = path.join(SANDBOX, 'data', 'AgentWorkforce', 'projects.json');
+  const store = path.join(SANDBOX, 'data', 'Kosmos', 'projects.json');
   if (!fs.existsSync(store) || !fs.readFileSync(store, 'utf8').includes('Consolidated check')) {
     throw new Error('the server at ' + URL + ' did not write the seed to ' + store + ': it is NOT running against the sandbox passed. Refusing to touch it.');
   }

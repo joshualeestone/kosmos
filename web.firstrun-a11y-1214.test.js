@@ -37,10 +37,13 @@ test('install-flow-9screen: the tmux/Accessibility concern is the S3 gate, with 
   assert.ok(S3.indexOf('id="fr-pane-3"') > -1 && S3.length > 0, 'the S3 Automation pane exists');
   assert.match(S3, /data-gate="tmux"/, 'S3 carries the tmux permission gate row');
   assert.match(S3, /data-gate="sleep"/, 'S3 carries the sleep permission gate row beside it');
-  // Each gate row has a "Turn On" button and a red->green pill contract (Mona's S3).
+  // Each gate row has a "Turn On" button and Mona's THREE-state pill contract (#2085):
+  // Not activated (red, + Turn On) / Checking... (neutral, no button) / Activated (green).
   assert.match(S3, /class="s3-on"[^>]*>Turn On</, 'the gate rows carry a Turn On button');
-  assert.match(S3, /Needs Activated/, 'the not-granted pill reads "Needs Activated"');
-  assert.match(S3, /Activated/, 'the granted pill reads "Activated"');
+  assert.match(S3, /s3-pill-req">Not activated</, 'the not-granted pill reads "Not activated" (#2085 fold of "Needs Activated")');
+  assert.doesNotMatch(S3, /Needs Activated/, 'the old "Needs Activated" copy is gone (#2085)');
+  assert.match(S3, /s3-pill-wait">Checking/, 'the cannot-check pill reads "Checking..." (#2085 neutral 3rd state)');
+  assert.match(S3, /s3-pill-ok">&#10003; Activated</, 'the granted pill reads "✓ Activated"');
 });
 
 test('install-flow-9screen: the gate poll reads /api/a11y-status for the tmux grant (fail-safe, positive-only)', () => {

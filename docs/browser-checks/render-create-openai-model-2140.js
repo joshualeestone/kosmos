@@ -89,7 +89,64 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       whyText: why.textContent || '',
       whyShown: !why.hidden,
     };
-    return { listable, notListable };
+    // IMPORT DEFAULT (#2453 follow-up): an OpenAI IMPORT lands on the account's default
+    // model. Stub a listable response where exactly one model is marked default:true.
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-5', provider: 'openai', label: 'GPT-5', arg: 'gpt-5', why: 'top', default: false },
+      { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', why: 'mid', default: true },
+    ] }) });
+    // Control: with NO import flag, a normal create stays on "Let OpenAI choose" (value "").
+    IMPORT_OPENAI_DEFAULT = false;   // eslint-disable-line no-undef
+    paintOpenaiCreateModel();
+    await settle();
+    const noImportValue = sel.value;
+    // Import: pre-picks the account default (gpt-4o), and consumes the one-shot flag.
+    IMPORT_OPENAI_DEFAULT = true;    // eslint-disable-line no-undef
+    paintOpenaiCreateModel();
+    await settle();
+    const importPicked = sel.value;
+    const clearedAfter = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;   // eslint-disable-line no-undef
+    // Fallback: import flag set but the list carries NO default -> stays "Let OpenAI choose".
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-5', provider: 'openai', label: 'GPT-5', arg: 'gpt-5', why: 'x', default: false },
+    ] }) });
+    IMPORT_OPENAI_DEFAULT = true;    // eslint-disable-line no-undef
+    paintOpenaiCreateModel();
+    await settle();
+    const noDefaultFallback = sel.value;
+    const importDefault = { noImportValue, importPicked, clearedAfter, noDefaultFallback };
+
+    // LIFECYCLE clears: resetCreateProvider (fresh create) and switching to Claude both
+    // drop the one-shot, so an abandoned/detoured import cannot pre-pick on a later create.
+    IMPORT_OPENAI_DEFAULT = true;                                   // eslint-disable-line no-undef
+    resetCreateProvider();                                         // eslint-disable-line no-undef
+    const clearedByReset = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;   // eslint-disable-line no-undef
+    IMPORT_OPENAI_DEFAULT = true;                                   // eslint-disable-line no-undef
+    prov.value = 'anthropic'; applyCreateProviderUI();            // eslint-disable-line no-undef
+    const clearedBySwitch = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;  // eslint-disable-line no-undef
+    const lifecycle = { clearedByReset, clearedBySwitch };
+
+    // SURVIVE-THE-ACCOUNT-LESS-PAINT (#2453, the named leak lesson): an import whose FIRST
+    // paint has no account must NOT clear the flag on the !acctDir early return, so a later
+    // account-selection paint still pre-picks. A regression that "defensively" cleared on
+    // the early return would silently reintroduce the bug this design avoids.
+    window.fetch = async () => ({ ok: true, json: async () => ({ ok: true, models: [
+      { key: 'gpt-5', provider: 'openai', label: 'GPT-5', arg: 'gpt-5', default: false },
+      { key: 'gpt-4o', provider: 'openai', label: 'GPT-4o', arg: 'gpt-4o', default: true },
+    ] }) });
+    prov.value = 'openai';
+    IMPORT_OPENAI_DEFAULT = true;                               // eslint-disable-line no-undef
+    acct.innerHTML = '<option value="" selected>none yet</option>'; acct.value = '';   // no account
+    paintOpenaiCreateModel();                                   // account-less: early return, MUST keep the flag
+    await settle();
+    const survivedEmptyPaint = (typeof IMPORT_OPENAI_DEFAULT === 'undefined') ? 'undef' : IMPORT_OPENAI_DEFAULT;   // eslint-disable-line no-undef
+    acct.innerHTML = '<option value="/home/.codex" selected>the OpenAI sign-in</option>'; acct.value = '/home/.codex';
+    paintOpenaiCreateModel();                                   // account chosen: consumes the surviving flag
+    await settle();
+    const pickedAfterAccountChosen = sel.value;
+    const survive = { survivedEmptyPaint, pickedAfterAccountChosen };
+
+    return { listable, notListable, importDefault, lifecycle, survive };
   });
 
   await browser.close();
@@ -107,6 +164,28 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!r.notListable.noClaude) problems.push('NOT LISTABLE: a Claude model appears under OpenAI');
     if (!r.notListable.noStaleValue) problems.push('NOT LISTABLE: a stale model value remains and could be submitted');
     if (!/signed in with ChatGPT/.test(r.notListable.whyText) || !r.notListable.whyShown) problems.push('NOT LISTABLE: the reason-keyed fallback note is missing');
+    // IMPORT DEFAULT (#2453 follow-up)
+    if (r.importDefault.noImportValue !== '') problems.push('IMPORT: with no import flag, a normal create must stay on "Let OpenAI choose" (value ""): ' + JSON.stringify(r.importDefault.noImportValue));
+    if (r.importDefault.importPicked !== 'gpt-4o') problems.push('IMPORT: an OpenAI import did not pre-pick the account default model (gpt-4o): ' + JSON.stringify(r.importDefault.importPicked));
+    if (r.importDefault.clearedAfter !== false) problems.push('IMPORT: the one-shot import flag was not consumed after the paint: ' + JSON.stringify(r.importDefault.clearedAfter));
+    if (r.importDefault.noDefaultFallback !== '') problems.push('IMPORT (fallback): a list with no default must stay on "Let OpenAI choose" (value ""): ' + JSON.stringify(r.importDefault.noDefaultFallback));
+    if (r.lifecycle.clearedByReset !== false) problems.push('LIFECYCLE: resetCreateProvider did not clear the import flag: ' + JSON.stringify(r.lifecycle.clearedByReset));
+    if (r.lifecycle.clearedBySwitch !== false) problems.push('LIFECYCLE: switching to Claude did not clear the import flag (the gen-mismatch strand fix): ' + JSON.stringify(r.lifecycle.clearedBySwitch));
+    if (r.survive.survivedEmptyPaint !== true) problems.push('SURVIVE: the account-less first paint wrongly cleared the import flag -- it must survive to the account-selection paint: ' + JSON.stringify(r.survive.survivedEmptyPaint));
+    if (r.survive.pickedAfterAccountChosen !== 'gpt-4o') problems.push('SURVIVE: after the account is chosen, the surviving import flag did not pre-pick the account default (gpt-4o): ' + JSON.stringify(r.survive.pickedAfterAccountChosen));
+    // SOURCE-PIN the producer: the browser drove the flag by assignment, so pin that
+    // finishImport SETS it authoritatively (true only for an OpenAI import) in source.
+    const src = require('node:fs').readFileSync(PAGE, 'utf8');
+    if (!/IMPORT_OPENAI_DEFAULT = \(wanted === 'openai'\)/.test(src)) problems.push('SOURCE: finishImport does not set IMPORT_OPENAI_DEFAULT authoritatively (= (wanted === openai))');
+    // SOURCE-PIN resetCreateProvider's OWN clear: the behavioral clearedByReset case above
+    // routes through applyCreateProviderUI's Claude branch (CREATE_ACCOUNTS is empty -> the
+    // provider defaults to anthropic), which independently clears the flag, so that case
+    // cannot notice resetCreateProvider's own clear going missing. That clear is load-bearing
+    // on an OpenAI-only reset (prov.value = 'openai', so the Claude branch never runs and its
+    // clear does not fire), where its absence would let a fresh create pre-pick. Pin it directly.
+    const resetAt = src.indexOf('function resetCreateProvider');
+    const resetSrc = resetAt >= 0 ? src.slice(resetAt, src.indexOf('\n}\n', resetAt)) : '';
+    if (!/IMPORT_OPENAI_DEFAULT = false/.test(resetSrc)) problems.push('SOURCE: resetCreateProvider does not clear IMPORT_OPENAI_DEFAULT (load-bearing on an OpenAI-only reset where the Claude-branch clear does not fire)');
   }
 
   console.log('  ' + JSON.stringify(r));

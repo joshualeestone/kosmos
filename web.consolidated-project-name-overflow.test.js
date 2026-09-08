@@ -39,6 +39,26 @@ const PAGE = fs.readFileSync('web/index.html', 'utf8');
    `display: contents`. The prose knew; the assertion did not. */
 const ROW = 'html[data-layout="consolidated"] body.consolidated .pj-row';
 
+// #1469: re-anchoring any brace-loosened assertion below is caught mechanically by web.brace-anchor-guard-1469.test.js
+/* #1430: the remaining brace-anchored assertions in this file no longer end at
+   their rule's closing brace, so an appended declaration is not a red that looks
+   like a product bug. That is how main went down at step 3 under #1310.
+
+   ⚠️ TWO RESIDUALS remain for the text pins below. An open tail cannot see a
+   SAME-RULE OVERRIDE, and it tolerates an APPEND but NOT a declaration INSERTED
+   between the promised ones. #1310 happened to append; had it grouped the
+   property differently this would not have prevented it.
+
+   ✅ The THIRD residual, a same-selector later-rule override, was live in this
+   file and is now FIXED above by #1476: those assertions resolve the cascade
+   instead of pinning text, so no brace anchor applies to them at all.
+
+   🛑 NOT MECHANICALLY ENFORCED (#1469). A guard was built and removed rather than
+   shipped: it was blind to the very spelling that caused #1310, and a green
+   nobody can trust stops the next person looking.
+
+   Full argument and the four-arm proof: .claude/plans/css-brace-anchor-1430.md */
+
 test('the projects rail forces list-row layout regardless of the panel\'s stored asgrid/list sub-layout', () => {
   /* 🛑 THE EFFECTIVE VALUE, NOT THE TEXT (#1476). This selector is declared TWICE
      in this scope with IDENTICAL declarations, so the text pin sat on the FIRST
@@ -56,6 +76,22 @@ test('the projects rail forces list-row layout regardless of the panel\'s stored
     'the rail no longer neutralizes the tile-grid sub-layout, so a person who left the projects panel on asgrid gets tile rows in the narrow rail again');
   assert.equal(effective(PAGE, RAIL, 'flex-direction'), 'column',
     'the rail stacks its rows horizontally, so the projects panel reads as a grid in a column that cannot hold one');
+
+  /* ✅ AND SEPARATELY, THE COUNT ITSELF IS PINNED (#1459, landed). The two
+     assertions above guard the BEHAVIOUR and are correct whichever copy wins. This
+     one guards the COUNT, a different question. #1459 was the rule existing TWICE
+     (byte-identical, same @media block, so the later copy won and a regression in
+     the earlier copy hid behind it, leaving the behaviour guards unable to red).
+     The redundant earlier copy has been removed; exactly ONE copy must remain, so
+     this pins the count at 1. A 2 means the duplicate was re-introduced (the #1459
+     regression returning); a 0 means the rule was deleted outright.
+     ⚠️ Limit, stated: an APPENDED declaration to the single copy still matches this
+     prefix and leaves the count at 1, so it is invisible here; the effective()
+     checks above are what catch a value change. Control for the count itself:
+     `#pj-composerhint { display: none; }` counts 1, so the number means something. */
+  const RAIL_RULE = /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column;/g;
+  assert.equal((PAGE.match(RAIL_RULE) || []).length, 1,
+    'the #pj-list.asgrid rail rule (#1459) changed count: a 2 means the redundant copy was re-introduced (the defect returning); a 0 means the rule was deleted outright, and the behaviour assertions above would also red');
 });
 
 test('the name and the status pill stack, rather than compete for one line', () => {
@@ -79,6 +115,6 @@ test('the name and the status pill stack, rather than compete for one line', () 
 });
 
 test('the existing ellipsis rule on the project name is untouched -- this fix gives it a box to work in, not a new rule', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjcard-h b \{ font-size: \.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; \}/,
+  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated \.pjcard-h b \{ font-size: \.875rem; overflow-wrap: normal; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;/,
     'the pre-existing (and always correct) truncation rule on the name is gone');
 });

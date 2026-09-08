@@ -69,7 +69,7 @@ process.env.USERPROFILE = PRETEND_REAL;
    `APPDATA` when no AGENT_WORKFORCE_HOME override is set, so leaving the real
    APPDATA in the environment did two bad things at once: the CONTROL below
    compared against os.homedir() and read the operator's real
-   %APPDATA%\AgentWorkforce, and -- worse -- an actual leak past the seam would
+   %APPDATA%\Kosmos, and -- worse -- an actual leak past the seam would
    have landed in the operator's real store rather than the throwaway. The
    redirect is the safety property this file is built on, and on Windows it was
    one variable short of holding.

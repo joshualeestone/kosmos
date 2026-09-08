@@ -236,7 +236,7 @@ session to a bare prompt. Use:
 | 3 | `create.js` win32 branch calls `win32job.install()`, `because` fixed | DONE, 6/6 green |
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
-| 6 | merge origin/main (74 behind; #2439 store rename) | TODO -- do before R1 |
+| 6 | merge origin/main (74 behind; #2439 store rename) | DONE -- 89/89 win32 green |
 | 7 | PHASE 3 dress rehearsal R1-R8 (see RESUME HERE) | TODO |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
@@ -287,3 +287,32 @@ either platform rather than fighting the fixtures.
 📌 FOLLOW-UP WORTH A CARD: remove.test.js's fixtures are the last Mac-only
 assumption in this lane. Until they are ported, a Windows box cannot run the
 removal suite end to end.
+
+## The merge (2026-09-08): what it actually cost
+
+74 commits, and only TWO files were touched on both sides -- `engine/connect.js`
+(auto-merged) and `engine/create.js` (one conflict). The conflict was not
+mechanical and is worth remembering:
+
+🛑 #1185 ADDED A tmux PREFLIGHT EXACTLY WHERE THE win32 ARM SITS. Resolved with
+the win32 branch FIRST and the tmux check below it. A mechanical resolution puts
+the check above, which refuses EVERY Windows create with "we could not find the
+terminal program Kosmos runs agents in" -- a program the platform does not use.
+That is #2304's defect one function over (installedCheck required tmux on every
+platform, so a healthy Windows box reported it could not run agents). The
+ordering now carries a comment saying so.
+
+🔑 THE #2439 RENAME LANDED FOR FREE, which is the whole argument for delegating
+rather than copying. `store.APP` became `Kosmos` and the anchor followed with no
+code change: `C:\Users\jo\AppData\Local\Kosmos\runtime`. Two of the anchor's own
+TESTS still had the old name written out and went red -- fixed to build the
+expected path from `store.APP` too, so the next rename costs nothing again.
+
+Measured after the merge:
+
+    win32 surface (10 files) ......... 89/89 green
+    store + connect suites ........... 115 pass / 46 fail
+    the SAME suites on clean origin/main  115 pass / 46 fail
+
+The 46 are pre-existing Windows fixture failures, verified by running them in a
+scratch worktree at `origin/main` rather than assumed.
