@@ -9,8 +9,9 @@
  * 🔑 THE SHAPE IS DECIDED NOW SO THE WEB VERSION AND THE APP DO NOT FIGHT
  * LATER. One POST per event, fire and forget, to an endpoint that today is
  * nobody's (the relay that will answer it does not exist yet -- so the send is
- * ON by default, per the honesty rule below, but a no-op until that relay is
- * built; do not report notifications as delivered on the strength of the flip).
+ * ON by default, per the honesty rule below, but its POST reaches no
+ * notification relay yet; do not report notifications as delivered on the
+ * strength of the flip).
  * The payload carries WHO and WHAT and WHEN and never the words: the
  * agent's name, the kind of event, the project's name when there is one, the
  * time, and this install's random id. The words stay on the Mac; the phone
