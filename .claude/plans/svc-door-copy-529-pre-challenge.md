@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: svc-door-copy-529
-diff_hash: 8d5dbf72f5c256e8beea50cb34be517eb1abeecc69161edb2ecf8432d24c3f1c
+diff_hash: 44fb52abb3068f5c0da8eba15ac6cd7989e70a7742537b0a9e9284b0f7ad1eb2
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-08T19:09:05Z
@@ -70,8 +70,9 @@ new sentences in web.svc-doors.test.js. Copy-only web/ change (Browser-check tra
   CONVERGED.
 
 ### Verification
-- Full validation suite (validation-log.sh) PASSED on the head commit; the recorded hash
-  8d5dbf72 matches this proof's diff_hash. The suite is 5264/5264.
+- Full validation suite (validation-log.sh) PASSED; the recorded hash matches this proof's
+  diff_hash (44fb52ab). The suite is 5264/5264. (The code was unchanged after convergence;
+  the plan and proof docs were added last and re-validated.)
 - web.svc-doors.test.js pins all 18 pill sentences (present and non-empty, scoped to the
   SVC_DOORS object, control-proven it fails on origin/main where the 18 were absent).
 - Copy-only web/ change: the render path (SVC_DOORS[name] -> esc -> door) is unchanged and
