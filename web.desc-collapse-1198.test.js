@@ -36,7 +36,7 @@ test('the arrival default does not run over a choice already made', () => {
   /* #2487 raised 4000 -> 6500: the parent-trail + sub-projects fill was added at
      the TOP of paintOneProject, pushing the desc-disclosure check from under 4000
      to ~5384 chars in. 6500 includes it with headroom and still sits inside the
-     ~7678-char function (a slice that ran past it would false-match a
+     ~9012-char function (a slice that ran past it would false-match a
      PJ_DESC_TOUCHED mention elsewhere). Raise again if the function grows. */
   const painter = PAGE.slice(PAGE.indexOf('function paintOneProject()'),
                              PAGE.indexOf('function paintOneProject()') + 6500);

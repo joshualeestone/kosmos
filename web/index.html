@@ -2444,10 +2444,12 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 body.pj-mapmode #pj-list, body.pj-mapmode #pj-list-msg, body.pj-mapmode #pj-arch-wrap { display: none !important; }
 /* #1994 sub-projects. Two ways the same relationship is shown, one per view:
    an INDENT in the wide Projects-tab list (the only place with room for a
-   tree), and a "under <parent>" CHIP everywhere the row is narrow or tiled
-   (the asgrid grid and the consolidated rail), where design rejected the
-   indent because it runs out of room by depth three. The chip is the default;
-   the wide-list rule below hides it and applies the indent instead. */
+   tree), and an ANCESTRY LINE everywhere the row is narrow or tiled (the asgrid
+   grid and the consolidated rail), where design rejected the indent because it
+   runs out of room by depth three. (#2487 replaced the original single
+   "under <parent>" chip with the full ancestry line + depth dots; it keeps the
+   `pj-parent` class so the same default-shown / hidden-in-wide-list rule applies.)
+   The line is the default; the wide-list rule below hides it and uses the indent. */
 .pjsub { display: inline-block; font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
 .pj-parent { display: inline-block; margin-top: 6px; font-size: .75rem; color: var(--k-ink-2); }
 /* #2487: the ancestry mouseprint (grid tiles + narrow rail; the wide list hides
@@ -2459,7 +2461,7 @@ body.pj-mapmode #pj-list, body.pj-mapmode #pj-list-msg, body.pj-mapmode #pj-arch
 .pj-anc .pj-anc-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .pj-anc .pj-anc-sep { opacity: .55; }
 .pj-dots { display: inline-flex; gap: 2px; flex: none; }
-.pj-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--gold, #c8901a); opacity: .9; }
+.pj-dots i { width: 4px; height: 4px; border-radius: 50%; background: var(--gold, #d6a62e); opacity: .9; }
 body.consolidated .pj-anc { justify-content: flex-start; }
 /* #2487: the detail-page parent trail (above the name) and the sub-projects
    section (between the head and the members/files/tasks grid). The rows are the
@@ -33039,8 +33041,11 @@ function paintOneProject() {
     if (kids.length) {
       const rows = kids.map((c) => {
         const cp = pjPillOf(c, PJ_AGENTS_UNREADABLE);
-        const meta = cp.label ? esc(cp.label)
-          : ((c.summary && c.summary.total) ? (c.summary.total + (c.summary.total === 1 ? ' agent' : ' agents')) : 'No agents yet');
+        /* Match the card: pjPillOf returns an EMPTY label for a project with no
+           agents (Josh: do not show "no agents" as a status on the Projects tab),
+           and returns a non-empty label whenever it has agents -- so an empty
+           child shows its name with no meta, never "No agents yet". */
+        const meta = cp.label ? esc(cp.label) : '';
         return '<button class="pj-subrow' + (cp.cls === 'attn' ? ' attn' : '') + '" type="button" data-project="' + esc(c.id) + '">'
           + '<span class="pj-subrow-n"><b>' + esc(c.name) + '</b>' + unreadBadge(c.unread) + '</span>'
           + '<span class="pj-subrow-m">' + meta + '</span></button>';
