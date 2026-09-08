@@ -1,5 +1,6 @@
 #!/bin/bash
-# #708: board_origin_label must say WHICH kind of checkout a live board runs from.
+# #708: board_origin_label must say WHICH kind of checkout a live board runs from,
+# and run-tests.sh must actually use it.
 #
 # The fixtures are REAL git repos made by git itself -- `git init` for the main
 # checkout and `git worktree add` for the linked one -- rather than a hand-written
@@ -10,12 +11,16 @@ cd "$(dirname "$0")/.." || exit 1
 . tools/lib/board-origin.sh
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/board-origin.XXXXXX")"; trap 'rm -rf "$T"' EXIT
+# Hermetic: an operator's global core.hooksPath / init.templateDir would otherwise
+# run foreign hooks and templates inside these fixtures.
+export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
 G=(git -c user.email=t@t -c user.name=t -c commit.gpgsign=false -c init.defaultBranch=main)
 
 mkdir -p "$T/mainco"
 "${G[@]}" -C "$T/mainco" init -q
-printf 'x\n' > "$T/mainco/f"
-"${G[@]}" -C "$T/mainco" add f
+mkdir -p "$T/mainco/engine"
+printf 'x\n' > "$T/mainco/engine/f"
+"${G[@]}" -C "$T/mainco" add engine/f
 "${G[@]}" -C "$T/mainco" commit -qm seed
 "${G[@]}" -C "$T/mainco" worktree add -q "$T/wt" -b side
 
@@ -39,6 +44,17 @@ case "$w" in *worktree*) ok "a linked worktree is named as a worktree" ;;
 # MAIN CHECKOUT for both would pass every arm above.
 case "$w" in *"MAIN CHECKOUT"*) bad "a worktree was labelled the MAIN CHECKOUT -- the two are not discriminated: $w" ;;
   *) ok "CONTROL: a worktree is NOT labelled the main checkout" ;; esac
+# The worktree arm is detected by matching the word "worktree", so the OTHER label
+# must not contain it or the two collide on any substring match.
+case "$m" in *worktree*) bad "the MAIN CHECKOUT label contains the word 'worktree', so it collides with the worktree match: $m" ;;
+  *) ok "CONTROL: the main-checkout label does not contain the word 'worktree'" ;; esac
+
+# A board's cwd is very often a SUBDIRECTORY of the checkout, not its root.
+sub="$(board_origin_label "$T/mainco/engine")"
+case "$sub" in *"MAIN CHECKOUT"*) ok "a SUBDIRECTORY of the main checkout is still classified" ;;
+  *) bad "a subdirectory fell through to the bare path, the pre-#708 output: $sub" ;; esac
+case "$sub" in *"$T/mainco/engine"*) ok "the subdirectory label names where the board actually sits" ;;
+  *) bad "the actual cwd was dropped: $sub" ;; esac
 
 mkdir -p "$T/plain"
 p="$(board_origin_label "$T/plain")"
@@ -62,6 +78,20 @@ mkdir -p "$T/has space"
 s="$(board_origin_label "$T/has space")"
 case "$s" in *"MAIN CHECKOUT"*"has space"*) ok "a path containing a space survives intact" ;;
   *) bad "a path with a space was mangled: $s" ;; esac
+
+# --- INTEGRATION. Every arm above calls the library directly. Delete the source
+# line or the call in run-tests.sh and all of them stay green while the feature is
+# gone, because the fail-open path is deliberately silent. These two arms are what
+# make the deliverable, rather than the library, the thing under test.
+grep -q 'tools/lib/board-origin.sh' tools/run-tests.sh \
+  && ok "INTEGRATION: run-tests.sh sources the library" \
+  || bad "INTEGRATION: run-tests.sh no longer sources tools/lib/board-origin.sh -- the feature is silently gone"
+# Match the CALL, not the bare name: the `command -v` guard one line above also
+# contains the name, so a bare-name grep stays green when the call is deleted.
+# Found by perturbing this very arm -- it did not go red until it matched this.
+grep -qF 'board_origin_label "$cwd"' tools/run-tests.sh \
+  && ok "INTEGRATION: run-tests.sh CALLS board_origin_label on the board's cwd" \
+  || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label \"\$cwd\" -- the feature is silently gone"
 
 [ "$FAILS" -eq 0 ] && echo "board-origin: all arms passed" || echo "board-origin: $FAILS FAILED"
 exit "$FAILS"
