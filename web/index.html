@@ -31401,7 +31401,12 @@ function projectCard(p, unreadable, depth, childCount) {
     const dots = '<span class="pj-dots" aria-hidden="true">' + '<i></i>'.repeat(Math.min(anc.length, 4)) + '</span>';
     const shown = anc.length > 2 ? [anc[0], null, anc[anc.length - 1]] : anc;
     const sep = '<span class="pj-anc-sep" aria-hidden="true"> › </span><span class="vh">, </span>';
-    const chain = shown.map((n) => n === null ? '<span aria-hidden="true">…</span>' : esc(n)).join(sep);
+    /* Deep chains elide the middle VISUALLY only (space is the sole constraint, and it
+       does not bind a screen reader): the ellipsis is aria-hidden and the dropped middle
+       names ride along as vh text, so a reader hears the whole chain ("Kosmos, App, Sub,
+       Mobile") while the tile shows "Kosmos > ... > Mobile". */
+    const midNames = anc.slice(1, -1).map((n) => esc(n)).join(', ');
+    const chain = shown.map((n) => n === null ? '<span aria-hidden="true">…</span><span class="vh">' + midNames + '</span>' : esc(n)).join(sep);
     parentChip = '<span class="pj-parent pj-anc">' + dots + '<span class="pj-anc-t">' + chain + '</span></span>';
   }
   /* Faces: the avatar when the TIED agent has one, the initials chip

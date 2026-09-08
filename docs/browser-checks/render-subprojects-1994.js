@@ -176,6 +176,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' ancestry: grandchild shows both ancestors', /Kosmos/.test(anc.mobChain) && /App/.test(anc.mobChain), anc.mobChain);
     ok(t + ' ancestry: great-grandchild elides middle, keeps root + immediate', /Kosmos/.test(anc.gcChain) && /Mobile/.test(anc.gcChain) && /…/.test(anc.gcChain), anc.gcChain);
+    // #2487: the middle is elided VISUALLY (the … above) but the dropped name rides
+    // along as vh text, so the accessible textContent still carries the full chain
+    // (space is the only reason to elide and it does not bind a screen reader).
+    ok(t + ' ancestry: the elided middle name still reaches a screen reader (vh)', /App/.test(anc.gcChain), anc.gcChain);
     ok(t + ' ancestry: child shows the one parent', anc.appChain === 'Kosmos', anc.appChain);
     ok(t + ' ancestry: depth dots are decorative (aria-hidden)', anc.gcDots === 'true', 'aria-hidden=' + anc.gcDots);
     ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
