@@ -88,4 +88,26 @@ pass "the workflow runs on macos-latest, matching the cut"
 bash -n "$GATE" || fail "tools/browser-checks.sh does not parse"
 pass "the gate script the workflow calls exists and parses"
 
+# 7. It SCOPES CI to the DOM-state subset (#2445). The full 3b suite has timing/
+#    animation/paint checks that flake on the slow, headless runner (false-RED-
+#    prone + low-confidence). Without KOSMOS_BC_CI_ALLOWLIST the gate would run
+#    the whole suite and false-red on real PRs, which is what un-shipped the first
+#    cut of this gate. Assert the env is set AND names at least the keystone
+#    install-flow check, so a silent drop back to the full suite is caught here.
+grep -q 'KOSMOS_BC_CI_ALLOWLIST' "$WF" \
+  || fail "the workflow does not set KOSMOS_BC_CI_ALLOWLIST -- CI would run the full timing-fragile suite and false-red (the #2445 runner-flake defect)"
+grep -q 'click-first-run' "$WF" \
+  || fail "the CI allowlist does not name the keystone install-flow check click-first-run (the #2085 class this gate exists for)"
+pass "the workflow scopes CI to the DOM-state allowlist, naming the keystone check"
+
+# 8. The gate script HONORS the allowlist AND refuses a green from zero checks.
+#    A filter that matched nothing (a typo, an empty env) must HARD-FAIL, never
+#    exit 0 having asserted nothing (test-filter-matching-nothing-exits-zero).
+#    Pin both the filter and the zero-match guard, so removing either reds here.
+grep -q 'KOSMOS_BC_CI_ALLOWLIST' "$GATE" \
+  || fail "browser-checks.sh does not read KOSMOS_BC_CI_ALLOWLIST -- the workflow env would do nothing and the full suite would run"
+grep -q 'matched no checks at all' "$GATE" \
+  || fail "browser-checks.sh has no zero-match guard -- a typo'd/empty allowlist could green from zero checks"
+pass "the gate honors the allowlist and refuses a green from zero checks"
+
 printf 'all browser-checks-workflow invariants hold\n'

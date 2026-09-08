@@ -154,5 +154,30 @@ jobs:
       # job -- non-zero fails the PR check, which is the whole point. 126/127 means
       # bash/node/a program is missing (the runner is broken, not the page), and it
       # is still correct for the job to go red so the breakage is visible.
-      - name: the page layer, headless (tools/browser-checks.sh, #39)
+      #
+      # 🔑 CI RUNS ONLY THE TIMING-INSENSITIVE DOM-STATE SUBSET (#2445). The full
+      # 3b suite has many timing/animation/paint checks ("within 20s a progress row
+      # appeared", "the mark drew") that FLAKE on the slow, headless macos-latest
+      # runner -- they are both slow-runner-fragile AND headless-weak (SwiftShader
+      # software rendering), so in CI they are false-RED-prone and low-confidence.
+      # KOSMOS_BC_CI_ALLOWLIST names the DOM-state class this gate exists for (the
+      # #2085 class: element present / hidden / clickable / labeled), which is
+      # timing-robust and headless-fine. browser-checks.sh runs ONLY these and
+      # HARD-FAILS if the list matches nothing (no green from zero checks). The
+      # timing/animation/paint coverage stays at the headed cut-time 3b, on a real
+      # compositor -- so a GREEN HERE IS THE DOM-STATE GATE, NOT FULL 3b COVERAGE.
+      - name: the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)
+        env:
+          # The #2085 gate class: install-flow clickthrough + the permission/gate
+          # DOM-state checks (present/hidden/clickable/labeled). Grows as needed;
+          # keep it to assertion TYPE (DOM-state), never timing/animation/paint.
+          KOSMOS_BC_CI_ALLOWLIST: >-
+            click-first-run
+            render-gated-next
+            render-connect-skip
+            render-switch-states
+            named-controls
+            render-optout-403-2020
+            render-settings-403-2047
+            render-board-signin-403-2023
         run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh
