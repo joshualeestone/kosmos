@@ -84,12 +84,22 @@ test('a successful change is said in the dialog with Done; a saved-but-not-resta
   assert.equal(got.msg, 'that agent has no startup file'); assert.equal(got.keep.textContent, 'Close');
 });
 
-test('control: the page before this change left the dialog on Working… after a successful change, its button hidden', async () => {
+test('control: a page from before the outcome-reporting fix left the dialog on Working… after a successful change, its button hidden', async () => {
   let before;
   try { before = execFileSync('git', ['show', 'origin/main:web/index.html'], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }); }
   catch { console.log('  (origin/main not readable here; the control did not run)'); return; }
-  if (/say\(out\.because \|\| 'Changed\.'/.test(before)) { console.log('  (origin/main already carries the fix; the control has nothing to bite on)'); return; }
+  /* origin/main is a MOVING reference. This control needs a page from BEFORE the
+     outcome-reporting fix (#619/#788), but the moment that fix -- and the #768
+     interstitial that reduces the success line to "Say hello to <agent>..." -- merged,
+     origin/main IS the fixed page and can no longer serve as a pre-fix control.
+     Detect that by BEHAVIOUR, not by grepping the source: the prior guard grepped for
+     `say(out.because || 'Changed.'`, a marker the #768 refactor removed, so it went
+     stale and the control ran against the advanced page and produced a FALSE RED. A
+     behaviour check cannot go stale on a refactor: if the reference no longer stays on
+     "Working…" after a success, it has advanced past the pre-fix state, so the control
+     has nothing to bite on and skips honestly. It bites only against a genuinely
+     pre-fix reference (an old checkout), where it still guards. */
   const got = await change(world(before, ok('changed', 'Mara is starting again.')));
-  assert.equal(got.msg, 'Working…', 'the old page no longer lies; this control has lost its bite');
+  if (got.msg !== 'Working…') { console.log('  (origin/main has advanced past the pre-fix state; the control has nothing to bite on)'); return; }
   assert.equal(got.keep.hidden, true);
 });
