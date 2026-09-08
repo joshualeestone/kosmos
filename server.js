@@ -8620,6 +8620,11 @@ const server = http.createServer((req, res) => {
           }
         }
         const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+          // #2458: the parent chosen on the create page (blank/absent = top-level).
+          // The engine validates it through the same cleanParent the edit route
+          // uses (a missing parent or a non-string is refused), so a bad parent is
+          // a 400 like any other bad field rather than a silent ungroup.
+          parent: body.parent,
           made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at

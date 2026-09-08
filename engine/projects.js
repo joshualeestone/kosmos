@@ -1570,7 +1570,7 @@ function trueChildName(parent, name) {
  *   which is still fully supported and is the only way to reach work that lives
  *   somewhere else.
  */
-function create({ name, folder, agents, roster, description, made } = {}) {
+function create({ name, folder, agents, roster, description, made, parent } = {}) {
   const asked = String(folder == null ? '' : folder).trim();
   // ⚠️ On the default path the FOLDER-NAME refusal comes first, because it
   // is the sentence the person has been reading: the preview line under the
@@ -1627,8 +1627,21 @@ function create({ name, folder, agents, roster, description, made } = {}) {
   // their error message.
   const members = [...new Set((Array.isArray(agents) ? agents : []).map(String).map((a) => a.trim()).filter(Boolean))];
   const now = new Date().toISOString();
+  // The id is minted before the object so #2458's parent validation can pass it
+  // to cleanParent as the childId, exactly as the edit path does.
+  const id = idFor(title, new Set(all.map((p) => p.id)));
+  // #2458: a project can be grouped under a parent AT CREATION, not only later
+  // via edit({ parent }). ONE cleanParent for both paths, so the create-time and
+  // edit-time parent rules cannot drift (the two-definitions-of-one-fact defect
+  // this codebase pays for). Validated BEFORE the write, like every other
+  // refusal here, so a body mixing a bad parent with a good name applies whole
+  // or not at all. A brand-new id is referenced by nothing, so cleanParent's
+  // self-parent and cycle arms are structurally no-ops at create; the type check
+  // and the parent-must-exist check are the ones that bite. Blank/absent/null =
+  // ungrouped, exactly as before.
+  const parentAt = cleanParent(parent, id);
   const project = {
-    id: idFor(title, new Set(all.map((p) => p.id))),
+    id,
     name: title,
     description: desc,
     folder: given,
@@ -1639,9 +1652,10 @@ function create({ name, folder, agents, roster, description, made } = {}) {
     told: {},
     /* #1994: the project this one is grouped under, or null. DISPLAY ONLY --
        the board groups by it; nothing inherits settings, agents, or access
-       through it. Set/cleared later via edit({ parent }); see cleanParent for
-       the self-parent and cycle refusals. A new project starts ungrouped. */
-    parent: null,
+       through it. #2458: settable AT CREATION via create({ parent }) as well as
+       later via edit({ parent }); both go through cleanParent (self-parent and
+       cycle refusals). A project with no parent given starts ungrouped. */
+    parent: parentAt,
     /* Who asked for this project (#327): 'screen' is the operator's own page
        (the route derives it, never the request body), 'process' is anything
        else on this machine, with the pane's agent name when one was offered
