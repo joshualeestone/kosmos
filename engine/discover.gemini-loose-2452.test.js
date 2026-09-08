@@ -34,10 +34,13 @@ const discover = require('./discover');
 const GEMINI_SARAH = '---\nname: sarah\ndescription: An email assistant.\n---\nYou are a helpful assistant that helps draft and refine emails.\n';
 // A standard "You are <Name>" agent (the positive control shape).
 const YOU_ARE_NOVA = 'You are **Nova**, a release manager.\nYou cut and ship releases.\n';
-// A file with front-matter that is NOT the Gemini shape (no name field) but a "You are"
-// body -- geminiIdentity must return null, so it is unchanged (offered, name from the
-// body/heading path, not fabricated from the front-matter).
-const NON_GEMINI_FM = '---\ndescription: just some notes\n---\nYou are the deploy helper for the team.\n';
+// A Claude Code SKILL / Jekyll-doc shape: name: AND description: front-matter, but a body
+// that does NOT introduce an agent ("You are ..."). geminiIdentity's load-bearing
+// discriminator is exactly that body gate (agentfile.js: `if (!INTRODUCES.test(body))
+// return null`), so it must NOT be recognized as a Gemini agent -- naming it from the
+// front-matter would newly promote a previously-refused skill/doc into an offered agent,
+// an untrusted-input widening. This is the boundary the fix must not cross.
+const SKILL_FM = '---\nname: date-formatter\ndescription: Formats dates.\n---\nThis skill formats dates in ISO 8601. It is not an agent.\n';
 
 // Place a file as a LOOSE file (not in any .gemini/agents/ dir) under a scannable root.
 function loose(dir, rel, body) {
@@ -70,17 +73,18 @@ test('#2452 CONTROL: a standard "You are <Name>" loose file keeps its name (unch
   assert.equal(row.name, 'Nova', 'a "You are <Name>" line must still win the name');
 });
 
-test('#2452 CONTROL: a non-Gemini file with front-matter but no name field does NOT get a fabricated name', () => {
-  const DISK = fs.mkdtempSync(path.join(SB, 'ctl-fm-'));
-  const f = loose(DISK, 'papers/deploy.md', NON_GEMINI_FM);
+test('#2452 CONTROL: a SKILL/Jekyll file (name+description front-matter, non-agent body) is NOT recognized as a Gemini agent', () => {
+  // The load-bearing discriminator in geminiIdentity is the body gate: a skill/doc carries
+  // the same name:+description: front-matter as a Gemini agent, so only the "You are ..."
+  // body separates them. The fix reuses geminiIdentity, so this file must NOT be offered
+  // with its front-matter name (or at all) -- otherwise the loose path would newly promote
+  // a previously-refused skill/doc into a named agent. Asserting the name is not the
+  // front-matter value covers both outcomes: not offered, or offered without that name.
+  const DISK = fs.mkdtempSync(path.join(SB, 'ctl-skill-'));
+  const f = loose(DISK, 'papers/date-formatter.md', SKILL_FM);
   const row = impByBase(discover.scan({ roots: [{ dir: DISK, maxDepth: 3 }] }), path.basename(f));
-  assert.ok(row, 'the file was offered (its body introduces an agent)');
-  // geminiIdentity returns null for non-Gemini front-matter, so the name is whatever the
-  // existing paths yield (a "You are the deploy helper" body has no clean <Name>, and there
-  // is no H1) -- crucially NOT a value invented from the front-matter. Assert it is not the
-  // description text and not a Gemini-derived name.
-  assert.notEqual(row.name, 'just some notes', 'the description was wrongly used as a name');
-  assert.ok(!/deploy helper/.test(row.name || ''), 'a body phrase was wrongly promoted to a name');
+  assert.notEqual(row && row.name, 'date-formatter',
+    'a skill/Jekyll file was promoted to a named Gemini agent via its front-matter (widening)');
 });
 
 test('#2452: the fix is the front-matter reader, not a filename guess (rename the file, same name)', () => {
