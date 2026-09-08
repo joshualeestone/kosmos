@@ -1,6 +1,8 @@
 'use strict';
 /* #1994: sub-projects UI: a project can name a parent, shown as a tree in the
- * wide Projects tab (indent) and a "under <parent>" chip everywhere narrow, plus
+ * wide Projects tab (indent) and, #2487, a full ancestry line ("Kosmos › App",
+ * middle-elided past depth two) with decorative depth dots everywhere narrow, plus
+ * a parent trail + sub-projects section on the detail page, plus
  * a set-parent <select> in project settings that can only offer a valid parent,
  * and (#2458) a parent <select> on the CREATE page that sends `parent` on create.
  * Drives the SHIPPED paintProjects / projectCard / paintProjectSettings / openAddProject
@@ -87,11 +89,13 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' leaf shows no sub count', tree.by.and.sub === '');
     // orphan (dangling parent id) renders at top level
     ok(t + ' dangling-parent child renders at top level', tree.by.orph && tree.by.orph.depth === 0);
-    // archived-parent child renders at top level BUT keeps the chip (relationship not dropped)
+    // archived-parent child renders at top level BUT keeps the ancestry line (relationship not dropped)
     ok(t + ' archived-parent child renders top level', tree.by.ac && tree.by.ac.depth === 0);
-    ok(t + ' archived-parent child keeps its chip', /under Archived one/.test(tree.by.ac.chip), tree.by.ac.chip);
-    // the chip carries the parent name for a nested child too
-    ok(t + ' nested child has parent chip', /under Kosmos/.test(tree.by.app.chip), tree.by.app.chip);
+    // #2487: the "under <parent>" chip became a full ancestry line ("Kosmos › App"),
+    // so the relationship is now the name(s) without the "under" prefix.
+    ok(t + ' archived-parent child keeps its ancestry line', /Archived one/.test(tree.by.ac.chip), tree.by.ac.chip);
+    // the ancestry line carries the parent name for a nested child too
+    ok(t + ' nested child has ancestry line', /Kosmos/.test(tree.by.app.chip), tree.by.app.chip);
     // In the wide LIST view the indent carries a nested child's relationship, so
     // its chip is hidden; but an orphan (archived/dangling parent) has no indent,
     // so ITS chip must stay visible or the relationship would vanish in list mode.
@@ -132,6 +136,80 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     });
     ok(t + ' grid view drops the indent', grid.marginLeft === '0px', grid.marginLeft);
     ok(t + ' grid view shows the chip', grid.chipDisplay !== 'none', grid.chipDisplay);
+
+    // ---- Layer 1d: #2487 the ancestry line (full chain + decorative dots) and
+    // the detail-page parent trail + sub-projects section. The single "under
+    // <parent>" chip became a full path so a grandchild is not mistaken for a
+    // top-level project; deep chains middle-elide, keeping root + immediate. ----
+    const anc = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? name + ' parent' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app'), mk('gc', 'Deep', 'mob')];
+      PJ_SORT = 'az';
+      document.body.classList.remove('consolidated');
+      document.getElementById('pj-list').classList.add('asgrid');   // grid: the ancestry line is visible
+      paintProjects();
+      const rowOf = (id) => document.querySelector('#pj-list .pj-row[data-project="' + id + '"]');
+      const ancT = (id) => { const e = rowOf(id).querySelector('.pj-anc-t'); return e ? e.textContent : ''; };
+      const dotsAria = (id) => { const d = rowOf(id).querySelector('.pj-dots'); return d ? d.getAttribute('aria-hidden') : null; };
+      const out = { gcChain: ancT('gc'), mobChain: ancT('mob'), appChain: ancT('app'), gcDots: dotsAria('gc') };
+      try {
+        PJ_CURRENT = 'mob'; paintOneProject();
+        const par = document.getElementById('pj-one-parent');
+        const subs = document.getElementById('pj-one-subprojects');
+        out.parentHidden = par.hidden; out.parentText = par.textContent;
+        out.subsHidden = subs.hidden; out.subKid = !!subs.querySelector('.pj-subrow[data-project="gc"]');
+        // #2487: the row must actually OPEN on click. It lives in #pj-one-view, a
+        // sibling of #pj-list, so the list delegate does not cover it -- this proves
+        // the section's OWN delegate fires (a row that looks clickable but is inert
+        // was the iteration-1 blocker).
+        const kidBtn = subs.querySelector('.pj-subrow[data-project="gc"]');
+        if (kidBtn) { kidBtn.click(); out.opened = (PJ_CURRENT === 'gc'); } else { out.opened = false; }
+        // #2487 hidden branches (both empty states, like the Map check): a top-level
+        // project hides the parent trail; a leaf hides the sub-projects section.
+        PJ_CURRENT = 'k'; paintOneProject();
+        out.topParentHidden = document.getElementById('pj-one-parent').hidden;
+        PJ_CURRENT = 'gc'; paintOneProject();   // gc is a leaf (no children)
+        out.leafSubsHidden = document.getElementById('pj-one-subprojects').hidden;
+        out.detailErr = null;
+      } catch (e) { out.detailErr = String(e && e.message || e); }
+      return out;
+    });
+    ok(t + ' ancestry: grandchild shows both ancestors', /Kosmos/.test(anc.mobChain) && /App/.test(anc.mobChain), anc.mobChain);
+    ok(t + ' ancestry: great-grandchild elides middle, keeps root + immediate', /Kosmos/.test(anc.gcChain) && /Mobile/.test(anc.gcChain) && /…/.test(anc.gcChain), anc.gcChain);
+    // #2487: the middle is elided VISUALLY (the … above) but the dropped name rides
+    // along as vh text, so the accessible textContent still carries the full chain
+    // (space is the only reason to elide and it does not bind a screen reader).
+    ok(t + ' ancestry: the elided middle name still reaches a screen reader (vh)', /App/.test(anc.gcChain), anc.gcChain);
+    ok(t + ' ancestry: child shows the one parent', anc.appChain === 'Kosmos', anc.appChain);
+    ok(t + ' ancestry: depth dots are decorative (aria-hidden)', anc.gcDots === 'true', 'aria-hidden=' + anc.gcDots);
+    ok(t + ' detail: parent trail shows for a nested project', anc.detailErr === null && anc.parentHidden === false && /Kosmos/.test(anc.parentText || '') && /App/.test(anc.parentText || ''), JSON.stringify({ err: anc.detailErr, h: anc.parentHidden, txt: anc.parentText }));
+    ok(t + ' detail: sub-projects section lists a direct child', anc.detailErr === null && anc.subsHidden === false && anc.subKid === true, JSON.stringify({ err: anc.detailErr, h: anc.subsHidden, kid: anc.subKid }));
+    ok(t + ' detail: a sub-project row OPENS on click (its own delegate, not the list’s)', anc.detailErr === null && anc.opened === true, JSON.stringify({ err: anc.detailErr, opened: anc.opened }));
+    ok(t + ' detail: a top-level project hides the parent trail', anc.detailErr === null && anc.topParentHidden === true, JSON.stringify({ err: anc.detailErr, topParentHidden: anc.topParentHidden }));
+    ok(t + ' detail: a leaf project hides the sub-projects section', anc.detailErr === null && anc.leafSubsHidden === true, JSON.stringify({ err: anc.detailErr, leafSubsHidden: anc.leafSubsHidden }));
+    // #2487: the card chain gets a vh "In " lead-in so a screen reader frames the
+    // names as ancestry rather than a run of unlabelled text after the card title.
+    ok(t + ' ancestry: a vh "In " lead-in frames the names for a screen reader', /In\s/.test(anc.mobChain), anc.mobChain);
+
+    // #2487: the consolidated rail reuses projectCard but ships one rail-specific rule
+    // (body.consolidated .pj-anc { justify-content: flex-start }). Assert the ancestry
+    // line actually renders (and is displayed, not display:none) under consolidated, so
+    // that rule and this surface are not shipped with zero coverage.
+    const rail = await page.evaluate(() => {
+      const mk = (id, name, parent) => ({ id, name, parent: parent || null, parentName: parent ? name + ' parent' : null, parentArchived: false, archived: false, summary: {}, agents: [], description: '', unread: 0 });
+      PROJECTS = [mk('k', 'Kosmos'), mk('app', 'App', 'k'), mk('mob', 'Mobile', 'app')];
+      PJ_SORT = 'az';
+      document.getElementById('pj-list').classList.remove('asgrid');
+      document.body.classList.add('consolidated');
+      paintProjects();
+      const row = document.querySelector('#pj-list .pj-row[data-project="mob"]');
+      const t2 = row && row.querySelector('.pj-anc-t');
+      const anchor = row && row.querySelector('.pj-anc');
+      const out = { txt: t2 ? t2.textContent : '', disp: anchor ? getComputedStyle(anchor).display : 'none' };
+      document.body.classList.remove('consolidated');   // restore for later layers
+      return out;
+    });
+    ok(t + ' rail (consolidated): the ancestry line renders and is displayed', /Kosmos/.test(rail.txt) && /App/.test(rail.txt) && rail.disp !== 'none', JSON.stringify(rail));
 
     // ---- Layer 2: the set-parent select ----
     const select = await page.evaluate(() => {
