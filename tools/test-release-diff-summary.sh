@@ -75,23 +75,37 @@ BIG="$(mktemp -d "${TMPDIR:-/tmp}/reldiffbig.XXXXXX")"
 git -C "$BIG" init -q; git -C "$BIG" config user.email t@t; git -C "$BIG" config user.name t
 git -C "$BIG" commit -q --allow-empty -m base
 BASE="$(git -C "$BIG" rev-parse HEAD)"
-i=0; while [ "$i" -lt 600 ]; do printf 'x\n' > "$BIG/file_$i.txt"; i=$((i+1)); done
-git -C "$BIG" add -A; git -C "$BIG" commit -q -m "600 files"
+# 🔑 The fixture MUST exceed the ~64KB pipe buffer, or the SIGPIPE arm below is vacuous:
+# a `head` cap only SIGPIPEs when `printf` is still writing after `head` closes at line 500,
+# which needs the TOTAL output to overflow the buffer (a small diff fits entirely, printf
+# finishes first, no SIGPIPE). So use long paths (a ~120-char dir + long filenames) and >500
+# files: >500 forces head to close before the end, and long paths push total --stat output
+# well past 64KB. (An earlier 600 short-named files gave only ~12KB and the arm passed on the
+# buggy `head` too -- a vacuous guard, caught in review.)
+BIGDIR="a-deliberately-long-directory-name-to-inflate-the-git-diff-stat-output-past-the-64kb-pipe-buffer-so-head-would-sigpipe"
+mkdir -p "$BIG/$BIGDIR"
+i=0; while [ "$i" -lt 700 ]; do printf 'x\n' > "$BIG/$BIGDIR/a-fairly-long-changed-file-name-number-$i.txt"; i=$((i+1)); done
+git -C "$BIG" add -A; git -C "$BIG" commit -q -m "700 long-path files"
 BIGTO="$(git -C "$BIG" rev-parse HEAD)"
+FULL_BYTES=$(git -C "$BIG" diff --stat=1000,1000 "$BASE" "$BIGTO" | wc -c | tr -d ' ')
+chk "the pathological fixture exceeds the ~64KB pipe buffer (so the SIGPIPE arm is non-vacuous)" test "$FULL_BYTES" -gt 65536
 CAPPED="$(kosmos_release_diff_summary "$BIG" "$BASE" "$BIGTO")"
 CAP_LINES=$(printf '%s\n' "$CAPPED" | wc -l | tr -d ' ')
-chk "a 600-file range is CAPPED (<= ~502 lines, not 600+)" test "$CAP_LINES" -le 502
+chk "a 700-file range is CAPPED (<= ~502 lines, not 700+)" test "$CAP_LINES" -le 502
 chk "the cap emits a truncation marker pointing at the full diff" has "$CAPPED" "truncated to keep the commit under ARG_MAX"
 CAP_BYTES=$(printf '%s' "$CAPPED" | wc -c | tr -d ' ')
 chk "the capped body is well under ARG_MAX (< 200 KB)" test "$CAP_BYTES" -lt 200000
 # CONTROL: a small range (2 files) is NOT capped and carries no truncation marker.
 SMALL="$(kosmos_release_diff_summary "$R" "$PREV_BUMP" "$THIS")"
 chk "CONTROL: a small range is not truncated (no marker)" hasnt "$SMALL" "truncated to keep the commit"
-# 🛑 PIPEFAIL ARM: release.sh runs `set -euo pipefail`. The `set -u`-only arms above cannot
-# catch a SIGPIPE (141) in the cap's pipeline (a `head`-style early close would abort here).
-# Run the function in a fresh bash with release.sh's exact flags, on the pathological range.
+# 🛑 PIPEFAIL ARM + DISCRIMINATION. release.sh runs `set -euo pipefail`; the set-u-only arms
+# above cannot catch a SIGPIPE (141). Prove BOTH: (1) on THIS fixture a `head` cap actually
+# SIGPIPEs under pipefail (so the guard can fail on the bug), and (2) the shipped `awk` cap
+# does NOT (exit 0, marker survives). Without (1) the arm would pass on the buggy code too.
+bash -c 'set -euo pipefail; printf "%s\n" "$(git -C "$1" diff --stat=1000,1000 "$2" "$3")" | head -n 500 >/dev/null' _ "$BIG" "$BASE" "$BIGTO" 2>/dev/null; HEAD_RC=$?
+chk "DISCRIMINATOR: a head-based cap SIGPIPEs (non-zero) on this fixture under pipefail" test "$HEAD_RC" -ne 0
 CAP_PF="$(bash -c 'set -euo pipefail; . "$1"; kosmos_release_diff_summary "$2" "$3" "$4"' _ "$LIB" "$BIG" "$BASE" "$BIGTO" 2>/dev/null)"; CAP_PF_RC=$?
-chk "under set -euo pipefail the cap does NOT abort (exit 0, not a SIGPIPE 141)" test "$CAP_PF_RC" -eq 0
+chk "the shipped awk cap does NOT abort under set -euo pipefail (exit 0, not SIGPIPE 141)" test "$CAP_PF_RC" -eq 0
 chk "under set -euo pipefail the truncation marker survives (not dropped by an aborted pipe)" has "$CAP_PF" "truncated to keep the commit under ARG_MAX"
 rm -rf "$BIG"
 
