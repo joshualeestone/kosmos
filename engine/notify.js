@@ -59,7 +59,8 @@ const endpoint = () => process.env.AGENT_WORKFORCE_NOTIFY_URL || DEFAULT_ENDPOIN
    at the relay's POST /v1/mac/notify, which requires x-kosmos-notify-token. */
 const notifyToken = () => process.env.AGENT_WORKFORCE_NOTIFY_TOKEN || '';
 
-/** Off until somebody turns it on: there is nothing on the other end yet. */
+/** The persisted on/off, with the never-asked default ON (#2020 step 3); only an
+    explicit `false`, or a pref we cannot read or parse, is off (see below). */
 function read() {
   let raw;
   try { raw = fs.readFileSync(FILE, 'utf8'); } catch (err) {
