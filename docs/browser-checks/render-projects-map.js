@@ -185,11 +185,64 @@ function check(name, pass, detail) {
   check('a genuinely empty board reads "No projects yet"',
     /No projects yet/i.test(empties.none), JSON.stringify(empties.none.slice(0, 70)));
 
+  // The #2458 spec additions: clickable nodes (open the project), a per-branch fold
+  // disclosure on parents (leaves none), two-direction scroll, and the toggle-gating.
+  const adds = await page.evaluate(async () => {
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    PROJECTS.length = 0;
+    PROJECTS.push(
+      { id: 'b', name: 'Beta', parent: null, archived: false, summary: { total: 1 } },
+      { id: 'g', name: 'Gamma', parent: 'b', archived: false, summary: { total: 1 } },
+      { id: 'a', name: 'Alpha', parent: null, archived: false, summary: { total: 2 } },
+    );
+    LAST.length = 0; LAST.push({ sessionName: 's1' });
+    PJ_MAP_FOLDED.clear();
+    paintProjectsMap();
+    const map = document.getElementById('pj-map');
+    const nodeByName = (nm) => Array.from(map.querySelectorAll('.pjonode'))
+      .find((n) => { const t = n.querySelector('.pjonm'); return t && t.textContent === nm; }) || null;
+    const foldOf = (nm) => { const n = nodeByName(nm); const w = n && n.closest('.pjnodewrap'); return w ? w.querySelector('.pjfold') : null; };
+    const beta = nodeByName('Beta'); const alpha = nodeByName('Alpha'); const kosmos = nodeByName('Kosmos');
+    const nodeClickable = !!(beta && beta.tagName === 'BUTTON' && beta.dataset.project === 'b');
+    const rootNotClickable = !!(kosmos && kosmos.tagName !== 'BUTTON' && !kosmos.dataset.project);
+    const betaHasFold = !!foldOf('Beta');
+    const alphaNoFold = !foldOf('Alpha');
+    const gammaBefore = !!nodeByName('Gamma');
+    foldOf('Beta').click(); await sleep(10);
+    const gammaHiddenAfterFold = !nodeByName('Gamma');
+    const foldAria = foldOf('Beta') ? foldOf('Beta').getAttribute('aria-expanded') : null;
+    foldOf('Beta').click(); await sleep(10);
+    const gammaBackAfterUnfold = !!nodeByName('Gamma');
+    let opened = null;
+    const realOpen = openProject;   // eslint-disable-line no-undef
+    openProject = (id) => { opened = id; };   // eslint-disable-line no-undef
+    nodeByName('Alpha').click();
+    openProject = realOpen;   // eslint-disable-line no-undef
+    const cs = getComputedStyle(map);
+    const scrollBoth = (cs.overflowX === 'auto' || cs.overflowX === 'scroll') && (cs.overflowY === 'auto' || cs.overflowY === 'scroll');
+    // Toggle-gating logic (the pure test the button-hide is wired to).
+    PROJECTS.length = 0; PROJECTS.push({ id: 'x', name: 'X', parent: null, archived: false, summary: {} });
+    const flatHasTree = pjHasSubprojects();
+    PROJECTS.push({ id: 'y', name: 'Y', parent: 'x', archived: false, summary: {} });
+    const treeHasTree = pjHasSubprojects();
+    return { nodeClickable, rootNotClickable, betaHasFold, alphaNoFold, gammaBefore, gammaHiddenAfterFold, foldAria, gammaBackAfterUnfold, opened, scrollBoth, flatHasTree, treeHasTree };
+  });
+  check('a project node is a clickable button carrying data-project', adds.nodeClickable, JSON.stringify(adds.nodeClickable));
+  check('the Kosmos root is NOT clickable (not a button, no data-project)', adds.rootNotClickable, JSON.stringify(adds.rootNotClickable));
+  check('a parent gets a fold disclosure; a leaf gets none', adds.betaHasFold && adds.alphaNoFold, 'parentFold=' + adds.betaHasFold + ' leafNoFold=' + adds.alphaNoFold);
+  check('clicking a fold COLLAPSES the branch (child hidden, aria-expanded=false)',
+    adds.gammaBefore && adds.gammaHiddenAfterFold && adds.foldAria === 'false', JSON.stringify({ before: adds.gammaBefore, hidden: adds.gammaHiddenAfterFold, aria: adds.foldAria }));
+  check('clicking the fold again re-EXPANDS the branch (fully-expanded is restorable)', adds.gammaBackAfterUnfold, JSON.stringify(adds.gammaBackAfterUnfold));
+  check('clicking a node opens that project (routes to openProject, not the fold)', adds.opened === 'a', 'opened=' + JSON.stringify(adds.opened));
+  check('the map scrolls in BOTH directions (depth + width)', adds.scrollBoth, JSON.stringify(adds.scrollBoth));
+  check('the Map toggle is gated on sub-projects existing (flat=off, tree=on)',
+    adds.flatHasTree === false && adds.treeHasTree === true, JSON.stringify({ flat: adds.flatHasTree, tree: adds.treeHasTree }));
+
   await browser.close();
   if (problems.length) {
     console.error('render-projects-map: ' + problems.length + ' problem(s)');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-projects-map: the Map toggle draws the project tree as an org chart -- Kosmos root with the fleet count, the real parent/child nesting (Beta > Gamma > Delta), a needs-you node marked attn, an idle node, and staffed nodes with their counts -- and hides the list while it shows.');
+  console.log('render-projects-map: the Map draws the project tree top-down (Kosmos root + fleet count, real parent/child nesting, attn/idle/count lines), each node a button that opens its project, a per-branch fold disclosure on parents (leaves none) that collapses/re-expands a branch, two-direction scroll, the Map toggle gated on sub-projects existing, and the list hidden while it shows.');
 })();
