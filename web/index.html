@@ -5381,6 +5381,10 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .pcombo-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 12px; text-align: left; font: inherit; color: var(--k-ink); background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; cursor: pointer; }
 .pcombo-trigger:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 1px; }
 .pcombo-mark { width: 18px; height: 18px; flex: 0 0 auto; }
+/* OpenAI's source glyph fills only ~51% of its own viewBox, so #firstrun scales it 1.5x
+   (index.html ~6260). That rule is #firstrun-scoped and does not reach the cloned mark in
+   this widget, so mirror it here or the OpenAI logo renders about half-size next to the others. */
+.pcombo [data-pmark="openai"] svg { transform: scale(1.5); }
 .pcombo-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcombo-chev { flex: 0 0 auto; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--k-ink-2); }
 .pcombo-chip { font-size: .68rem; font-weight: 700; color: var(--k-ink-2); background: var(--k-rule); border-radius: 4px; width: 18px; height: 18px; line-height: 18px; text-align: center; display: block; }
