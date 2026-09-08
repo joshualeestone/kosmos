@@ -30,6 +30,15 @@
 #      per lsof(8)); this was not, and neither `timeout` nor `gtimeout` exists on
 #      this fleet (kosmos#2474).
 #
+# 🛑 THE REVERT DID NOT REMOVE (1) ENTIRELY, AND AN EARLIER VERSION OF THIS
+# COMMENT SAID IT DID. It removed the case of a board merely somewhere UNDER a
+# repo. When $HOME IS the repo root, which is what `git init ~` dotfiles gives
+# you, the directory test still matches and the label still fires. That matters
+# more than it sounds: the INSTALLED board runs from $HOME (measured on this
+# machine: a live board with cwd /Users/agent1), so on a dotfiles machine every
+# red suite would accuse the installed board of the violation #708 exists to
+# name. Hence the explicit $HOME decline below.
+#
 # ⇒ ACCEPTED LIMITATION: a board whose cwd is a SUBDIRECTORY of a checkout is
 # NOT classified; it prints the bare path, which is what this file printed before
 # #708 and is ALWAYS TRUE. A label that is silent is strictly better than one
@@ -56,6 +65,8 @@
 #   - a bare repo has no work tree and no `.git` inside one, so it is unclassified
 #   - a `--separate-git-dir` checkout's `.git` is a FILE, so it reads as a worktree
 #   - a git SUBMODULE working directory's `.git` is a FILE too, same reading
+#   - a directory holding a stray `.git` DIRECTORY that is not a repo at all
+#     reads as a main checkout; cheaper to name here than to guard
 board_origin_label() {
   # `set -u` is on in the caller, so default every positional.
   local dir="${1:-}"
@@ -63,6 +74,11 @@ board_origin_label() {
   # Not a directory any more (the process outlived its cwd): say what we were
   # told and nothing more. Inventing a classification here would be a guess.
   [ -d "$dir" ] || { printf '%s' "$dir"; return 0; }
+  # $HOME is where the INSTALLED board runs, which is not a violation. Without
+  # this, a git-managed $HOME (ordinary dotfiles) makes every red suite accuse
+  # the installed board. Textual compare, deliberately: resolving would need a
+  # subprocess, and the caller's cwd comes from lsof in the same spelling.
+  [ -n "${HOME:-}" ] && [ "$dir" = "$HOME" ] && { printf '%s' "$dir"; return 0; }
 
   if [ -d "$dir/.git" ]; then
     printf 'the MAIN CHECKOUT %s, whose .git is a directory rather than a link, so a server running here holds the port and writes into the shared tree' "$dir"

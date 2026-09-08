@@ -10,7 +10,9 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 . "$REPO/tools/lib/board-origin.sh"
 FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
-T="$(mktemp -d "${TMPDIR:-/tmp}/board-origin.XXXXXX")"; trap 'rm -rf "$T"' EXIT
+T="$(mktemp -d "${TMPDIR:-/tmp}/board-origin.XXXXXX")" || { echo "FAIL  could not create a temp dir; no arm below can run"; exit 1; }
+[ -n "$T" ] && [ -d "$T" ] || { echo "FAIL  mktemp produced no directory; refusing to run with an empty \$T"; exit 1; }
+trap 'rm -rf "$T"' EXIT
 # Hermetic: an operator's global core.hooksPath / init.templateDir would otherwise
 # run foreign hooks and templates inside these fixtures.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -45,6 +47,8 @@ case "$m" in *"read-only"*) bad "the label asserts a house rule it cannot verify
 w="$(board_origin_label "$T/wt")"
 case "$w" in *worktree*) ok "a linked worktree is named as a worktree" ;;
   *) bad "a worktree was not named: $w" ;; esac
+case "$w" in *"$T/wt"*) ok "the worktree label carries the path" ;;
+  *) bad "the path was dropped from the worktree label: $w" ;; esac
 # DISCRIMINATION: the whole point is telling the two apart. A label that said
 # MAIN CHECKOUT for both would pass every arm above.
 case "$w" in *"MAIN CHECKOUT"*) bad "a worktree was labelled the MAIN CHECKOUT -- the two are not discriminated: $w" ;;
@@ -71,8 +75,23 @@ env_probe="$(GIT_DIR="$T/mainco/.git" GIT_WORK_TREE="$T/mainco" board_origin_lab
 
 mkdir -p "$T/plain"
 p="$(board_origin_label "$T/plain")"
-[ "$p" = "$T/plain" ] && ok "a non-repo directory is reported unchanged (an installed board runs from \$HOME; that is not a violation)" \
+[ "$p" = "$T/plain" ] && ok "a non-repo directory is reported unchanged" \
   || bad "a non-repo directory was reclassified: $p"
+
+# --- THE INSTALLED BOARD RUNS FROM $HOME, AND $HOME IS OFTEN A GIT REPO.
+# Without the decline, ordinary dotfiles make every red suite accuse the installed
+# board of the violation #708 exists to name. The second arm is the control: the
+# SAME directory must still classify when it is not $HOME, so the first arm cannot
+# pass because classification is broken generally.
+mkdir -p "$T/fakehome"
+"${G[@]}" -C "$T/fakehome" init -q
+h_as_home="$(HOME="$T/fakehome" board_origin_label "$T/fakehome")"
+[ "$h_as_home" = "$T/fakehome" ] \
+  && ok "a git-managed \$HOME is NOT accused (the installed board runs there)" \
+  || bad "a git-managed \$HOME was labelled: $h_as_home"
+h_not_home="$(HOME="$T/nowhere" board_origin_label "$T/fakehome")"
+case "$h_not_home" in *"MAIN CHECKOUT"*) ok "CONTROL: the same directory DOES classify when it is not \$HOME" ;;
+  *) bad "CONTROL failed: classification is broken generally, so the arm above proves nothing: $h_not_home" ;; esac
 
 gone="$T/does-not-exist"
 [ "$(board_origin_label "$gone")" = "$gone" ] && ok "a vanished cwd is reported as given, not classified" \
@@ -94,9 +113,12 @@ case "$s" in *"MAIN CHECKOUT"*"has space"*) ok "a path containing a space surviv
 # --- INTEGRATION. Every arm above calls the library directly. Delete the source
 # line or the call in run-tests.sh and all of them stay green while the feature is
 # gone, because the fail-open path is deliberately silent.
-# Both arms match the LINE, not a mention: a bare path/name grep also matches a
-# comment or the `command -v` guard, which is how the first version of the second
-# arm stayed green when the call was deleted.
+# Both arms match a distinctive FRAGMENT OF THE LINE rather than a bare path or
+# name, which is how the first version of the second arm stayed green when the
+# call was deleted (it matched the `command -v` guard). Stated precisely: these
+# are unanchored substring matches, so a comment quoting the same fragment would
+# still satisfy them. The fragments are distinctive enough that this is
+# theoretical, but it is a substring match and not an anchor.
 grep -qF '. "$REPO/tools/lib/board-origin.sh"' "$REPO/tools/run-tests.sh" \
   && ok "INTEGRATION: run-tests.sh SOURCES the library" \
   || bad "INTEGRATION: run-tests.sh no longer sources the library -- the feature is silently gone"
@@ -118,16 +140,34 @@ case "$fallback_block" in
     fallback_block="" ;;
 esac
 if [ -n "$fallback_block" ]; then
-  fo="$(bash -c 'set -uo pipefail
+  # Drive the extracted block with a REAL REPO ROOT, not "". With "" both
+  # branches of the guard produce the same string, so the arm could not say which
+  # one ran. With a repo root they differ, which is what makes each arm below
+  # about its own branch. stderr is folded in so a malformed extraction reports
+  # the syntax error instead of an unexplained empty result.
+  run_block() { # $1 = cwd, $2 = "source" to make the library available
+    bash -c 'set -uo pipefail
+[ "$2" = source ] && . "$3"
 probe() {
   local cwd="$1"
 '"$fallback_block"'
   printf "%s" "$where"
 }
-probe ""')"
-  [ "$fo" = "an unknown directory" ] \
-    && ok "FAIL-OPEN: run-tests.sh's OWN guard block yields the pre-#708 wording when the library is absent" \
+probe "$1"' _ "$1" "$2" "$REPO/tools/lib/board-origin.sh" 2>&1
+  }
+  fo="$(run_block "$T/mainco" absent)"
+  [ "$fo" = "$T/mainco" ] \
+    && ok "FAIL-OPEN: run-tests.sh's OWN guard block yields the bare path when the library is absent" \
     || bad "FAIL-OPEN produced: $fo"
+  # Nothing else in this suite executes the guard's THEN branch.
+  ft="$(run_block "$T/mainco" source)"
+  case "$ft" in *"MAIN CHECKOUT"*)
+      ok "GUARD-THEN: with the library present the same block classifies, so the two branches differ" ;;
+    *) bad "GUARD-THEN produced: $ft" ;; esac
+  fe="$(run_block "" absent)"
+  [ "$fe" = "an unknown directory" ] \
+    && ok "FAIL-OPEN: an empty cwd still reads the pre-#708 wording" \
+    || bad "FAIL-OPEN empty-cwd produced: $fe"
 fi
 
 [ "$FAILS" -eq 0 ] && echo "board-origin: all arms passed" || echo "board-origin: $FAILS FAILED"
