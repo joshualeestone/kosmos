@@ -55,6 +55,10 @@ const {
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
   TRUST_DIALOG_SENTENCE,
+  /* #2456: the placeholder `because` string, so a route can tell a real
+     reported question from the board's generic "asking" and not offer the
+     placeholder as the question the person should answer. */
+  ASKING_GENERIC,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 
@@ -7519,10 +7523,30 @@ const server = http.createServer((req, res) => {
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;
-    const question = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    /**
+     * #2456: a REPORTED needs_you handed us its question in the card's own
+     * `because` - the SAME sentence the header quotes back to the person. When
+     * the live pane no longer shows it (a report does not decay, and the TUI
+     * redrew past the marker), fall back to those reported words rather than
+     * telling the person "we cannot find the question" one line under a header
+     * that is quoting it. That three-surfaces-disagree gap is the whole card.
+     *
+     * The live pane WINS when it has one: it is the prompt standing in front of
+     * the person now and the only source that can carry a menu. The reported
+     * words are the fallback, tagged `reported` so the page can say the agent
+     * told us this rather than claim it is on screen. `ASKING_GENERIC` is the
+     * board's placeholder for a needs_you with no words of its own, so it is
+     * NOT offered as a question - falling through to the honest clause below.
+     */
+    const reportedQuestion = (asking && !paneQuestion
+      && card && card.stateReported === true
+      && card.because && card.because !== ASKING_GENERIC)
+      ? { text: card.because, reported: true } : null;
+    const question = paneQuestion || reportedQuestion;
     // The same two sentences as the project route, and they stay two: "we read
     // its screen and the question is not in the capture" is not "we could not
-    // read its screen at all".
+    // read its screen at all". Null too once a reported question stands in.
     const questionBecause = (asking && !question)
       ? ((!view || view.text == null)
         ? 'we could not read its screen just now to show the question'
@@ -7534,7 +7558,10 @@ const server = http.createServer((req, res) => {
      * degraded state — it is the screen this page shows today, the question as
      * the terminal draws it, which the person can answer by typing.
      */
-    const options = (asking && question) ? chat.optionsIn(question.text) : null;
+    // #2456: only a LIVE pane question can carry a menu. A reported question is
+    // the agent's own words with no on-screen numbers, so it never draws
+    // buttons (optionsIn would refuse the prose anyway; this states the intent).
+    const options = (asking && question && !question.reported) ? chat.optionsIn(question.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.
      * The first version of this route asked whether a tied card existed, which
@@ -9755,7 +9782,25 @@ const server = http.createServer((req, res) => {
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
     const asking = member.tied && member.state === STATE.NEEDS_YOU;
-    const question = asking && view.text ? chat.questionIn(view.text) : null;
+    const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
+    /* #2456: the same reported-question fallback the agent thread uses. A
+       reported needs_you gave us its words in the card's `because` (the header
+       quote); when the live pane no longer shows the question, those reported
+       words stand in rather than the "we cannot find the question" clause that
+       contradicts a header quoting it. Pane wins when present; the generic
+       placeholder is not offered as a question.
+
+       ⚠️ Read from the FULL roster card, not from `member`. `member` is the
+       reduced project-membership projection (state + because, no
+       `stateReported`), so the reported-vs-scraped distinction the gate turns
+       on is only on the roster card the agent thread already uses. Same agent,
+       same roster read - `ourCardByName` is the one this route's sibling uses. */
+    const reportedCard = ourCardByName(roster, name);
+    const reportedQuestion = (asking && !paneQuestion
+      && reportedCard && reportedCard.stateReported === true
+      && reportedCard.because && reportedCard.because !== ASKING_GENERIC)
+      ? { text: reportedCard.because, reported: true } : null;
+    const question = paneQuestion || reportedQuestion;
     /**
      * ⚠️ TWO DIFFERENT FACTS, TWO SENTENCES. "We read its screen and the
      * question is not in the capture" and "we could not read its screen at
