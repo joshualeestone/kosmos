@@ -538,37 +538,47 @@ function wireChild(child, opts) {
   // server before the listener matters, which is why releasing on any
   // non-zero exit cannot double-run a good update.
   child.on('exit', (code) => {
-    /* 🛑 #988: THE CLEAR IS OUTSIDE THE `code !== 0` BRANCH, DELIBERATELY, AND AN
+    /* 🛑 #988: THE CLEAR IS OUTSIDE THE `realCode !== 0` BRANCH, DELIBERATELY, AND AN
        EARLIER VERSION HAD IT INSIDE. The spawned shell is
        `curl … | sh; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi`,
        so THE CHILD'S EXIT STATUS IS THE TRAILING `if`, NOT THE INSTALLER'S.
        Measured: an installer exiting 7 records "7" in the status file and the
-       child still exits 0. So `code !== 0` is false on ordinary failures, and a
-       clear placed inside it never ran. Combined with the #2055 abort path,
-       which dies WITHOUT restarting the board, the deadline then stood for the
-       full 15-minute cap on a Mac that was up and serving: exactly the false
-       "back in a moment" this card exists to prevent, reached through
+       child still exits 0. So the child `code` is 0 on ordinary failures, and a
+       clear placed inside the failure branch never ran. Combined with the #2055
+       abort path, which dies WITHOUT restarting the board, the deadline then
+       stood for the full 15-minute cap on a Mac that was up and serving: exactly
+       the false "back in a moment" this card exists to prevent, reached through
        production rather than the suite.
        Clearing on ANY exit is safe by the argument in the comment ABOVE this
        listener (an earlier version of this line said "below", and there is no
        such argument below): a SUCCESSFUL install kills this server before the listener runs, so
        an exit that reaches this line is one that did not restart the board. */
     if (owner === lastAttempt) updating.announce(0);   // #988: only THIS attempt may clear
-    /* 🛑 AND THE SAME MASKING MAKES THE BLOCK BELOW DEAD, WHICH THIS BRANCH DOES
-       NOT FIX. `code` is the trailing `if`'s status, so on an ordinary installer
-       failure it is 0 and none of installStarted / noteAttemptEnd / autoFailedAt
-       runs: the flag stays true, every retry answers "already updating", and
-       lastAttempt reports a perpetually in-flight attempt until the board
-       restarts. Pre-existing on main; the clear above is the one line in this
-       listener that handles the masked case, which is why it sits outside.
-       Filed as kosmos#2503 rather than widened into the announce card, and the
-       card carries the trap: a test that makes the child exit non-zero passes
-       while production still never reaches this. */
-    if (code !== 0) {
+    /* 🛑 #2503: THE `code` ARG IS THE TRAILING `if`'s STATUS, NOT THE INSTALLER'S,
+       so on an ordinary installer failure it is 0 and the block below used to be
+       dead: installStarted stayed true, every retry answered "already updating",
+       and lastAttempt read a perpetually in-flight attempt until the board
+       restarted. #988 (above) added the announce-clear outside this branch as the
+       one line that handled the masked case; THIS reads the REAL installer code
+       the shell wrote to the status file for THIS attempt (matched by startedAt
+       via readStatusRaw) and revives the whole block, falling back to the child's
+       own code only when no matching status was written -- a shell killed by a
+       signal before its `printf`. The startedAt match stops us acting on a
+       PREVIOUS attempt's stale status file when this child died before writing its
+       own; single-flight guarantees the file is this attempt's whenever it wrote one.
+       ⚠️ Residual, pre-existing and out of scope: if the installer FAILS but the
+       shell cannot WRITE the status (a full disk, a read-only logs dir) while the
+       trailing `if` still exits 0, no signal says "failed" -- the fallback sees a
+       code-0 child and a stale/absent status and reads success. The old code had
+       the identical blind spot for every child-exits-0 case; distinguishing it
+       needs a signal the status file was expected-but-unwritten, a separate change. */
+    const status = readStatusRaw();
+    const realCode = (status && status.startedAt === (owner && owner.startedAt)) ? status.code : code;
+    if (realCode !== 0) {
       installStarted = false;
-      noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
+      noteAttemptEnd(owner, realCode, 'the installer stopped before it could restart the board');
       if (opts && opts.auto) autoFailedAt = Date.now();
-      process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
+      process.stderr.write(`Kosmos update failed before it could restart the board (exit ${realCode}); Install can be tried again\n`);
     }
   });
   /* #988: from a phone, an update restart is indistinguishable from a broken Mac.
