@@ -770,6 +770,17 @@ test('five checks come back, and the two kinds of not-ok are counted apart', () 
    * person go looking for a problem that does not exist.
    */
   const sb2 = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-check2-'));
+  // #1794: the `labels` check also reads the launch-dir seam (machine.js
+  // launchDir(): AGENT_WORKFORCE_LAUNCH else $HOME/Library/LaunchAgents), so
+  // the mixed call needs the SAME empty sandbox `got` used above. Without it,
+  // the restore two lines up leaves the real value in place, `labels` reads the
+  // operator's real ~/Library/LaunchAgents, and this test passes on a box that
+  // has a com.kosmos.board job (e.g. Agent1s) but fails on a clean runner where
+  // it does not (`labels` -> unknown, unknown count 1 -> 2). Set/restore mirrors
+  // `got` above so a failing assertion below cannot leak the env either.
+  const origLaunch2 = process.env.AGENT_WORKFORCE_LAUNCH;
+  const launchSb2 = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-launch2-'));
+  process.env.AGENT_WORKFORCE_LAUNCH = launchSb2;
   const mixed = machine.check({
     pmset: 'nonsense',
     // tmuxBin is the missing one (#979): Claude Code no longer makes this row
@@ -789,6 +800,8 @@ test('five checks come back, and the two kinds of not-ok are counted apart', () 
     installedRoot: null,
   });
   fs.rmSync(sb2, { recursive: true, force: true });
+  fs.rmSync(launchSb2, { recursive: true, force: true });
+  if (origLaunch2 === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch2;
   assert.equal(mixed.attention, 1);
   assert.equal(mixed.unknown, 1);
   assert.equal(mixed.appLocation.state, machine.STATE.ATTENTION,
