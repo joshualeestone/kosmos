@@ -8609,7 +8609,10 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Every task across every project, open and finished (#1382).
+   * Tasks, open and finished (#1382). Global by default; scoped to one project
+   * when `?project=<id>` is given (#2498 - the per-project "view all tasks"
+   * door). No caller fetches the global set today, but it stays for a future
+   * global-home view.
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM

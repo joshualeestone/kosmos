@@ -10134,12 +10134,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          reached from `#pj-alltasks`, the per-project door, and #1009 already
          put every OPEN task in the column, so what that door still reveals is
          FINISHED work. Taking the door without taking its contents would leave
-         finished work unreachable anywhere in Kosmos.
-         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door sits on ONE project and this
-         screen shows EVERY project, so a per-project number beside it could
-         only ever disagree with its own destination, which is the #1346 defect
-         the card asked us to avoid. Two numbers cannot disagree if there is
-         one. -->
+         this project's finished work unreachable. (#2498 scoped the screen to
+         the door's own project; finished work stays reachable PER project,
+         each through its own door.)
+         ⚠️ NO COUNT IN THE DOOR'S LABEL. The door and the screen now sit on the
+         SAME one project (#2498), so a per-project number COULD agree with its
+         destination - it is still not added, as scope discipline rather than a
+         new feature, so there is no second number to disagree with the screen's
+         own count (the #1346 defect the card asked us to avoid). -->
     <div id="pj-alltasks-view" hidden>
       <button class="back" id="alltasks-back" type="button"></button>
       <div class="pjhead">
@@ -32353,16 +32355,19 @@ function paintProjectTasks(p) {
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
      deliberate.
-     🔑 ALWAYS SHOWN, because its destination is EVERY project. The old rule
-     revealed this project's hidden tasks in place, so it correctly stayed away
-     when this project hid nothing. A screen listing all projects must not be
-     unreachable from a project that happens to have five tasks and none
-     finished, which is the normal state of a new project.
-     🛑 AND NO COUNT. The door sits on ONE project; the screen shows EVERY
-     project. A per-project number beside a global destination can only ever
-     disagree with it, which is exactly the #1346 defect the card asked us to
-     avoid. Two numbers cannot disagree if there is one, and the count the
-     person actually needs is on the screen, derived from the rows it renders. */
+     🔑 ALWAYS SHOWN, because its destination is ALL of THIS project's tasks -
+     past the column's five-cap, finished included (#2498 scoped it to this one
+     project). The old rule revealed this project's hidden tasks in place, so it
+     stayed away when the project hid nothing; the door must not be unreachable
+     from a project whose finished or capped-off rows live only behind it. A
+     brand-new project with nothing yet now shows the door onto an empty scoped
+     list, which the screen's own "No tasks on this project yet" handles.
+     🛑 AND NO COUNT. The door and the screen now sit on the SAME one project
+     (#2498), so a per-project number COULD agree with its destination - it is
+     still not added, as scope discipline rather than a new feature, so there is
+     no second number to disagree with the screen's own count (the #1346 defect
+     the card asked us to avoid). The count the person needs is on the screen,
+     derived from the rows it renders. */
   door.hidden = false;
   door.textContent = 'View all tasks \u2192';
 }

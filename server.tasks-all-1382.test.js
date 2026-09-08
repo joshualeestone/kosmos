@@ -1,7 +1,9 @@
 'use strict';
 
 /**
- * GET /api/tasks: every open task across every project (#1382).
+ * GET /api/tasks: tasks open and finished - every project by default (#1382),
+ * or a single project when `?project=<id>` is given (#2498, the per-project
+ * "view all tasks" door). Both modes are exercised below.
  *
  * A separate file from `server.test.js` for the reason that file's own
  * siblings give: its blocks are a standing merge hazard, and a feature can add

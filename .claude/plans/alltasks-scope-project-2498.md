@@ -45,8 +45,11 @@ There is NO separate global/home all-tasks view. So scoping the door breaks noth
 - **Server (`/api/tasks`):** accept an optional `?project=<id>` query param (read the same way the
   other routes do, `new URL(req.url, ROUTING_BASE).searchParams`). When present, filter
   `tasks.allTasks()` to `t.projectId === id` (open AND closed for that project). No param = global
-  set, unchanged (backward-compatible; a future global-home view could still use it). This carries
-  and filters on the project rather than fetching the global set, per Josh's own note.
+  set, unchanged (backward-compatible; a future global-home view could still use it). Note the
+  route still BUILDS `allTasks()` (a walk of every project) and filters the SERVED set down; the
+  win Josh's note asks for is on the CLIENT, which no longer RECEIVES every project's tasks. The
+  server-internal walk is unchanged and negligible at current project counts; pushing the filter
+  into `allTasks(projectId)` is a possible later optimisation, not needed for the bug.
 - **Frontend (`openAllTasksView`):** fetch `/api/tasks?project=<encodeURIComponent(PJ_CURRENT)>`,
   and update the now-false copy: the desc "Across every project." -> a project-scoped sentence; the
   empty message "No tasks on any project yet" -> "on this project"; and the click-handler comment
