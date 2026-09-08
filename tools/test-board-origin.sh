@@ -177,9 +177,21 @@ grep -qF 'board_origin_label "$cwd"' "$REPO/tools/run-tests.sh" \
 # green. Extract the actual block and run THAT. (The two INTEGRATION arms above
 # check the source line and the call line; neither covers the `else` branch.)
 fallback_block="$(awk '/^ *local where$/,/^ *fi$/' "$REPO/tools/run-tests.sh")"
+# Two checks, because the substring alone is not enough. A block TRUNCATED by a
+# stray earlier `fi` still contains this string, so it would pass the substring
+# test and then execute the wrong bytes. The structural counts reject that:
+# measured, a 3-line truncation keeps the guard string but has if/fi = 1/0.
+fb_if=$(printf '%s\n' "$fallback_block" | grep -c '^[[:space:]]*if ')
+fb_fi=$(printf '%s\n' "$fallback_block" | grep -c '^[[:space:]]*fi$')
+fb_el=$(printf '%s\n' "$fallback_block" | grep -c '^[[:space:]]*else$')
 case "$fallback_block" in
   *'command -v board_origin_label'*)
-    ok "the guard block was extracted from run-tests.sh (so the arm below is not vacuous)" ;;
+    if [ "$fb_if" = "1" ] && [ "$fb_fi" = "1" ] && [ "$fb_el" = "1" ]; then
+      ok "the guard block was extracted from run-tests.sh whole (if/else/fi all exactly 1)"
+    else
+      bad "the extracted block is structurally wrong (if=$fb_if else=$fb_el fi=$fb_fi); it would execute the wrong bytes"
+      fallback_block=""
+    fi ;;
   *)
     bad "could not extract run-tests.sh's guard block; the fail-open arm cannot run"
     fallback_block="" ;;

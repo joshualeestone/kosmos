@@ -71,6 +71,9 @@
 #     because `-d` follows symlinks. The classification is defensible (it is not
 #     a linked worktree) but the code never measures "link" at all, so the label
 #     must not say it does. An earlier label did.
+#   - a $HOME that is ITSELF a linked worktree is declined like any other $HOME,
+#     so it prints the bare path rather than "the worktree". A small loss of
+#     information in the safe direction: it never over-claims.
 #   - a $HOME that is a SUBDIRECTORY of a git repo is not declined, because the
 #     decline matches $HOME itself; the subdirectory rule then applies and the
 #     board prints the bare path, which is the safe direction
