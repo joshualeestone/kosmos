@@ -2130,6 +2130,18 @@ function installJob(name, opts) {
       ? 'we could not find Codex on this computer, so a job made now would never start'
       : 'we could not find Claude on this computer, so a job made now would never start' };
   }
+  /* #1185: SYMMETRY WITH THE RUNNER CHECK ABOVE. The runner is existence-checked
+     (runnerRunnable), tmux was only injection-checked (unusablePath), so a MISSING
+     tmux wrote a plist naming a binary that is not there, `launchctl bootstrap`
+     failed, and the adoption reported the opaque "could not start it just now" with
+     no cause -- the exact class the creation path already pre-flights (#1616's
+     `runnerRunnable, not existsSync, for the runner AND for tmux`). A job that names
+     an absent tmux can never start, so refuse before writing rather than write a
+     doomed one. Named the way installJob names the other program above -- not the
+     word "tmux", which a person who installed Kosmos has no reason to know. */
+  if (!DRY_RUN && !runnerRunnable(tmuxBin)) {
+    return { ok: false, because: 'we could not find the terminal program Kosmos runs agents in on this computer, so a job made now would never start' };
+  }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
   if (!installed.ok) {
     return { ok: false, because: installed.missingFile
