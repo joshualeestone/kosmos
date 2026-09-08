@@ -482,11 +482,26 @@ function wireChild(child, opts) {
   // server before the listener matters, which is why releasing on any
   // non-zero exit cannot double-run a good update.
   child.on('exit', (code) => {
-    if (code !== 0) {
+    /* #2503: THE CHILD'S EXIT CODE IS NOT THE INSTALLER'S. The spawned shell
+       exits with its trailing `if [ "$4" != /dev/null ]; then rm -f "$4"; fi`,
+       not with `curl | sh`, so a FINISHED installer -- success OR failure --
+       makes the child exit 0, and the real code is what the shell wrote to the
+       status file just before that `if`. Trusting `code` here left this whole
+       block dead for the common failure (a 404, a dropped download, a checksum
+       refusal): the flag stayed stranded-true and every retry got `already:true`.
+       So read the real code from the status file for THIS attempt, matched by
+       startedAt, and fall back to the child's own code only when no matching
+       status was written -- a shell killed by a signal before its `printf`. The
+       startedAt match stops us acting on a PREVIOUS attempt's stale status file
+       when this child died before writing its own; single-flight guarantees the
+       file is this attempt's whenever this attempt wrote one. */
+    const status = readStatusRaw();
+    const realCode = (status && status.startedAt === (owner && owner.startedAt)) ? status.code : code;
+    if (realCode !== 0) {
       installStarted = false;
-      noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
+      noteAttemptEnd(owner, realCode, 'the installer stopped before it could restart the board');
       if (opts && opts.auto) autoFailedAt = Date.now();
-      process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
+      process.stderr.write(`Kosmos update failed before it could restart the board (exit ${realCode}); Install can be tried again\n`);
     }
   });
 }
