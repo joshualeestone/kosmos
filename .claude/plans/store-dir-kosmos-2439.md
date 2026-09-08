@@ -25,7 +25,13 @@ before launch, while it is still cheap, without orphaning any existing install's
    - wrap in try/catch, NEVER throw (ENOENT/EEXIST benign; EXDEV leaves legacy intact and the
      person re-signs-in - never data loss).
 3. `worlds.js` per-world leaf via `store.APP`.
-4. Test sweep: every test that seeded/asserted the LITERAL store leaf derives it from `store.APP`.
+4. Test sweep: every test that ASSERTS the resolved store leaf (the ones that go red on the rename)
+   derives it from `store.APP`. A second set (~13 subprocess-based tests) only SEEDS a fixture under
+   the legacy `AgentWorkforce` leaf and then boots the engine/server as a subprocess; those stay
+   green because the subprocess's first `store.root()` migrates the seed to `Kosmos` before reading.
+   Those are LEFT as-is (deliberate): they are all sandboxed (`AGENT_WORKFORCE_DATA` under mktemp, so
+   no real-store risk), green, and incidentally transit the migration path; converting all 13 is
+   disproportionate churn for a rename PR. Noted so the claim is not overstated.
 5. `install/setup.sh`:
    - uninstall rm-guard accepts BOTH `/AgentWorkforce` and `/Kosmos` leaves for the migration
      window (a migrated install would otherwise abort uninstall). Every existing safety refusal
