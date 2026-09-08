@@ -14,7 +14,7 @@ later in settings. Josh needs it AT CREATION.
 - So #2458 (filed after #2467 merged) is the create-page UI half. Backend ready, no engine change.
 
 ## Change (web/index.html only + one browser-check)
-1. **Markup**: a `Parent project` `<select id="pj-parent">` after the Description field (blank option
+1. **Markup**: a `Parent project` `<select id="pj-add-parent">` after the Description field (blank option
    "Top level (none)" first), with a grouping-not-inheritance hint mirroring the settings selector.
 2. **`pjPaintCreateParentSelect()`**: "Top level (none)" + every active (non-archived) project, none
    preselected. Simpler than the settings `pjPaintParentSelect`: a project being born has no id (no
