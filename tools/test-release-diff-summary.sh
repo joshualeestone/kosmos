@@ -61,10 +61,15 @@ chk "unresolvable to-ref returns non-zero" test "$RC" -ne 0
 # ---- bump-sha derivation from release.sh's own distinctive subject ----
 GOT="$(kosmos_release_bump_sha "$R" "0.6.05")"
 chk "bump-sha finds the v0605 bump commit" test "$GOT" = "$PREV_BUMP"
-# CONTROL: the anchored subject match must NOT be fooled by the decoy commit whose BODY says 'v0605 -- version'.
-DECOY_BODY_SHA="$(git -C "$R" log --grep='v0605 -- version' --format='%H' | tr '\n' ' ')"
-chk "the decoy body-mention exists (so the anchoring control can actually fail)" sh -c "printf '%s' \"$DECOY_BODY_SHA\" | grep -q ' '"
-chk "bump-sha ignores the body-mention decoy (anchored to the subject)" test "$GOT" = "$PREV_BUMP"
+# CONTROL that the anchoring is load-bearing: an UNANCHORED `--grep 'v0605 -- version'` matches
+# BOTH the real bump AND the decoy commit whose BODY mentions the string, and the decoy is more
+# recent -- so an unanchored `-1` lookup would return the DECOY, not PREV_BUMP. Prove the decoy
+# is genuinely a second, more-recent match (>= 2 results, newest first is the decoy), so the
+# `GOT == PREV_BUMP` assertion above can actually fail if the anchoring regresses.
+DECOY_MATCHES=$(git -C "$R" log --grep='v0605 -- version' --format='%H' | grep -c .)
+chk "the decoy is a real 2nd (more-recent) match, so anchoring is load-bearing" test "$DECOY_MATCHES" -ge 2
+NEWEST_UNANCHORED="$(git -C "$R" log --grep='v0605 -- version' --format='%H' -1)"
+chk "an UNANCHORED lookup would return the decoy, not the bump (so GOT==PREV_BUMP is discriminating)" test "$NEWEST_UNANCHORED" != "$PREV_BUMP"
 # a version with no bump commit -> return 1, nothing.
 OUT="$(kosmos_release_bump_sha "$R" "9.9.99" 2>/dev/null)"; RC=$?
 chk "absent version returns non-zero" test "$RC" -ne 0
@@ -94,6 +99,23 @@ chk "the capped body is well under ARG_MAX (< 200 KB)" test "$CAP_BYTES" -lt 200
 # CONTROL: a small range (2 files) is NOT capped and carries no truncation marker.
 SMALL="$(kosmos_release_diff_summary "$R" "$PREV_BUMP" "$THIS")"
 chk "CONTROL: a small range is not truncated (no marker)" hasnt "$SMALL" "truncated to keep the commit"
+# ---- the BYTE axis: FEWER than 500 files but long paths push total bytes past the 100KB budget,
+#      so the cap must fire on BYTES, not just lines (the axis line-only capping would miss). ----
+# Long PATH via NESTED components (each < the 255-byte filesystem component limit; a single
+# 400-char component silently fails mkdir on APFS -- measured).
+C="$(printf 'd%.0s' $(seq 1 150))"
+BYTEDIR="$BIG/$C/$C/$C/$C"   # 4 x 150-char components ~= 600-char relative dir path
+mkdir -p "$BYTEDIR"
+i=0; while [ "$i" -lt 250 ]; do printf 'x\n' > "$BYTEDIR/file_$i.txt"; i=$((i+1)); done
+git -C "$BIG" add -A; git -C "$BIG" commit -q -m "250 very-long-path files"
+BYTETO="$(git -C "$BIG" rev-parse HEAD)"
+BFULL_LINES=$(git -C "$BIG" diff --stat=1000,1000 "$BIGTO" "$BYTETO" | wc -l | tr -d ' ')
+BFULL_BYTES=$(git -C "$BIG" diff --stat=1000,1000 "$BIGTO" "$BYTETO" | wc -c | tr -d ' ')
+chk "byte-axis fixture: < 500 lines but > 100KB bytes (so ONLY the byte cap can catch it)" sh -c "[ '$BFULL_LINES' -le 500 ] && [ '$BFULL_BYTES' -gt 100000 ]"
+BCAP="$(kosmos_release_diff_summary "$BIG" "$BIGTO" "$BYTETO")"
+chk "a byte-heavy (<500-line) range IS capped by the byte budget (marker present)" has "$BCAP" "truncated to keep the commit under ARG_MAX"
+BCAP_BYTES=$(printf '%s' "$BCAP" | wc -c | tr -d ' ')
+chk "the byte-capped body is under the Linux per-arg limit (< 128KB)" test "$BCAP_BYTES" -lt 131072
 # 🛑 PIPEFAIL ARM. release.sh runs `set -euo pipefail`; the set-u-only arms above cannot catch
 # a cap-pipeline abort under those flags. Run the SHIPPED function in a fresh bash with
 # release.sh's exact flags on the capped range and assert it exits 0 with the marker intact --

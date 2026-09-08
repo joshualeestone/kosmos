@@ -50,16 +50,22 @@ kosmos_release_diff_summary() {
   # ~30 KB, far under ARG_MAX and far past any realistic release, and a truncation
   # marker points at the full diff so nothing is silently lost.
   rds_lines=$(printf '%s\n' "$rds_full" | wc -l | tr -d ' ')
-  if [ "${rds_lines:-0}" -gt 500 ]; then
-    # 🔑 awk, NOT head. `head -n 500` closes the pipe at line 500, so `printf` takes
-    # SIGPIPE (exit 141) on the rest -- and under a `set -euo pipefail` caller without
-    # a `|| true` guard that 141 would ABORT, which is the very abort class this cap
-    # exists to prevent (just via SIGPIPE instead of E2BIG). `awk 'NR<=500'` DRAINS
-    # stdin (reads every line, prints only the first 500), so printf never SIGPIPEs
-    # and the pipeline exits 0 regardless of the caller's shell flags.
-    printf '%s\n' "$rds_full" | awk 'NR<=500'
-    printf '... (%s lines total; truncated to keep the commit under ARG_MAX -- see: git diff --stat %s %s)\n' \
-      "$rds_lines" "$from_ref" "$to_ref"
+  rds_bytes=$(printf '%s\n' "$rds_full" | wc -c | tr -d ' ')
+  # Cap on BOTH axes. The body rides as one `git commit -m` argument, and the abort it
+  # can cause is a BYTE limit, not a line count: macOS ARG_MAX is ~1 MB but Linux caps a
+  # single argument at MAX_ARG_STRLEN (~128 KB), well below what 500 un-truncated long
+  # paths could reach. So bound bytes too (100 KB, under the Linux per-arg limit and far
+  # under macOS), making the "never fails the commit" guarantee absolute on both OSes and
+  # not merely line-bounded.
+  if [ "${rds_lines:-0}" -gt 500 ] || [ "${rds_bytes:-0}" -gt 100000 ]; then
+    # 🔑 awk that DRAINS, never `exit`s. `head -n N` (or an `awk ...; exit`) closes stdin
+    # early, so `printf` takes SIGPIPE (141) on the rest -- and under a `set -euo pipefail`
+    # caller that 141 would ABORT, the very class this cap exists to prevent. This awk reads
+    # EVERY line (so printf never SIGPIPEs, pipeline exits 0 on any OS/flags) and PRINTS only
+    # the lines within BOTH the 500-line and 100 KB budgets.
+    printf '%s\n' "$rds_full" | awk -v ml=500 -v mb=100000 '{ if (NR<=ml && b+length($0)+1<=mb) { print; b+=length($0)+1 } }'
+    printf '... (%s lines / %s bytes total; truncated to keep the commit under ARG_MAX -- see: git diff --stat %s %s)\n' \
+      "$rds_lines" "$rds_bytes" "$from_ref" "$to_ref"
   else
     printf '%s\n' "$rds_full"
   fi
