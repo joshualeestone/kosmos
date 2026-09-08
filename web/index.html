@@ -4329,33 +4329,31 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .composerbox { display: flex; align-items: center; gap: 6px;
   border: 1px solid var(--k-rule); border-radius: 12px; background: var(--k-surface);
   padding: 6px 6px 6px 4px; }
-/* 🔑 THE FOCUS RING LOSES ITS DOUBLE (kosmos#1303 D). Josh: "The stroke around
-   the dialog input is way too harsh. It needs to be the same type and color as
-   the vertical rules and horizontal rules on this layout", and he confirmed on
-   2026-08-28 that he means the OUTLINE AROUND THE BOX, not the line beneath it.
+/* 🔑 NO FOCUS STROKE ON THE TEXT COMPOSER (Josh 0.6.47, item 6.01.26; Mona's
+   ruling (a)). Josh raised the composer's focus border AGAIN in his 0.6.47
+   live test -- "the black inner stroke when you click into a text box" -- after
+   the kosmos#1303 D softening had only turned two hard strokes into one stroke
+   plus a halo. This is his NEWER call and it supersedes that softening: for the
+   TEXT COMPOSER specifically, drop the dark focus border entirely. The blinking
+   caret is the "box is on" signal.
 
-   MEASURED, with focus asserted inside the box:
-
-       resting   1px rgb(227,225,220)  = --k-rule    shadow none
-       focused   1px rgb(74,79,87)     = --k-ink-2 + a 1px ring of the SAME colour
-
-   ⇒ Two near-black strokes stacked. The border change alone is already an
-   unmistakable focus signal; the ring on top of it is what reads as heavy.
-
-   🛑 THE RING IS SOFTENED, NOT DELETED, and that is Splinter's correction to my
-   first version rather than my own idea. I had dropped the `box-shadow`
-   outright. It is an accessibility affordance: a colour change alone asks
-   somebody to remember what the resting border looked like, while a ring is a
-   change of SHAPE that needs no comparison.
-   ⇒ So the ring stays and stops being a second near-black stroke: 3px of
-   `--k-ink-2` at 12% reads as a halo around the box rather than as a doubled
-   outline. Harshness was never the ring existing, it was two hard 1px strokes
-   stacked into one 2px edge.
-   🛑 AND THE BORDER COLOUR CHANGE IS NOT NEGOTIABLE EITHER. Taking "match the
-   layout's rules" literally would paint the focused border `--k-rule`, which is
-   the RESTING colour: focus would become invisible. Measured contrast of the
-   focused border against the composer's ground is 7.84 where WCAG asks 3:1. */
-.composerbox:focus-within { border-color: var(--k-ink-2); box-shadow: 0 0 0 3px rgba(74, 79, 87, .12); }
+   🛑 WHY THIS REVERSES THE #1303 D "SOFTENED, NOT DELETED" NOTE AND STILL KEEPS
+   WCAG AA. That note (Splinter's correction) argued the ring is an accessibility
+   affordance because a COLOUR CHANGE ALONE asks somebody to remember the resting
+   border, whereas a ring is a change of SHAPE that needs no comparison. The
+   caret is ALSO a change of shape/position that needs no comparison -- it is a
+   visible focus indicator in its own right (WCAG 2.4.7 Focus Visible, Level AA,
+   which explicitly accepts the text cursor for a text field), so the same
+   accessibility property the ring provided is met by the caret here. The caret
+   is not suppressed anywhere on `.cinput` (no `caret-color: transparent`), and
+   the inner input's own outline is already removed (see `.cinput:focus`), so the
+   caret is the single, deliberate focus signal for this text box.
+   ⇒ The stronger 2.4.13 Focus Appearance area/contrast requirement is Level AAA,
+   not AA, so a thin caret is a documented tradeoff below our AA floor, not a
+   failure of it.
+   📌 SCOPE: text composer only. Non-text controls (buttons, links) keep their
+   own focus indicators untouched -- this rule was the composer's alone, and it
+   is simply gone. On focus the composer keeps its resting 1px --k-rule border. */
 /* ⚠️ THE TEXTAREA GROWS, IT DOES NOT SCROLL SIDEWAYS. A single-line input hides
    what you already wrote the moment a post runs past the field, which is the
    one thing a person re-reads before sending. Bounded at 9rem so a long post
