@@ -27133,8 +27133,10 @@ async function moveAccountNow(say) {
    Kosmos K + "Restarting the agent"); `minBusyMs` holds that interstitial on screen for
    at least that long on SUCCESS, so a fast POST still shows the restart happening rather
    than flashing straight to the result. Both are OPTIONAL and default to the exact prior
-   behaviour ("Working…", no hold), so the other four callers (account move, provider
-   switch, compact, clear) are byte-unchanged. The hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
+   behaviour ("Working…", no hold), so the other THREE callers (account move, compact,
+   clear) are byte-unchanged. #2463 follow-up: the PROVIDER switch now opts in too (its own
+   "Setting up <provider>" line), leaving those three as the plain-"Working…" callers. The
+   hold is SUCCESS-ONLY and bounded by minBusyMs, so it can
    never trap the modal (#1313): a failure shows immediately, and `say` still always fires
    the one exit. */
 function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
@@ -27833,7 +27835,19 @@ async function changeProviderNow(say) {
        so blanking the tracker here no longer silences it. An asymmetry between two
        paths that need the same reset is still what goes wrong on the next edit. */
     SWITCH_ACCT_SAID = '';
-    tell(out.because || 'Switched.', true);
+    /* #2463 follow-up (Mona): on a real restart the dialog reduces to the one action left --
+       say hello to reactivate -- naming the provider it landed on, exactly as changeModelNow
+       does. The engine's fuller sentence still stands on the section line behind the dialog
+       (msg.textContent above). `partial` (saved, could not restart) and any failure keep the
+       engine's exact words AND render at once (ok=false), because those are different facts
+       and must not sit behind the K as though the restart happened. The reduced line is the
+       DIALOG's answer (chg-msg via `say`), which is a different element from this section's
+       d-provider-msg; the row-control path passes no `say`, so it is unaffected. */
+    const restarted = out.outcome === 'changed';
+    const provName = want === 'openai' ? 'OpenAI' : 'Claude';
+    tell(restarted
+      ? 'Say hello to ' + agentShown() + ' to reactivate them on ' + provName + '.'
+      : (out.because || 'Switched.'), restarted);
     sel.value = '';
     /* ⚠️ A PROGRAMMATIC `value =` FIRES NO `change` EVENT, so nothing rebuilt the
        sign-in picker and it sat visible and populated under a now-blank provider
@@ -28043,16 +28057,33 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
            })())
         : 'It comes back on your main Claude account and Claude’s default model until you change them.'),
     go: 'Switch and restart',
+    /* #2463 follow-up (Mona): the provider switch shows the SAME breathing-K interstitial
+       as the model switch, worded for what it is doing -- "Setting up OpenAI" (which may
+       install/authorise) or "Setting up Anthropic". Held on the same ~2s floor via the same
+       __kosmosRestartHoldMs test seam. `label` is app-derived ('OpenAI'/'Anthropic'). */
+    busyHtml: chgBusyHtml('Setting up ' + label),
+    minBusyMs: (typeof window.__kosmosRestartHoldMs === 'number' ? window.__kosmosRestartHoldMs : RESTART_HOLD_MS),
     run: (say) => changeProviderNow(say),
   });
 });
 /* #768-batch (Josh, 5.51.59): the restart interstitial. The K breathes over
-   "Restarting the agent" while the switch is in flight, held for RESTART_HOLD_MS so a
-   fast POST still shows the restart. Josh's "arbitrary" ~10s; a named constant so it is
-   one edit to tune. App-generated markup only (no user input), safe for innerHTML. */
-const RESTART_HOLD_MS = 10000;
-const RESTART_BUSY_HTML = '<span class="chg-restart"><span class="kspin" aria-hidden="true">'
-  + '<img src="/icons/kosmos-48.png" alt="" width="44" height="44"></span>Restarting the agent</span>';
+   "Restarting the agent" while the switch is in flight.
+   #2463 follow-up (Mona): RESTART_HOLD_MS is a ~2s FLOOR, not a fixed hold. The
+   interstitial already stays up until the restart finishes -- `run` awaits the POST and
+   only then calls `say`, and changeDialog holds for the REMAINDER of minBusyMs
+   (`Math.max(0, minBusyMs - elapsed)`), so a slow restart is covered by the await and a
+   fast one still shows the K for the floor. The old value was an arbitrary ~10s, which
+   made every fast restart sit a needless 10s; 2s is enough to read as "restarting"
+   without stalling. A named constant so it is one edit to tune. App-generated markup only
+   (no user input), safe for innerHTML. */
+const RESTART_HOLD_MS = 2000;
+/* The breathing-K interstitial markup, parameterised by its line so the provider switch can
+   say "Setting up OpenAI" while the model switch says "Restarting the agent". `line` is an
+   app-generated fixed literal or an app-derived provider label, never user input, so the
+   innerHTML at the changeDialog call site stays safe. */
+const chgBusyHtml = (line) => '<span class="chg-restart"><span class="kspin" aria-hidden="true">'
+  + '<img src="/icons/kosmos-48.png" alt="" width="44" height="44"></span>' + line + '</span>';
+const RESTART_BUSY_HTML = chgBusyHtml('Restarting the agent');
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
   if (!CURRENT || !sel.value) return;
