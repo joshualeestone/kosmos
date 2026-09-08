@@ -1,4 +1,4 @@
-# Plan: notify-comment-2013 — remove the two stale default-OFF comments in notify.js (#2013)
+# Plan: notify-comment-2013 - remove the two stale default-OFF comments in notify.js (#2013)
 
 ## Context
 
@@ -9,9 +9,9 @@ it was written that way"* and *"a comment asserting a retired principle is how t
 person re-derives the old behaviour."*
 
 The default VALUES were already landed and served on main by prior merges:
-- #2041 — heartbeat + autohandoff flipped ON (notify/ping held at the time)
-- #2048 — remote.js paid-service default-off tripwire test
-- the #2020 line (#2283 / #2313 / #2058) — created-ping opt-out restored + default ON
+- #2041 - heartbeat + autohandoff flipped ON (notify/ping held at the time)
+- #2048 - remote.js paid-service default-off tripwire test
+- the #2020 line (#2283 / #2313 / #2058) - created-ping opt-out restored + default ON
 - notify's own default is already ON (ENOENT -> `{on:true}`), pinned by `notify.test.js`
 
 What remained unaddressed was #2013's comment clause: two comments in
@@ -27,12 +27,12 @@ Comment-only change to `engine/notify.js`. No behaviour, no test outcomes.
    reaches no notification relay yet, so notifications must not be reported as delivered
    on the strength of the flip.
 2. JSDoc above `read()` (~line 62): replace `Off until somebody turns it on` with an
-   accurate description of `read()` — never-asked default ON, only an explicit `false`
+   accurate description of `read()` - never-asked default ON, only an explicit `false`
    (or an unreadable/unparseable pref) is off.
 
 Explicitly out of scope: the default values themselves (already correct on main), the
 Settings UI, and `remote.js` (correctly off, with its paid-service reason already
-documented). Line 91's `(default OFF)` mention stays — it is correctly framed as
+documented). Line 91's `(default OFF)` mention stays - it is correctly framed as
 pre-step-3 history, not a current claim.
 
 ## Verification
