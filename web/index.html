@@ -16989,8 +16989,6 @@ const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Cl
 function acctReauthChrome(on, email) {
   const t = document.getElementById('acct-add-t');
   const intro = document.getElementById('acct-add-in');
-  const lab = document.getElementById('acct-provider-lab');
-  const pick = document.getElementById('acct-provider-pick');
   const warn = document.getElementById('acct-claude-warn');
   const add = document.getElementById('acct-add');
   if (on) {
@@ -17005,9 +17003,13 @@ function acctReauthChrome(on, email) {
     add.textContent = 'Start the sign-in';
   }
   /* Hidden rather than disabled: the provider is not a choice here, it is
-     already decided by the account you pressed on. */
-  lab.hidden = !!on;
-  pick.hidden = !!on;
+     already decided by the account you pressed on. Hide the whole field
+     container, not the <label> and native <select> individually:
+     enhanceProviderSelect inserts the visible .pcombo widget as a sibling of
+     the (now visually-hidden) native select, so hiding only the select would
+     leave the widget on screen and operable. The container is the same unit
+     acctShowSuccess and closeAcctAdd toggle. */
+  document.getElementById('acct-provider-field').hidden = !!on;
 }
 function openAcctReauth(dir, email) {
   ACCT_REAUTH_DIR = dir;

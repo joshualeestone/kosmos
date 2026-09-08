@@ -8,8 +8,10 @@
  * Enter-select sync the hidden select's .value and fire `change`, Esc closes and refocuses,
  * a coming-soon option is aria-disabled and NOT selectable, Grok gets an initial-letter chip
  * (no wrong-brand mark), and a programmatic value change re-renders the trigger. Both themes,
- * plus a screenshot. This is the CI browser-checks (Playwright) verification of the a11y
- * CONTRACT; a real screen-reader pass is the human follow-up no Playwright can do.
+ * plus a screenshot. It also checks the #acct-provider-pick reauth-hide contract: the
+ * "Sign in again" screen hides the whole chooser container, widget included. This is the CI
+ * browser-checks (Playwright) verification of the a11y CONTRACT; a real screen-reader pass is
+ * the human follow-up no Playwright can do.
  *
  * The two selects use DIFFERENT option-value vocabularies for the SAME provider (#d-provider
  * uses 'anthropic', #acct-provider-pick uses 'claude'), so claudeVal parametrizes the
@@ -229,11 +231,52 @@ const SELECTS = [
     await page.close();
   }
   }
+
+  // #1040 2b reauth-hide contract (#acct-provider-pick only): the "Sign in again" screen
+  // decides the provider for you, so acctReauthChrome hides the chooser. It now hides the whole
+  // #acct-provider-field container; hiding only the <label> and native <select> (the prior code)
+  // left the enhanceProviderSelect .pcombo widget - a SIBLING of the select, inside the field -
+  // on screen and operable, so a Claude reauth could be steered to OpenAI. Drive the REAL
+  // acctReauthChrome against the REAL enhanced DOM with the dialog open, so this is rendered
+  // geometry. The unit test cannot see this: its stub never runs enhanceProviderSelect, so no
+  // widget exists there to leak.
+  {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(PAGE);
+    const r = await page.evaluate(() => {
+      const modal = document.getElementById('acct-add-modal');
+      const field = document.getElementById('acct-provider-field');
+      const select = document.getElementById('acct-provider-pick');
+      const wrap = select && select.parentNode.querySelector('.pcombo');
+      if (!modal || !field || !select || !wrap) return { fatal: 'no #acct-add-modal / #acct-provider-field / #acct-provider-pick / .pcombo widget' };
+      if (typeof acctReauthChrome !== 'function') return { fatal: 'acctReauthChrome is not a global function' };
+      const trigger = wrap.querySelector('.pcombo-trigger');
+      // The widget lives INSIDE the field container, so the container's hidden state governs it.
+      const widgetInField = field.contains(wrap);
+      modal.hidden = false; // open the dialog so offsetParent reflects real rendering
+      acctReauthChrome(true, 'her@example.com');
+      const hiddenOnReauth = field.hidden === true && trigger.offsetParent === null;
+      acctReauthChrome(false);
+      const shownOnAdd = field.hidden === false && trigger.offsetParent !== null;
+      return { widgetInField, hiddenOnReauth, shownOnAdd };
+    });
+    if (r.fatal) problems.push('[reauth] ' + r.fatal);
+    else {
+      ok('[reauth] the .pcombo widget lives inside #acct-provider-field (the container governs its visibility)', r.widgetInField);
+      ok('[reauth] acctReauthChrome(true) hides the whole chooser, widget included (not just the native select)', r.hiddenOnReauth, JSON.stringify(r.hiddenOnReauth));
+      ok('[reauth] acctReauthChrome(false) restores the chooser for a normal Add', r.shownOnAdd, JSON.stringify(r.shownOnAdd));
+    }
+    if (pageErrors.length) problems.push('[reauth] pageerror: ' + pageErrors.join(' | '));
+    await page.close();
+  }
+
   await browser.close();
   if (problems.length) {
     console.error('render-provider-combobox-1040: ' + problems.length + ' problem(s)');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-provider-combobox-1040: the #d-provider and #acct-provider-pick logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change. Screenshots: ' + shots.join(', '));
+  console.log('render-provider-combobox-1040: the #d-provider and #acct-provider-pick logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
 })();
