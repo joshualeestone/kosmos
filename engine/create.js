@@ -2092,6 +2092,56 @@ function runningJobs() {
   } catch { return new Set(); }
 }
 
+/**
+ * The win32 launch pair, in ONE place, because there are two entry points into
+ * starting an agent and they must not grow two versions of this.
+ *
+ * 🛑 THE SCOPE MISTAKE THIS EXISTS TO CLOSE (#570, found 2026-09-08 by running a
+ * real create rather than a test). All of the win32 create work went into
+ * `installJob` -- which has NO production caller; it is the adopt/connect entry.
+ * The path a person actually presses is `createAgent` -> `createAgentInner`,
+ * which carries its own launchd block and had no platform branch at all. So every
+ * win32 test in this lane passed while the button on the board could not make an
+ * agent: it got as far as writing a `.plist` ON WINDOWS and then failed at
+ * `launchctl bootstrap`.
+ *
+ * ⚠️ THE FIX IS SHARED CONSTRUCTION, NOT A COPIED BLOCK. Copying the win32 arm
+ * into createAgentInner would be this repo's most expensive recurring defect --
+ * the duplicated data-root formula (supportdir-win32-2039), and "tmux is
+ * required" written in three places, each found separately and live. What is
+ * shared is the SPEC and the two acts; what stays local to each caller is the
+ * ORDER and the GATING, because those genuinely differ:
+ *
+ *   installJob ......... launch, then register. The agent may already be running
+ *                        (it is an adoption), and a failed registration must not
+ *                        fail a live agent -- it only changes the sentence.
+ *   createAgentInner ... launch, then register, each as its own visible STEP,
+ *                        with a rollback behind them. A creation can be undone;
+ *                        an adoption cannot.
+ */
+function win32AgentSpec(name, o) {
+  const s = o || {};
+  return {
+    name,
+    cwd: workerDir(name),
+    runner: s.runner || 'claude',
+    claudeBin: s.runnerBin,
+    configDir: s.configDir || null,
+    model: s.model || null,
+    platform: 'win32',
+  };
+}
+
+/** Start it NOW -- the `launchctl bootstrap` analog. */
+function win32LaunchAgent(name, o) {
+  return require('./win32launch').launch(win32AgentSpec(name, o));
+}
+
+/** Bring it back at every logon -- the RunAtLoad half of the plist. */
+function win32RegisterJob(name, o) {
+  return require('./win32job').install(win32AgentSpec(name, o));
+}
+
 function installJob(name, opts) {
   const clean = String(name == null ? '' : name);
   if (!NAME_RE.test(clean)) {
@@ -2167,14 +2217,8 @@ function installJob(name, opts) {
           account: configDirWin ? null : 'it will run on your main Claude account' },
         because: 'set up and started now' };
     }
-    const launched = require('./win32launch').launch({
-      name: clean,
-      runner: runner || 'claude',
-      cwd: workerDir(clean),
-      claudeBin: runnerBin,
-      configDir: configDirWin,
-      model: modelArgWin,
-      platform: jobPlatform,
+    const launched = win32LaunchAgent(clean, {
+      runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     if (!launched.ok) return { ok: false, because: launched.because };
     /* 🔑 THE KEEP-ALIVE HALF, and it is a SEPARATE act from the launch because
@@ -2190,13 +2234,8 @@ function installJob(name, opts) {
        them. So the launch decides ok, the job decides only WHAT WE PROMISE: the
        `because` below is the one sentence that changes, and it never claims a
        durability we did not get. */
-    const job = require('./win32job').install({
-      name: clean,
-      cwd: workerDir(clean),
-      runner: runner || 'claude',
-      model: modelArgWin,
-      configDir: configDirWin,
-      platform: jobPlatform,
+    const job = win32RegisterJob(clean, {
+      runner, runnerBin, configDir: configDirWin, model: modelArgWin,
     });
     return {
       ok: true,
@@ -3179,6 +3218,10 @@ function createAgentInner(opts) {
    * just made. The `steps` list still records which half failed, which is where
    * the diagnostic value actually lives.
    */
+  /* What the win32 launch handed back, so a rollback can stop the process it
+     started. Null on darwin and until the start step runs. */
+  let win32Launched = null;
+
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
      *
@@ -3194,6 +3237,25 @@ function createAgentInner(opts) {
      * overreach.
      */
     if (DRY_RUN) return;
+    /* 🔑 THE win32 ARM UNDOES THE TWO THINGS win32 ACTUALLY DID, which are not
+       the two things launchd did. There is no plist to unlink and no service to
+       boot out; there is a Scheduled Task, and -- unlike the Mac -- an agent
+       process this function spawned DIRECTLY rather than through the job.
+       Deleting the task alone would leave that process running under a name the
+       rollback has just told the person does not exist.
+
+       ⚠️ THE TASK GOES FIRST. A task deleted after the process is killed is a
+       window in which a logon would start it straight back up; and win32job's own
+       header makes the same point in reverse -- stopping is a job-level act, so
+       the job must stop being a job before anything else is undone. */
+    if (jobPlatform === 'win32') {
+      try { require('./win32job').remove(name); } catch { /* never registered is the common case */ }
+      if (win32Launched && win32Launched.pid) {
+        try { process.kill(win32Launched.pid); } catch { /* already gone, which is the end state we wanted */ }
+      }
+      try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
+      return;
+    }
     if (unload) {
       try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); }
       catch { /* it was probably never registered, which is the common case */ }
@@ -3475,7 +3537,14 @@ function createAgentInner(opts) {
   // written at all.
   let supervisorMissing = false;
   let supervisorMissingFile = null;
-  const installedSupervisor = step('put the script that starts agents in place', () => {
+  /* 🔑 NO STEP AT ALL ON win32, rather than a step that reports success for work
+     nobody did. `installSupervisor` copies `bin/agent-supervisor.sh` -- a shell
+     script launchd runs, which this platform has no launchd to run. Its win32
+     counterpart is the anchor (engine/win32anchor.js), and that is written by the
+     job registration below, where it can be reported honestly. A step saying "put
+     the script that starts agents in place: ok" when nothing was put anywhere is
+     the kind of true-looking line this file spends most of its comments avoiding. */
+  const installedSupervisor = jobPlatform === 'win32' ? true : step('put the script that starts agents in place', () => {
     if (DRY_RUN) return true;
     const done = installSupervisor();
     supervisorMissing = done.missing === true;
@@ -3519,11 +3588,19 @@ function createAgentInner(opts) {
       return true;
     }));
 
-  const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder) && step('set it up to keep running', () => {
-    if (DRY_RUN) return true;
-    fs.mkdirSync(agentsDir(), { recursive: true });
-    fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
-  });
+  /* ⚠️ ON win32 THERE IS NOTHING TO WRITE HERE, and writing it was the bug. Before
+     this branch existed a Windows create reached this line and put a real `.plist`
+     into a `Library/LaunchAgents` tree on an NTFS disk -- a file nothing on the
+     machine reads -- reported "set it up to keep running: ok", and then failed at
+     the `launchctl bootstrap` below. The win32 equivalent is a Scheduled Task, and
+     it is registered AFTER the launch, as its own step, mirroring installJob's
+     proven order. */
+  const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder)
+    && (jobPlatform === 'win32' || step('set it up to keep running', () => {
+      if (DRY_RUN) return true;
+      fs.mkdirSync(agentsDir(), { recursive: true });
+      fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
+    }));
 
   /**
    * ⚠️ STOP BEFORE LOADING A JOB THAT CANNOT WORK.
@@ -3657,8 +3734,32 @@ function createAgentInner(opts) {
   }
 
   const started = step('started it', () => {
+    /* 🔑 THE SAME TWO ACTS THE MAC GETS FROM ONE `bootstrap`, split because this
+       platform splits them: `win32LaunchAgent` starts it now, and the step below
+       makes it come back. Both go through the shared constructors above, so this
+       is a second CALL SITE and never a second copy. */
+    if (jobPlatform === 'win32') {
+      if (DRY_RUN) return true;
+      win32Launched = win32LaunchAgent(name, { runner, runnerBin, configDir, model: modelArg });
+      return win32Launched.ok === true;
+    }
     const r = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, plistPath(name)]);
     return r && r.ok !== false;
+  });
+
+  /**
+   * The at-logon registration -- launchd's RunAtLoad, which the Mac already got
+   * when the plist was written.
+   *
+   * ⚠️ IT DOES NOT GATE THE CREATION, matching installJob's deliberate asymmetry.
+   * The agent is running by this line; rolling the creation back would kill a
+   * working agent to punish a registration failure. So it is a visible STEP that
+   * can be false -- the person sees exactly which half did not happen -- and the
+   * outcome sentence downstream is what changes, never the fact of the agent.
+   */
+  const atLogin = (jobPlatform === 'win32' && started) && step('set it up to start again at every login', () => {
+    if (DRY_RUN) return true;
+    return win32RegisterJob(name, { runner, runnerBin, configDir, model: modelArg }).ok === true;
   });
 
   /* #169: what the failed-start rollback below knows in memory, persisted
@@ -3777,7 +3878,16 @@ function createAgentInner(opts) {
   }
   return {
     outcome: OUTCOME.CREATED,
-    because: `${shown} is set up and starting`,
+    /* ⚠️ THE SENTENCE NEVER PROMISES A DURABILITY WE DID NOT GET (#570). On win32
+       the at-logon registration is a separate act that does not gate the
+       creation, so it can fail behind a perfectly good agent. `SELF_STARTS` --
+       "it starts itself when this computer is on" -- is exactly what would be
+       false in that case, and a reboot is how somebody would find out. Every
+       other path is unchanged. */
+    because: (jobPlatform === 'win32' && started && !atLogin)
+      ? `${shown} is set up and starting, but it will not come back by itself after a restart`
+      : `${shown} is set up and starting`,
+    atLogin: jobPlatform === 'win32' ? Boolean(atLogin) : undefined,
     steps,
     firstAction: role.firstAction,
     // Where it actually is, so no screen has to rebuild this path and be wrong

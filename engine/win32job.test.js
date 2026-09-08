@@ -21,10 +21,31 @@ const anchor = require('./win32anchor');
 
 test.after(() => job.setRunner(null));
 
-/** Record schtasks invocations instead of running them. */
+/**
+ * Record schtasks invocations instead of running them.
+ *
+ * ⚠️ IT READS THE /XML FILE WHILE IT STILL EXISTS. `install` writes the task
+ * definition to a temp file, shells `schtasks /Create /XML <file>`, and deletes
+ * it in a `finally` -- so the only moment its content can be seen is inside this
+ * stub. Capturing it here is what lets the arms below assert what was actually
+ * registered rather than only that something was.
+ */
 function recording(reply) {
   const calls = [];
-  job.setRunner((args) => { calls.push(args); return reply || { ok: true, out: '' }; });
+  job.setRunner((args) => {
+    const at = args.indexOf('/XML');
+    let xml = null;
+    if (at >= 0 && args[at + 1]) {
+      try { xml = fs.readFileSync(args[at + 1], 'utf16le').replace(/^﻿/, ''); } catch { xml = null; }
+    }
+    /* ⚠️ Attached ONLY when there is one. Hanging a property on every recorded
+       array breaks the `deepEqual` arms below, which compare the argument vector
+       for the verbs that carry no XML (disable, enable, end, run). */
+    const rec = args.slice();
+    if (xml !== null) rec.xml = xml;
+    calls.push(rec);
+    return reply || { ok: true, out: '' };
+  });
   return calls;
 }
 
@@ -63,11 +84,34 @@ test('#570 the job starts ONE supervisor at logon, with the agent as arguments',
   const args = calls[0];
   assert.equal(args[0], '/Create');
   assert.ok(args.includes('/F'), 're-registering must overwrite, or a spec change never takes');
-  assert.deepEqual([args[args.indexOf('/SC') + 1]], ['ONLOGON'], 'RunAtLoad analog');
 
-  const cmd = args[args.indexOf('/TR') + 1];
-  assert.match(cmd, /supervisor-boot\.js/, 'it runs the ONE shared supervisor, through the durable shim');
-  assert.match(cmd, /winagent-1/, 'and the agent arrives as an argument, not as a copy of the script');
+  /* 🛑 REGISTERED FROM XML, NEVER `/SC ONLOGON`. Measured unelevated on a real box
+     2026-09-08: `/SC ONLOGON` fails with "Access is denied" while `/SC ONCE` and
+     `/SC MINUTE` succeed from the same shell, because ONLOGON builds a trigger
+     with no UserId -- "at ANY user's logon" -- which is a machine-wide act.
+     Kosmos runs as an ordinary desktop user, so that spelling would have shipped
+     a keep-alive that failed to register for everyone. */
+  assert.ok(args.includes('/XML'), 'the task is created from a definition, not from /SC');
+  assert.ok(!args.includes('ONLOGON'), '/SC ONLOGON requires administrator and must never come back');
+
+  assert.match(args.xml, /<LogonTrigger>/, 'it is still the RunAtLoad analog');
+  assert.match(args.xml, /<LogonTrigger>[\s\S]*<UserId>[^<]+<\/UserId>[\s\S]*<\/LogonTrigger>/,
+    'and the trigger names ONE user, which is what makes it need no elevation');
+  assert.match(args.xml, /supervisor-boot\.js/, 'it runs the ONE shared supervisor, through the durable shim');
+  assert.match(args.xml, /winagent-1/, 'and the agent arrives as an argument, not as a copy of the script');
+});
+
+test('#570 a path with an XML metacharacter cannot break the definition', () => {
+  /* `C:\a & b\node.exe` is an ordinary folder, and a bare `&` makes the document
+     unparseable -- schtasks would refuse it, which is the loud failure; worse
+     would be a `<` closing an element early. The command line form quoted; this
+     form escapes. */
+  const xml = job.taskXml({
+    name: 'amp', cwd: 'C:\\work\\a & b', node: 'C:\\a & b\\node.exe',
+    supervisor: 'C:\\a & b\\supervisor-boot.js',
+  }, { USERDOMAIN: 'DOM', USERNAME: 'jo' });
+  assert.ok(!/&(?!amp;|quot;|apos;|lt;|gt;)/.test(xml), 'every bare ampersand must be escaped: ' + xml);
+  assert.match(xml, /C:\\a &amp; b\\node\.exe/);
 });
 
 test('#570 A REGISTERED TASK NAMES NOTHING UNDER THE APP -- an update must not strand it', () => {
@@ -86,10 +130,8 @@ test('#570 A REGISTERED TASK NAMES NOTHING UNDER THE APP -- an update must not s
   const r = job.install({ name: 'winagent-2', cwd: 'C:\\work\\winagent-2', ...sb.spec });
   assert.equal(r.ok, true, r.because || '');
 
-  const cmd = calls[0][calls[0].indexOf('/TR') + 1];
+  const cmd = calls[0].xml;
   assert.ok(!cmd.includes(sb.spec.engineDir), 'the ephemeral engine dir must not reach a durable task: ' + cmd);
-  assert.ok(!cmd.includes(path.dirname(sb.spec.node)) || cmd.includes(sb.dir),
-    'the source node must not reach a durable task unless it is the anchored copy');
   assert.ok(cmd.includes(sb.dir), 'both paths come from the anchor: ' + cmd);
 });
 

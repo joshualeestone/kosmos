@@ -237,8 +237,8 @@ session to a bare prompt. Use:
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
 | 6 | merge origin/main (74 behind; #2439 store rename) | DONE -- 89/89 win32 green |
-| 7 | PHASE 3 dress rehearsal R1-R8 | BLOCKED at R1 -- see "R1 blocked" below |
-| 7a | port createAgentInner's launch block to win32 | TODO -- THE NEXT SLICE |
+| 7 | PHASE 3 dress rehearsal R1-R8 | R1 PASSES; R6 partial (see below) |
+| 7a | port createAgentInner's launch block to win32 | DONE -- R1 PASSES on the box |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
 
@@ -375,3 +375,74 @@ should share ONE win32 launch+register step.
 📌 Verified state at the block: no residue is left by the failed create (folder,
 tasks and store all clean afterwards -- checked), so R1 can simply be re-run once
 7a lands.
+
+## 2026-09-08, later: R1 PASSES. Two more defects the rehearsal found.
+
+    outcome  created
+    atLogin  true
+    made its folder ......................... ok
+    wrote its instructions .................. ok
+    started it .............................. ok
+    set it up to start again at every login . ok
+
+Verified against Windows rather than against the return value:
+
+    TaskName:       Kosmos\agent-winreh-2
+    Status:         Ready
+    Schedule Type:  At logon time
+    Run As User:    joshu
+    Task To Run:    C:\Users\joshu\AppData\Local\Kosmos\runtime\node.exe
+                    "...\Kosmos\runtime\supervisor-boot.js" "winreh-2" ...
+
+🔑 THE TASK POINTS AT THE ANCHOR, not at the extract root. The durability design
+is confirmed end to end on a real registration.
+
+### Defect 3: `/SC ONLOGON` REQUIRES ADMINISTRATOR
+
+The single most important finding of the rehearsal, and no test could have found
+it -- every schtasks call in the suite is stubbed. Measured unelevated:
+
+    schtasks /Create /SC ONCE     -> SUCCESS
+    schtasks /Create /SC MINUTE   -> SUCCESS
+    schtasks /Create /SC ONLOGON  -> ERROR: Access is denied.
+
+Task creation is not the problem; that trigger is. `/SC ONLOGON` builds a
+LogonTrigger with NO UserId -- "at ANY user's logon" -- which is machine-wide, so
+Windows demands elevation. `/RU`, `/IT` and dropping `/RL` were all tried; all
+four spellings were denied.
+
+⚠️ THIS WOULD HAVE SHIPPED A KEEP-ALIVE THAT FAILED FOR EVERY ORDINARY USER, at
+REGISTRATION, hours before the logon where anyone would look. Kosmos is a desktop
+app people run as themselves.
+
+FIXED by registering from an XML definition whose LogonTrigger and Principal both
+name the current user -- which needs no elevation and is also the honest shape,
+since launchd's RunAtLoad is itself a per-USER agent. Verified unelevated across
+all six verbs: create, query, disable, enable, run, end, delete.
+
+### Defect 4: an empty `<UserId>`, caught by its own test
+
+`install` passes the caller's `env` -- which exists so a test can redirect the
+ANCHOR to a sandbox, and such an env carries no USERNAME. Read wholesale it
+produced `<UserId></UserId>`: a definition schtasks rejects, from a function whose
+unit test passed. `taskUser` now falls back to the real environment field by
+field, and `install` refuses with a sentence when the user cannot be determined.
+
+Found by the assertion "the trigger names ONE user", which looked like
+belt-and-braces when it was written.
+
+## R6 IS PARTIAL: remove.js still closes a tmux window
+
+Removing an agent got the JOB half right (it correctly found no task for an agent
+whose registration had failed) and then failed at "closed its window":
+
+    it was not set to start on its own, so there was nothing to turn off  ok
+    closed its window                                                     FAILED
+
+On Windows an agent is a spawned process with a hidden console, not a tmux pane,
+so the step that ends it is still Mac-shaped. The job-level acts are ported
+(win32job.disable/end/enable/start); ENDING THE AGENT PROCESS is not.
+
+📌 NEXT SLICE (7b): port the session-ending half of remove.js. `sessionFor` and
+the "closed its window" step are tmux-based. win32 has `win32sessions` (the
+ownership record) and the launch returns a pid; that is what a stop should use.

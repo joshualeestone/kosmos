@@ -32,6 +32,8 @@
  */
 
 const cp = require('node:child_process');
+const fs = require('node:fs');
+const os = require('node:os');
 const path = require('node:path');
 
 const win32anchor = require('./win32anchor');
@@ -83,14 +85,102 @@ function anchorFor(spec) {
  * location and an unquoted argument silently truncates at the space -- the task
  * would register fine and run the wrong thing.
  */
-function taskCommand(spec) {
+function taskExec(spec) {
   const s = spec || {};
   const node = s.node || process.execPath;
   const supervisor = s.supervisor || path.resolve(__dirname, 'win32supervisor.js');
   /* Positional and append-only; see specFromArgv. A missing middle argument is
      '-' rather than omitted, so position never shifts. */
   const argv = [s.name, s.cwd, s.model || '-', s.configDir || '-', s.runner || 'claude'];
-  return '"' + node + '" "' + supervisor + '" ' + argv.map((a) => '"' + String(a) + '"').join(' ');
+  return {
+    command: node,
+    args: ['"' + supervisor + '"'].concat(argv.map((a) => '"' + String(a) + '"')).join(' '),
+  };
+}
+
+function taskCommand(spec) {
+  const e = taskExec(spec);
+  return '"' + e.command + '" ' + e.args;
+}
+
+/* XML, not a command line, so the five characters that end an element or an
+   attribute cannot come from a path. `C:\a & b\node.exe` is an ordinary folder. */
+function xmlEscape(v) {
+  return String(v)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
+
+/**
+ * Whose logon starts this. `DOMAIN\user`, injectable so a Mac can assert it.
+ *
+ * ⚠️ FIELD-BY-FIELD FALLBACK TO THE REAL ENVIRONMENT, and it is load-bearing
+ * rather than defensive. `install` passes the caller's `env` -- which exists so a
+ * test can redirect the ANCHOR to a sandbox, and such an env carries no
+ * USERNAME. Reading it wholesale produced `<UserId></UserId>`: a definition
+ * schtasks rejects, from a function whose unit test passed. Caught by the test
+ * asserting the trigger names a user, which is exactly the assertion that looked
+ * like belt-and-braces when it was written.
+ */
+function taskUser(env) {
+  const e = env || {};
+  const p = process.env;
+  const domain = e.USERDOMAIN || e.COMPUTERNAME || p.USERDOMAIN || p.COMPUTERNAME || '';
+  const user = e.USERNAME || p.USERNAME || '';
+  if (!user) return '';
+  return domain ? domain + '\\' + user : user;
+}
+
+/**
+ * The task definition, as XML.
+ *
+ * 🛑 THIS IS NOT A STYLE CHOICE -- `/SC ONLOGON` CANNOT BE USED. Measured on a
+ * real box, 2026-09-08, unelevated: `schtasks /Create /SC ONLOGON` fails with
+ * "ERROR: Access is denied.", while `/SC ONCE` and `/SC MINUTE` succeed from the
+ * same shell. Task creation is not the problem; that trigger is. `/SC ONLOGON`
+ * builds a LogonTrigger with NO UserId, which means "at any user's logon" -- a
+ * machine-wide act, so Windows requires administrator. Adding `/RU`, `/IT` or
+ * dropping `/RL` does not help; all four spellings were tried and all four were
+ * denied.
+ *
+ * 🔑 A LOGON TRIGGER SCOPED TO ONE USER NEEDS NO ELEVATION, which is also the
+ * honest shape: this is launchd's RunAtLoad analog, and RunAtLoad is a per-USER
+ * agent. So the trigger and the principal both name the current user, and the
+ * task is created from XML. Verified unelevated end to end -- create, query,
+ * disable, enable, run, end, delete.
+ *
+ * ⚠️ REQUIRING ADMIN WOULD HAVE BEEN A PRODUCT DEFECT, NOT AN INCONVENIENCE.
+ * Kosmos is a desktop app a person runs as themselves; a fleet that could only be
+ * made durable from an elevated prompt would have shipped a keep-alive that
+ * silently failed for every ordinary user -- and failed at REGISTRATION, hours
+ * before the logon where anyone would notice.
+ *
+ * `ExecutionTimeLimit PT0S` is "no limit": the supervisor is meant to run for as
+ * long as the box is up, and the default three days would kill the fleet mid-week.
+ * `IgnoreNew` is the multiple-instances policy that matches adopt-not-replace --
+ * a second logon must not start a second supervisor for the same agent.
+ */
+function taskXml(spec, env) {
+  const exec = taskExec(spec);
+  const user = xmlEscape(taskUser(env));
+  return '<?xml version="1.0" encoding="UTF-16"?>\n'
+    + '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
+    + '  <RegistrationInfo><Description>Kosmos agent ' + xmlEscape(spec && spec.name) + '</Description></RegistrationInfo>\n'
+    + '  <Triggers><LogonTrigger><Enabled>true</Enabled><UserId>' + user + '</UserId></LogonTrigger></Triggers>\n'
+    + '  <Principals><Principal id="Author"><UserId>' + user + '</UserId>'
+    + '<LogonType>InteractiveToken</LogonType><RunLevel>LeastPrivilege</RunLevel></Principal></Principals>\n'
+    + '  <Settings>'
+    + '<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>'
+    + '<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>'
+    + '<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>'
+    + '<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>'
+    + '<Enabled>true</Enabled>'
+    + '</Settings>\n'
+    + '  <Actions Context="Author"><Exec>'
+    + '<Command>' + xmlEscape(exec.command) + '</Command>'
+    + '<Arguments>' + xmlEscape(exec.args) + '</Arguments>'
+    + '</Exec></Actions>\n'
+    + '</Task>\n';
 }
 
 /**
@@ -114,8 +204,30 @@ function install(spec) {
     node: s.node, engineDir: s.engineDir,
   });
   if (!anchor.ok) return { ok: false, because: anchor.because };
-  const r = run(['/Create', '/F', '/TN', taskName(s.name), '/SC', 'ONLOGON', '/RL', 'LIMITED',
-    '/TR', taskCommand({ ...s, node: anchor.node, supervisor: anchor.boot })]);
+
+  /* 🛑 A LOGON TRIGGER NEEDS A USER, and an empty one registers a task that can
+     never fire. Refuse with a sentence rather than write a definition schtasks
+     will reject with its own opaque one. */
+  if (!taskUser(s.env)) {
+    return { ok: false, because: 'we could not tell which user this computer signs in as, so a startup job would never run' };
+  }
+
+  /* ⚠️ UTF-16 WITH A BOM, because schtasks refuses anything else for /XML -- and
+     the file is transient by design: it is consumed by the next line and deleted
+     in the `finally`. Nothing durable points at it, so it carries none of the
+     ephemeral-path hazard the anchor exists to solve. */
+  const xmlAt = path.join(os.tmpdir(), 'kosmos-task-' + process.pid + '-' + Date.now() + '.xml');
+  let r;
+  try {
+    try {
+      fs.writeFileSync(xmlAt, Buffer.from('﻿' + taskXml({ ...s, node: anchor.node, supervisor: anchor.boot }, s.env), 'utf16le'));
+    } catch (e) {
+      return { ok: false, because: 'we could not write the startup job definition (' + ((e && e.message) || 'no detail') + ')' };
+    }
+    r = run(['/Create', '/F', '/TN', taskName(s.name), '/XML', xmlAt]);
+  } finally {
+    try { fs.unlinkSync(xmlAt); } catch { /* best effort; it is in the temp root */ }
+  }
   if (!r.ok) return { ok: false, because: 'we could not register the startup job (' + (r.out || 'no detail').trim().split('\n')[0] + ')' };
   return { ok: true, task: taskName(s.name) };
 }
@@ -196,7 +308,7 @@ function status(name) {
 }
 
 module.exports = {
-  TASK_PREFIX, taskName, taskCommand,
+  TASK_PREFIX, taskName, taskCommand, taskExec, taskXml, taskUser, xmlEscape,
   install, disable, enable, end, start, remove, status,
   setRunner, setAnchorer,
 };

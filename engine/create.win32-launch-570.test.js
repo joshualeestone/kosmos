@@ -158,7 +158,11 @@ test('#570 asked about win32, installJob launches through the substrate and NEVE
      second is the one nobody notices missing until a reboot. */
   assert.equal(tasks.length, 1, 'the at-logon job was registered');
   assert.equal(tasks[0][0], '/Create');
-  assert.ok(tasks[0].includes('ONLOGON'), 'and it is the RunAtLoad analog');
+  /* Registered from an XML definition, never `/SC ONLOGON` -- that spelling needs
+     administrator (measured unelevated 2026-09-08) because it triggers on ANY
+     user's logon. win32job.test.js pins the definition's content. */
+  assert.ok(tasks[0].includes('/XML'), 'and it is the RunAtLoad analog, defined in XML');
+  assert.ok(!tasks[0].includes('ONLOGON'), '/SC ONLOGON requires elevation and must not come back');
   assert.equal(fs.existsSync(path.join(SANDBOX, 'Library')), false,
     'and no LaunchAgents/plist tree was created');
 });
