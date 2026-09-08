@@ -2378,9 +2378,10 @@ button.boardname[aria-expanded="true"] { opacity: 1; color: var(--k-ink); border
 .pjcount { font-size: .8125rem; color: var(--k-ink-2); margin-left: 8px; }
 /* #2458 Map view: the Projects tab's third layout, an org chart of the project
    tree drawn top-down (Kosmos at the root, sub-projects nested under their
-   parents). Ported from Mona's design/subprojects.html "The Map". Classes are
-   PREFIXED (pjorg*/pjonode) because bare `.onode` is the AGENTS org-view node,
-   styled globally with circular avatars -- reusing it would cross the two views.
+   parents). Ported from Mona's design/subprojects.html "The Map". The class
+   names are prefixed (.pjorg and .pjonode) because bare `.onode` is the AGENTS
+   org-view node, styled globally with circular avatars -- reusing it would cross
+   the two views.
    It scrolls sideways for a wide fleet, the honest trade for never wrapping or
    truncating the shape. It is a seeing view, so the nodes are static (design:
    "Grid for working, Map for seeing"). */
