@@ -286,7 +286,7 @@ func logLine(_ s: String) {
 // This mirrors store.ROOT's macOS branch (`dataRootFor`): the base is
 // `AGENT_WORKFORCE_DATA` when that override is set (so an operator who moved the
 // data dir is followed rather than silently read at the default), otherwise the
-// OS Application Support dir; the `AgentWorkforce/` subpath is the APP constant.
+// OS Application Support dir; the store-leaf subpath is APP (see storeLeaf()).
 // Swift cannot require the node store module, so this is a faithful re-derivation
 // of that one formula, not the single source itself -- the shipped app sets no
 // override, so the two agree.
@@ -304,10 +304,43 @@ func boardTokenValue() -> String? {
     } else {
         return nil
     }
-    let file = base.appendingPathComponent("AgentWorkforce/board.token")
+    let file = base.appendingPathComponent("\(storeLeaf(base: base))/board.token")
     guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
     let tok = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     return tok.isEmpty ? nil : tok
+}
+
+// #2439: the on-disk store leaf. engine/store.js renamed its APP constant from
+// 'AgentWorkforce' to 'Kosmos', with a one-time migration (maybeMigrateLegacyStore)
+// that renames the whole legacy dir to the new leaf on the JS board's first store access
+// and NEVER clobbers an existing new leaf. This native app resolves the same store dir
+// independently, and several of its writers create the dir (writeA11yStatus,
+// writeFileAccessStatus, the scan hatch, writeRelaunchHandoffToken). If it wrote to
+// 'Kosmos' before the JS migration ran, it would pre-create the new leaf, make the
+// migration skip on never-clobber, and ORPHAN the person's entire legacy store. So
+// resolve the CURRENT leaf: legacy 'AgentWorkforce' when it exists and 'Kosmos' does not
+// yet (the pre-migration update case), else 'Kosmos'. The JS migration then relocates the
+// legacy dir -- with anything this app wrote into it -- to 'Kosmos', and later reads here
+// resolve 'Kosmos'. Mirrors the same legacy-vs-new choice install/setup.sh's
+// source-channel write makes, for the same reason. Swift cannot require the node store
+// module, so this re-derives the one formula rather than being the single source itself.
+//
+// Residual, accepted: there is no lock across the language boundary, so a TOCTOU window
+// exists during the one-time migration -- if this resolves the legacy leaf (Kosmos absent)
+// and the JS renameSync(legacy -> Kosmos) completes before the caller's write lands, the
+// write (which mkdir's first) re-creates base/AgentWorkforce/ holding one stale coordination
+// file the board (now reading Kosmos) never sees. It is NOT data loss (the user's store was
+// already relocated to Kosmos), the window is milliseconds and only during a migrating
+// update, the file is an ephemeral status/handoff that is rewritten, and the next write here
+// resolves Kosmos. Left as-is rather than adding cross-process locking for a self-correcting
+// millisecond race.
+func storeLeaf(base: URL) -> String {
+    let fm = FileManager.default
+    var isDir: ObjCBool = false
+    let kosmosExists = fm.fileExists(atPath: base.appendingPathComponent("Kosmos").path, isDirectory: &isDir) && isDir.boolValue
+    let legacyExists = fm.fileExists(atPath: base.appendingPathComponent("AgentWorkforce").path, isDirectory: &isDir) && isDir.boolValue
+    if legacyExists && !kosmosExists { return "AgentWorkforce" }
+    return "Kosmos"
 }
 
 // MARK: - #2125 slice 3: the native Accessibility trust writer
@@ -322,7 +355,7 @@ func boardTokenValue() -> String? {
 // other silently (the two-copies-of-one-fact defect). Resolved the SAME way
 // boardTokenValue() / relaunchHandoffURL() resolve their dir -- AGENT_WORKFORCE_DATA
 // override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
-// app-support dir -- plus the shared "AgentWorkforce/" subpath. A cross-language seam
+// app-support dir -- plus the shared store-leaf subpath (storeLeaf()). A cross-language seam
 // is INHERENTLY two copies (Swift here, JS there), so the guard is not code-sharing
 // (impossible across languages) but a test that the two agree: a11ystatus.test.js
 // pins the reader path, and the native-writer test pins THIS one against store.ROOT.
@@ -331,7 +364,7 @@ func boardTokenValue() -> String? {
 // prompt-request files -- lands in the SAME place: a new shared file names itself here
 // rather than re-implementing (and risk mis-copying) the resolution. AGENT_WORKFORCE_DATA
 // override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
-// app-support dir -- plus the shared "AgentWorkforce/" subpath. Mirrors engine/store.js;
+// app-support dir -- plus the shared store-leaf subpath (storeLeaf()). Mirrors engine/store.js;
 // the seam is cross-language so the guard is a test that the two agree, not code-sharing.
 //
 // a11yStatusURL predates this helper and keeps its OWN inline copy of the same
@@ -349,7 +382,7 @@ func storeFileURL(_ name: String) -> URL? {
     } else {
         return nil
     }
-    return base.appendingPathComponent("AgentWorkforce/\(name)")
+    return base.appendingPathComponent("\(storeLeaf(base: base))/\(name)")
 }
 
 func a11yStatusURL() -> URL? {
@@ -364,7 +397,7 @@ func a11yStatusURL() -> URL? {
     } else {
         return nil
     }
-    return base.appendingPathComponent("AgentWorkforce/a11y-status.json")
+    return base.appendingPathComponent("\(storeLeaf(base: base))/a11y-status.json")
 }
 
 // The Accessibility trust reading. AXIsProcessTrusted() is the real source; the
@@ -817,7 +850,7 @@ func relaunchHandoffURL() -> URL? {
     } else {
         return nil
     }
-    return base.appendingPathComponent("AgentWorkforce/relaunch-handoff")
+    return base.appendingPathComponent("\(storeLeaf(base: base))/relaunch-handoff")
 }
 
 // Called by the EXITING instance right before it opens the fresh copy. Best-effort: a

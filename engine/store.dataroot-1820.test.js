@@ -36,7 +36,7 @@ const assert = require('node:assert/strict');
 const os = require('node:os');
 const store = require('./store');
 
-const APP = 'AgentWorkforce';
+const APP = store.APP; // #2439: track the store leaf (Kosmos) rather than pinning the old brand
 
 /* ---- HOLE 1: a relative AGENT_WORKFORCE_DATA override, any platform ---- */
 

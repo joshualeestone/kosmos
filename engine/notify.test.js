@@ -1,6 +1,7 @@
 'use strict';
 /**
- * The outbound "something happened" call: off by default, never the words,
+ * The outbound "something happened" call: ON by default for a never-asked
+ * machine (#2020 step 3) with a Settings opt-out switch, never the words,
  * never sent under test without an injected sender, and the closed list of
  * kinds. Sandboxed data root before the require.
  */
@@ -56,15 +57,41 @@ test('#462: no token configured means no auth header, byte-for-byte as before', 
     'a request with no token must carry exactly the header it carried before #462');
 });
 
-test('off by default: nothing is sent until somebody turns it on, and a bad value is refused in words', async () => {
+test('ON by default (#2020 step 3); opting out stops the send, and a bad value is refused in words', async () => {
   const sent = capture();
+  // A never-asked machine (afterEach removed the pref file): ON by default.
+  assert.equal(notify.read().on, true, 'the notify send must default ON for a never-asked machine (#2020 step 3)');
+  // Opt out: an explicit false is honoured, and then nothing is sent.
+  assert.equal(notify.setOn(false).ok, true);
   assert.equal(notify.read().on, false);
   notify.happened({ kind: 'posted', agent: 'Leo', project: 'Lease' });
   await new Promise((r) => setTimeout(r, 10));
   assert.deepEqual(sent, [], 'sent while off');
+  // A bad value is refused in words, not silently.
   assert.match(notify.setOn('yes').because, /on or off/);
+  // Back on.
   assert.equal(notify.setOn(true).ok, true);
   assert.equal(notify.read().on, true);
+});
+
+test('an existing-but-unreadable pref FAILS TO OFF, never sending against a possible opt-out (#2020 safety)', () => {
+  /* 🛑 THE SAFETY-CRITICAL ARM, elevated by the step-3 flip: now that a
+     never-asked machine defaults ON, the ONLY thing keeping an unreadable pref
+     from sending against a person's possible opt-out is that a malformed /
+     non-object / unreadable file reads OFF, not the ON default. A person who
+     turned it OFF and whose file then became unreadable must NOT start sending
+     again. */
+  // Malformed (not JSON): OFF, ok:false.
+  fs.writeFileSync(notify.FILE, 'not json at all');
+  assert.deepEqual(notify.read(), { on: false, ok: false }, 'a malformed pref must fail to OFF, ok:false');
+  // Non-object JSON (an array): OFF, ok:false.
+  fs.writeFileSync(notify.FILE, '[1,2,3]');
+  assert.deepEqual(notify.read(), { on: false, ok: false }, 'a non-object pref must fail to OFF, ok:false');
+  /* Control that proves the OFF above is the fail-safe and not just the default:
+     remove the file and the same read is ON (the never-asked default). If the
+     default were OFF this control would not discriminate. */
+  fs.rmSync(notify.FILE, { force: true });
+  assert.equal(notify.read().on, true, 'control: a never-asked machine reads ON, so the OFF above is the unreadable fail-safe');
 });
 
 test('what leaves the Mac is who, what, which project and when; never the words, and never an unknown kind', async () => {
@@ -111,16 +138,16 @@ test('CONTROL: with no injected sender under test, nothing is sent even when on,
   }
 });
 
-test('both telemetry opt-out rows are PRESENT and wired; ping defaults ON (#2020/#2013), notify stays OFF', () => {
+test('both telemetry opt-out rows are PRESENT and wired; ping and notify both default ON (#2020/#2013)', () => {
   /* 🛑 THE HISTORY, so nobody re-derives it: this pinned the rows PRESENT before
      2026-08-26, then their ABSENCE after Josh removed both (his item 3). #2020
      restores them as opt-out CONTROLS (Josh 09-03: "on, and they can turn it off"),
      so it pins their PRESENCE again. The control and the default are ONE decision
-     (#2013): the control was restored first with the default OFF; Josh has SINCE
-     flipped the create-ping default ON (#2020/#2013, 2026-09-05), so the ping
-     assertions below check ON while notify stays OFF - never a default-on without a
-     control, which is the exact "removed opt-out" state the deletion existed to
-     prevent. */
+     (#2013): each control was restored first with the default OFF, then Josh
+     flipped BOTH defaults ON - the create-ping on 2026-09-05 (#2020/#2013) and the
+     notify send in #2020 step 3 on 2026-09-03 - so both assertions below check ON,
+     each paired with its restored switch: never a default-on without a control,
+     the exact "removed opt-out" state the deletion existed to prevent. */
   const page = fs.readFileSync(nodePath.join(__dirname, '..', 'web', 'index.html'), 'utf8');
   for (const id of ['id="notify-row"', 'id="notify-msg"', 'id="notify-toggle"',
     'id="tell-row"', 'id="tell-msg"', 'id="tell-toggle"']) {
@@ -141,14 +168,15 @@ test('both telemetry opt-out rows are PRESENT and wired; ping defaults ON (#2020
     'refreshNotify does not guard on a non-ok read (#2047: a 403 would draw a false Off)');
   /* The half absence alone cannot cover (ping.test.js's rule, applied here): the
      control is back AND the send default is whatever Josh has ruled. A fresh
-     machine has no pref file, so read() returns the default. The two defaults
-     now DIVERGE, and the split is deliberate: Josh ruled the created-agent PING
-     back ON on 2026-09-05 (#2020/#2013, "we need that back in for sure", "I've
-     never said flip it off"); the notify send has no such ruling, so it stays
-     OFF until he gives one. */
+     machine has no pref file, so read() returns the default. Both defaults are
+     now ON, each paired with its restored Settings opt-out switch (the #2013
+     rule: never a default-on without a control): Josh ruled the created-agent
+     PING back ON on 2026-09-05 (#2020/#2013), and he ruled the notify send ON in
+     #2020 step 3 on 2026-09-03 ("on, and they can turn it off"). So the notify
+     default flips from OFF to ON here, its opt-out being #notify-toggle above. */
   const ping = require('./ping');
-  assert.equal(notify.read().on, false, 'the notify send defaulted ON with no step-3 ruling from Josh');
-  assert.equal(ping.read().on, true, 'the ping send defaulted OFF, but #2020/#2013 requires it ON (Josh 2026-09-05)');
+  assert.equal(notify.read().on, true, 'the notify send must default ON now that #2020 step 3 is ruled (Josh 2026-09-03 "on, and they can turn it off")');
+  assert.equal(ping.read().on, true, 'the ping send defaults ON per #2020/#2013 (Josh 2026-09-05)');
   /* 🛑 THE DISCLOSURE COPY MUST COVER WHAT THE PAYLOAD SENDS (#2020 step 2 = honest
      disclosure). This pins the payload's EXACT field set; the notify row's copy above
      is human-verified to name each one - the agent's name and session, kind

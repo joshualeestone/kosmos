@@ -21,7 +21,7 @@ process.env.AGENT_WORKFORCE_DATA = SANDBOX;
 const ping = require('./ping');
 const { codeOnly } = require('../test-support/code-only');
 
-// #1856: ping.FILE now lives under the AgentWorkforce leaf, so ensure its dir
+// #1856: ping.FILE now lives under the Kosmos leaf, so ensure its dir
 // exists before the tests write to ping.FILE directly.
 function fresh() { fs.mkdirSync(nodePath.dirname(ping.FILE), { recursive: true }); try { fs.unlinkSync(ping.FILE); } catch { /* none */ } }
 
@@ -57,6 +57,27 @@ test('a preference we cannot read sends NOTHING', () => {
   ping.setSender(() => { sent += 1; return Promise.resolve(); });
   ping.agentCreated({ wanted: true });
   assert.equal(sent, 0, 'an unreadable preference was read as permission to send');
+});
+
+test('#2401: an array pref fails to OFF, and never becomes permission to send', () => {
+  fresh();
+  /* ⚠️ typeof [] === 'object', so without the Array.isArray guard a top-level
+     JSON array would fall through to the ON default and send against a possible
+     opt-out. Mirrors the notify.js #2020 safety arm. */
+  fs.writeFileSync(ping.FILE, '[1,2,3]');
+  const r = ping.read();
+  assert.equal(r.on, false, 'an array pref must fail to OFF');
+  assert.equal(r.ok, false, 'an array pref is not a readable preference');
+  assert.equal(r.installId, null, 'an array pref yields no install id, pinning the whole returned shape');
+  let sent = 0;
+  ping.setSender(() => { sent += 1; return Promise.resolve(); });
+  ping.agentCreated({ wanted: true });
+  assert.equal(sent, 0, 'an array preference was read as permission to send');
+  /* Control that proves the OFF above is the fail-safe and not merely the
+     default: remove the file and the same read is ON (the never-asked default).
+     If the default were OFF this control would not discriminate. */
+  fs.rmSync(ping.FILE, { force: true });
+  assert.equal(ping.read().on, true, 'control: a never-asked machine reads ON, so the OFF above is the array fail-safe');
 });
 
 test('what leaves is the event and never its contents', () => {

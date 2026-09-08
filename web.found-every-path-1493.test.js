@@ -52,13 +52,18 @@ const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') +
    to an empty-but-loaded answer here, so every pre-#1938 assertion below reads the same
    branch it always did; the scan-offer branch is exercised by the one test that passes a
    non-empty FR_SCAN. */
-function paint(FR, FR_FOUND, FR_SCAN) {
+function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
   const scan = FR_SCAN === undefined ? { ok: true, candidates: [] } : FR_SCAN;
+  // #2389 (iter 3): frPaintFleet reads FR_SCAN_INFLIGHT (a global on the real page) to
+  // keep the adopt "checking" copy up while a granted two-phase scan is mid-flight, so
+  // it must be a declared param here or the lifted function throws a ReferenceError.
+  // Defaults falsy (settled) for every existing caller.
+  const inflight = FR_SCAN_INFLIGHT === undefined ? false : FR_SCAN_INFLIGHT;
   const els = {};
   const mk = (id) => (els[id] = { id, textContent: '', innerHTML: '', hidden: false, focus() {} });
   const calls = [];
   const fn = new Function('document', 'FR', 'FR_FOUND', 'FR_SCAN', 'FR_MACHINE', 'FR_STEP', 'FR_STEP_YOU',
-    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'frArmRescanOnGrant', 'esc', 'pjSentence',
+    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'frArmRescanOnGrant', 'esc', 'pjSentence', 'FR_SCAN_INFLIGHT',
     BODY + '\nreturn frPaintFleet();');
   fn({ getElementById: (id) => els[id] || mk(id) }, FR, FR_FOUND, scan, null, 6, 3,
     () => calls.push('PAINT-FOUND'), () => calls.push('PAINT-SCAN'), () => calls.push('actions'),
@@ -66,10 +71,16 @@ function paint(FR, FR_FOUND, FR_SCAN) {
     // #3/#4(a): frPaintFleet's create arm now calls frArmRescanOnGrant() (arms the grant-flip
     // re-scan poll on S9). This harness lifts frPaintFleet out of its module, so inject it as a
     // no-op stub -- the poll's real behaviour is covered in render-firstrun-scan-on-grant-1652.js.
-    () => calls.push('ARM-RESCAN'), String, String);
+    () => calls.push('ARM-RESCAN'), String, String, inflight);
   // install-flow-9screen: the fleet painters now write the heading into the
   // pane-9 head (#fr-fleet-title), not the retired shell #fr-title.
-  return { calls, title: (els['fr-fleet-title'] || {}).textContent || '' };
+  // #2389: also return the body copy so the adopt-arm tests can assert the
+  // verbatim "nothing to import" sentence renders only when the scan confirms it.
+  return {
+    calls,
+    title: (els['fr-fleet-title'] || {}).textContent || '',
+    box: (els['fr-fleet'] || {}).innerHTML || '',
+  };
 }
 
 const onDisk = { ok: true, agents: [{ name: 'Hers', dir: '/Users/x/work/hers' }] };
@@ -152,6 +163,127 @@ test('#4: loose importable FILES (no folder candidates) route to the scan screen
   const u = paint({ path: 'unknown', fleetCount: null }, { ok: true, agents: [] }, filesOnly);
   assert.ok(u.calls.includes('PAINT-SCAN'),
     'unknown arm: loose importable files did not route to the scan screen (fell through to "could not see")');
+});
+
+test('#2389: the adopt path SCANS the disk, the one arm #1938 left out', () => {
+  /* The adopt arm (>=1 running agent, so tmux said "adopt") rendered the verbatim
+     "nothing to import" and returned WITHOUT ever scanning the disk. A person with
+     a running fleet AND agents in Documents/Downloads whose folders Claude has no
+     record of was told there was nothing to import while it was false. Fire the scan
+     here too, exactly as the create and unknown arms do. */
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, null);
+  assert.ok(r.calls.includes('SCAN-SEARCH'),
+    'the adopt path still never scanned the disk (the #2389 gap #1938 left on this one arm)');
+});
+
+test('#2389: while the adopt scan is in flight the screen does NOT assert "nothing to import"', () => {
+  /* Same rule the create arm follows for its empty state: the claim about their
+     machine must not sit on screen before the disk has been read. */
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, null);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the false "nothing to import" sentence is shown before the disk scan can answer');
+  assert.match(r.title, /already have 2 agents/,
+    'the running-fleet acknowledgment was dropped during the scan');
+});
+
+test('#2389: the adopt scan waits for the found search to settle, so it fires ONCE not twice', () => {
+  /* frFindAgents() fires at the top of frPaintFleet for every path, and frFoundOffer()
+     reads empty while FR_FOUND is still null. If the adopt arm scanned straight on
+     FR_SCAN===null it would fire frScanAgents once at first render (FR_FOUND null) and
+     again on the found-settle repaint (FR_SCAN still null) -- two /api/scan-import TCC
+     walks and a possible double permission prompt. The FR_FOUND===null gate (mirroring
+     the create arm) defers the scan until the found search settles, so it fires once. */
+  const r = paint({ path: 'adopt', fleetCount: 2 }, null, null);
+  assert.ok(r.calls.includes('SEARCH'), 'the found search did not fire at the top');
+  assert.ok(!r.calls.includes('SCAN-SEARCH'),
+    'the adopt arm scanned the disk before the found search settled -- the double-fire the FR_FOUND gate prevents');
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the false "nothing to import" sentence is shown before the found search even settled');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet acknowledgment was dropped');
+});
+
+test('#2389: when the adopt scan finds a folder candidate, it hands to the scan screen', () => {
+  const scan = { ok: true, candidates: [{ dir: '/Users/x/work/hers', name: 'Hers', preview: 'You are **Hers**.' }] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, scan);
+  assert.ok(r.calls.includes('PAINT-SCAN'),
+    'an agent on the adopt person’s disk was not offered; they were told there was nothing to import');
+  assert.ok(r.calls.includes('ARM-RESCAN'),
+    'the adopt arm did not arm the grant-flip re-scan, so a late file-access grant never re-scans (the #4 gap, one arm over)');
+});
+
+test('#2389: loose importable FILES on the adopt path also route to the scan screen', () => {
+  /* frImportOffer is the second consumer of FR_SCAN (#4); the adopt gate must read
+     it too, or a person with only loose agent files (no folder candidates) plus a
+     running fleet falls through to the flat "nothing to import". */
+  const filesOnly = { ok: true, candidates: [], importable: [
+    { file: '/Users/x/Documents/a.md', name: 'A', role: 'r', preview: 'You are A.' },
+  ] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, filesOnly);
+  assert.ok(r.calls.includes('PAINT-SCAN'),
+    'adopt arm: loose importable files did not route to the scan screen (fell through to "nothing to import")');
+});
+
+test('#2389 (iter 3): a still-scanning granted partial does NOT flash the verbatim false claim', () => {
+  /* The granted two-phase scan (frScanAgents -> fetchImportScanComplete) sets FR_SCAN to a
+     scanning:true partial with no rows yet (the TCC folders land last, and those are exactly
+     the #2389 target's) and repaints. FR_SCAN is then non-null with both offers empty, but the
+     scan is STILL RUNNING (FR_SCAN_INFLIGHT set). The adopt arm must keep the "checking" copy,
+     not render the verbatim "nothing to import" -- that would flash the exact #2389 false claim,
+     to the exact target user, for as long as the scan takes. */
+  const partial = { ok: true, scanning: true, candidates: [], importable: [] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, partial, true);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim flashed while a granted two-phase scan was still in flight');
+  assert.match(r.box, /Checking this computer/, 'the checking copy was not held during the in-flight partial');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet acknowledgment was dropped');
+});
+
+test('#2389 (iter 4): a retry-exhausted still-scanning result does NOT assert the verbatim', () => {
+  /* fetchImportScanComplete can return scanning:true after MAX retries; frScanAgents then
+     stores FR_SCAN = that result (scanning:true) and CLEARS FR_SCAN_INFLIGHT. That is
+     settled-but-not-a-clean-empty: the disk was not finished, so "nothing to import" would be
+     false. The verbatim must render only on a clean, complete, readable-empty scan. */
+  const exhausted = { ok: true, scanning: true, candidates: [], importable: [] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, exhausted, false);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim rendered on a retry-exhausted, unfinished scan');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
+});
+
+test('#2389 (iter 4): a hard scan failure does NOT assert the verbatim', () => {
+  /* On a failed read frScanAgents stores FR_SCAN = {ok:false, candidates:[]}. The disk was
+     not read, so the adopt arm must not claim "nothing to import" -- the create arm renders
+     silent neutral copy here and the unknown arm renders "could not see"; the adopt arm must
+     not be the only one making a positive machine claim on a failed read (#1493 SAID-WHILE-FALSE). */
+  const failed = { ok: false, candidates: [] };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, failed, false);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim rendered on a hard scan failure (unread disk)');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
+});
+
+test('#2389 (iter 5): a tccUnavailable result (grant given, Documents unread) does NOT assert the verbatim', () => {
+  /* When file access was granted but the app-identity hatch failed, the scan settles
+     bounded.tccUnavailable: Documents/Downloads/Desktop (where the #2389 target's agents live)
+     were NOT read, yet the contract marks it full/complete (scanning falsy, FR_SCAN_FULL true),
+     so the grant-flip poll STOPS. Claiming "nothing to import" over those unread folders would be
+     a PERMANENT false claim on the granted path -- the exact #2389 population. */
+  const tccOut = { ok: true, candidates: [], importable: [], bounded: { tccUnavailable: true } };
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, tccOut, false);
+  assert.doesNotMatch(r.box, /nothing to import/,
+    'the verbatim false claim rendered on a tccUnavailable scan (Documents unread)');
+  assert.match(r.title, /already have 2 agents/, 'the running-fleet heading was dropped');
+});
+
+test('#2389 CONTROL: with a running fleet and a genuinely empty disk, the verbatim pack copy still renders', () => {
+  /* The Josh-ruled sentence (2026-08-17, verbatim) must survive untouched for the
+     true-empty case. This pins that the fix ADDED a branch and did not edit the
+     ruled string: scan done + nothing on disk => "There is nothing to import". */
+  const r = paint({ path: 'adopt', fleetCount: 2 }, { ok: true, agents: [] }, { ok: true, candidates: [] });
+  assert.match(r.box, /nothing to import and nothing to wait for/,
+    'the verbatim pack sentence was lost for the case where it is true');
+  assert.match(r.title, /already have 2 agents/, 'the honest adopt heading was lost');
+  assert.ok(!r.calls.includes('PAINT-SCAN'), 'the scan screen fired though there was nothing on the disk');
 });
 
 test('CONTROLS: the honest empty answers are untouched', () => {

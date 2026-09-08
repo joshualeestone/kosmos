@@ -105,10 +105,12 @@ test('items 8, 9, 10 -- the connect panel sits inside the Claude row, above GPT'
   assert.ok(at('fr-sub') < at('fr-sub-msg'), 'the message line now renders above the panel it belongs to');
 
   /* 🛑 AND THE ABSOLUTE FLOOR HE ACTUALLY COMPLAINED ABOUT. Below the last
-     provider row is where all three of these lived. Naming Mistral rather than
-     GPT means this still catches the regression if a provider is inserted
-     between Claude and GPT some day. */
-  const lastRow = PAGE.indexOf('data-pmark="mistral"');
+     provider row is where all three of these lived. Anchoring on the LAST row
+     (rather than GPT) still catches the regression if a provider is inserted
+     between Claude and GPT some day. #1040 added DeepSeek, GLM, Kimi and MiniMax
+     as coming-soon rows below Mistral, so MiniMax is now the last row -- re-point
+     this anchor to whichever provider is last if the list grows again. */
+  const lastRow = PAGE.indexOf('data-pmark="minimax"');
   assert.ok(lastRow > 0, 'the last provider row moved; cannot locate the bottom of the list');
   assert.ok(at('fr-sub') < lastRow, 'the connect panel is below the last provider row again -- the exact placement Josh reported as items 8, 9 and 10');
 });

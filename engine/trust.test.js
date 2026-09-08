@@ -11,6 +11,15 @@ const nodePath = require('node:path');
 // would still realpath a directory on the operator's real disk.
 const SANDBOX = fs.realpathSync(fs.mkdtempSync(nodePath.join(os.tmpdir(), 'trust-test-')));
 const CONFIG = nodePath.join(SANDBOX, 'claude.json');
+/* #2281: the key trust.js writes is separator-NORMALISED, because Claude Code
+   spells its project keys with forward slashes and does NOT read a backslashed
+   one -- measured on a real Windows box, with a forward-slash control that went
+   straight to the prompt while the backslashed twin got the trust dialog.
+   These lookups spelled the expected key with the HOST separator, which is
+   identical on macOS and wrong on Windows: the same platform-bound-expectation
+   shape the writer itself had, which is why nothing here disagreed with it. */
+const K = (p) => String(p).split(nodePath.sep).join('/');
+
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = CONFIG;
 // ⚠️ AND THE DATA ROOT, before any require can freeze store.ROOT: the
 // trust-writes record lives there, and without this the record tests rm,
@@ -46,8 +55,8 @@ test('a folder we made is trusted, under the key Claude Code will look for', () 
   write({ projects: {} });
   const d = folder();
   const r = trustFolder(d);
-  assert.deepEqual(r, { ok: true, already: false, key: d, displaced: undefined, madeEntry: true });
-  assert.equal(read().projects[d][KEY], true);
+  assert.deepEqual(r, { ok: true, already: false, key: K(d), displaced: undefined, madeEntry: true });
+  assert.equal(read().projects[K(d)][KEY], true);
 });
 
 test('the key is the RESOLVED path, because a symlinked spelling is never read', () => {
@@ -65,7 +74,7 @@ test('the key is the RESOLVED path, because a symlinked spelling is never read',
   const r = trustFolder(link);
   assert.equal(r.ok, true);
   const keys = Object.keys(read().projects);
-  assert.deepEqual(keys, [real], 'the resolved folder, not the link we were handed');
+  assert.deepEqual(keys, [K(real)], 'the resolved folder, not the link we were handed');
 });
 
 test('an existing entry keeps everything it had', () => {
@@ -78,9 +87,9 @@ test('an existing entry keeps everything it had', () => {
   // ⚠️ NO trust key at all, deliberately. This fixture used to seed
   // `[KEY]: false` and assert it flipped to true, which pinned the wrong
   // behaviour — see the test below.
-  write({ projects: { [d]: { allowedTools: ['Bash(ls:*)'], mcpServers: { linear: {} } } } });
+  write({ projects: { [K(d)]: { allowedTools: ['Bash(ls:*)'], mcpServers: { linear: {} } } } });
   assert.equal(trustFolder(d).ok, true);
-  const e = read().projects[d];
+  const e = read().projects[K(d)];
   assert.deepEqual(e.allowedTools, ['Bash(ls:*)']);
   assert.deepEqual(e.mcpServers, { linear: {} });
   assert.equal(e[KEY], true);
@@ -90,14 +99,14 @@ test('every other project, and every other top-level setting, survives', () => {
   const d = folder();
   const other = folder();
   write({ theme: 'dark', oauthAccount: { emailAddress: 'someone@example.com' },
-          projects: { [other]: { [KEY]: true, allowedTools: [] } } });
+          projects: { [K(other)]: { [KEY]: true, allowedTools: [] } } });
   assert.equal(trustFolder(d).ok, true);
   const after = read();
   assert.equal(after.theme, 'dark');
   assert.equal(after.oauthAccount.emailAddress, 'someone@example.com');
-  assert.equal(after.projects[other][KEY], true);
-  assert.deepEqual(after.projects[other].allowedTools, []);
-  assert.equal(after.projects[d][KEY], true);
+  assert.equal(after.projects[K(other)][KEY], true);
+  assert.deepEqual(after.projects[K(other)].allowedTools, []);
+  assert.equal(after.projects[K(d)][KEY], true);
 });
 
 test('already trusted is a success AND writes nothing at all', () => {
@@ -116,9 +125,9 @@ test('already trusted is a success AND writes nothing at all', () => {
      catching it, which is exactly what the docblock says it is not relying on.
      A fixture the module would never emit makes the bytes load-bearing. */
   try { fs.rmSync(CONFIG, { force: true }); } catch { /* fine */ }
-  fs.writeFileSync(CONFIG, JSON.stringify({ projects: { [d]: { [KEY]: true } } }), 'utf8');
+  fs.writeFileSync(CONFIG, JSON.stringify({ projects: { [K(d)]: { [KEY]: true } } }), 'utf8');
   const before = raw();
-  assert.deepEqual(trustFolder(d), { ok: true, already: true, key: d });
+  assert.deepEqual(trustFolder(d), { ok: true, already: true, key: K(d) });
   assert.equal(raw(), before, 'byte-identical: no write happened');
 });
 
@@ -131,7 +140,7 @@ test('a config file we cannot read is left exactly as it is', () => {
     ['the entry is a string', null],
   ]) {
     const d = folder();
-    const text = body === null ? JSON.stringify({ projects: { [d]: 'yes' } }) : body;
+    const text = body === null ? JSON.stringify({ projects: { [K(d)]: 'yes' } }) : body;
     try { fs.rmSync(CONFIG, { force: true }); } catch { /* fine */ }
     fs.writeFileSync(CONFIG, text, 'utf8');
     const r = trustFolder(d);
@@ -307,12 +316,12 @@ test('a recorded false is overwritten, because it is a default and not a refusal
    * that no longer exists.
    */
   const d = folder();
-  write({ projects: { [d]: { [KEY]: false, allowedTools: ['Bash(ls:*)'], lastSessionId: 'abc' } } });
+  write({ projects: { [K(d)]: { [KEY]: false, allowedTools: ['Bash(ls:*)'], lastSessionId: 'abc' } } });
 
   const r = trustFolder(d);
-  assert.deepEqual(r, { ok: true, already: false, key: d, displaced: false, madeEntry: false },
+  assert.deepEqual(r, { ok: true, already: false, key: K(d), displaced: false, madeEntry: false },
     'a default was treated as a refusal, or the displaced value was not carried out');
-  const e = read().projects[d];
+  const e = read().projects[K(d)];
   assert.equal(e[KEY], true);
   assert.deepEqual(e.allowedTools, ['Bash(ls:*)'], 'their other settings went with it');
   assert.equal(e.lastSessionId, 'abc');
@@ -328,17 +337,17 @@ test('taking a trust entry back leaves everything else exactly as it was', () =>
    */
   const d = folder();
   const other = folder();
-  write({ theme: 'dark', projects: { [other]: { [KEY]: true, allowedTools: ['Bash(ls:*)'] } } });
+  write({ theme: 'dark', projects: { [K(other)]: { [KEY]: true, allowedTools: ['Bash(ls:*)'] } } });
 
   const t0 = trustFolder(d);
-  assert.deepEqual(t0, { ok: true, already: false, key: d, displaced: undefined, madeEntry: true });
-  assert.equal(read().projects[d][KEY], true);
+  assert.deepEqual(t0, { ok: true, already: false, key: K(d), displaced: undefined, madeEntry: true });
+  assert.equal(read().projects[K(d)][KEY], true);
 
   assert.deepEqual(forgetFolder(t0.key, t0.displaced, t0.madeEntry), { ok: true, already: false });
   const after = read();
-  assert.equal(after.projects[d], undefined, 'the entry we wrote is still there after a rollback');
-  assert.equal(after.projects[other][KEY], true, 'somebody else’s entry went with it');
-  assert.deepEqual(after.projects[other].allowedTools, ['Bash(ls:*)']);
+  assert.equal(after.projects[K(d)], undefined, 'the entry we wrote is still there after a rollback');
+  assert.equal(after.projects[K(other)][KEY], true, 'somebody else’s entry went with it');
+  assert.deepEqual(after.projects[K(other)].allowedTools, ['Bash(ls:*)']);
   assert.equal(after.theme, 'dark');
 });
 
@@ -388,7 +397,7 @@ test('a file sitting at the OLD predictable temp path cannot receive the config'
   // It does NOT exercise `wx` — the module never opens this path — and saying
   // so is the difference between a test and a test with a docblock.
   assert.equal(fs.existsSync(elsewhere), false, 'the config was written through a planted link');
-  assert.equal(read().projects[d][KEY], true);
+  assert.equal(read().projects[K(d)][KEY], true);
   fs.rmSync(planted, { force: true });
 });
 
@@ -441,15 +450,15 @@ test('a trust key merged into somebody’s existing entry is taken back WITHOUT 
    * with the key ABSENT, which is this fixture.
    */
   const d = folder();
-  write({ projects: { [d]: { allowedTools: ['Bash(ls:*)'], mcpServers: { linear: {} }, history: [1, 2] } } });
+  write({ projects: { [K(d)]: { allowedTools: ['Bash(ls:*)'], mcpServers: { linear: {} }, history: [1, 2] } } });
 
   const t = trustFolder(d);
-  assert.deepEqual(t, { ok: true, already: false, key: d, displaced: undefined, madeEntry: false },
+  assert.deepEqual(t, { ok: true, already: false, key: K(d), displaced: undefined, madeEntry: false },
     'the fixture did not reach the merge, so this tests nothing');
-  assert.equal(read().projects[d][KEY], true);
+  assert.equal(read().projects[K(d)][KEY], true);
 
   assert.equal(forgetFolder(t.key, t.displaced, t.madeEntry).ok, true);
-  const e = read().projects[d];
+  const e = read().projects[K(d)];
   assert.ok(e, 'the whole entry was deleted, taking settings we never wrote');
   assert.deepEqual(e.allowedTools, ['Bash(ls:*)']);
   assert.deepEqual(e.mcpServers, { linear: {} });
@@ -503,7 +512,7 @@ test('a file planted at the path the module is ABOUT to write is refused, not wr
   assert.ok(planted, 'the plant never happened, so this tests nothing');
   assert.equal(r.ok, false, 'the write went through a symlink at its own temp path');
   assert.equal(fs.existsSync(elsewhere), false, 'the config was written through the planted link');
-  assert.equal(read().projects[d], undefined, 'a refused write still changed the config');
+  assert.equal(read().projects[K(d)], undefined, 'a refused write still changed the config');
 });
 
 test('the undo leaves a trust value that changed under it', () => {
@@ -521,15 +530,15 @@ test('the undo leaves a trust value that changed under it', () => {
   const d = folder();
   write({ projects: {} });
   const t = trustFolder(d);
-  assert.deepEqual(t, { ok: true, already: false, key: d, displaced: undefined, madeEntry: true });
+  assert.deepEqual(t, { ok: true, already: false, key: K(d), displaced: undefined, madeEntry: true });
 
   // Somebody else answers, in the window.
   const data = read();
-  data.projects[d][KEY] = false;
+  data.projects[K(d)][KEY] = false;
   fs.writeFileSync(CONFIG, JSON.stringify(data, null, 2) + '\n', 'utf8');
 
   assert.deepEqual(forgetFolder(t.key, t.displaced, t.madeEntry), { ok: true, already: true });
-  assert.equal(read().projects[d][KEY], false, 'the undo deleted an answer it did not write');
+  assert.equal(read().projects[K(d)][KEY], false, 'the undo deleted an answer it did not write');
 });
 
 test('the undo still removes the key when it is untouched, so the check above is not a blanket refusal', () => {
@@ -555,14 +564,14 @@ test('the undo puts a displaced FALSE back, rather than leaving the key absent',
    * do, done by the code written to avoid it.
    */
   const d = folder();
-  write({ projects: { [d]: { [KEY]: false, allowedTools: ['Bash(ls:*)'] } } });
+  write({ projects: { [K(d)]: { [KEY]: false, allowedTools: ['Bash(ls:*)'] } } });
 
   const t = trustFolder(d);
-  assert.deepEqual(t, { ok: true, already: false, key: d, displaced: false, madeEntry: false });
-  assert.equal(read().projects[d][KEY], true);
+  assert.deepEqual(t, { ok: true, already: false, key: K(d), displaced: false, madeEntry: false });
+  assert.equal(read().projects[K(d)][KEY], true);
 
   assert.equal(forgetFolder(t.key, t.displaced, t.madeEntry).ok, true);
-  const e = read().projects[d];
+  const e = read().projects[K(d)];
   assert.ok(e, 'the entry was deleted, and we never created it');
   assert.equal(e[KEY], false, 'the displaced value was not put back');
   assert.deepEqual(e.allowedTools, ['Bash(ls:*)']);
@@ -570,10 +579,10 @@ test('the undo puts a displaced FALSE back, rather than leaving the key absent',
 
 test('an entry that held ONLY a false is not swept away by the undo', () => {
   const d = folder();
-  write({ projects: { [d]: { [KEY]: false } } });
+  write({ projects: { [K(d)]: { [KEY]: false } } });
   const t = trustFolder(d);
   assert.equal(forgetFolder(t.key, t.displaced, t.madeEntry).ok, true);
-  const e = read().projects[d];
+  const e = read().projects[K(d)];
   assert.ok(e, 'an entry we did not create was deleted because it looked empty');
   assert.equal(e[KEY], false);
 });

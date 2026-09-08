@@ -29,6 +29,23 @@ test('no pill is inert and no door holds a control for an unbuilt flow', () => {
   for (const name of ['GitHub', 'Vercel', 'Cloudflare', 'Gmail']) {
     assert.ok(fn.includes("'" + name + "'"), name + ' lost its own sentence');
   }
+  /* #529 (Mona Lisa, 2026-09-08): the token-service pills carry the same
+     capability one-liner the core four have, so a person meets "what this is
+     and what connecting lets your agents do" rather than a bare service name.
+     Sliced to the SVC_DOORS object so this pins the pill sentence, not the
+     SVC_BUILT route of the same name. Each key must carry a sentence with real
+     content, so blanking OR whitespacing a line ('Discord': '' or ' ') fails
+     the guard too, not only removing the key outright. */
+  const doorSentences = fn.slice(0, fn.indexOf('const SVC_BUILT'));
+  const reEsc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  for (const name of ['Discord', 'Brave Search', 'Exa', 'Tavily', 'Serper', 'GitLab', 'Fly.io',
+    'DigitalOcean', 'Hetzner', 'Netlify', 'Render', 'Notion', 'Linear', 'Airtable', 'Neon',
+    'Postmark', 'SendGrid', 'Better Stack']) {
+    // requires the key AND a sentence whose first non-space char is real (not
+    // the closing quote), so '', ' ', and a missing key all fail.
+    assert.match(doorSentences, new RegExp("'" + reEsc(name) + "': '\\s*[^'\\s]"),
+      name + ' lacks a non-empty pill sentence in SVC_DOORS');
+  }
   // The generic door is an ANSWER (how it will work), not a bare label.
   assert.match(fn, /you sign in on/, 'the generic door lost its how-it-works sentence');
   assert.match(fn, /never sees a password/, 'the generic door lost the key promise');

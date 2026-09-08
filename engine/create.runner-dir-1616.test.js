@@ -166,6 +166,25 @@ test('#1616 installJob refuses a directory or a stripped file at the runner path
   assert.equal(ok.ok, true, 'a real executable did not get installJob to a job: ' + ok.because);
 });
 
+test('#1185 installJob refuses a directory or a stripped file at the TMUX path too (symmetry with the runner check), before writing a doomed plist', () => {
+  const name = 'rd-job-tmux';
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  for (const [label, bad] of WRONG) {
+    try { fs.rmSync(create.plistPath(name), { force: true }); } catch { /* none yet */ }
+    const r = create.installJob(name, { claudeBin: realBin, tmuxBin: bad, codexBin: '/nonexistent-codex' });
+    assert.equal(r.ok, false, label + ' at the tmux path did not refuse the job');
+    assert.match(r.because, /terminal program Kosmos runs agents in/,
+      label + ': wrong refusal from installJob at the tmux path: ' + r.because);
+    /* The plist must NOT have been written: a missing tmux is refused BEFORE the
+       job file, so a person is not left with a launchd job that can never start. */
+    assert.equal(fs.existsSync(create.plistPath(name)), false,
+      label + ': a refused-for-tmux adoption still wrote a (doomed) plist');
+  }
+  /* Control: real tmux reaches the job, so the arms above test the gate, not a wall. */
+  const ok = create.installJob(name, { claudeBin: realBin, tmuxBin: realBin, codexBin: '/nonexistent-codex' });
+  assert.equal(ok.ok, true, 'a real tmux did not get installJob to a job: ' + ok.because);
+});
+
 test('#1616 addWithKey refuses a directory or a stripped file at the codex path with the shared sentence', () => {
   for (const [label, bad] of WRONG) {
     const r = openai.addWithKey({ key: 'sk-proj-fineleng-thkeyhereeeee', codexBin: bad });

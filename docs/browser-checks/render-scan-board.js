@@ -13,8 +13,8 @@
  * ⚠️ NEEDS A SANDBOX WITH FIRST RUN ALREADY COMPLETE, or the onboarding overlay sits
  * over the board and every click times out against it:
  *
- *     mkdir -p "$SB/data/AgentWorkforce"
- *     echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/first-run.json"
+ *     mkdir -p "$SB/data/Kosmos"
+ *     echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
  *
  * Run: see the README in this directory (same shape as render-found-board.js).
  */
@@ -40,7 +40,7 @@ function check(name, pass, detail) {
    (needs `overflow-wrap: anywhere`, which the fix pairs with pre-wrap). The
    no-horizontal-scroll check below reads FAIL against origin/main and PASS here
    off exactly these lines. */
-const NAMED_PREVIEW = 'You are **Site Monitor**, a Watcher.\n\nWatch the site around the clock and, when it goes down or slows to a crawl, tell the person in plain language what changed and what you already tried before you woke them up about it.\n\nWorking dir: /Users/site/Library/Application-Support/AgentWorkforce/projects/site-monitor/checks/a-very-long-unbroken-path-segment-with-no-spaces-to-wrap-at/config.json\n';
+const NAMED_PREVIEW = 'You are **Site Monitor**, a Watcher.\n\nWatch the site around the clock and, when it goes down or slows to a crawl, tell the person in plain language what changed and what you already tried before you woke them up about it.\n\nWorking dir: /Users/site/Library/Application-Support/Kosmos/projects/site-monitor/checks/a-very-long-unbroken-path-segment-with-no-spaces-to-wrap-at/config.json\n';
 const NAMELESS_PREVIEW = 'You are the thing that keeps the build green.\n\nRun the pipeline.\n';
 const CANDS = [
   { dir: '/Users/x/work/site-monitor', name: 'Site Monitor', role: 'Watcher', preview: NAMED_PREVIEW },

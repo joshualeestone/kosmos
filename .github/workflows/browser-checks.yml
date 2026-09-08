@@ -1,0 +1,225 @@
+# The page-layer gate, at PR time (#2445).
+#
+# 🛑 WHY THIS EXISTS. tools/browser-checks.sh (the 63 page-layer checks under
+# docs/browser-checks/) runs at RELEASE CUT step 3b (tools/release.sh) and NOT in
+# the per-PR gate. So a change to a gate's rendered behavior can pass its own PR
+# (green test.yml, green challenge-loop) and only fail WEEKS LATER at cut, blocking
+# a release for a reason invisible when the change merged. Measured 2026-09-07:
+# #2085 added a `data-checking` state that hid the S3 button on an uncheckable gate
+# row; the click-first-run check clicks that button, so post-#2085 it waited on a
+# permanently-hidden element and timed out. #2085 was green through its own PR and
+# only red at the 0.6.47 cut, flaking it twice. Had the browser checks run in
+# #2085's PR gate, its author would have updated click-first-run.js in the same PR
+# (they already updated the sibling render-gated-next.js). This job closes that gap:
+# a gate-behavior change and the checks that assert it fail together, in the PR.
+#
+# 🔑 WHY A CI JOB, NOT A LOCAL challenge-loop STEP. The page gate MUST NOT run while
+# other Playwright boards run on the same machine: browser-checks.sh's own header
+# records that concurrent boards starved a cut's page layer and produced HARD errors
+# indistinguishable from real defects (2026-08-26). Running the full suite in the
+# LOCAL per-PR gate would reintroduce exactly that starvation across the agent fleet.
+# A GitHub Actions runner is a SEPARATE machine, so this pays the browser cost off
+# the fleet's box entirely -- the load concern that makes a local run unsafe does not
+# exist here.
+#
+# 🔑 CI RUNS A SUBSET, AND THE TWO SCOPINGS ARE DIFFERENT AXES (#2445, Baron option d).
+# There are TWO independent narrowings, and conflating them is the trap:
+#   - The PATHS filter below scopes WHICH PRs pay the cost (only a rendered-surface
+#     change fires this job). It does NOT change what a green covers.
+#   - KOSMOS_BC_CI_ALLOWLIST (set on the run step) scopes WHAT RUNS, and therefore
+#     WHAT A GREEN COVERS: the timing-insensitive, headless-ROBUST DOM-state subset
+#     (the #2085 gate class -- element present / hidden / clickable / labeled). The
+#     first real full-suite run on the runner (2026-09-07) FALSE-RED on the timing/
+#     animation/paint checks: they are both slow-runner-fragile and headless-weak
+#     (SwiftShader software rendering), so on this runner they red without a defect.
+#     Those stay at the headed cut-time 3b, on a real compositor. See the run step's
+#     own note for the measured allowlist.
+# So a green here is the DOM-STATE gate, NOT full 3b coverage -- see caveat 2 (which
+# checks are and are not headless-viable) and caveat 3 (the trigger leak).
+#
+# ADVISORY, like test.yml: kosmos has no required branch protection (a deliberate
+# beta "merge fast" call, #835), so this cannot block a merge. It is the second
+# visible signal create-pr's CI-watch already honors, and it is the signal a page
+# change should read before merging. macos-latest matches test.yml AND the cut's own
+# 3b environment.
+#
+# 🛑 IF THIS IS EVER MADE A REQUIRED STATUS CHECK, DO NOT LEAVE IT PATH-FILTERED. A
+# required check that is path-filtered NEVER REPORTS on a PR that touches none of the
+# paths, and GitHub then blocks that PR forever at "expected -- waiting for status"
+# (the well-known required-plus-paths deadlock). Advisory + path-filtered is correct
+# and reports nothing on non-matching PRs by design; making it required needs a
+# companion always-runs job that reports a neutral success, or dropping the filter.
+#
+# ⚠️ THREE WAYS A CI-GREEN IS NOT IDENTICAL TO A CUT-TIME 3b GREEN (Baron, #2444/#2445,
+# eyes-open -- neither blocks this, both are honest limits to carry):
+#   1) click-first-run (the full linear install-flow clickthrough, the heaviest
+#      check) was briefly dropped from the CI allowlist (2026-09-07) when it timed
+#      out on the runner: page.click('#fr-next') "element is not visible". That was
+#      first read as a Welcome->Next SwiftShader paint failure -- WRONG. `hidden` is a
+#      DOM attribute: #fr-next is DETERMINISTICALLY hidden by the Model step (S5) when
+#      the subscription is not `connected` (a clean runner is never signed into
+#      Claude), which shows only the forward #fr-alt "Skip connecting a model" link.
+#      The walk only clicked #fr-next -- a false-green machine (it passed on the
+#      signed-in build box). #2445-followup makes advanceToAnchor click whichever
+#      control is forward, so click-first-run is headless-ROBUST and rejoined the
+#      allowlist. INTRA-RUN contention (the heaviest check under load) remains a real
+#      CI-vs-cut difference to keep in mind, but it is not why the check was dropped,
+#      and CI-isolation removes the CROSS-AGENT starvation that flaked the original cut.
+#   2) HEADLESS CI is SwiftShader SOFTWARE rendering, not the console box's real GPU
+#      compositor. The DOM/STATE checks in the allowlist (gate rendering -- element
+#      present/hidden/clickable/labeled: render-gated-next, render-connect-skip, the
+#      settings/telemetry 403-safe checks) are fully covered headless and MEASURED
+#      green on the runner. Anything that leans on a compositor / paint-geometry /
+#      screenshot is WEAKER headless than the HEADED cut-time 3b on real hardware (org
+#      BROWSER_TESTING note), which is why paint/geometry checks are excluded from the
+#      allowlist. (click-first-run is NOT one of these -- its failure was a hidden DOM
+#      element, not a paint weakness; see caveat 1 -- so it is in the allowlist.) So
+#      a green here catches the DOM-state gate regressions the card is about; it is
+#      NOT a replacement for the cut's headed 3b on paint/transition-level checks.
+#   3) THE PATHS TRIGGER IS NARROWER THAN THE DATA A CHECK RENDERS. web/index.html is
+#      a static shell; the checks boot a board and assert markup driven by SERVER/ENGINE
+#      data (render-model-change, render-account-name, render-accounts-openai, ... read
+#      /api/accounts et al). So a server.js / engine change that alters that rendered
+#      data can break a check while touching NONE of the filtered paths -- and it then
+#      surfaces only at cut, the same failure mode this job exists to kill, from a
+#      different trigger surface. This is the card's own "leaky filter" open question,
+#      resolved DELIBERATELY: adding engine/** or server.js would fire this browser
+#      job on the MAJORITY of PRs and defeat the load-scoping that is the whole reason
+#      to run in CI rather than locally. So the narrow filter is a trade, not an
+#      oversight: it catches the DIRECT-page-change class (the measured #2085 incident,
+#      which touched web/index.html) early, and the cut's headed 3b stays the backstop
+#      for the server/engine-data-driven render changes this trigger cannot see. Do not
+#      read a green here as full render coverage. Precisely what IS and IS NOT covered,
+#      so this enumeration is honest rather than just "complete": the check-SHAPING
+#      inputs are in the filter (web/index.html; docs/browser-checks/; test-support/,
+#      where fleet.js builds the board a check asserts against). The driver's own
+#      sourced libs (tools/lib/cut-guard.sh, tools/lib/browser-run-log.sh) are NOT in
+#      the filter, but each has its OWN test:shell guard (test-cut-guard.sh,
+#      test-browser-run-log.sh) that reds on EVERY PR via test.yml, so a break there is
+#      caught regardless -- and release-freeze.sh is not reached on the CI detached-HEAD
+#      path. So the ONE genuinely uncovered leak is the engine/server DATA the checks
+#      render, left open deliberately on the cost trade (broad = fires on most PRs).
+
+name: browser-checks
+
+# Only PRs that touch the rendered surface or the check tooling. web/index.html is
+# the page the checks drive; docs/browser-checks/ holds the 63 assertions;
+# browser-checks.sh is the driver and provision-pw.sh pins the runtime. The workflow
+# file itself is included so a change to THIS job re-runs it (and so this PR, which
+# adds the file, runs it -- the only way to verify the job end to end).
+#
+# 🔑 THE PATH FILTER is the LOAD control (which PRs pay): a PR that changes no
+# rendered surface pays nothing; one that does pays a run on a separate runner.
+# It is a DIFFERENT axis from the CI allowlist above, which is the COVERAGE control
+# (what runs, so what a green means). #2085 touched web/index.html, so it WOULD have
+# triggered here; the subset that runs would have caught its gate-render break.
+on:
+  pull_request:
+    paths:
+      - 'web/index.html'
+      - 'docs/browser-checks/**'
+      - 'tools/browser-checks.sh'
+      - 'tools/provision-pw.sh'
+      # test-support/ is a HARD dependency of the checks (fleet.js builds the board
+      # the checks assert against; fake-tmux.sh is the tmux the driver + ~30 checks
+      # use), so a change there can break a check the same way a page change can. It
+      # is CHEAP to cover (test-support is rarely touched, so it does not fire on most
+      # PRs the way engine/** would -- see caveat 3), so unlike engine/server this leak
+      # is closed rather than documented.
+      - 'test-support/**'
+      - '.github/workflows/browser-checks.yml'
+
+# Least privilege: reads the repo, runs the checks, needs no write scope. Uses
+# pull_request (not pull_request_target), so untrusted PR code never runs elevated.
+permissions:
+  contents: read
+
+# Cancel a superseded run of the same PR: a re-sync cancels its in-flight
+# predecessor rather than queuing a redundant browser run (which is the expensive
+# kind). Same shape as test.yml's concurrency group, keyed on this workflow.
+concurrency:
+  group: browser-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser-checks:
+    # 🛑 macos-latest, matching test.yml AND the cut's 3b: a green here must mean
+    # what a green 3b means, so it runs in the same OS family the release gate does.
+    runs-on: macos-latest
+    # provision-pw (npm i + two browser builds) is ~2-4 min; the CI ALLOWLIST
+    # subset (7 checks, see the run step) is ~3m20s, one headless Chromium each,
+    # and a macOS runner is slower than a dev Mac -- so a real run is ~6-7 min. 40
+    # is generous headroom for provision + a hung run + future allowlist growth,
+    # without clipping an honest slow one. (The FULL 63-check suite -- ~15-20 min
+    # -- runs only at the release cut's 3b, never in this job.)
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      # Match test.yml's node pin: the checks boot node fixture servers, and the
+      # suite is written for node 26 (the developer Macs). Drift arrives here as a
+      # legible line rather than later as an unrelated red.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26'
+      - name: which node is this
+        run: |
+          echo "node: $(node --version 2>&1 || echo ABSENT)"
+          echo "npm:  $(npm --version 2>&1 || echo ABSENT)"
+      # Pin + install Playwright the blessed way (tools/provision-pw.sh, #1594):
+      # exact playwright@1.62.1 + chromium/webkit builds into ~/work/pw-runtime,
+      # where browser-checks.sh finds it with no env needed. No tmux install (unlike
+      # test.yml): the checks use test-support/fake-tmux.sh, so a real tmux is not
+      # needed. Idempotent, non-interactive -- CI-safe.
+      - name: provision the pinned Playwright runtime (#1594)
+        run: bash tools/provision-pw.sh
+      # The page gate itself, exactly as the cut runs it at 3b: strict version so a
+      # drifted runtime is a hard stop, not a silent lie. Its exit code gates this
+      # job -- non-zero fails the PR check, which is the whole point. 126/127 means
+      # bash/node/a program is missing (the runner is broken, not the page), and it
+      # is still correct for the job to go red so the breakage is visible.
+      #
+      # 🔑 CI RUNS ONLY THE TIMING-INSENSITIVE, HEADLESS-ROBUST DOM-STATE SUBSET
+      # (#2445). The full 3b suite has many timing/animation/paint checks ("within
+      # 20s a progress row appeared", "the mark drew") that FLAKE on the slow,
+      # headless macos-latest runner -- they are both slow-runner-fragile AND
+      # headless-weak (SwiftShader software rendering), so in CI they are
+      # false-RED-prone and low-confidence. KOSMOS_BC_CI_ALLOWLIST names the
+      # DOM-state gate class this card exists for (the #2085 class: element
+      # present / hidden / clickable / labeled), which is timing-robust and
+      # headless-fine. browser-checks.sh runs ONLY these and HARD-FAILS if the
+      # list matches nothing (no green from zero checks). The timing/animation/
+      # paint coverage stays at the headed cut-time 3b, on a real compositor -- so
+      # a GREEN HERE IS THE DOM-STATE GATE, NOT FULL 3b COVERAGE.
+      #
+      # ✅ click-first-run IS here again as of #2445-followup, and the earlier
+      # "headless-WEAK, the Welcome->Next transition never paints under SwiftShader"
+      # rationale for dropping it was WRONG (corrected here so it is not re-cited).
+      # The failing markup was `<button hidden="" id="fr-next">Next</button>` --
+      # `hidden` is a DOM attribute, not a paint state. #fr-next is DETERMINISTICALLY
+      # hidden by the Model step (S5): frPaintSubscription's non-connected arm calls
+      # frActions(null, { alt }), so on a machine that is NOT signed into Claude
+      # (every clean CI runner) only the forward #fr-alt "Skip connecting a model"
+      # link shows, while the walk only clicked #fr-next -- so it passed on the
+      # signed-in build box and timed out on the runner (a false-green machine). The
+      # fix (this PR) makes advanceToAnchor click whichever control is actually
+      # forward, so it is now headless-ROBUST and rejoins the DOM-state subset.
+      - name: the page layer, headless DOM-state subset (tools/browser-checks.sh, #39/#2445)
+        env:
+          # The #2085 gate class: install-flow permission/gate DOM-state checks +
+          # the settings/telemetry DOM-state checks (present/hidden/clickable/
+          # labeled), plus click-first-run (the full linear install clickthrough),
+          # headless-robust again per #2445-followup (it now clicks whichever control
+          # is forward -- #fr-next, else the S5 "Skip" #fr-alt on a not-signed-in
+          # runner). Keep this to assertion TYPE (DOM-state that is ALSO
+          # headless-robust), never timing/animation/paint, never a check that leans
+          # on a screenshot or a completing animation.
+          KOSMOS_BC_CI_ALLOWLIST: >-
+            click-first-run
+            render-gated-next
+            render-connect-skip
+            render-switch-states
+            named-controls
+            render-optout-403-2020
+            render-settings-403-2047
+            render-board-signin-403-2023
+        run: KOSMOS_PW_STRICT_VERSION=1 bash tools/browser-checks.sh

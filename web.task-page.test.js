@@ -64,7 +64,7 @@ function fnSource(name) {
    assert on: textContent and hidden. */
 function stubDoc(ids) {
   const els = {};
-  for (const id of ids) els[id] = { textContent: '', innerHTML: '', hidden: false, focus() {}, disabled: false };
+  for (const id of ids) els[id] = { textContent: '', innerHTML: '', hidden: false, focus() {}, disabled: false, value: '' };
   return {
     els,
     getElementById: (id) => els[id] || null,
@@ -73,7 +73,8 @@ function stubDoc(ids) {
 }
 
 const TK_IDS = ['tk-back', 'tk-num', 'tk-title', 'tk-detail', 'tk-project', 'tk-added',
-  'tk-state', 'tk-who', 'tk-why', 'tk-note', 'tk-done', 'tk-msg', 'pj-task-view', 'pj-newtask'];
+  'tk-state', 'tk-who', 'tk-why', 'tk-note', 'tk-done', 'tk-msg', 'tk-due', 'tk-activity',
+  'pj-task-view', 'pj-newtask'];
 
 /**
  * Run the page's REAL paintTaskPage against the stub.
@@ -314,13 +315,27 @@ test('the new-task page keeps typed words across Back, and never across projects
     'a departed member leaves the select blank instead of resting on Nobody');
 });
 
-test('there is no due date field, and that is a decision rather than an omission', () => {
-  /* Nothing in Kosmos acts on a date: agents are not scheduled and nothing
-     reminds anybody, so a date would be a promise printed on a screen. The
-     comment saying so is the thing that stops it being re-added as an
-     oversight, which is why the test pins the comment and not just the
-     absence. */
+test('the task page carries a due-date field (#768: Josh authorized reversing the no-due-date deferral)', () => {
+  /* #768 REVERSES the earlier "no due date" deferral, and does so on Josh's
+     DOCUMENTED call, not a unilateral flip: his #768 card body asks for "on the
+     right we could have some more detail... if there's a due date assigned". The
+     old deferral's own condition was "it belongs here the day something reads it"
+     -- #768 is that day, because the task page now reads and shows it. Nothing
+     schedules on the date yet, so it stays information a person/agent reads rather
+     than a promise the product breaks; the engine stores a calendar date or null.
+     This test now pins the field's PRESENCE and that the stale comment is gone. */
   const view = PAGE.slice(PAGE.indexOf('<div id="pj-task-view"'), PAGE.indexOf('<div id="pj-settings-view"'));
-  assert.equal(/due/i.test(view.replace(/<!--[\s\S]*?-->/g, '')), false, 'a due date appeared on the task page');
-  assert.match(view, /NO DUE DATE FIELD/);
+  assert.match(view, /id="tk-due"/, 'the due-date field is missing from the task page');
+  assert.equal(/NO DUE DATE FIELD/.test(view), false, 'the stale no-due-date comment survived the #768 reversal');
+});
+
+test('#768: the due-date input paints from the task, and is empty when there is none', () => {
+  const base = { number: 15, sentence: 'Ship it', detail: null, who: null,
+    createdAt: new Date('2026-08-22T12:00:00Z').toISOString(), addedBy: 'operator', closedAt: null };
+  const withDue = runPaint({ project: { ...PROJECT, tasks: [] }, task: { ...base, dueDate: '2026-12-25' } });
+  assert.equal(withDue.doc.els['tk-due'].value, '2026-12-25', 'the due input did not reflect the stored date');
+  // A task with no due date paints an EMPTY input, not the last one's value or a
+  // literal "null" -- the control's own empty state means "no due date".
+  const noDue = runPaint({ project: { ...PROJECT, tasks: [] }, task: { ...base, dueDate: null } });
+  assert.equal(noDue.doc.els['tk-due'].value, '', 'a task with no due date should paint an empty input');
 });

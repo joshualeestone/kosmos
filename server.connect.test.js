@@ -319,6 +319,16 @@ test('a body that is not JSON is a 400, not a crash', async () => {
   assert.match(json(got).error, /could not read/);
 });
 
+test('#1937: a non-boolean reauth is a 400, not a silent falsy', async () => {
+  // Validated like its `installConfirmed`/`another` siblings so a mangled value
+  // is refused loudly rather than coerced to a falsy that would run the wrong
+  // flow (a re-auth silently downgraded to a plain start would take the
+  // already-connected short-circuit this flag exists to skip).
+  const got = await post('/api/connect/start', { reauth: 'yes' });
+  assert.equal(got.status, 400, got.body);
+  assert.match(json(got).error, /reauth must be true or false/);
+});
+
 test('start on an already-connected machine answers connected and runs nothing', async () => {
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
   try {
@@ -563,6 +573,85 @@ test('#1922 CONTROL: signing in again to a LABELLED account still targets that a
     await post('/api/connect/cancel');
     connect.resetForTests();
     fs.rmSync(work1, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
+/**
+ * #2420: REFUSE an OAuth sign-in ("Sign in again") into an api-key Claude account.
+ * The listing slice made api-key dirs visible to list(), so `known` can now BE one
+ * and this route would otherwise run the OAuth flow into it -- writing an
+ * oauthAccount beside the stored key + apiKeyHelper, which Claude Code prefers, so
+ * billing would silently stay on the key while the row reclassified as a
+ * subscription. This is the MIRROR of the create route's taken-label guard (which
+ * blocks a key over an existing oauth); here we block an oauth over an existing key.
+ * The refusal must be MY guard, not the earlier `!known` arm (both return 400), so
+ * the fixture is a KNOWN api-key account and the assertion keys on the billing
+ * message, not a generic one.
+ */
+test('#2420: signing in again is REFUSED for an api-key account (no OAuth sign-in over a stored key)', async () => {
+  const claudeaccounts = require('./engine/claudeaccounts');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  // An api-key account: a stored key file, NO .claude.json (so identityOf is null).
+  const keyacct = path.join(HOME, '.claude-apikeyacct');
+  fs.mkdirSync(keyacct, { recursive: true });
+  fs.writeFileSync(path.join(keyacct, claudeaccounts.KEY_BASENAME), 'sk-ant-storedkey', { mode: 0o600 });
+  try {
+    /* Precondition: list() must surface it as an api-key account, or the guard is
+       untested -- an unknown dir is refused by the earlier `!known` arm for a
+       different reason. */
+    const row = accounts.list().find((a) => a.dir === keyacct);
+    assert.ok(row && row.apiKey === true,
+      'the fixture is not seen as an api-key account, so this would test the wrong refusal');
+
+    const got = await post('/api/connect/start', { accountDir: keyacct });
+    assert.equal(got.status, 400, got.body);
+    assert.match(json(got).error, /API key|how it is billed/,
+      'the refusal must name the billing reason (my guard), not the generic "we do not know that account"');
+  } finally {
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(keyacct, { recursive: true, force: true });
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  }
+});
+
+/**
+ * #2420: the connect-start guard keys on the KEY FILE, not list()'s `apiKey` flag,
+ * and THIS is the scenario that proves why. A dual-marker dir carries BOTH an
+ * oauthAccount and a stored key; list() classifies it `apiKey:false` (the oauth
+ * identity wins), yet an OAuth reauth there still writes over a stored key and
+ * muddies billing. A flag-keyed guard would let it through; the file-keyed guard
+ * refuses it. Without this arm, a refactor to `known.apiKey` would silently reopen
+ * the contamination with nothing to catch it -- the one scenario justifying the
+ * whole file-vs-flag choice, otherwise left untested.
+ */
+test('#2420: the connect-start guard refuses a DUAL-MARKER dir (oauth + key) that list() calls apiKey:false', async () => {
+  const claudeaccounts = require('./engine/claudeaccounts');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  // A dir carrying BOTH markers: an oauthAccount .claude.json AND a stored key.
+  const dual = path.join(HOME, '.claude-dualmarker');
+  fs.mkdirSync(dual, { recursive: true });
+  fs.writeFileSync(path.join(dual, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'dual@example.com' } }), 'utf8');
+  fs.writeFileSync(path.join(dual, claudeaccounts.KEY_BASENAME), 'sk-ant-dualkey', { mode: 0o600 });
+  try {
+    /* list() classifies it as a SUBSCRIPTION account (oauth identity wins), so a
+       flag-keyed guard would NOT fire here -- this is the exact gap the file check
+       closes, and asserting apiKey:false is what makes the 400 below meaningful. */
+    const row = accounts.list().find((a) => a.dir === dual);
+    assert.ok(row, 'the dual-marker dir must be listed');
+    assert.equal(row.apiKey, false,
+      'oauth identity wins, so list() classifies it apiKey:false -- the flag a guard must NOT trust here');
+
+    const got = await post('/api/connect/start', { accountDir: dual });
+    assert.equal(got.status, 400, got.body);
+    assert.match(json(got).error, /API key|how it is billed/,
+      'the file-keyed guard must still refuse a dual-marker dir; a flag-keyed guard would have let this OAuth-over-key through');
+  } finally {
+    await post('/api/connect/cancel');
+    connect.resetForTests();
+    fs.rmSync(dual, { recursive: true, force: true });
     fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
   }
 });

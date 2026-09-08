@@ -1,9 +1,13 @@
 'use strict';
 
 /**
- * The first-run model step shows all six models, always, each at full
+ * The first-run model step shows all the models, always, each at full
  * weight with its real vendor mark — replacing #262's one-prominent-row
  * plus a collapsed "More models" disclosure.
+ *
+ * #1040 grew the set from six to ten (adding DeepSeek, GLM, Kimi, MiniMax as
+ * coming-soon rows), applying Josh's "show all the models" ruling to the new
+ * providers as they arrived. Two live (Claude, OpenAI) + eight coming-soon.
  *
  * ⭐ REVERSED BY JOSH, 2026-08-25 21:08 CDT: "I want to show all of the
  * models. That's more important to me than having the button above the
@@ -78,8 +82,13 @@ test('the step is a real slice of the model pane', () => {
      fr-pane-5 with Mona's S5 eyebrow+h2 prepended, and the slice measures ~25.3k.
      `id="create-model"` sits 62474 chars from the slice start, so 27000 is ~35k
      short of swallowing the create form -- the tripwire still trips long before
-     it stops meaning anything. */
-  assert.ok(STEP.length > 200 && STEP.length < 27000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
+     it stops meaning anything.
+     ⚠️ RAISED 27000 -> 34000 (#1040): four more coming-soon rows (DeepSeek, GLM,
+     Kimi, MiniMax), each carrying its own inlined vendor mark (DeepSeek's whale is
+     ~3.5k on its own), take the slice to ~32.4k. `id="create-model"` now sits 75695
+     chars from the slice start, so 34000 is ~41k short of swallowing the create
+     form -- the tripwire still trips long before it stops meaning anything. */
+  assert.ok(STEP.length > 200 && STEP.length < 34000, 'the slice is ' + STEP.length + ' chars, so it is not this step');
   assert.match(STEP, /Your agents run on your own subscription/, 'the slice does not contain the model step');
   assert.ok(!STEP.includes('id="create-model"'), 'the slice ran past this step into the create form');
 });
@@ -126,28 +135,30 @@ test('OpenAI is choosable too, with its own key-entry connect', () => {
     'the outcome line #fr-openai-msg sits inside #fr-openai-flow, where the connected paint hides it');
 });
 
-test('no disclosure survives: all six providers render in the open', () => {
+test('no disclosure survives: all ten providers render in the open', () => {
   assert.ok(!/<details/.test(STEP), 'a collapsed disclosure came back');
   assert.ok(!/<summary/.test(STEP), 'a collapsed disclosure came back');
-  for (const name of ['Claude', 'Gemini', 'GPT', 'Llama', 'Qwen', 'Mistral']) {
+  for (const name of ['Claude', 'Gemini', 'GPT', 'Llama', 'Qwen', 'Mistral', 'DeepSeek', 'GLM', 'Kimi', 'MiniMax']) {
     assert.ok(STEP.includes(name), name + ' is missing from the step');
   }
-  /* Four coming-soon rows (Gemini, Llama, Qwen, Mistral), all at the same
-     `.llm off` weight as before. OpenAI moved out of this group (#944-
-     adjacent): it already works via Settings, so first-run stopped saying
-     otherwise. */
-  assert.equal((STEP.match(/class="llm off"/g) || []).length, 4,
-    'expected exactly the four coming-soon providers at .llm off weight');
-  assert.equal((STEP.match(/class="soon"/g) || []).length, 4,
-    'expected a "Coming soon" pill on each of the four still-unavailable providers');
+  /* Eight coming-soon rows (Gemini, Llama, Qwen, Mistral, then #1040's DeepSeek,
+     GLM, Kimi, MiniMax), all at the same `.llm off` weight. OpenAI moved out of
+     this group (#944-adjacent): it already works via Settings, so first-run
+     stopped saying otherwise. #1040 added four more, honouring Josh's "show all
+     the models" (2026-08-25) as new providers arrived; the sticky footer already
+     removed the fold tension six rows once created. */
+  assert.equal((STEP.match(/class="llm off"/g) || []).length, 8,
+    'expected exactly the eight coming-soon providers at .llm off weight');
+  assert.equal((STEP.match(/class="soon"/g) || []).length, 8,
+    'expected a "Coming soon" pill on each of the eight still-unavailable providers');
 });
 
 test('every provider carries a real, inlined vendor mark', () => {
-  for (const key of ['claude', 'gemini', 'openai', 'meta', 'qwen', 'mistral']) {
+  for (const key of ['claude', 'gemini', 'openai', 'meta', 'qwen', 'mistral', 'deepseek', 'glm', 'kimi', 'minimax']) {
     const marker = new RegExp('data-pmark="' + key + '"[^>]*>\\s*<svg');
     assert.match(STEP, marker, key + ' has no inline SVG mark');
   }
-  /* Claude and OpenAI are the two live marks now; the other four are
+  /* Claude and OpenAI are the two live marks now; the other eight are
      dimmed, and dimming is done by CSS filter (see the .pmark.dim rule)
      rather than by omitting the mark, so a vendor's real colours never leak
      through on a provider nobody can pick yet. OpenAI's own SVG is already
@@ -155,8 +166,8 @@ test('every provider carries a real, inlined vendor mark', () => {
      means the grayscale/opacity filter lifts, not a colour change. */
   assert.match(STEP, /class="llm-m pmark live" data-pmark="claude"/, 'Claude is not a live mark');
   assert.match(STEP, /class="llm-m pmark live" data-pmark="openai"/, 'OpenAI is not a live mark');
-  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 4,
-    'expected all four still-coming-soon marks to be dimmed');
+  assert.equal((STEP.match(/class="llm-m pmark dim"/g) || []).length, 8,
+    'expected all eight still-coming-soon marks to be dimmed');
 });
 
 test('the tier label and its separator match the rest of the product', () => {

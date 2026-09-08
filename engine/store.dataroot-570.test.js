@@ -43,7 +43,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const store = require('./store');
 
-const APP = 'AgentWorkforce';
+const APP = store.APP; // #2439: track the store leaf (Kosmos) rather than pinning the old brand
 
 test('on Windows the store goes under APPDATA, not under a Mac path', () => {
   const got = store.dataRootFor('win32', 'C:\\Users\\jo', { APPDATA: 'C:\\Users\\jo\\AppData\\Roaming' });

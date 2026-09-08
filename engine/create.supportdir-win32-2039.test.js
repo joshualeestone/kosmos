@@ -32,8 +32,8 @@ test('supportDir delegates to store.dataRootFor with the running platform + env'
     process.env.AGENT_WORKFORCE_DATA = nodePath.join(os.tmpdir(), 'aw-supportdir-2039');
     assert.equal(create.supportDir(), store.dataRootFor(process.platform, homeDir(), process.env),
       'supportDir diverged from store.dataRootFor when AGENT_WORKFORCE_DATA is set');
-    assert.ok(create.supportDir().endsWith(nodePath.join('aw-supportdir-2039', 'AgentWorkforce')),
-      'the sandbox root lost its AgentWorkforce leaf under the collapse');
+    assert.ok(create.supportDir().endsWith(nodePath.join('aw-supportdir-2039', store.APP)),
+      'the sandbox root lost its store leaf under the collapse');
   } finally {
     if (prev === undefined) delete process.env.AGENT_WORKFORCE_DATA; else process.env.AGENT_WORKFORCE_DATA = prev;
   }

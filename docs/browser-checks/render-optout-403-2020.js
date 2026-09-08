@@ -83,11 +83,11 @@ async function run() {
     const p1 = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
     await openUpdates(p1);
     // The default each switch should read, per-toggle: the ping (tell-toggle,
-    // #2020) and the daily report (feedback-toggle, #2037 "baked in day one")
-    // both shipped their on-flips, so they read ON; notify's on-flip is still
-    // held, so it reads OFF. An independent, browser-level catch on a wrong
-    // default per switch.
-    const DEFAULT_ON = { 'tell-toggle': true, 'notify-toggle': false, 'feedback-toggle': true };
+    // #2020), the daily report (feedback-toggle, #2037 "baked in day one"), and
+    // now the notify send (notify-toggle, #2020 step 3, Josh 2026-09-03 "on, and
+    // they can turn it off") all shipped their on-flips, so all three read ON. An
+    // independent, browser-level catch on a wrong default per switch.
+    const DEFAULT_ON = { 'tell-toggle': true, 'notify-toggle': true, 'feedback-toggle': true };
     for (const id of IDS) {
       const s = await readSwitch(p1, id);
       check(id + ' [200 control]: renders when the setting reads', s.hidden === false, JSON.stringify(s));
@@ -95,8 +95,10 @@ async function run() {
       check(id + ' [200 control]: reads its ruled default (' + want + ')', s.checked === want, String(s.checked));
       // #2020: a switch that DEFAULTS ON must not carry descriptive copy claiming
       // it is "Off by default" - the exact stale-copy bug on the tell row (the
-      // default was flipped ON but the wording was not swapped). notify defaults
-      // OFF, so its "Off by default" copy is correct and not checked.
+      // default was flipped ON but the wording was not swapped). All three now
+      // default ON, so this copy-vs-default consistency check runs for each of
+      // them, including notify (whose copy was swapped to "On by default; this
+      // switch turns it off" with the step-3 flip).
       if (DEFAULT_ON[id]) {
         const copy = await readRowCopy(p1, id);
         check(id + ' [200 control]: default-ON copy does not claim "Off by default"',

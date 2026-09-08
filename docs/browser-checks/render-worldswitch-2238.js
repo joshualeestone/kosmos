@@ -87,6 +87,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     // board "reboots", which we simulate on a timer after a restarting:true switch.
     let registryActive = 'w1';
     let bootedActive = 'w1';
+    // #2454b: GET /api/worlds now also carries bootedWorldId (the world the board
+    // actually BOOTED into), and the client marks the CURRENT world by it, falling
+    // back to activeWorldId when it is absent. Scenarios A-H leave this false so the
+    // fallback path keeps their behaviour byte-identical; Scenario I turns it on to
+    // exercise the divergence (pointer flipped, board not yet rebooted).
+    let sendBooted = false;
     let postMode = 'restarting';            // 'restarting' | 'manual' | 'noop'
     // The simulated reboot flips the booted world after this many /api/status polls, so
     // the reconnect deterministically observes the OLD booted world at least once first.
@@ -151,7 +157,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ activeWorldId: reported }) });
       }
       if (url.indexOf('/api/worlds') !== -1 && method === 'GET') {
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ worlds: [{ id: 'w1', name: 'Home' }, { id: 'w2', name: 'Side Project' }], activeWorldId: registryActive }) });
+        const body = { worlds: [{ id: 'w1', name: 'Home' }, { id: 'w2', name: 'Side Project' }], activeWorldId: registryActive };
+        if (sendBooted) body.bootedWorldId = bootedActive;   // #2454b: the real server always sends this
+        return Promise.resolve({ ok: true, status: 200, json: async () => body });
       }
       return realFetch(u, opts);
     };
@@ -386,7 +394,31 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       activeId: document.activeElement ? document.activeElement.id : null,
     };
 
-    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal, afterErrFocus };
+    // ---- Scenario I: #2454b the CURRENT marker follows the BOOTED world, not the pointer ----
+    // The divergence state: a switch flipped the registry pointer to Side Project (w2),
+    // but the board has NOT rebooted, so it is still SERVING Home (w1). The UI must mark
+    // Home as current (aria-current, non-clickable) and leave Side Project a switchable
+    // button -- otherwise the world you are actually on shows as switchable and clicking
+    // it demands a needless restart into the Kosmos you are already on (the #2454b loop).
+    sendBooted = true;
+    registryActive = 'w2';   // pointer flipped by the earlier switch
+    bootedActive = 'w1';     // board still serving the old world (restart not applied)
+    pendingReboot = false; rebootPollsSeen = 0; reloadCount = 0; statusObserved.length = 0;
+    await worldsFetch(); await sleep(10);
+    const rowsI = [...document.querySelectorAll('#worldsw-list .worldsw-row')];
+    const homeRowI = rowsI.find((el) => /Home/.test(el.textContent || ''));
+    const sideRowI = rowsI.find((el) => /Side Project/.test(el.textContent || ''));
+    const afterDivergence = {
+      promotedName: (document.getElementById('worldsw-name').textContent || '').trim(),
+      // the BOOTED world (Home) is current: aria-current AND not a <button> (unclickable)
+      bootedMarkedCurrent: !!homeRowI && homeRowI.getAttribute('aria-current') === 'true' && homeRowI.tagName !== 'BUTTON',
+      // the pointer world (Side Project) is still a switchable native button
+      pointerIsActionable: !!sideRowI && sideRowI.tagName === 'BUTTON',
+      // and crucially the booted world is NOT actionable -- you can't be asked to restart into it
+      bootedNotActionable: !!homeRowI && homeRowI.tagName !== 'BUTTON',
+    };
+
+    return { before, afterRestarting, afterManual, afterNoop, afterInvalid, afterStuck, afterMenuClose, afterConfirmModal, afterErrFocus, afterDivergence };
   });
 
   await browser.close();
@@ -465,6 +497,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!h.focusOnCancelOnOpen) problems.push('#6: opening the confirm modal must focus Cancel (deliberate confirm; a reflexive Enter must not restart the app), but activeElement was "' + h.activeId + '"');
     if (!h.said409) problems.push('#6: a 409 switch should show the "in progress" guidance, got a different banner');
     if (!h.focusRestored) problems.push('#6 REGRESSION: after an error switch, keyboard focus must return to the switcher trigger (worldsw-btn), but it was on "' + h.activeId + '" -- worldswSwitchGo destroyed the confirm button and the error path did not restore focus');
+
+    // Scenario I: #2454b the current marker follows the BOOTED world, not the registry pointer
+    const i = r.afterDivergence;
+    if (i.promotedName !== 'Home') problems.push('#2454b: with the pointer on Side Project but the board still booted on Home, the promoted name must be the BOOTED world "Home", got "' + i.promotedName + '"');
+    if (!i.bootedMarkedCurrent) problems.push('#2454b: the BOOTED world (Home) must be marked current (aria-current, non-button) -- the marker must key on bootedWorldId, not the flipped registry pointer');
+    if (!i.pointerIsActionable) problems.push('#2454b: the pending pointer world (Side Project) must stay a switchable <button>');
+    if (!i.bootedNotActionable) problems.push('#2454b THE BUG: the world the board is actually on (Home) is a clickable row, so clicking it demands a needless restart into the Kosmos you are already on');
   }
 
   console.log('  ' + JSON.stringify(r));

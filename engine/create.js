@@ -175,6 +175,28 @@ function modelsFor(provider) {
 function modelFor(provider, modelKey) {
   return modelsFor(provider).find((m) => m.key === String(modelKey)) || null;
 }
+
+/**
+ * The KEY of a provider's default model, or null (#2453).
+ *
+ * The `default: true` model of the provider -- the same one the create form
+ * pre-selects. Used to give an IMPORTED agent a model to land on, so it is not
+ * created model-less and shown as 'unknown model' + not reachable (Josh, 0.6.47
+ * re-test). Anthropic returns 'sonnet'; OpenAI has no static models (codex picks
+ * its own), so it answers null -- an openai import carries no model key, which is
+ * the intended 'let codex choose' state. A null/absent provider means anthropic
+ * (modelsFor's own default), the connected-Claude case the re-test hit. Single
+ * source, so the import default cannot drift from the picker's default.
+ *
+ * NOTE (#2453): this only supplies the model. The model is downstream of the
+ * PROVIDER: the import-prefilled form must still submit a RUNNABLE provider
+ * ('anthropic', not the 'claude' display hint) to POST /api/agents, or
+ * createAgentInner refuses the create before the model key is ever consulted.
+ */
+function defaultModelKeyFor(provider) {
+  const m = modelsFor(provider).find((x) => x.default);
+  return m ? m.key : null;
+}
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already
 // running", and this codebase's worst defects have all been two definitions of
@@ -236,6 +258,18 @@ function supportDir() {
   // AGENT_WORKFORCE_HOME still applies, and the running platform + env so the
   // sandbox var and the Windows roaming var are honoured. The sandbox and mac
   // results are byte-identical to before; win32 is the only change, to correct.
+  //
+  // #2439: DELIBERATELY a PURE resolver, NOT store.ROOT. store.ROOT routes through
+  // root() -> maybeMigrateLegacyStore(), which fires the one-time rename on the FIRST
+  // access. supportDir() is called in read-only contexts too (path assembly, tests that
+  // only compare the resolved string), so routing it through the migration would give a
+  // pure resolve a real-store mutation side-effect -- which on a shared dev box migrates
+  // the operator's LIVE store from any un-sandboxed test call (this happened, #2439). The
+  // migration seam is instead protected by call ordering: the board touches store.ROOT at
+  // boot (sourceChannelNow / boardauth.ensureToken) before any create path runs, so the
+  // rename always happens before recordBirth()'s mkdirSync(supportDir()) could pre-create
+  // the new leaf. A future early-writer that runs a create BEFORE boot would need to touch
+  // store.ROOT first; the migrate test + review guard that, and it is not reachable today.
   return store.dataRootFor(process.platform, homeDir(), process.env);
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
@@ -2096,6 +2130,18 @@ function installJob(name, opts) {
       ? 'we could not find Codex on this computer, so a job made now would never start'
       : 'we could not find Claude on this computer, so a job made now would never start' };
   }
+  /* #1185: SYMMETRY WITH THE RUNNER CHECK ABOVE. The runner is existence-checked
+     (runnerRunnable), tmux was only injection-checked (unusablePath), so a MISSING
+     tmux wrote a plist naming a binary that is not there, `launchctl bootstrap`
+     failed, and the adoption reported the opaque "could not start it just now" with
+     no cause -- the exact class the creation path already pre-flights (#1616's
+     `runnerRunnable, not existsSync, for the runner AND for tmux`). A job that names
+     an absent tmux can never start, so refuse before writing rather than write a
+     doomed one. Named the way installJob names the other program above -- not the
+     word "tmux", which a person who installed Kosmos has no reason to know. */
+  if (!DRY_RUN && !runnerRunnable(tmuxBin)) {
+    return { ok: false, because: 'we could not find the terminal program Kosmos runs agents in on this computer, so a job made now would never start' };
+  }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
   if (!installed.ok) {
     return { ok: false, because: installed.missingFile
@@ -3656,6 +3702,7 @@ module.exports = {
   // exists because two definitions of one fact is where its worst defects came
   // from. The menu, the create check and the change check now all read one.
   modelsFor,
+  defaultModelKeyFor,
   modelFor,
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,

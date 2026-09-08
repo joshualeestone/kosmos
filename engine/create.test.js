@@ -1188,32 +1188,41 @@ test('the startup script, actually run, hands the pane its account and its board
 
   // Unset means absent, the plist's own rule. A pane must not be handed an
   // empty directory as if it were one.
-  for (const [label, envCase] of [
+  // #601 gap 1: run EVERY launch line for the unset/empty cases too, not just the
+  // default (claude, no model). The set case above loops `branches`; these did not,
+  // so a codex or model line that grew a hardcoded `-e VAR=$VAR` beside PANE_ENV
+  // would ride an empty value into the pane and this test would stay green. Cross
+  // the two env cases with the same four branches.
+  for (const [envLabel, envCase] of [
     ['unset', { CLAUDE_CONFIG_DIR: undefined, CODEX_HOME: undefined, KOSMOS_PORT: undefined }],
     ['empty', { CLAUDE_CONFIG_DIR: '', CODEX_HOME: '', KOSMOS_PORT: '' }],
   ]) {
-    const r = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: envCase });
-    assert.ok(r.newSession, `${label}: nothing was launched, so the assertion below never ran`);
-    /* \u26a0\ufe0f #1139: the check is "no ACCOUNT OR BOARD variable rides", not "no
-       `-e` rides". The sender token is neither, and it is minted regardless of
-       whether those three are set -- so a bare `includes('-e')` now reads a
-       correct token as a leaked empty variable. Named exactly, so this still
-       fails on the thing it was written for: an unset var riding as empty. */
-    const passed = r.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
-    /* \u26a0\ufe0f #1160 rides here too, for the same reason the token does and
-       handled the same way: it is not FORWARDED from the environment, it is SET
-       by the supervisor, so it is present whether or not anything else is. Named
-       exactly rather than loosened, so this still fails on the thing it was
-       written for. */
-    const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
-      && v !== 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1');
-    assert.deepEqual(notToken, [],
-      `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
-    /* And the exclusion above must not become a place things hide: the thing it
-       excludes has to actually be there. Without this, deleting the renderer
-       preference entirely would pass both arms of this test. */
-    assert.ok(passed.includes('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'),
-      `${label}: the renderer preference stopped reaching the pane: ` + JSON.stringify(r.newSession));
+    for (const b of branches) {
+      const label = `${envLabel} ${b.runner || 'claude'}${b.model ? '+model' : ''}`;
+      const r = runLauncher({ claim: 'probe', paneCommands: ['-zsh', 'bash'], env: envCase, ...b });
+      assert.ok(r.newSession, `${label}: nothing was launched, so the assertion below never ran`);
+      /* \u26a0\ufe0f #1139: the check is "no ACCOUNT OR BOARD variable rides", not "no
+         `-e` rides". The sender token is neither, and it is minted regardless of
+         whether those three are set -- so a bare `includes('-e')` now reads a
+         correct token as a leaked empty variable. Named exactly, so this still
+         fails on the thing it was written for: an unset var riding as empty. */
+      const passed = r.newSession.filter((a, i, all) => i > 0 && all[i - 1] === '-e');
+      /* \u26a0\ufe0f #1160 (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN) rides here too, for the
+         same reason the token does and handled the same way: it is not FORWARDED from
+         the environment, it is SET by the supervisor, so it is present whether or not
+         anything else is -- but ONLY for claude (codex has never heard of it, per the
+         set-case branch at expected.push above). Excluded per-runner, not blanket. */
+      const isClaude = (b.runner || 'claude') !== 'codex';
+      const notToken = passed.filter((v) => !v.startsWith('KOSMOS_AGENT_TOKEN=')
+        && !(isClaude && v === 'CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'));
+      assert.deepEqual(notToken, [],
+        `${label}: a variable that is not set was still passed into the pane: ` + JSON.stringify(r.newSession));
+      /* And the exclusion above must not become a place things hide: on claude the
+         thing it excludes has to actually be there. Without this, deleting the
+         renderer preference entirely would pass both arms of this test. */
+      if (isClaude) assert.ok(passed.includes('CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1'),
+        `${label}: the renderer preference stopped reaching the pane: ` + JSON.stringify(r.newSession));
+    }
   }
 });
 
@@ -3602,7 +3611,7 @@ test('#245: an OpenAI agent is created on the codex runner, recorded everywhere,
   assert.match(toml, /trust_level = "trusted"/);
   /* And the notify bridge is installed beside the supervisor by the same
      refresh, so the launch line's -c notify=[bridge] points at something. */
-  const bridge = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'bin', 'codex-report-bridge.js');
+  const bridge = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'bin', 'codex-report-bridge.js');
   assert.ok(fs.existsSync(bridge), 'the codex notify bridge was not installed with the supervisor');
   // The vector: 0 bash, 1 supervisor, 2 name, 3 workdir, 4 runner-bin,
   // 5 tmux, 6 log, 7 model (empty, codex's own default), 8 runner.
@@ -4158,6 +4167,20 @@ test('#1026: modelFor refuses a real model belonging to the OTHER provider', () 
   assert.equal(create.modelFor('openai', 'opus'), null,
     'a Claude model resolved for an OpenAI agent, which is a flag codex has never heard of');
   assert.equal(create.modelFor('anthropic', 'no-such-model'), null);
+});
+
+test('#2453: defaultModelKeyFor returns the provider default key -- sonnet for Claude, null for OpenAI', () => {
+  // The same model the create form pre-selects, so an import default cannot drift from it.
+  const anthDefault = create.MODELS.find((m) => m.provider === 'anthropic' && m.default);
+  assert.ok(anthDefault, 'the anthropic list has a default model (the control for the assertions below)');
+  assert.equal(create.defaultModelKeyFor('anthropic'), anthDefault.key, 'anthropic default is the list default');
+  assert.equal(create.defaultModelKeyFor('anthropic'), 'sonnet', 'and it is sonnet today');
+  // 'claude' is the provider hint import returns; it maps to the anthropic models.
+  assert.equal(create.defaultModelKeyFor('claude'), 'sonnet', 'the claude hint resolves to the anthropic default');
+  // A null/absent provider (an unrecognized .md) means anthropic -- the connected-Claude case.
+  assert.equal(create.defaultModelKeyFor(null), 'sonnet', 'a null provider defaults to the anthropic default');
+  // OpenAI has no static models (codex picks its own), so there is no default to hand a form.
+  assert.equal(create.defaultModelKeyFor('openai'), null, 'openai has no static default -- codex picks its own');
 });
 
 test('#1026: setModel refuses a Claude model on a codex agent, and says why in a sentence that survives OpenAI models existing', () => {

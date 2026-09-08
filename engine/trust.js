@@ -210,8 +210,38 @@ function trustFolder(dir, opts) {
   // call does both the existence check (it throws on an absent/unreachable dir)
   // and the key, closing the check-then-resolve TOCTOU.
   let key;
+  /* ⚠️ realpathSync.native DIRECTLY, not through canonicalOnDisk: that helper
+     SWALLOWS a missing folder and falls back to path.resolve, and THIS call
+     site's refusal ("that folder is not there") depends on the throw. Routing it
+     through the helper while fixing the separator bug below would have quietly
+     accepted a folder that is not on disk -- a regression introduced by a
+     cleanup, which is the shape this file has already been bitten by. */
   try { key = fs.realpathSync.native(dir); }
   catch { return { ok: false, because: 'that folder is not there' }; }
+  /* 🛑 AND THE SEPARATORS ARE CLAUDE CODE'S, NOT THIS HOST'S. Everything above
+     reasons about the exact SPELLING of this key -- symlinks, then case-folding
+     via realpathSync.native -- because a key Claude Code does not read is a
+     trusted entry that does nothing and reports success. This is the third axis
+     of the same concern, and the only one that is invisible on macOS: on Windows
+     `realpathSync.native` returns `C:\Users\...`, and Claude Code spells its own
+     project keys with FORWARD SLASHES.
+
+     MEASURED ON THE WINDOWS BOX 2026-09-07, both arms, same config, same Claude
+     version (2.1.263), one variable:
+       key "C:/Users/joshu/trust-test-fwd"  -> no dialog, straight to the prompt
+       key "C:\Users\joshu\trust-test-back" -> THE TRUST DIALOG, "No, exit" preselected
+     The control is what makes it decisive: pre-accepting trust works, and only
+     the backslashed spelling fails to be read.
+
+     ⚠️ SO THIS FUNCTION SILENTLY DID NOTHING ON WINDOWS, in the worst way
+     available: it wrote, returned ok, and left every Kosmos-created agent facing
+     the prompt with `No, exit` preselected -- which is the agent dying at birth,
+     the exact catastrophic first-run failure the #2129 comment below describes,
+     reached by an axis nobody had checked.
+
+     📌 Inert on POSIX, where `path.sep` is already '/' and this is the identity —
+     which is also why no test on this fleet could ever have caught it. */
+  key = key.split(path.sep).join('/');
 
   // ⚠️ A SYMLINKED CONFIG IS SOMEBODY'S ARRANGEMENT. Renaming over it replaces
   // the link with a file — the same severing the installer refuses for

@@ -55,6 +55,10 @@ const {
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
   TRUST_DIALOG_SENTENCE,
+  /* #2456: the placeholder `because` string, so a route can tell a real
+     reported question from the board's generic "asking" and not offer the
+     placeholder as the question the person should answer. */
+  ASKING_GENERIC,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 
@@ -322,6 +326,7 @@ const observed = require('./engine/observed');
    derivation as the fallback for an agent it cannot see. */
 const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
+const claudeAccounts = require('./engine/claudeaccounts');
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -2711,7 +2716,24 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase(); // can throw only on a broken login env (worldRegistryBase null -> baseRoot rethrows)
-      sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+      /* #2454: TWO different "active" facts, and the switcher needs both.
+         - activeWorldId is the REGISTRY POINTER (the desired world), which
+           POST /api/worlds/active flips the instant it is called.
+         - bootedWorldId is the world the LIVE board actually BOOTED into
+           (engine/worldenv.bootedWorld()), which does not change until the board
+           restarts.
+         They DIVERGE between a switch and the restart that applies it (and stay
+         diverged on a board that cannot self-restart, e.g. a from-source board).
+         The UI must mark the CURRENT world by the booted one -- otherwise the
+         world you are actually running on shows as a switchable row, and clicking
+         it demands a needless restart into the Kosmos you are already on (#2454b).
+         bootedWorldId is null only if the board never bootstrapped (a unit test);
+         the client falls back to activeWorldId there, so behaviour is unchanged. */
+      sendJson(res, 200, {
+        worlds: worlds.listWorlds(base),
+        activeWorldId: worlds.activeWorld(base).id,
+        bootedWorldId: require('./engine/worldenv').bootedWorld(),
+      });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
@@ -2798,12 +2820,14 @@ const server = http.createServer((req, res) => {
         const isNoop = bootedId != null && bootedId === world.id;
         const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
         sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
-        /* AFTER the response has been sent, drop the board so launchd relaunches it
-           onto the new world. The delay lets the 200 flush to the client before
-           launchctl stop terminates this process -- the stop kills the very
-           connection that asked for the switch. selfRestart re-checks the fail-safe
-           guard, so a launchd state that changed in the interim still cannot brick
-           the board (it no-ops, and Angel's reconnect degrades to the manual path). */
+        /* AFTER the response has been sent, restart the board so it comes back on the
+           new world. The delay lets the 200 flush to the client first, because the
+           restart kills the very connection that asked for the switch. selfRestart
+           picks the mechanism canSelfRestart chose: a `launchctl stop` for the dev
+           KeepAlive board, or (#2454) a detached `kosmos restart` for an installed
+           board (which launchd does not supervise). It re-checks the fail-safe guard,
+           so a state that changed in the interim still cannot brick the board (it
+           no-ops, and the client reconnect degrades to the manual path). */
         if (restarting) {
           setTimeout(() => {
             try { require('./engine/boardrestart').selfRestart(); }
@@ -4732,6 +4756,77 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2420: connect a CLAUDE account via a pasted ANTHROPIC_API_KEY. The Claude analog
+     of POST /api/accounts/openai above. Claude Code's login chooser has no paste-a-key
+     option (both its options are OAuth account logins), so an api-key Claude account is
+     CONFIGURED: the account dir is prepared, the key is validated live with Anthropic,
+     stored in a mode-600 file, and settings.json gets an apiKeyHelper POINTER (never the
+     raw key). The subscription connect flow (/api/connect/*) is unchanged and remains the
+     SEPARATE connection type. */
+  if (pathname === '/api/accounts/claude/apikey' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Runner check first, same ordering as the OpenAI route: install the runner
+        // before the credential, so a bad key with no Claude Code answers needsRunner.
+        const resolved = runners.resolveBin('claude');
+        const liveJob = (runners.status().claude || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
+          sendJson(res, 400, {
+            error: 'we could not find Claude Code on this computer, so there is nothing to sign in to',
+            needsRunner: true,
+            provider: 'claude',
+          });
+          return;
+        }
+        const shape = claudeAccounts.keyProblem(body.key);
+        if (shape) { sendJson(res, 400, { error: shape }); return; }
+        // #2420 taken-label guard, BEFORE the live check and BEFORE prepare. Before the
+        // live check so a doomed add on an existing label does not waste a round-trip
+        // sending the key to Anthropic (mirrors openaiaccounts.addWithKeyLive's label-first
+        // order); before prepare so a REFUSED add never merges hooks into an existing
+        // account's settings.json. NEVER write into an EXISTING account: a label matching a
+        // signed-in SUBSCRIPTION account (identityOf) or an existing api-key account (a
+        // stored key file) would drop a key file + apiKeyHelper into it and SILENTLY switch
+        // its billing to the pasted key (Claude Code prefers apiKeyHelper over the OAuth
+        // subscription).
+        const named = accounts.dirForLabel(body.label);
+        if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+        if (accounts.identityOf(named.dir) || fs.existsSync(claudeAccounts.keyFile(named.dir))) {
+          sendJson(res, 400, { error: 'there is already a Claude account by that name on this computer' });
+          return;
+        }
+        // #1315 discipline: validate LIVE at ADD time. Refuse ONLY a positively-rejected
+        // key (Anthropic's authentication_error); accept CONNECTED and also UNKNOWN
+        // (unreachable / a non-attributed refusal), never blocking a good key on an
+        // answer that does not confirm the key is bad.
+        const live = await claudeAccounts.validateLive(String(body.key || '').trim());
+        if (live.state === claudeAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+        const prepared = accounts.prepare(body.label);
+        if (!prepared.ok) { sendJson(res, 400, { error: prepared.because }); return; }
+        const settingsPath = path.join(prepared.dir, 'settings.json');
+        try {
+          claudeAccounts.storeKey(prepared.dir, body.key);
+          claudeAccounts.wireApiKeyHelper(settingsPath, prepared.dir);
+        } catch {
+          // Anti-litter (mirrors openaiaccounts.addWithKeyLive's undo): take back the
+          // sensitive artifacts we may have written, so a failed add leaves no orphaned
+          // key file or dangling apiKeyHelper pointer behind.
+          try { claudeAccounts.forgetKey(prepared.dir); } catch { /* best effort */ }
+          try { claudeAccounts.unwireApiKeyHelper(settingsPath); } catch { /* best effort */ }
+          sendJson(res, 400, { error: 'we could not store that key on this computer' });
+          return;
+        }
+        // Never the key: the row carries the label + the live connection verdict only.
+        sendJson(res, 200, { account: { label: prepared.label, connection: { state: live.state } } });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* #2338: connect an OpenAI account via a ChatGPT SUBSCRIPTION (no API key). The
      analog of POST /api/accounts/openai above, but a LONG interactive flow: `start`
      spawns `codex login` into an isolated CODEX_HOME and returns a session the
@@ -5782,8 +5877,14 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* #2085: tmux's REAL grant (tmuxGrant reads its path-keyed row from the
+       system TCC db), NOT read() -- read() surfaced the native app's own
+       AXIsProcessTrusted, which is the false "TMUX ACTIVATED" pill (it answered
+       about the app, not tmux). Same {checkable, trusted} shape, so the S3 tmux
+       gate poll consumes it unchanged; any read failure -> checkable:false ->
+       the neutral "Checking..." pill, never a false green. */
     let reading;
-    try { reading = a11ystatus.read(); }
+    try { reading = a11ystatus.tmuxGrant(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
     sendJson(res, 200, reading);
     return;
@@ -6137,6 +6238,17 @@ const server = http.createServer((req, res) => {
            this card is about. */
         if ('installConfirmed' in body && typeof body.installConfirmed !== 'boolean') { sendJson(res, 400, { error: 'installConfirmed must be true or false' }); return null; }
         const installConfirmed = body.installConfirmed === true;
+        /* #1937: the "Sign in again" button sends `reauth: true`, an explicit
+           signal that the person is repairing a login the file may still call
+           good. Validated like its siblings so a mangled value is a 400 rather
+           than a silent falsy, then passed to `connect.start`, where it skips the
+           already-connected short-circuit `checkLive` cannot see past.
+           📌 Threaded ONLY into the known-account (accountDir) start below; the
+           `another`/default branches deliberately never receive it, because a
+           re-auth only makes sense for an existing account. A client sending it on
+           those shapes has it ignored, not leaked into a new-account flow. */
+        if ('reauth' in body && typeof body.reauth !== 'boolean') { sendJson(res, 400, { error: 'reauth must be true or false' }); return null; }
+        const reauth = body.reauth === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
            this the only two shapes were "the default account" and `another:true`,
            which picks a FREE spot and makes a NEW record. So a person whose login
@@ -6165,6 +6277,32 @@ const server = http.createServer((req, res) => {
              exists to remove, and it would arrive here wearing a helpful name. */
           if (!known) {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
+            return null;
+          }
+          /* 🛑 #2420: REFUSE AN OAUTH SIGN-IN INTO AN API-KEY ACCOUNT. The listing
+             slice makes an api-key Claude account (a stored key, no oauthAccount)
+             visible to list(), so `known` can now BE one -- and the per-row "Sign
+             in again" button (web/index.html, on every Claude row) reaches this
+             path. Running the OAuth flow here would write an oauthAccount BESIDE
+             the stored key + apiKeyHelper; Claude Code prefers apiKeyHelper, so
+             billing would silently STAY on the pasted key while the row
+             reclassified as a subscription (list()'s `!who` guard flips) and the
+             badge showed the OAuth email as connected. This is the MIRROR of the
+             create route's taken-label guard above (which blocks a key over an
+             existing oauth); this blocks an oauth over an existing key. Both
+             billing-contamination directions are now closed. To switch, remove
+             the account and add it again. Guarded here rather than by hiding the
+             button, because the route is the enforcement point and a UI-only
+             guard leaves the contamination reachable by any direct caller.
+             ⚠️ KEYED ON THE FILE, NOT list()'s `apiKey` FLAG. The file is the
+             ground truth: a dual-marker dir (oauth + key, which list() classifies
+             apiKey:FALSE because the oauth identity wins) still holds a key, so
+             an OAuth reauth there still muddies billing -- the file check refuses
+             it; the flag check would have let it through. */
+          if (fs.existsSync(claudeAccounts.keyFile(known.dir))) {
+            sendJson(res, 400, {
+              error: 'that account is connected with an API key. Signing in with a Claude subscription would change how it is billed, so remove it and add it again to switch.',
+            });
             return null;
           }
           /* 🛑 #1922: THE DEFAULT ACCOUNT IS ADDRESSED BY OMITTING configDir, NOT
@@ -6213,6 +6351,7 @@ const server = http.createServer((req, res) => {
             configDir: known.isDefault ? null : known.dir,
             requireInstallConfirm: true,
             installConfirmed,
+            reauth,
           });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
@@ -6971,6 +7110,10 @@ const server = http.createServer((req, res) => {
           name: parsed.name,
           displayName: parsed.displayName,
           provider: parsed.provider,
+          // #2453: the provider's default model KEY, so the import-prefilled create
+          // form lands the agent ON a model (not 'unknown model' + not reachable).
+          // 'sonnet' for a Claude import; null for OpenAI (codex picks its own).
+          model: create.defaultModelKeyFor(parsed.provider),
           instructions: parsed.body,
           /* #1939: true when the file was recognized as agent INSTRUCTIONS (a raw
              CLAUDE.md) rather than a Kosmos export. The form can note that and,
@@ -7094,6 +7237,10 @@ const server = http.createServer((req, res) => {
           name: parsed.name,
           displayName: parsed.displayName,
           provider: parsed.provider,
+          // #2453: the provider's default model KEY, so the import-prefilled create
+          // form lands the agent ON a model (not 'unknown model' + not reachable).
+          // 'sonnet' for a Claude import; null for OpenAI (codex picks its own).
+          model: create.defaultModelKeyFor(parsed.provider),
           instructions: parsed.body,
           recognizedFromContent: parsed.recognizedFromContent,
         });
@@ -7376,10 +7523,30 @@ const server = http.createServer((req, res) => {
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;
-    const question = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    /**
+     * #2456: a REPORTED needs_you handed us its question in the card's own
+     * `because` - the SAME sentence the header quotes back to the person. When
+     * the live pane no longer shows it (a report does not decay, and the TUI
+     * redrew past the marker), fall back to those reported words rather than
+     * telling the person "we cannot find the question" one line under a header
+     * that is quoting it. That three-surfaces-disagree gap is the whole card.
+     *
+     * The live pane WINS when it has one: it is the prompt standing in front of
+     * the person now and the only source that can carry a menu. The reported
+     * words are the fallback, tagged `reported` so the page can say the agent
+     * told us this rather than claim it is on screen. `ASKING_GENERIC` is the
+     * board's placeholder for a needs_you with no words of its own, so it is
+     * NOT offered as a question - falling through to the honest clause below.
+     */
+    const reportedQuestion = (asking && !paneQuestion
+      && card && card.stateReported === true
+      && card.because && card.because !== ASKING_GENERIC)
+      ? { text: card.because, reported: true } : null;
+    const question = paneQuestion || reportedQuestion;
     // The same two sentences as the project route, and they stay two: "we read
     // its screen and the question is not in the capture" is not "we could not
-    // read its screen at all".
+    // read its screen at all". Null too once a reported question stands in.
     const questionBecause = (asking && !question)
       ? ((!view || view.text == null)
         ? 'we could not read its screen just now to show the question'
@@ -7391,7 +7558,10 @@ const server = http.createServer((req, res) => {
      * degraded state — it is the screen this page shows today, the question as
      * the terminal draws it, which the person can answer by typing.
      */
-    const options = (asking && question) ? chat.optionsIn(question.text) : null;
+    // #2456: only a LIVE pane question can carry a menu. A reported question is
+    // the agent's own words with no on-screen numbers, so it never draws
+    // buttons (optionsIn would refuse the prose anyway; this states the intent).
+    const options = (asking && question && !question.reported) ? chat.optionsIn(question.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.
      * The first version of this route asked whether a tied card existed, which
@@ -7781,7 +7951,7 @@ const server = http.createServer((req, res) => {
     let seen = null;
     // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
     // AGENT_WORKFORCE_DATA (engine/store.js joins it with the app's own
-    // 'AgentWorkforce' subfolder when the env var is set, and falls back
+    // store leaf (store.APP, 'Kosmos') when the env var is set, and falls back
     // to the real default otherwise). `process.env.AGENT_WORKFORCE_DATA ||
     // store.ROOT` looked like the same fallback but is not: when the env
     // var IS set it short-circuits PAST that join, landing this file one
@@ -8439,7 +8609,11 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Every task across every project, open and finished (#1382).
+   * Tasks, open and finished (#1382). Global by default; scoped to one project
+   * when `?project=<id>` is given (#2498 - the per-project "view all tasks"
+   * door). No UI screen fetches the global set today (a test consumer,
+   * getDue in server.task-duedate-768.test.js, still relies on it), but it
+   * stays for a future global-home view.
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
@@ -8461,8 +8635,17 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    /* #2498: the project view's "view all tasks" door scopes to the project it
+       was opened from. `?project=<id>` filters allTasks() (which tags each task
+       with projectId and keeps CLOSED ones) to that project - open AND finished,
+       so the #1382 finished-work purpose is preserved per project. No param =
+       the global set, unchanged: nothing serves a global all-tasks view today,
+       but the route stays backward-compatible for one if it is ever added. */
+    let projectScope = null;
+    try { projectScope = new URL(req.url, ROUTING_BASE).searchParams.get('project') || null; } catch { projectScope = null; }
     const all = tasks.allTasks();
-    sendJson(res, 200, { tasks: all, count: all.length });
+    const rows = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
     return;
   }
 
@@ -8504,6 +8687,11 @@ const server = http.createServer((req, res) => {
           }
         }
         const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+          // #2458: the parent chosen on the create page (blank/absent = top-level).
+          // The engine validates it through the same cleanParent the edit route
+          // uses (a missing parent or a non-string is refused), so a bad parent is
+          // a 400 like any other bad field rather than a silent ungroup.
+          parent: body.parent,
           made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at
@@ -9247,6 +9435,21 @@ const server = http.createServer((req, res) => {
     return last;
   };
 
+  /* #768/#992: a task's recorded lifecycle events, read-only, so the person can
+     "get to it as a user" IN the app, not only by opening the folder. Keyed by
+     the SAME (id, number) the record side used, so the file matches. taskchat.read
+     is fail-soft -- no file or an unreadable one both return [], which the page
+     renders as "Nothing yet" rather than an error. */
+  const taskActivity = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/activity$/);
+  if (taskActivity && (req.method === 'GET' || req.method === 'HEAD')) {
+    const id = decodeSegment(taskActivity[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const taskchat = require('./engine/taskchat');
+    const events = taskchat.read(id, Number(taskActivity[2]));
+    sendJson(res, 200, { events, count: events.length });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
@@ -9266,6 +9469,29 @@ const server = http.createServer((req, res) => {
         : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
       sendJson(res, code, { error: msg || 'we could not change that task' });
     }
+    return;
+  }
+
+  /* #768: set or clear a task's due date. Body { dueDate: 'YYYY-MM-DD' | null }.
+     tasks.setDue validates (a nonsense date is a 400, never stored) and records a
+     lifecycle event so the change shows in the task's activity. */
+  const taskDue = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/due$/);
+  if (taskDue && req.method === 'POST') {
+    const id = decodeSegment(taskDue[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        const t = tasks.setDue(id, taskDue[2], body.dueDate);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
+          { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -9569,7 +9795,25 @@ const server = http.createServer((req, res) => {
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
     const asking = member.tied && member.state === STATE.NEEDS_YOU;
-    const question = asking && view.text ? chat.questionIn(view.text) : null;
+    const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
+    /* #2456: the same reported-question fallback the agent thread uses. A
+       reported needs_you gave us its words in the card's `because` (the header
+       quote); when the live pane no longer shows the question, those reported
+       words stand in rather than the "we cannot find the question" clause that
+       contradicts a header quoting it. Pane wins when present; the generic
+       placeholder is not offered as a question.
+
+       ⚠️ Read from the FULL roster card, not from `member`. `member` is the
+       reduced project-membership projection (state + because, no
+       `stateReported`), so the reported-vs-scraped distinction the gate turns
+       on is only on the roster card the agent thread already uses. Same agent,
+       same roster read - `ourCardByName` is the one this route's sibling uses. */
+    const reportedCard = ourCardByName(roster, name);
+    const reportedQuestion = (asking && !paneQuestion
+      && reportedCard && reportedCard.stateReported === true
+      && reportedCard.because && reportedCard.because !== ASKING_GENERIC)
+      ? { text: reportedCard.because, reported: true } : null;
+    const question = paneQuestion || reportedQuestion;
     /**
      * ⚠️ TWO DIFFERENT FACTS, TWO SENTENCES. "We read its screen and the
      * question is not in the capture" and "we could not read its screen at

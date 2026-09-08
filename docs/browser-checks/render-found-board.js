@@ -20,14 +20,14 @@
  * flag the engine reads is `completedAt`, not `done`:
  *
  *     echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' \
- *       > "$SB/data/AgentWorkforce/first-run.json"
+ *       > "$SB/data/Kosmos/first-run.json"
  *
  * 🔑 AND SEED ONE REMOVED AGENT, or the above-the-removed-ones assertion reports
  * itself SKIPPED: that panel is absent on a machine that has removed nothing,
  * and a hidden element measures a top of 0, which is above everything.
  *
  *     printf '%s' '[{"name":"oldbob","shownAs":"Old Bob","removedAt":"2026-01-01T00:00:00.000Z","stopped":true}]' \\
- *       > "$SB/data/AgentWorkforce/removed.json"
+ *       > "$SB/data/Kosmos/removed.json"
  *
  * Run: see the README in this directory.
  */

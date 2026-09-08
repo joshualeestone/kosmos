@@ -63,4 +63,21 @@ function kosmosCliShown(probeRoot) {
   return /[^A-Za-z0-9._/-]/.test(cli) ? '"' + cli + '"' : cli;
 }
 
-module.exports = { kosmosCli, kosmosCliShown };
+/**
+ * The INSTALLED kosmos CLI path, or null. Unlike kosmosCli() this NEVER falls
+ * back to the source CLI or the bare word: it returns a path only when the
+ * installed layout is positively present ($KOSMOS_HOME/bin/kosmos AND
+ * $KOSMOS_HOME/app/server.js both exist -- the same conjunction kosmosCli's
+ * installed arm uses). #2454: engine/boardrestart gates its `kosmos restart`
+ * self-restart on this, so a from-source `node server.js` board (which a stop
+ * would never bring back) is NEVER restarted -- it resolves to null here and
+ * falls through to the manual-restart banner.
+ */
+function installedKosmosCli(probeRoot) {
+  const installedHome = probeRoot || path.resolve(__dirname, '..', '..');
+  const cli = path.join(installedHome, 'bin', 'kosmos');
+  if (fs.existsSync(cli) && fs.existsSync(path.join(installedHome, 'app', 'server.js'))) return cli;
+  return null;
+}
+
+module.exports = { kosmosCli, kosmosCliShown, installedKosmosCli };

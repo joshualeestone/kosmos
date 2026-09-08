@@ -12,7 +12,9 @@
  * the gate label, never the caption font. Fix: scope to `#firstrun .fr-body p.s3-step-cap`
  * (1,2,1) so the intended .625rem/600 wins (10px, a small caption). Plus remove the
  * "(stand-in graphic)" `.s3-standin` span that leaked a build note to the user.
- * #10: `.s4-gear` was 38px box / 22px glyph; Josh wants ~2x -> 76px / 44px.
+ * #10: `.s4-gear` was 38px box / 22px glyph; Josh wanted ~2x -> 76px / 44px. Then
+ * 0.6.45 (Josh): the 76px box was too big for the cog (the cog size was right), so
+ * the BOX was tightened to hug it -> ~52px box, glyph stays 44px.
  *
  * WHY A SOURCE READ CANNOT SEE #9: the caption size is a computed cascade result (a
  * bare class losing to an id-scoped rule), not a declared value; only reading the
@@ -23,7 +25,7 @@
  * not that behavior flipped):
  *  1. S3: both `.s3-step-cap` render compact (<= 12px, weight 600), NOT 17px/400.
  *  2. S3: no `.s3-standin` element exists (the dev-note leak is removed).
- *  3. S4: `.s4-gear` is ~2x (box 70-82px, glyph 40-48px), NOT the old 38px/22px.
+ *  3. S4: `.s4-gear` box hugs the cog (box 48-58px, glyph 40-48px), NOT the old 76px box or 38px/22px.
  *  4. S3: the tmux window titles "Accessibility", NOT "Login Items" (0.6.42 #1: the tmux
  *     grant is Privacy & Security > Accessibility, not Login Items). Copy: Mona Lisa.
  *  5. S3: the tmux row sub-text is "Control your computer", NOT "Allow in the background".
@@ -132,18 +134,67 @@ function unhide(id) {
       // that pane is correct for the bash background grant; only S3's tmux window moved to
       // Accessibility. This guards against over-removing "Login Items" from the whole file.
       const nb = pane.querySelector('.s4-nb');
+      const nt = pane.querySelector('.s4-nt');
+      const ntc = nt ? getComputedStyle(nt) : null;
+      const nbc = nb ? getComputedStyle(nb) : null;
       return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
-        s4Text: nb ? nb.textContent : null };
+        s4Text: nb ? nb.textContent : null,
+        // #768-batch (Josh, said 3x; Mona third round): the title must be BOLD, not
+        // LARGER, AND the whole notice is the intended SMALL body size (.6875rem/~11px).
+        // Both were being dragged to 1.0625rem/17px by the `#firstrun .fr-body p`
+        // cascade, so pin the absolute size AND equality AND the weights -- a size-bump
+        // (17px), a non-bold title, or a bold body all fail.
+        ntWeight: ntc ? Number(ntc.fontWeight) : null,
+        nbWeight: nbc ? Number(nbc.fontWeight) : null,
+        ntSize: ntc ? parseFloat(ntc.fontSize) : null,
+        nbSize: nbc ? parseFloat(nbc.fontSize) : null,
+        // The cog is centred by flex + line-height:1 on the glyph, not place-items on
+        // a line box that let the gear's ascent push it high. line-height is the
+        // LOAD-BEARING half: flex centres the line box, and only line-height:1
+        // collapses that box to the glyph, so it is pinned too.
+        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent,
+        gearLine: c.lineHeight, gearFont: parseFloat(c.fontSize) };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
       check(`${engine}: fr-pane-4 gear reachable`, false, JSON.stringify(s4));
     } else {
-      const gearOk = s4.w >= 70 && s4.w <= 82 && s4.h >= 70 && s4.h <= 82 && s4.font >= 40 && s4.font <= 48;
-      check(`${engine}: the S4 notification cog is ~2x (box 70-82px, glyph 40-48px), not the old 38/22`,
+      // 0.6.45 (Josh): the box was tightened to HUG the cog (was 76px, too big);
+      // the cog glyph stayed 44px (Josh: the cog size was right). So the box is
+      // ~52px now, the glyph still 40-48px, and it must NOT be the old 76px box
+      // nor the original 38/22.
+      const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.font >= 40 && s4.font <= 48;
+      check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px, glyph 40-48px), not the old 76px or 38/22`,
         gearOk, JSON.stringify(s4));
       check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
         /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
+      // #768-batch (Josh, said 3 times; Mona third round): "App Background Activity" must
+      // be BOLD, NOT a larger font, AND the whole notice is the intended SMALL size
+      // (.6875rem == ~11px on a 16px root). Four arms, so none of the regressions pass:
+      // a non-bold title (weight<700), a bold body (weight>=700), a size-bump (17px),
+      // or title/body differing in size. Absolute-size arm is the one that was missing:
+      // the old check only pinned ntSize==nbSize, which passed at 17px==17px. A
+      // computed-cascade fact a source read cannot see, and the exact property that
+      // kept regressing.
+      // Band pins .6875rem (== 11px on a 16px root) tightly: 10.5-11.5 excludes both a
+      // 17px size-bump AND a shrink to a sibling caption size (.s3-step-cap is .625rem ==
+      // 10px), so neither regression can pass.
+      const bodySizeOk = s4.nbSize != null && s4.nbSize >= 10.5 && s4.nbSize <= 11.5;
+      const titleSizeOk = s4.ntSize != null && s4.ntSize >= 10.5 && s4.ntSize <= 11.5;
+      const boldNotLarger = s4.ntWeight != null && s4.ntWeight >= 700
+        && s4.nbWeight != null && s4.nbWeight < 700
+        && titleSizeOk && bodySizeOk && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
+      check(`${engine}: the S4 title is BOLD (weight>=700) at the SMALL body size (~11px/.6875rem), body normal weight -- bold, not larger, not 17px`,
+        boldNotLarger, `ntWeight ${s4.ntWeight}, nbWeight ${s4.nbWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
+      // flex + centre alignment AND line-height COLLAPSED to the glyph (== font size).
+      // line-height is load-bearing: keeping flex but reverting line-height to `normal`
+      // (which computes to ~1.2x = ~53px here) reintroduces the high-glyph offset while
+      // display/align/justify still read centre, so it is asserted too.
+      const lineCollapsed = s4.gearLine != null && s4.gearFont != null
+        && Math.abs(parseFloat(s4.gearLine) - s4.gearFont) < 2;
+      check(`${engine}: the S4 cog is flex-centred (flex, items+content center) with line-height collapsed to the glyph, so it sits centred not high-left`,
+        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center' && lineCollapsed,
+        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}, line ${s4.gearLine} vs font ${s4.gearFont}`);
     }
 
     await browser.close();

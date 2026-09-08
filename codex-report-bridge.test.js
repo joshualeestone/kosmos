@@ -8,6 +8,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const http = require('node:http');
 const nodePath = require('node:path');
@@ -145,9 +146,9 @@ const osB = require('node:os');
 test('#1968: the bridge presents the board token when the board wrote one', async () => {
   const data = fsB.mkdtempSync(nodePath.join(osB.tmpdir(), 'aw-1968-bridge-'));
   try {
-    // store.ROOT is `<AGENT_WORKFORCE_DATA>/AgentWorkforce`, and boardauth reads
+    // store.ROOT is `<AGENT_WORKFORCE_DATA>/Kosmos`, and boardauth reads
     // `<store.ROOT>/board.token`; write it where the bridge will actually look.
-    const root = nodePath.join(data, 'AgentWorkforce');
+    const root = nodePath.join(data, store.APP);
     fsB.mkdirSync(root, { recursive: true });
     fsB.writeFileSync(nodePath.join(root, 'board.token'), 'abc123boardtoken');
     const seen = await drive(TURN, { AGENT_WORKFORCE_DATA: data });

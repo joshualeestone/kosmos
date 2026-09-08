@@ -15,7 +15,7 @@ test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); }
 
 test('no file is OFF and reads ok; a bad file fails toward OFF and says ok:false', () => {
   assert.deepEqual(engmode.read(), { on: false, ok: true });
-  // #1856: engmode.FILE now lives under the AgentWorkforce leaf, so make its dir,
+  // #1856: engmode.FILE now lives under the Kosmos leaf, so make its dir,
   // not the bare SANDBOX (a direct writeFileSync below needs the leaf to exist).
   fs.mkdirSync(require('node:path').dirname(engmode.FILE), { recursive: true });
   for (const bad of ['{not json', '"str"', '{"on":"yes"}', 'null', '[]']) {
