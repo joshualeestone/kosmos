@@ -155,7 +155,16 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
       const openLabel = (trigger.querySelector('.pcombo-name') || {}).textContent || '';
       const openaiLi = Array.from(list.children).find((li) => li.dataset.value === 'openai');
       const openAriaSelected = !!(openaiLi && openaiLi.getAttribute('aria-selected') === 'true');
-      dispatchKey('Escape');   // close
+
+      // No option name may be ellipsis-clipped in the OPEN list: the popup must autosize to the
+      // widest "<Provider> Coming soon" row like a native select, not stay pinned to the trigger
+      // width (which is sized to the short selected value and truncated every coming-soon row).
+      // A rendered-geometry check (scrollWidth > clientWidth), not textContent, so it can see it.
+      const truncatedNames = Array.from(list.querySelectorAll('.pcombo-opt .pcombo-name'))
+        .filter((n) => n.scrollWidth > n.clientWidth + 1)
+        .map((n) => n.textContent);
+      const noTruncatedNames = truncatedNames.length === 0;
+      // Leave the list OPEN so the screenshot below captures the expanded state (marks, chip, pills).
 
       return {
         selectStillHasOptions, selectHidden, selectOutOfATandTab, roleCombobox, collapsed, triggerLabelClosed, triggerHasMark,
@@ -163,7 +172,7 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
         disabledIsDisabled, disabledNotSelectable, grokChip, reopened, escClosed, escRefocus,
         accNameHasLabelAndValue, triggerLabelOpenai, disabledSyncsOn, disabledSyncsOff,
         openedForDisableTest, closedOnDisable, progFrom, progLabel,
-        openedForStale, openLabel, openAriaSelected,
+        openedForStale, openLabel, openAriaSelected, noTruncatedNames, truncatedNames,
       };
     });
 
@@ -197,6 +206,8 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
     ok(t + 'a value change WHILE THE POPUP IS OPEN updates the trigger and option aria-selected',
       r.openedForStale && /GPT|OpenAI/i.test(r.openLabel) && r.openAriaSelected,
       JSON.stringify({ opened: r.openedForStale, label: r.openLabel, ariaSelected: r.openAriaSelected }));
+    ok(t + 'no option name is truncated in the open list (the popup autosizes to the widest row)',
+      r.noTruncatedNames, JSON.stringify(r.truncatedNames));
 
     if (pageErrors.length) problems.push(t + 'pageerror: ' + pageErrors.join(' | '));
     const shot = nodePath.join(require('node:os').tmpdir(), 'provider-combobox-' + theme + '.png');

@@ -5388,7 +5388,12 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 .pcombo-name { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pcombo-chev { flex: 0 0 auto; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--k-ink-2); }
 .pcombo-chip { font-size: .68rem; font-weight: 700; color: var(--k-ink-2); background: var(--k-rule); border-radius: 4px; width: 18px; height: 18px; line-height: 18px; text-align: center; display: block; }
-.pcombo-list { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 40; margin: 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); }
+/* Autosize to the widest row, like a native <select> popup: at least as wide as the trigger
+   (min-width:100%) but free to grow to fit "<Provider>  Coming soon" (width:max-content),
+   capped so it never overflows the dialog. Anchored at left only (right:auto) so it can grow.
+   Without this the list was pinned to the trigger's width and every coming-soon row truncated
+   to an unreadable "Go..." / "Me..." fragment. */
+.pcombo-list { position: absolute; top: calc(100% + 4px); left: 0; right: auto; min-width: 100%; width: max-content; max-width: min(360px, 90vw); z-index: 40; margin: 0; padding: 4px; list-style: none; max-height: 280px; overflow-y: auto; background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.14); }
 .pcombo-opt { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 6px; cursor: pointer; }
 .pcombo-opt .pcombo-name { color: var(--k-ink); }
 .pcombo-active { background: var(--k-rule); }
