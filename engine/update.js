@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
+const updating = require('./updating');
 const { version: RUNNING } = require('../package.json');
 
 const DEFAULT_BASE = 'https://installkosmos.com/dist';
@@ -111,12 +112,50 @@ function poke() {
  * Returns the handle so a caller can clear it.
  */
 function startPolling(intervalMs) {
+  /* 🛑 #988: THE SUCCESS PATH HAS NO FINISH HOOK, BY CONSTRUCTION. A successful
+     install kills this server before either child listener can matter (the exit
+     listener's own comment below says so), so `seconds: 0` after a good update
+     can only come from the board that comes BACK. This is that moment: the board
+     is up, therefore it is not mid-update.
+     Unconditional with respect to WHETHER AN UPDATE JUST HAPPENED (it is still
+     gated on installedRoot() below, which is a different question). The #1728
+     in-flight marker cannot stand in for
+     "we just updated", because the installer's own shell removes it when the
+     attempt finishes, success or clean failure alike. And clearing on every boot
+     is idempotent and can only END a "back in a moment" early, never begin one
+     falsely, which is the safe direction for a message a person reads. */
+  /* 🛑 GATED ON installedRoot(), matching this file's own convention in maybeAutoInstall()
+     and its four state-file paths. Without it, a board run from a SOURCE
+     CHECKOUT on an enrolled Mac (node server.js, tools/restart-local-board.sh,
+     routine on this fleet) makes real mTLS POSTs to the production coordinator
+     with the operator's certificate, and can CLEAR a legitimate deadline the
+     installed board just set. Only a clear, so the harm is bounded, but a dev
+     checkout should not be able to cancel the installed board's banner. */
+  if (installedRoot()) updating.announce(0);
+  /* ⚠️ AND ONCE MORE ON THE FIRST TICK. The clear above is a single, unretried,
+     fire-and-forget request made at the moment the machine is busiest and the
+     network least settled. If it is lost, the phone reads "back in a moment" for
+     the full 15-minute cap while the Mac is perfectly healthy. The comment that
+     a boot clear "can only end a message early, never begin one falsely" is true
+     of a REPEATED clear and not of a LOST one, which is the failure this shape is
+     most exposed to. A second clear a minute later costs one request. */
+  let clearedAgain = false;
   // Guard the cadence: a non-positive or non-numeric interval would make
   // setInterval a tight fn-per-tick loop that burns the event loop (poke() is
   // TTL-gated regardless, so it bounds the event-loop cost, not the network).
   // Owning the default here means a caller can pass a raw, unvalidated value.
   const ms = Number(intervalMs) > 0 ? Number(intervalMs) : 60 * 1000;
   const t = setInterval(() => {
+    /* 🛑 AND NOT WHILE AN INSTALL IS RUNNING. The boot clear's argument is "the
+       board is up, therefore it is not mid-update", which is sound at process
+       start and FALSE sixty seconds later. Both entry paths can begin an install
+       within the first interval (the Install button, and maybeAutoInstall off
+       refresh()), and a real install runs for minutes. Measured without this
+       guard: boot at t=0, install at t=20ms, tick at t=50ms gives the announce
+       sequence [0,900,0], so the coordinator ends up holding "not updating" while
+       the Mac is mid-apply and about to restart with no banner: the exact symptom
+       this card exists to remove, reintroduced by its own repeat clear. */
+    if (!clearedAgain && installedRoot() && !alreadyInstalling()) { clearedAgain = true; updating.announce(0); }
     try { poke(); } catch { /* a look that cannot run must cost the board nothing */ }
   }, ms);
   if (t && typeof t.unref === 'function') t.unref();
@@ -466,7 +505,24 @@ function wireChild(child, opts) {
   markInstallStarted(owner && owner.startedAt);
   child.on('error', (err) => {
     installStarted = false;
+    /* #988: OWNER IDENTITY, mirroring the guard noteAttemptEnd makes right below.
+       Captured BEFORE noteAttemptEnd, which replaces lastAttempt.
+       🛑 DEFENSIVE ONLY, AND UNREACHABLE TODAY. An earlier version of this comment
+       described child A erroring, the person pressing Install, and A's late EXIT
+       clearing a live banner: that is the EXIT listener's scenario, not this one's,
+       and stating it here overclaimed what this line does. Single-flight makes the
+       error case different: beginInstall refuses while installStarted is true, and
+       THIS HANDLER is what releases it, so no second attempt can exist when this
+       line runs and `mine` is always true. Measured: replacing it with `true`
+       leaves all suites green, and no test can construct the scenario without
+       breaking single-flight, so it is UNARMED BY CONSTRUCTION rather than by
+       oversight. Kept for symmetry with its armed twin in the exit listener and
+       because it costs one comparison; if single-flight ever stops holding (a
+       second concurrent installer, a partial reset), this is the line that stops
+       it corrupting a live banner. */
+    const mine = (owner === lastAttempt);
     noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
+    if (mine) updating.announce(0);   // never started, so nothing is applying
     /* Only the unattended path is held back. A person pressing Install is
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
@@ -482,6 +538,32 @@ function wireChild(child, opts) {
   // server before the listener matters, which is why releasing on any
   // non-zero exit cannot double-run a good update.
   child.on('exit', (code) => {
+    /* 🛑 #988: THE CLEAR IS OUTSIDE THE `code !== 0` BRANCH, DELIBERATELY, AND AN
+       EARLIER VERSION HAD IT INSIDE. The spawned shell is
+       `curl … | sh; code=$?; printf … > "$2"; if [ … ]; then rm -f "$4"; fi`,
+       so THE CHILD'S EXIT STATUS IS THE TRAILING `if`, NOT THE INSTALLER'S.
+       Measured: an installer exiting 7 records "7" in the status file and the
+       child still exits 0. So `code !== 0` is false on ordinary failures, and a
+       clear placed inside it never ran. Combined with the #2055 abort path,
+       which dies WITHOUT restarting the board, the deadline then stood for the
+       full 15-minute cap on a Mac that was up and serving: exactly the false
+       "back in a moment" this card exists to prevent, reached through
+       production rather than the suite.
+       Clearing on ANY exit is safe by the argument in the comment ABOVE this
+       listener (an earlier version of this line said "below", and there is no
+       such argument below): a SUCCESSFUL install kills this server before the listener runs, so
+       an exit that reaches this line is one that did not restart the board. */
+    if (owner === lastAttempt) updating.announce(0);   // #988: only THIS attempt may clear
+    /* 🛑 AND THE SAME MASKING MAKES THE BLOCK BELOW DEAD, WHICH THIS BRANCH DOES
+       NOT FIX. `code` is the trailing `if`'s status, so on an ordinary installer
+       failure it is 0 and none of installStarted / noteAttemptEnd / autoFailedAt
+       runs: the flag stays true, every retry answers "already updating", and
+       lastAttempt reports a perpetually in-flight attempt until the board
+       restarts. Pre-existing on main; the clear above is the one line in this
+       listener that handles the masked case, which is why it sits outside.
+       Filed as kosmos#2503 rather than widened into the announce card, and the
+       card carries the trap: a test that makes the child exit non-zero passes
+       while production still never reaches this. */
     if (code !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');
@@ -489,6 +571,14 @@ function wireChild(child, opts) {
       process.stderr.write(`Kosmos update failed before it could restart the board (exit ${code}); Install can be tried again\n`);
     }
   });
+  /* #988: from a phone, an update restart is indistinguishable from a broken Mac.
+     Tell the coordinator we are applying, so it can answer "your Mac is updating
+     Kosmos, back in a moment" instead of "not answering".
+     ⚠️ AFTER both listeners, deliberately. announce() is synchronous and `error`
+     is emitted asynchronously, so announcing earlier happens to be safe; that
+     ordering was load-bearing and unstated. Announcing here removes the
+     dependency instead of documenting it. */
+  updating.announce(updating.DEFAULT_SECONDS);
 }
 
 function alreadyInstalling() { return installStarted; }
