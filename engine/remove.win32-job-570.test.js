@@ -145,3 +145,77 @@ test('#570 the darwin dispatch is untouched -- it still speaks launchctl', () =>
   assert.match(shelled[0], /launchctl disable/);
   assert.match(shelled[1], /launchctl bootout/);
 });
+
+/* ── 7b: ending the AGENT, not the job ───────────────────────────────────────
+ *
+ * 🛑 THE GAP THESE COVER IS THE ONE R6 FOUND ON A REAL BOX. The job-level acts
+ * above all passed while a Windows removal still failed, because ending the agent
+ * itself was a separate, un-ported step:
+ *
+ *     it was not set to start on its own, so there was nothing to turn off  ok
+ *     closed its window                                                     FAILED
+ *
+ * `removeInner` and `restartInner` each carried their own copy of the tmux kill,
+ * so the port had to reach both -- which is why `sessionOps` is one dispatch and
+ * why these assert it rather than either call site's wiring alone.
+ */
+const stop = require('./win32stop');
+
+test('#570 7b a win32 END kills the agent process -- never tmux', () => {
+  const shelled = recordingShell();
+  const kills = [];
+  stop.setLive(() => new Map([['winagent-1', { sessionId: 'a-b-c-d-e', pid: 4242, status: 'busy' }]]));
+  stop.setRunner((args) => { kills.push(args.join(' ')); return { ok: true, out: '' }; });
+  stop.setAlive(() => false);
+
+  assert.equal(remove.sessionOps('win32').end('winagent-1'), true);
+
+  assert.deepEqual(shelled.filter((c) => /tmux/.test(c)), [],
+    'no tmux on Windows -- an agent here is a hidden console, not a pane');
+  assert.deepEqual(kills, ['/PID 4242 /T /F']);
+  stop.setLive(null); stop.setRunner(null); stop.setAlive(null);
+});
+
+test('#570 7b a win32 END that cannot confirm the process is gone reports FALSE', () => {
+  /* The whole reason `end` returns a boolean rather than "we asked": both call
+     sites turn a false into a PARTIAL that says the agent is still going. An arm
+     that reported the kill's own exit status would report a removal over it. */
+  recordingShell();
+  stop.setLive(() => new Map([['winagent-1', { sessionId: 'a-b-c-d-e', pid: 4242, status: 'busy' }]]));
+  stop.setRunner(() => ({ ok: true, out: 'SUCCESS: Sent termination signal' }));
+  stop.setAlive(() => true);
+
+  assert.equal(remove.sessionOps('win32').end('winagent-1'), false,
+    'taskkill said SUCCESS and the process is still there -- that is not a stopped agent');
+  stop.setLive(null); stop.setRunner(null); stop.setAlive(null);
+});
+
+test('#570 7b the darwin dispatch is untouched: kill-session, then LOOK AGAIN', () => {
+  const shelled = [];
+  remove.setRunner((bin, args) => {
+    shelled.push(bin + ' ' + (args || []).join(' '));
+    // has-session answering 1 is tmux for "it is gone", which is the success we want.
+    return /has-session/.test((args || []).join(' ')) ? { ok: false, code: 1 } : { ok: true };
+  });
+
+  assert.equal(remove.sessionOps('darwin', '/opt/homebrew/bin/tmux').end('casey'), true);
+  assert.deepEqual(shelled, [
+    '/opt/homebrew/bin/tmux kill-session -t =casey',
+    '/opt/homebrew/bin/tmux has-session -t =casey',
+  ], '=-anchored, and the look-again is not optional');
+});
+
+test('#570 7b BOTH platforms refuse to call a still-live session stopped', () => {
+  // darwin: has-session says the session is STILL THERE (exit 0).
+  remove.setRunner(() => ({ ok: true }));
+  assert.equal(remove.sessionOps('darwin', '/opt/homebrew/bin/tmux').end('casey'), false,
+    'the Mac arm: a kill that reported ok over a session that is still listed');
+
+  // win32: the pid is still signallable.
+  stop.setLive(() => new Map([['casey', { sessionId: 'a-b-c-d-e', pid: 4242, status: 'busy' }]]));
+  stop.setRunner(() => ({ ok: true, out: '' }));
+  stop.setAlive(() => true);
+  assert.equal(remove.sessionOps('win32').end('casey'), false,
+    'the Windows arm: same rule, different substrate');
+  stop.setLive(null); stop.setRunner(null); stop.setAlive(null);
+});

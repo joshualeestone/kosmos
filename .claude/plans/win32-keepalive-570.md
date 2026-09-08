@@ -15,8 +15,9 @@ R8 PASSED 2026-09-08 on a real reboot: the agent came back at logon with nobody
 touching anything. That is the whole point of the slice, and it is now evidence
 rather than intent -- see "R8 PASSES" at the bottom of this file.
 
-Next step is 7b: `remove.js` still ends an agent by closing a tmux window, which
-is what leaves R4-R7 unrunnable.
+7b IS DONE TOO: `remove.js` no longer ends an agent by closing a tmux window, so
+R4-R7 are runnable for the first time. Next step is running them -- the rehearsal
+is now the only thing between this branch and the PR.
 
 ## ~~🛑 THE ONE BLOCKER: this branch is 74 commits behind main~~ MERGED 2026-09-08
 
@@ -100,10 +101,11 @@ BEFORE the anchor, in that order.
 extracted Kosmos builds. This is very likely why a Bun call dropped the
 2026-09-07 session to a bare prompt and cost hours of uncommitted work.
 
-    C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/win32anchor.test.js engine/win32job.test.js engine/win32supervisor.test.js engine/create.win32-launch-570.test.js engine/remove.win32-job-570.test.js engine/platform.test.js
+    C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/win32anchor.test.js engine/win32job.test.js engine/win32supervisor.test.js engine/win32launch.test.js engine/win32roster.test.js engine/win32capture.test.js engine/win32create.test.js engine/win32live.test.js engine/win32stop.test.js engine/create.win32-launch-570.test.js engine/remove.win32-job-570.test.js engine/platform.test.js engine/win32-separator-guard.test.js
 
-Expect 46/46. `engine/remove.test.js` is PRE-EXISTING RED here (launchd/tmux
-fixtures) -- 13 pass/48 fail is the known-good state, not a regression.
+Expect 121/121. `engine/remove.test.js` is PRE-EXISTING RED here (launchd/tmux
+fixtures) -- **12 pass/49 fail** is the known-good state since 7b, not a
+regression; the one that moved is explained under "7b DONE" at the bottom.
 
 ## The working rule that prevents another loss
 
@@ -241,7 +243,7 @@ session to a bare prompt. Use:
 | 6 | merge origin/main (74 behind; #2439 store rename) | DONE -- 89/89 win32 green |
 | 7 | PHASE 3 dress rehearsal R1-R8 | R1 and R8 PASS; R6 partial; R2-R5/R7 not run |
 | 7a | port createAgentInner's launch block to win32 | DONE -- R1 PASSES on the box |
-| 7b | port remove.js's process-ending half off tmux | NEXT -- unblocks R4-R7 |
+| 7b | port remove.js's process-ending half off tmux | DONE, 121/121 green -- R4-R7 now runnable |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
 
@@ -494,3 +496,81 @@ supervisor's launch decision.
 
 📌 R2-R5 and R7 remain unrun, and 7b is what unblocks them: every one of those
 steps is a stop or a restart, and stopping still reaches for tmux.
+
+## 7b DONE (2026-09-08): stopping an agent no longer reaches for tmux
+
+`remove.js` ended an agent with `tmux kill-session`, which is what left R6 half
+failing and made the Restart button unreachable on Windows. Ported.
+
+    engine/win32stop.js   NEW -- taskkill /PID <pid> /T /F, plus the look-again
+    engine/win32live.js   NEW -- the ONE ownership join (see below)
+    engine/remove.js      sessionOps(platform), one dispatch, TWO call sites
+
+🛑 THE FILE HAD TWO COPIES OF THE KILL, and that is the finding worth keeping.
+`removeInner` and `restartInner` each carried their own `kill-session` +
+look-again pair. Porting only the one R6 exercised would have left the Restart
+button Mac-only and passing its unit tests -- the same shape as the three tmux
+gates. `sessionOps` is now the single dispatch, exported so a Mac can assert the
+win32 arm.
+
+🔑 THE OWNERSHIP JOIN WAS ABOUT TO BE WRITTEN A THIRD TIME. `win32roster` (emit
+the board's rows) and `win32capture` (read each row's state) each resolved
+recorded-name -> sessionId -> live session, the second under a comment promising
+it stayed "BYTE-IDENTICAL" to the first -- a promise no test held. A stop needs
+the same resolution to find a pid, so that would have been copy three, in the
+module that KILLS A PROCESS. Extracted to `win32live.byName`, and the promise is
+now a test that runs both and asserts the key sets are equal.
+
+### Defect 5: the ownership record outlived the session it described
+
+On the Mac the tmux `@kosmos_agent` option dies WITH the session, so an ownership
+claim cannot survive the thing it names. Here the record is a FILE. Restart ends
+one session and lets the supervisor start another under the same name, so without
+forgetting, two sessionIds carry one name and the join picks between them
+silently. `win32capture` had already written this hazard down and correctly said
+it was unreachable "until the win32 create/restart flow is wired" -- 7a wired
+create, 7b wires restart, so it became reachable in this slice. `win32stop.end`
+forgets the session it ended.
+
+### The new kill is behind #1598's gate
+
+`taskkill /F /T` is `tmux kill-session` on this platform, and #1598's header names
+that verb as exactly what it exists to keep away from an operator's live fleet. A
+brand-new module that shells a forced tree kill was not going to be the one hole
+in a fail-closed design, so it opts in the same way `remove.js` does.
+
+### Measured, not assumed
+
+    win32 surface (13 files) ......... 121/121 green
+    delete-leftover / disconnect-agent  identical to HEAD (8/1 and 2/4)
+    remove.test.js ................... 12 pass / 49 fail  <- WAS 13/48
+
+⚠️ THE remove.test.js BASELINE MOVED BY ONE, and it is not a Mac regression. The
+test is `a partial about an agent with no startup job does not claim one was
+turned off`. Its fixture is tmux-shaped: it stubs a kill that succeeds over a
+session that survives, and expects PARTIAL. On a WINDOWS box that test now
+correctly takes the win32 arm, which asks the real machine whether anything named
+`jobless-partial` is running, is truthfully told no, and reports REMOVED. On a Mac
+the darwin arm is byte-identical to the code it replaced and the test still
+passes. The dispatch it depends on is pinned directly in
+`remove.win32-job-570.test.js` (both arms, from either platform), which is this
+lane's standing answer to a Mac-only fixture.
+
+📌 So `remove.test.js`'s known-good state on this box is now **12 pass / 49 fail**.
+The porting card (step 9) is what actually fixes it.
+
+### Verified live against the running agent (read-only)
+
+The join was run against this box with `winreh-2` up, and it shows the property
+the design turns on:
+
+    winreh-2 -> { sessionId: ab6c422a-..., pid: 12052, liveName: "winreh-2-2f" }
+
+The RECORDED name and the LIVE name are different strings, joined through the
+UUID. And the operator's own Claude session (`joshu-4c`, pid 7900) is absent from
+the map -- fail-closed ownership, confirmed on a real machine rather than a
+fixture. Nothing was killed: this was `resolve`, not `end`.
+
+📌 R4-R7 ARE NOW RUNNABLE AND HAVE NOT BEEN RUN. The kill path has unit tests and
+a live read, but no live KILL has happened yet. That is the rehearsal, and it is
+the last thing owed before the PR.

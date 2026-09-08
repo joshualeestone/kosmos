@@ -49,6 +49,7 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
 const win32job = require('./win32job'); // #570: the Scheduled Task that stands in for a launchd job
+const win32stop = require('./win32stop'); // #570: ending the agent process, where a Mac ends a tmux session
 const sendertoken = require('./sendertoken'); // #2323: a removed agent's token must stop working
 const liveExec = require('./live-execution');
 const store = require('./store');
@@ -342,6 +343,63 @@ function jobOps(platform) {
       return Boolean(up && (up.ok !== false || up.code === 5));
     },
     startableGone: (name, record) => !record.plist || !fs.existsSync(record.plist),
+  };
+}
+
+/**
+ * Ending the agent's own session, per platform -- the act the job-level ops
+ * above are NOT.
+ *
+ * 🛑 THIS FILE HAD TWO COPIES OF IT, AND THEY WERE THE LAST MAC-ONLY ASSUMPTION
+ * IN THE REMOVAL LANE. `removeInner` and `restartInner` each carried the same
+ * `kill-session` + look-again pair, written out twice, so #570's win32 work left
+ * a Windows removal reporting:
+ *
+ *      it was not set to start on its own, so there was nothing to turn off  ok
+ *      closed its window                                                     FAILED
+ *
+ * and a Restart button that could not work at all. Porting a duplicated pair is
+ * how a platform arm lands in one copy and not the other, which is this repo's
+ * most expensive recurring shape (three separate `tmux` gates, each found by
+ * hand on a real box). One dispatch, two call sites.
+ *
+ * 🔑 THE MAC'S PAIRING IS PRESERVED, as it is in `jobOps`:
+ *
+ *      tmux kill-session  <->  taskkill /PID <pid> /T /F   ends the agent
+ *      tmux has-session   <->  the pid is gone             the look-again
+ *
+ * ⚠️ THE LOOK-AGAIN IS PART OF THE CONTRACT, NOT AN EXTRA. Both platforms answer
+ * "already gone" and "it failed" with a non-zero status, so the kill's own result
+ * cannot tell them apart -- which is exactly how a removal comes to be reported
+ * over an agent that is still running. `end` returns true only when the session
+ * has been confirmed gone, on either platform. `win32stop` carries the win32 half
+ * and states why its look-again asks the process rather than `agents --json`.
+ *
+ * `session` is what the roster tied to this agent, on both platforms: the tmux
+ * session name on a Mac, and on win32 the recorded name `win32roster` emits.
+ * Neither arm reconstructs the other's identifier.
+ */
+function sessionOps(platform, tmuxBin) {
+  if ((platform || process.platform) === 'win32') {
+    return {
+      win32: true,
+      end: (session) => Boolean(win32stop.end(session).ok),
+    };
+  }
+  const tmux = tmuxBin || process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
+  return {
+    win32: false,
+    end: (session) => {
+      // ⚠️ `=`-anchored, and the exit code carried: tmux answers 1 for a session
+      // that is not there, which is success for our purposes.
+      const r = run(tmux, ['kill-session', '-t', `=${session}`]);
+      if (!(r && (r.ok !== false || r.code === 1))) return false;
+      // ⚠️ Look again. The kill's own answer is not evidence the session has
+      // gone, and this is the check that stops a removal or a restart being
+      // reported over a live agent.
+      const still = run(tmux, ['has-session', '-t', `=${session}`]);
+      return Boolean(still && still.ok === false && still.code === 1);
+    },
   };
 }
 
@@ -1064,15 +1122,7 @@ function removeInner(name, { tmuxBin, platform } = {}) {
   }
   const session = found.session;
   if (found.kind === FOUND.OURS) {
-    const ended = step('closed its window', () => {
-      const r = run(tmux, ['kill-session', '-t', `=${session}`]);
-      if (!(r && (r.ok !== false || r.code === 1))) return false;
-      // ⚠️ Look again. The kill's own answer is not evidence the session has
-      // gone, and this is the check that stops a removal being reported over a
-      // live agent.
-      const still = run(tmux, ['has-session', '-t', `=${session}`]);
-      return Boolean(still && still.ok === false && still.code === 1);
-    });
+    const ended = step('closed its window', () => sessionOps(platform, tmux).end(session));
     if (!ended) {
       return {
         outcome: OUTCOME.PARTIAL,
@@ -1461,7 +1511,6 @@ function restartInner(name, cause, platform) {
      convention rather than relying on that coupling (challenge iter 1). */
   if (!(DRY_RUN && !runner)) disruption.begin(clean, cause);
 
-  const tmuxBinPath = process.env.AGENT_WORKFORCE_TMUX_BIN || '/opt/homebrew/bin/tmux';
   const steps = [];
   const step = (label, fn) => {
     try {
@@ -1475,16 +1524,12 @@ function restartInner(name, cause, platform) {
   };
 
   const session = found.session;
-  const ended = step('closed its window', () => {
-    // ⚠️ `=`-anchored, and the exit code carried: tmux answers 1 for a session
-    // that is not there, which is success for our purposes.
-    const r = run(tmuxBinPath, ['kill-session', '-t', `=${session}`]);
-    if (!(r && (r.ok !== false || r.code === 1))) return false;
-    // ⚠️ LOOK AGAIN. The kill's own answer is not evidence the session has gone;
-    // this is the check that stops us reporting a restart over a live agent.
-    const still = run(tmuxBinPath, ['has-session', '-t', `=${session}`]);
-    return Boolean(still && still.ok === false && still.code === 1);
-  });
+  /* The kill and its look-again live in `sessionOps` -- one dispatch shared with
+     `removeInner`, which is what gives this path a win32 arm. Restart is the
+     caller that NEEDS the session ended without the job being disabled: the
+     supervisor answers the death by starting a fresh session, which is the whole
+     mechanism the comment above describes. */
+  const ended = step('closed its window', () => sessionOps(platform).end(session));
 
   if (!ended) {
     /* #2019: the kill failed, so the agent is still running the older
@@ -1580,6 +1625,7 @@ module.exports = {
   removedAgents,
   jobFor,
   jobOps,   // #570: exported so the win32 job-act dispatch is assertable from a Mac
+  sessionOps, // #570: same, for the session-ending dispatch both remove and restart share
   setRunner,
   setDryRun,
   resetForTests,
