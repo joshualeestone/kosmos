@@ -2635,13 +2635,6 @@ function backgroundAgentWait(text) {
        I could not measure" -- true, but weaker, and it is worth keeping the
        distinction: that argument makes a change SAFE, this one makes it RIGHT. */
     const span = rows.slice(i + 1, anchor);
-    /* 🛑 `continue`, NOT `return null`, HERE TOO. A banner clears the row it sits
-       under; it does not end the scan. A pane can hold a banner-cleared STALE row
-       above a LIVE one, and returning here reads `idle` on the running agent
-       below. Same shape as the count check's own asymmetry one branch over -- and
-       splitting the two arms into separate constants is exactly what left this
-       one unpinned while its sibling was tested. Fixture in `status.test.js`. */
-    if (span.some((r) => AGENT_WAIT_CLEARED_BANNER.test(r))) continue;
     /* 🛑 A COMPOSED WAIT IS NOT RESOLVED BY AGENT COMPLETIONS ALONE. The row can
        read `Waiting for 1 background agent and 3 dynamic workflows to finish`, and
        the branch asserts that shape as WORKING. But the count below reads only the
@@ -2655,8 +2648,23 @@ function backgroundAgentWait(text) {
        the other direction. So a composed row stays `working` until it leaves
        reach, which is the accepted direction and is bounded by the reach itself.
        📌 If someone captures a real workflow-completion row, the fix is to count
-       it against the workflow counter here, not to delete this check. */
+       it against the workflow counter here, not to delete this check.
+       🛑 THIS MUST PRECEDE THE CLEARED-BANNER CHECK BELOW. The banner reads
+       `⏺ All background AGENTS stopped` - it speaks to the AGENT half only. Ordered
+       after the banner, it never ran on a composed row and the agents-banner
+       cleared the whole wait, workflows and all: the SAME false calm this guard
+       exists to prevent, reintroduced one branch over (found by challenge-loop
+       review). Declining first keeps a composed wait WORKING until reach, even
+       under the agents-stopped banner. A NON-composed row is unaffected - this
+       test is false for it, so it falls through to the banner as before. */
     if (/\d+\s*dynamic\s*workflows?/u.test(rows[i])) return trimWaitEvidence(rows[i]);
+    /* 🛑 `continue`, NOT `return null`, HERE TOO. A banner clears the row it sits
+       under; it does not end the scan. A pane can hold a banner-cleared STALE row
+       above a LIVE one, and returning here reads `idle` on the running agent
+       below. Same shape as the count check's own asymmetry one branch over -- and
+       splitting the two arms into separate constants is exactly what left this
+       one unpinned while its sibling was tested. Fixture in `status.test.js`. */
+    if (span.some((r) => AGENT_WAIT_CLEARED_BANNER.test(r))) continue;
     const done = span.reduce((n, r) => n + (AGENT_FINISHED_LINE.test(r) ? 1 : 0), 0);
     if (done >= backgroundAgentWaitCount(rows[i])) continue;
     return trimWaitEvidence(rows[i]);

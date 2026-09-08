@@ -2066,6 +2066,17 @@ test('#1889: the background-agent wait line is a working shape with no timer', (
        to the same trimmed line. */
     assert.equal(classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m' + footer).evidence,
       composed, 'the composed-wait return lost or altered its evidence line');
+    /* 🛑 NOR BY THE AGENTS-STOPPED BANNER. `⏺ All background agents stopped`
+       speaks to the AGENT half only; a composed row's workflows may still run.
+       As shipped, the banner check ran BEFORE the composed decline, so this read
+       idle with the workflows unaccounted - the same false calm one branch over
+       (found by challenge-loop review). The decline now precedes the banner, so a
+       composed wait stays working under it. Perturbed: swap the two back and this
+       goes idle. */
+    assert.equal(
+      classify(pane, composed + '\n  ⏺ All background agents stopped' + footer).state,
+      'working',
+      'a composed wait was cleared to idle by the agents-stopped banner: ' + composed);
   }
 
   /**
