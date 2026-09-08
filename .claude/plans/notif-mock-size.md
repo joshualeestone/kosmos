@@ -1,6 +1,6 @@
 # Plan: notification mock title bold at body size (not larger)
 
-Branch: `notif-mock-size` — follow-up to #2460 (card #768 batch, Mona Lisa third-round correction).
+Branch: `notif-mock-size`. Follow-up to #2460 (card #768 batch, Mona Lisa third-round correction).
 
 ## Problem
 Josh asked 3x for the first-run Notifications mock's title "App Background Activity" to be
@@ -12,8 +12,8 @@ the body", and the body's intended size is `.6875rem` (a real macOS notice's sma
 
 ## Fix
 In `web/index.html`, scope BOTH captions to win the `#firstrun .fr-body p` cascade at the small size:
-- `#firstrun .fr-body p.s4-nt { font: 700 .6875rem/1.4 ... }` — title, bold, small
-- `#firstrun .fr-body p.s4-nb { font: 400 .6875rem/1.4 ... }` — body, normal, small
+- `#firstrun .fr-body p.s4-nt { font: 700 .6875rem/1.4 ... }` (title, bold, small)
+- `#firstrun .fr-body p.s4-nb { font: 400 .6875rem/1.4 ... }` (body, normal, small)
 
 Result: title bold, body normal, both `.6875rem` (~11px). Bold, not larger, whole notice the
 intended small size.
