@@ -49,8 +49,11 @@ case "$w" in *worktree*) ok "a linked worktree is named as a worktree" ;;
   *) bad "a worktree was not named: $w" ;; esac
 case "$w" in *"$T/wt"*) ok "the worktree label carries the path" ;;
   *) bad "the path was dropped from the worktree label: $w" ;; esac
-# DISCRIMINATION: the whole point is telling the two apart. A label that said
-# MAIN CHECKOUT for both would pass every arm above.
+# DISCRIMINATION: the whole point is telling the two apart. Stated precisely, since
+# an earlier version of this comment overclaimed: the *worktree* arm above already
+# reds for a label that said MAIN CHECKOUT for both, because these fixture paths do
+# not contain the string "worktree". This arm is still worth having, as the direct
+# statement of the property rather than a side effect of the fixture's path.
 case "$w" in *"MAIN CHECKOUT"*) bad "a worktree was labelled the MAIN CHECKOUT -- the two are not discriminated: $w" ;;
   *) ok "CONTROL: a worktree is NOT labelled the main checkout" ;; esac
 case "$m" in *worktree*) bad "the MAIN CHECKOUT label contains the word 'worktree', so it collides with the worktree match: $m" ;;
@@ -104,7 +107,10 @@ h_slash="$(HOME="$T/fakehome/" board_origin_label "$T/fakehome")"
 [ "$h_slash" = "$T/fakehome" ] \
   && ok "the \$HOME decline survives a TRAILING SLASH on \$HOME" \
   || bad "a trailing slash defeated the decline: $h_slash"
-h_unset="$(env -u HOME bash -c '. "$1"; board_origin_label "$2"' _ "$REPO/tools/lib/board-origin.sh" "$T/fakehome")"
+# `set -u` INSIDE the child: a fresh `bash -c` does not inherit it from this shell,
+# so without this the "does not trip set -u" half of the arm was vacuous and would
+# have passed even if the library dereferenced a bare $HOME.
+h_unset="$(env -u HOME bash -c 'set -u; . "$1"; board_origin_label "$2"' _ "$REPO/tools/lib/board-origin.sh" "$T/fakehome")"
 case "$h_unset" in *"MAIN CHECKOUT"*) ok "CONTROL: with \$HOME unset the decline does not fire and set -u is not tripped" ;;
   *) bad "an unset \$HOME changed behaviour unexpectedly: $h_unset" ;; esac
 
@@ -128,16 +134,26 @@ ln -s "$T/mainco/.git" "$T/symgit/.git"
 sg="$(HOME=/nonexistent board_origin_label "$T/symgit")"
 case "$sg" in *"MAIN CHECKOUT"*) ok "a symlinked .git reads as a main checkout (documented residual)" ;;
   *) bad "a symlinked .git changed classification: $sg" ;; esac
-case "$sg" in *"rather than a link"*|*"not a link"*)
-    bad "the label claims '.git is not a link' while -d FOLLOWS symlinks: $sg" ;;
-  *) ok "CONTROL: the label does not claim to measure 'link', which the code never does" ;; esac
+# Match the TOKEN, not two phrasings: "not a symlink" or "a real directory, not a
+# link to one" would have slipped past the literal forms this used to check.
+case "$sg" in *link*)
+    bad "the label mentions 'link' while -d FOLLOWS symlinks, so the code never measures it: $sg" ;;
+  *) ok "CONTROL: the label does not mention 'link', which the code never measures" ;; esac
 
-# A path beginning with '-' must be an operand, never an option, to `[`.
+# A path beginning with '-'. NOTE the fixture below is ABSOLUTE, so `[` never
+# actually receives a leading-dash operand from it; the arm covers the realistic
+# shape. The bare-dash ARGUMENTS, which do reach `[` directly, are covered by the
+# three arms after it.
 mkdir -p "$T/-dashdir"
 "${G[@]}" -C "$T/-dashdir" init -q
 dd="$(HOME=/nonexistent board_origin_label "$T/-dashdir")"
-case "$dd" in *"MAIN CHECKOUT"*"-dashdir"*) ok "a path segment beginning with '-' is treated as an operand, not an option" ;;
+case "$dd" in *"MAIN CHECKOUT"*"-dashdir"*) ok "a path SEGMENT beginning with '-' classifies normally" ;;
   *) bad "a dash-prefixed path was mishandled: $dd" ;; esac
+for opt in -d -n --; do
+  got="$(HOME=/nonexistent board_origin_label "$opt")"
+  [ "$got" = "$opt" ] && ok "a bare '$opt' argument is returned as an operand, never read as an option" \
+    || bad "argument '$opt' was mishandled: $got"
+done
 
 # The header states the label collision is bounded to PROSE: a checkout whose own
 # PATH contains "worktree" still collides. Pin it so the scope stays honest.
@@ -170,6 +186,14 @@ grep -qF '. "$REPO/tools/lib/board-origin.sh"' "$REPO/tools/run-tests.sh" \
 grep -qF 'board_origin_label "$cwd"' "$REPO/tools/run-tests.sh" \
   && ok "INTEGRATION: run-tests.sh CALLS board_origin_label on the board's cwd" \
   || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label -- the feature is silently gone"
+# THE THIRD DELETION PATH. Sourcing the library and calling it are not enough: the
+# computed value must reach the line that is actually printed. Measured, and this
+# is why the arm exists: changing the emit line back to ${cwd:-an unknown
+# directory} while leaving the source AND the call intact removes the feature from
+# the red report entirely, and all other arms still pass.
+grep -qF 'running from $where' "$REPO/tools/run-tests.sh" \
+  && ok "INTEGRATION: the computed label reaches the line run-tests.sh EMITS" \
+  || bad "INTEGRATION: \$where is no longer emitted -- the label is computed and thrown away"
 
 # --- THE FAIL-OPEN PATH, EXECUTED, AND EXECUTED FROM run-tests.sh's OWN BYTES.
 # The first version of this arm re-typed the guard inside a `bash -c` string, so it
@@ -177,10 +201,16 @@ grep -qF 'board_origin_label "$cwd"' "$REPO/tools/run-tests.sh" \
 # green. Extract the actual block and run THAT. (The two INTEGRATION arms above
 # check the source line and the call line; neither covers the `else` branch.)
 fallback_block="$(awk '/^ *local where$/,/^ *fi$/' "$REPO/tools/run-tests.sh")"
-# Two checks, because the substring alone is not enough. A block TRUNCATED by a
-# stray earlier `fi` still contains this string, so it would pass the substring
-# test and then execute the wrong bytes. The structural counts reject that:
-# measured, a 3-line truncation keeps the guard string but has if/fi = 1/0.
+# Two checks, because the substring alone is not enough. A block truncated or
+# over-extended still contains this string, so it would pass the substring test and
+# then execute the wrong bytes. The structural counts reject that. Measured on the
+# two perturbations awk can actually produce (an earlier version of this comment
+# cited if/fi = 1/0, which this range CANNOT yield, because awk's terminator line
+# is inclusive):
+#   a stray early `fi` after the then-branch  -> 4 lines,  if=1 else=0 fi=1
+#                                                (rejected by the ELSE count)
+#   the real `fi` deleted, range runs to EOF  -> 44 lines, if=2 else=1 fi=1
+#                                                (rejected by the IF count)
 fb_if=$(printf '%s\n' "$fallback_block" | grep -c '^[[:space:]]*if ')
 fb_fi=$(printf '%s\n' "$fallback_block" | grep -c '^[[:space:]]*fi$')
 fb_el=$(printf '%s\n' "$fallback_block" | grep -c '^[[:space:]]*else$')

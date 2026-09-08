@@ -102,7 +102,7 @@ board_origin_label() {
   [ -n "${HOME:-}" ] && [ "$dir" -ef "$HOME" ] && { printf '%s' "$dir"; return 0; }
 
   if [ -d "$dir/.git" ]; then
-    printf 'the MAIN CHECKOUT %s, whose .git is a directory and not the small pointer file a linked checkout gets, so a server running here holds the port and writes into the shared tree' "$dir"
+    printf 'the MAIN CHECKOUT %s, whose .git is a directory and not a pointer file, so a server running here holds the port and writes into the shared tree' "$dir"
   elif [ -f "$dir/.git" ]; then
     printf 'the worktree %s' "$dir"
   else
