@@ -2488,16 +2488,33 @@ function closedEnvelope(text) {
  * it) from firing. A working agent's prose is essentially never the last
  * non-blank line; only a dialog that replaced the composer is.
  *
- * ⚠️ KNOWN LIMIT, INHERITED NOT NEW: this rests on the same asserted-not-measured
- * premise the idle-footer rule names in its own docblock -- that a blocking
- * prompt REPLACES the composer, so the footer is gone. A future Claude that drew
- * a bare-prose prompt WITH the footer still beneath it would read idle here, the
- * same trap that rule already documents. A prompt with a trailing chrome line
- * (an `Esc to cancel` under the question) would also not be last; no bare-prose
- * shape like that has been observed (the menu dialogs that have one are caught by
- * `drawsOptionMenu`, where the question need not be last). Add the fixture if one
- * appears. The #1155 discrimination rules (`hit.index === 0` + `ENDS_AT_QUESTION`)
- * are unchanged; only the "which line" scope narrowed from "any" to "the last".
+ * 🔑 WHAT THE "ANY LINE -> LAST LINE" NARROWING GIVES UP, STATED HONESTLY (the
+ * old `asksSomething` matched a marker ANYWHERE in the tail, so this is a real
+ * scope reduction, not a limit inherited from elsewhere):
+ *   - A prose question with the COMPOSER FOOTER or the LIVE STATUS LINE below it
+ *     now reads idle/working instead of needs_you. This is the FIX, not a loss:
+ *     an agent that asked and returned to its composer is sitting at its prompt,
+ *     not blocked in a dialog -- which is exactly the #2456 false positive.
+ *   - The one genuine residual is a real, MENU-LESS blocking prompt whose last
+ *     non-blank line is a trailing CHROME line rather than the question itself,
+ *     e.g. `Do you want to proceed?\nEnter to confirm · Esc to cancel` with no
+ *     option rows. That shape has NOT been observed: every observed Claude
+ *     blocking dialog draws a numbered/labelled menu (caught by `drawsOptionMenu`
+ *     or the trust/consent detectors ABOVE, where the question need not be last),
+ *     and the inline `(y/N)` prompt is bottom-anchored. Catching the hypothetical
+ *     would mean scanning more than the last line, which re-admits the live status
+ *     line sitting ONE line below a mid-stream prose question -- i.e. it reopens
+ *     the widespread false positive this fix exists to close. Per this file's
+ *     observe-don't-guess rule, it is left uncovered and gets a fixture the day it
+ *     is seen, rather than a speculative chrome matcher now.
+ *
+ * ⚠️ The genuinely INHERITED premise (shared with the idle-footer rule's own
+ * docblock, asserted not measured): a blocking prompt REPLACES the composer, so
+ * the footer is gone. A future Claude that drew a prompt WITH the footer still
+ * beneath it would read idle here, the trap that rule already documents.
+ *
+ * The #1155 discrimination rules (`hit.index === 0` + `ENDS_AT_QUESTION`) are
+ * unchanged; only the "which line" scope narrowed from "any" to "the last".
  */
 function drawsOptionMenu(tail) {
   for (const raw of String(tail == null ? '' : tail).split('\n')) {
