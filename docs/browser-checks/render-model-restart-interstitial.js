@@ -4,12 +4,12 @@
  * shows a RESTART INTERSTITIAL -- the breathing Kosmos K over "Restarting the agent" --
  * held on screen while the agent restarts, then the confirm dialog reduces to the one
  * action left: "Say hello to <agent> to reactivate them on <provider>." The other change
- * dialogs (account move, compact, clear) are unchanged: plain "Working…", no hold.
+ * dialogs (account move, provider switch, compact, clear) are unchanged: plain "Working…", no hold.
  *
  * WHAT SOURCE CANNOT SEE: that the opt-in `busyHtml`/`minBusyMs` added to the shared
  * changeDialog actually (1) paints the interstitial, (2) HOLDS it on success then renders
  * the reduced sentence, (3) does NOT hold on failure (renders at once), (4) never traps
- * the modal, and (5) leaves the three other callers on plain "Working…". This drives the
+ * the modal, and (5) leaves the four other callers on plain "Working…". This drives the
  * REAL functions in a browser. `window.__kosmosRestartHoldMs` shortens the ~10s prod hold
  * so the check is fast; a control asserts the prod default is still 10000 in source.
  *

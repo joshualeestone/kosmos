@@ -27168,7 +27168,8 @@ function changeDialog({ title, small, go, run, busyHtml, minBusyMs }) {
   keep.onclick = close;
   goBtn.onclick = async () => {
     goBtn.disabled = true; keep.hidden = true;
-    /* busyHtml is app-generated (kGlyph + a fixed string), never user input, so
+    /* busyHtml is an app-generated fixed literal (the .kspin K markup + a fixed string,
+       see RESTART_BUSY_HTML), never user input, so
        innerHTML is safe here; the plain path keeps textContent. In the interstitial
        (busyHtml) case, hide the now-decided confirm question's button and small text so
        the restart reads as a clean interstitial rather than a line tacked under the
@@ -28048,7 +28049,7 @@ document.getElementById('d-provider-go').addEventListener('click', () => {
    one edit to tune. App-generated markup only (no user input), safe for innerHTML. */
 const RESTART_HOLD_MS = 10000;
 const RESTART_BUSY_HTML = '<span class="chg-restart"><span class="kspin" aria-hidden="true">'
-  + '<img src="/icons/kosmos-32.png" alt="" width="44" height="44"></span>Restarting the agent</span>';
+  + '<img src="/icons/kosmos-48.png" alt="" width="44" height="44"></span>Restarting the agent</span>';
 document.getElementById('d-model-go').addEventListener('click', () => {
   const sel = document.getElementById('d-model');
   if (!CURRENT || !sel.value) return;
