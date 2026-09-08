@@ -1589,6 +1589,23 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
   // I/O-failure case below, nothing adopts it: a caller refused for a bad
   // body does not retry with the same bad body.
   const desc = cleanDescription(description);
+  // #2458: parent is a BODY refusal, so like name and description it validates
+  // BEFORE makeFolder (the principle just above), not after. A folderless caller
+  // -- create({ name, parent }) with no folder -- whose parent is bad would
+  // otherwise throw only AFTER makeFolder created the directory, leaving the empty
+  // folder the 1586 hoist exists to prevent. cleanParent needs the child id, so
+  // `all` and idFor are computed here and the duplicate check below reuses `all`
+  // (nothing writes between). ONE cleanParent for create and edit, so the rules
+  // cannot drift. The CYCLE arm cannot fire at create (a brand-new id is
+  // referenced by nothing); type and parent-must-exist are the live checks. (The
+  // self-parent arm CAN fire in one edge case: idFor derives the id from the
+  // title, so creating "Alpha" with parent "alpha" -- a not-yet-existing project
+  // named as its own parent -- trips parentId === childId and refuses as
+  // self-parent, still a correct refusal with no row; only the message differs.)
+  // Blank/absent/null = ungrouped, exactly as before.
+  const all = readAll();
+  const id = idFor(title, new Set(all.map((p) => p.id)));
+  const parentAt = cleanParent(parent, id);
   // ⚠️ Made BEFORE the duplicate check below rather than after, so a second
   // project of the same name meets "that folder is already the project X"
   // rather than a fresh empty directory nobody asked for. `makeFolder` adopts
@@ -1618,7 +1635,9 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
     throw new Error('that folder is inside a temporary folder, which the system clears; point Kosmos at a folder you keep your work in');
   }
 
-  const all = readAll();
+  // `all` was read above (for idFor + the parent check); reuse it -- nothing has
+  // written to the store since, and one read keeps the duplicate check and the id
+  // derivation looking at the same snapshot.
   const already = all.find((p) => folderState(p.folder).real === state.real);
   if (already) throw new Error(`that folder is already the project "${already.name}"`);
 
@@ -1627,23 +1646,6 @@ function create({ name, folder, agents, roster, description, made, parent } = {}
   // their error message.
   const members = [...new Set((Array.isArray(agents) ? agents : []).map(String).map((a) => a.trim()).filter(Boolean))];
   const now = new Date().toISOString();
-  // The id is minted before the object so #2458's parent validation can pass it
-  // to cleanParent as the childId, exactly as the edit path does.
-  const id = idFor(title, new Set(all.map((p) => p.id)));
-  // #2458: a project can be grouped under a parent AT CREATION, not only later
-  // via edit({ parent }). ONE cleanParent for both paths, so the create-time and
-  // edit-time parent rules cannot drift (the two-definitions-of-one-fact defect
-  // this codebase pays for). Validated BEFORE the write, like every other
-  // refusal here, so a body mixing a bad parent with a good name applies whole
-  // or not at all. A brand-new id is referenced by nothing, so cleanParent's
-  // CYCLE arm cannot fire at create; the type check and the parent-must-exist
-  // check are the ones that normally bite. (The self-parent arm CAN fire in one
-  // edge case: idFor derives the id from the title, so creating "Alpha" with
-  // parent "alpha" -- naming a not-yet-existing project as its own parent --
-  // trips parentId === childId and refuses as self-parent rather than
-  // parent-missing. Either way it is a correct refusal with no row written; only
-  // the message differs.) Blank/absent/null = ungrouped, exactly as before.
-  const parentAt = cleanParent(parent, id);
   const project = {
     id,
     name: title,

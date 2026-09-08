@@ -41,11 +41,17 @@ written, only the message differs. Passing the real new id (rather than null)
 keeps the call identical to the edit path and robust if the id ever became
 referenceable before the write.
 
-### Validate before the write (whole or not at all)
-`cleanParent` runs before the project object is written, alongside the folder,
-name, and description refusals, so a bad parent refuses the whole create and
-leaves no orphan project row. Matches create's existing refusal ordering and
-edit's atomicity.
+### Validate before makeFolder, with the other body refusals (whole or not at all)
+`cleanParent` runs BEFORE `makeFolder`, alongside the name and description
+refusals -- not after. `create` deliberately hoists body validation ahead of the
+mkdir (the documented principle at engine/projects.js:1586): a body refused after
+makeFolder leaves an empty folder no record points at, for a folderless caller
+(`create({ name, parent })` with no explicit folder). A bad parent is exactly
+that case, so it joins the pre-makeFolder body refusals. Because `cleanParent`
+needs the child id, `all` (the store read) and `idFor` are computed there and the
+later duplicate check reuses the same `all` (nothing writes between). So a bad
+parent refuses the whole create, leaves no orphan project row AND no orphan
+folder, matching both the body-refusal ordering and edit's atomicity.
 
 ### Blank/null/absent = top-level
 `cleanParent('' | null | undefined)` returns null, so the create default is
