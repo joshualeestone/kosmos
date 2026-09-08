@@ -31076,7 +31076,8 @@ function pjHasSubprojects() {
 let PJ_MAP_FOLDED = new Set();
 /* A project node in the Map. The node itself is a BUTTON that opens the project
    (`data-project`, the same handle the cards use). A parent additionally gets a fold
-   disclosure -- a SEPARATE button (`data-fold`, checked first in the click delegate),
+   disclosure -- a SEPARATE button (`data-pjfold`, checked first in the click delegate;
+   distinct from the rail column-fold's `data-fold` so a global sweep cannot cross them),
    so folding a branch never also opens the project -- stacked under the node so it
    reads as sitting at the junction to the children. Leaves get no disclosure (the
    spec's `.disc.leaf` hidden case). */

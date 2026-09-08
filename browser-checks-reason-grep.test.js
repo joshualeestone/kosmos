@@ -520,10 +520,12 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (same shape as render-claude-connect-choice-2433's). Its launch-failure emit
      is counted once by the catch/launch scan below (44), not here. */
-  /* 73 after kosmos#2458 added render-projects-map.js, whose per-problem
+  /* 74 after kosmos#2458 added render-projects-map.js, whose per-problem
      `console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site, confirmed
      quotable (same shape as render-model-restart-interstitial.js's). Its launch-failure
-     emit is counted once by the catch/launch scan below (45), not here. */
+     emit is counted once by the catch/launch scan below (as the 46th), not here.
+     (73 was render-model-restart-interstitial's +1, which never got its own numbered
+     block above -- a pre-existing trail gap, noted rather than back-filled here.) */
   const EXPECTED_SITES = 74;   // +1: render-projects-map.js (the problems FAIL-emit loop, #2458)
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
