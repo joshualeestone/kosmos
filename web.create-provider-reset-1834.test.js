@@ -70,6 +70,10 @@ function run(fn, seed) {
     let OPENAI_MODELS_GEN = 0;
     let OPENAI_PICK_MODELS = [];
     let LAST_CLAUDE_MODEL = '';
+    // #2453 follow-up: resetCreateProvider + applyCreateProviderUI's Claude branch clear
+    // the OpenAI-import default flag; declare it so the reset does not create a stray
+    // implicit global in this new Function scope.
+    let IMPORT_OPENAI_DEFAULT = false;
     ${applyFn}
     ${resetFn}
     ${fn};

@@ -25816,6 +25816,16 @@ let OPENAI_MODELS_GEN = 0;
    on each fetch; paintModelWhy searches it alongside CREATE_MODELS so a selected
    OpenAI model still shows its why. */
 let OPENAI_PICK_MODELS = [];
+/* #2453 follow-up (Josh 2026-09-08): a one-shot -- an OpenAI IMPORT should land the new
+   agent ON the account's default model (the live per-account list marks exactly one),
+   not "Let OpenAI choose". Set in finishImport for an OpenAI import. Cleared on: the next
+   COMPLETING paintOpenaiCreateModel (LISTABLE or not-listable, so a later manual account
+   change never re-forces it); switching the provider to Claude (applyCreateProviderUI,
+   which abandons the OpenAI import intent and also covers a superseded in-flight paint);
+   and resetCreateProvider on a fresh create. It deliberately SURVIVES the account-less
+   early return, so an import that first paints with no account still pre-picks once an
+   account is chosen. A normal manual create leaves it false: it keeps "Let OpenAI choose". */
+let IMPORT_OPENAI_DEFAULT = false;
 
 /**
  * The model picker on an agent's page.
@@ -28470,6 +28480,13 @@ function paintOpenaiCreateModel() {
       if (sel) {
         sel.innerHTML = '<option value="" selected>Let OpenAI choose (recommended)</option>'
           + out.models.map((m) => '<option value="' + esc(m.key) + '">' + esc(m.label) + '</option>').join('');
+        /* #2453 follow-up: an OpenAI IMPORT lands on the account's DEFAULT model (the list
+           marks exactly one), overriding "Let OpenAI choose". If the list carries no default
+           (older engine), it stays on "Let OpenAI choose" -- graceful, never worse than today. */
+        if (IMPORT_OPENAI_DEFAULT) {
+          const def = out.models.find((m) => m.default);
+          if (def) sel.value = def.key;
+        }
       }
       paintModelWhy('create-model', 'create-model-why');
     } else {
@@ -28486,6 +28503,11 @@ function paintOpenaiCreateModel() {
       if (row) row.hidden = false;
       if (why) { why.textContent = openaiNoModelsNote(out && out.because); why.hidden = false; }
     }
+    /* One-shot: consume the import default after this first paint (LISTABLE or not), so a
+       later manual account change does not re-force it. NOT cleared on the !acctDir early
+       return above, so the flag survives an account-less first paint through to the paint
+       that actually has an account; resetCreateProvider clears it on a fresh create. */
+    IMPORT_OPENAI_DEFAULT = false;
   })();
 }
 
@@ -28518,6 +28540,12 @@ function applyCreateProviderUI() {
        REPAINT the Claude options, because the OpenAI branch overwrote #create-model
        with "Let OpenAI choose" + gpt rows and switching back must not leave those. */
     OPENAI_MODELS_GEN += 1;
+    /* #2453 follow-up: switching to Claude abandons any pending OpenAI import default, so
+       drop the one-shot here. Without this, an OpenAI import whose in-flight paint is
+       superseded by this switch (gen bumped above) would strand the flag true -- the async
+       paint returns early on the gen mismatch before its own clear -- and a later manual
+       return to OpenAI would wrongly pre-pick. Clearing on the switch closes that strand. */
+    IMPORT_OPENAI_DEFAULT = false;
     model.disabled = false;
     const modelRow = document.getElementById('create-model-row');
     if (modelRow) modelRow.hidden = false;
@@ -28553,6 +28581,9 @@ function resetCreateProvider() {
   // #2140: a form reset starts fresh -- forget a Claude pick remembered for a
   // provider round-trip, so a reopen defaults rather than restoring a stale pick.
   LAST_CLAUDE_MODEL = '';
+  /* #2453 follow-up: a fresh create is not an import, so drop any pending import default
+     (the sibling one-shot), or an abandoned import could pre-pick on a later create. */
+  IMPORT_OPENAI_DEFAULT = false;
   /* #2097: default to a provider the machine actually has an account for, rather
      than forcing an OpenAI-only user to correct "Anthropic Claude" on every create.
      Start on OpenAI ONLY when there is an OpenAI account AND no Claude account;
@@ -29180,6 +29211,12 @@ async function finishImport(data, gen, btn) {
     const provEl = document.getElementById('create-provider');
     const wanted = String(data.provider || '').toLowerCase();
     const okProv = wanted && Array.prototype.some.call(provEl.options, (o) => o.value === wanted && !o.disabled);
+    /* #2453 follow-up: an OpenAI import lands on the account's default model. Set the one-shot
+       authoritatively on EVERY import (OUTSIDE the okProv guard, so an import whose provider is
+       unmapped/coming-soon still resets any value left dangling by an earlier account-less
+       import, rather than only OpenAI-honoured imports doing so) -- true only for an OpenAI
+       import. Set before the change dispatch that fires paintOpenaiCreateModel. */
+    IMPORT_OPENAI_DEFAULT = (wanted === 'openai');
     if (okProv) { provEl.value = wanted; provEl.dispatchEvent(new Event('change')); }
 
     if (!AVATAR_FILE) drawCreateMark();
