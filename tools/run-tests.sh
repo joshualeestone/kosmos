@@ -23,6 +23,13 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #708: label a live board's cwd as the main checkout / a worktree / neither.
+# Sourced HERE rather than beside the cut-guard source below, because
+# seen_before() runs before that point. Fail-open exactly like that one: if the
+# lib is missing the function is undefined and the caller falls back to the bare
+# path, which is what this file printed before #708.
+. "$REPO/tools/lib/board-origin.sh" 2>/dev/null || true
+
 # #2439 fleet-safety: disable the one-time AgentWorkforce -> Kosmos migration for the
 # WHOLE suite. That migration is triggered by store.root(), so ANY test that reaches
 # store.root() without first setting its own sandbox would RENAME the operator's REAL
@@ -44,7 +51,13 @@ seen_before() {
   local pid cwd
   for pid in $(lsof -nP -iTCP:16180 -sTCP:LISTEN -t 2>/dev/null); do
     cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
-    lines+=("a live board on :16180, pid $pid, running from ${cwd:-an unknown directory}")
+    local where
+    if command -v board_origin_label >/dev/null 2>&1; then
+      where="$(board_origin_label "$cwd")"
+    else
+      where="${cwd:-an unknown directory}"
+    fi
+    lines+=("a live board on :16180, pid $pid, running from $where")
   done
   # Page gates running beside this: each holds a kosmos-bc.* dir in TMPDIR
   # that it touches as it goes. Counted by RECENT modification, not by
