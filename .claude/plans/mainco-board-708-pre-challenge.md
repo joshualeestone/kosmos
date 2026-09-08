@@ -2,23 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: mainco-board-708
-diff_hash: d6e06da4daf906530f09a066938a0a95902676ff02309a477152c6e9b1832d9c
+diff_hash: d6ed50a8aa99a814324d820fc0cee7e6a89232dbf07714a694ade2ede54206f5
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-08T14:39:18Z
-iterations: 10
+timestamp: 2026-09-08T15:38:30Z
+iterations: 11
 converged: true
 ---
 
 ## [CHALLENGE-LOOP] Summary
 
-**Iterations:** 10
-**Converged:** Yes, at iteration 10 (0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs)
+**Iterations:** 11 (10, then one re-review after a merge from main)
+**Converged:** Yes, at iteration 10, and again at iteration 11 after the merge (0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 2 NITs)
 **Total findings:** 49 (0 BLOCKERs, 21 WARNINGs, 3 CONVENTIONs, 25 NITs)
 **Fixed:** 47 | **Deferred:** 2 | **Asked (awaiting user):** 0
 
-**Reviewer models:** alternating opus / sonnet across all 10 iterations, so no single model's
-blind spots could carry the convergence.
+**Reviewer models:** alternating opus / sonnet across all 10 iterations, and sonnet again for the
+post-merge re-review, so no single model's blind spots could carry the convergence.
 
 ### What this change is
 
@@ -178,6 +178,24 @@ None. No finding was routed to the user; every one was decided and recorded.
 - A path whose own text contains "worktree" makes the main-checkout label contain that word. Scoped
   in the header as a prose-only invariant and pinned by an arm.
 
+### Iteration 11: re-review after a merge from origin/main
+
+`package.json`'s `test:shell` is a single enormous `&&` chain, so two branches appending to it
+conflict by construction. Main gained three steps from #2485 while this branch was in review; the
+conflict was resolved by taking main's line and re-appending this branch's two steps.
+
+**That resolution invalidated the diff hash, so this proof was regenerated rather than left stale.**
+Nothing mechanically forced it: `pre-challenge-gate` checks at PR creation and PR #2486 already
+existed. A proof that no longer describes the shipped diff is the same "verify by content, not by
+status" failure this branch spent ten iterations avoiding.
+
+A fresh blind reviewer (sonnet) re-reviewed the merged diff with the resolution called out for
+scrutiny, and returned **0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 3 NITs**. It verified the
+resolution by a stronger method than mine: extracting `test:shell` from the merge base, both tips
+and the merge commit, and confirming the union of both sides' additions is byte-identical to the
+merged result, with zero steps dropped and none duplicated, valid JSON, and the only other carried
+change being main's version bump.
+
 ### Validation record, including one red
 
 ```
@@ -187,6 +205,7 @@ after iter 3  PASSED     after iter 7  PASSED
 after iter 4  PASSED     after iter 8  PASSED
                          after iter 9  PASSED
 6j final gate            SKIPPED (clean entry for this exact hash, clean worktree)
+after the merge          PASSED (full re-run, hash d6ed50a8aa99)
 ```
 
 The red was a false one I caused: I launched validation with `run_in_background` and kept editing
