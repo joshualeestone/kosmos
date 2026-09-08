@@ -6429,6 +6429,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .astate.st-unknown { border-color: rgba(245,245,244,.40); }
 :root[data-theme="dark"] .lrow:hover { border-color: rgba(245,245,244,.30); }
 :root[data-theme="dark"] .pj-row:hover { border-color: rgba(245,245,244,.30); box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+/* #2487: the detail sub-project rows follow the card/lrow hover, so they need the
+     same dark override -- the light rgba(20,22,26,.28) is lower contrast than the
+     resting rule on the dark ground and the hover would vanish. */
 :root[data-theme="dark"] .pj-subrow:hover { border-color: rgba(245,245,244,.30); }
 
 :root[data-theme="dark"] #firstrun { --label-2: #4a4f57; --separator: #e3e1dc; }
