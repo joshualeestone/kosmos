@@ -505,8 +505,15 @@ function wireChild(child, opts) {
   markInstallStarted(owner && owner.startedAt);
   child.on('error', (err) => {
     installStarted = false;
+    /* #988: OWNER IDENTITY, the same guard noteAttemptEnd makes right below and
+       for the same reason it gives ("a superseded attempt's late exit would
+       overwrite the current one"). Captured BEFORE noteAttemptEnd, which replaces
+       lastAttempt. Without it: child A errors and clears, the person presses
+       Install, child B announces 900, then A's late exit clears a LIVE install's
+       banner. */
+    const mine = (owner === lastAttempt);
     noteAttemptEnd(owner, null, 'the installer could not be started: ' + String((err && err.message) || err));
-    updating.announce(0);   // #988: never started, so nothing is applying
+    if (mine) updating.announce(0);   // never started, so nothing is applying
     /* Only the unattended path is held back. A person pressing Install is
        present, is watching, and gets an immediate attempt every time. */
     if (opts && opts.auto) autoFailedAt = Date.now();
@@ -537,7 +544,7 @@ function wireChild(child, opts) {
        listener (an earlier version of this line said "below", and there is no
        such argument below): a SUCCESSFUL install kills this server before the listener runs, so
        an exit that reaches this line is one that did not restart the board. */
-    updating.announce(0);
+    if (owner === lastAttempt) updating.announce(0);   // #988: only THIS attempt may clear
     if (code !== 0) {
       installStarted = false;
       noteAttemptEnd(owner, code, 'the installer stopped before it could restart the board');

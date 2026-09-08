@@ -466,10 +466,25 @@ test('#988: the error handler is REGISTERED, which is the line the fail-open gua
   assert.equal(typeof made.handlers.response, 'function', 'a response listener must be registered');
 });
 
+/* The clears now carry an owner-identity guard, so an arm must drive a child that
+   is STILL the current attempt. The module-level CHILD was captured at load and a
+   later beginInstall supersedes it, which is exactly what the guard suppresses. */
+function freshChild() {
+  update.resetCache();
+  const handlers = {};
+  update.setInstalledRoot(() => SANDBOX);
+  update.setInstallRunner(() => ({ on(ev, fn) { handlers[ev] = fn; return this; } }));
+  try { update.beginInstall({}); } catch { /* fake child shape is not under test */ }
+  update.setInstallRunner(null);
+  update.setInstalledRoot(null);
+  return handlers;
+}
+
 test('#988 WIRING: a child that fails to START clears the deadline', () => {
   enrol();
+  const h = freshChild();
   const calls = capture();
-  CHILD.handlers.error(new Error('spawn failed'));
+  h.error(new Error('spawn failed'));
   assert.ok(calls.length > 0, 'a child that never started must clear');
   assert.equal(JSON.parse(calls[calls.length - 1].body).seconds, 0);
 });
@@ -480,8 +495,9 @@ test('#988 WIRING: a child that EXITS ZERO still clears, because the shell masks
      child exits 0. A clear placed inside `code !== 0` never ran on ordinary
      failures, and the deadline then stood for the full cap on a healthy Mac. */
   enrol();
+  const h = freshChild();
   const calls = capture();
-  CHILD.handlers.exit(0);
+  h.exit(0);
   assert.ok(calls.length > 0, 'an exit that reaches this listener did NOT restart the board, so it must clear');
   assert.equal(JSON.parse(calls[calls.length - 1].body).seconds, 0);
 });
@@ -684,6 +700,24 @@ test('#988: the first-tick clear does NOT cancel a RUNNING install', async () =>
   assert.ok(update.alreadyInstalling(), 'the fixture must leave an install in flight, or this proves nothing');
   assert.deepEqual(seq, [0, updating.DEFAULT_SECONDS],
     `boot clear then the begin announce, and NO tick clear while installing; got ${JSON.stringify(seq)}`);
+  update.resetCache();
+});
+
+test('#988: a SUPERSEDED child\'s late exit must NOT clear a live install\'s banner', () => {
+  /* 🛑 THE OWNER-IDENTITY GUARD. noteAttemptEnd carries the same one, for the
+     reason it states: "a superseded attempt's late exit would overwrite the
+     current one". Sequence: child A errors and clears, the person presses Install,
+     child B announces its deadline, then A's LATE exit fires. Without the guard
+     that clears a banner for an install that is genuinely running. */
+  enrol();
+  const a = freshChild();          // attempt A
+  const b = freshChild();          // attempt B supersedes it
+  const calls = capture();
+  a.exit(0);                       // A's late exit, after B took over
+  assert.equal(calls.length, 0, 'a superseded attempt may not clear the current one');
+  b.exit(0);                       // and B, the current attempt, still may
+  assert.equal(calls.length, 1);
+  assert.equal(JSON.parse(calls[0].body).seconds, 0);
   update.resetCache();
 });
 
