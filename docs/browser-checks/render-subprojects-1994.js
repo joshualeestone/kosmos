@@ -201,8 +201,12 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     // parent reaches the POST body, and -- the control that can return the dangerous
     // answer -- a top-level create OMITS parent rather than sending parent:null.
     const create = await page.evaluate(async () => {
-      const mk = (id, name, archived) => ({ id, name, parent: null, parentName: null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
-      PROJECTS = [mk('k', 'Kosmos'), mk('site', 'Site'), mk('arch', 'Archived one', true)];
+      const mk = (id, name, archived, parent) => ({ id, name, parent: parent || null, parentName: null, parentArchived: false, archived: !!archived, summary: {}, agents: [], description: '', unread: 0 });
+      // 'sub' is itself a sub-project (parent 'k'); it MUST still be offered as a parent
+      // for the new project -- the create selector filters on !archived only, never on
+      // !parent (nesting is allowed; the engine only refuses self/cycle, neither reachable
+      // for a brand-new project). See the sub-offered assertion below.
+      PROJECTS = [mk('k', 'Kosmos'), mk('site', 'Site'), mk('sub', 'Sub of Kosmos', false, 'k'), mk('arch', 'Archived one', true)];
       PJ_SORT = 'az';
       openAddProject();                                   // populates #pj-add-parent, resets to top-level
       const sel = document.getElementById('pj-add-parent');
@@ -238,6 +242,10 @@ function ok(name, cond, detail) { if (cond) pass += 1; else problems.push(name +
     ok(t + ' create select offers Top level (none) first', create.opts[0] === '', JSON.stringify(create.opts));
     ok(t + ' create select lists active projects (k, site)', create.opts.includes('k') && create.opts.includes('site'), JSON.stringify(create.opts));
     ok(t + ' create select excludes archived', !create.opts.includes('arch'), JSON.stringify(create.opts));
+    // CONTROL: an existing SUB-project must still be offered as a parent -- the create
+    // selector must NOT filter on !parent. This fails if the populate ever regressed to
+    // also excluding projects that have a parent (which would silently forbid nesting).
+    ok(t + ' create select offers an existing sub-project as a parent (does NOT exclude by parent)', create.opts.includes('sub'), JSON.stringify(create.opts));
     ok(t + ' create starts top-level', create.startValue === '', create.startValue);
     ok(t + ' a chosen parent is sent in the create body', create.withParent && create.withParent.parent === 'k', JSON.stringify(create.withParent));
     // CONTROL: top-level MUST omit parent, not send parent:null (absent-not-null discipline).

@@ -37173,7 +37173,11 @@ document.getElementById('pj-create').addEventListener('click', async () => {
         /* #2458: the chosen parent, absent when blank (top-level) -- same
            absent-not-null discipline as folder/description; the engine refuses a
            missing/non-string parent and blank means top-level, so sending nothing is
-           the honest "no parent" rather than parent:null. */
+           the honest "no parent" rather than parent:null. A rare engine refusal (the
+           parent archived or deleted between populate and submit, the same accepted
+           race the settings selector documents) surfaces through the shared create
+           message below, not a per-field error: the create page has no
+           pj-add-parent-err element, consistent with how the folder field reports. */
         ...(document.getElementById('pj-add-parent').value
           ? { parent: document.getElementById('pj-add-parent').value } : {}),
         agents: PJ_ADD_AGENTS,
