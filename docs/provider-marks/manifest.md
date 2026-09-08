@@ -197,7 +197,7 @@ asked for them:
 ## 8. MiniMax
 
 ### `minimax-mark.svg`
-- **viewBox:** `0 0 490.16 411.7` (1220 bytes)
+- **viewBox:** `0 0 490.16 411.7` (1091 bytes)
 - **What:** The MiniMax "M" soundwave mark, the official pink-to-red gradient
   (`#e4177f` to `#e73562` to `#e94e4a`, left to right).
 - **Source URL:** https://raw.githubusercontent.com/MiniMax-AI/MiniMax-01/main/figures/minimax.svg
@@ -207,7 +207,9 @@ asked for them:
 - **Monochrome or brand-coloured:** **Brand-coloured** (gradient), like Gemini and Mistral.
   Keeps its own values. The gradient id was renamed to `pmark-minimax-g` (from a
   non-ASCII id) and the class-based fill was inlined as `fill="url(#pmark-minimax-g)"` so
-  nothing collides when the mark is inlined into `web/index.html`.
+  nothing collides when the mark is inlined into `web/index.html`. The Illustrator export's
+  two redundant `<g>` wrappers (with non-ASCII default "Layer" ids) and its unused
+  `xmlns:xlink` declaration were stripped as well, leaving a single `<path>` under `<defs>`.
 - **Fill fraction:** 100% x 100% (the tallest bars span the full box; the mark is wide,
   aspect ~1.19:1, and centres inside a square cell under `preserveAspectRatio`).
 
