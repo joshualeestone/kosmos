@@ -34,6 +34,13 @@ fs.writeFileSync(nodePath.join(STATE, 'tls.key'), 'KEY-BYTES\n');
 const updating = require('./updating');
 const update = require('./update');
 
+/* 🛑 NO TICK MAY REACH THE REAL RELEASE HOST. startPolling's tick runs poke() ->
+   refresh() -> the global fetch, so an arm that starts a 10ms interval and awaits
+   can curl installkosmos.com from every agent's suite run. engine.update-poll-1945
+   injects a fetcher before every startPolling for exactly this reason; this file
+   does it once, globally, so no arm can forget. */
+update.setFetcher(async () => ({ ok: false, status: 503, json: async () => ({}) }));
+
 function enrol() {
   process.env.AGENT_WORKFORCE_TUNNEL_STATE = STATE;
   process.env.AGENT_WORKFORCE_TUNNEL_COORDINATOR = 'https://coordinator.example';

@@ -27,6 +27,8 @@ const EXCUSED = {
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   resetForTests: 'test seam',
+  dispatch: 'test-only export (#988): engine/updating.js exports its real protocol dispatch so an arm can cover it. Named here rather than passing by luck: it otherwise survives only by colliding with boardauth/server, which is what the setRelay excuse warns against',
+  underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/notify/feedbacksend',
   setRequestFactory: 'test seam (#988): replaces the coordinator TRANSPORT only, so enrolment, the certificate read and the URL derivation still run under test',
   agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
