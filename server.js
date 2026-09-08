@@ -8611,8 +8611,9 @@ const server = http.createServer((req, res) => {
   /**
    * Tasks, open and finished (#1382). Global by default; scoped to one project
    * when `?project=<id>` is given (#2498 - the per-project "view all tasks"
-   * door). No caller fetches the global set today, but it stays for a future
-   * global-home view.
+   * door). No UI screen fetches the global set today (a test consumer,
+   * getDue in server.task-duedate-768.test.js, still relies on it), but it
+   * stays for a future global-home view.
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
