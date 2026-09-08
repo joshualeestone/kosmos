@@ -36,8 +36,9 @@ Advisory like `test.yml` (no required branch protection, #835), so create-pr's C
   the install-flow GATE class it exists for is still covered headless by render-gated-next and
   render-connect-skip. The 7-check subset runs in ~3m20s.
 - **Q3 (scoping): PATHS filter** on `web/index.html`, `docs/browser-checks/**`, `tools/browser-checks.sh`,
-  `tools/provision-pw.sh`, and the workflow file itself. Only PRs touching the rendered surface pay
-  the ~15-20 min. #2085 touched `web/index.html`, so it WOULD have triggered and caught the break.
+  `tools/provision-pw.sh`, and the workflow file itself. Only PRs touching the rendered surface pay the
+  cost (the 7-check subset is ~3m20s + ~2-4 min provision). #2085 touched `web/index.html`, so it WOULD
+  have triggered and caught the break.
 
 Runner-self-contained: the checks mock the gates (#2444's own fix depends on mocked
 checkable-not-granted gates) and use `test-support/fake-tmux.sh`, so no real-Mac TCC/accessibility is

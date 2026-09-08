@@ -81,8 +81,8 @@
 #      data can break a check while touching NONE of the filtered paths -- and it then
 #      surfaces only at cut, the same failure mode this job exists to kill, from a
 #      different trigger surface. This is the card's own "leaky filter" open question,
-#      resolved DELIBERATELY: adding engine/** or server.js would fire this ~15-20 min
-#      suite on the MAJORITY of PRs and defeat the load-scoping that is the whole reason
+#      resolved DELIBERATELY: adding engine/** or server.js would fire this browser
+#      job on the MAJORITY of PRs and defeat the load-scoping that is the whole reason
 #      to run in CI rather than locally. So the narrow filter is a trade, not an
 #      oversight: it catches the DIRECT-page-change class (the measured #2085 incident,
 #      which touched web/index.html) early, and the cut's headed 3b stays the backstop
@@ -144,9 +144,12 @@ jobs:
     # 🛑 macos-latest, matching test.yml AND the cut's 3b: a green here must mean
     # what a green 3b means, so it runs in the same OS family the release gate does.
     runs-on: macos-latest
-    # provision-pw (npm i + two browser builds) is ~2-4 min; the 63 checks are
-    # ~15-20 min, one headless Chromium each, and a macOS runner is slower than a
-    # dev Mac. 40 bounds a hung run without clipping an honest slow one.
+    # provision-pw (npm i + two browser builds) is ~2-4 min; the CI ALLOWLIST
+    # subset (7 checks, see the run step) is ~3m20s, one headless Chromium each,
+    # and a macOS runner is slower than a dev Mac -- so a real run is ~6-7 min. 40
+    # is generous headroom for provision + a hung run + future allowlist growth,
+    # without clipping an honest slow one. (The FULL 63-check suite -- ~15-20 min
+    # -- runs only at the release cut's 3b, never in this job.)
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
