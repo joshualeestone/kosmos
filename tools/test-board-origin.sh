@@ -63,7 +63,6 @@ sub="$(board_origin_label "$T/mainco/engine")"
 
 # The function must not consult git at all, which is what makes the environment
 # below irrelevant rather than merely handled.
-env_probe="$(GIT_DIR="$T/mainco/.git" GIT_WORK_TREE="$T/mainco" board_origin_label "$T/plainenv" 2>/dev/null)"
 mkdir -p "$T/plainenv"
 env_probe="$(GIT_DIR="$T/mainco/.git" GIT_WORK_TREE="$T/mainco" board_origin_label "$T/plainenv")"
 [ "$env_probe" = "$T/plainenv" ] \
@@ -105,15 +104,31 @@ grep -qF 'board_origin_label "$cwd"' "$REPO/tools/run-tests.sh" \
   && ok "INTEGRATION: run-tests.sh CALLS board_origin_label on the board's cwd" \
   || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label -- the feature is silently gone"
 
-# --- THE FAIL-OPEN PATH, EXECUTED rather than reasoned about. With the function
-# undefined, the caller's guard must reproduce the pre-#708 wording exactly.
-fo="$(bash -c 'set -uo pipefail
-  cwd=""
-  if command -v board_origin_label >/dev/null 2>&1; then where="$(board_origin_label "$cwd")"; else where="${cwd:-an unknown directory}"; fi
-  printf "%s" "$where"')"
-[ "$fo" = "an unknown directory" ] \
-  && ok "FAIL-OPEN: with the library absent the caller reproduces the pre-#708 wording" \
-  || bad "FAIL-OPEN produced: $fo"
+# --- THE FAIL-OPEN PATH, EXECUTED, AND EXECUTED FROM run-tests.sh's OWN BYTES.
+# The first version of this arm re-typed the guard inside a `bash -c` string, so it
+# asserted against its own private copy: change the real fallback and this stayed
+# green. Extract the actual block and run THAT. (The two INTEGRATION arms above
+# check the source line and the call line; neither covers the `else` branch.)
+fallback_block="$(awk '/^ *local where$/,/^ *fi$/' "$REPO/tools/run-tests.sh")"
+case "$fallback_block" in
+  *'command -v board_origin_label'*)
+    ok "the guard block was extracted from run-tests.sh (so the arm below is not vacuous)" ;;
+  *)
+    bad "could not extract run-tests.sh's guard block; the fail-open arm cannot run"
+    fallback_block="" ;;
+esac
+if [ -n "$fallback_block" ]; then
+  fo="$(bash -c 'set -uo pipefail
+probe() {
+  local cwd="$1"
+'"$fallback_block"'
+  printf "%s" "$where"
+}
+probe ""')"
+  [ "$fo" = "an unknown directory" ] \
+    && ok "FAIL-OPEN: run-tests.sh's OWN guard block yields the pre-#708 wording when the library is absent" \
+    || bad "FAIL-OPEN produced: $fo"
+fi
 
 [ "$FAILS" -eq 0 ] && echo "board-origin: all arms passed" || echo "board-origin: $FAILS FAILED"
 exit "$FAILS"
