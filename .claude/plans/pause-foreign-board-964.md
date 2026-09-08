@@ -1,4 +1,4 @@
-# pause-foreign-board-964 — the update pause check must tell OUR board from a foreign Kosmos
+# pause-foreign-board-964 - the update pause check must tell OUR board from a foreign Kosmos
 
 Card: kosmos#964 ("A stale install whose recorded port is held by a DIFFERENT Kosmos can
 never update in place: the pause check matches any Kosmos-shaped body, not this install's
@@ -30,10 +30,10 @@ REBOOTED, so the stale pid NUMBER has very likely been reused by an unrelated li
 process -- `kill -0` would pass it and wrongly take the "our board" branch, re-arming the
 forever-loop. Branch on the strict match:
 
-- **pid runs our server (`_ourboard=yes`)** — genuinely will not pause: unchanged #2055
+- **pid runs our server (`_ourboard=yes`)** - genuinely will not pause: unchanged #2055
   behavior (record the board-would-not-pause abort streak, die with the "kosmos stop"
   advice).
-- **pid dead / absent / garbage / a live but foreign process** — a foreign Kosmos holds
+- **pid dead / absent / garbage / a live but foreign process** - a foreign Kosmos holds
   our port: die with actionable advice (quit that board, or reinstall on a free port via
   `KOSMOS_PORT`), and do NOT inflate the board-would-not-pause streak (that streak is about
   OUR board; inflating it here would mask a machine whose own board really cannot pause).
@@ -68,5 +68,5 @@ either direction is a suboptimal sentence on a path that was already aborting.
   kept contiguous inside the alive branch, so its anchors are unchanged).
 - **Not verified by me:** the end-to-end update on the aged specimen at
   `~/walkbases/specimen-0236/` (the card says it can re-run once this check is fixed). That
-  is a live re-test on a real stale install, which a bot session cannot drive — routing it
+  is a live re-test on a real stale install, which a bot session cannot drive - routing it
   to whoever holds the specimen (Splinter's call).
