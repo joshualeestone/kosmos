@@ -5654,17 +5654,22 @@ test('#2497: the fleet screen lands on Giddy Up on every path, including a broke
   }
 });
 
-test('the fork step does not promise a working agent over a check screen that disagreed', () => {
+test('#2497: the fleet step makes no machine-state promise (now the unconditional Giddy Up screen)', () => {
   /**
-   * ⚠️ THREE CASES, and the first version of this collapsed them to two. "We
-   * never checked" is not "we checked and it was fine", and an `unknown` row is
-   * not a clean one — filtering only `attention` dropped three "we could not
-   * check" findings and made the promise anyway.
+   * ⚠️ #2497 STRENGTHENS this test's concern by construction: the fleet step (frPaintFleet) now
+   * ALWAYS renders the no-agent "Create your first agent." / Giddy Up screen, whatever the machine
+   * state, so it can never repeat a check-screen finding NOR promise a working agent. Each case
+   * below anchors on that positive render (so the absence assertions are NOT vacuous -- they only
+   * pass because the Giddy Up screen genuinely rendered and carries no machine copy), then keeps
+   * the original absence guards. FR_MACHINE is now ignored by this screen (retired from the create
+   * arm; the machine check lives one step earlier).
    */
   const clean = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: { checks: [{ key: 'sleep', state: 'ok', title: 'fine', detail: 'fine' }], attention: 0, unknown: 0 },
   });
+  assert.match(clean.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'the fleet step no longer lands on the Giddy Up screen');
   assert.ok(!/still outstanding|did not get to look/.test(clean.els['fr-fleet'].innerHTML),
     'warned about a machine that checked out clean');
 
@@ -5680,6 +5685,8 @@ test('the fork step does not promise a working agent over a check screen that di
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
+  assert.match(snagged.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'a snagged machine no longer lands on the Giddy Up screen (would make the absence checks vacuous)');
   /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
      own screen: "I'm still seeing this: this computer goes to sleep after 1
      minute. An agent made now may not run until I sort. Let's delete that whole
@@ -5706,6 +5713,8 @@ test('the fork step does not promise a working agent over a check screen that di
      claim at all, so there is nothing to caveat. Asserting the absence of the
      claim is the stronger form -- it fails if anyone puts an "everything is
      ready" back, which a confession-shaped test never could. */
+  assert.match(never.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'a person who never saw the check screen no longer lands on the Giddy Up screen');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
     'a person who never saw the check screen is being told everything is in place');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /did not get to look/,
