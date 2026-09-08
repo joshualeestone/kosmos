@@ -21,7 +21,7 @@ intended small size.
 ## Test
 Strengthen `docs/browser-checks/render-firstrun-stepcap-gear-0640.js` S4-title arm. The old arm
 only pinned `ntSize == nbSize`, which passed at `17px == 17px`. Add an absolute-size arm (~11px /
-`.6875rem`, range 10-12px) and a body-weight arm (`< 700`), so a size-bump (17px), a non-bold
+`.6875rem`, band 10.5-11.5px) and a body-weight arm (`< 700`), so a size-bump (17px), a non-bold
 title, or a bold body all red. Verified: reds at the old 17px, passes at `.6875rem`.
 
 ## Scope / non-goals
@@ -29,7 +29,9 @@ title, or a bold body all red. Verified: reds at the old 17px, passes at `.6875r
 - Hermetic file:// browser-check (already in the no-URL loop); no server needed.
 
 ## Decisions
-- Range 10-12px (not exact 11) so the arm is robust to a minor root-font shift while still
-  excluding the 17px regression (matches the sibling s3-step-cap `<=12` style).
+- Band 10.5-11.5px pins `.6875rem` (== 11px on a 16px root) tightly: it excludes both the 17px
+  size-bump above AND a shrink to the sibling caption size below (`.s3-step-cap` is `.625rem` ==
+  10px), so neither regression can pass. (An earlier draft used a looser 10-12px band; tightened
+  per a challenge-loop NIT because 10px coincides with a real sibling size.)
 - Scoping the body (not just the title) is the real fix: an earlier one-number title-only fix
   would have left the body silently at 17px, so title==body would still pass at the wrong size.
