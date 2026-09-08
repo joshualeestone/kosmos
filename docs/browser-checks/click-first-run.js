@@ -96,7 +96,7 @@ async function activeHead(page) {
    preferred, so the connected arm (whose #fr-alt is "Check again", NOT forward) is
    still driven by its Next; #fr-alt is used only when #fr-next is unusable, which
    in a straight walk to #fr-success is only ever the S5 Skip. */
-async function advanceToAnchor(page, anchorSel, max = 14) {
+async function advanceToAnchor(page, anchorSel, max = 12) {
   for (let i = 0; i < max; i += 1) {
     // Let the step SETTLE into an actionable state before reading it: the target
     // pane is showing, or a forward control (#fr-next, else #fr-alt) is usable.
@@ -123,14 +123,21 @@ async function advanceToAnchor(page, anchorSel, max = 14) {
     if (state.atTarget) return;
     if (state.nextUsable) {
       await page.click('#fr-next');
-    } else if (state.altUsable) {
-      // #fr-next is hidden (the S5 not-connected arm), and the step's sole
-      // forward action is the #fr-alt "Skip connecting a model" link.
-      await page.click('#fr-alt');
     } else if (state.nextDisabled) {
+      // #1801: a DISABLED Next (present but disabled) means an intermediate step
+      // grew a required-answer gate this walk does not handle. Diagnose it BEFORE
+      // falling to #fr-alt -- a gated step that ALSO exposes a usable alt would
+      // otherwise be silently walked via the alt and this signal lost. The S5 Skip
+      // case is Next HIDDEN, not disabled, so it does not reach here (gates are
+      // mocked uncheckable, so a disabled Next is unexpected; kosmos#1801).
       throw new Error(`Continue is disabled on a step before ${anchorSel} -- an `
         + 'intermediate step grew a required-answer gate this walk does not handle '
         + '(gates are mocked uncheckable, so this is unexpected; kosmos#1801).');
+    } else if (state.altUsable) {
+      // #fr-next is hidden (the S5 not-connected arm), and the step's sole
+      // forward action is the #fr-alt "Skip connecting a model" link. Reached only
+      // when Next is neither usable nor disabled -- i.e. genuinely hidden, not gated.
+      await page.click('#fr-alt');
     } else {
       throw new Error(`no forward control (neither #fr-next nor #fr-alt is usable) `
         + `on a step before ${anchorSel} -- the step painted no way onward.`);
