@@ -178,6 +178,16 @@ test('#988: an unenrolled machine says nothing, because there is nothing to say 
   assert.equal(calls.length, 0);
 });
 
+test('#988: remote exports coordinator and stateDir as FUNCTIONS, not frozen values', () => {
+  /* A cross-module contract that would break silently. If a refactor exported
+     these as pre-evaluated values instead of the arrow functions, updating.js
+     would call a string, throw, and the outer fail-open catch would swallow it:
+     the announce would go quiet forever with nothing red anywhere. */
+  const remote = require('./remote');
+  assert.equal(typeof remote.coordinator, 'function', 'a frozen value here dies silently in announce()');
+  assert.equal(typeof remote.stateDir, 'function', 'and the state dir must re-derive per call');
+});
+
 test('#988: the ENROLMENT gate is load-bearing, not shadowed by the certificate read', () => {
   /* 🛑 THE ARM ABOVE CANNOT PROVE THIS, and I only noticed because a reviewer
      mutated the code. unenrol() points at a directory with NONE of the four

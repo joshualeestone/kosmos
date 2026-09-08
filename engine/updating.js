@@ -46,16 +46,15 @@ const DEFAULT_SECONDS = 900;
  * version replaced the whole send, which made every one of those invisible. */
 let requestFactory = null;
 
-/* 🛑 THE GUARD THAT KEEPS THE SUITE OFF THE REAL COORDINATOR (kosmos#988).
- * engine/ping.js's underTest(), which engine/notify.js consults for exactly this
- * reason. Without it, running the test suite on an ENROLLED Mac posts real
- * `{"seconds":900}` with the operator's client certificate, and one existing
- * suite (update.marker-1728) drives a child stub that never exits, so nothing
- * ever clears it: the operator's phone then reads "your Mac is updating Kosmos,
- * back in a moment" for the full 15-minute cap while nothing is updating. That
- * is this card's own message, inverted, by its own test suite.
- * Keyed on an INJECTED FACTORY, not on the environment: a test that supplies its
- * own transport touches no network, so the guard must not disable it. */
+/* ⚠️ THIS IS NOT THE PRODUCTION GUARD. It is a test-only export, so its own arms
+ * can assert the predicate. The live guard is INLINED at the top of announce(),
+ * deliberately, because calling this would require ./ping and reintroduce the
+ * module-load ordering problem announce() exists to avoid. Confirmed by mutation:
+ * replacing this body with `return false` changes exactly one assertion, the one
+ * that reads this function's own return value, and nothing else.
+ * An earlier version of this comment described it as "the guard that keeps the
+ * suite off the real coordinator", which a maintainer would reasonably read as a
+ * description of the live path. It is not one. See announce() for that. */
 function underTest() {
   /* ONE derivation, from the module this file's header already cites and that
      notify.js calls directly. An earlier version re-implemented the
@@ -100,6 +99,15 @@ function announce(v) {
        single line, and underTest() below still delegates so nothing else copies
        it. Keyed on an INJECTED FACTORY, not the environment, so a test that
        supplies its own transport is not disabled. */
+    /* 🛑 THE GUARD THAT KEEPS THE SUITE OFF THE REAL COORDINATOR (kosmos#988).
+       Without it, running the test suite on an ENROLLED Mac posts real
+       `{"seconds":900}` with the operator's client certificate, and one existing
+       suite (update.marker-1728) drives a child stub that never exits, so nothing
+       ever clears it: the operator's phone then reads "your Mac is updating
+       Kosmos, back in a moment" for the full 15-minute cap while nothing is
+       updating. This card's own message, inverted, by its own test suite.
+       Keyed on an INJECTED FACTORY, not on the environment, so a test that
+       supplies its own transport touches no network and must still run. */
     if (!requestFactory && process.env.NODE_TEST_CONTEXT) return;
     /* Still lazy: update.js is required early, and remote.js freezes its root at
        module scope. update.js:275 requires ./autoupdate late for the same reason. */
