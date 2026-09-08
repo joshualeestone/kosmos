@@ -2118,6 +2118,7 @@ async function withAgent(spec, answers, fn) {
   } finally {
     chat.resetForTests();
     board.restore();
+    clearReport(spec.name); // #2456: no self-report outlives the test that wrote it
   }
 }
 
@@ -3170,6 +3171,32 @@ test('#1629: an agent stopped on the trust dialog is asking, its question is on 
       assert.match(body.question.text, /Quick safety check/);
       assert.match(body.question.text, /❯ No, exit/, 'the highlighted answer is visible, which is the whole point');
       assert.equal(body.options, null, 'no buttons: a button types a digit and nobody has measured what this dialog does with one');
+    });
+});
+
+test('#2456: a REPORTED needs_you with a LIVE trust dialog shows the dialog, never the reported words', async () => {
+  reset();
+  // The scraped-with-evidence seam: reconcileReport makes a live trust dialog LEAD
+  // over a self-report (reported:false, engine/status.js), so the card is NOT
+  // reported here and the reported-question fallback must stay excluded end to
+  // end. Without this the composed gate in server.js could, in principle, let a
+  // report masquerade as the question while a real blocking dialog is on screen.
+  await withAgent(fleet.agent('zeta', { state: 'needs_you', screen: TRUST_DIALOG_SCREEN }),
+    [said(TRUST_DIALOG_SCREEN)],
+    async () => {
+      const rec = require('./engine/selfreport').record('zeta',
+        { state: 'needs_you', because: 'stale reported words that must never win over a live dialog' });
+      assert.equal(rec.recorded, true, 'the report was not kept: ' + JSON.stringify(rec));
+      const body = json(await req('/api/agent/zeta/thread'));
+      assert.equal(body.asking, true);
+      assert.ok(body.question, 'the live trust dialog must be shown');
+      assert.match(body.question.text, /Quick safety check/, 'the live dialog leads');
+      assert.doesNotMatch(body.question.text, /stale reported words/, 'the report must not masquerade as the on-screen question');
+      assert.ok(!body.question.reported, 'a screen-led question is not tagged reported');
+      assert.ok(body.answerNote, 'the trust dialog still carries its answerNote (not one typed here)');
+      // Control: the trust dialog leads, so reconcile marks the card NOT reported.
+      const card = json(await req('/api/status')).agents.find((a) => a.sessionName === 'zeta');
+      assert.equal(card.stateReported, false, 'control: the trust dialog leads, so the card is screen-led, not reported');
     });
 });
 
