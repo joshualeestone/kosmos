@@ -62,7 +62,14 @@ const FOOTER = '\n  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for
 
 // Signals that say an agent is actively producing right now.
 const SPINNER_TITLE = '⠋ Filing the finding';           // braille frame in title
-const INTERRUPT = '⎿  running the check (5s · esc to interrupt)';
+// A LIVE interrupt line: spinner-glyph-prefixed, the shape a running turn
+// actually draws. #2378 (INTERRUPT_LINE_LIVE) deliberately requires that
+// live-spinner shape so a QUOTED "esc to interrupt" in prose does not read
+// working; the earlier `⎿  ...`-prefixed fixture here was a tool-RESULT glyph,
+// not a live line, and only read working via the old unanchored matcher #2378
+// correctly retired. The point of this arm is unchanged: a real work signal
+// BELOW the prose question means the agent is producing, not blocked.
+const INTERRUPT = '· Running the check (5s · esc to interrupt)';
 const GERUND = '· Improvising… (35s · ↓ 1.5k tokens)';
 
 // The optional / your-call prose questions a first-breath agent draws. Each
