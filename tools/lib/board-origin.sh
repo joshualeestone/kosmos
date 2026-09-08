@@ -67,6 +67,10 @@
 #   - a git SUBMODULE working directory's `.git` is a FILE too, same reading
 #   - a directory holding a stray `.git` DIRECTORY that is not a repo at all
 #     reads as a main checkout; cheaper to name here than to guard
+#   - a `.git` that is a SYMLINK to a real gitdir reads as a main checkout,
+#     because `-d` follows symlinks. The classification is defensible (it is not
+#     a linked worktree) but the code never measures "link" at all, so the label
+#     must not say it does. An earlier label did.
 #   - a $HOME that is a SUBDIRECTORY of a git repo is not declined, because the
 #     decline matches $HOME itself; the subdirectory rule then applies and the
 #     board prints the bare path, which is the safe direction
@@ -88,10 +92,14 @@ board_origin_label() {
   # decline so the installed board was labelled again. `-ef` is a `test` builtin,
   # so this stays subprocess-free. It is false when either path is missing, which
   # is the safe direction: an absent $HOME simply does not match.
+  # Live on THIS machine, not merely in principle: /Users/agent1 and
+  # /System/Volumes/Data/Users/agent1 are the same device and inode (macOS
+  # firmlink) and lsof may report either spelling, so `=` could have accused the
+  # installed board here.
   [ -n "${HOME:-}" ] && [ "$dir" -ef "$HOME" ] && { printf '%s' "$dir"; return 0; }
 
   if [ -d "$dir/.git" ]; then
-    printf 'the MAIN CHECKOUT %s, whose .git is a directory rather than a link, so a server running here holds the port and writes into the shared tree' "$dir"
+    printf 'the MAIN CHECKOUT %s, whose .git is a directory and not the small pointer file a linked checkout gets, so a server running here holds the port and writes into the shared tree' "$dir"
   elif [ -f "$dir/.git" ]; then
     printf 'the worktree %s' "$dir"
   else

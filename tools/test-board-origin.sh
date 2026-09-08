@@ -119,6 +119,36 @@ gone="$T/does-not-exist"
   && ok "a MISSING argument does not trip set -u" \
   || bad "a missing argument did not produce the unknown-directory wording"
 
+# A `.git` that is a SYMLINK to a real gitdir: `-d` follows symlinks, so this
+# reads as a main checkout. The classification is defensible (it is not a linked
+# checkout) but the code never measures "link", so this arm pins the behaviour and
+# the label must not claim otherwise. The second arm is the claim check.
+mkdir -p "$T/symgit"
+ln -s "$T/mainco/.git" "$T/symgit/.git"
+sg="$(HOME=/nonexistent board_origin_label "$T/symgit")"
+case "$sg" in *"MAIN CHECKOUT"*) ok "a symlinked .git reads as a main checkout (documented residual)" ;;
+  *) bad "a symlinked .git changed classification: $sg" ;; esac
+case "$sg" in *"rather than a link"*|*"not a link"*)
+    bad "the label claims '.git is not a link' while -d FOLLOWS symlinks: $sg" ;;
+  *) ok "CONTROL: the label does not claim to measure 'link', which the code never does" ;; esac
+
+# A path beginning with '-' must be an operand, never an option, to `[`.
+mkdir -p "$T/-dashdir"
+"${G[@]}" -C "$T/-dashdir" init -q
+dd="$(HOME=/nonexistent board_origin_label "$T/-dashdir")"
+case "$dd" in *"MAIN CHECKOUT"*"-dashdir"*) ok "a path segment beginning with '-' is treated as an operand, not an option" ;;
+  *) bad "a dash-prefixed path was mishandled: $dd" ;; esac
+
+# The header states the label collision is bounded to PROSE: a checkout whose own
+# PATH contains "worktree" still collides. Pin it so the scope stays honest.
+mkdir -p "$T/my-worktree-repo"
+"${G[@]}" -C "$T/my-worktree-repo" init -q
+wp="$(HOME=/nonexistent board_origin_label "$T/my-worktree-repo")"
+case "$wp" in *"MAIN CHECKOUT"*) ok "a main checkout whose PATH contains 'worktree' still classifies correctly" ;;
+  *) bad "a path containing 'worktree' broke classification: $wp" ;; esac
+case "$wp" in *worktree*) ok "KNOWN SCOPE: such a label does contain the word, so the prose-only invariant is exactly that" ;;
+  *) bad "unexpected: the path's own 'worktree' vanished from the label: $wp" ;; esac
+
 mkdir -p "$T/has space"
 "${G[@]}" -C "$T/has space" init -q
 s="$(board_origin_label "$T/has space")"

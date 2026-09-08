@@ -51,6 +51,11 @@ seen_before() {
   local pid cwd
   for pid in $(lsof -nP -iTCP:16180 -sTCP:LISTEN -t 2>/dev/null); do
     cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
+    # 🛑 `local where` on its own line is an ANCHOR: tools/test-board-origin.sh
+    # extracts this guard block with awk between /^ *local where$/ and /^ *fi$/ and
+    # executes it, so the fail-open path is tested against these bytes rather than
+    # a copy. Hoisting `where` up to the `local pid cwd` line breaks that
+    # extraction. It fails loudly rather than silently, but it is a real coupling.
     local where
     if command -v board_origin_label >/dev/null 2>&1; then
       where="$(board_origin_label "$cwd")"
