@@ -77,20 +77,21 @@ test('the projects rail forces list-row layout regardless of the panel\'s stored
   assert.equal(effective(PAGE, RAIL, 'flex-direction'), 'column',
     'the rail stacks its rows horizontally, so the projects panel reads as a grid in a column that cannot hold one');
 
-  /* ✅ AND SEPARATELY, THE DUPLICATE ITSELF IS PINNED (#1459). The two assertions
-     above guard the BEHAVIOUR and are correct whichever copy wins. This one guards
-     that the DUPLICATE STILL EXISTS, which is a different question: without it,
-     #1459 could be closed by deleting a copy and nothing here would notice.
-     📌 WHEN #1459 LANDS and a copy is removed, the effective() checks above stay
-     green (behaviour unchanged, correctly) and THIS one reds. Change the 2 to a 1.
-     That is the intended edit rather than a surprise; coupling it to the defect is
-     deliberate, because an uncoupled version cannot fail.
-     ⚠️ Limit, stated: an APPENDED declaration to one copy leaves the count at 2 and
-     is invisible here. Control for the count itself: `#pj-composerhint
-     { display: none; }` counts 1, so a 2 means something. */
-  const DUP_RULE = /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column;/g;
-  assert.equal((PAGE.match(DUP_RULE) || []).length, 2,
-    'the duplicated #pj-list.asgrid rule (#1459) changed count: if a copy was removed, that is the fix landing and this 2 becomes a 1; if a copy had a declaration CHANGED or INSERTED, one of the two rails just diverged');
+  /* ✅ AND SEPARATELY, THE COUNT ITSELF IS PINNED (#1459, landed). The two
+     assertions above guard the BEHAVIOUR and are correct whichever copy wins. This
+     one guards the COUNT, a different question. #1459 was the rule existing TWICE
+     (byte-identical, same @media block, so the later copy won and a regression in
+     the earlier copy hid behind it, leaving the behaviour guards unable to red).
+     The redundant earlier copy has been removed; exactly ONE copy must remain, so
+     this pins the count at 1. A 2 means the duplicate was re-introduced (the #1459
+     regression returning); a 0 means the rule was deleted outright.
+     ⚠️ Limit, stated: an APPENDED declaration to the single copy still matches this
+     prefix and leaves the count at 1, so it is invisible here; the effective()
+     checks above are what catch a value change. Control for the count itself:
+     `#pj-composerhint { display: none; }` counts 1, so the number means something. */
+  const RAIL_RULE = /html\[data-layout="consolidated"\] body\.consolidated #pj-list\.asgrid \{ display: flex; flex-direction: column;/g;
+  assert.equal((PAGE.match(RAIL_RULE) || []).length, 1,
+    'the #pj-list.asgrid rail rule (#1459) changed count: a 2 means the redundant copy was re-introduced (the defect returning); a 0 means the rule was deleted outright, and the behaviour assertions above would also red');
 });
 
 test('the name and the status pill stack, rather than compete for one line', () => {
