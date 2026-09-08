@@ -43,9 +43,20 @@ Up" button -> `frFinish(openCreate)`.
   Giddy Up render (title 'Create your first agent.' + "Let's get started." + a Giddy Up action) and
   `return`s BEFORE any `frScanAgents(`/`frFindAgents(` call, and that the forced block is not gated
   on path/count - so first run lands on Giddy Up even with a non-empty roster and no auto-scan fires.
-- Browser-verify (Playwright, done-check per Splinter): drive first-run to S9 on a machine that
-  reports a non-empty fleet, confirm the screen shows "Let's get started"/Giddy Up (no found list)
-  and that `/api/scan-agents` is never requested.
+- **Reconcile the suites that pinned the removed auto-import behavior** (they run in
+  `tools/run-tests.sh`, so they must go green, not just the new guard):
+  - `web.found-every-path-1493.test.js` (the #1493/#1938/#2389 "scan on every path" suite, 20 tests):
+    rewrite to assert the NEW behavior using its own lift-and-run harness - frPaintFleet renders
+    Giddy Up and fires NO discovery on every path (adopt/create/unknown) and for malformed payloads,
+    even with agents on disk and scan candidates present.
+  - `server.test.js` "the fleet screen renders every path ...": retarget the frPaintFleet render
+    assertions to Giddy Up on every path; keep the `frForkActions` per-path button tests (unchanged
+    helper). "somebody who already has agents is never told they have none": #2497 knowingly
+    supersedes the #320 guard by Josh's ruling; rewrite to assert Giddy Up regardless of disk state.
+- Runtime-verified (eval-slice, done-check): a non-empty adopt fleet (7 agents) renders "Create your
+  first agent." / "Let's get started." / Giddy Up with zero scan and zero discovery calls.
+- Browser-verify (real page): first-run S9 lands on "Let's get started"/Giddy Up (no found list),
+  no `/api/scan-agents` request - the final visual confirmation rides the next cut / render-first-run.js.
 
 ## Re-triage (card note)
 #2452/#2453/#2455/#2461 were against the AUTO path on first run; once auto-import leaves onboarding
