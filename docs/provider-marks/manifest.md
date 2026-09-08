@@ -153,6 +153,115 @@ mark is included.
 
 ---
 
+# Added 2026-09-08 by Mona Lisa (kosmos#1040)
+
+Four new provider marks: GLM (Z.ai), MiniMax, DeepSeek, Kimi. Same discipline as above,
+official vendor sources only, no third-party icon packs. Every file was rendered (headless
+Chromium + rsvg) and visually confirmed to be the mark it claims, and the DeepSeek grab
+below caught a wrong-glyph the same way the 2026-08-14 pass caught Gartner and the App
+Store badge.
+
+**Two things these four record that the six above did not**, both because kosmos#1040
+asked for them:
+
+1. **The ink-to-viewBox fill fraction**, measured with `getBBox()` in headless Chromium.
+   The 2026-08-14 marks were mostly edge-to-edge (99-100%) except `openai-mark.svg` at
+   50% x 50% (25% by area), which renders half-width beside the others. To stop that
+   recurring, **each mark below was re-cropped so its viewBox is its own painted bounding
+   box** (the card's recommended "normalise on the ink, not the box"). All four now sit at
+   ~98-100% fill by construction, so a ninth mark is a measurement and not an argument.
+
+2. **Monochrome vs brand-coloured**, because it decides one line of code: a monochrome
+   mark takes `currentColor` and follows the theme through `.pmark.live`; a brand-coloured
+   one keeps its own values. Getting this backwards is what left `openai-mark` hardcoded
+   `fill="black"` and invisible on dark. Each entry states which, and one (Kimi) is a
+   two-tone hybrid that the earlier two-category split did not anticipate.
+
+## 7. GLM / Z.ai
+
+### `glm-zai-mark.svg`
+- **viewBox:** `0 0 31.85 27` (491 bytes)
+- **What:** The Z.ai "Z" mark. GLM is the model family from Zhipu AI; its platform and API
+  now brand as **Z.ai** (`api.z.ai`), and the "Z" is that brand's mark. There is no
+  separate "GLM" logo, so the Z.ai mark is the correct official mark for a provider named
+  GLM.
+- **Source URL:** https://www.zhipuai.cn/logo-en.svg (the served "Z.AI" wordmark; the three
+  Z subpaths were isolated from the ".AI" lettering). The same "Z" also ships as a solid
+  rounded tile at https://z-cdn.chatglm.cn/z-ai/static/logo.svg (z.ai header); the glyph
+  from the wordmark was used instead of the tile so the mark is a transparent glyph like
+  every other mark in this folder rather than a solid app-icon square.
+- **Monochrome or brand-coloured:** **Monochrome.** Stored `fill="currentColor"`, follows
+  the theme.
+- **Fill fraction:** 99.5% x 100% (re-cropped to the Z's painted bbox).
+
+## 8. MiniMax
+
+### `minimax-mark.svg`
+- **viewBox:** `0 0 490.16 411.7` (1220 bytes)
+- **What:** The MiniMax "M" soundwave mark, the official pink-to-red gradient
+  (`#e4177f` to `#e73562` to `#e94e4a`, left to right).
+- **Source URL:** https://raw.githubusercontent.com/MiniMax-AI/MiniMax-01/main/figures/minimax.svg
+  MiniMax publishes no inline-SVG logo on `minimax.io` / `minimaxi.com` (raster PNGs only,
+  like Qwen), but its **own** GitHub org `MiniMax-AI` ships this vector in the MiniMax-01
+  model repo. That is a vendor source, not a third-party pack.
+- **Monochrome or brand-coloured:** **Brand-coloured** (gradient), like Gemini and Mistral.
+  Keeps its own values. The gradient id was renamed to `pmark-minimax-g` (from a
+  non-ASCII id) and the class-based fill was inlined as `fill="url(#pmark-minimax-g)"` so
+  nothing collides when the mark is inlined into `web/index.html`.
+- **Fill fraction:** 100% x 100% (the tallest bars span the full box; the mark is wide,
+  aspect ~1.19:1, and centres inside a square cell under `preserveAspectRatio`).
+
+## 9. DeepSeek
+
+### `deepseek-mark.svg`
+- **viewBox:** `0 1.5 27 20.1` (3586 bytes)
+- **What:** The DeepSeek whale/dolphin mark, on its own.
+- **Source URL:** https://www.deepseek.com/ (inline SVG in page markup). DeepSeek ships the
+  whale glyph and the "deepseek" lettering as ten `<path>` elements inside one wordmark
+  SVG; this file is the whale path isolated (it is the one path confined to x 0-27).
+- **Note / wrong grab caught:** the page also carries a `2500 x 2500` inline SVG that
+  looked like a plausible standalone mark; rendered, it was the **Zhihu** "知" logo (a
+  different site's badge). Dropped, exactly as the 2026-08-14 pass dropped the Gartner and
+  App Store grabs. The whale from the wordmark was used instead.
+- **Monochrome or brand-coloured:** **Monochrome.** DeepSeek's own markup serves the whale
+  as `fill="currentColor"` (the page paints it brand-blue `#4D6BFE` via CSS). Stored
+  `currentColor`, so `.pmark.live` renders it in theme ink like Claude and OpenAI; the
+  brand blue is recorded here if a coloured treatment is ever wanted.
+- **Fill fraction:** 98.6% x 97.5% (re-cropped to the whale's painted bbox).
+
+## 10. Moonshot / Kimi
+
+### `kimi-mark.svg`
+- **viewBox:** `0 0.94 23.95 23.25` (1090 bytes)
+- **What:** The Kimi "K" mark, the K with the floating rounded-square notch at top-right.
+- **Source URL:** the official **MoonshotAI Branding-Guide** repo,
+  https://github.com/MoonshotAI/Branding-Guide (`scenarios/04-k-only/k-only-light.svg`).
+  This is Moonshot's own published brand guide, not a third-party pack. (The standalone
+  icon in `scenarios/03-icon-without-kimi/` is PNG-only; the "k-only" scenario carries it
+  as SVG.)
+- **Monochrome or brand-coloured:** **Two-tone hybrid**, and this is the category the
+  earlier split did not anticipate. The brand guide's own light and dark variants differ
+  only in the K body (black on light, white on dark) while the notch-dot stays brand-blue
+  `#1783FF` in both. So the mark is stored with the **K body `currentColor`** (follows the
+  theme, reproducing the official light/dark variants exactly) and the **dot a constant
+  `#1783FF`**. Rendered on both `#fff` and `#1c1c1e` and confirmed against the vendor's own
+  two variants.
+- **Fill fraction:** 100% x 100% (re-cropped to the mark's painted bbox).
+
+---
+
+## Permission for the four added 2026-09-08
+
+Following Renet Tilley's 2026-08-26 point below (provenance is not permission): these four
+carry **provenance but no captured licence**, the same status as OpenAI/xAI above. GLM,
+MiniMax and Kimi come from the vendors' own GitHub/site assets; DeepSeek from its own site
+markup. None of the four vendors' trademark terms were captured here, and a nominative-use
+mark still may carry usage restrictions. Not a claim of infringement, a claim that the
+permission half is unrecorded, matching the folder's existing pattern. This is the same
+open question `web/index.html` already carries for the six marks it renders today.
+
+---
+
 ## Rejected during verification
 
 Two files were saved, rendered, and then discarded because rendering showed they were
