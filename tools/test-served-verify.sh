@@ -10,33 +10,48 @@
 # the end of this file DERIVES the handler list from the server source and fails if one is not named
 # below, which is the only version of this that has not gone stale. 📌 ITS SCOPE, STATED RATHER THAN
 # IMPLIED BY THE WORD "DERIVES": it reads DISPATCH STATEMENTS (`if`/`elif` on `p` or `rest`), top
-# level and sub-dispatch, in EITHER quote style. A handler reached some other way would still be
-# invisible to it: a routing table, a regex, a dict lookup, or a startswith() given a TUPLE of
-# prefixes rather than one string. This file's history says the honest move is to name that rather
-# than let "derived" imply completeness it does not have.
-#   /discriminating/...  a sound host with FIVE sub-paths and a 404 floor: /dist/real.bin -> 200
-#                        octet-stream, /setup -> 200 text/plain, /dist/htmlpage.bin -> 200 text/html,
-#                        /dist/htmlcaps.bin -> 200 Text/HTML (mixed case), /dist/nocontenttype.bin ->
-#                        200 with NO content-type at all, anything else -> 404. 🛑 THE LAST TWO WERE
-#                        MISSING AND THE LINE SAID "anything else -> 404", which was FALSE for both:
-#                        the derived arm below saw only the TOP-LEVEL dispatch, so the sub-dispatch
-#                        could go stale exactly the way the prose counts did. It now reads both.
-#   /blind/...           the CONSEQUENCE, flattened: EVERY path -> 200 text/html, no redirect.
-#   /sso/... + /ssologin the MECHANISM April measured: every /sso/ path 302s to /ssologin, which
-#                        then answers 200 text/html to anything reaching it.
-#   /ssoflap/...         302s the FIRST request to a path and kills the connection on every later
-#                        one, so the caller's probe succeeds and the DIAGNOSTIC's own un-followed
-#                        re-fetch fails. Covers _served_verify_redirect_note's `|| return 0`, which
-#                        had no fixture: nothing proved the note stays silent rather than adding a
-#                        second error to a verdict already reached.
-#   /ssomissing/ -> /ssogone      a redirect landing on a 404, so the NOT-SERVED branch is reached
-#                                 WITH a redirect in front of it.
-#   /ssoesc/ -> /ssologin?...     a redirect whose Location carries BACKSLASH ESCAPES, so the
-#                                 echo-vs-printf difference is observable under a dash /bin/sh.
-#   /ssonoct/ -> /ssonoctpage     a redirect landing on a 200 with no content-type, for the third
-#                                 refusal branch. Both exist because those two call sites of the
-#                                 diagnostic were asserted by return code only, and rc cannot see
-#                                 whether a reason was printed.
+# level and sub-dispatch, in EITHER quote style, with or without spaces around `==`. A handler
+# reached some other way would still be invisible to it: a routing table, a regex, a dict lookup, or
+# a startswith() given a TUPLE of prefixes rather than one string. This file's history says the
+# honest move is to name that rather than let "derived" imply completeness it does not have.
+#
+# 🛑 THE MANIFEST IS DELIMITED, ONE LINE PER TOKEN, AND THE ARM MATCHES ONLY AT THE START OF AN
+# ENTRY. Before this, the arm asked whether the token appeared ANYWHERE in the header, so PROSE
+# ABOUT a handler documented it: MEASURED, deleting the whole /sso/ manifest entry left the suite
+# green, because /sso/ and /ssologin both survive in the "🛑 /blind/ AND /sso/ ARE NOT REDUNDANT"
+# paragraph below and in the /ssoesc/ entry. That is the same "a comment supplied the token" defect
+# this file already closed on the SERVER-SOURCE side, still open on the HEADER side, under a pass
+# message that read "derived, not counted in prose". Explanations now live BELOW the block.
+# --- MANIFEST BEGIN ---
+#   /discriminating         a sound host: sub-paths below, and a 404 floor for anything else
+#   /dist/real.bin          200 application/octet-stream (sub-path of /discriminating)
+#   /setup                  200 text/plain, a real asset that is legitimately not html
+#   /dist/htmlpage.bin      200 text/html: a page wearing an asset's path
+#   /dist/htmlcaps.bin      200 Text/HTML, mixed case, which must still be caught
+#   /dist/nocontenttype.bin 200 with NO content-type at all
+#   /blind/                 the CONSEQUENCE, flattened: EVERY path -> 200 text/html, no redirect
+#   /sso/                   the MECHANISM April measured: every path here 302s to /ssologin
+#   /ssologin               the login page: 200 text/html to anything that reaches it
+#   /ssoflap/               302s the FIRST request to a path, kills the connection on later ones
+#   /ssomissing/            302s to /ssogone
+#   /ssogone                404 behind a redirect
+#   /ssoesc/                302 whose Location carries BACKSLASH ESCAPES
+#   /ssonoct/               302s to /ssonoctpage
+#   /ssonoctpage            200 with no content-type at all, behind a redirect
+#   /ssonoloc/              302 with NO Location header at all
+# --- MANIFEST END ---
+#
+# WHY SEVERAL OF THOSE EXIST, which is the part that does not belong in a manifest:
+#   /dist/htmlcaps.bin and /dist/nocontenttype.bin were MISSING from the old manifest while it said
+#     "anything else -> 404", false for both, because the derived arm read only the TOP-LEVEL
+#     dispatch and the sub-dispatch could go stale exactly the way the prose counts did.
+#   /ssoflap/ covers _served_verify_redirect_note's `|| return 0`: nothing else proved the note
+#     stays SILENT when its own re-fetch fails rather than adding a second error to a verdict
+#     already reached.
+#   /ssomissing/ and /ssonoct/ exist because those two call sites of the diagnostic were asserted by
+#     RETURN CODE ONLY, and rc cannot see whether a reason was printed.
+#   /ssonoloc/ is the note's `(no Location reported)` branch, the last uncovered path in it.
+#   /ssoesc/ makes the echo-vs-printf difference observable under a shell whose echo truncates.
 #
 # 🛑 /blind/ AND /sso/ ARE NOT REDUNDANT, and an earlier version of this header said /blind/ WAS
 # "the #1667 SSO shape (April's measured failure)", which contradicted the comment fifty lines below
@@ -148,6 +163,13 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
+        if p.startswith('/ssonoloc/'):
+            # a 302 with NO Location header at all: curl reports an empty %{redirect_url}, which is
+            # the note's `(no Location reported)` branch and the last path in it with no fixture.
+            self.send_response(302)
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if p.startswith('/ssonoct/'):
             # a redirect that lands on a 200 with NO content-type: covers the note on the
             # empty-content-type branch, which rc alone cannot distinguish from the html one.
@@ -156,7 +178,11 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
-        if p == '/ssonoctpage':
+        if p=='/ssonoctpage':
+            # 🛑 NO SPACES AROUND `==` ON PURPOSE, DO NOT REFORMAT. The extraction required
+            # exactly one space on each side, so `if p=='/evilnodoc':` serving 200 text/html for
+            # every path was invisible to it and the suite stayed green with the count at 15. This
+            # is the only spaceless dispatch in the fixture and an arm fails if it disappears.
             self._send_noct(200, b'bytes behind a redirect, with no content-type at all')
             return
         if p == "/ssologin":
@@ -218,6 +244,7 @@ SSOMISSING="http://127.0.0.1:$PORT/ssomissing"
 SSONOCT="http://127.0.0.1:$PORT/ssonoct"
 SSOESC="http://127.0.0.1:$PORT/ssoesc"
 SSOFLAP="http://127.0.0.1:$PORT/ssoflap"
+SSONOLOC="http://127.0.0.1:$PORT/ssonoloc"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -290,11 +317,41 @@ case "$sso_msg" in
   *" | MECHANISM:"*) _note_actual=" | MECHANISM:${sso_msg#* | MECHANISM:}" ;;
   *) _note_actual="(no note present at all)" ;;
 esac
-if [ "$_note_actual" = "$_note_expected" ]; then
-  pass "the note is EXACTLY the shipped sentence plus the observed status and target; no extra claim can hide in it"
+# 🛑 SCOPED TO THE NOTE, THE GUARD MISSED THE HARM IT NAMED. `_note_actual` is everything AFTER
+# the " | MECHANISM:" marker, so an overclaim placed BEFORE it is invisible: MEASURED, appending
+# "This host is behind an SSO login screen, which is why the status is meaningless." to
+# served_verify_host_discriminates' own verdict string, ahead of the substitution, left the suite
+# exit 0. That is exactly the harm this file states (the operator told SSO when the cause might be
+# routing); only its location changed. So assert the WHOLE refusal line: a fixed head, the probe URL
+# in the middle, and a fixed tail that ends with the note. The URL is the only free region, and it
+# is pinned to the negative-control shape the lib builds, so no sentence can hide there either.
+_verdict_head="served-verify: NEGATIVE CONTROL FAILED -- ${SSO} returned 200 for a path that cannot exist ("
+_verdict_tail="). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.${_note_expected}"
+_vok=0
+case "$sso_msg" in
+  "$_verdict_head"*"$_verdict_tail")
+    _vmid=${sso_msg#"$_verdict_head"}
+    _vmid=${_vmid%"$_verdict_tail"}
+    case "$_vmid" in
+      "${SSO}"/dist/__served-verify-negative-control-*-must-404.bin) _vok=1 ;;
+    esac
+    ;;
+esac
+if [ "$_vok" -eq 1 ]; then
+  pass "the WHOLE refusal line is exactly the shipped text plus the probe URL and the observed status and target; no extra claim can hide anywhere in it"
 else
-  fail "the note is not the shipped sentence, so something was added or reworded. If you changed the wording on purpose, update this literal in the SAME commit; if you did not, an extra claim has appeared in a diagnostic whose contract is to report only what it observed. Expected: [$_note_expected] Got: [$_note_actual]"
+  fail "the refusal line is not the shipped text, so something was added or reworded somewhere in it (verdict, URL or note). If you changed the wording on purpose, update these literals in the SAME commit. Expected head: [$_verdict_head] Expected tail: [$_verdict_tail] Got: [$sso_msg] Note portion seen: [$_note_actual]"
 fi
+
+noloc_msg=$(served_verify_asset_ok "$SSONOLOC/dist/real.bin" "an asset behind a 302 with no Location" 2>&1 >/dev/null); noloc_rc=$?
+check_rc "$noloc_rc" 1 "a 302 carrying NO Location header is caught (not served)"
+# The last path in the diagnostic with no fixture. curl reports an EMPTY %{redirect_url} here, and
+# the note must say so rather than print "redirects to " with nothing after it.
+case "$noloc_msg" in
+  *"MECHANISM: un-followed, this URL answers 302 and redirects to (no Location reported)"*)
+    pass "the note names a MISSING Location instead of printing an empty target" ;;
+  *) fail "the note did not report a missing Location. Got: $noloc_msg" ;;
+esac
 
 echo "-- the note's OWN request fails, the caller's did not --"
 # CONTROL FIRST, on its own path so it cannot disturb the arm below: the fixture must really refuse
@@ -430,7 +487,51 @@ if [ -n "$ESC_SH" ]; then
     fail "CONTROL: the fixture's Location lacks the literal backslash-c escape or the marker ($loc); the truncation arm above is vacuous"
   fi
 else
+  # 📌 THIS REDS RATHER THAN SKIPS, DELIBERATELY, AND IT DOES MAKE THE SUITE MACHINE-DEPENDENT.
+  # That is the lesser evil: keyed to `dash` by name this arm skipped SILENTLY on any box without
+  # it, so the branch's headline fix was likely uncovered exactly where it mattered. A red here is
+  # not something an engineer can fix in the code; it means this machine cannot observe the fix, and
+  # the suite should say so out loud rather than report green for a claim it never tested.
   fail "no shell here truncates at backslash-c, so the printf-vs-echo arm could not run. It is the only arm covering that fix; do not read this suite as green for it."
+fi
+
+echo "-- the lib is #!/bin/sh, and package.json lints it with sh -n --"
+# 🛑 ON macOS `sh` IS BASH, SO package.json's `sh -n` CANNOT FAIL ON A BASHISM ON THE ONLY RUNNER
+# CI USES. MEASURED on this box: /bin/sh is GNU bash 3.2.57, and `sh -n` exits 0 on a file carrying
+# `local`, an array literal and `[[ ]]`, where `dash -n` exits 2. Changing package.json from
+# `bash -n` to `sh -n` is still right (it matches the shebang, and it IS a POSIX gate wherever
+# /bin/sh is dash), but it is UNARMED on this runner, so the arming lives here, in two parts.
+printf '%s\n' 'f() { local x=1; }' 'arr=(a b c)' '[[ 1 == 1 ]]' > "$T/bashism.sh"
+_bashism_re='(^|[[:space:]])local[[:space:]]|\[\[|[A-Za-z_][A-Za-z0-9_]*=\('
+# PART 1 is machine-independent, so it runs everywhere CI does. Its control comes first: a matcher
+# that matches nothing would report a clean lib the same way a real pass does.
+if /usr/bin/grep -qE "$_bashism_re" "$T/bashism.sh"; then
+  pass "CONTROL: the bashism matcher really matches local, [[ ]] and an array literal"
+  if /usr/bin/grep -qE "$_bashism_re" "$DIR/lib/served-verify.sh"; then
+    fail "served-verify.sh declares #!/bin/sh and contains a bashism token; sh -n on macOS is bash and would not have caught it"
+  else
+    pass "no bashism token in served-verify.sh (matcher proven able to match one)"
+  fi
+else
+  fail "CONTROL: the bashism matcher matches nothing even in a file built to contain three bashisms, so the arm it guards is vacuous"
+fi
+# PART 2 needs a strict POSIX parser. PROBE for one rather than naming dash, the same trick as
+# ESC_SH above: a candidate qualifies only if its own -n REJECTS the bashism file.
+STRICT_SH=""
+for _c in dash /bin/dash ash /bin/ash; do
+  command -v "$_c" >/dev/null 2>&1 || continue
+  "$_c" -n "$T/bashism.sh" >/dev/null 2>&1 && continue
+  STRICT_SH="$_c"; break
+done
+if [ -n "$STRICT_SH" ]; then
+  pass "found a shell whose -n REJECTS a bash array literal, so a real POSIX parse is checkable here: $STRICT_SH"
+  if "$STRICT_SH" -n "$DIR/lib/served-verify.sh" >/dev/null 2>&1; then
+    pass "served-verify.sh parses under $STRICT_SH, which is what its #!/bin/sh claims"
+  else
+    fail "served-verify.sh does NOT parse under $STRICT_SH although its shebang is #!/bin/sh"
+  fi
+else
+  pass "NO strict POSIX parser on this machine, so PART 2 did not run. STATED, not silently skipped: PART 1 above is machine-independent and did run, and package.json's sh -n is bash here."
 fi
 
 # 🛑 THE HEADER IS DERIVED, NOT RESTATED. Two prose counts went stale here, so this arm reads the
@@ -451,6 +552,16 @@ hdr=$(sed -n '1,/^set -u$/p' "$0")
 if [ "$(printf '%s\n' "$hdr" | wc -l)" -ge "$(wc -l < "$0")" ]; then
   fail "the header slice is the whole file; the naming check below cannot fail"
 fi
+# 🛑 THE LENGTH CHECK IS A PROXY AND IT MISSES A RELOCATED DELIMITER, WHICH THE COMMENT ABOVE
+# CALLED CLOSED. MEASURED: move `set -u` to just after the heredoc terminator (behaviourally
+# identical) and undocument a handler. $hdr then swallows the whole server source, every token is
+# trivially "named", the slice is STILL SHORTER than the file so the -ge check never fires, and the
+# suite exits 0 with an undocumented handler. The trailing-space instance really is caught; the
+# CLASS was not, and the sentence generalised from the instance. This asserts the property directly.
+case "$hdr" in
+  *'srv.py" <<'*)
+    fail "the header slice contains the server heredoc, so the delimiter has moved and every handler token is trivially named; the naming arm below cannot fail" ;;
+esac
 # ⚠️ THE TRAILING SLASH IS LOAD-BEARING. Extracting `/sso` and substring-matching it against the
 # header made this guard VACUOUS for that one handler: `/sso` is a prefix of /ssologin, /ssomissing,
 # /ssoesc, /ssonoct, /ssonoctpage and /ssogone, so documenting ANY of the six satisfied it and a
@@ -465,7 +576,15 @@ fi
 # p.startswith('/discriminating'), so rewriting the REAL dispatch into an equivalent the regex
 # cannot see left this arm printing 9 and the suite green. That is precisely the regression this
 # guard was added to catch, and it was blind to it for that one handler.
-srv_src=$(sed -n '/srv\.py" <</,/^PY$/p' "$0")
+# 🛑 FIRST MATCH ONLY, WHICH sed CANNOT DO. `sed -n '/a/,/b/p'` RESTARTS: after the real
+# heredoc range it looks for the opening address again, finds the literal in the header-slice
+# control a few hundred lines below, and prints from there TO EOF because no `^PY$` follows. That
+# happened the moment that control was added, and it reds this arm's own terminator check rather
+# than passing quietly, which is why the check exists. awk with a `started` flag takes the FIRST
+# range and nothing after it, so any later occurrence of the literal is inert.
+srv_src=$(awk '/srv\.py" <</ && !started { started = 1; inblk = 1 }
+               inblk { print }
+               inblk && /^PY$/ { inblk = 0 }' "$0")
 # 🛑 BOUNDING TO THE HEREDOC MOVED THE HOLE, IT DID NOT CLOSE IT: the heredoc is itself the file's
 # densest comment region, about ten blocks of it. MEASURED on a copy: rewrite the real dispatch
 # `if p.startswith('/blind/'):` into `if p[:7] == '/blind/':` and add ONE comment line INSIDE the
@@ -486,9 +605,20 @@ srv_code=$(printf '%s\n' "$srv_src" | /usr/bin/grep -v '^[[:space:]]*#')
 # count at 15, the naming arm trivially green (no token was ever surfaced to check) and the suite
 # exited 0 with an undocumented blind-host handler in the fixture. That is not one of the exclusions
 # named below -- it is the exact mechanism this guard claims to cover, defeated by a quote.
+# 🛑 SPACES AROUND `==` ARE OPTIONAL, AND REQUIRING EXACTLY ONE WAS THE SAME HOLE AGAIN.
+# MEASURED, three ways, all with the count still 15 and the suite exit 0: `if p=='/evilnodoc':`
+# serving 200 text/html for every path, `elif rest=='/dist/secretpage.bin':` likewise, and
+# `if p  ==  '/spacedout':` with two spaces. None of those is one of the exclusions named in the
+# header; each is a dispatch statement on p or rest, in a quote style, defeated by whitespace.
 srv_paths=$(printf '%s\n' "$srv_code" \
-  | /usr/bin/grep -E "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]==[[:space:]])['\"]/[^'\"]*['\"]" \
+  | /usr/bin/grep -E "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]*==[[:space:]]*)['\"]/[^'\"]*['\"]" \
   | /usr/bin/grep -oE "['\"]/[^'\"]*['\"]" | tr -d "'\"" | sort -u)
+# CONTROL, AND IT IS WHY ONE DISPATCH IN THE FIXTURE IS WRITTEN `p=='/ssonoctpage'`: without a
+# spaceless dispatch, nothing exercises the half of the pattern just widened, and a future reformat
+# would silently restore the blindness with every arm green. Same shape as the double-quote control.
+if ! printf '%s\n' "$srv_code" | /usr/bin/grep -qE "^[[:space:]]*(el)?if (p|rest)==['\"]/"; then
+  fail "no SPACELESS == dispatch is left in the fixture server, so nothing proves the extraction tolerates missing spaces around ==; an undocumented 'if p==\"/x\":' would be invisible to it again"
+fi
 # CONTROL, AND IT IS WHY ONE DISPATCH BELOW IS DELIBERATELY DOUBLE-QUOTED: without a double-quoted
 # dispatch in the fixture, nothing here exercises the half of the pattern that was just added, and a
 # future edit normalising the quotes would silently restore the blindness with every arm still green.
@@ -514,19 +644,46 @@ if [ "$_srv_last" != "PY" ]; then
   fail "the server-source slice does not end at the heredoc terminator (last line: '$_srv_last'). The delimiters moved, so this arm is reading unrelated lines, not the server."
 fi
 n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
-# The floor is the COUNT OF DISPATCH BRANCHES, not a round number: fifteen today -- ten top-level
-# and five sub-dispatch, which is why it is not the nine it was before the sub-dispatch was read. A
-# floor below the truth is what let the lost /discriminating go unnoticed, which this file has now
-# been bitten by twice (a `>= 5` here, and a `>= 8` on another branch).
-if [ "$n_paths" -ne 15 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 15: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
+# The floor is the COUNT OF DISPATCH BRANCHES, not a round number, and it is an EQUALITY: a floor
+# below the truth is what let the lost /discriminating go unnoticed, which this file has been bitten
+# by twice (a `>= 5` here, and a `>= 8` on another branch). 📌 NO SPLIT OF THIS NUMBER IS STATED,
+# in prose or here. An earlier version said "ten top-level and five sub-dispatch"; nothing read
+# those two numbers, so adding one sub-path and bumping the total would have left both stale -- the
+# exact failure this file's opening paragraph disclaims.
+if [ "$n_paths" -ne 16 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 16: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
-  missing=""
-  for _p in $srv_paths; do
-    case "$hdr" in *"$_p"*) : ;; *) missing="$missing $_p" ;; esac
-  done
-  if [ -n "$missing" ]; then fail "the header does not name these server handlers:$missing"; else pass "every server handler is named in the header (derived, not counted in prose)"; fi
+  # 🛑 MATCH INSIDE THE DELIMITED MANIFEST ONLY, AND ONLY AT THE START OF AN ENTRY. Asking
+  # whether the token appeared anywhere in $hdr let PROSE ABOUT a handler document it: MEASURED,
+  # deleting the entire /sso/ manifest entry left the suite green and the arm printed "derived, not
+  # counted in prose", because both tokens survive in a later paragraph. That is the same defect
+  # this file closed on the server-source side by anchoring, still open on the header side.
+  man=$(printf '%s\n' "$hdr" | sed -n '/^# --- MANIFEST BEGIN ---$/,/^# --- MANIFEST END ---$/p')
+  _man_last=$(printf '%s\n' "$man" | tail -1)
+  if [ "$_man_last" != "# --- MANIFEST END ---" ]; then
+    fail "the manifest slice does not end at its END sentinel (last line: '$_man_last'). Either a sentinel moved or the opening one is gone, and an unmatched OPENING address makes sed emit NOTHING while an unmatched CLOSING one prints to EOF; both make the naming arm below meaningless."
+  elif [ "$(printf '%s\n' "$man" | wc -l)" -ge "$(printf '%s\n' "$hdr" | wc -l)" ]; then
+    fail "the manifest slice is the whole header, so matching inside it is no narrower than matching the header; the prose hole is back"
+  else
+    missing=""
+    for _p in $srv_paths; do
+      _found=0
+      while IFS= read -r _mline; do
+        case "$_mline" in
+          "#   $_p "*) _found=1; break ;;
+        esac
+      done <<MANIFEST
+$man
+MANIFEST
+      [ "$_found" -eq 1 ] || missing="$missing $_p"
+    done
+    if [ -n "$missing" ]; then
+      fail "these server handlers have no MANIFEST ENTRY of their own:$missing. Prose mentioning a handler elsewhere in the header no longer counts as documenting it; add one '#   <token>  <one line>' entry inside the MANIFEST block."
+    else
+      pass "every server handler has its own manifest entry (derived from the dispatch, anchored to the start of an entry line)"
+    fi
+  fi
 fi
 
 echo ""
