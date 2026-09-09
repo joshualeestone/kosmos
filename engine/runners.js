@@ -623,7 +623,7 @@ function install(provider, opts) {
      `o.platform` is the test seam (defaults to process.platform); the polished
      user-facing wording is the operator's to refine (see engine/platform.js). */
   const plat = o.platform || process.platform;
-  if (!platformGate.isSupported(plat)) {
+  if (!platformGate.canDownloadRunner(plat)) {
     return refuse(`this platform (${plat}) is not supported; the ${provider} runner is a macOS build and was not downloaded`);
   }
 

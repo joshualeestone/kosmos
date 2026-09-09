@@ -762,7 +762,15 @@ async function download(onProgress, track, platform = process.platform) {
      build, so it makes no part of Windows look functional). `platform` is a
      parameter (default process.platform) so the refusal is testable on a Mac. The
      polished user-facing wording is the operator's to refine (see engine/platform.js). */
-  if (!platformGate.isSupported(platform)) {
+  /* #570: `canDownloadRunner`, NOT `isSupported`. win32 now RUNS agents (the
+     launch substrate landed), but the artifact this function fetches is still a
+     `darwin-${arch}` build -- so the question here is "do we publish a runner for
+     this platform", which is a different one. Reading `isSupported` would have
+     started downloading macOS binaries onto Windows the moment the substrate was
+     supported: the exact half-succeed this gate exists to prevent, turned on by
+     the change meant to make Windows work. The refusal below is unchanged and
+     still correct on win32; only the predicate is now the honest one. */
+  if (!platformGate.canDownloadRunner(platform)) {
     throw new Error('this platform (' + platform + ') is not supported; the Claude Code binary is a macOS build and was not downloaded');
   }
   const base = downloadBase();

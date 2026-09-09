@@ -24,10 +24,50 @@
  * so that screen can be wired later without changing this gate.
  */
 
-// The platforms whose substrate actually works today. macOS only. Adding one is
-// a real port (a scheduler abstraction for the launchctl substrate, per the
-// cross-platform analysis), not an entry here.
-const SUPPORTED = Object.freeze(['darwin']);
+/* The platforms whose agent substrate actually works today.
+ *
+ * 🔑 win32 IS HERE BECAUSE THE PORT HAPPENED, not because an entry was added.
+ * This comment used to say "macOS only. Adding one is a real port (a scheduler
+ * abstraction for the launchctl substrate), not an entry here" -- and it was
+ * right, which is why the entry waited for the substrate. `engine/win32launch.js`
+ * is that abstraction: it writes the trust entry, mints the session id, ownership
+ * record and sender token, and spawns an interactive, top-level, hidden-console
+ * agent pinned to the recorded id. Measured on a real Windows box 2026-09-07:
+ * four agents launched concurrently, all four live on the board under their
+ * RECORDED names, all four credentialed, clean teardown.
+ *
+ * 🔑 AND IT NOW COMES BACK, which this comment used to deny. Keep-alive was the
+ * separate slice it called for, and it landed as the two halves launchd bundles
+ * into one plist: `engine/win32job.js` registers an at-logon Scheduled Task
+ * (RunAtLoad) and `engine/win32supervisor.js` is the respawn loop with the same
+ * 30s throttle (KeepAlive + ThrottleInterval). `engine/win32anchor.js` is what
+ * makes that durable across a version update, which on a portable-zip platform is
+ * a real hazard rather than a theoretical one.
+ *
+ * ⚠️ WHAT IT STILL DOES NOT MEAN: an at-logon task needs a LOGIN, exactly as
+ * launchd's RunAtLoad does -- both are per-user agents, not system daemons. A box
+ * that reboots to a locked login screen brings back no fleet on either platform
+ * until somebody signs in. That is a property shared with the Mac, not a Windows
+ * shortfall, but it is the thing people read "survives a reboot" to mean. */
+const SUPPORTED = Object.freeze(['darwin', 'win32']);
+
+/* 🛑 AND THE SECOND QUESTION, WHICH THIS MODULE USED TO CONFLATE WITH THE FIRST.
+ * Two gates read `isSupported` to refuse a DOWNLOAD, not to refuse running an
+ * agent: `connect.js` fetches Claude Code as `darwin-${arch}` (line ~719), and
+ * `runners.js` pins codex to `vendor/aarch64-apple-darwin/bin/codex` in a
+ * `-darwin-arm64` tarball. Those artifacts are macOS builds and no port changes
+ * that -- publishing Windows builds is somebody's real work, not this list's.
+ *
+ * So adding win32 to SUPPORTED without splitting these would have armed Kosmos to
+ * download MACOS BINARIES ONTO WINDOWS: exactly the "attempt a Mac-only action on
+ * the wrong OS and half-succeed" the original gate was written to prevent, turned
+ * on by the very change that was supposed to make Windows work.
+ *
+ * ⇒ One name per question. A Windows user installs Claude Code themselves (as the
+ * measured box did: claude.exe already on disk, installedCheck reports it
+ * present); Kosmos uses the runner that is there and says honestly that it cannot
+ * fetch one. */
+const RUNNER_DOWNLOADS = Object.freeze(['darwin']);
 
 /** True only on a platform whose agent substrate runs. Defaults to this process.
  *  ⚠️ Only the DEFAULT (called with no argument, or explicit `undefined`) reads the
@@ -38,9 +78,22 @@ function isSupported(platform = process.platform) {
   return SUPPORTED.includes(platform);
 }
 
-/** Machine facts for the API / a future gate screen. No user-facing copy. */
-function describe(platform = process.platform) {
-  return { platform, supported: isSupported(platform) };
+/** True only where Kosmos publishes a runner build it could fetch. Same
+ *  fail-closed shape as isSupported: anything not on the list is false. */
+function canDownloadRunner(platform = process.platform) {
+  return RUNNER_DOWNLOADS.includes(platform);
 }
 
-module.exports = { SUPPORTED, isSupported, describe };
+/** Machine facts for the API / a future gate screen. No user-facing copy.
+ *  `runnerDownloads` is reported separately because a platform can now run
+ *  agents while being unable to fetch a runner for itself, and a screen that
+ *  says only "supported" cannot express that. */
+function describe(platform = process.platform) {
+  return {
+    platform,
+    supported: isSupported(platform),
+    runnerDownloads: canDownloadRunner(platform),
+  };
+}
+
+module.exports = { SUPPORTED, RUNNER_DOWNLOADS, isSupported, canDownloadRunner, describe };
