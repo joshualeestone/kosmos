@@ -1,3 +1,4 @@
+// Browser-check-surface: pj-post-go
 /* #1303 group C: the composer goes back to ONE LINE after a send.
  *
  * Josh, 2026-08-28: "if it expands to two lines for the message that I'm

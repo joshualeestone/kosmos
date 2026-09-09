@@ -1,3 +1,4 @@
+// Browser-check-surface: d-doctrine-add
 'use strict';
 /**
  * #1841: the view-agent-detail header redesign, on a screen (Josh, 2026-09-02).

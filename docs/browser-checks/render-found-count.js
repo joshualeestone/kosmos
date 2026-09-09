@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-foundcount
 'use strict';
 
 /**
