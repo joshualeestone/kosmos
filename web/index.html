@@ -8542,7 +8542,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <div class="s3-battonly">
             <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open.</p>
             <span class="s3-battonly-act"><button class="s3-continue" type="button">Continue anyway</button></span>
-            <span class="s3-pill s3-pill-wait s3-continued-pill" role="status">Continuing, with a caveat</span>
+            <span class="s3-pill s3-pill-wait s3-continued-pill" role="status" tabindex="-1">Continuing, with a caveat</span>
           </div>
         </div>
 
@@ -38665,7 +38665,7 @@ async function frPollGates(screenEl, gen) {
     // escape shows (CSS keys on [data-battonly]); clear it otherwise. data-continued
     // is set by the escape's click handler and is deliberately NOT touched here, so
     // an informed override survives every poll.
-    if (reads[i].battOnly) row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
     // Only 'blocked' gates Next -- EXCEPT a battOnly row the user has explicitly
     // continued past. That is an informed override, not a granted state: the row
     // stays honestly not-activated (no green pill) and simply stops blocking Next.
@@ -39257,11 +39257,15 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
     const crow = cont.closest('[data-gate]');
     if (crow) crow.setAttribute('data-continued', '');
     await frRecheckGates();
-    // data-continued hides this button, so move focus to the now-unlocked Next (the
-    // natural next action) rather than dropping keyboard focus to <body>. The muted
-    // caveat pill (role="status") still announces the outcome to a screen reader.
+    // data-continued hides this button, so move keyboard focus off it rather than letting
+    // it drop to <body>. If continuing unlocked Next (the other gates are satisfied), focus
+    // Next -- the natural next action. If ANOTHER gate (e.g. tmux) still blocks, Next stays
+    // disabled; focus the caveat pill instead, which is visible and (being focused) reliably
+    // announces "Continuing, with a caveat" to a screen reader, and leaves the user one Tab
+    // from the remaining gate's control.
     const nx = document.getElementById('fr-next');
-    if (nx && !nx.disabled) nx.focus();
+    if (nx && !nx.disabled) { nx.focus(); }
+    else if (crow) { const pill = crow.querySelector('.s3-continued-pill'); if (pill) pill.focus(); }
     return;
   }
   const b = e.target.closest('.s3-on');

@@ -206,8 +206,8 @@ test('#2587: the sleep gate offers a laptop "Continue anyway" escape (battOnly),
   //    the informed override, not a grant.
   const fps = PAGE.indexOf('async function frPollGates(');
   const fpBody = PAGE.slice(fps, PAGE.indexOf('\n}', fps));
-  assert.match(fpBody, /reads\[i\]\.battOnly\)\s*row\.setAttribute\('data-battonly'/,
-    'frPollGates does not mark the battOnly row with data-battonly');
+  assert.match(fpBody, /reads\[i\]\.battOnly && st === 'blocked'\)\s*row\.setAttribute\('data-battonly'/,
+    'frPollGates does not mark the battOnly row with data-battonly (gated on the blocked state, so a green row can never co-render the escape)');
   assert.match(fpBody, /st === 'blocked' && !\(reads\[i\]\.battOnly && row\.hasAttribute\('data-continued'\)\)/,
     'a continued battOnly row is not excluded from anyBlocked (Next would stay locked, or the override is unguarded)');
   // The ONLY data-granted the poll sets is on the 'granted' state (prevented:true), so a
@@ -230,8 +230,8 @@ test('#2587: the sleep gate offers a laptop "Continue anyway" escape (battOnly),
     'the escape note (Mona copy) is missing or altered');
   assert.match(sleepRow, /<button class="s3-continue" type="button">Continue anyway<\/button>/,
     'the "Continue anyway" button is missing');
-  assert.match(sleepRow, /class="s3-pill s3-pill-wait s3-continued-pill"/,
-    'the continued caveat is not the neutral (s3-pill-wait) pill -- it must never be the green s3-pill-ok');
+  assert.match(sleepRow, /class="s3-pill s3-pill-wait s3-continued-pill"[^>]*tabindex="-1"/,
+    'the continued caveat is not the neutral (s3-pill-wait) pill, or is not focusable (tabindex=-1) so focus can land on it when Next stays locked');
   assert.ok(sleepRow.indexOf('s3-battonly-note') < sleepRow.indexOf('s3-continue'),
     'the tradeoff note must sit ABOVE the Continue button (read before clicking past)');
 
@@ -241,6 +241,10 @@ test('#2587: the sleep gate offers a laptop "Continue anyway" escape (battOnly),
   const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));
   assert.match(handler, /closest\('\.s3-continue'\)[\s\S]*?setAttribute\('data-continued'[\s\S]*?frRecheckGates\(\)/,
     'the .s3-continue click does not record data-continued and re-poll');
+  // Continuing hides the button, so focus must move: to Next if it unlocked, else to the
+  // caveat pill (Next can stay locked when another gate still blocks) -- never dropped to body.
+  assert.match(handler, /s3-continue[\s\S]*?getElementById\('fr-next'\)[\s\S]*?querySelector\('\.s3-continued-pill'\)/,
+    'the continue handler does not focus Next-or-the-caveat-pill (focus would drop to <body> when another gate still blocks)');
 
   // 6. CSS: data-battonly hides the useless Turn On and shows the escape.
   assert.match(S3, /\.s3-gate-row\[data-battonly\] \.s3-req\{display:none\}/,
