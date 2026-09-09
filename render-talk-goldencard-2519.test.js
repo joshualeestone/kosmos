@@ -678,7 +678,7 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
   /* ⚠️ THE EXACT COUNT, NOT A FLOOR WITH SLACK. This was `>= 21` while the code pins
      22, so the first deletion netted to 21 and passed, while the comment below claimed
      the floor catches a net removal. A floor one below the truth catches nothing. */
-  assert.equal(pinned.size, 23, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
+  assert.equal(pinned.size, 24, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
   assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
     'the set of fields re-pinned FROM another object changed; that is the enum-bounded category and it needs an arm of its own');
 
@@ -1046,6 +1046,30 @@ test('#2519: context.confidence and context.because are values the PRODUCER can 
     assert.equal(unmeasured.context.confidence, 'none',
       'an unmeasured context was recorded as structured, which status.js cannot emit beside a null tokens');
     assert.equal(unmeasured.context.because, 'we cannot find a transcript for it');
+    /* 🛑 THE THIRD SHAPE, WHICH THE FIRST VERSION OF THIS ARM DID NOT KNOW EXISTED.
+       status.js has THREE context results, not two: measuredResult, NONE_BASE, and
+       `noCeilingResult` (status.js:4314), reached whenever limitFor(model) returns null
+       for a model not yet in the limit tables. It sets a real NUMERIC tokens with
+       `percent: null`, `ceiling: null`, `noCeiling: true` and CONFIDENCE.STRUCTURED.
+       The two-shape `measured` predicate required BOTH numbers, so it filed this as
+       unmeasured and wrote `confidence: 'none'` beside a non-null tokens. Every
+       CONFIDENCE.NONE result in status.js pairs with `tokens: null`, so that is a pairing
+       the producer can never emit, introduced by the commit that fixed the two-shape
+       version of the same defect. */
+    const noCeiling = Object.assign({}, poisoned);
+    noCeiling.context = Object.assign({}, poisoned.context, {
+      tokens: 9001, percent: null, ceiling: null, noCeiling: true,
+    });
+    const ncOut = cap.neutralise(noCeiling);
+    assert.equal(ncOut.context.confidence, 'structured',
+      'a READ context with no known ceiling was recorded as confidence none beside a non-null tokens, which status.js never emits');
+    assert.match(ncOut.context.because, /^measured, but we do not know how much /,
+      'the no-ceiling context was given a because that does not pair with it');
+    assert.equal(typeof ncOut.context.tokens, 'number', 'the no-ceiling tokens lost its type');
+    /* CONTROL: the pairing must be checkable, i.e. an unmeasured card still gets none. */
+    assert.equal(unmeasured.context.confidence, 'none',
+      'CONTROL: every shape now reports structured, so the assertion above proves nothing');
+
     const measuredIn = Object.assign({}, poisoned);
     measuredIn.context = Object.assign({}, poisoned.context, { tokens: 4321, percent: 3 });
     const out = cap.neutralise(measuredIn);

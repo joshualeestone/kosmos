@@ -47,7 +47,7 @@
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
  *   - PINS these fields to constants. PIN-LIST-BEGIN
- *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+ *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
  *     PIN-LIST-END
  *     ⚠️ PATHS, NOT NAMES, AND THE DIFFERENCE WAS A REAL HOLE. The list carried bare
  *     names with a parenthetical saying where each lived, and `because` IS PINNED IN TWO
@@ -350,6 +350,16 @@ function neutralise(live) {
       && typeof card.disruption.startedAt === 'number') {
     card.disruption.startedAt = 1757000000000;
   }
+  /* ⚠️ `timedOut` PINNED TOO, AND COHERENTLY. It reached the recording unpinned, accepted
+     because today's value happens to be non-identifying, which is the "holds by
+     coincidence of what the tree writes today" reasoning this file rejects everywhere
+     else. `false` is also the value that PAIRS with the restarting `because` pinned above:
+     status.js emits "we restarted this agent and it has not come back yet" only when
+     timedOut is true. */
+  if (card.disruption && typeof card.disruption === 'object'
+      && typeof card.disruption.timedOut === 'boolean') {
+    card.disruption.timedOut = false;
+  }
   if (card.context && typeof card.context === 'object') {
     if (typeof card.context.tokens === 'number') card.context.tokens = 82646;
     if (typeof card.context.percent === 'number') card.context.percent = 8;
@@ -401,14 +411,34 @@ function neutralise(live) {
        ternary makes the RHS `measured`, so both fields silently reclassified as re-pins
        and the pin count fell from 22 to 20. Keeping the RHS literal keeps the instrument
        simple, which is worth more here than the shorter spelling. */
-    const measured = typeof card.context.tokens === 'number' && typeof card.context.percent === 'number';
+    /* 🛑 THREE CONTEXT SHAPES, NOT TWO, AND THE FIRST FIX HERE KNEW ABOUT TWO. `measured`
+       required BOTH tokens and percent to be numeric, which misclassifies status.js's
+       `noCeilingResult` (status.js:4314, reached whenever limitFor(model) returns null for
+       a model not yet in the limit tables): it sets a real NUMERIC tokens with
+       `percent: null`, `ceiling: null`, `noCeiling: true` and CONFIDENCE.STRUCTURED.
+       Treating it as unmeasured wrote `confidence: 'none'` beside a non-null `tokens`, and
+       EVERY CONFIDENCE.NONE result in status.js pairs with `tokens: null`, so that pairing
+       is one the producer can never emit. The commit that fixed the two-shape version of
+       this defect introduced it for the third shape, and the tool's own header named
+       noCeilingResult as a source of STRUCTURED two paragraphs above.
+       ⇒ A reading happened if TOKENS is a number. The ceiling is a separate question. */
+    const measured = typeof card.context.tokens === 'number';
+    const scaled = measured && typeof card.context.percent === 'number';
     if (typeof card.context.confidence === 'string' && measured) card.context.confidence = 'structured';
     if (typeof card.context.confidence === 'string' && !measured) card.context.confidence = 'none';
-    if (typeof card.context.because === 'string' && measured) {
-      card.context.because = 'measured, against a limit we have assumed rather than watched';
-    }
     if (typeof card.context.because === 'string' && !measured) {
       card.context.because = 'we cannot find a transcript for it';
+    }
+    if (typeof card.context.because === 'string' && scaled) {
+      card.context.because = 'measured, against a limit we have assumed rather than watched';
+    }
+    /* The noCeiling sentence interpolates the MODEL, and the model is pinned above, so the
+       two must agree. `this model` is the producer's own fallback when model is null. */
+    if (typeof card.context.because === 'string' && measured && !scaled && card.model === null) {
+      card.context.because = 'measured, but we do not know how much this model can hold';
+    }
+    if (typeof card.context.because === 'string' && measured && !scaled && card.model !== null) {
+      card.context.because = 'measured, but we do not know how much claude-opus-5 can hold';
     }
   }
   return card;

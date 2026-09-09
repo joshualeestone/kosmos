@@ -144,7 +144,7 @@ items with the numbering skipping 4). Counting the items and counting the catego
 different acts, and every version so far has done one while claiming the other:
 
 1. **PINNED to constants.** PIN-LIST-BEGIN
-   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
    PIN-LIST-END
    (Paths, not names: `because` is pinned both top-level and under `context`.)
    🛑 **This does NOT make a re-capture byte-identical**, and the sentence claiming it did
@@ -213,6 +213,17 @@ whose transcript could not be read, reds those three, and two of the three messa
 not have named re-capture as the cause. So: **capture while an agent of yours is actually
 working and has a readable transcript**, and if you meant to change the recording's shape,
 update those arms deliberately rather than reading their red as a bug.
+
+🛑 **THE NESTED-DRIFT GAP IS A LIVE RISK, NOT ONLY A NOTE FOR THE NEXT CONTRIBUTOR.** A
+reviewer raised it as an open regression rather than as documentation, and that reading is
+correct: a rename inside `context` or `profile` on a populated box leaves the top-level
+key-set comparison in `yarn test` GREEN while the committed recording drives `openDetail`
+with a shape the page no longer consumes, on exactly the quiet boxes the fallback exists
+for. `openDetail` reads `context.percent`, so it is not hypothetical.
+**What would close it:** a comparison that can tell drift from board COMPOSITION. The one
+built here could not, and was removed for firing on an 18-agent board where two `profile`
+shapes were legitimately present. The arm pinning its absence carries a
+`COMPOSITION-AWARE DRIFT GUARD` escape hatch precisely so this fix is not locked out.
 
 ⚠️ **An earlier version of this paragraph said the moment you would be tempted to
 hand-edit is "the drift guard's red".** There is no drift guard: it was built on this
