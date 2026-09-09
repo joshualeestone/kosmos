@@ -38056,15 +38056,16 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
   if (!btn || !PJ_CURRENT) return;
   openMemModal(btn, document.getElementById('pjs-members-msg'));
 });
+/* The project members list opens an agent's detail page on click (#2574). The
+   remove (minus) button is INSIDE the member row, so it is checked FIRST and
+   returns -- mirroring the board grid's inner-control-first rule -- or a member
+   click would also open the agent. */
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
-  /* The remove (minus) button is INSIDE the member row, so it is checked FIRST
-     and returns -- mirroring the board grid's inner-control-first rule -- or a
-     member click would also open the agent. */
   const btn = e.target.closest('.pj-minus[data-drop]');
   if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
-  /* #2574: clicking a member opens that agent's detail page, id-keyed via
-     data-agent (sessionName) -- the SAME open-agent path the agents grid uses
-     (openDetail) -- and passes PJ_CURRENT so detail-back returns to this project. */
+  // #2574: a member click opens that agent's detail page, id-keyed via data-agent
+  // (sessionName) -- the SAME open-agent path the agents grid uses (openDetail) --
+  // passing PJ_CURRENT so detail-back returns to this project.
   const member = e.target.closest('.pj-member[data-agent]');
   if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
 });
