@@ -125,4 +125,4 @@ async function driveCreate(page, agentsOutcome) {
     process.exit(1);
   }
   console.log('render-createnav-2190: Create advances to the progress screen; an error routes back to the create screen with the message.');
-})();
+})().catch((e) => { console.error(e); process.exit(1); });
