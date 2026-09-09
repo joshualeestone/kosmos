@@ -71,6 +71,22 @@ class H(http.server.BaseHTTPRequestHandler):
             else:
                 self._send(404, 'text/html; charset=utf-8', b'not found')
             return
+        if p.startswith('/routeblind'):
+            # #2565: a ROUTE-SCOPED blindness. Discriminates under /dist (a nonexistent /dist path
+            # 404s, so the default control passes), but the site ROOT is a catch-all that 200s every
+            # path -- including a nonexistent one -- so a 200 at /setup there is meaningless. This is
+            # the rewrite/catch-all/SPA-fallback case the card names, distinct from the host-wide
+            # /blind/ SSO shape above.
+            rest = p[len('/routeblind'):]
+            if rest.startswith('/dist/'):
+                if rest == '/dist/real.bin':
+                    self._send(200, 'application/octet-stream', b'REALBYTES')
+                else:
+                    self._send(404, 'text/html; charset=utf-8', b'not found')
+            else:
+                # root route: blind -- 200 for EVERYTHING, including a path that cannot exist.
+                self._send(200, 'text/plain; charset=utf-8', b'catch-all root body')
+            return
         self._send(404, 'text/html; charset=utf-8', b'not found')
 
     def log_message(self, *a):
@@ -100,6 +116,7 @@ pass "local server listening on $PORT"
 
 SOUND="http://127.0.0.1:$PORT/discriminating"
 BLIND="http://127.0.0.1:$PORT/blind"
+ROUTEBLIND="http://127.0.0.1:$PORT/routeblind"   # #2565: discriminates under /dist, blind at root
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -113,6 +130,21 @@ check_rc "$rc" 0 "sound host: negative control passes (nonexistent path 404s)"
 # RED-CAPABLE: the blind host 200s a path that cannot exist. If this returns 0 the guard is unarmed.
 served_verify_host_discriminates "$BLIND" >/dev/null 2>&1; rc=$?
 check_rc "$rc" 1 "BLIND host: negative control CATCHES the #1667 SSO-200-for-everything shape"
+
+echo "-- #2565: route-aimed control (the route param proves discrimination WHERE the caller trusts) --"
+# The sound host also discriminates at the ROOT route (a nonexistent root path 404s), so aiming the
+# control at "/" does not false-red a sound host -- the root probe is a real control, not always-red.
+served_verify_host_discriminates "$SOUND" "/" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "sound host: the ROOT-route control also passes (a nonexistent root path 404s)"
+# THE GAP #2565 CLOSES: the route-blind host discriminates under /dist, so the DEFAULT (/dist) control
+# passes -- exactly what let deploy-site trust its /setup 200. A control aimed only at /dist cannot see
+# a blindness one route over.
+served_verify_host_discriminates "$ROUTEBLIND" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "#2565: the DEFAULT /dist control PASSES the route-blind host (the gap: /dist is not the route /setup is on)"
+# RED-CAPABLE: aiming the control at the ROOT route (where /setup lives) CATCHES the blindness the
+# /dist control missed. If this returns 0 the route parameter buys nothing.
+served_verify_host_discriminates "$ROUTEBLIND" "/" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 1 "#2565: the ROOT-route control CATCHES the route-scoped blindness the /dist control missed"
 
 echo "-- asset content-type tell --"
 served_verify_asset_ok "$SOUND/dist/real.bin" "the real asset" >/dev/null 2>&1; rc=$?

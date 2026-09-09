@@ -327,6 +327,11 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # text/html. (tools/lib/served-verify.sh, sourced above.)
 served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo "deploy-site: the Windows zip $WINZIP failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+# #2565: /setup is at the site ROOT, not under /dist, so the /dist control above does NOT prove a
+# 200 at $HOST/setup is meaningful -- a route-scoped blindness (a catch-all / rewrite / SPA fallback
+# at the root) discriminates under /dist and is blind at the root. Prove the ROOT route discriminates
+# before trusting the /setup 200, aiming the control at the route this line is about to trust.
+served_verify_host_discriminates "$HOST" "/" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed for the ROOT route that serves /setup (see above), so a 200 at /setup would be meaningless; the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
