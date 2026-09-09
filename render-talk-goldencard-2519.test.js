@@ -288,6 +288,27 @@ test('#2519: the fixture matches what status.snapshot() ACTUALLY emits, on ANY b
   }
 });
 
+test('#2519: a fixture that is valid JSON but NOT an object is refused, and says so', () => {
+  /* 🛑 THE FOURTH CAUSE, WHICH EXPLAINED NOTHING. The catch block enumerates a corrupt, a
+     missing and an unreadable fixture; the shape floor explains a trimmed one. Valid JSON
+     that parses to an array, a number, a string or null fell through a SILENT `return
+     null` one line above the floor whose own comment says a cause that explains nothing is
+     worse than a delete. Proved unarmed by mutation: deleting that NOTE redded nothing. */
+  const { goldenCard } = resolvers()();
+  for (const [label, body] of [['an array', '[]'], ['a number', '42'], ['null', 'null'], ['a string', '"card"']]) {
+    const f = path.join(SANDBOX, 'shape-' + label.replace(/\W+/g, '-') + '.json');
+    fs.writeFileSync(f, body + '\n');
+    const written = [];
+    const realWrite = process.stdout.write;
+    process.stdout.write = (chunk) => { written.push(String(chunk)); return true; };
+    let r;
+    try { r = goldenCard(f); } finally { process.stdout.write = realWrite; }
+    assert.equal(r, null, `${label} was served as a card`);
+    assert.match(written.join(''), /NOTE  render-talk/, `${label} was refused SILENTLY, which is worse than a delete`);
+    assert.match(written.join(''), /not a card object/, `the NOTE for ${label} does not say why`);
+  }
+});
+
 test('#2519: a TRIMMED fixture is refused, not served as a hollow card', () => {
   /* "An object that is not an array" accepts `{}`: openDetail would still run and the
      reopen arm would still pass, giving the box the fallback exists for a coverage claim
@@ -327,7 +348,7 @@ test('#2519: a TRIMMED fixture is refused, not served as a hollow card', () => {
 test('#2519: realCard PREFERS a live card, and says so', () => {
   /* The precedence and the LABEL, which nothing asserted. A mutation returning
      `{card: goldenCard(), source: 'live'}` passed the old membership check on every box
-     AND made the check's drift guard compare the fixture against itself: vacuously
+     AND would have made a live-vs-fixture comparison compare the fixture against itself (⚠️ this said "the check's drift guard", present tense, in the same file whose arm below pins that no such guard exists): vacuously
      green for ever, which is precisely the rot the guard exists to prevent. */
   /* ⚠️ THE LIVE CARD COMES FROM fleet, NOT FROM A LITERAL. My first version hand-built
      `{isNamedOurs: true, marker: 'FROM-LIVE'}` and fixture-discipline.test.js's "no test
@@ -574,7 +595,10 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
     const p = m[1].slice(1);
     (/^(['"]|\d|true|false|typeof)/.test(m[2]) ? pinned : repinned).add(p);
   }
-  assert.ok(pinned.size >= 21, `the pin extraction found only ${pinned.size}: ${[...pinned]}`);
+  /* ⚠️ THE EXACT COUNT, NOT A FLOOR WITH SLACK. This was `>= 21` while the code pins
+     22, so the first deletion netted to 21 and passed, while the comment below claimed
+     the floor catches a net removal. A floor one below the truth catches nothing. */
+  assert.equal(pinned.size, 22, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
   assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
     'the set of fields re-pinned FROM another object changed; that is the enum-bounded category and it needs an arm of its own');
 
@@ -608,6 +632,36 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
     }
   }
   assert.deepEqual(missing, [], `the pin enumeration has gone stale again:\n  ${missing.join('\n  ')}`);
+  /* 🛑 AND NO SECOND ENUMERATION OUTSIDE THE SENTINELS. Two more copies of the pin list
+     appeared in the README and the plan, in the bare-name form, each announcing itself as
+     "checked by an arm" while sitting where this arm does not look. The branch went from
+     four copies to SIX in the commit that claimed to make the enumeration mechanical, and
+     nothing redded. A run of backticked identifiers separated by commas is what an
+     enumeration looks like; one outside the region is a second copy. */
+  /* ⚠️ A RUN OF BACKTICKED NAMES IS NOT ENOUGH: the categories below the pin list are
+     legitimate OTHER enumerations (the structural booleans), and a bare run detector
+     flagged them. What marks a DUPLICATE is that the run names the PINS. */
+  const RUN = /(?:`[\w.]+`[,)]?\s*){7,}/g;
+  const pinNames = new Set([...pinned].map((f) => f.split('.').pop()));
+  for (const [where, text] of DOCS) {
+    const outside = [text.split('PIN-LIST-BEGIN')[0], text.split('PIN-LIST-END').slice(1).join('PIN-LIST-END')];
+    for (const part of outside) {
+      for (const run of part.match(RUN) || []) {
+        const hits = [...run.matchAll(/`([\w.]+)`/g)].filter((m) => pinNames.has(m[1].split('.').pop())).length;
+        assert.ok(hits < 5,
+          `${where} carries a SECOND copy of the PIN enumeration outside the sentinels, where this arm does not look (${hits} pin names in one run): ${JSON.stringify(run.slice(0, 120))}`);
+      }
+    }
+  }
+  /* CONTROL: the detector must fire on a real duplicate, or the loop above proves nothing. */
+  {
+    const fake = [...pinned].slice(0, 8).map((f) => '`' + f + '`, ').join('');
+    const runs = fake.match(RUN) || [];
+    assert.ok(runs.length === 1
+      && [...runs[0].matchAll(/`([\w.]+)`/g)].filter((m) => pinNames.has(m[1].split('.').pop())).length >= 5,
+      'CONTROL: the second-enumeration detector does not catch a copy of the pin list itself');
+  }
+
   /* CONTROL: the region check must be able to report a miss. */
   const anyRegion = DOCS[0][1].split('PIN-LIST-BEGIN')[1].split('PIN-LIST-END')[0];
   assert.ok(!anyRegion.includes('`zzzNeverPinnedName`'),
@@ -722,7 +776,8 @@ test('#2519: NOTHING under profile survives, on the non-string axis either', () 
      `profile.doctrineVersion` is a producer NUMBER (create.js:3651 from
      defaults.DOCTRINE_VERSION, again at doctrine.js:209) and `doctrineDeclined` sits
      beside it. Not identity-bearing, but unpinned and undocumented, so a re-capture on
-     almost any real agent was not byte-identical, which four places claim it is.
+     almost any real agent was not byte-identical, which four documents claimed until all
+     four were corrected.
      ⚠️ AND THE FIX HAD TO BE STRUCTURAL, NOT TWO MORE PINS. An allowlist over a
      free-form subtree is a guarantee resting on what the tree happens to write today,
      which is the exact failure this file is a record of. */
@@ -832,7 +887,20 @@ test('#2519: context.confidence and context.because are values the PRODUCER can 
     poisoned.context = Object.assign({}, real.context);
     poisoned.context.confidence = 'SECRET:/Users/realoperator/private.txt';
     poisoned.context.because = 'SECRET:/Users/realoperator/private.txt';
-    const out = cap.neutralise(poisoned);
+    /* 🛑 BOTH CONTEXT SHAPES, BECAUSE THE PAIR FOLLOWS THE NUMBERS. Pinning the MEASURED
+       pair unconditionally produced a card status.js cannot emit: `confidence: 'structured'`
+       beside `tokens: null`. The fleet agent has no transcript, so the card this arm drives
+       is the UNMEASURED shape, and the first version of this arm asserted the measured pair
+       on it and went red the moment the tool was corrected. Both are driven now. */
+    poisoned.context.tokens = null;
+    poisoned.context.percent = null;
+    const unmeasured = cap.neutralise(poisoned);
+    assert.equal(unmeasured.context.confidence, 'none',
+      'an unmeasured context was recorded as structured, which status.js cannot emit beside a null tokens');
+    assert.equal(unmeasured.context.because, 'we cannot find a transcript for it');
+    const measuredIn = Object.assign({}, poisoned);
+    measuredIn.context = Object.assign({}, poisoned.context, { tokens: 4321, percent: 3 });
+    const out = cap.neutralise(measuredIn);
     assert.equal(out.context.confidence, 'structured', 'context.confidence is not a producer value');
     assert.equal(out.context.because, 'measured, against a limit we have assumed rather than watched');
     /* AND THE COMMITTED RECORDING MUST AGREE, or the tool was corrected and the fixture
@@ -1199,7 +1267,7 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
 
 test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
   /* status.js emits both and both carry isNamedOurs. Their shapes legitimately differ, so
-     taking whichever came first made the drift guard report board COMPOSITION as drift.
+     taking whichever came first would drive the arm with a PANELESS card, whose null session/target the recording never produces (⚠️ this said "made the drift guard report board COMPOSITION as drift", which render-talk.js explicitly marks stale: the guard is gone and the reason is shape).
      ⚠️ The paneless variant here is a REAL fleet card with its flag flipped, not a
      literal: fixture-discipline's lint is right that hand-built cards are the defect, and
      this arm needs a real shape to be worth anything. */

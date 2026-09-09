@@ -10,15 +10,23 @@
  * 🛑 THIS TOOL EXISTS BECAUSE THE ALTERNATIVE IS HAND-EDITING THE JSON, and that is the
  * exact defect render-talk.js's header describes: "a literal invented here is exactly
  * the fixture that made six rounds of review pass against a world that does not exist".
- * The drift guard tells an operator to re-capture; without a tool, the natural recovery
- * from a blocked cut is to edit the file until the guard goes quiet, which reintroduces
- * the class the whole design avoids.
+ * The anti-rot arm tells an operator to re-capture; without a tool, the natural recovery
+ * from a blocked check is to edit the file until it goes quiet, which reintroduces the
+ * class the whole design avoids.
+ * ⚠️ THIS SENTENCE SAID "the drift guard", present tense, about a guard this branch
+ * DELETED. The same stale reference was corrected in render-talk.js, the README and the
+ * plan, and the plan's copy calls itself the sixth. This was the SEVENTH, sitting in the
+ * paragraph that explains why the tool exists at all.
  *
  * ⚠️ RUN IT ON A BOX WITH LIVE AGENTS. With no card of ours it refuses rather than
  * writing something empty.
  *
  * What it does, and what it deliberately does not:
- *   - RECORDS every key and type `status.snapshot()` emits. Nothing is invented.
+ *   - RECORDS every key and type `status.snapshot()` emits, with ONE deliberate
+ *     exception: `hasAvatar` is pinned to `true` even when the producer said `false`
+ *     (see the pin block for why). "Nothing is invented" was the top-line summary and it
+ *     is the line a reader trusts, so the exception belongs here rather than only beside
+ *     the code.
  *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
  *     `because` line, any `stateConflict` sentence, the scraped evidence line, every
  *     string under `profile`, and every string anywhere else that is not re-pinned to a
@@ -122,7 +130,12 @@ function chooseCard(agents) {
    and `doctrineDeclined` beside it. Neither is identity-bearing, but neither was pinned
    nor documented, so a re-capture on almost any real agent was not byte-identical. Four
    documents claimed it was; all four have since been corrected.
-   ⇒ SO THE CATEGORIES ARE THREE, NAMED HONESTLY:
+   ⇒ SO THE CATEGORIES ARE FOUR TREATMENTS AND ONE GAP, NAMED HONESTLY. ⚠️ This line said
+     THREE and then listed four, with item 1b's own text calling itself "a REAL fourth
+     category" two lines below, and it had no room for the gap at (5) that the non-string
+     inventory arm exists to detect. That is the same "there is no third category"
+     sentence this header spends twenty lines correcting, in a new spelling, written by
+     the same hand that wrote the correction.
      1. PINNED below to constants (the list in the header).
      1b. RE-PINNED FROM THE RAW CARD because status.js ENUM-BOUNDS them: `state` and
         `stateConfidence` come from the STATE and CONFIDENCE constants, `runner` from a
@@ -140,6 +153,11 @@ function chooseCard(agents) {
         ⚠️ TOP-LEVEL ONLY. A boolean nested outside `profile` (a future `context` flag,
         say) is in this category too and is not enumerated, because the enumeration is of
         the ones that exist today.
+     5. A NON-STRING ADDED OUTSIDE `profile` is in NONE of the above and reaches the
+        committed file verbatim. A GAP, not a treatment: measured, a `pid` added to the
+        card or inside `disruption` comes out unchanged, and the key-set refusal cannot
+        see a field added inside an existing subtree. Two arms pin the current inventory
+        so the NEXT one reds a test rather than arriving silently; nothing prevents it.
      3. THE `profile` SUBTREE, which gets the STRICTEST treatment of anything here:
         scrubNonStrings below neutralises every number and boolean under it, at any
         depth. It is free-form, so an allowlist there is a guarantee held by coincidence
@@ -157,6 +175,13 @@ function chooseCard(agents) {
    twelve zeros already in the committed fixture, so the recording does not change. */
 function scrubStrings(v) {
   if (v === null || typeof v !== 'object') return;
+  /* ⚠️ KEYS PASS THROUGH, AND THAT IS A NAMED EXPOSURE RATHER THAN A TREATMENT. `profile`
+     is free-form, so a KEY could itself be identifying, and nothing here touches keys: the
+     recording keeps the producer's key set because a fixture with invented keys is the
+     defect this whole design avoids. The value is derived from the key
+     (`'example-' + k.toLowerCase()`), so a key is echoed into its own value, but the key
+     is in the file either way and no information is added by the echo. Today's committed
+     profile carries only id, idInstall, instructionsWrite and updatedAt. */
   for (const k of Object.keys(v)) {
     const val = v[k];
     if (typeof val === 'string') {
@@ -288,9 +313,32 @@ function neutralise(live) {
        ⚠️ CONSTANTS, NOT A RE-PIN FROM `live`. `because` interpolates nothing today but
        is not enum-bounded, and this file has been burned four times by re-pinning a
        field the producer does not bound. */
-    if (typeof card.context.confidence === 'string') card.context.confidence = 'structured';
-    if (typeof card.context.because === 'string') {
+    /* 🛑 THE PAIR DEPENDS ON WHETHER THIS CAPTURE MEASURED ANYTHING. Pinning the MEASURED
+       pair unconditionally produced a card status.js CANNOT EMIT: capture an agent whose
+       transcript cannot be read and its context is
+       {tokens: null, percent: null, confidence: 'none', because: <a no-reading sentence>},
+       and the unconditional pin wrote `confidence: 'structured'` and "measured, against a
+       limit..." beside `tokens: null`. CONFIDENCE.STRUCTURED appears in a context only in
+       measuredResult and noCeilingResult (status.js:4299, 4314), both of which set a
+       NUMERIC tokens. Reachable, because chooseCard prefers `stateConfidence !== 'none'`,
+       which is the PANE state's confidence and says nothing about the context read.
+       ⇒ Three documents called this block "one coherent producer output". That was true
+       only for a measured capture, which is exactly the overstatement this file keeps
+       correcting, so the pin now follows the numbers.
+       ⚠️ WRITTEN AS FOUR LITERAL ASSIGNMENTS RATHER THAN TWO TERNARIES ON PURPOSE. The pin
+       extractor in render-talk-goldencard-2519.test.js classifies by the KIND of
+       right-hand side: a literal is a pin, an identifier is a re-pin from elsewhere. A
+       ternary makes the RHS `measured`, so both fields silently reclassified as re-pins
+       and the pin count fell from 22 to 20. Keeping the RHS literal keeps the instrument
+       simple, which is worth more here than the shorter spelling. */
+    const measured = typeof card.context.tokens === 'number' && typeof card.context.percent === 'number';
+    if (typeof card.context.confidence === 'string' && measured) card.context.confidence = 'structured';
+    if (typeof card.context.confidence === 'string' && !measured) card.context.confidence = 'none';
+    if (typeof card.context.because === 'string' && measured) {
       card.context.because = 'measured, against a limit we have assumed rather than watched';
+    }
+    if (typeof card.context.because === 'string' && !measured) {
+      card.context.because = 'we cannot find a transcript for it';
     }
   }
   return card;

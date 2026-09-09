@@ -133,11 +133,13 @@ written yet. The categories below are what happens AFTER that whole-card scrub. 
 the old version learned only about the ISO-date branch and the `profile` subtree and could
 have concluded the rest was untouched.
 
-**What the tool does after the scrub, in five categories.** ⚠️ This sentence has now been
-wrong four times, each version claiming a smaller number than the truth ("nothing
+**What the tool does after the scrub: FOUR treatments and ONE gap, six items in all
+because one treatment splits.** ⚠️ This sentence has now been
+wrong five times, each version claiming a smaller number than the truth ("nothing
 identifying can survive", "nothing identifying is numeric", "there is no third category",
-"everything is in exactly one of three"). The count below is five, and the fifth is a gap
-rather than a treatment:
+"everything is in exactly one of three", and then "in five categories" printed above SIX
+items with the numbering skipping 4). Counting the items and counting the categories are
+different acts, and every version so far has done one while claiming the other:
 
 1. **PINNED to constants.** PIN-LIST-BEGIN
    `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
@@ -157,11 +159,11 @@ rather than a treatment:
    `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
    `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
    `stateBackgroundWait`, `neverRecorded`.
-2b. **RE-PINNED from the raw card** because status.js enum-bounds them: `state`,
+1b. **RE-PINNED from the raw card** because status.js enum-bounds them: `state`,
    `stateConfidence`, `runner`. Not constants, not structural booleans, not under
    `profile`. The old "exactly one of three" sentence had no room for these and the tool's
    own header calls them a real category.
-2c. **SCRUBBED STRINGS that are not re-pinned at all**, such as `disruption.cause`, which
+1c. **SCRUBBED STRINGS that are not re-pinned at all**, such as `disruption.cause`, which
    becomes `example-cause`. Neutralised, but pinned to nothing.
 3. **The `profile` subtree**, which gets the strictest treatment: EVERY value under it is
    neutralised, strings and numbers and booleans, at any depth. It is free-form
@@ -169,8 +171,13 @@ rather than a treatment:
    guarantee resting on what the tree happens to write today. `profile.doctrineVersion`
    is a producer number that reached the recording before this was structural.
 
-**The full set, which `render-talk-goldencard-2519.test.js` extracts from the code and
-checks against this file:** `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt` (under `disruption`), and `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because` (under `context`). Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`, `stateConfidence`, `runner`.
+⚠️ **There is exactly ONE enumeration in this file and it is the sentinel-bounded list
+above.** A second copy stood here, in the bare-name-plus-parenthetical form that
+`tools/capture-agent-card.js` identifies as a hole (a name appearing once cannot say that
+`because` is pinned in two places), and it announced itself as "checked by an arm" while
+sitting OUTSIDE the sentinels the arm reads. The branch went from four copies to six while
+claiming it had made the enumeration mechanical. An arm now reds on any second
+enumeration outside the sentinels.
 
 5. **A NON-STRING the producer adds OUTSIDE `profile`**, which is in none of the above and
    reaches the committed file verbatim. This is a real gap, not a treatment: measured, a
@@ -210,8 +217,12 @@ the arm instead of a paneless live card. The second is the better outcome (`open
 gets the shape it is written for rather than null session/target) and it is not silent:
 `realCard` reports `golden` and the run prints the fallback NOTE.
 
-⚠️ `browser-checks-indexed.test.js` indexes `.js` scripts only, so nothing fails if this
-section goes stale. It is here because a committed input to a release-gating check should
+⚠️ `browser-checks-indexed.test.js` indexes `.js` scripts only, so most of this section
+can go stale without failing. That is NO LONGER true of the `PIN-LIST` region above: an arm
+in `render-talk-goldencard-2519.test.js` extracts the pinned paths from the capture tool
+and reds if this file omits one, lists one the code does not pin, or carries a second copy
+of the enumeration outside the sentinels. The sentence used to say nothing checked this
+section at all, which told a reader the opposite of what is now true. It is here because a committed input to a release-gating check should
 say what it is and how it was produced.
 
 ## What is in here

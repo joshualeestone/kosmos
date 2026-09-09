@@ -167,7 +167,17 @@ function goldenCard(fixturePath) {
   try {
     const raw = fs.readFileSync(fixturePath || path.join(__dirname, 'fixtures', 'agent-card.json'), 'utf8');
     const card = JSON.parse(raw);
-    if (!card || typeof card !== 'object' || Array.isArray(card)) return null;
+    if (!card || typeof card !== 'object' || Array.isArray(card)) {
+      /* 🛑 SAY WHY HERE TOO. This branch returned SILENTLY, one line above the floor whose
+         own comment says a cause that explains nothing is worse than a delete. Valid JSON
+         that is an array, a number, a string or null is a FOURTH cause, outside the three
+         the catch block enumerates, and it produced no diagnostic at all. */
+      process.stdout.write('  NOTE  render-talk: the recorded card fixture parsed but is '
+        + (Array.isArray(card) ? 'an array' : card === null ? 'null' : 'a ' + typeof card)
+        + ', not a card object, so it is being ignored'
+        + ' -- with no live agent card this FAILS the reopen arm below\n');
+      return null;
+    }
     /* 🛑 A SHAPE FLOOR, HERE AND NOT ONLY IN THE NODE SUITE. "An object that is not an
        array" accepts `{}`: openDetail would still run, the reopen arm would still pass,
        and the box the fallback exists for would get a hollow coverage claim. Anyone
