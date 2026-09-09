@@ -90,4 +90,22 @@ test('#2528: a world whose board LISTENS is cleared, so a healthy world never tr
   }
 });
 
+test('#2528: a deliberate switch to a world CLEARS its residual failed-boot count (fresh tries)', () => {
+  const home = homeDir('freshretry');
+  const base = worlds.baseRoot(freshEnv(home));
+  const w = worlds.createWorld(base, 'Retry');
+  // Two prior failures (under THRESHOLD), then the user switches away and back -- the
+  // switch-back must reset the count so the retry is not judged on stale failures.
+  guard.recordAttempt(base, w.id);
+  guard.recordAttempt(base, w.id);
+  worlds.setActiveWorld(base, worlds.DEFAULT_ID);   // switch away
+  worlds.setActiveWorld(base, w.id);                // deliberate switch BACK
+  assert.equal(guard.isAbandoned(base, w.id), false, 'not abandoned (never hit THRESHOLD)');
+  // and the count is truly zero: it now takes a FULL THRESHOLD of fresh failures to abandon
+  for (let i = 0; i < guard.THRESHOLD - 1; i++) guard.recordAttempt(base, w.id);
+  assert.equal(guard.isAbandoned(base, w.id), false, 'THRESHOLD-1 fresh failures still under the bar (proves the switch cleared the residual)');
+  guard.recordAttempt(base, w.id);
+  assert.equal(guard.isAbandoned(base, w.id), true, 'the THRESHOLD-th fresh failure trips it');
+});
+
 test.after(() => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });

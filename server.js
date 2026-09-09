@@ -10277,7 +10277,19 @@ function start(port = PORT) {
     // running on 4317, which is the common case -- is an unhandled 'error'
     // event that exits with a raw stack trace. Returning a Promise implies the
     // caller can be told; this makes that true.
-    const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
+    const onError = (err) => {
+      server.removeListener('listening', onListening);
+      // #2528: a BIND failure (EADDRINUSE from the restart's port overlap, EACCES, etc.)
+      // is a port/environment problem, NOT the world's board failing to serve, so it must
+      // not count toward abandoning the world -- clear this world's failed-boot counter so
+      // transient port contention can never abandon a HEALTHY world. Only a world that
+      // dies before it ever reaches start() (a genuinely broken world env) accrues.
+      try {
+        const worldenv = require('./engine/worldenv');
+        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open */ }
+      reject(err);
+    };
     const onListening = () => {
       server.removeListener('error', onError);
       // #2528: the board reached `listening`, so the world it booted into serves --
