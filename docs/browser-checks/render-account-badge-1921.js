@@ -14,6 +14,13 @@
  * the honesty invariant: a merely-existing credential (`signed_in_unverified`) must
  * render the MUTED class, never the green `.acct-connected`, in a real render.
  *
+ * #2568 EXTENSION: also covers the OpenAI ChatGPT-subscription row, which carries no
+ * server badge and whose checkLive() returns a LONG unknown-because sentence. It must
+ * render a SHORT pill with that sentence in the title, never in the visible span - the
+ * overflow-onto-the-email bug this row is added to guard. This is the rendered-DOM
+ * instrument the source-pattern web.openai-row-2568.test.js cannot be (it reads source
+ * text, not what paints), which is why the #1720/#2518 gates want it here.
+ *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-account-badge-1921.js
  *
@@ -54,12 +61,34 @@ function row(email, badge, dir) {
     },
   };
 }
+/* #2568: an OpenAI ChatGPT-SUBSCRIPTION row. The server overlays `badge` onto
+   Claude rows only, so this row carries NONE and its checkLive() honestly returns
+   state 'unknown' with a LONG because sentence. Before the fix the row fell to the
+   legacy fallback, which rendered that whole sentence in the pill span; the pill is
+   white-space:nowrap, so it overflowed and collided with the email (Josh, v0.6.50).
+   The row must now render a SHORT shape pill (the signed-in-unverified shape, since a
+   subscription sign-in DOES exist) with the full sentence in the title. `authMode:
+   'chatgpt'` is the SHAPE the fix gates on; no `badge`, exactly as the real payload. */
+const CHATGPT_BECAUSE = 'this sign-in method is not yet checked live; it may or may not still work';
+function openaiChatgptRow(email, dir) {
+  return {
+    provider: 'openai', providerName: 'OpenAI',
+    email, label: email, dir: '/home/.codex-' + dir,
+    organization: null, isDefault: false, keyTail: null, authMode: 'chatgpt',
+    memoryShared: true, offerable: true,
+    connection: {
+      state: 'unknown', plan: null, checkedLive: true, because: CHATGPT_BECAUSE,
+      observedAt: null, observedAgeMs: null,
+    },
+  };
+}
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   row('rej@example.com', 'rejected', 'rd'),
   row('unver@example.com', 'signed_in_unverified', 'ud'),
   row('out@example.com', 'signed_out', 'od'),
   row('unk@example.com', 'unchecked', 'kd'),
+  openaiChatgptRow('sub@example.com', 'sd'),
 ];
 
 (async () => {
@@ -92,6 +121,7 @@ const ACCOUNTS = [
       if (who) byEmail[(who.textContent || '').trim()] = {
         cls: badge ? badge.className : null,
         text: badge ? (badge.textContent || '').trim() : null,
+        title: badge ? (badge.getAttribute('title') || '') : null,
       };
     }
     return { count: boxes.length, byEmail };
@@ -101,7 +131,7 @@ const ACCOUNTS = [
 
   const problems = [];
   if (r.error) problems.push(r.error);
-  if (r.count !== 5) problems.push('expected 5 account rows, got ' + r.count);
+  if (r.count !== 6) problems.push('expected 6 account rows, got ' + r.count);
 
   const want = [
     { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/ },
@@ -109,12 +139,20 @@ const ACCOUNTS = [
     { email: 'unver@example.com', cls: 'acct-unknown', text: /not recently checked/, honesty: true },
     { email: 'out@example.com', cls: 'acct-none' },
     { email: 'unk@example.com', cls: 'acct-unknown' },
+    // #2568: the ChatGPT-subscription row. The VISIBLE pill must be the short shape
+    // label; the long because sentence must live in the TITLE, never the visible span
+    // (that overflow was the bug). notText pins that the long sentence is NOT rendered
+    // visibly, so a revert to the legacy fallback (which put it in the span) reds here.
+    { email: 'sub@example.com', cls: 'acct-unknown', text: /Signed in . not checked live/,
+      notText: /may or may not still work/, titleText: /may or may not still work/, honesty: true },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
     if (!got) { problems.push(`no badge rendered for ${w.email}`); continue; }
     if (!got.cls || got.cls.indexOf(w.cls) === -1) problems.push(`${w.email}: expected class ${w.cls}, got "${got.cls}"`);
     if (w.text && !w.text.test(got.text || '')) problems.push(`${w.email}: text "${got.text}" does not match ${w.text}`);
+    if (w.notText && w.notText.test(got.text || '')) problems.push(`${w.email}: the long status sentence is in the VISIBLE pill (${w.notText}) - the #2568 overflow is back`);
+    if (w.titleText && !w.titleText.test(got.title || '')) problems.push(`${w.email}: the full reason is missing from the title (${w.titleText}); got title "${got.title}"`);
     if (w.honesty && got.cls && got.cls.indexOf('acct-connected') !== -1) {
       problems.push(`${w.email}: a merely-existing credential rendered GREEN (acct-connected) - the #874 false-green is back`);
     }
