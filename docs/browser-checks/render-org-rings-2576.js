@@ -104,13 +104,19 @@ const near = (a, b) => Math.abs(a - b) <= 0.5;
       }, readings);
       await page.waitForTimeout(150);
       return page.evaluate(() => [...document.querySelectorAll('#orgmap .onode')].map((n) => {
+        const ring = n.querySelector('svg.oring');
+        const rr = ring ? ring.getBoundingClientRect() : null;
         const gf = n.querySelector('svg.oring circle.gf');
         const dash = gf ? gf.getAttribute('stroke-dasharray') : null;
         const warn = n.querySelector('svg.owarn');
         const wr = warn ? warn.getBoundingClientRect() : null;
         return {
           agent: n.getAttribute('data-agent'),
-          hasRing: !!n.querySelector('svg.oring'),
+          hasRing: !!ring,
+          // The regression class the source test cannot see: a ring computed into
+          // a node that never lays it out. Assert the rendered size, like
+          // render-detail-ring-1915.js does for the detail avatar's ring.
+          ringLaidOut: !!(rr && rr.width > 0 && rr.height > 0),
           gfClass: gf ? gf.getAttribute('class') : null,
           dashFirst: dash ? parseFloat(dash) : null,
           hasWarn: !!warn,
@@ -128,6 +134,8 @@ const near = (a, b) => Math.abs(a - b) <= 0.5;
     chk(p1.length === 3, 'the org chart drew all three nodes', String(p1.length));
     chk(p1.every((n) => n.hasRing), 'the context ring is on EVERY node (#2576)',
       p1.map((n) => n.agent + ':' + n.hasRing).join(' '));
+    chk(p1.every((n) => n.ringLaidOut), 'every context ring is laid out on the page, not a zero-size node',
+      p1.map((n) => n.agent + ':' + n.ringLaidOut).join(' '));
 
     chk(by.ada && near(by.ada.dashFirst, 0.30 * C) && /\bok\b/.test(by.ada.gfClass || ''),
       "ada's ring is the 30% ok-band arc", by.ada && by.ada.dashFirst + ' / ' + by.ada.gfClass);

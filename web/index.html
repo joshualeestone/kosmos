@@ -1343,7 +1343,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    and working/unknown/resting states carry no ring at all. Idle always had none.
    .gt/.gf carry their own dark-theme overrides, so the ring themes for free. */
 .onode .oring {
-  position: absolute; inset: -5px; pointer-events: none; display: block;
+  /* Explicit 54px (the 44px face + the 5px the ring sits outside it on each
+     side), paired with inset like .dring/.lring/.agauge svg rather than left to
+     inset alone, so a viewBox-only SVG is never a zero-size node. */
+  position: absolute; inset: -5px; width: 54px; height: 54px; pointer-events: none; display: block;
 }
 /* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
    verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
@@ -18957,7 +18960,7 @@ function paintOrg() {
    * ⚠️ THE HUB IS INCLUDED IN THE BOX, because it is part of the drawing: a
    * fleet that all reports upward would otherwise centre the agents and push
    * the hub off the edge. Its own 52px radius counts, as does a node's 22px
-   * plus the 5px its state ring sits outside that.
+   * plus the 5px its context ring sits outside that.
    *
    * 📌 Same nodes, same scale, translated. Nothing here changes who is where
    * relative to anything else.
@@ -19016,7 +19019,12 @@ function paintOrg() {
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
     nodes.push('<button class="onode" type="button" data-agent="' + esc(a.sessionName) + '"'
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
-      + ' aria-label="Open ' + esc(shown) + '">'
+      /* #2577: the badge's own aria-label is inert inside a button that has its
+         own aria-label (the accessible name comes from the attribute alone, not
+         from descendant content), so needs-you would be visual-only here. Fold it
+         into the button's accessible name, the way the list row conveys it through
+         LROW_WARN sitting OUTSIDE any button. */
+      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : '') + '">'
       + orgRing(a)
       + '<span class="face"' + tint + '>' + face + '</span>'
       + (needsYou ? ONODE_WARN : '')

@@ -448,7 +448,12 @@ test('#2576: unknown context draws no ring, matching the list row, detail and ME
 test('#2576/#2577: the node render puts the ring on every node and gates the badge on needs-you', () => {
   const at = SCRIPT.indexOf('nodes.push(\'<button class="onode"');
   assert.ok(at > -1, 'the org node button markup moved');
-  const node = SCRIPT.slice(at, at + 700);
+  /* Bound to the push's OWN close, not a fixed offset: a comment added inside the
+     node render (as the #2577 aria fold was) otherwise pushes the assertions out
+     of a fixed window and silently reds (the eval-slice trap). */
+  const end = SCRIPT.indexOf("</button>');", at);
+  assert.ok(end > at, 'the org node push no longer closes with </button>\');');
+  const node = SCRIPT.slice(at, end);
   assert.match(node, /\+ orgRing\(a\)/, 'the context ring is not rendered on every node');
   assert.match(node, /\+ \(needsYou \? ONODE_WARN : ''\)/, 'the needs-you badge is not gated on the needs-you state');
   assert.doesNotMatch(node, /class="onode' \+ ring/, 'a state-arc class is still appended to the node');
