@@ -164,13 +164,13 @@ function sleepCheck(text) {
      */
     if (battFirst !== null && battFirst > 0) {
       // #2587: DELIBERATELY no battOnly here (a documented exclusion, not an oversight).
-      // The "Continue anyway" escape's note promises "plugged in it keeps working", which
+      // The advisory sleep step's honest note promises "plugged in it keeps working", which
       // needs a CONFIRMED acSleep===0. This branch could not read the AC section at all, so
       // we cannot make that promise honestly -- and unlike the battery-only case, the row
       // keeps its "Turn On" (the Energy pane may still hold a real AC fix). A user here
       // resolves the unreadable-AC first; if a battery-only sleep then remains, the
-      // acSleep===0 branch below offers the escape. Rare in practice (pmset almost always
-      // prints a readable AC section); an escape on an unconfirmable premise would be worse.
+      // acSleep===0 branch below shows the note. Rare in practice (pmset almost always
+      // prints a readable AC section); the note on an unconfirmable premise would be worse.
       return {
         key: 'sleep',
         state: STATE.ATTENTION,
@@ -266,9 +266,10 @@ function sleepCheck(text) {
       state: STATE.ATTENTION,
       // #2587: the ONE sleepCheck state macOS offers no GUI switch to clear -- a
       // laptop always sleeps on battery, and the Energy pane the "Turn On" button
-      // opens has no "never sleep on battery" toggle. The first-run gate keys its
-      // "Continue anyway" escape on this flag, so it fires ONLY here and never for
-      // a fixable desktop (the acSleep>0 branch above, which Turn On can set to Never).
+      // opens has no "never sleep on battery" toggle. The advisory first-run sleep
+      // step shows its honest laptop note on this flag (replacing the useless Turn
+      // On), so the note appears ONLY here, never for a fixable desktop (the
+      // acSleep>0 branch above, which Turn On can still set to Never).
       battOnly: true,
       title: 'This computer keeps working plugged in, and sleeps on battery',
       detail: `Plugged in it never sleeps. On battery it sleeps after ${batterySleep} `

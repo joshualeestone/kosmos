@@ -22,18 +22,18 @@ The first-run sleep step never gates Next: `FR_GATES.sleep` carries `gatesNext:f
   unstick, but no switch a non-technical person finds, and we deliberately do not send them to Terminal).
 - Placement rules from Mona: (1) note ABOVE the button (read the tradeoff before clicking past); (2) do NOT turn the step green/ACTIVATED on Continue - show it as "continued, with a caveat", not a false pass (state-beats-a-message).
 
-## Documented exclusion (iter1 review): the AC-UNREADABLE branch gets no escape, deliberately
+## Documented exclusion (iter1 review): the AC-UNREADABLE branch gets no laptop-note, deliberately
 machine.js sleepCheck has a second STATE.ATTENTION branch (acSleep===null i.e. the AC/power-adapter section
-could not be parsed, with battery sleeping). It is NOT given battOnly. Reason: the escape's note promises
+could not be parsed, with battery sleeping). It is NOT given battOnly. Reason: the note promises
 "plugged in it keeps working", which needs a CONFIRMED acSleep===0; an unreadable AC section cannot confirm
 it, and unlike the battery-only case that branch still shows "Turn On" (the Energy pane may hold a real AC
 fix). A user there resolves the unreadable AC first; if a battery-only sleep then remains, the confirmed
-branch offers the escape. Rare in practice (pmset almost always prints a readable AC section). Commented at
-the branch in engine/machine.js.
+branch shows the note. Rare in practice (pmset almost always prints a readable AC section). Commented at
+the branch in engine/machine.js. (Either way the sleep step never gates Next -- this only selects note-vs-TurnOn.)
 
 ## Key design constraints
-- The escape must appear ONLY for the UNSATISFIABLE state, never for a fixable desktop (where Turn On works and the gate should still gate). Distinguishing the two `state:'attention'` sub-states must NOT be a title string-match (fragile). Likely add a minimal ADDITIVE field to machine.js sleepCheck's unsatisfiable-laptop branch (e.g. `fixable:false` / `battOnly:true`) - machine.js is Renet's module, so coordinate/flag Renet (additive, low-risk). Confirm via the Explore map whether the web already has a clean signal.
-- Continue advances Next WITHOUT setting data-granted on the sleep gate (no false green). Next's gate condition must accept "sleep gate continued" as a distinct, honest pass.
-- #1720: web/index.html change needs a net browser-check assertion. Extend/author a check driving the sleep-gate laptop state -> asserts the escape shows + Continue unlocks Next + the step is NOT shown as green. Node test for the gate logic. Full suite + challenge-loop. LITERAL cd gh pr create.
+- The sleep step NEVER gates Next (advisory) for anyone (FR_GATES.sleep gatesNext:false); only genuinely-satisfiable gates (Accessibility/tmux, file access) gate. The laptop NOTE appears ONLY for the UNSATISFIABLE (battOnly) state, never a fixable desktop (which keeps Turn On). Distinguishing the two `state:'attention'` sub-states is a machine.js ADDITIVE field (battOnly), not a title string-match.
+- No false green: data-granted is set only on the granted state, and battOnly rows are prevented:false, so the sleep row never reads Activated. No "Continue anyway" button / data-continued (removed in the pivot).
+- #1720: web/index.html change carries a net browser-check assertion (render-gated-next.js): a blocked sleep row does NOT gate Next, Accessibility STILL gates, the laptop note shows for battOnly, a fixable desktop is advisory too. Node test for the gate logic. Full suite + challenge-loop. LITERAL cd gh pr create.
 
 ## Interim (already told the room): Nick keeps it plugged in + open; that is all the step guards.
