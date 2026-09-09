@@ -66,6 +66,13 @@ test('#2107: the runner only renames the AUTH_FAILED copy, not other states', ()
 // unarmed guard (waitingNote would always see undefined -> always Claude).
 test('#2107 (source): deliver passes the card runner into waitingNote', () => {
   const SRC = fs.readFileSync('engine/chat.js', 'utf8');
-  assert.match(SRC, /waitingNote\(paneState, outcome, allowed\.card\.runner\)/,
+  /* 🛑 DO NOT ANCHOR ON THE CLOSING PAREN. The previous pattern ended
+     `allowed\.card\.runner\)`, so it asserted the call ENDS at the third
+     argument while its stated intent is that the runner is PRESENT. #1889 added a
+     fourth parameter (`backgroundWait`) and this went red on a call that passes
+     the runner correctly: the product was right and the pattern was describing a
+     line that no longer exists. A source test must match the FACT it is named
+     after, not the incidental shape of the line carrying it. */
+  assert.match(SRC, /waitingNote\(paneState, outcome, allowed\.card\.runner\b/,
     'deliver does not pass allowed.card.runner into waitingNote -- the AUTH_FAILED note would always degrade to Claude even for a codex agent');
 });

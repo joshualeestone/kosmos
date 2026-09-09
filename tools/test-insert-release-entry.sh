@@ -63,7 +63,7 @@ before="$(cat "$T/versions.html")"
 out="$(node "$TOOL" "$T/entry.html" --site "$T" 2>&1)"; rc=$?
 after="$(cat "$T/versions.html")"
 [ "$rc" -eq 0 ] && [ "$before" = "$after" ] \
-  && pass "a version already on the page is refused and nothing is rewritten" \
+  && pass "a version already on the page WRITES NOTHING (exit 0), so a caller can run it blind" \
   || fail "re-run changed the page or errored (rc=$rc)"
 [ "$(grep -c 'id="v9-9-99"' "$T/versions.html")" -eq 1 ] && pass "no duplicate entry after re-run" || fail "the entry was inserted twice"
 

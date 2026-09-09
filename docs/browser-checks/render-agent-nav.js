@@ -1,3 +1,4 @@
+// Browser-check-surface: d-nav-talk
 'use strict';
 /**
  * The agent page's left nav, on a screen (agent-page-nav, 2026-08-23).

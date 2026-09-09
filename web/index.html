@@ -5382,6 +5382,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    No effect on #d-provider, which had no competing rule; the class is only ever added to a select. */
 .pcombo-src { position: absolute !important; width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; clip-path: inset(50%) !important; border: 0 !important; }
 .pcombo { position: relative; }
+/* #1040 2b: #create-provider is the one enhanced select that lives in a FIXED-WIDTH
+   (18rem) stepped flex row (`#cstep-name .msteps .frow`, elbow-aligned with
+   #create-account / #create-model, a layout Josh tuned for row-to-row alignment).
+   enhanceProviderSelect clips the native select (.pcombo-src, 1px) and inserts a
+   .pcombo sibling with no width of its own, so the trigger (width:100%) would size to
+   its content and the provider row would not line up with the rows beneath it. Give
+   the inserted widget the same 18rem flex basis the select it replaced carried.
+   #d-provider (switch dialog) and #acct-provider-pick (Add screen, width:100% context)
+   are not in a fixed-width flex row, so this is scoped to #cstep-name. */
+#cstep-name .msteps .frow > .pcombo { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
 .pcombo-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 12px; text-align: left; font: inherit; color: var(--k-ink); background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; cursor: pointer; }
 .pcombo-trigger:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 1px; }
 .pcombo-mark { width: 18px; height: 18px; flex: 0 0 auto; }
@@ -8287,8 +8297,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            instead of the old three-card stacked fan. Reads as a single real
            "Terminal would like to access files" dialog with the Allow button ringed,
            so the person recognizes the one prompt they will see and knows to click
-           Allow. Illustrative only (aria-hidden); the functional grant is the
-           .s2-gate-row below, untouched. */
+           Allow. The preview is aria-hidden (a mouse-only affordance). Josh,
+           2026-09-08: the mock's Allow now forwards a click into the real
+           file-access flow (.s2-mockallow), so it is no longer purely illustrative;
+           the keyboard/AT path stays the real Allow Access button in the
+           .s2-gate-row below. */
         .s2-dlg-fan{display:flex;justify-content:center;margin:2px 0 16px}
         .s2-dlg{width:320px;max-width:100%;text-align:left;border-radius:12px;padding:16px 18px 14px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
@@ -8309,6 +8322,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            lighter #3f92f0 folder icon above intentionally differs, as the real dialog's
            app icon and default button do. */
         .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
+        /* Josh, 2026-09-08: people click the mock "Allow" (they read it as the real
+           macOS button), so it is a live mouse affordance -- cursor signals that.
+           Deliberately interactive inside the aria-hidden preview: it is mouse-only,
+           and the real focusable "Allow Access" button is the keyboard/AT path, so
+           this adds no non-focusable-only control (not a bug, for the next reader). */
+        .s2-mockallow{cursor:pointer}
         .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -8336,7 +8355,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
               <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
               <p class="s2-say">"Terminal" would like to access files in your folders.</p>
             </div>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
           </div>
         </div>
 
@@ -8369,7 +8388,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                On default; #fr-next is enabled only when neither gate is measured-not-granted.
              Dynamic: none.  CSS namespace: s3-*
              Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
-             TMUX permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
+             Kosmos Accessibility permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
              ============================================================ -->
         <style>
         /* The window is an ILLUSTRATION of the macOS pane, not a control: its
@@ -8421,6 +8440,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-pill-wait{color:var(--k-ink-3,#8a857c);border-color:var(--k-rule,#c9c6c0)}
         .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
           color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        /* #2451/#2559: the manual "Check again" affordance. A quiet SECONDARY control
+           (not the gold Turn On primary): it does not grant anything, it just re-polls.
+           Left-aligned per Josh. */
+        #fr-pane-3 .s3-recheck-row{margin:2px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        #fr-pane-3 .s3-recheck-note{margin:0 0 6px;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        #fr-pane-3 .s3-recheck-hint{font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        /* Border is gold-deep (not the --k-rule content-divider token): matches the
+           file's secondary-button convention (#fr-alt) and clears WCAG 1.4.11's 3:1
+           non-text contrast on the near-white card, where --k-rule (~1.5:1) does not. */
+        .s3-recheck{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
+          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
+          background:var(--k-surface,#fff);cursor:pointer}
+        .s3-recheck:hover{background:var(--k-surface-2,#f4f1ea)}
+        .s3-recheck:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
+        .s3-recheck[disabled]{opacity:.55;cursor:default}
         .s3-granted{display:none}
         .s3-gate-row[data-granted] .s3-req{display:none}
         .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
@@ -8451,18 +8485,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
 
-        <p class="s3-step-cap">2 &middot; when prompted, switch TMUX to On</p>
-        <!-- #2236/0.6.42 #1 (Josh): the tmux grant is Privacy & Security > Accessibility
+        <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
+        <!-- #2236/0.6.42 #1 (Josh): the grant is Privacy & Security > Accessibility
              ("control your computer"), NOT Login Items. The old mock showed the Login Items
              pane, which sent Josh to the wrong Settings pane. Depict Accessibility here.
              (S4's s4-* pane keeps "Login Items" -- that is correct, for bash background
-             activity, a different grant. Do not conflate the two.) Copy: Mona Lisa. -->
+             activity, a different grant. Do not conflate the two.) Copy: Mona Lisa.
+             #2451: the row macOS shows + grants is Kosmos (the calling binary the
+             onboarding registers), not tmux -- so this mock and the gate row below read
+             "Kosmos". The internal data-gate key stays "tmux" (it is the FR_GATES /
+             handler / browser-check selector; the subject is Kosmos.app). -->
         <div class="s3-win" aria-hidden="true">
           <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
         </div>
         <div class="s3-gate-row" data-gate="tmux">
-          <span class="s3-gate-lbl">TMUX</span>
+          <span class="s3-gate-lbl">Kosmos</span>
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
@@ -8473,6 +8511,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              window itself is the feedback (same rule as the retired sleep/a11y
              buttons this reuses). The gate poll re-checks and flips the pill on
              its own once granted. -->
+        <!-- #2451/#2559 (Josh 0.6.50, 7.58.24): a manual re-check. The poll already
+             re-checks on its own, but after granting in System Settings the user wants a
+             way to force it NOW rather than wait for the next tick, so the screen does not
+             feel stuck. Left-aligned under the rows, per Josh. Reassurance + hint copy is
+             Mona Lisa's (she owns the wording; Josh left it to us). -->
+        <p class="s3-recheck-note">This can take a few seconds after you flip the switch.</p>
+        <div class="s3-recheck-row">
+          <button class="s3-recheck fr-recheck" type="button">Check again</button>
+          <span class="s3-recheck-hint">Turned it on already? Tap to check now.</span>
+        </div>
         <p class="fr-msg" id="fr-s3-msg" role="status" aria-live="polite"></p>
       </div>
 
@@ -8494,14 +8542,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* Gear sizing, latest wins: 0.6.39 was 38/22, 0.6.40 doubled it (Josh),
            then 0.6.45 (Josh) tightened the gray BOX back down -- the cog size was
            right, the 76px box was too big for it. 52x52 hugs the cog.
-           #768-batch (Josh, 0.6.45 notes, 5.44.01): the cog was reading high and
-           slightly left inside the box. `place-items:center` centres the glyph's
-           LINE BOX, but the U+2699 gear carries font ascent/descent so its visual
-           mass sat above centre. flex centring WITH line-height:1 collapses the
-           line box to the glyph, so vertical + horizontal centring is on the glyph
-           itself. Cog size unchanged (Josh: the size is right). */
-        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;line-height:1;font-size:44px;
+           #768-batch..#2460 (Josh, said 5-6 times): the cog kept reading high and
+           slightly left. ROOT CAUSE (2026-09-09, from Josh's on-device screenshot): it
+           was the U+2699 GLYPH's font bearings, not the box. A font character carries
+           its own asymmetric side/vertical bearings, so no box-centring fixes it and
+           every flex/line-height nudge regressed (and looked fine only in headless,
+           whose fallback glyph differs). FIX: draw the gear as an inline SVG PATH
+           (below), which centres by its own geometry. Do NOT revert to the glyph. */
+        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:grid;place-items:center;padding:11px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
+        .s4-gear svg{width:100%;height:100%;display:block}
         /* 🛑 #768-batch (Josh, 5.44.01, said THREE times; Mona third-round correction) --
            the reason it kept regressing: a BARE class (0,1,0) LOSES to `#firstrun
            .fr-body p` (0,1,1,1), which forces 400/1.0625rem on every first-run p
@@ -8526,7 +8576,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>This is totally normal.</p>
 
         <div class="s4-notif" aria-hidden="true">
-          <span class="s4-gear">&#9881;</span>
+          <span class="s4-gear"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true"><path fill-rule="evenodd" fill="#3a3a3c" d="M 13.43 5.30 L 12.38 2.48 L 19.62 2.48 L 18.57 5.30 L 21.75 6.62 L 23.00 3.88 L 28.12 9.00 L 25.38 10.25 L 26.70 13.43 L 29.52 12.38 L 29.52 19.62 L 26.70 18.57 L 25.38 21.75 L 28.12 23.00 L 23.00 28.12 L 21.75 25.38 L 18.57 26.70 L 19.62 29.52 L 12.38 29.52 L 13.43 26.70 L 10.25 25.38 L 9.00 28.12 L 3.88 23.00 L 6.62 21.75 L 5.30 18.57 L 2.48 19.62 L 2.48 12.38 L 5.30 13.43 L 6.62 10.25 L 3.88 9.00 L 9.00 3.88 L 10.25 6.62 Z M 21.00 16.00 A 5.00 5.00 0 1 0 11.00 16.00 A 5.00 5.00 0 1 0 21.00 16.00 Z"/></svg></span>
           <div>
             <p class="s4-nt">App Background Activity</p>
             <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
@@ -8875,10 +8925,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fc-eyebrow">Your agents</p>
         <!-- install-flow-9screen: this <h2> is DRIVEN by the fork painters
              (frPaintFleet / frPaintFound / frPaintScan) via `#fr-pane-9 h2`. The
-             text below is only the default; the live flow rewrites it per path:
-             found -> "We found N agents on this computer", adopt -> "You already
-             have N agents here.", create -> "Create your first agent." -->
-        <h2 id="fr-fleet-title">We found existing AGENTS on this computer</h2>
+             text below is only the pre-JS default. #2497: first run now ALWAYS
+             lands on the no-agent create screen, so the default matches that
+             outcome to avoid a flash of the wrong heading before JS runs. The
+             kept-but-bypassed engine can still rewrite it to "We found N agents
+             on this computer" / "You already have N agents here." elsewhere. -->
+        <h2 id="fr-fleet-title">Create your first agent.</h2>
         <!-- install-flow-9screen: the found/create/adopt fork renders into
              #fr-fleet below (the existing, tested add/undo/adopt flow, which
              already implements S9a's intent: "We found N agents..." + a per-row
@@ -11445,8 +11497,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                suite uses it to tell the gate apart from the board, and having
                it here made the board look like the gate.)
 
-               The words are Ice Cream Kitty's and Mona Lisa may replace them,
-               the same footing as the recovery block below. -->
+               These words were reviewed by the design lane (Mona Lisa, #2499)
+               and left as-is; the recovery block below was reviewed too. -->
           <p class="fhint" id="plus-next" hidden></p>
         </div>
         <button class="btn" type="button" id="plus-switch"></button>
@@ -11497,7 +11549,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            already holds what the step protects, and no support path or
            server-side unlock exists on purpose (docs/second-factor.md in
            kosmos-relay). Two clicks, so a stray one switches nothing off.
-           The words are Ice Cream Kitty's and Mona Lisa may replace them. -->
+           These words were reviewed by the design lane (Mona Lisa, #2499) and
+           left as-is; the verbatim Josh ruling below is unchanged. -->
       <div id="plus-second" hidden style="margin-top:16px;">
         <p class="setname">I lost my phone</p>
         <!-- 🛑 "ALWAYS", NOT "from a phone" (Josh, 2026-08-29 14:04, verbatim):
@@ -12794,7 +12847,7 @@ function memUnknown(ctx) {
 function memWhy(ctx) {
   const why = ctx && typeof ctx.because === 'string' ? ctx.because.trim() : '';
   if (!why) return '';
-  return why.charAt(0).toUpperCase() + why.slice(1) + '. ';
+  return why.charAt(0).toUpperCase() + why.slice(1) + (/[.!?]$/.test(why) ? ' ' : '. ');
 }
 
 /**
@@ -22495,8 +22548,9 @@ document.querySelectorAll('#s-sec-connect .boardrow').forEach((row) => {
    door's check failed, or the read did). A row whose doors are all still
    coming has nothing to check and says that instead of "nothing". A door
    that just answered on its own tells the shelf (conShelfDoor), so the row
-   changes with the door, not on the next full read. The words are Ice
-   Cream Kitty's placeholders until Mona Lisa says them. */
+   changes with the door, not on the next full read. These status words
+   were reviewed by the design lane (Mona Lisa, #2499) and left as-is:
+   terse, plain, in Josh's voice, no em dashes. */
 const CON_SHELF = { doors: null, failed: false };
 const CON_SHELF_WORDS = {
   soon: 'Nothing to connect yet',
@@ -26583,7 +26637,7 @@ async function paintPlus() {
   const because = plusWords(stat.because || '');
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
-    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : '');
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
@@ -28222,6 +28276,7 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
 });
 enhanceProviderSelect('d-provider');   // #1040 2b: the switch dialog's provider combobox (shipped first)
 enhanceProviderSelect('acct-provider-pick');   // #1040 2b: the Add-a-provider screen's combobox. Its <select> (~7912) and change listener (~16953) are defined earlier; called HERE, beside the d-provider site, so the function and its consts (PROVIDER_MARK_KEY) are initialized before the call rather than relying on hoisting into a temporal dead zone. Labelled via <label for>, which enhanceProviderSelect falls back to when there is no aria-label.
+enhanceProviderSelect('create-provider');   // #1040 2b (final select): the Create Agent form's provider combobox. Same proven helper as the two above; #create-provider (~9233) carries the identical roster (anthropic/openai + six coming-soon) and its own change listener (applyCreateProviderUI) keeps working unchanged, because the helper commits via select.value + a dispatched `change`. 2b-logos now covers all three provider selects; 2b-roster (GLM/MiniMax/DeepSeek) stays deferred to Josh's #770 roster pass.
 /* The ONLY thing that makes a pick a pick.
    ⚠️ Null-checked like its sibling in fillSwitchAccounts: if this id ever moves the
    page must degrade to the previous behaviour rather than die at load, because that
@@ -36119,7 +36174,7 @@ function pjWhen(at) {
 function placedWords(d) {
   const note = (d && d.paneNote) || '';
   if (!note || d.paneState === 'idle') return '';
-  return note.charAt(0).toUpperCase() + note.slice(1) + '.';
+  return note.charAt(0).toUpperCase() + note.slice(1) + (/[.!?]$/.test(note) ? '' : '.');
 }
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
@@ -38347,7 +38402,9 @@ let FR_YOU_GEN = 0;
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
    machine; it blocks only when we KNOW a required grant is off. The user grants it
-   in System Settings and the next poll (1.5s) unlocks Next -- no manual re-check.
+   in System Settings and the next poll (FR_GATE_POLL_MS, 750ms) unlocks Next on its
+   own; the "Check again" button (#2451/#2559) only front-runs that next tick for an
+   impatient user, it is not required.
    Generation-guarded: a poll captured on one screen does NOTHING once the step
    moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md).
 
@@ -38383,8 +38440,14 @@ const FR_GATES = {
     blocked: (r) => r.checkable === true && r.trusted !== true,
   },
 };
-let FR_GATE_GEN = 0, FR_GATE_TIMER = null;
-function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } }
+let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
+// #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
+// user granted the permission the pill/Next could sit unchanged for over a second and the
+// screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
+// (750ms) so a grant reflects within about a second, and pair it with a manual "Check
+// again" button (see the fr-recheck handler) so the user can force an immediate re-check.
+const FR_GATE_POLL_MS = 750;
+function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
   if (!spec) return 'uncheckable';
@@ -38424,9 +38487,17 @@ async function frPollGates(screenEl, gen) {
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
+  FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
-  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), 1500);
+  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), FR_GATE_POLL_MS);
   return gen;
+}
+// #2451/#2559: fire an immediate gate re-check (the manual "Check again" affordance).
+// Polls the currently-gated screen at the current generation, so it is a no-op when no
+// gated screen is active and cannot outrace a screen change. Returns the poll promise.
+function frRecheckGates() {
+  if (!FR_GATE_SCREEN) return Promise.resolve();
+  return frPollGates(FR_GATE_SCREEN, FR_GATE_GEN);
 }
 let FR = null;            // what /api/first-run said
 let FR_STEP = 1;
@@ -38696,13 +38767,15 @@ async function frPaintYou() {
     // will not advance (SC 3.3.2); the fields carry aria-required too.
     '<p class="vh">The first two answers are needed before Continue.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
-    /* #683: an example name, and NOT the author's. The pack's mock carried
-       "Josh" because Josh drew it about himself, and on anyone else's machine
-       a real first name in the box reads as a previous owner -- the
-       co-founder's install would literally show the name of the person who
-       sent them the app. The sibling placeholders are examples, so this stays
-       one; it just stops being a person connected to the product. */
-    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
+    /* An example name (grey placeholder, not a filled value). #683 changed this
+       away from "Josh" to "Alex" because a real first name in the box can read as
+       a previous owner (a co-founder's install showing the name of whoever sent
+       them the app). Josh, 2026-09-08, overrode that back to "Josh": he has a
+       teammate named Alex and did not want the default landing on a real person
+       on his team. Kept as his explicit call; the #683 read is softened by this
+       being a grey hint rather than a pre-filled value. If the founder-name read
+       matters, a neutral example (e.g. "Sam") satisfies both. */
+    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Josh" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
     '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
     /* #1994 (Josh, live 2026-09-04): the time zone picker is restored to this
@@ -38933,8 +39006,14 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
 }
 
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
-  const b = e.target.closest('.s2-allow');
-  if (!b) return;
+  // Josh, 2026-09-08: the mock dialog's blue "Allow" (aria-hidden preview, mouse-only)
+  // routes a click through the real "Allow Access" button, firing the same flow (see commit).
+  const onMock = e.target.closest('.s2-mockallow');
+  const b = onMock ? document.querySelector('#fr-pane-2 .s2-allow') : e.target.closest('.s2-allow');
+  if (!b || b.disabled) return;
+  // once granted, the real button is hidden but the mock stays visible; do not re-open.
+  const row = b.closest('.s2-gate-row');
+  if (row && row.hasAttribute('data-granted')) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
   try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }
@@ -38952,15 +39031,40 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
+  // instead of waiting for the next poll tick, so a just-granted permission reflects at
+  // once. The poll keeps running regardless; this only front-runs the next tick.
+  const recheck = e.target.closest('.fr-recheck');
+  if (recheck) {
+    const m = document.getElementById('fr-s3-msg');
+    // Do NOT clobber a real error on the shared status line (a "Turn On" failure the user
+    // may not have read yet): only show/clear our own transient "Checking..." when the line
+    // is not currently an error. The re-poll happens either way.
+    const hadErr = !!(m && m.classList.contains('fr-msg-err'));
+    recheck.disabled = true;
+    if (m && !hadErr) m.textContent = 'Checking…';
+    try {
+      await frRecheckGates();
+    } finally {
+      // Re-read the error state: a "Turn On" failure can arrive DURING the await (both
+      // buttons are live), so clear only if the line is still not an error -- never wipe a
+      // freshly-set (or pre-existing) error the user has not read.
+      if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
+      recheck.disabled = false;
+    }
+    return;
+  }
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  /* #1: tmux fires the native Accessibility PROMPT (Kitty's /api/a11y-prompt, which
-     also injects tmux into the Accessibility list so it appears and is grantable -
-     the gap Josh hit, screenshot 9.51.30). sleep is programmatic (pmset), not a
-     prompt category, so it opens Settings and passes no trigger. Both fall back to
-     opening Settings when the native trigger is unavailable. */
+  /* #1/#2451: the Accessibility row fires the native PROMPT (Kitty's /api/a11y-prompt),
+     which registers the CALLING BINARY (the kosmos-app = Kosmos) in the Accessibility
+     list so it appears and is grantable - the grant is keyed on the calling binary, not
+     tmux (tmux disclaims responsibility for its children and never holds it; #2125). The
+     internal data-gate key stays "tmux" for back-compat, but the subject is Kosmos.app.
+     sleep is programmatic (pmset), not a prompt category, so it opens Settings and passes
+     no trigger. Both fall back to opening Settings when the native trigger is unavailable. */
   const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
   const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
     : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
@@ -41275,6 +41379,32 @@ function frPaintFleet() {
      cannot drift back to this step or fall out of the flow unnoticed. */
 
   const count = FR && FR.fleetCount;
+
+  /* 🛑 #2497: ONBOARDING NEVER AUTO-SCANS OR AUTO-IMPORTS. Josh, 2026-09-08, watching Ben and
+     Nacho test: a developer's many tmux Claude Code sessions filled first run with garbage
+     throwaway agents. First run ALWAYS lands on the no-agent "Create your first agent." / Giddy
+     Up screen, exactly as if the machine had no agents, whatever the real path (adopt/create/
+     unknown) or fleetCount. Real agents are pulled in LATER via the manual Import Agent (#1652)
+     on the Create Agent screen (openCreate -> pickMode('import') -> /api/scan-import), a separate
+     flow this does not touch. Force the create empty state here and fire NO discovery
+     (frFindAgents / frScanAgents), so the auto /api/scan-agents walk never runs on first launch.
+     ⚠️ The action is the create-path "Giddy Up" (-> Create Agent) explicitly, NOT frForkActions,
+     which honors the real FR.path and would render "Take me to my agents" on an adopt machine -
+     the card wants the no-agent path regardless. The three scan arms below are DELIBERATELY
+     unreachable now and KEPT as the discovery machinery (the card: "do not delete discovery, just
+     stop invoking it automatically during onboarding"); they are re-enabled by removing this
+     block. The grant-flip poll never arms (frArmRescanOnGrant is reached only from those arms). */
+  title.textContent = 'Create your first agent.';
+  // #2497 follow-on (Mona Lisa, spec on the card): everyone now lands here, including a user who
+  // already runs agents in Claude Code or Codex that onboarding deliberately no longer scoops up.
+  // One quiet POINTER (not a scan: it lists nothing, finds nothing) tells that user Kosmos is
+  // choosing not to import them and that manual Import lives on the next screen, so "where are my
+  // agents?" does not reappear one screen later. Copy only; the Giddy Up action is unchanged.
+  box.innerHTML = '<p>Let\u2019s get started.</p>'
+    + '<p class="dhint" style="margin:6px 0 0;">Already have agents in Claude Code or Codex on this computer? '
+    + 'On the next screen you can import an existing agent.</p>';
+  frActions({ label: 'Giddy Up', go: () => frFinish(openCreate) });
+  return;
 
   /**
    * ⚠️ THE ADOPT SCREEN NEEDS A REAL COUNT, not just the word "adopt". Without

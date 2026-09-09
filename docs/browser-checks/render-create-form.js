@@ -1,3 +1,4 @@
+// Browser-check-surface: create-account-row
 /**
  * Step two of Create an agent, as Josh reshaped it on 2026-08-22.
  *
@@ -291,6 +292,14 @@ function check(name, pass, detail) {
        left the wrapping `.mstep` drawing an orphan connector at the absent account
        (this cut). The CSS `:has(> #create-account-row[hidden])` drops it; assert the
        stub is gone whenever the row is hidden, so the regression cannot come back. */
+    /* #2548 fail-closed precondition: acctRowHidden is null exactly when
+       #create-account-row is absent (renamed/removed). Without this, the orphan-elbow
+       assertion below falls to its `: true` default on a null and passes on a real
+       regression. Assert the element renders so a rename reds the check (and so the
+       id can be surface-annotated for #2518). */
+    check(`[${engine}] the account row element renders (#create-account-row present)`,
+      seen.acctRowHidden !== null,
+      `#create-account-row ${seen.acctRowHidden === null ? 'MISSING' : 'present'}`);
     check(`[${engine}] a hidden account rung draws no orphan elbow`,
       seen.acctRowHidden ? seen.acctElbowPainted === false : true,
       `row ${seen.acctRowHidden ? 'hidden' : 'shown'}, elbow painted ${seen.acctElbowPainted}`);

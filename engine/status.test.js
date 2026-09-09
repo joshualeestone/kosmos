@@ -1642,6 +1642,1183 @@ test('an agent sitting at its prompt is idle, not unreadable', () => {
   assert.equal(silent.state, 'unknown', 'unknown stopped being reachable, so nothing is honest any more');
 });
 
+test('#1889: the background-agent wait line is a working shape with no timer', () => {
+  /**
+   * CAPTURED VERBATIM from a live pane, not composed here:
+   * icecreamkitty-discord:0.0, Claude Code 2.1.258, 2026-09-02.
+   *
+   * 🔑 THE POINT OF THE ROW. This line carries a spinner glyph but NO gerund
+   * ellipsis and NO parenthesised timer, so `WORKING_LINE` cannot match it.
+   * Measured before the fix: `classify()` returned `idle`, "it is sitting at
+   * its prompt", on a genuinely mid-turn agent. That is #1884's direction
+   * exactly -- the false calm nobody investigates.
+   *
+   * ⚠️ AND IT WAS MASKED, WHICH IS WHY IT SURVIVED -- by the agent's OWN
+   * SELF-REPORT, not by any independent read. `install/kosmos-report-hook.sh`
+   * fires `report working --auto "running <tool>"` on PreToolUse, throttled to
+   * one line per 60s. There is no process-classification arm in this module.
+   * ⇒ The board was right only where the agent happened to be reporting. An
+   * agent whose hook is absent, failing, or between heartbeats reads IDLE while
+   * mid-turn.
+   *
+   * 📌 A STATIC GREP COULD NOT HAVE FOUND THIS. The count is interpolated, so
+   * the literal string is nowhere in the 2.1.258 bundle.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  const live = '  Waiting for both.\n\n✻ Waiting for 1 background agent to finish';
+  const manyAgents = (n) => ['✻ Waiting for ' + n + ' background agents to finish', '', '────', '❯ ', '────',
+    '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main']
+    .concat(new Array(n).fill('  ◯ general-purpose  doing a thing 43s · ↓ 1.0k tokens')).join('\n');
+  const got = classify(pane, live + footer);
+  assert.equal(got.state, 'working', 'a live background-agent wait read as idle');
+  assert.match(got.because, /background agent/);
+  assert.equal(got.evidence, '✻ Waiting for 1 background agent to finish',
+    'the evidence must be the line as drawn, not a paraphrase');
+
+  // The plural, since the count is interpolated and 1 is not special. Pins
+  // `because` and `evidence` too: asserting only `.state` would let a
+  // plural-only evidence regression through.
+  const plural = classify(pane, '✻ Waiting for 3 background agents to finish' + footer);
+  assert.equal(plural.state, 'working');
+  assert.match(plural.because, /background agent/);
+  assert.equal(plural.evidence, '✻ Waiting for 3 background agents to finish');
+
+  /**
+   * 🛑 WRAP SAFETY (#1234's class). `capturePane` passes `-J`, which joins a
+   * wrapped row with NO separator, so a space on the wrap boundary vanishes from
+   * the joined line. With literal spaces this row went red; the marker spells
+   * its spaces `\s*` for exactly that reason.
+   */
+  assert.equal(classify(pane, '✻ Waiting for 1 backgroundagent to finish' + footer).state, 'working',
+    'a wrap-eaten space silently stopped the reader matching');
+
+  /**
+   * 🛑 THE QUOTATION RESIDUAL, AND IT IS LIVE IN THIS REPO. This line is static
+   * text, unlike WORKING_LINE which needs a changing timer, so an agent that
+   * `cat`s a document containing it would classify `working` while idle at its
+   * prompt -- a false CALM. `backgroundAgentWait` therefore requires the line to
+   * sit within BACKGROUND_AGENT_WAIT_REACH rows of the COMPOSER ROW, because
+   * Claude Code draws it immediately above the composer while everything variable
+   * (subagent rows, status, hints) is drawn below. Measured live: 3 rows on the
+   * instances observed, and the source comment records 3 to 5 once optional rows
+   * (a notification, a tip block) are counted.
+   */
+  /* 🛑 THE FILLER COUNT IS LOAD-BEARING AND 40 MADE THIS ROW VACUOUS. `classify`
+     only reads the last 25 rows, so a fixture that long pushed the line out of
+     `tail` entirely and the row passed whether or not the reach guard existed.
+     Verified by perturbation: at 40 fillers, deleting the guard still left this
+     green. 17 keeps the line INSIDE `classify`'s 25-row tail while placing it far
+     enough above the composer to exceed the reach, so the row fails when the
+     guard is removed, which is the only thing that makes it worth having.
+     ⚠️ Row counts are deliberately not quoted here: the earlier "22 rows / 21
+     above" was measured against the last-non-empty-row design and both numbers
+     were wrong for the composer anchor that replaced it. */
+  const quoted = ['✻ Waiting for 1 background agent to finish']
+    .concat(new Array(17).fill('  later output')).join('\n');
+  assert.notEqual(classify(pane, quoted + footer).state, 'working',
+    'a quoted copy high on the screen was read as a live status line');
+
+  /**
+   * 🛑 THE GUARD THAT MAKES THE RULE SAFE TO HAVE. The bundle carries many
+   * distinct `Waiting for …` strings (counted once, with its command, where
+   * `BACKGROUND_AGENT_WAIT` is defined) and they are NOT one state: several mean
+   * BLOCKED ON A HUMAN. If this rule ever widens to a bare `Waiting for …`, every
+   * one of these starts reporting as busy and hides an agent that needs you,
+   * which is worse than the miss the rule was added to fix.
+   */
+  for (const human of [
+    '✻ Waiting for permission',
+    '✻ Waiting for authorization',
+    '✻ Waiting for team lead approval',
+    '✻ Waiting for sign-in to complete in your browser',
+  ]) {
+    assert.notEqual(classify(pane, human + footer).state, 'working',
+      'a human-blocked wait reached WORKING through the background-agent rule: ' + human);
+  }
+  /* ⚠️ AND DO NOT READ THAT LOOP AS "these four are handled". They are NOT. All
+     four currently classify `idle`, which is itself a false calm -- an agent
+     blocked on a person, shown at rest. The row pins only that THIS rule does not
+     make them worse.
+     ⚠️ It does NOT stay green if someone routes them to `needs_you`: the row
+     below locks `idle` explicitly, so that change reds exactly here. An earlier
+     version of this comment said the opposite, sending the next person to look
+     for a lock that is right here. */
+  assert.equal(classify(pane, '✻ Waiting for permission' + footer).state, 'idle',
+    'documenting the known gap: a human-blocked wait reads idle, it is not handled');
+
+
+
+
+  /**
+   * 🛑 THE `◯` LIVENESS GATE IS GONE, AND ITS ROWS WENT WITH IT. Three rounds of
+   * assertions here pinned which `◯` rows proved an agent was running: the
+   * collapsed idle summary, a selected `❯ ◯` row, a nested `└ ◯` row, a plugin
+   * list, a composer with one typed in. All obsolete, because the premise was
+   * wrong rather than incomplete: EVERY footer row draws that glyph and run state
+   * lives in the row's COLOUR, which `capturePane` strips. No enumeration could
+   * have finished.
+   *
+   * What replaces them survives colour-stripping: a wait row is live if it sits
+   * within reach of the composer AND no completed-agent line stands between them.
+   * The rows below pin that pair.
+   */
+  /* The anchor takes the LAST `❯` (the composer), not the first, and skips a
+     selected `❯ ◯` footer row. Both were fixed in earlier rounds with comments
+     claiming a test row existed; neither had one. */
+  /* The completion line sits AFTER the quoted prompt, so the two anchor choices
+     diverge: with the LAST ❯ (the composer) the line is inside the scanned span
+     and resolves the wait; with the FIRST ❯ it falls outside and the wait reads
+     live. An earlier fixture put the line above the quoted prompt, where both
+     choices agreed, so it discriminated nothing. */
+  assert.notEqual(
+    classify(pane, '✻ Waiting for 1 background agent to finish'
+      + '\n  ❯ quoted prompt\n  ⏺ Agent "x" finished · 5m' + footer).state,
+    'working',
+    'the first ❯ became the anchor, so the completion line fell outside the scan');
+  /* A completion line sits BELOW the composer but ABOVE the selected footer row,
+     so the two anchor choices diverge: anchoring on the real composer leaves it
+     outside the scanned span (the wait is live), while anchoring on the `❯ ◯`
+     footer row pulls it inside and wrongly resolves the wait. Without that
+     divergence the row passed whether or not the exclusion existed. */
+  /* Every focused footer row draws pointer + THAT ROW'S OWN icon, and the main
+     icon is `⏺` (macOS) or `●`, and it marks the VIEWED row rather than the main
+     one, so `❯ ⏺ main` is a real focused row. Both shapes are
+     pinned; keying the exclusion on `◯` alone let the main row become the
+     anchor. The completion line sits between the composer and the focused row so
+     the two anchor choices diverge. */
+  /* And the exclusion must be the FOOTER SHAPE, not "any row containing an
+     icon": a genuine composer whose TYPED TEXT holds one must still anchor.
+     Someone working on this reader is exactly who types a circle into a prompt. */
+  assert.equal(
+    classify(pane, '✻ Waiting for 1 background agent to finish'
+      + '\n────\n❯ why is ◯ drawn on every footer row\n────'
+      + '\n  ⏵⏵ bypass permissions on · ← for agents').state,
+    'working',
+    'a composer with an icon in its typed text was disqualified as a footer row');
+
+  /* 🛑 INCLUDING THE NESTED SHAPES. A depth>0 task row carries a tree connector
+     (`❯ └ ◯ …`, `❯ ├ ◯ …`), and keying the exclusion on pointer + icon alone let
+     one become the anchor, pushing the wait row out of reach and turning the
+     feature OFF on a live pane. The fixture below places the focused row far
+     enough down that the wrong anchor exceeds the reach, which is what makes it
+     discriminate.
+     📌 THE LAST TWO ROWS ARE DELIBERATE OVER-COVERAGE AND ARE LABELLED AS SUCH.
+     `└─` and `│  ` are connector spellings I have NOT confirmed 2.1.258 draws
+     here; I could not resolve the connector's construction out of the binary in
+     a bounded sweep, so I am not asserting either way. They are kept because the
+     exclusion is deliberately keyed on the SHAPE CLASS (pointer, then any run of
+     box-drawing/space, then a footer icon) rather than on an exact alphabet, and
+     a fixture set that only holds the two spellings I could confirm would pass
+     just as well against an exclusion narrowed to those two literals. Rows that
+     cost nothing and would red a silent narrowing are worth keeping; the honest
+     part is saying which ones are confirmed captures and which are not. */
+  const withFocused = (f) => ['✻ Waiting for 3 background agents to finish', '', '────', '❯ ', '────',
+    '  agent · Opus 5 · ctx 50%', '  ⏵⏵ bypass permissions on · ← for agents', '', '  ⏺ main',
+    '  ◯ general-purpose  a  1m', '  ◯ general-purpose  b  2m', f].join('\n');
+  for (const f of ['❯ └ ◯ general-purpose  c  3m', '❯ ├ ◯ general-purpose  c  3m',
+    '❯ └─ ◯ general-purpose  c  3m', '❯ │  └ ◯ general-purpose  c  3m']) {
+    assert.equal(classify(pane, withFocused(f)).state, 'working',
+      'a focused NESTED footer row became the anchor and hid a live wait: ' + f);
+  }
+
+  for (const focused of ['❯ ◯ general-purpose  doing 43s', '❯ ⏺ main', '❯ ● main']) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish' + footer
+        + '\n  ⏺ Agent "x" finished · 5m\n' + focused).state,
+      'working',
+      'a focused footer row was mistaken for the composer: ' + focused);
+  }
+
+  /* The reach itself, both directions. Live status rows measured 3 to 5 rows
+     above the composer on real panes, and the vendor can add a notification row,
+     a two-row tip block and one row per queued message between them, so the
+     realistic ceiling is around 7. Reach 8 carries one row of slack; 12 and 18
+     were previously green in both directions and pinned nothing. */
+  const atDistance = (n) => '✻ Waiting for 1 background agent to finish\n'
+    + new Array(n - 1).fill('  filler').join('\n') + '\n────\n❯ \n────\n  ⏵⏵ bypass permissions on · ← for agents';
+  assert.equal(classify(pane, atDistance(7)).state, 'working',
+    'a live row at the top of the reach was read as idle');
+  assert.notEqual(classify(pane, atDistance(14)).state, 'working',
+    'a row well past the reach is scrolled-up transcript, not the live status row');
+
+  /* 🛑 THE SCAN STARTS BELOW THE WAIT ROW, and that is load-bearing. A `❯` ABOVE
+     the row (a quoted prompt in a pasted transcript) must NOT become the anchor:
+     with `j = 0` it does, `anchor - i` goes negative so the reach check passes,
+     and the slice `(i+1, anchor)` is empty so the resolution check cannot fire
+     either. Measured: this screen reads `unknown` as shipped and `working`
+     perturbed, which is the false calm the no-composer rule exists to close.
+     The other no-composer fixture has no `❯` at all, so it cannot discriminate. */
+  assert.notEqual(
+    classify(pane, ['❯ quoted prompt in a pasted transcript', '  some text',
+      '✻ Waiting for 1 background agent to finish',
+      '  a dialog row that replaced the composer', '  another row'].join('\n')).state,
+    'working',
+    'a ❯ ABOVE the wait row became the anchor, so a pane with no composer read working');
+
+  /* 🛑 NO COMPOSER ON SCREEN -> null. A dialog replaces the composer, and with no
+     anchor there is nothing to measure the reach against, so any quotation with
+     any completion state below it would be judged on distance from the last row.
+     This was the only decision on the branch with no assertion: restoring the old
+     `anchor = last` fallback left the suite green while reopening that path. */
+  assert.notEqual(
+    classify(pane, '✻ Waiting for 1 background agent to finish\n  some dialog row\n  another row').state,
+    'working',
+    'with no composer on screen the reader must decline, not fall back to the last row');
+
+  /* 🛑 THE KILL CHORD IS A SECOND NOTIFICATION SITE with a different shape:
+     `Background agent "x" was stopped by the user.` and, plural, `N background
+     agents were stopped by the user: …`. Neither begins `Agent "`, so keying on
+     the enqueueAgentNotification wordings alone left a KILLED agent reading
+     `working` while its frozen wait row stayed in reach. */
+  for (const killed of [
+    '  ⏺ Background agent "r" was stopped by the user.',
+    '  ⏺ 3 background agents were stopped by the user: a, b, c',
+    /* The `agents_killed` banner: a THIRD site on the same kill path, produced by
+       the zero-survivors arm of the same handler. `All …` cannot match a pattern
+       expecting a count or `Background` after the bullet, so it was missed. It is
+       the worst place to miss one: after an interrupt nothing further is drawn,
+       so the frozen wait row never leaves reach and the pane reads working
+       FOREVER on an agent free at its prompt. */
+    '  ⏺ All background agents stopped',
+    '  ● All background agents stopped',
+    /* The vendor's own per-canceller wordings, which the bare `was stopped`
+       alternative covers but no fixture pinned. */
+    '  ⏺ Agent "r" was stopped by Claude',
+    '  ⏺ Agent "r" was stopped by user',
+  ]) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + killed + footer).state,
+      'working', 'a killed background agent did not resolve the wait: ' + killed.trim());
+  }
+  /* 🛑 PROSE MUST NOT RESOLVE IT, AND THE FIXTURE HAS TO BE ABLE TO SAY SO. The
+     line-start `[⏺●]` prefix is the ONLY thing separating a vendor notification
+     from narration, and an earlier fixture here ("I asked the agent about stopped
+     builds") could not test it: `stopped` is followed by ` builds`, so no
+     plausible widening reaches it and dropping the whole prefix left the suite
+     green. This row uses a sentence that DOES end in a completion word, so
+     removing the anchor flips it. Measured: shipped `working`, unanchored `idle`. */
+  /* 🛑 THE FIRST TWO ROWS STOPPED ARMING THIS GUARD WHEN THE PATTERN WAS
+     NARROWED AT ITERATION 19, AND THE SUITE SAID NOTHING. Requiring a quoted
+     agent name or the literal `background` means neither of them can match with
+     or WITHOUT the `[⏺●]` prefix, so deleting the prefix left all 175 green: a
+     guard that had discriminated for fifteen rounds became decoration because
+     the code it guarded moved underneath it. Measured by deleting
+     `^\s*[⏺●]\s*` from `AGENT_FINISHED_LINE`.
+     ⇒ The last two rows restore it. Each carries the narrowed pattern's OWN
+     entry conditions (a quoted name; the `background` banner) somewhere other
+     than line-start, so the anchor is now the only thing rejecting them:
+     shipped=false, unanchored=TRUE for both, measured.
+     ⭐ The general shape, which is worth more than the two strings: A GUARD IS
+     ARMED ONLY RELATIVE TO THE CODE THAT EXISTED WHEN IT WAS WRITTEN. Narrowing
+     a pattern silently disarms every fixture that was rejected by the part you
+     removed. After any narrowing, re-perturb the guards AROUND it, not just the
+     assertion you aimed at. */
+  for (const prose of [
+    '  the agent finished its review',
+    '  I asked the agent about stopped builds',
+    '  I told you Agent "x" finished an hour ago',
+    '  see the log: All background agents stopped there',
+  ]) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + prose + footer).state,
+      'working', 'ordinary prose resolved the wait: ' + prose.trim());
+  }
+
+  /* 🛑 NOR MAY THE COLLAPSED TASK-GROUP HEADER RESOLVE IT. The vendor draws a
+     fully-resolved Task group as `${count} ${type ? type + " agents" : "agents"}
+     finished`, so a group of SYNCHRONOUS subagents renders `⏺ 3 agents finished`
+     -- a row about work that was never part of this wait. The pattern's old
+     `\d+\s+` arm matched it and returned `idle` on a live background agent, which
+     is the exact false calm this whole block exists to close.
+     ⭐ The two spellings behaved OPPOSITELY, which is what made it invisible:
+     `⏺ 2 general-purpose agents finished` never matched, because the type label
+     sits between the count and `agents`. A fixture holding only the typed
+     spelling would have passed throughout. Both are pinned below.
+     📌 `launched` is the all-async group's wording and is not a completion at
+     all; it is here so that widening the verb list reds a row. */
+  for (const groupHeader of [
+    '  ⏺ 3 agents finished',
+    '  ⏺ 1 agent finished',
+    '  ⏺ 2 general-purpose agents finished',
+    '  ● 3 agents finished',
+    '  ⏺ 3 background agents launched',
+  ]) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + groupHeader + footer).state,
+      'working', 'a collapsed Task-group header resolved a live wait: ' + groupHeader.trim());
+  }
+
+  /* 🛑 THIS ARM MUST OUTRANK THE `Worked for` IDLE RULE. A previous turn's
+     `✻ Worked for 3m 12s` sits in the same 25-row tail as this turn's live wait
+     row, and that row is the module's canonical idle marker. Demoting this block
+     below it left the suite green while flipping this screen to `idle`. */
+  assert.equal(
+    classify(pane, '✻ Worked for 3m 12s\n  earlier output\n✻ Waiting for 1 background agent to finish' + footer).state,
+    'working',
+    'a previous turn\'s "Worked for" row outranked this turn\'s live wait');
+
+  /* 🛑 THE REACH CHECK MUST `continue`, NOT RETURN. An out-of-reach row above a
+     live one must not end the scan. */
+  assert.equal(
+    classify(pane, '✻ Waiting for 9 background agents to finish\n'
+      + new Array(12).fill('  transcript').join('\n')
+      + '\n✻ Waiting for 1 background agent to finish' + footer).state,
+    'working',
+    'an out-of-reach wait row ended the scan and hid a live one below it');
+
+  /**
+   * 🛑 A STALE ROW MUST NOT HIDE A LIVE ONE. A pane waiting on several agents
+   * draws a NEW wait row each time one finishes, so the screen holds a stale row,
+   * its completion line, and a live row below. The resolution check used to
+   * `return null` on the stale row, so the live one was never examined and a
+   * running agent read `idle`.
+   */
+  /* ⚠️ THE STALE ROW MUST ACTUALLY RESOLVE, OR THIS ROW TESTS NOTHING. It waits
+     on TWO, so it needs TWO completions since the resolution became count-aware.
+     With only one it now declines at the FIRST row and returns `working` without
+     ever looking at the second -- the right verdict reached without exercising
+     the behaviour named in the assertion, which is the quietest way for a test
+     to stop meaning anything. Verified to still discriminate: restoring
+     `return null` in place of the resolution `continue` reds this row. */
+  assert.equal(
+    classify(pane, ['✻ Waiting for 2 background agents to finish',
+      '  ⏺ Agent "a" finished · 2m 1s', '  ⏺ Agent "b" finished · 3m 4s',
+      '  follow-up output',
+      '✻ Waiting for 1 background agent to finish'].join('\n') + footer).state,
+    'working',
+    'a stale wait row short-circuited the scan and hid a live one below it');
+
+  /**
+   * 🛑 ONE COMPLETION DOES NOT END A WAIT ON N.
+   *
+   * The wait row's count is frozen at mount, so a pane waiting on two draws
+   * `Waiting for 2 background agents to finish` and keeps drawing it. A single
+   * `⏺ Agent "a" finished` beneath it used to resolve the whole row, and the
+   * SECOND agent then read `idle` while it ran. The error grows with N: on a
+   * wait for nine, one completion turned eight running agents into a calm card.
+   */
+  assert.equal(
+    classify(pane, '✻ Waiting for 2 background agents to finish\n'
+      + '  ⏺ Agent "a" finished · 2m 1s' + footer).state,
+    'working',
+    'one completion resolved a wait on two, so the second agent read idle while it ran');
+  assert.notEqual(
+    classify(pane, '✻ Waiting for 2 background agents to finish\n'
+      + '  ⏺ Agent "a" finished · 2m 1s\n  ⏺ Agent "b" finished · 3m 4s' + footer).state,
+    'working',
+    'both agents finished and the wait still read live');
+
+  /**
+   * 🛑 A BANNER CLEARS ITS OWN ROW, IT DOES NOT END THE SCAN.
+   *
+   * The banner check and the count check sit one line apart and both `continue`.
+   * The count one was pinned; this one was not, and perturbing it to
+   * `return null` left the whole suite green. Splitting the two arms into
+   * separate constants is what left this one unpinned while its sibling was
+   * tested, so the split created the hole it was meant to make clearer.
+   *
+   * The screen below is real: a wait on two, cleared by an interrupt banner, with
+   * a NEW wait drawn under it when the parent took another turn. Returning on the
+   * banner reads `idle` on the agent that is still running.
+   */
+  assert.equal(
+    classify(pane, ['✻ Waiting for 2 background agents to finish',
+      '  ⏺ All background agents stopped', '  follow-up output',
+      '✻ Waiting for 1 background agent to finish'].join('\n') + footer).state,
+    'working',
+    'a banner-cleared stale row ended the scan and hid a live one below it');
+
+  /**
+   * 🛑 A COMPOSED WAIT IS NOT RESOLVED BY ITS AGENT HALF.
+   *
+   * `✻ Waiting for 1 background agent and 3 dynamic workflows to finish` is
+   * asserted as WORKING in the contract table, but the count reads only the AGENT
+   * counter and the completions count only agent lines. So the one agent
+   * finishing used to clear the whole row: measured `idle` with three workflows
+   * still running. A false calm, not a miss, which is the direction this reader
+   * is not allowed to fail in.
+   *
+   * The reader now DECLINES on a composed row rather than guessing. The bundle
+   * does carry `Dynamic workflow "x" completed`, but this branch's rule is to
+   * widen only on a live capture of the shape being widened to, and there is no
+   * capture of a workflow completion. Resolving on an unseen marker would be the
+   * same error facing the other way.
+   */
+  for (const composed of [
+    '✻ Waiting for 1 background agent and 3 dynamic workflows to finish',
+    '✻ Waiting for 2 background agents and 1 dynamic workflow to finish',
+  ]) {
+    assert.equal(
+      classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m' + footer).state,
+      'working',
+      'a composed wait was cleared by its agent half alone: ' + composed);
+    /* CONTROL: the same row with enough agent completions to satisfy the AGENT
+       counter must ALSO stay working, or this row is only re-testing the count. */
+    assert.equal(
+      classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m'
+        + '\n  ⏺ Agent "b" finished · 3m' + footer).state,
+      'working',
+      'a composed wait cleared once its agent counter was satisfied: ' + composed);
+    /* And the evidence must survive the early return, which is a second code path
+       to the same trimmed line. */
+    assert.equal(classify(pane, composed + '\n  ⏺ Agent "a" finished · 2m' + footer).evidence,
+      composed, 'the composed-wait return lost or altered its evidence line');
+    /* 🛑 NOR BY THE AGENTS-STOPPED BANNER. `⏺ All background agents stopped`
+       speaks to the AGENT half only; a composed row's workflows may still run.
+       As shipped, the banner check ran BEFORE the composed decline, so this read
+       idle with the workflows unaccounted - the same false calm one branch over
+       (found by challenge-loop review). The decline now precedes the banner, so a
+       composed wait stays working under it. Perturbed: swap the two back and this
+       goes idle. */
+    assert.equal(
+      classify(pane, composed + '\n  ⏺ All background agents stopped' + footer).state,
+      'working',
+      'a composed wait was cleared to idle by the agents-stopped banner: ' + composed);
+  }
+
+  /**
+   * 🛑 THE RESOLUTION ROWS WRAP TOO, AND FOR FOUR ROUNDS ONLY THE WAIT ROW DID.
+   *
+   * `BACKGROUND_AGENT_WAIT` and the count were widened to `\s*` on the
+   * `capture-pane -J` premise. `AGENT_FINISHED_LINE` and
+   * `AGENT_WAIT_CLEARED_BANNER` kept `\s+`, so THE SAME JOIN THE MATCHER WAS
+   * WIDENED TO ACCEPT SILENTLY DISARMED RESOLUTION.
+   *
+   * ⚠️ REACHABILITY IS HIGHER HERE, NOT LOWER. These rows carry a MODEL-SUPPLIED
+   * description and the plural banner interpolates every one of them, so they are
+   * the widest rows on screen and the likeliest to wrap.
+   *
+   * Two harms, both already named elsewhere in this file as the ones not to be
+   * wrong about: a FINISHED agent reading `working` (the iteration-3 false calm),
+   * and the banner arm, where "after an interrupt nothing further is drawn, so
+   * the frozen wait row never leaves reach and the pane reads `working` FOREVER".
+   */
+  for (const joined of [
+    '  ⏺ Agent"a" finished · 5m',
+    '  ⏺ Agent "a"finished · 5m',
+    '  ⏺ Agent "a" wasstopped by Claude',
+    '  ⏺ Agent "a" stoppedat its 5-turn limit',
+    '  ⏺ Backgroundagent "a" was stopped by the user.',
+    '  ⏺ Background agent "a" wasstopped by the user.',
+    '  ⏺ Allbackground agents stopped',
+    '  ⏺ All background agentsstopped',
+    '  ⏺ 3 background agents werestopped by the user: a, b, c',
+  ]) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + joined + footer).state,
+      'working',
+      'a wrap-joined completion or banner failed to resolve the wait: ' + joined.trim());
+  }
+
+  /* 🛑 AND THE RELAXATION MUST NOT COST THE NARROWING. What excludes a tool
+     header, a collapsed group header and prose is the REQUIRED QUOTED NAME and
+     the literal `background`, never the space, so these three must still leave
+     the wait live. Without this block, widening the verb list or dropping the
+     quote requirement would look free. */
+  for (const notACompletion of [
+    '  ⏺ Agent(Investigate the failed CI run)',
+    '  ⏺ Agent(Investigatethe failed CI run)',
+    '  ⏺ 3 agents finished',
+    '  ⏺ 3agents finished',
+    '  the agent finished its review',
+  ]) {
+    assert.equal(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + notACompletion + footer).state,
+      'working',
+      'the wrap relaxation let a non-completion row resolve the wait: ' + notACompletion.trim());
+  }
+
+  /* 🛑 THE CROSSING ROW: A WRAP-JOINED WAIT **AND** A COUNT. Neither dimension was
+     wrong alone and nothing tested them together, so a BLOCKER lived between two
+     green fixtures. The wrap rows above assert only `.state` on a wait with NO
+     completions; the count rows below use UNWRAPPED waits. `capture-pane -J`
+     joins a wrapped row with no separator, so the wait matcher spells every space
+     `\s*` -- and the count regex spelled them `\s+`, so on exactly the rows the
+     matcher was widened to accept, N fell to the unreadable-row fallback of 1 and
+     one completion resolved a wait on two.
+     ⭐ TWO REGEXES READING ONE ROW MUST SHARE ITS WHITESPACE PREMISE, and the only
+     fixture that can say so is one that varies BOTH at once. Measured before the
+     fix: each of these read `working` alone and `idle` with one completion. */
+  for (const wrapped of [
+    '✻ Waiting for 2 backgroundagents to finish',
+    '✻ Waiting for 2background agents to finish',
+    '✻ Waiting for 2 background agentsto finish',
+    '✻ Waiting for 2 backgroundagentsto finish',
+  ]) {
+    assert.equal(
+      classify(pane, wrapped + '\n  ⏺ Agent "a" finished · 2m 1s' + footer).state,
+      'working',
+      'a wrap-joined wait lost its count, so one completion resolved a wait on two: ' + wrapped);
+    /* CONTROL: the same wrapped row with BOTH completions must still resolve, so
+       the row above is the count being READ rather than the reader simply having
+       stopped matching wrapped waits altogether. */
+    assert.notEqual(
+      classify(pane, wrapped + '\n  ⏺ Agent "a" finished · 2m 1s'
+        + '\n  ⏺ Agent "b" finished · 3m 4s' + footer).state,
+      'working',
+      'a wrap-joined wait ignored its completions entirely: ' + wrapped);
+  }
+
+  /* 🛑 THE GLOBAL BANNERS ARE EXEMPT FROM THE COUNT, AND MUST BE. One
+     `All background agents stopped` ends ALL of them, so counting it as a single
+     occurrence would leave a wait on nine needing eight more lines that will
+     never be drawn -- and this is the INTERRUPT path, after which nothing further
+     renders at all, so the frozen row never leaves reach and the pane reads
+     `working` forever on an agent sitting at its prompt. */
+  for (const banner of ['  ⏺ All background agents stopped',
+    '  ⏺ 9 background agents were stopped by the user: a, b, c']) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 9 background agents to finish\n' + banner + footer).state,
+      'working',
+      'a global stop banner did not clear a wait on nine: ' + banner.trim());
+  }
+
+  /**
+   * 🛑 THE VENDOR WRITES FOUR OUTCOMES AND TWO BULLETS. The task-notification
+   * spec renders `finished`, `failed: {error}`, `was stopped`, or `stopped at its
+   * N-turn limit`, and the bullet is `⏺` on macOS and `●` everywhere else.
+   * Keying on `finished` and `⏺` alone left three wordings and every non-macOS
+   * host reading `working` on a dead agent -- worse than origin/main on exactly
+   * the case a person most needs surfaced.
+   */
+  for (const done of [
+    '  ⏺ Agent "r" finished · 5m 19s',
+    '  ⏺ Agent "r" failed: build is broken · 5m 19s',
+    '  ⏺ Agent "r" was stopped · 5m 19s',
+    '  ⏺ Agent "r" stopped at its 5-turn limit',
+    '  ● Agent "r" finished · 5m 19s',
+    /* A QUOTE INSIDE THE NAME. Descriptions are model-supplied, so this is a real
+       row, and a name class stopping at the first inner quote left the wait live
+       on a finished agent. Miss direction, but it is now guarded rather than
+       enumerated as a limit. */
+    '  ⏺ Agent "fix the "foo" bug" finished · 1m',
+  ]) {
+    assert.notEqual(
+      classify(pane, '✻ Waiting for 1 background agent to finish\n' + done + footer).state,
+      'working',
+      'a completed agent did not resolve the wait: ' + done.trim());
+  }
+
+  const resolvedWait = '✻ Waiting for 1 background agent to finish\n  ⏺ Agent "x" finished · 5m 19s';
+  assert.notEqual(classify(pane, resolvedWait + footer).state, 'working',
+    'a completed-agent line between the row and the composer did not resolve the wait');
+
+  /**
+   * 🛑 `to finish` MUST END THE LINE. Without the `$` anchor the pattern matched
+   * any sentence CONTAINING the phrase, so prose about this very feature read as a
+   * working agent. Both fixtures below matched before the anchor was added.
+   */
+  for (const prose of [
+    '✻ Waiting for permission to run the background agents to finish the job',
+    '· Waiting for N background agents to finish is the line #1889 handles',
+    '· Waiting for 1 background agent to finish',   // wrong glyph: spinner frame
+    '✳ Waiting for 1 background agent to finish',   // wrong glyph: spinner frame
+  ]) {
+    assert.notEqual(classify(pane, prose + footer).state, 'working',
+      'prose containing the phrase was read as a live status line: ' + prose);
+  }
+
+  /**
+   * 🛑 EVERY SPACE MUST SURVIVE A `-J` WRAP JOIN, and two of the seven did not.
+   * `Waiting\s*for\s` and `.*\sto` each required a mandatory space, so a pane
+   * wrapping at those two boundaries silently returned to `idle` -- the #1234
+   * false-calm class the comment claimed was closed while covering 1 of 7 cases.
+   * This loop drops each space in turn, which is what the join does.
+   */
+  /* Both arms, because the workflow alternative added later carried the same
+     literal-space defect and the loop below only covered the agent arm. */
+  for (const spaced of [
+    '✻ Waiting for 1 background agent to finish',
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
+  ]) {
+  for (let i = 0; i < spaced.length; i += 1) {
+    if (spaced[i] !== ' ') continue;
+    const wrapped = spaced.slice(0, i) + spaced.slice(i + 1);
+    assert.equal(classify(pane, wrapped + footer).state, 'working',
+      'a wrap-eaten space at index ' + i + ' stopped the reader matching: ' + wrapped);
+  }
+  }
+
+  /**
+   * 🛑 THE VENDOR APPENDS ` · …` SUFFIXES TO THIS ROW, so a BARE `$` anchor
+   * rejects real renders. The wait row is one Ink `<Text>` whose later children
+   * are ungated: a budget readout, its nudges, and a hidden-message count all
+   * follow `to finish` on the same line. All three returned `idle` under the bare
+   * anchor -- the false calm reintroduced by the fix for a different false
+   * positive. The tail is optional but must begin ` · `, which prose does not.
+   */
+  for (const suffixed of [
+    '✻ Waiting for 1 background agent to finish · 3 messages hidden (/focus to show)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%) · 2 nudges',
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish · 1 message hidden',
+  ]) {
+    assert.equal(classify(pane, suffixed + footer).state, 'working',
+      'a real vendor suffix after "to finish" was rejected: ' + suffixed);
+  }
+
+  /**
+   * 🛑 THE COMPOSED FORM. The vendor builds ONE line from two counters, so the
+   * first version of this reader -- which required `background agents? to finish`
+   * ADJACENTLY -- missed the combined render entirely. That was a false calm
+   * inside the case the reader claims to handle, derived from the bundle rather
+   * than found live.
+   */
+  for (const composed of [
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
+    '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
+  ]) {
+    assert.equal(classify(pane, composed + footer).state, 'working',
+      'a composed background-agent/workflow wait was read as idle: ' + composed);
+  }
+
+
+  /**
+   * 🛑 THE GLYPH CLASS EXCLUDES `*`, UNLIKE `WORKING_LINE`'s. That sibling can
+   * afford `*` because an echoed line would also need an ellipsis AND a live
+   * timer; this line needs neither, so a plain markdown bullet would read as a
+   * working agent on any pane showing markdown.
+   */
+  assert.notEqual(classify(pane, '* Waiting for 3 background agents to finish' + footer).state, 'working',
+    'a markdown bullet was read as a live status line');
+
+  /**
+   * 🛑 THE REACH IS ANCHORED TO THE COMPOSER, AND THIS ROW PINS THE TIGHT
+   * DIRECTION, WHICH THE FIRST VERSION LEFT OPEN. Shrinking the reach used to
+   * leave every row green while silently regressing live panes to `idle` -- the
+   * false-calm direction this card exists to close.
+   *
+   * The footer grows by one `◯ …` row per background agent, which is the very
+   * quantity this line reports, so a last-row anchor runs out of budget at
+   * exactly the busiest case. Measured before the fix: 9 agents returned `idle`.
+   */
+  /* 🛑 AND THE REAL CEILING IS `classify`'s 25-ROW TAIL, NOT THE REACH. Measured:
+     working through n=16, `idle` at n=17, `unknown` from n=23, because the wait
+     line falls out of the window entirely. The composer anchor RAISED that
+     threshold, it did not remove it, and the composed form added this round counts
+     workflows into the same footer. n=16 and n=17 are pinned so the boundary
+     cannot move silently; the earlier [1,5,9,15] stopped one value short of it. */
+  assert.equal(classify(pane, manyAgents(16)).state, 'working',
+    'the last value inside the tail window stopped reading as working');
+  assert.notEqual(classify(pane, manyAgents(17)).state, 'working',
+    'n=17 should fall out of the 25-row tail; if this passes the window changed');
+
+  for (const n of [1, 5, 9, 15]) {
+    assert.equal(classify(pane, manyAgents(n)).state, 'working',
+      'the reader went quiet at ' + n + ' background agents, which is the busiest case');
+  }
+
+  /**
+   * 🛑 PRECEDENCE, AND NOTHING ELSE PINNED IT. The rule sits BELOW the
+   * needs-you checks on purpose. Grouping the three working arms together is a
+   * natural tidy-up for a future editor, and hoisting this block above
+   * `asksSomething` goes GREEN on the rest of this file while flipping a real
+   * blocking prompt to `working` -- an agent waiting on a person, reported busy.
+   * That is the false calm this card exists to close, so it gets its own row.
+   */
+  const blocked = '✻ Waiting for 1 background agent to finish\n'
+    + 'Do you want to proceed?\n❯ 1. Yes\n  2. No';
+  assert.equal(classify(pane, blocked + footer).state, 'needs_you',
+    'the background-agent rule outranked a blocking prompt, hiding an agent that needs a person');
+});
+
+/**
+ * The evidence contract for the wait line, in its OWN test block.
+ *
+ * 🛑 IT IS SEPARATE ON PURPOSE, AND THE REASON IS THE BRANCH'S OWN INSTRUMENT.
+ * `node:test` aborts a block at its first failing assertion, so while these rows
+ * sat inside the 400-line reader test, ANY perturbation that stopped the reader
+ * matching killed the block here and silently skipped every row below it -- the
+ * precedence, reach, anchor, resolution and kill-chord rows. Measured under three
+ * separate perturbations: each reported only the assertions above this point. It
+ * could never produce a false green, but it disarmed per-guard perturbation at
+ * exactly the spot the plan warns about, which is worse than a weak assertion:
+ * it made twenty good ones invisible.
+ * ⇒ Splitting costs two duplicated fixture lines and buys a perturbation that
+ * reds HERE and still reports what the other twenty rows think.
+ */
+test('#1889: the evidence contract for the background-agent wait line', () => {
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  /* Real captures carry trailing pad, and the 240-char cap is this module's
+     convention for anything reaching a person's screen. */
+  const padded = classify(pane, '✻ Waiting for 1 background agent to finish     ' + footer);
+  assert.equal(padded.evidence, '✻ Waiting for 1 background agent to finish',
+    'the evidence line kept its trailing pad, against the module convention');
+
+  const longLine = '✻ Waiting for 1 background agent and ' + 'x'.repeat(400) + ' dynamic workflows to finish';
+  const capped = classify(pane, longLine + footer);
+  /* Read it as a string before measuring it. `capped.evidence.length` on a
+     non-match throws a TypeError, which reports as an error in this file rather
+     than as the assertion that actually failed. */
+  assert.ok(typeof capped.evidence === 'string' && capped.evidence.length > 0,
+    'the long wait line produced no evidence at all, so the cap rows below cannot mean anything');
+  assert.ok(capped.evidence.length <= 241, 'the evidence cap did not apply: ' + capped.evidence.length);
+  assert.ok(capped.evidence.endsWith('…'), 'a truncated evidence line must say so');
+});
+
+test('#2378: the CODEX call site is narrowed too, and a hard wrap still reads live', () => {
+  /**
+   * 🛑 THE CODEX SITE HAD ZERO COVERAGE ACROSS ALL 496 TEST FILES. Reverting only
+   * `hasLiveInterruptLine(codexTail)` to the old unanchored test left the whole
+   * suite byte-identical. The shared helper's comment claimed the two sites
+   * "cannot drift apart"; sharing a function is not coverage, and that is exactly
+   * what was unprotected. The nearest existing fixture uses a phrase with NO
+   * parentheses, so it never matched the old constant either and could not see the
+   * narrowing in any direction.
+   *
+   * 🛑 AND THE WRAP CASE IS A REGRESSION THIS PINS AGAINST. Ink hard-wraps the
+   * progress row and `-J` does not rejoin what Ink split. Testing rows in isolation
+   * missed it, so a wrapped live codex row read `working` on origin/main and
+   * stopped doing so here. The codex arm has only three checks and NO
+   * `WORKING_LINE` beneath it, so a miss falls straight through to the FALSE CALM.
+   */
+  const codex = { session: 'kid', name: 'kid', claim: 'kid', command: 'node', runner: 'codex', title: 't' };
+
+  assert.equal(classify(codex, '• Reconnecting... 4/5 (4s • esc to interrupt)').state, 'working',
+    'a live codex progress line stopped being read as working');
+  assert.equal(classify(codex, '• Reconnecting... 4/5 (4s •\nesc to interrupt)').state, 'working',
+    'a HARD-WRAPPED codex progress line fell through to the false calm, which is a regression against origin/main');
+  /* And the wrap can fall INSIDE the phrase itself, not only before/after it. The
+     no-separator join makes `esc\nto interrupt` -> `escto interrupt`, so the phrase
+     matcher must be space-tolerant (`esc\s*to\s*interrupt`) or this misses = false
+     calm on a narrow pane, the shape this reader exists for (found by review). */
+  assert.equal(classify(codex, '• Reconnecting... 4/5 (4s • esc\nto interrupt)').state, 'working',
+    'a hard wrap INSIDE the esc-to-interrupt phrase fell through to the false calm');
+  assert.notEqual(classify(codex, '  he said (press esc to interrupt) earlier').state, 'working',
+    'a parenthesised quotation was read as a live codex turn');
+  assert.notEqual(classify(codex, 'I told him esc to interrupt is what the old UI said.').state, 'working',
+    'prose without parentheses was read as a live codex turn');
+});
+
+test('#2378: the wrap join is gated on an UNCLOSED parenthesis, and that gate is load-bearing', () => {
+  /**
+   * Joining a glyph row to the next unconditionally reads a SETTLED spinner row
+   * plus a following prose row as one live line. The gate is the structural trace
+   * a hard wrap inside the parenthesised group leaves: the paren is still open.
+   *
+   * ⚠️ The last row here is an INHERENT AMBIGUITY rather than a defect. A glyph row
+   * ending mid-parenthesis whose next row closes it and carries the phrase is
+   * BYTE-IDENTICAL to a genuine wrapped live spinner. It resolves as live, which is
+   * the direction that avoids the codex false calm, and it is asserted so nobody
+   * re-derives it as a bug.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const W = '✻ Waiting for 1 background agent to finish';
+  const flagOf = (body) => classify(pane, body + footer).backgroundWait === true;
+
+  assert.equal(flagOf('· Improvising… (35s · ↓ 1.5k tokens ·\nesc to interrupt)\n' + W), false,
+    'a WRAPPED live spinner was not recognised, so a queued message reads as read immediately');
+  assert.equal(flagOf('· Working (12s)\nhe said (esc to interrupt) yesterday\n' + W), true,
+    'a SETTLED spinner row joined to following prose was read as one live line; the unclosed-paren gate is gone');
+  assert.equal(flagOf('· Working (12s)\n────\n' + W), true,
+    'a settled spinner row joined to a rule was read as live');
+  assert.equal(flagOf('· Working (12s\nhe said esc to interrupt) yesterday\n' + W), false,
+    'the inherent-ambiguity row changed; it resolves as LIVE on purpose, see the comment above');
+});
+
+test('#2378: EVERY spinner frame is a live turn, and the anchor is behaviour', () => {
+  /**
+   * 🛑 THE FRAME THAT WAS MISSING WAS `*`, AND EXCLUDING IT INVERTED THE SENTENCE.
+   *
+   * `INTERRUPT_LINE_LIVE` shipped without `*` in its glyph class, on a comment that
+   * claimed to be carrying `WORKING_LINE`'s recorded reason across. `WORKING_LINE`
+   * KEEPS `*` and says why: it "IS a real frame", and "dropping it would misread
+   * every poll that samples that frame". The citation was inverted.
+   *
+   * ⇒ Measured consequence: on a `*` frame a LIVE spinner stopped being recognised,
+   * the flag survived, and a person was told "it can pick this up now" about a pane
+   * whose turn is in flight and whose composer QUEUES. That is precisely the
+   * inversion the five-row test below says must never happen. The spinner cycles,
+   * so it was roughly one capture in seven of any pane both mid-turn and holding a
+   * frozen wait row.
+   *
+   * ⭐ ONE FRAME WAS TESTED AND SEVEN WERE NOT, which is why a defect in the class
+   * survived a round that perturbed the constant. Testing a class needs every
+   * member, not a representative.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const W = '✻ Waiting for 1 background agent to finish';
+  const flagOf = (body) => classify(pane, body + footer).backgroundWait === true;
+
+  for (const frame of ['·', '•', '✢', '✳', '✶', '✻', '✽', '*']) {
+    assert.equal(flagOf(frame + ' Improvising… (35s · ↓ 1.5k tokens · esc to interrupt)\n' + W), false,
+      'a LIVE spinner on frame ' + JSON.stringify(frame) + ' was not recognised, so a queued message is described as read immediately');
+  }
+
+  /* 🛑 AND THE QUOTATIONS MUST STILL BE REJECTED, including the markdown bullet.
+     A `*` bullet CAN carry the parenthesised phrase - the old comment claiming
+     it could not was wrong, and these first fixtures pass only INCIDENTALLY (they
+     put `(` right after `* `, eaten by `\S`). The realistic bullet at the end
+     (a WORD before the paren, no `\d+s` timer inside it) is the case that
+     regressed and is now rejected by the `*` arm's timer gate, not by the glyph. */
+  for (const quoted of [
+    '  * (esc to interrupt) in a markdown bullet',
+    '  - note: (esc to interrupt) cancels',
+    'the docs say (esc to interrupt) works',
+    '  he said (press esc to interrupt) earlier',
+    '* running the tool (esc to interrupt) to cancel',
+    '* note (fixed in 5s, see esc to interrupt) ok',
+  ]) {
+    assert.equal(flagOf(quoted + '\n' + W), true,
+      'a quotation was read as a live turn: ' + quoted.trim());
+  }
+
+  /* 🛑 THE `^` ANCHOR IS BEHAVIOUR AND NOTHING PINNED IT. Dropping it left the whole
+     5030-test suite byte-identical, because every quotation fixture above happens to
+     carry NO glyph from the class anywhere in the row, so all four are rejected by
+     the glyph requirement alone and none can tell whether the anchor exists. This
+     row carries a real frame MID-ROW, so only the anchor can reject it. */
+  assert.equal(flagOf('he said · Working (esc to interrupt) yesterday\n' + W), true,
+    'a glyph appearing mid-row was read as a live status row, so the ^ anchor is gone');
+});
+
+test('#1889: INTERRUPT_LINE outranks this reader, and the five rows say exactly how', () => {
+  /**
+   * 🛑 THE COMMENT ABOVE THIS BLOCK IN status.js USED TO CLAIM THE OPPOSITE.
+   *
+   * It said a pane carrying both the wait row and a live spinner shows "the wait
+   * line rather than the spinner" as evidence, and called it a reporting nicety.
+   * In fact `INTERRUPT_LINE` is tested two checks HIGHER, the live spinner row
+   * carries `esc to interrupt`, and the card ends up with NO evidence and NO flag.
+   * The flag drives `chat.waitingNote` and the #1966 badge gate, so it was never
+   * cosmetic.
+   *
+   * ✅ ROWS 2 AND 4 ARE CORRECT AND THIS TEST EXISTS PARTLY TO STOP THEM BEING
+   * "FIXED". `esc to interrupt` means a turn is genuinely in flight, so the
+   * composer QUEUES rather than reads, and `it is mid-task` is the true sentence.
+   *
+   * ✅ ROW 5 IS NOW FIXED, AND THIS TEST IS HOW IT GOT FIXED. It was pinned as a
+   * known defect with a note saying that anyone who narrowed `INTERRUPT_LINE`
+   * deliberately should flip the expectation and delete the paragraph. When the
+   * fix landed, this row went red and its own failure message said exactly that.
+   * A guard that tells the next person what to do when it fires is worth more
+   * than one that only says a number changed.
+   * 📌 The fix (kosmos#2378) requires the phrase to sit on a row SHAPED like a
+   * live status row rather than to appear anywhere in the 25-row tail. NOT
+   * proximity to the composer, which the ruling proposed and which does not
+   * discriminate: the quoted row below sits 3 rows above the composer, inside any
+   * reach the wait reader uses, and two of the real fixtures that reach this code
+   * have no composer row at all.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const W = '✻ Waiting for 1 background agent to finish';
+  const SPIN = '· Improvising… (35s · ↓ 1.5k tokens · esc to interrupt)';
+  const SPIN_NOESC = '· Improvising… (35s · ↓ 1.5k tokens)';
+
+  const flagOf = (body) => classify(pane, body + footer).backgroundWait === true;
+
+  assert.equal(flagOf(W), true, 'the wait row alone lost its flag');
+  assert.equal(flagOf(SPIN + '\n' + W), false,
+    'a LIVE spinner stopped outranking the wait row; a queued message would be described as read immediately');
+  assert.equal(flagOf(SPIN_NOESC + '\n' + W), true,
+    'a spinner WITHOUT esc-to-interrupt suppressed the flag, so the trade is wider than INTERRUPT_LINE');
+  assert.equal(flagOf(W + '\n' + SPIN), false,
+    'order changed the verdict, so the precedence is positional rather than by rule');
+  assert.equal(flagOf('  he said (press esc to interrupt) earlier\n' + W), true,
+    'a QUOTED esc-to-interrupt suppressed the flag again, so a person messaging a pane at its prompt is told it will go unread (#2378)');
+  /* More quotation shapes, because one string is one string. Each carries the
+     phrase in a position no live status row uses. */
+  for (const quoted of [
+    'the docs say (esc to interrupt) works',
+    '  - note: (esc to interrupt) cancels',
+    '  * (esc to interrupt) in a markdown bullet',
+  ]) {
+    assert.equal(flagOf(quoted + '\n' + W), true,
+      'a quotation was read as a live turn: ' + quoted.trim());
+  }
+  /* 🛑 AND THE LIVE SHAPES MUST STILL FIRE, or the narrowing traded a false
+     positive for a false negative. Both runners, both real fixture spellings. */
+  for (const live of [
+    '· Working (esc to interrupt)',
+    '• Reconnecting... 4/5 (4s • esc to interrupt)',
+  ]) {
+    assert.equal(flagOf(live + '\n' + W), false,
+      'a LIVE interrupt line stopped being recognised, so a queued message reads as read: ' + live);
+  }
+
+  /* CONTROL: every row above returns `working` regardless, so the assertions are
+     about the FLAG and not about the state accidentally changing under them. */
+  for (const body of [W, SPIN + '\n' + W, SPIN_NOESC + '\n' + W, W + '\n' + SPIN,
+    '  he said (press esc to interrupt) earlier\n' + W]) {
+    assert.equal(classify(pane, body + footer).state, 'working',
+      'a row stopped being working, so the flag assertions above are measuring the wrong thing');
+  }
+});
+
+test('#1889: a background wait and a reported idle are not in conflict, because both are true', () => {
+  /**
+   * 🛑 THE FALSE CONFLICT #1995 LEFT OPEN BY NAME.
+   *
+   * #1995 made a scraped WORKING outrank a reported idle and surfaces the report
+   * as a conflict. Its own comment names the one honest weakness: "a spinner can
+   * IN PRINCIPLE belong to a background subprocess while the agent's own turn has
+   * ended", marked reversible if that reading ever matters more.
+   *
+   * `backgroundWait` makes it detectable rather than in-principle. On this screen
+   * the report says THE TURN ENDED and the screen says A BACKGROUND AGENT IS
+   * RUNNING, and both are true at once, so there is nothing to reconcile.
+   * Surfacing it sends an operator to resolve a contradiction that does not exist.
+   *
+   * ⚠️ THE STATE IS DELIBERATELY UNCHANGED. #1995's call to lead with the screen
+   * stands and this does not reopen #1965; only the false sentence goes. The row
+   * below asserts BOTH halves so a future change that flips the state reds here.
+   */
+  const now = Date.now();
+  const freshIdle = { found: true, state: STATE.IDLE, confidence: CONFIDENCE.REPORTED,
+    because: 'it is at rest and nothing is needed', at: new Date(now - 30 * 1000).toISOString(), auto: true };
+  const waitScrape = { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED,
+    because: 'it is waiting on a background agent', backgroundWait: true };
+
+  const got = reconcileReport(freshIdle, waitScrape, now);
+  assert.equal(got.state, STATE.WORKING, 'the screen must still lead, per #1995');
+  assert.equal(got.conflict, null,
+    'a background wait and a reported idle were surfaced as a disagreement, and they are both true');
+
+  /* 🛑 CONTROL: an ORDINARY working screen over the same reported idle must STILL
+     raise the conflict. Without this the assertion above is satisfied by deleting
+     #1995's arm entirely, which is a different and much worse change. */
+  const ordinary = { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+  const ctl = reconcileReport(freshIdle, ordinary, now);
+  assert.equal(ctl.state, STATE.WORKING, '#1995 stopped leading with the screen');
+  assert.match(String(ctl.conflict || ''), /last report said it was at rest/,
+    '#1995 stopped surfacing the conflict for an ordinary working pane');
+});
+
+test('#1889: the no-count fallback is BEHAVIOUR, and one character of it turns the feature off', () => {
+  /**
+   * 🛑 THIS WAS DESCRIBED AS BEHAVIOUR AND PINNED BY NOTHING.
+   *
+   * `backgroundAgentWaitCount` returns 1 when no digit can be read. No fixture in
+   * this file reached that branch: instrumented and measured, ZERO hits across the
+   * whole file, with the logger proven live by the perturbation below so the zero
+   * is a measurement rather than a silent instrument.
+   *
+   * ⚠️ AND THE PERTURBATION IS THE WHOLE ARGUMENT. Changing that `1` to a `0`
+   * leaves the suite GREEN at 184/184 while switching the ENTIRE feature off:
+   * `done >= 0` is always true, so every wait row takes the resolving `continue`
+   * and nothing ever reads as a background wait again. One character, no signal,
+   * in exactly the false-calm direction this card exists to close.
+   *
+   * The other direction is as bad and was equally unpinned: a large fallback makes
+   * every unreadable row read `working` forever.
+   *
+   * 📌 The row is constructible, which is why this is pinned rather than labelled
+   * unreachable like its sibling two lines below: `BACKGROUND_AGENT_WAIT` spells
+   * the gap `.*`, so a wait line with a word where the count goes still matches.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const NODIGIT = '✻ Waiting for the background agents to finish';
+
+  /* It really does reach the reader, or the rows below measure nothing. */
+  assert.equal(classify(pane, NODIGIT + footer).state, 'working',
+    'a digit-less wait row stopped being read at all, so the fallback is unreachable and this test is vacuous');
+  assert.equal(classify(pane, NODIGIT + footer).backgroundWait, true,
+    'a digit-less wait row lost its flag');
+
+  /* THE FALLBACK'S ACTUAL VALUE, asserted through behaviour rather than by reading
+     the constant: a fallback of 1 means ONE completion resolves it. A fallback of
+     0 resolves it with none, which is the feature switched off. */
+  assert.notEqual(
+    classify(pane, NODIGIT + '\n  ⏺ Agent "a" finished · 2m' + footer).state,
+    'working',
+    'one completion did not resolve a no-count wait, so the fallback is not 1');
+  assert.equal(
+    classify(pane, NODIGIT + '\n  follow-up output that is not a completion' + footer).state,
+    'working',
+    'a no-count wait resolved with NO completion below it, which is the fallback being 0 and the whole feature off');
+});
+
+test('#1889: the background-wait flag survives EVERY report arm, including the steady-state one', () => {
+  /**
+   * 🛑 THE ARM THAT LOST IT WAS THE ONE THE FEATURE IS FOR.
+   *
+   * `reconcileReport`'s fresh-`working` branch builds a NEW object instead of
+   * spreading `scraped`, so it dropped every scraped-only field. `backgroundWait`
+   * is a fact about the SCREEN: a self-report saying "I am working" does not
+   * contradict the screen saying "and the work is a background agent".
+   *
+   * ⚠️ AND IT IS THE STEADY STATE, NOT AN EDGE CASE. `kosmos-report-hook.sh` fires
+   * `report working --auto` on PreToolUse throttled to one line per 60s, and the
+   * background agent's own tool calls re-heartbeat the parent, so the report stays
+   * FRESH for the whole wait against a 300s decay window. The flag was therefore
+   * false exactly when the feature was supposed to fire, and the person got the
+   * false sentence back.
+   *
+   * All five arms are pinned so a future refactor of any one of them reds here.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const now = Date.now();
+  const scraped = classify(pane, '✻ Waiting for 1 background agent to finish' + footer);
+  assert.equal(scraped.backgroundWait, true, 'the fixture stopped being a background wait');
+
+  const rep = (state, ageMs) => ({ found: true, state, confidence: CONFIDENCE.REPORTED,
+    because: 'r', at: new Date(now - ageMs).toISOString(), auto: true });
+
+  for (const [label, reported] of [
+    ['no report', null],
+    ['a FRESH working report (the steady state of a live wait)', rep(STATE.WORKING, 30 * 1000)],
+    ['a STALE working report', rep(STATE.WORKING, 10 * 60 * 1000)],
+    ['a FRESH idle report', rep(STATE.IDLE, 30 * 1000)],
+    ['a STALE idle report', rep(STATE.IDLE, 10 * 60 * 1000)],
+  ]) {
+    const got = reconcileReport(reported, scraped, now);
+    assert.equal(got.state, STATE.WORKING, 'the verdict stopped being working with ' + label);
+    assert.equal(got.backgroundWait, true,
+      'the background-wait flag was lost with ' + label + ', so the board tells a person their message will go unread on a pane at its prompt');
+  }
+
+  /* 🛑 CONTROL, AND IT IS WHAT STOPS THE FIX BEING "SET IT TRUE EVERYWHERE". An
+     ORDINARY mid-turn pane must come back false on the same arm, or the assertions
+     above are satisfied by a constant rather than by the flag being carried. */
+  const ordinary = classify(pane, '· Improvising… (35s · ↓ 1.5k tokens)' + footer);
+  assert.equal(ordinary.state, STATE.WORKING, 'the control fixture is not a working pane');
+  assert.notEqual(ordinary.backgroundWait, true, 'the control fixture is itself a background wait');
+  assert.equal(reconcileReport(rep(STATE.WORKING, 30 * 1000), ordinary, now).backgroundWait, false,
+    'an ordinary mid-turn pane claimed a background wait');
+});
+
+test('#1889: a decayed report on a background wait is not a broken reporter', () => {
+  /**
+   * 🛑 THE ONE PLACE THIS DIFF COULD MAKE THE BOARD LESS TRUTHFUL, and it shipped
+   * with no coverage until this row existed.
+   *
+   * `reconcileReport` rule 5 says "its reports stopped arriving while its screen
+   * still shows work, so the reporter may be broken" whenever a stale report
+   * meets a scraped WORKING. On a background wait that sentence is false BY
+   * CONSTRUCTION: the report hook fires on PreToolUse, no tools fire while only a
+   * background agent runs, so a healthy reporter cannot heartbeat and any wait
+   * past REPORT_WORKING_DECAY_MS decays. Live example while writing this: a wait
+   * held for 9m 48s.
+   *
+   * ⚠️ The gate is keyed on a STRUCTURAL flag, not on the `because` prose. Keyed
+   * on the string, rewording either end left the suite green while the gate
+   * stopped firing and the false sentence came back.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'x' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+  const scraped = classify(pane, '✻ Waiting for 1 background agent to finish' + footer);
+  assert.equal(scraped.state, 'working');
+  assert.equal(scraped.backgroundWait, true, 'the scraped result must carry the structural flag');
+
+  const now = Date.now();
+  /* 🛑 `at` MUST BE AN ISO STRING, WHICH IS WHAT `selfreport.read` RETURNS. An
+     earlier version passed a raw epoch NUMBER; `Date.parse(number)` is NaN, so
+     the report went stale through the `!Number.isFinite` arm rather than through
+     AGE, and this row would have passed identically if the decay window were a
+     year. It exercised the gate while testing nothing about the window it names. */
+  const stale = { found: true, state: 'working', because: 'running Bash',
+    at: new Date(now - (REPORT_WORKING_DECAY_MS + 60000)).toISOString(), auto: true };
+  const got = reconcileReport(stale, scraped, now);
+  assert.equal(got.state, 'working', 'the state must stay working');
+  assert.equal(got.conflict, null,
+    'a healthy reporter was accused of being broken on a wait it cannot heartbeat through');
+
+  /* CONTROL: the accusation must still fire for any OTHER scraped working state,
+     which is what the rule is for. */
+  const other = classify(pane, '· Improvising… (35s · ↓ 1.5k tokens)' + footer);
+  assert.equal(other.state, 'working');
+  assert.notEqual(other.backgroundWait, true);
+  const accused = reconcileReport(stale, other, now);
+  assert.match(String(accused.conflict), /reporter may be broken/,
+    'the reporter-fault sentence stopped firing where it is still correct');
+});
+
+test('#1889: the full shape contract for the background-agent wait reader', () => {
+  /**
+   * 🛑 ONE TABLE, ITS OWN `test()`, BECAUSE THIS READER OSCILLATED. Two
+   * consecutive review rounds found a BLOCKER that was an over-correction of the
+   * previous round's fix: adding a `$` anchor to reject prose rejected the
+   * vendor's own ` · …` suffixes; widening to catch the composed form had earlier
+   * let prose in. Each fix was pinned by an assertion aimed only at itself, so
+   * nothing failed when the opposite side broke.
+   *
+   * This table states the WHOLE contract in one place, so a change that fixes one
+   * column and breaks another cannot pass. It lives in its own `test()` rather
+   * than appended to the big one because a single block stops at its first
+   * failing assertion, which hides exactly this kind of trade.
+   */
+  const pane = { session: 'made-here', name: 'made-here', claim: 'made-here', command: '2.1.258', title: 'Acknowledge readiness' };
+  const footer = ['', '────', '❯ ', '────',
+    '  ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents'].join('\n');
+
+  const WORKING = [
+    // the observed line, and the counts the vendor interpolates
+    '✻ Waiting for 1 background agent to finish',
+    '✻ Waiting for 3 background agents to finish',
+    // the composed form that joins both counters; it matches through the
+    // `background agents?` phrase
+    '✻ Waiting for 1 background agent and 2 dynamic workflows to finish',
+    '✻ Waiting for 3 background agents and 1 dynamic workflow to finish',
+    // NOTE: no other glyph is listed on purpose. This row's glyph is the fixed
+    // constant `✻` in the bundle, not the rotating spinner, so `·`/`✳`/`✶` are
+    // shapes the vendor cannot draw here and belong in NOT_WORKING below.
+    // ungated siblings the vendor appends to the same Ink row
+    '✻ Waiting for 1 background agent to finish · 3 messages hidden (/focus to show)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%)',
+    '✻ Waiting for 1 background agent to finish · 45.2k / 100k (45%) · 2 nudges',
+    '✻ Waiting for 1 background agent to finish   ',
+    // spaces eaten by a `-J` wrap join, which is how #1234 failed
+    '✻ Waiting for 1 backgroundagent to finish',
+    '✻ Waiting for1 background agent to finish',
+    '✻ Waiting for 1 background agentto finish',
+  ];
+  const NOT_WORKING = [
+    '* Waiting for 3 background agents to finish',           // a markdown bullet
+    '⏺ Waiting for 1 background agent to finish',            // the transcript glyph
+    '  Waiting for 1 background agent to finish',            // no glyph at all
+    '✻ Waiting for permission',                              // blocked on a human
+    '✻ Waiting for authorization',
+    '✻ Waiting for team lead approval',
+    '✻ Waiting for permission to run the background agents to finish the job',
+    '· Waiting for N background agents to finish is the line #1889 handles',
+    '✻ Waiting for CI to finish',                            // a wait with no counter
+    '✻ Waiting for the server to finish',
+    /* The counter phrase is `background agents?`, not `agents?`: dropping the
+       word left the suite green, so nothing pinned the branch's central claim. */
+    '✻ Waiting for 2 agents to finish',
+    '✻ Waiting for 3 review agents to finish',
+    /* 🛑 WORKFLOW-ONLY IS DELIBERATELY NOT MATCHED. It once was, and it could
+       never be RESOLVED BY THIS READER: the resolution check keys on the
+       agent-completion notification, so such a pane read `working` forever --
+       worse than origin/main.
+       ⚠️ NOT because the vendor lacks one. `Dynamic workflow "x" completed` and
+       `… failed:` are both in the bundle, so the arm IS buildable with its own
+       marker. It was removed because it had been widened to from render JSX with
+       no live capture. An earlier version of this comment said no equivalent
+       exists, which would tell whoever re-adds it that the marker cannot be
+       built.
+       The composed form above still matches through its agent phrase. */
+    '✻ Waiting for 2 dynamic workflows to finish',
+    '✻ Waiting for 1 dynamic workflow to finish',
+  ];
+
+  for (const line of WORKING) {
+    assert.equal(classify(pane, line + footer).state, 'working',
+      'a real render was read as idle: ' + JSON.stringify(line));
+  }
+  for (const line of NOT_WORKING) {
+    assert.notEqual(classify(pane, line + footer).state, 'working',
+      'a non-status line was read as a working agent: ' + JSON.stringify(line));
+  }
+});
+
 test('a card reads the transcript of ITS OWN session, not of the name it shares', () => {
   // ⚠️ The board's name is the session with `-discord` stripped, so `foo` and
   // `foo-discord` are one name and two sessions — the collision this module

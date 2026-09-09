@@ -3,11 +3,16 @@
  * The native app's Accessibility trust reading -- read from a file the NATIVE app
  * writes. (#2125 slice 3)
  *
- * 🛑 IT WAS BUILT TO ANSWER "does the process macOS holds responsible for agent
- * app-control (tmux) have Accessibility trust?" -- BUT IT DOES NOT (corrected
- * 2026-09-06, #2125). Accessibility is keyed on the CALLING BINARY (the kosmos-app),
- * not the responsible process, so the verdict is the APP's trust, not tmux's. The
- * subject is the app, not tmux. Left unresolved pending the #2125 keep/drop fork.
+ * 🛑 IT WAS BUILT to ask "does the process macOS holds responsible for agent
+ * app-control (tmux) have Accessibility trust?" -- but accessibility is keyed on the
+ * CALLING BINARY (the kosmos-app), not the responsible process, so `read()` reports
+ * the APP's own AXIsProcessTrusted verdict, not tmux's (corrected 2026-09-06, #2125).
+ * That is the RIGHT subject for the first-run gate, not a defect: #2451 (Kitty's
+ * identity resolution) confirmed the onboarding "Turn On" registers the kosmos-app
+ * (the Accessibility row macOS shows + grants is Kosmos, never tmux), so
+ * /api/a11y-status serves read() and the gate keys on the app. The #2125 keep/drop
+ * fork still decides grant-NECESSITY (whether the ask is needed at all), which is
+ * orthogonal to identity.
  *
  * 🔑 WHY A FILE THE NATIVE APP WRITES, AND NOT AN ENGINE CHECK. Accessibility
  * trust is a TCC fact, reachable only from a native macOS call (AXIsProcessTrusted)
@@ -25,12 +30,14 @@
  * kosmos-app's own trust, not tmux's. Josh's 0.6.42 fresh-account re-test proved it:
  * the tmux gate read ACTIVATED on arrival while tmux was ungranted and absent from
  * the Accessibility list, because AXIsProcessTrusted returned the app's state. So a
- * `trusted:true` here does NOT mean tmux is granted. Do not re-assume the tmux
- * attribution when touching this. The fix is the pending #2125 fork: KEEP -> route
- * the AX check AND the grant through one identity so this answers a real subject;
- * DROP -> remove the accessibility ask entirely (a repo sweep finds no synthetic-
- * input API in use; agents run on tmux send-keys IPC, so it is unproven anything
- * needs the grant). Root writeup:
+ * `trusted:true` here means the KOSMOS APP is granted -- which, per #2451, is exactly
+ * what the first-run gate needs (the app is the binary the onboarding registers and
+ * macOS shows). Do not re-assume the tmux attribution and do not revert the route to
+ * tmux's own grant: the gate's subject is the app. The #2125 keep/drop fork is about
+ * grant-NECESSITY, not identity: KEEP -> the accessibility ask stays (gate on the
+ * app, as now); DROP -> remove the accessibility ask entirely (a repo sweep finds no
+ * synthetic-input API in use; agents run on tmux send-keys IPC, so it is unproven
+ * anything needs the grant). Root writeup:
  * ~/work/Josh-Brain/Projects/kosmos-tcc-identity-root-2378-1-3-2026-09-06.md
  *
  * 🛑 THREE ANSWERS, NEVER TWO (the liveness discipline). A caller must be able to
@@ -145,17 +152,19 @@ function resetGrantCache() { grantCache = null; }
  * #2085: tmux's REAL Accessibility grant, read from the system TCC db, in the
  * SAME three-answer shape as read().
  *
- * 🛑 THIS EXISTS BECAUSE read() ABOVE ANSWERS ABOUT THE WRONG SUBJECT. read()
- * surfaces the native app's own AXIsProcessTrusted (the CALLING binary), so a
- * `trusted:true` there meant "the app is trusted", NOT "tmux is granted" -- the
- * false "TMUX ACTIVATED" pill Josh flagged (0.6.42 fresh-account: the pill read
- * ACTIVATED while tmux was ungranted and absent from the Accessibility list). AX
- * is keyed on the calling binary and there is no clean API to ask "is tmux
- * trusted" from another process, so this reads tmux's OWN path-keyed grant row
- * directly. (tmux appearing in the db is real and path-keyed -- measured on the
- * fleet, `.../tmux -> auth_value 2`; that is orthogonal to tmux disclaiming
- * responsibility for its CHILDREN, which is why the under-tmux re-exec in #2125
- * still returned the app's state.)
+ * 🛑 THIS READS TMUX'S OWN GRANT, a DIFFERENT subject from read(). It was #2085's
+ * attempt to answer "is tmux granted" while read() (the native app's own
+ * AXIsProcessTrusted = the CALLING binary) was believed to be the wrong subject. But
+ * #2451 (Kitty's identity resolution) established the CALLING binary IS the subject
+ * the first-run gate needs: the onboarding registers the kosmos-app (the Accessibility
+ * row macOS shows + grants is Kosmos, never tmux), so /api/a11y-status serves read()
+ * and this function is NOT route-called -- do not re-wire the gate to it. It stays a
+ * library function (and for a possible #2125-KEEP tmux-identity path): AX is keyed on
+ * the calling binary and there is no clean API to ask "is tmux trusted" from another
+ * process, so this reads tmux's OWN path-keyed grant row directly. (tmux appearing in
+ * the db is real and path-keyed -- measured on the fleet, `.../tmux -> auth_value 2`;
+ * that is orthogonal to tmux disclaiming responsibility for its CHILDREN, which is why
+ * the under-tmux re-exec in #2125 still returned the app's state.)
  *
  * Dispositions -- NEVER a false green is the load-bearing invariant, and it never
  * strands a granted user on a Next gate either:

@@ -1,3 +1,4 @@
+// Browser-check-surface: boot-cover
 /**
  * #1553: the launch must NOT flash the agents view before the first-run gate
  * resolves. Josh hit that flash four times and read it as data loss.

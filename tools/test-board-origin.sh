@@ -13,6 +13,11 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 T="$(mktemp -d "${TMPDIR:-/tmp}/board-origin.XXXXXX")" || { echo "FAIL  could not create a temp dir; no arm below can run"; exit 1; }
 [ -n "$T" ] && [ -d "$T" ] || { echo "FAIL  mktemp produced no directory; refusing to run with an empty \$T"; exit 1; }
 trap 'rm -rf "$T"' EXIT
+# board_code_dir_from_args resolves through `cd && pwd`, which collapses the `//`
+# that a trailing-slash $TMPDIR leaves in $T and resolves any symlinked segment.
+# The resolver arms below compare against this same-normalised form; the
+# board_origin_label arms keep bare $T, since that function returns paths as-given.
+TP="$(cd "$T" && pwd)"
 # Hermetic: an operator's global core.hooksPath / init.templateDir would otherwise
 # run foreign hooks and templates inside these fixtures.
 export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_SYSTEM=/dev/null
@@ -171,6 +176,87 @@ s="$(board_origin_label "$T/has space")"
 case "$s" in *"MAIN CHECKOUT"*"has space"*) ok "a path containing a space survives intact" ;;
   *) bad "a path with a space was mangled: $s" ;; esac
 
+# --- #2515: the CODE tree, resolved from the process argv, not the cwd.
+# The pure parser first (fixture argv strings), then the resolver, then the
+# end-to-end property. lsof -d txt gives the node interpreter, not the script
+# (measured), so the argv is the only source; these arms pin the parse and the
+# path resolution rather than the one-line `ps` probe the caller does.
+[ "$(board_script_path_from_args "/opt/homebrew/bin/node $T/mainco/server.js")" = "$T/mainco/server.js" ] \
+  && ok "argv: the script token is extracted from a node command line" \
+  || bad "argv: script token not extracted: $(board_script_path_from_args "/opt/homebrew/bin/node $T/mainco/server.js")"
+[ "$(board_script_path_from_args "node --enable-source-maps $T/mainco/server.js --port 16180")" = "$T/mainco/server.js" ] \
+  && ok "argv: flags before and args after the script are skipped (first .js token wins)" \
+  || bad "argv: flags/args around the script confused the parse: $(board_script_path_from_args "node --enable-source-maps $T/mainco/server.js --port 16180")"
+[ -z "$(board_script_path_from_args "$T/bin/kosmos start")" ] \
+  && ok "argv: a no-.js command line (kosmos start) yields nothing, so the caller falls back" \
+  || bad "argv: a .js-less command line invented a script: $(board_script_path_from_args "$T/bin/kosmos start")"
+[ -z "$(board_script_path_from_args "")" ] \
+  && ok "argv: an empty command line yields nothing" \
+  || bad "argv: an empty command line produced a token: $(board_script_path_from_args "")"
+
+[ "$(board_code_dir_from_args "node $T/mainco/server.js" "")" = "$TP/mainco" ] \
+  && ok "resolver: an absolute script resolves to its checkout root" \
+  || bad "resolver: absolute script dir wrong: $(board_code_dir_from_args "node $T/mainco/server.js" "")"
+[ "$(board_code_dir_from_args "node server.js" "$T/mainco")" = "$TP/mainco" ] \
+  && ok "resolver: a relative script resolves against the board's cwd" \
+  || bad "resolver: relative script not anchored to cwd: $(board_code_dir_from_args "node server.js" "$T/mainco")"
+[ "$(board_code_dir_from_args "node $T/mainco/engine/../server.js" "")" = "$TP/mainco" ] \
+  && ok "resolver: a .. segment in the script path is normalised" \
+  || bad "resolver: .. not normalised: $(board_code_dir_from_args "node $T/mainco/engine/../server.js" "")"
+[ -z "$(board_code_dir_from_args "$T/bin/kosmos start" "$T/mainco")" ] \
+  && ok "resolver: a no-.js command line resolves to nothing (caller falls back to cwd)" \
+  || bad "resolver: a .js-less command line resolved a dir: $(board_code_dir_from_args "$T/bin/kosmos start" "$T/mainco")"
+[ -z "$(board_code_dir_from_args "node relative/server.js" "")" ] \
+  && ok "resolver: a relative script with no cwd declines rather than guessing" \
+  || bad "resolver: a relative script with no cwd was resolved: $(board_code_dir_from_args "node relative/server.js" "")"
+
+# THE #2515 PROPERTY, end to end at the label: code = the main checkout, cwd =
+# a git-managed $HOME (which board_origin_label correctly declines on its own).
+# Keying on the cwd (the pre-#2515 behaviour) declines to the bare $HOME path;
+# keying on the resolved code tree names the MAIN CHECKOUT. This is the live miss.
+_code="$(board_code_dir_from_args "node $T/mainco/server.js" "$T/fakehome")"
+_lbl="$(HOME="$T/fakehome" board_origin_label "${_code:-$T/fakehome}")"
+case "$_lbl" in *"MAIN CHECKOUT"*"$TP/mainco"*)
+    ok "#2515: a board whose CODE is the main checkout but whose cwd is \$HOME is named the MAIN CHECKOUT" ;;
+  *) bad "#2515: the code tree was not named (the cwd-keyed miss is back): $_lbl" ;; esac
+# CONTROL: prove the arm above is not passing because classification is broken --
+# the OLD cwd-keyed input (the $HOME cwd) must still DECLINE to the bare path.
+_old="$(HOME="$T/fakehome" board_origin_label "$T/fakehome")"
+[ "$_old" = "$T/fakehome" ] \
+  && ok "#2515 CONTROL: keying on the \$HOME cwd still declines to the bare path (the miss #2515 fixes)" \
+  || bad "#2515 CONTROL: the \$HOME cwd did not decline, so the arm above proves nothing: $_old"
+
+# GLOB SAFETY: the argv is split with `set -f`, so a token containing a glob
+# metachar is taken LITERALLY, never expanded against the cwd. Run from a dir that
+# holds a real .js decoy: without set -f, `*.js` would become `decoy.js`; with it,
+# the literal `*.js` is returned (a first-.js token). This is the red-capable arm
+# for the set -f fix -- it fails if the noglob is dropped.
+mkdir -p "$T/globtest"; : > "$T/globtest/decoy.js"
+gt="$(cd "$T/globtest" && board_script_path_from_args "node *.js --port 16180")"
+[ "$gt" = "*.js" ] \
+  && ok "argv: a glob-metachar token is taken literally, not expanded against the cwd (set -f)" \
+  || bad "argv: '*.js' was globbed to a filesystem match, so set -f is not in effect: $gt"
+
+# board_cwd_note: annotate the board line with its cwd ONLY when the cwd is a
+# different tree than the code. Silent on equal (incl. a symlinked spelling of the
+# same tree, via -ef) or on a missing side, so the caller appends it blindly.
+[ "$(board_cwd_note "$T/mainco" "$T/fakehome")" = " (cwd $T/fakehome)" ] \
+  && ok "cwd-note: a cwd on a different tree than the code is annotated" \
+  || bad "cwd-note: a differing cwd was not annotated: $(board_cwd_note "$T/mainco" "$T/fakehome")"
+[ -z "$(board_cwd_note "$T/mainco" "$T/mainco")" ] \
+  && ok "cwd-note: an equal cwd is silent (no redundant note)" \
+  || bad "cwd-note: an equal cwd produced a note: $(board_cwd_note "$T/mainco" "$T/mainco")"
+ln -s "$T/mainco" "$T/symmain"
+[ -z "$(board_cwd_note "$T/mainco" "$T/symmain")" ] \
+  && ok "cwd-note: a symlinked cwd of the SAME tree is silent (-ef inode, not a string compare)" \
+  || bad "cwd-note: a symlinked same-tree cwd was annotated: $(board_cwd_note "$T/mainco" "$T/symmain")"
+[ -z "$(board_cwd_note "" "$T/fakehome")" ] \
+  && ok "cwd-note: a missing codedir is silent" \
+  || bad "cwd-note: a missing codedir produced a note: $(board_cwd_note "" "$T/fakehome")"
+[ -z "$(board_cwd_note "$T/mainco" "")" ] \
+  && ok "cwd-note: a missing cwd is silent" \
+  || bad "cwd-note: a missing cwd produced a note: $(board_cwd_note "$T/mainco" "")"
+
 # --- INTEGRATION. Every arm above calls the library directly. Delete the source
 # line or the call in run-tests.sh and all of them stay green while the feature is
 # gone, because the fail-open path is deliberately silent.
@@ -183,9 +269,20 @@ case "$s" in *"MAIN CHECKOUT"*"has space"*) ok "a path containing a space surviv
 grep -qF '. "$REPO/tools/lib/board-origin.sh"' "$REPO/tools/run-tests.sh" \
   && ok "INTEGRATION: run-tests.sh SOURCES the library" \
   || bad "INTEGRATION: run-tests.sh no longer sources the library -- the feature is silently gone"
-grep -qF 'board_origin_label "$cwd"' "$REPO/tools/run-tests.sh" \
-  && ok "INTEGRATION: run-tests.sh CALLS board_origin_label on the board's cwd" \
-  || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label -- the feature is silently gone"
+grep -qF 'board_origin_label "${codedir:-$cwd}"' "$REPO/tools/run-tests.sh" \
+  && ok "INTEGRATION: run-tests.sh CALLS board_origin_label on the code tree (cwd fallback)" \
+  || bad "INTEGRATION: run-tests.sh no longer calls board_origin_label on the code tree -- the feature is silently gone"
+# #2515: the code tree must be RESOLVED from the argv, not left as the cwd. Delete
+# this call and the label silently reverts to the pre-#2515 cwd keying (green here
+# only because ${codedir:-$cwd} degrades to $cwd), so pin the resolution wiring.
+grep -qF 'board_code_dir_from_args' "$REPO/tools/run-tests.sh" \
+  && ok "INTEGRATION: run-tests.sh RESOLVES the code tree from the process argv (#2515)" \
+  || bad "INTEGRATION: run-tests.sh no longer resolves the code tree -- #2515's cwd-keyed miss is back"
+# The cwd-disagreement note is new shipped behaviour; pin its emit so a deletion of
+# the annotation (it sits outside the awk-extracted fail-open block) is caught.
+grep -qF 'board_cwd_note "$codedir" "$cwd"' "$REPO/tools/run-tests.sh" \
+  && ok "INTEGRATION: run-tests.sh appends the cwd-disagreement note" \
+  || bad "INTEGRATION: the cwd-disagreement note is no longer emitted"
 # THE THIRD DELETION PATH. Sourcing the library and calling it are not enough: the
 # computed value must reach the line that is actually printed. Measured, and this
 # is why the arm exists: changing the emit line back to ${cwd:-an unknown
@@ -232,26 +329,33 @@ if [ -n "$fallback_block" ]; then
   # one ran. With a repo root they differ, which is what makes each arm below
   # about its own branch. stderr is folded in so a malformed extraction reports
   # the syntax error instead of an unexplained empty result.
-  run_block() { # $1 = cwd, $2 = "source" to make the library available
+  run_block() { # $1=cwd  $2=codedir  $3="source" to make the library available
     bash -c 'set -uo pipefail
-[ "$2" = source ] && . "$3"
+[ "$3" = source ] && . "$4"
 probe() {
-  local cwd="$1"
+  local cwd="$1" codedir="$2"
 '"$fallback_block"'
   printf "%s" "$where"
 }
-probe "$1"' _ "$1" "$2" "$REPO/tools/lib/board-origin.sh" 2>&1
+probe "$1" "$2"' _ "$1" "$2" "$3" "$REPO/tools/lib/board-origin.sh" 2>&1
   }
-  fo="$(run_block "$T/mainco" absent)"
+  fo="$(run_block "$T/mainco" "" absent)"
   [ "$fo" = "$T/mainco" ] \
     && ok "FAIL-OPEN: run-tests.sh's OWN guard block yields the bare path when the library is absent" \
     || bad "FAIL-OPEN produced: $fo"
   # Nothing else in this suite executes the guard's THEN branch.
-  ft="$(run_block "$T/mainco" source)"
+  ft="$(run_block "$T/mainco" "" source)"
   case "$ft" in *"MAIN CHECKOUT"*)
       ok "GUARD-THEN: with the library present the same block classifies, so the two branches differ" ;;
     *) bad "GUARD-THEN produced: $ft" ;; esac
-  fe="$(run_block "" absent)"
+  # #2515 IN THE REAL BYTES: with a code tree resolved, the guard must classify
+  # THAT over the cwd. Drives the actual extracted block with codedir=the main
+  # checkout and cwd=a $HOME-ish path; keying on cwd would not say MAIN CHECKOUT.
+  fc="$(run_block "$T/fakehome" "$T/mainco" source)"
+  case "$fc" in *"MAIN CHECKOUT"*"$T/mainco"*)
+      ok "#2515: run-tests.sh's OWN guard block classifies the code tree over the cwd" ;;
+    *) bad "#2515: the guard block did not key on the code tree: $fc" ;; esac
+  fe="$(run_block "" "" absent)"
   [ "$fe" = "an unknown directory" ] \
     && ok "FAIL-OPEN: an empty cwd still reads the pre-#708 wording" \
     || bad "FAIL-OPEN empty-cwd produced: $fe"

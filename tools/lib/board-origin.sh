@@ -109,3 +109,81 @@ board_origin_label() {
     printf '%s' "$dir"
   fi
 }
+
+# board_script_path_from_args <argv-string> -- extract the .js script a node board
+# was started with, from its full command line (`ps -p <pid> -o args=`). Prints
+# the script token (which may be relative; the caller resolves it against the
+# board's cwd) or NOTHING when the command line names no .js script (#2515).
+#
+# 🛑 WHY THE ARGV AND NOT `lsof -d txt`. Measured on this fleet for a live
+# `node server.js` board: `-d txt` lists the node INTERPRETER and libnode, never
+# server.js -- the script is an ordinary open file, not a text/executable
+# mapping. The script path appears only in the argv. (This was the filer's
+# weakest premise on #2515; the measurement settled it.)
+#
+# THE RULE: the FIRST whitespace token ending in `.js`. For `node [flags] X.js
+# ...` that is the interpreter's script argument -- flags before it
+# (--enable-source-maps) do not end in .js and are skipped, and args after it
+# (--port 16180, a config path) come later. An installed-bundle `kosmos start`
+# names no .js, so this prints nothing and the caller falls back rather than
+# guessing: "unknown" stays a safe answer, per the card.
+#
+# KNOWN RESIDUALS, stated rather than guarded (none is a board shape here):
+#   - `node -r pre.js server.js` (a preload) would mis-pick pre.js, the first .js.
+#   - a script path containing whitespace splits; board paths here have none.
+# The argv is attacker-shaped input in general; this only ever reads a token and
+# hands it to `dirname`/`cd`, never evaluates it.
+board_script_path_from_args() {
+  local args="${1:-}"
+  # Unquoted $args to WORD-SPLIT the command line into tokens (this file is bash,
+  # run under its own shebang and sourced into bash callers). `set -f` disables
+  # PATHNAME EXPANSION so a token like `*.js` is split out literally rather than
+  # globbed against the cwd into an unrelated filesystem match -- splitting only,
+  # never a filesystem read. In a subshell so the option never leaks to the
+  # caller (and the subshell's stdout is this function's, captured by $(...)).
+  ( set -f
+    for tok in $args; do
+      case "$tok" in
+        *.js) printf '%s' "$tok"; exit 0 ;;
+      esac
+    done )
+}
+
+# board_code_dir_from_args <argv-string> <cwd> -- the directory the board's CODE
+# lives in, resolved from the process command line (#2515). Prints the resolved
+# absolute tree, or NOTHING when the argv names no .js script (installed-bundle
+# shape, or anything unexpected) so the caller falls back to the cwd, never a
+# guess. Pure w.r.t. the process -- the caller does the one `ps` read and hands
+# the string here, so this is unit-testable with fixture argv strings.
+board_code_dir_from_args() {
+  local args="${1:-}" cwd="${2:-}" script
+  script="$(board_script_path_from_args "$args")"
+  [ -n "$script" ] || return 0
+  # A relative script path is relative to the board's cwd (a board started as
+  # `node server.js` from the repo root). Without a cwd to anchor it, decline.
+  case "$script" in
+    /*) ;;
+    *) [ -n "$cwd" ] && script="$cwd/$script" || return 0 ;;
+  esac
+  # dirname of the script is the tree. `cd` + LOGICAL `pwd` resolves a `..`
+  # segment while KEEPING the symlink spelling the process actually runs under
+  # (macOS reports /Users and /var via firmlinks; `pwd -P` would rewrite them to
+  # /System/Volumes/Data and /private and disagree with the cwd lsof reports).
+  # board_origin_label handles symlinks itself (-ef compares inode, -d follows),
+  # so a logical path is both correct and consistent. Silent (empty) if the
+  # directory does not exist -- the caller then falls back to the cwd.
+  ( CDPATH= cd "$(dirname "$script")" 2>/dev/null && pwd )
+}
+
+# board_cwd_note <codedir> <cwd> -- a " (cwd <cwd>)" suffix for the board line, but
+# ONLY when the code tree and the cwd are different trees. The #2515 disagreement
+# is the interesting fact: the installed board's code is the checkout while its cwd
+# is $HOME. Empty when either is missing or when they are the same directory (-ef,
+# inode compare, so a firmlink/symlink spelling difference does not count as
+# disagreement), so the caller can append it unconditionally.
+board_cwd_note() {
+  local codedir="${1:-}" cwd="${2:-}"
+  [ -n "$codedir" ] && [ -n "$cwd" ] || return 0
+  [ "$cwd" -ef "$codedir" ] && return 0
+  printf ' (cwd %s)' "$cwd"
+}

@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-openai-msg
 'use strict';
 /**
  * kosmos#2241 (Josh, 0.6.35): when an OpenAI/codex account is connected, the

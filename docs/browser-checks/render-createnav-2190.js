@@ -1,3 +1,4 @@
+// Browser-check-surface: made-head create-msg
 'use strict';
 // #2190: Create advances to the PROGRESS ('made') screen instead of showing
 // 'Making it…' inline on the create screen, and an error/refusal routes BACK to
@@ -124,4 +125,4 @@ async function driveCreate(page, agentsOutcome) {
     process.exit(1);
   }
   console.log('render-createnav-2190: Create advances to the progress screen; an error routes back to the create screen with the message.');
-})();
+})().catch((e) => { console.error(e); process.exit(1); });

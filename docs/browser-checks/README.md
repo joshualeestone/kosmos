@@ -116,6 +116,157 @@ page that screenshots perfectly. **A picture cannot show you that nothing on it
 can be clicked.** Ask what happens when you touch the thing, not only what it
 looks like.
 
+## `fixtures/` (kosmos#2519)
+
+`fixtures/agent-card.json` is a **recording** of one agent card as `status.snapshot()`
+emits it, used by `render-talk.js`'s reopen arm on a box with **no live agents** so the
+arm keeps its coverage instead of failing the cut. Every KEY is the producer's, and each
+field's TYPE is preserved (a null stays null).
+
+⚠️ **Not "only identifying string content is neutralised".** That sentence was wrong here
+and the same wrong sentence was corrected twice elsewhere in this change before anyone
+noticed it a third time in this file.
+
+**The central guarantee, which this file never actually stated:** `scrubStrings` replaces
+EVERY string anywhere in the card, at any depth, including fields status.js has not been
+written yet. The categories below are what happens AFTER that whole-card scrub. A reader of
+the old version learned only about the ISO-date branch and the `profile` subtree and could
+have concluded the rest was untouched.
+
+**What the tool does after the scrub: FIVE treatments and ONE gap. CATEGORY-LIST-BEGIN**
+⚠️ The line above said "FOUR treatments and ONE gap, six items in all", which is four plus
+one making six. Counting the categories is the act every version of this sentence has got
+wrong, so the numbering below is now ascending, gap-free, and checked by an arm. ⚠️ This sentence has now been
+wrong five times, each version claiming a smaller number than the truth ("nothing
+identifying can survive", "nothing identifying is numeric", "there is no third category",
+"everything is in exactly one of three", and then "in five categories" printed above SIX
+items with the numbering skipping 4). Counting the items and counting the categories are
+different acts, and every version so far has done one while claiming the other:
+
+1. **PINNED to constants.** PIN-LIST-BEGIN
+   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+   PIN-LIST-END
+   (Paths, not names: `because` is pinned both top-level and under `context`.)
+   🛑 **This does NOT make a re-capture byte-identical**, and the sentence claiming it did
+   survived here after being struck in the tool's own header. `state`, `stateConfidence`
+   and `runner` come from the raw card; the structural booleans pass through as captured;
+   six fields vary between null and a value. The pins stop the volatile MEASUREMENTS
+   moving, nothing more.
+   ⚠️ **"And two profile timestamps" was wrong twice over.** No pin touches a profile
+   timestamp. `scrubStrings` rewrites ANY ISO-dated string at any depth anywhere in the
+   card to one constant. That is a scrub, not a pin, and it is neither two fields nor
+   profile-specific.
+2. **RE-PINNED from the raw card** because status.js enum-bounds them: `state`,
+   `stateConfidence`, `runner`. Not constants, not structural booleans, not under
+   `profile`. The old "exactly one of three" sentence had no room for these and the tool's
+   own header calls them a real category.
+3. **SCRUBBED STRINGS that are not re-pinned at all**, such as `disruption.cause`, which
+   becomes `example-cause`. Neutralised, but pinned to nothing.
+4. **STRUCTURAL BOOLEANS passed through**, because each has two possible values, carries
+   nothing identifying, and must survive or the recording stops being a real card shape:
+   `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
+   `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
+   `stateBackgroundWait`, `neverRecorded`.
+5. **The `profile` subtree**, which gets the strictest treatment: every STRING, NUMBER and
+   BOOLEAN under it is neutralised, at any depth. ⚠️ Not literally every value: a `null`
+   survives as null, and an array's LENGTH survives even though its elements are scrubbed.
+   The tool's own `scrubStrings` comment says so and this file said "EVERY value", which is
+   the broader of the two copies. It is free-form
+   (`store.readProfile` returns whatever JSON is in the file), so an allowlist there is a
+   guarantee resting on what the tree happens to write today. `profile.doctrineVersion`
+   is a producer number that reached the recording before this was structural.
+
+⚠️ **There is exactly ONE enumeration in this file and it is the sentinel-bounded list
+above.** A second copy stood here, in the bare-name-plus-parenthetical form that
+`tools/capture-agent-card.js` identifies as a hole (a name appearing once cannot say that
+`because` is pinned in two places), and it announced itself as "checked by an arm" while
+sitting OUTSIDE the sentinels the arm reads. The branch went from four copies to six while
+claiming it had made the enumeration mechanical. An arm now reds on any second
+enumeration outside the sentinels.
+6. **A NON-STRING the producer adds OUTSIDE `profile`**, which is in none of the above and
+   reaches the committed file verbatim. This is a real gap, not a treatment: measured, a
+   `pid: 48213` added to the card or inside `disruption` comes out unchanged, and the
+   key-set refusal cannot see a field added inside an existing subtree. Two arms pin the
+   current inventory (the live card and the shipped artifact, plus the `disruption`
+   subtree explicitly) so that the NEXT one reds a test instead of arriving silently, but
+   nothing prevents it.
+
+**CATEGORY-LIST-END**
+
+🛑 **That list has gone stale twice, in all four copies at once each time** (this file,
+the tool's header, `render-talk.js`'s header, the plan). If you add a pin, grep for one of
+these field names before you finish.
+
+🛑 **Do not hand-edit it.** That is the invented-fixture defect `render-talk.js`'s own
+header describes, arriving by another door. Re-record it instead:
+
+```
+node tools/capture-agent-card.js     # run on a box that HAS live agents
+```
+
+🛑 **The suite constrains WHICH card, and the recipe used to say only "a box that has live
+agents".** FOUR arms constrain the committed recording, and the paragraph that first said "three"
+named three that do NOT enforce the working half: the rename control only asserts the file
+does not already hold `needs_you`, the context arm asserts `confidence: "structured"`, and
+the non-string inventory pins the measured `context` key set. The one that actually
+enforces WORKING is a fourth, the placeholder-identity arm, whose `stateEvidence` check
+accepts only null or a line starting `✽ Working…`. It reds on a re-capture of any
+non-working card carrying a `stateEvidence` string, and its message named neither
+re-capture nor the constraint, which is exactly the failure this paragraph exists to
+prevent, happening inside the paragraph. ⚠️ **And the sentence that first stated this overstated the enforcement, in both halves.**
+Measured against the arms: an idle card WITH a readable transcript reds NONE of the four
+(the rename control only tests `!== 'needs_you'`; the context arm and the inventory arm
+both pass on a measured context; the placeholder-identity arm passes because an idle card's
+`stateEvidence` is null, since status.js sets no evidence on that path). An
+unreadable-transcript card reds TWO, not three: the rename control is indifferent to it.
+So the constraint below is a REQUEST backed by partial enforcement, not a gate. So: **capture while an agent of yours is actually
+working and has a readable transcript**, and if you meant to change the recording's shape,
+update those arms deliberately rather than reading their red as a bug.
+
+🛑 **NESTED `context` DRIFT IS NOW CLOSED (kosmos#2553); `profile` DRIFT IS DELIBERATELY
+NOT.** The gap was real: a rename inside `context` leaves the top-level key-set comparison
+in `yarn test` GREEN while the committed recording drives `openDetail` with a shape the
+producer no longer emits, on exactly the quiet boxes the fallback exists for. `openDetail`
+reads `context.percent`, so it was not hypothetical.
+**What closes it:** the `COMPOSITION-AWARE DRIFT GUARD` arm in
+`render-talk-goldencard-2519.test.js` derives the SET of `context` key-sets `engine/status.js` can
+emit and asserts the recording matches one of them. It reads no board, so composition
+cannot fire it (that is what killed the first attempt, removed for firing on an 18-agent
+board where two `profile` shapes were legitimately present); it derives from the producer,
+so an un-re-captured `engine/status.js` rename matches none and reds; and it lives in the unit
+test, not the release-cut check, so a false red costs a test run and never a cut.
+**`profile` is left out on purpose, and that is not the same gap.** It is free-form (the
+tree writes `dir`/`displayName`/`role`/`reportsTo` per operator), scrubbed wholesale by the
+capture, and every page read of it is guarded (`a.profile && a.profile.role`), so a missing
+`profile` key is COMPOSITION, never drift.
+
+⚠️ **The LIVE-vs-fixture drift guard (this recording compared key path by key path against
+one live card) is still absent, and must stay absent** -- it was the removed attempt, and
+its absence is pinned by an arm carrying the `COMPOSITION-AWARE DRIFT GUARD` escape hatch.
+kosmos#2553 closed the `context` gap a different way (against the producer's variant SET,
+not against one live card), which is why re-adding it is not re-adding the bug.
+
+The capture refuses to write if neutralisation changed the key set.
+
+⚠️ **`render-talk.js` does not behave identically to before this change on every populated
+box, and that is deliberate.** Its `liveCard()` now prefers a PANE card over a paneless
+one, where the old code took whichever `isNamedOurs` card came first. Two consequences
+worth knowing before a cut: on a multi-agent board a paneless card can no longer win the
+selection (though `find` still takes the FIRST pane card, so the input is still
+pane-ordered, and an earlier version of this line wrongly said the ordering dependence was
+gone), and on a board where EVERY card of ours is paneless the RECORDING drives
+the arm instead of a paneless live card. The second is the better outcome (`openDetail`
+gets the shape it is written for rather than null session/target) and it is not silent:
+`realCard` reports `golden` and the run prints the fallback NOTE.
+
+⚠️ `browser-checks-indexed.test.js` indexes `.js` scripts only, so most of this section
+can go stale without failing. That is NO LONGER true of the `PIN-LIST` region above: an arm
+in `render-talk-goldencard-2519.test.js` extracts the pinned paths from the capture tool
+and reds if this file omits one, lists one the code does not pin, or carries a second copy
+of the enumeration outside the sentinels. The sentence used to say nothing checked this
+section at all, which told a reader the opposite of what is now true. It is here because a committed input to a release-gating check should
+say what it is and how it was produced.
+
 ## What is in here
 
 ⚠️ **GENERATED BY HAND AND GUARDED BY A TEST.** Ten of the twenty-one scripts
@@ -195,7 +346,7 @@ one invented by somebody who did not write them.
 | `render-head-row.js` | Settings stays on the project header row, beside the title and the search (#1043) |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
-| `render-gated-next.js` | The S2/S3 permission-gated Next, driven for real: file-access (S2) and sleep+tmux (S3) disable Next ONLY on a measured not-granted reading and unlock on the grant; uncheckable (a browser) and any fetch failure fail SAFE (never block, never false-green); the 1.5s poll re-checks so a grant unlocks with no manual re-check. Subsumes the retired render-a11y-gate-2125 (tmux gate) + render-sleep-button (sleep gate). |
+| `render-gated-next.js` | The S2/S3 permission-gated Next, driven for real: file-access (S2) and sleep+tmux (S3) disable Next ONLY on a measured not-granted reading and unlock on the grant; uncheckable (a browser) and any fetch failure fail SAFE (never block, never false-green); the poll (FR_GATE_POLL_MS, 750ms) re-checks so a grant unlocks on its own, and a "Check again" button (#2451/#2559) lets the user force it now. Subsumes the retired render-a11y-gate-2125 (tmux gate) + render-sleep-button (sleep gate). |
 | `render-boot-no-flash.js` | The launch covers itself until the first-run gate resolves, so the agents view never flashes and then vanishes (#1553) |
 | `render-conn-url.js` | The sign-in fallback button does not overlap the line above it (#1209) |
 | `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |

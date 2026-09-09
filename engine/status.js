@@ -1991,7 +1991,694 @@ const WORKING_LINE = /^\s*[·✢✳✶✻✽*] \S+…\s+\((?:\d+h\s+)?(?:\d+m\s+
  * carry. Killing it would need the timer too, and the old Claude UI's own line
  * has no timer, so that would drop a real working pane.
  */
+/* 🛑 NO CALLERS. Superseded by `INTERRUPT_LINE_LIVE` below (kosmos#2378) and kept
+   only so this comment has somewhere to live: an unanchored match for the phrase
+   anywhere in a 25-row tail is what read a QUOTED `esc to interrupt` as a live
+   turn. Do not reintroduce a use of it. Verified dead: the only occurrences of
+   this identifier are this definition and prose about it. */
 const INTERRUPT_LINE = /\([^)]*esc to interrupt[^)]*\)/i;
+
+/* #2378. The same phrase, required to sit on a row SHAPED like a live status row
+   rather than merely to appear somewhere in the 25-row tail.
+
+   🛑 THE DEFECT IT CLOSES: `INTERRUPT_LINE` is unanchored and was tested against
+   the whole tail, so an ordinary sentence of transcript containing the phrase in
+   parentheses read as a live turn. On this branch that also suppressed #1889's
+   `backgroundWait`, so a person messaging a pane at its prompt was told their
+   message would go unread. Measured: `he said (press esc to interrupt) earlier`
+   forced `mid-task` with no turn in flight.
+
+   🔑 WHY ROW SHAPE RATHER THAN PROXIMITY, WHICH IS WHAT #2378's RULING PROPOSED.
+   The ruling's recipe was to bound both call sites to rows within composer reach,
+   reusing `BACKGROUND_AGENT_WAIT_REACH`. Measured against the branch's own pinned
+   fixture, THAT DOES NOT DISCRIMINATE: the quoted row sits 3 rows above the
+   composer, well inside a reach of 8, and tightening the bound until it passes
+   would be tuning the constant to one fixture. It also cannot work at all for the
+   two real fixtures that reach this code (`CODEX_WORKING`, and `projects`'
+   `WORKING_SCREEN`) because both are short panes with NO composer row.
+   ⇒ Row shape separates them 7/7 where the current pattern gets 3 wrong, needs no
+   new constant, and is independent of pane geometry. The ruling's DECISION (fix
+   it, here, not on main) stands; only its mechanism changed, and #2378 says so.
+
+   📌 GLYPH CLASS: `WORKING_LINE`'s, plus `•` for codex's progress line. INCLUDING
+   `*`, and an earlier version of this comment excluded it while claiming to be
+   "carrying `WORKING_LINE`'s own recorded reason across".
+   🛑 THAT CITATION WAS INVERTED, WHICH IS WORSE THAN HAVING NO REASON AT ALL.
+   `WORKING_LINE` KEEPS `*`, and says why: "`*` IS a real frame and also a markdown
+   bullet; it stays in because an echoed line would need the ellipsis AND a live
+   timer to slip through, and dropping it would misread every poll that samples
+   that frame." I cited that paragraph as authority for doing the opposite of what
+   it says, and a reviewer endorsed the change partly on the strength of the
+   citation. A false citation reads as diligence; an absent one at least reads as
+   a gap.
+   ⇒ MEASURED CONSEQUENCE, and it is the exact inversion this module's own five-row
+   table says must never happen: on a `*` frame a LIVE spinner stopped being
+   recognised, so the flag survived and a person was told "it can pick this up now"
+   about a pane whose turn is in flight and whose composer QUEUES. The spinner
+   cycles, so that is roughly one capture in seven of any pane both mid-turn and
+   holding a frozen wait row.
+   ✅ AND RESTORING IT COSTS NOTHING FOR THE LIVE CASE, but `*` is ALSO the markdown
+   bullet, so a real markdown bullet CAN carry the parenthesised phrase
+   (`* running the tool (esc to interrupt) to cancel` matched, a false busy that
+   drops backgroundWait). An earlier version of this comment claimed the paren
+   requirement rejected bullets; it does not, and the old negative fixtures passed
+   only incidentally (they put `(` right after `* `, eaten by `\S`). #2378 fix
+   (Ice Cream Kitty, verified against every fixture): keep `*` but GATE it. Two
+   arms below - the unambiguous glyphs `[·•✢✳✶✻✽]` are unchanged (no timer needed,
+   so the old-UI timerless `· Working (esc to interrupt)` still matches), and the
+   `*` arm adds `(?=\s*(?:\d+h\s+)?(?:\d+m\s+)?\d+s)` right after the `(` so a
+   `*`-led row counts only when a live timer sits at the START of the interrupt
+   parenthetical - the SAME shape WORKING_LINE anchors (`\((?:\d+h\s+)?...\d+s`),
+   not merely "some \d+s somewhere in the paren" (that looser form read
+   `* note (fixed in 5s, see esc to interrupt)` as live - a stray duration
+   mention; found by challenge-loop review). A LIVE `*`-frame always carries the
+   timer at the paren start; the only observed timerless live shape is the old-UI
+   `·` one, on the untouched arm. Would change if a timerless `*`-led row is ever
+   observed - none has been.
+   📌 THE PHRASE IS `esc\s*to\s*interrupt`, not literal single spaces, so a hard
+   wrap that splits it (`... esc\nto interrupt)`, joined with no separator by
+   hasLiveInterruptLine) still matches - the false-calm the join otherwise left on
+   a narrow pane (also found by review). `esctointerrupt` is not a real token, so
+   the tolerance cannot over-match prose. */
+const INTERRUPT_LINE_LIVE = /^\s*(?:[·•✢✳✶✻✽]\s*\S[^\n]*\([^)]*esc\s*to\s*interrupt[^)]*\)|\*\s*\S[^\n]*\((?=\s*(?:\d+h\s+)?(?:\d+m\s+)?\d+s)[^)]*esc\s*to\s*interrupt[^)]*\))/i;
+
+/* #2378. True when the tail carries a LIVE interrupt line. Shared by both call
+   sites (Claude and codex) so the two cannot drift apart.
+   ⚠️ THAT SHARING IS NOT ITSELF COVERAGE, and an earlier version of this comment
+   implied it was. Reverting ONLY the codex call site left the whole 5030-test
+   suite byte-identical, so the two sites could have drifted with no signal. Both
+   are pinned now.
+
+   🛑 WRAP TOLERANCE, AND ITS ABSENCE WAS A REGRESSION AGAINST `origin/main`. Ink
+   hard-wraps this row and `-J` does NOT rejoin what Ink split, which is the
+   premise the sibling constants state repeatedly. Testing each row in isolation
+   therefore missed a wrapped live line: measured, a hard-wrapped codex progress
+   row read `working` on main and stopped doing so here. The codex arm is the
+   serious one because it has only three checks and no `WORKING_LINE` beneath it,
+   so a miss falls straight through to the FALSE CALM.
+
+   🔑 THE JOIN IS GATED ON AN UNCLOSED PARENTHESIS, which is the structural trace a
+   hard wrap INSIDE the group leaves on the first row. Joining unconditionally
+   would read a settled spinner row plus a following prose row as one live line:
+   `· Working (12s)` then `he said (esc to interrupt) yesterday` matches when
+   joined and must not. Measured across ten shapes, the gate is right on nine.
+   ⚠️ THE TENTH IS AN INHERENT AMBIGUITY, NOT A DEFECT I DECLINED TO FIX. A glyph
+   row ending mid-parenthesis whose next row closes it and carries the phrase is
+   BYTE-IDENTICAL to a genuine wrapped live spinner. No reader can separate them,
+   so this resolves it as live, which is the direction that avoids the codex false
+   calm. Recorded so nobody re-derives it as a bug.
+   📌 KNOWN LIMIT: the join reconstructs a line split across exactly TWO physical
+   rows (`rows[i] + rows[i+1]`). A live line hard-wrapped across THREE or more
+   rows (a very long spinner/codex description on a narrow pane) is not rejoined
+   and falls through undetected - the codex false-calm direction, same as the
+   single-wrap this closed, but for a rarer shape. Stated as a boundary like the
+   sibling wait-row constants, not left implicit; widen to an N-row join if such
+   a shape is ever observed. */
+function hasLiveInterruptLine(text) {
+  const rows = String(text == null ? '' : text).split('\n');
+  for (let i = 0; i < rows.length; i += 1) {
+    if (INTERRUPT_LINE_LIVE.test(rows[i])) return true;
+    if (i + 1 < rows.length && hasUnclosedParen(rows[i])
+      && INTERRUPT_LINE_LIVE.test(rows[i] + rows[i + 1])) return true;
+  }
+  return false;
+}
+
+/* #2378. Joined with NO separator, the same rule the tail-joining above records:
+   a wrap eats the character at the boundary, so any separator leaves a word no
+   marker matches. */
+function hasUnclosedParen(row) {
+  const r = String(row == null ? '' : row);
+  return (r.match(/\(/g) || []).length > (r.match(/\)/g) || []).length;
+}
+
+/* #1889. A no-timer shape `WORKING_LINE` cannot match:
+     * ✻ Waiting for 1 background agent to finish
+   (samples `*`-prefixed so this file does not match its own reader)
+
+   🛑 IT IS NOT A MID-TURN LINE, AND CALLING IT ONE MISLEADS THE NEXT EDITOR. The
+   vendor draws it from the TurnDuration component, in the slot that otherwise
+   holds `Worked for 3m 12s` -- the row THIS MODULE treats as its canonical idle
+   marker. The turn has ENDED; what is still running is the background agent, and
+   the REPL is at its prompt accepting input.
+   ⇒ `working` is still the right verdict, and more truthful than "it finished and
+   is waiting for you", because the person cannot act on the result yet. But the
+   state being asserted is "a background agent is running", not "this agent is
+   mid-turn", and the two differ wherever that distinction matters.
+
+   The vendor composes ONE line from two counters, background agents AND dynamic
+   workflows, so `Waiting for 1 background agent and 2 dynamic workflows to
+   finish` is a real render and the composed form must match. It does, through the
+   `background agents?` phrase.
+
+   🛑 A `dynamic workflows?` ALTERNATIVE WAS REMOVED, AND REMOVING IT IS THE FIX.
+   With it, a WORKFLOW-ONLY wait matched and then could never be resolved: the
+   resolution check below keys on the vendor's agent-completion notification, and
+   nothing the reader knows about could resolve it, so such a pane read `working`
+   forever: worse than the state this card set out to fix.
+
+   🛑 AND MY FIRST REASON FOR DELETING IT WAS FALSE. I wrote that no workflow
+   completion string exists in the bundle. Both `Dynamic workflow "${name}"
+   completed` and `… failed: …` are there, and `local_workflow` tasks carry the
+   same notification flag agent tasks do. A workflow arm PLUS its own resolution
+   marker is buildable; I closed the question with a sentence one grep refutes.
+   ⇒ The deletion stands on the RULE instead: I widened to that phrase from the
+   render JSX with NO LIVE CAPTURE, which is exactly what the do-not-widen note
+   below forbids. Give it back when someone captures a workflow-only wait, and add
+   its completion marker in the same change. The composed form is unaffected; only
+   the never-observed workflow-only render is given up.
+
+   🛑 THE `$` IS LOAD-BEARING, BUT IT MUST ALLOW THE VENDOR'S ` · …` SUFFIXES.
+   Without any anchor the pattern matches every sentence CONTAINING the phrase,
+   including prose about this feature. With a BARE anchor it rejects real renders:
+   the wait row is one Ink `<Text>` whose later children are ungated, so a budget
+   readout (`· 45.2k / 100k (45%)`), its nudges, and a hidden-message count
+   (`· 3 messages hidden (/focus to show)`) all append after `to finish`. Both
+   were measured returning `idle`. So the tail is optional but must start with
+   ` · `, which the vendor always uses as its separator and prose does not.
+   📌 THE ENUMERATION ABOVE IS MISSING A FOURTH CHILD, AND IT IS HARMLESS -- said
+   here rather than left for the next reader to find and doubt the rest. Beside
+   the budget readout and the hidden-message count the row can append
+   `` ` · ${WM} still running` ``, which is ` · `-prefixed like the others and so
+   is inside the suffix group anyway. It also cannot co-occur with the wait text:
+   its gate `Fw = tl && HM` is true exactly when the `Waiting for …` element is
+   the one selected. Complete for this row; a clause, not a rewrite. */
+/* (continued)
+   🛑 SPACES ARE `\s*`. `capturePane` passes `-J`, which joins a wrapped row with
+   NO separator, so a space on the wrap boundary is gone (#1234). All seven are
+   optional; two of them were not, and that was a silent `idle` on a narrow pane.
+   ⚠️ THAT COVERS ONE WRAP MODE, NOT BOTH, AND THE SIBLING COVERS THE OTHER. `-J`
+   rejoins a tmux-wrapped row; it does NOT rejoin a row Ink itself hard-wrapped
+   into two physical rows, which this `flexDirection="row" width="100%"` row does
+   on a narrow pane. `WORKING_LINE` carries `m` and `\s+` precisely so it still
+   matches across that; this reader is applied per row and cannot. Measured:
+   a break before `workflows to finish` reads `idle`; a break after `to finish`
+   still reads `working` because the suffix group absorbs it. Latent at 80
+   columns (the base line tops out near 66 chars) and live the moment a pane is
+   narrower or split -- the same latent-not-live caveat `capturePane` carries.
+   🛑 THE GLYPH IS THE SINGLE LITERAL `✻`, NOT A CLASS. This row's glyph is a
+   FIXED constant in the bundle (`iE="\u273B"`, drawn in its own `<Box
+   minWidth={2}>` beside the text); it is NOT the rotating spinner. (U+273B IS a member of
+   those frame arrays, which is why the sibling's class carries it; what differs
+   is that THIS row draws it from a fixed constant rather than cycling.) An earlier version borrowed
+   `WORKING_LINE`'s SEVEN-glyph class `[·✢✳✶✻✽*]`, which accepted the six shapes
+   the vendor cannot draw here and opened six prose/quotation entry points for
+   nothing. `*` in
+   particular made an ordinary markdown bullet read as a working agent.
+   📌 NO `m` FLAG -- BUT THAT IS NOT WHAT MAKES THIS PER-ROW, AND THE EARLIER
+   VERSION OF THIS NOTE CLAIMED IT WAS. Per-row-ness comes from `backgroundAgentWait`
+   splitting on `\n` and testing one row at a time; the flag is inert at the only
+   call site, and ADDING `m` leaves the whole suite green. Worse, the stated
+   mechanism is false in its own terms: `\s*` matches a newline, so even without
+   `m` this pattern spans rows when the row is first in the input --
+   `.test("✻\nWaiting for 1 background agent to finish")` returns TRUE (measured).
+   ⇒ Keep the flag off, but do not rely on it for anything: if this constant is
+   ever tested against a whole pane instead of a single row, the `\s*` is what
+   will bite, and no flag setting prevents it. The rule that HOLDS is the split.
+   🛑 DO NOT WIDEN TO A BARE `Waiting for …`. The bundle carries many such strings
+   and they are NOT one state: permission, authorization, team lead approval and
+   browser sign-in all mean BLOCKED ON A HUMAN, and reporting those as busy hides
+   an agent that needs you. Widen only with a live capture of the shape you are
+   widening to, and route human-blocked shapes to NEEDS_YOU.
+
+   Count of `Waiting for …` strings, stated once with its command because it is
+   extraction-dependent:
+     grep -ao 'Waiting for [A-Za-z0-9 ._'\''-]\{0,60\}' <bundle> | sort -u  ->  25
+   One of the 25 is a Zod `describe()` doc string rather than a screen.
+
+   📌 A STATIC GREP COULD NOT HAVE FOUND THIS LINE: the counts are interpolated,
+   so the literal is nowhere in the bundle. Found only by capturing a live pane.
+   📌 The workflow counter is NOT handled: its arm was removed (see above). A
+   composed `… N background agents and M dynamic workflows …` row still matches,
+   through the agent phrase.
+   📌 History, corrections, and the measurements behind every number above:
+   `.claude/plans/panefixtures-1889.md`. */
+const BACKGROUND_AGENT_WAIT =
+  /^\s*✻\s*Waiting\s*for\s*.*background\s*agents?.*to\s*finish(?:\s*·[^\n]*)?\s*$/u;
+
+/* #1889. How far above the COMPOSER ROW the wait line may sit and still be the
+   live status line rather than a quotation.
+
+   🛑 WITHOUT THIS THE READER IS A QUOTABLE LITERAL THAT FAILS TOWARD SILENCE.
+   Unlike `WORKING_LINE` (which needs a live, changing timer) this line is static
+   text, so an agent displaying a document that quotes it verbatim would classify
+   `working` while sitting idle at its prompt.
+   🛑 DO NOT ASSERT A COUNT HERE. THIS SENTENCE HAS NOW ROTTED TWICE, IN OPPOSITE
+   DIRECTIONS, AND EACH TIME IT WAS TRUE WHEN WRITTEN.
+     v1 cited the plan as a measured example of a self-match. True under the old
+        seven-glyph class; false once the class narrowed.
+     v2 said "zero rows in this file, the test or the plan match". True when the
+        class narrowed; FALSE again once `\s*` wrap-joining widened the matcher,
+        which put two rows of the plan back in scope with nothing to signal it.
+   ⇒ It is a count over a MOVING TARGET (this repo's own files) taken with a MOVING
+   INSTRUMENT (this regex). Either one changing falsifies it, and the reassuring
+   direction is the dangerous one: it tells the next reader the self-match hazard
+   is closed.
+   ✅ SO THE CONVENTION REPLACES THE COUNT: any sample of this row written into
+   this repo gets a `*` prefix so it cannot match, and the check is one command
+   rather than a sentence to trust:
+
+     node -e 'const re=/<this constant>/u; ...split by line, print matches'
+     with a positive control (`    ✻ Waiting for 2 background agents to finish`)
+     and a negative one (`  x Waiting for 2 background agents to finish`)
+
+   ⭐ A sentence that reports a measurement of the repo it lives in cannot stay
+   true, because editing the repo is the normal case. State the convention and the
+   check; let the reader run it.
+
+   🛑 ANCHORED TO THE COMPOSER, NOT TO THE LAST ROW, AND THE FIRST VERSION HAD
+   THIS WRONG IN THE QUIET DIRECTION. Measuring from the screen's last non-empty
+   row puts the budget at the mercy of the FOOTER, and the footer grows by one
+   `◯ …` row per background agent -- the very quantity this line reports. At
+   reach 16 a pane with 9 background agents pushes the line out of budget and the
+   reader returns `idle`: it would go quiet at exactly the busiest case, and the
+   line it failed to read would have said "Waiting for 9 background agents to
+   finish".
+   ⇒ The stable anchor is the COMPOSER ROW (`❯`), because everything variable --
+   subagent rows, the status line, the hint line -- is drawn BELOW it, while this
+   status line is always drawn just above it.
+   MEASURED live on 2.1.258: live instances sit 3 to 5 rows above the composer,
+   the spread coming from optional rows the vendor inserts (a notification row, a
+   tip block). A 7 and a 13 were also observed, both on panes whose wait had
+   already RESOLVED, so they are not evidence about the live case and 12 is not
+   fitted to them.
+   ⚠️ 8 IS THE EXACT LOWER EDGE, NOT A VALUE WITH SLACK BELOW IT. Swept: the
+   suite is green only for [8, 14] and reds at 7 and below and at 15 and above.
+   An earlier version of this note claimed a green band of [3, 18] and called the
+   headroom deliberate slack; both halves were wrong, and the direction of the
+   error was reassuring.
+   📌 Both directions are pinned by distance fixtures: a live row 7 rows above the
+   composer must read `working`, one 14 rows above must not. Measured: 2 and 6 are
+   too tight, 18 and 40 too loose. A mid-document
+   quotation measured 114 from the end.
+   ⚠️ It BOUNDS the quotation residual rather than removing it: a document quoting
+   the line within reach of a composer row still matches.
+   📌 NOT the same quantity as `TRUST_PROMPT_REACH` (12), which counts rows BELOW
+   its marker on a different axis. They are not calibrated together and should not
+   be read as a pair. */
+const BACKGROUND_AGENT_WAIT_REACH = 8;
+
+/* #1889. A completed background agent, drawn into the transcript:
+   *   ⏺ Agent "Blind review" finished · 5m 19s
+   If one sits BETWEEN the wait row and the composer, the wait it describes is
+   over, whatever the row still says.
+
+   🛑 TWO NOTIFICATION SITES, NOT ONE. `enqueueAgentNotification` writes
+   `Agent "x" finished | failed: … | was stopped | stopped at its N-turn limit`.
+   The `/kill-agents` chord writes a DIFFERENT shape from a different call site:
+   `Background agent "x" was stopped by the user.` and, plural,
+   `N background agents were stopped by the user: …`. Neither begins `Agent "`,
+   so an earlier version of this pattern missed both and a pane whose agents had
+   been KILLED kept reading `working` for as long as the frozen wait row stayed in
+   reach. Enumerating one call site and calling it the wording is the same mistake
+   as enumerating one `◯` source and calling it liveness.
+
+   🛑 A THIRD SITE ON THE SAME KILL PATH. The `agents_killed` subtype renders
+   `⏺ All background agents stopped` (bullet + dimmed text), produced by the
+   zero-survivors arm of the SAME handler that also produces the two
+   `was stopped by the user` wordings above, so it ACCOMPANIES them rather than
+   replacing them. `All …` cannot match a pattern that
+   expects a count or `Background` after the bullet, so it was missed. Verified in
+   2.1.258 AND 2.1.259.
+   ⚠️ AND IT IS THE WORST PLACE TO MISS ONE: after an interrupt nothing further is
+   drawn, so the frozen wait row never leaves reach and the pane reads `working`
+   FOREVER on an agent sitting free at its prompt.
+   ⇒ Three enumerations of this family, three misses. Treat the set as open.
+
+   📌 THE `Remote task "` PREFIX IS NOT A RISK, RESOLVED RATHER THAN CARRIED. A
+   task reaches `pendingBackgroundAgentCount` only through a guard requiring
+   `type === "local_agent"`, and remote tasks are registered as `remote_agent`, so
+   one can never appear in this count and its notification can never need
+   matching. Recorded as closed rather than left as a standing worry.
+   ⚠️ THE SET IS STILL NOT PROVABLY CLOSED, though. There is a SECOND, currently
+   dead renderer that would draw these rows with a different glyph entirely
+   (`∷ All background agents stopped`); its gate returns false in 2.1.258, so the
+   "verified in 2.1.258 and 2.1.259" above covers the legacy renderer ONLY. If
+   that path is ever enabled, every wording here stops matching at once.
+
+   ✅ TWO LIMITS RECORDED HERE ARE NOW CLOSED, AND THEY ARE LEFT WRITTEN DOWN
+   RATHER THAN DELETED because the reason they closed is the useful part. Both
+   were true, and marked "(measured)", against the PRE-NARROWING pattern:
+     `⏺ Agent(Investigate the failed CI run)`            the tool-header row
+     `⏺ Agent work finished for the day, still one more running`   narration
+   Both resolved a live wait. Neither does now: every arm requires `Agent\s+"`,
+   and a tool header has no space and no quote, while narration almost never
+   puts a quoted name straight after the bullet. Re-measured against the shipped
+   pattern: both false.
+   ⚠️ THEY WERE CLOSED AS A SIDE EFFECT, NOT ON PURPOSE. The narrowing was aimed
+   at the collapsed Task-group header; these two fell out of it. So do not read
+   this as the class being solved: the shape that separates a notification from
+   narration is still just "a quoted name after a bullet", and any future
+   widening reopens both at once. That is why they stay on the page.
+
+   ⚠️ KNOWN LIMIT, SAME CLASS AS THE WAIT MATCHER'S: no wrap tolerance. Ink
+   hard-wraps this row too, and `-J` does not rejoin what Ink already split, so a
+   long agent description can push `finished · 5m 19s` onto a second physical row
+   carrying neither the bullet nor `Agent`. Both halves then fail and the wait is
+   never resolved: `working` on a finished agent. Not fixed here because the
+   halves cannot be rejoined from one row, and recorded rather than left to be
+   rediscovered.
+
+   🔑 WHY A RESOLVED WAIT ROW PERSISTS AT ALL, which is the premise this check
+   rests on. In the bundle the count is read as `let al = NZ ? …pendingBackground
+   AgentCount ?? 0 : 0`, where `NZ` comes from `let [UZ] = d(SD)` -- `useState`
+   with the setter DISCARDED. So it is computed once at mount and never
+   recomputed, and the count is a frozen property of the transcript message. The
+   row therefore does NOT stop rendering when the wait ends: it is a frozen
+   transcript row that outlives its own wait, and the completion notification is
+   appended below it, in exactly the span this check scans. An earlier version of
+   this comment argued from a single observed pane; this is the mechanism.
+
+   🛑 THIS REPLACED A `◯`-BASED LIVENESS GATE THAT COULD NOT WORK. Three rounds
+   went into enumerating `◯` sources (a live task row, the collapsed
+   `◯ N idle agents` summary, a selected `❯ ◯` row, a nested `└ ◯` row, a plugin
+   list, a composer with one typed into it) before the ceiling showed up: EVERY
+   footer row draws `figures.circle`, and run state is carried in the row's
+   COLOUR (`wge = WL(task) ? undefined : Yge(status)`). `capturePane` passes
+   `-p -J` and no `-e`, so colour is stripped before this module sees the text.
+   The glyph carries NO run-state information, and the gate accepted completed,
+   failed, idle, parked and header rows as proof of life. It was not
+   under-enumerated; it was unsound, and each round patched one more source of a
+   signal that never existed.
+   ⇒ Replaced by two things that survive colour-stripping: this positive
+   completion marker, and the reach above. */
+/* 🛑 IT MUST NOT MATCH THE COLLAPSED TASK-GROUP HEADER, WHICH IS A
+   DIFFERENT ROW WITH THE SAME WORDS. The vendor renders a resolved Task group as
+   `${l.length} ${L ? L + " agents" : "agents"} finished`, where
+   `L = allSameType && type !== "Agent" ? type : null`. So a group of SYNCHRONOUS
+   subagents whose types differ, or whose type is the literal `Agent`, draws the
+   bare row `⏺ 3 agents finished` -- and an earlier version of this pattern
+   matched it through the `\d+\s+` arm, resolving a LIVE background wait on the
+   completion of subagents that were never part of it. Measured on the shipped
+   code: a pane holding a live wait row plus that header returned `idle`.
+   ⭐ Its sibling `⏺ 2 general-purpose agents finished` did NOT match, so two
+   spellings of one row behaved oppositely -- the tell that the arm was keyed on
+   an accident of wording rather than on the row.
+   ⇒ Every arm below now requires something the group header cannot carry: the
+   quoted agent NAME that `enqueueAgentNotification` writes
+   (`Agent "` + name + `" ` + outcome), or the literal word `background` in the
+   two kill-path banners.
+
+   ⚠️ WHAT THIS GIVES UP, STATED RATHER THAN GLOSSED. `O = M.every(a => a.isAsync)`
+   selects the `launched` wording, so `N agents finished` is drawn when a
+   fully-resolved group is NOT all-async -- which includes a MIXED group holding a
+   real background agent. Narrowing therefore trades a false CALM (idle while an
+   agent runs) for a possible MISS (working after a mixed group finished), and the
+   miss is the direction this module already commits to everywhere else. The
+   per-agent notification is a separate render site and still resolves those,
+   so the loss is bounded by panes where the header is the only line drawn. */
+/* 📌 THE NAME CLASS IS `[^\n]*`, NOT `[^"\n]*`, AND THE DIFFERENCE IS REAL.
+   Agent descriptions are MODEL-SUPPLIED, so a name containing a quote is a
+   thing that happens: `⏺ Agent "fix the "foo" bug" finished · 1m` could not
+   match a class that stops at the first inner quote, and the wait stayed live
+   on a finished agent. Greedy to the LAST quote before the verb instead. The
+   line-start bullet and the trailing verb list still carry the discrimination;
+   the quotes only have to bracket a name, and they no longer have to be the
+   only two on the row. */
+/* 🛑 EVERY SPACE IS `\s*` HERE AND IN THE BANNER BELOW, FOR THE SAME REASON THE
+   WAIT MATCHER USES IT: `capture-pane -J` joins a wrapped row with NO separator.
+   These two constants spelled them `\s+` for four rounds after the matcher was
+   widened, so THE SAME JOIN THE MATCHER WAS WIDENED TO ACCEPT SILENTLY DISARMED
+   RESOLUTION. Measured, with intact rows as controls returning `idle`:
+     `⏺ Agent"a" finished`            -> working on a FINISHED agent
+     `⏺ Agent "a"finished`            -> working on a FINISHED agent
+     `⏺ Allbackground agents stopped` -> working FOREVER after an interrupt
+     `⏺ All background agentsstopped` -> same
+   ⚠️ REACHABILITY IS HIGHER HERE THAN ON THE WAIT ROW, not lower. These rows carry
+   a MODEL-SUPPLIED description, and the plural banner interpolates every one of
+   them, so they are the widest rows on screen and the likeliest to wrap.
+   ✅ The relaxation costs the narrowing nothing: what excludes the tool header
+   `⏺ Agent(Investigate …)` and the group header `⏺ 3 agents finished` is the
+   REQUIRED QUOTED NAME and the literal `background`, never the space.
+   ⭐ FOURTH ROUND RUNNING THAT A FIX LEFT ITS NEIGHBOUR UNFIXED. The premise is a
+   property of the TEXT, so it belongs to every regex that reads that text. When
+   one constant's assumption changes, list the others reading the same row and
+   change them in the same commit or state why not. */
+const AGENT_FINISHED_LINE =
+  /^\s*[⏺●]\s*(?:Agent|[Bb]ackground\s*agent)\s*"[^\n]*"\s*(?:finished|failed\b|was\s*stopped|stopped\s*at\s*its)/mu;
+
+/* #1889. The two rows that end EVERY background agent at once, so they resolve a
+   wait whatever its count. Kept separate from `AGENT_FINISHED_LINE` above because
+   that one is now COUNTED and these must not be: a single `All background agents
+   stopped` clears a wait on nine, and counting it as one occurrence would leave
+   eight phantom agents keeping a dead pane `working` forever -- the interrupt case,
+   which is the worst place to be wrong, since after an interrupt nothing further
+   is drawn and the frozen wait row never leaves reach. */
+const AGENT_WAIT_CLEARED_BANNER =
+  /^\s*[⏺●]\s*(?:All\s*background\s*agents\s*stopped\b|\d+\s*background\s*agents?\s*(?:was|were)\s*stopped\b)/mu;
+
+/* #1889. How many agents a wait row is waiting ON, read off the row itself.
+   Returns 1 when no count can be read, which is the pre-existing behaviour: one
+   completion resolves the wait. */
+/* 📌 ZERO IS NOT A STATE THIS CAN SEE, so the fallback is about an UNREADABLE row,
+   never about a drained one. `F1n` emits `pendingBackgroundAgentCount: k>0?k:void 0`
+   on the live branch and `void 0` on the drained branch, so the vendor never
+   constructs the value `0` (verified verbatim). And at zero the row renders no
+   counter at all: `HM=al>0||ll>0` selects the plain duration row, and `nl=al>0&&…`
+   means the counter child is `false` rather than an element, so `Waiting for` and
+   `background agents` cannot both appear. Nothing to guard; recorded so the next
+   reader does not go looking for a "waiting for 0" case that cannot render.
+   ✅ THE PROOF IS STRUCTURAL, NOT A SAMPLE. `BACKGROUND_AGENT_WAIT` needs three
+   tokens on one row: `Waiting`, `background agents?`, and `to finish`. At a zero
+   count the render can emit NONE of them -- the first and third live only inside
+   the `jw` element, which is selected only when `HM` is true, and the second lives
+   only inside `nl`, which at zero is the boolean `false` rather than an element.
+   A drained row cannot carry the phrase whatever else is appended to it.
+   📌 A 48-shape sweep of the drained render (8 verbs crossed with the suffix
+   forms) matched 0, with a live wait row as the passing positive control. That is
+   CORROBORATION, not the argument: the suffix space is composite and 48 samples
+   it rather than enumerating it. The structural reading is what holds.
+   🔑 SO THE ONE THING TO RE-CHECK AT A VERSION BUMP IS NOT THE SUFFIXES. If this
+   ever regresses it will be because a counter child STOPPED BEING GATED ON `> 0`,
+   which is a two-line read of the `al`/`nl`/`HM` block. Re-running a shape sweep
+   would look like diligence and would be checking the wrong thing. */
+function backgroundAgentWaitCount(row) {
+  /* 🛑 `\s*`, NOT `\s+`, AND NO `\b` -- THIS REGEX MUST MAKE THE SAME WRAP
+     ASSUMPTION AS `BACKGROUND_AGENT_WAIT` OR IT SILENTLY DEGRADES N TO 1.
+     That matcher spells every space `\s*` because `capture-pane -J` joins a
+     wrapped row with NO separator, and the branch asserts those joins as real
+     renders. This one used `\s+`, so on exactly the rows the matcher was widened
+     to accept the count fell through to the unreadable-row fallback of 1 and ONE
+     completion resolved a wait on N -- the iteration-20 false calm restored, in
+     the wrap mode the module already treats as live. Measured on the shipped
+     code, each of these reading `working` alone and `idle` with one completion
+     below it:
+       `✻ Waiting for 2 backgroundagents to finish`
+       `✻ Waiting for 2background agents to finish`
+       `✻ Waiting for 3 background agentsto finish`   (2 running agents hidden)
+     The `\b` goes for the same reason: `agentsto` has no word boundary after
+     `agents`, so keeping it would leave the third shape broken.
+     ⭐ TWO REGEXES READING ONE ROW MUST SHARE ITS WHITESPACE PREMISE. Neither was
+     wrong alone; nothing tested them TOGETHER, because the wrap fixtures assert
+     only `.state` on a wait with no completions and the count fixtures use
+     unwrapped rows. The crossing row is in `status.test.js` now. */
+  const hit = /(\d+)\s*background\s*agents?/u.exec(String(row == null ? '' : row));
+  if (hit === null) return 1;
+  const n = Number(hit[1]);
+  /* 📌 THIS IS NOT A GUARD AND IS NOT LABELLED AS ONE. `(\d+)` cannot produce a
+     negative, and the vendor cannot render a zero counter (see the note above),
+     so `n > 0` is unreachable in any real render -- perturbing this whole line to
+     `return n` leaves the suite green. `isFinite` is reachable only above ~309
+     digits, where `Number` overflows to Infinity, which is not a screen anybody
+     will see either. Kept because it costs nothing and keeps the function total
+     for any caller; written down because an unreachable expression that LOOKS
+     like a guard is worse than no expression -- it tells the next reader this
+     input is checked when nothing here checks it. */
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
+/* #1889. The evidence line, trimmed to this module's 240-char screen convention.
+   Factored because there are now TWO return paths that produce it, and a second
+   inline copy is exactly how one of them quietly stops matching the other. */
+function trimWaitEvidence(row) {
+  const line = String(row == null ? '' : row).trim();
+  return line.length > 240 ? line.slice(0, 240) + '…' : line;
+}
+
+/**
+ * The live background-agent wait line, or null.
+ *
+ * Returns the LINE, not a boolean, so the caller can show what it saw -- the
+ * same "evidence, not a paraphrase" rule the rate-limit and trust readers use.
+ */
+function backgroundAgentWait(text) {
+  const rows = String(text == null ? '' : text).split('\n');
+  for (let i = 0; i < rows.length; i += 1) {
+    if (!BACKGROUND_AGENT_WAIT.test(rows[i])) continue;
+    /* The composer row below this line, if there is one. A live status line is
+       drawn immediately above the composer; a quotation scrolled up the screen
+       is not. With no composer on screen (a dialog replaces it) this returns
+       null: a MISS, never a false calm. An earlier version of this sentence
+       described a fallback to the last non-empty row; that fallback was removed
+       and the sentence was not, so it described the opposite of the code.
+       ⚠️ The last-non-empty-row bookkeeping went with it: a whitespace-only row
+       can never match the composer pattern, so bounding the scan at it and at
+       rows.length were the same scan. Both perturbations were green. */
+    /* 🛑 THE LAST `❯`, NOT THE FIRST. The composer is the BOTTOM prompt row, so
+       taking the first one below the wait line anchors on any `❯` that happens to
+       be in the transcript -- a quoted shell prompt, a pasted terminal session, a
+       selector row. Measured with the first-match version: a RESOLVED wait plus a
+       quoted `❯` plus a plugin-list `◯` classified `working`, which is exactly the
+       finished-agent false calm the liveness gate exists to close, reopened by one
+       quoted glyph. Removing the `break` fixes it, and it now has a test row
+       whose fixture makes the two anchor choices DIVERGE -- an earlier fixture
+       had them agree, so it discriminated nothing.
+       🛑 THE EXCLUSION MUST COVER EVERY FOOTER ICON, NOT JUST `◯`. The vendor
+       draws a focused footer row as pointer-then-icon with NO space between them
+       (`Zp = Rs ? "\u276F" : " "`, children `[Zp, Vp, "  "]`, so the two spaces
+       come AFTER the icon; this sentence claimed a separator the bundle does not
+       draw, and it had already been corrected once in the other direction). The
+       exclusion below spells the gap `*` and so covers both readings, which is
+       why nothing broke -- but a sentence that misdescribes the render is how the
+       next narrowing gets made confidently and wrongly. It carries that row's icon, and
+       the icon is `⏺` (macOS) or `●` for the VIEWED row rather than the main one,
+       so `❯ ⏺ main` is a real focused row. Keying on `◯` alone let it become the
+       anchor. Residual, named rather than left to be rediscovered: a composer
+       whose TYPED TEXT BEGINS with an icon (`❯ ● is the icon`) is still
+       disqualified and the pane reads idle. Inherent ambiguity, a miss not a
+       false calm, and not worth a heuristic.
+       An earlier version of this note wrote the shape without its
+       separating space and called `⏺` the main row's icon; both were wrong.
+       🛑 AND IT MUST ALLOW THE TREE CONNECTOR. A nested task row is drawn as
+       pointer, then `indent + (├|└) + " "`, then the icon, so a focused depth>0
+       row reads `❯ └ ◯ general-purpose …`. The class also carries `─`, which the
+       bundle does not draw in this connector but which THIS MODULE treats as a
+       connector character in eight other prefix-stripping sites: a wrong guess
+       here silently turns the feature off, so it follows the module's own
+       convention rather than the narrower reading. Keying on `❯` + icon alone let that
+       row become the anchor, which pushed the wait row out of reach and turned
+       the whole feature OFF on a live pane. This comment already NAMED the nested
+       row two paragraphs up while its guard did not cover it: an enumerated shape
+       whose guard was never extended. */
+    let anchor = -1;
+    for (let j = i + 1; j < rows.length; j += 1) {
+      /* 🛑 `❯` IS NOT UNIQUE TO THE COMPOSER. The task footer draws its selected
+         or hovered row as `figures.pointer + " "` then `figures.circle`, i.e.
+         `❯ ◯ general-purpose …`, so a selected background-agent row would become
+         the anchor and cut the liveness slice ABOVE the very rows it needs.
+         Measured: selected -> `idle`, unselected -> `working` on the same
+         fixture. A miss rather than a false calm, but it falsifies the premise
+         that everything variable is drawn below the anchor. A composer row never
+         carries `◯`. */
+      /* Only the FOOTER shape `❯ ◯ …` is disqualified, not any row containing a
+         circle. Testing the whole row disqualified a genuine composer whose TYPED
+         TEXT held a `◯` -- and an agent working on this reader is exactly who
+         types one. Measured: the real composer was skipped, the anchor fell back
+         to a quoted `❯` above it, and prose then satisfied liveness. */
+      if (/^\s*❯/.test(rows[j]) && !/^\s*❯[\s│├└─]*[◯⏺●]/.test(rows[j])) anchor = j;
+    }
+    /* No composer row found -> return null. A MISS, never a false calm, pinned by
+       its own row.
+       📌 "A MISS" HERE MEANS FALLING THROUGH TO `idle`, which this module itself
+       calls the false calm nobody investigates. It is no worse than `origin/main`,
+       which returns `idle` on these panes too, but it is not free: reach and
+       anchor misses are silent, not safe.
+       ⚠️ THE POPULATION IS WIDER THAN "A DIALOG REPLACED IT". The vendor composes
+       the prompt as `prefix: qe ? "!" : N.pointer`, so BASH MODE draws `!` and one
+       state draws no prefix at all. On those ordinary screens this reader simply
+       declines. Recorded rather than fixed: keying on `!` as well needs a live
+       capture of a bash-mode pane mid-wait, which nobody has. */
+    if (anchor === -1) return null;
+    if (anchor - i > BACKGROUND_AGENT_WAIT_REACH) continue;
+    /* A completed-agent line between the row and the composer means THIS wait is
+       over, whatever the row still says.
+       🛑 `continue`, NOT `return null`. Returning here let a stale row
+       short-circuit the scan so the live row below was never examined: measured
+       `idle` on a pane with a running agent. The sibling reach check above
+       already continues; this was an asymmetry, not a decision.
+       📌 THE PREMISE, CORRECTED, AND IT USED TO OVERSTATE THE CASE. This comment
+       said a pane "draws a new wait row each time one finishes". The bundle does
+       not support that. `B_t` (the turn_duration constructor) has three call
+       sites and only one can leave a stale row:
+         CITED BY CONTENT, NOT BY BYTE OFFSET: offsets move with every build and
+         are worthless to the next reader. Grep the quoted strings instead.
+         · TURN END  APPENDS, does not remove the previous row.
+           `updater: nn => [...nn, B_t(...)]`, both pending counts passed.
+         · PARK ON KEEPALIVE  REPLACES. Find it by `parked on keepalive`; the
+           expression above it reads
+             filter((pr)=>!(pr.type==="system"&&pr.subtype==="turn_duration"))
+           so it strips EVERY prior turn_duration before appending, recomputing
+           the count live from `keepaliveReasons`. That path leaves exactly one
+           current row, and passes `dr||void 0`, so a zero count goes as undefined.
+         · SWARM END  `_deferSwarmDuration`, called INSTEAD of turn-end whenever a
+           task is still running. Three args, so both pending counts are undefined:
+           a DURATION row with no wait text at all.
+       ⇒ What is true: a new row is appended at every TURN END and the previous
+       one is not removed, so the screen CAN hold a stale row above a live one.
+       ⇒ And what it is not: NO site appends a row per completion. An agent
+       finishing draws a new row only if it makes the parent run and end a turn.
+       A parent parked at its prompt keeps ONE frozen row while completions pile
+       up beneath it, which is the ordinary case, not an edge case.
+       ⚠️ The vendor writes four outcomes, not one -- `finished`, `failed: …`,
+       `was stopped`, `stopped at its N-turn limit` -- and draws the bullet as
+       `⏺` on macOS and `●` elsewhere. Keying on `finished` and `⏺` alone left
+       three wordings and every non-macOS host reading `working` on a dead
+       agent, which is worse than `origin/main`. */
+    /* 🛑 ONE COMPLETION DOES NOT END A WAIT ON N. The row is frozen at its mount
+       count (see the useState note above), so on a pane waiting for 2 a single
+       `⏺ Agent "a" finished` used to resolve it and the SECOND agent read `idle`
+       while it ran -- a false calm that grows with N, and the exact direction
+       this card exists to close.
+       ⇒ Count the per-agent completions in the span and require the row's own
+       count. The two global banners are exempt and resolve any N.
+       🔑 AND THE COUNT IS THE RIGHT POPULATION BY CONSTRUCTION, NOT AN
+       APPROXIMATION OF IT. The count on the row is built by
+         function gje({tasks:l,queuedCommands:p=[]})
+       which counts a task when `M.status==="running"||Fs(M.status)&&!M.notified`
+       and admits it to the AGENT set only when `GE(M)&&M.isBackgrounded`.
+       🛑 GREP THAT FULL SIGNATURE, NEVER THE BARE NAME. There are TWO functions
+       called `gje` in the 2.1.258 bundle and the FIRST is an unrelated string
+       helper (`e.replace(S6t,"\n")`). Probing `function gje` and taking the first
+       hit dumps the wrong function and reads as a clean REFUTATION of this whole
+       paragraph -- which is what happened to me while checking it. Measured: two
+       definitions, the counter is the second.
+       ⭐ A minified symbol is not unique, so a name-keyed probe into a bundle can
+       produce a confident FALSE NEGATIVE about code that is sitting right there.
+       So an
+       already-NOTIFIED agent has left the count, and its notification row sits
+       ABOVE the wait row; every agent still inside the count draws its
+       notification BELOW it. That is exactly the population this scan measures:
+       completions between the row and the composer, against the row's own N.
+       ⇒ This was originally justified only as "safe under both branches of a fact
+       I could not measure" -- true, but weaker, and it is worth keeping the
+       distinction: that argument makes a change SAFE, this one makes it RIGHT. */
+    const span = rows.slice(i + 1, anchor);
+    /* 🛑 A COMPOSED WAIT IS NOT RESOLVED BY AGENT COMPLETIONS ALONE. The row can
+       read `Waiting for 1 background agent and 3 dynamic workflows to finish`, and
+       the branch asserts that shape as WORKING. But the count below reads only the
+       AGENT counter and the completions below count only agent lines, so the
+       single agent finishing used to clear the whole row: measured `idle` with
+       three workflows still running. A false calm, not a miss.
+       ⇒ DECLINE rather than guess. The bundle does carry `Dynamic workflow "x"
+       completed`, but this branch's own rule is to widen only on a live capture of
+       the shape being widened to, and I have no capture of a workflow completion.
+       Resolving on a marker I have not seen rendered would be the same mistake in
+       the other direction. So a composed row stays `working` until it leaves
+       reach, which is the accepted direction and is bounded by the reach itself.
+       📌 If someone captures a real workflow-completion row, the fix is to count
+       it against the workflow counter here, not to delete this check.
+       🛑 THIS MUST PRECEDE THE CLEARED-BANNER CHECK BELOW. The banner reads
+       `⏺ All background AGENTS stopped` - it speaks to the AGENT half only. Ordered
+       after the banner, it never ran on a composed row and the agents-banner
+       cleared the whole wait, workflows and all: the SAME false calm this guard
+       exists to prevent, reintroduced one branch over (found by challenge-loop
+       review). Declining first keeps a composed wait WORKING until reach, even
+       under the agents-stopped banner. A NON-composed row is unaffected - this
+       test is false for it, so it falls through to the banner as before. */
+    if (/\d+\s*dynamic\s*workflows?/u.test(rows[i])) return trimWaitEvidence(rows[i]);
+    /* 🛑 `continue`, NOT `return null`, HERE TOO. A banner clears the row it sits
+       under; it does not end the scan. A pane can hold a banner-cleared STALE row
+       above a LIVE one, and returning here reads `idle` on the running agent
+       below. Same shape as the count check's own asymmetry one branch over -- and
+       splitting the two arms into separate constants is exactly what left this
+       one unpinned while its sibling was tested. Fixture in `status.test.js`. */
+    if (span.some((r) => AGENT_WAIT_CLEARED_BANNER.test(r))) continue;
+    const done = span.reduce((n, r) => n + (AGENT_FINISHED_LINE.test(r) ? 1 : 0), 0);
+    if (done >= backgroundAgentWaitCount(rows[i])) continue;
+    return trimWaitEvidence(rows[i]);
+  }
+  return null;
+}
 
 /**
  * The first line of `text` that any of `markers` matches, or null.
@@ -2613,7 +3300,7 @@ function classify(pane, paneText) {
     // Observed: codex draws "(4s • esc to interrupt)" on its live progress
     // line, the same phrase Claude's older UI used. Vocabulary coincidence,
     // matched deliberately: it was captured from a real pane, not assumed.
-    if (INTERRUPT_LINE.test(codexTail)) {
+    if (hasLiveInterruptLine(codexTail)) {   /* #2378: on a row, not anywhere in the tail */
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
     }
     // Observed: the empty composer, codex's equivalent of sitting at the
@@ -2788,8 +3475,120 @@ function classify(pane, paneText) {
   if (SPINNER.test(pane.title)) {
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is producing output right now' };
   }
-  if (INTERRUPT_LINE.test(tail)) {
+  if (hasLiveInterruptLine(tail)) {   /* #2378: on a row, not anywhere in the tail */
     return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is mid-task' };
+  }
+  /**
+   * #1889. A no-timer shape `WORKING_LINE` cannot match:
+   *
+   *   ✻ Waiting for 1 background agent to finish
+   *
+   * CAPTURED VERBATIM from a live pane (icecreamkitty-discord:0.0, Claude Code
+   * 2.1.258, 2026-09-02), not composed here. Measured on that capture: with the
+   * scrapers alone `classify()` returned `idle`, "it is sitting at its prompt",
+   * while a background agent was genuinely running. (Not "mid-turn": this row
+   * replaces `Worked for …`, so the turn has ended and the REPL is at its
+   * prompt. See the constant's comment.)
+   *
+   * 🛑 CORRECTED, AND THE FIRST VERSION OF THIS COMMENT UNDERSTATED THE DEFECT.
+   * It said a "process read" caught these panes. THERE IS NO PROCESS-READ ARM in
+   * this module; that instrument does not exist. What actually masked it is the
+   * agent's OWN SELF-REPORT: `install/kosmos-report-hook.sh` fires
+   * `report working --auto "running <tool>"` on PreToolUse, throttled to one
+   * line per 60s. So the board was NOT independently right -- it was right only
+   * where the agent happened to be reporting.
+   * ⇒ Any agent whose report hook is absent, failing, or merely between
+   * heartbeats reads IDLE while mid-turn. Measured 2026-09-02 16:24 CDT, stated
+   * with its timestamp because the fleet moves: of four panes carrying the shape,
+   * `origin/main` returned `idle` for three and `working` for the fourth, which
+   * also carried a live spinner line that `WORKING_LINE` covered. An earlier
+   * version of this sentence said "EVERY ONE", the kind of absolute this
+   * branch's own plan warns against.
+   *
+   * 🔑 AND A STATIC GREP COULD NOT HAVE FOUND IT. The count is interpolated, so
+   * the literal line is nowhere in the bundle -- the card's own point that
+   * dynamically-composed lines are invisible to a string search, demonstrated
+   * against the very reader it was filed about.
+   *
+   * ⚠️ DELIBERATELY NARROW, AND THE WIDER RULE WOULD BE A REGRESSION. The 2.1.258
+   * bundle carries many distinct `Waiting for …` strings (counted where
+   * `BACKGROUND_AGENT_WAIT` is defined, with the command, because the number is
+   * extraction-dependent) and they are NOT one state. Some are autonomous waits (API response, CI, findings, server, task);
+   * others are blocked ON A HUMAN (`Waiting for permission`, `Waiting for
+   * authorization`, `Waiting for team lead approval`, `Waiting for sign-in to
+   * complete in your browser`). A blanket `Waiting for …` -> WORKING would report
+   * every one of those second group as busy and hide an agent that needs you,
+   * which is the false-calm direction this card exists to close and the exact
+   * "the fix for a finding introduces a worse finding" shape `status.test.js`
+   * warns about above its footer row.
+   *
+   * 📌 THE STRONGEST NAMED RISK IS NOT IN THAT LIST AND IS WORTH STATING FIRST.
+   * The vendor's own `turn_duration` schema carries `pendingBackgroundAgentCount`
+   * AND `pendingWorkflowCount` side by side, with a `describe()` saying the REPL
+   * renders one line from them. A workflow-ONLY row is deliberately NOT handled:
+   * see the constant's own comment for why the arm was added from JSX and then
+   * removed.
+   *
+   * 🛑 THIS KEYS ON ONE COUNTER PHRASE, `background agents?`, and nothing else.
+   * The composed two-counter row matches through it. Every OTHER `Waiting for …`
+   * string is a NAMED, UNRESOLVED RISK rather than a handled case: none has been seen
+   * rendered, and this repo's standard is that a static string is a screen and
+   * not the truth. Do not widen this without a live capture of the shape you are
+   * widening it to, and route the human-blocked ones to NEEDS_YOU, never here.
+   */
+  /* ⚠️ THIS READER SITS BELOW `hasLiveInterruptLine`, AND THAT ORDER IS CORRECT.
+     A live spinner carrying a parenthesised `esc to interrupt` means a turn really
+     is in flight, so the composer QUEUES a message rather than reading it, and
+     `it is mid-task` is the true sentence. The flag is deliberately NOT carried
+     there; carrying it would produce the false sentence in the other direction.
+     Every spinner frame is pinned in `status.test.js`, both ways.
+
+     📌 THE PARAGRAPH THAT USED TO SIT HERE IS DELETED, AND ITS ABSENCE IS THE
+     POINT. It carried a five-row table, a statement that a quoted
+     `esc to interrupt` was a REAL DEFECT NOT TAKEN HERE, and an argument for why
+     narrowing must not be done fleet-wide. All of that was true when written and
+     ALL OF IT WAS FALSE THREE COMMITS LATER, because kosmos#2378 took exactly that
+     narrowing. It named `INTERRUPT_LINE` as tested two checks above (it has no
+     callers left at all now), and its row 5 asserted `bgWait=undefined` where the
+     tree returns `true`.
+     🛑 A READER TRUSTING IT WOULD EITHER REDO WORK ALREADY DONE, OR REVERT #2378 ON
+     THE STRENGTH OF A STANDING OBJECTION TO IT. The test that replaced that row
+     carried the instruction to delete this paragraph when the narrowing landed. I
+     flipped the expectation one step later and left the paragraph, so my own note
+     was addressed to me and I did not read it.
+     ⭐ A COMMENT ARGUING AGAINST A CHANGE THAT SHIPPED IS WORSE THAN A STALE
+     MEASUREMENT: a stale number misleads about the past, a standing objection
+     misleads about what should be done next. */
+  const bgWaitLine = backgroundAgentWait(tail);
+  if (bgWaitLine !== null) {
+    return {
+      state: STATE.WORKING,
+      confidence: CONFIDENCE.SCRAPED,
+      /* ⚠️ KNOWN INTERACTION WITH `reconcileReport`, shipped deliberately.
+         `REPORT_WORKING_DECAY_MS` is 5 minutes and a background-agent wait
+         can run longer: the durations I sampled live were 4m 2s, 3m 57s and
+         3m 48s, all still running and therefore all LOWER BOUNDS rather than
+         evidence of crossing 5 minutes; a resolved wait observed separately read
+         `Agent … finished · 8m 49s`, which does cross it. A decayed `working` report plus this scraped `working` now
+         takes the "reporter may be broken" branch, so a HEALTHY agent can be
+         labelled with a reporter fault. Under `origin/main` the same pane scraped
+         `idle` and took the `unknown` branch instead.
+         ⚠️ AND THIS IS THE NORMAL CASE FOR A LONG WAIT, NOT AN EDGE CASE. The
+         report hook fires on PreToolUse; while the turn is over and only a
+         background agent runs, NO TOOLS FIRE, so a healthy agent's report decays
+         on any wait past the 5-minute window. An 8m 49s wait was observed. Every
+         such pane now carries that sentence about a healthy reporter. The STATE is more truthful
+         either way; the accompanying sentence is not, and that is a real cost
+         rather than a neutral one. Recorded here so the next person changing the
+         decay window knows this arm feeds it. */
+      because: 'it is waiting on a background agent',
+      /* Structural, so `reconcileReport` does not have to match on prose. An
+         earlier version keyed that gate on this `because` STRING across 1,700
+         lines: rewording either end left the suite green while the gate silently
+         stopped firing, in the direction that restores a false accusation. */
+      backgroundWait: true,
+      evidence: bgWaitLine,
+    };
   }
   /**
    * The CURRENT spinner line, keyed on structure rather than vocabulary
@@ -4786,10 +5585,83 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
     const at = Date.parse(reported.at || '');
     const stale = !Number.isFinite(at) || (nowMs - at) > REPORT_WORKING_DECAY_MS;
     if (!stale) {
-      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null };
+      /* 🛑 CARRY `backgroundWait` THROUGH. This branch builds a FRESH object rather
+         than spreading `scraped`, so every scraped-only field is dropped -- and the
+         one that matters is a fact about the SCREEN, which a self-report cannot
+         contradict and does not replace. The report says "I am working"; the screen
+         independently says "and the work is a background agent". Both are true.
+         🛑 AND THIS IS THE STEADY STATE OF A REAL WAIT, NOT AN EDGE CASE, which is
+         what made it worth a BLOCKER. `install/kosmos-report-hook.sh` fires
+         `report working --auto` on PreToolUse throttled to one line per 60s, and a
+         background agent's own tool calls re-heartbeat the parent. A 60s heartbeat
+         against a 300s decay window means the report is FRESH for the whole wait,
+         so this arm is where a live background wait actually lives.
+         ⇒ Dropping the flag here sent `chat.waitingNote` the false sentence ("it
+         will not read this until it finishes") on a pane whose REPL is at its
+         prompt -- the exact sentence this branch's chat half exists to remove,
+         reappearing in the one arm the feature is for. Measured across all five
+         report arms; this was the only one that lost it. */
+      return { state: STATE.WORKING, confidence: CONFIDENCE.STRUCTURED, because: said('it says it is working'), reported: true, conflict: null, backgroundWait: scraped.backgroundWait === true };
     }
     // Rule 5: the comparison happens BEFORE the decay.
     if (scraped.state === STATE.WORKING) {
+      /* 🛑 EXCEPT WHEN THE SCREEN SAYS IT IS WAITING ON A BACKGROUND AGENT, where
+         a decayed report is CORRECT rather than suspicious (#1889). The report
+         hook fires on PreToolUse; while the turn is over and only a background
+         agent runs, no tools fire, so a healthy reporter cannot heartbeat and any
+         wait past REPORT_WORKING_DECAY_MS decays by construction. Accusing it
+         then is not an edge case, it is the normal case for a long wait, and it
+         is the one field where reading this row made the board LESS truthful than
+         not reading it. The state stays `working`; only the false sentence goes.
+         🔑 AND THERE IS A SECOND, INDEPENDENT REASON, FOUND IN THE BUNDLE AFTER
+         THIS RULE WAS WRITTEN. When the wait DRAINS, the replacing row's duration
+         is measured from the start of the WAIT, not from the start of the turn:
+           function F1n({... backgroundWaitStartTime:M})   ->  drained branch:
+           durationMs: M!==null ? y-M : g,  backgroundWaitStartTime: null
+         So the row reports the WHOLE wait (verified verbatim; single definition,
+         no name collision). That is why a real capture shows `finished · 8m 49s`
+         while ordinary turn durations do not approach five minutes: the durations
+         on these rows are drawn from a clock that runs across the entire wait, so
+         exceeding `REPORT_WORKING_DECAY_MS` is what these rows DO, not a symptom.
+         ⇒ The exemption is not a convenience for a case that happens to decay. It
+         is the only reading consistent with how the vendor measures the row. */
+      /* 🛑 THE NEIGHBOURING RULE CAN VOID THIS WHOLE READER, AND THAT IS NOT
+         FIXED HERE. Rule 6 below gives a FRESH report precedence over the scrape,
+         and `install/kosmos-report-hook.sh` maps `Stop -> report idle --auto`.
+         Stop fires at end of turn, which is EXACTLY when this wait row is drawn
+         (the row replaces `Worked for …`). So an agent whose hook is installed
+         reports `idle` at the same moment its screen starts saying it is waiting,
+         and the board returns IDLE with this verdict discarded and no conflict
+         surfaced.
+         🛑 THIS PARAGRAPH USED TO CITE THREE MEASUREMENTS AND TWO WERE FALSE, so
+         it is restated with the date it was taken and what changed underneath it.
+         It read "fresh idle report -> idle; fresh working report -> working; no
+         report -> working", and that was true when written. RE-MEASURED
+         2026-09-06 on this tree, all five arms:
+           no report                 -> working, flag kept, no conflict
+           FRESH working report      -> working, flag kept, no conflict
+           STALE working report      -> working, flag kept, no conflict
+           FRESH idle report         -> working, flag kept, no conflict
+           STALE idle report         -> working, flag kept, no conflict
+         ⇒ **`-> idle` no longer happens on any arm.** Upstream #1995 landed while
+         this branch was open and made a scraped WORKING outrank a reported idle,
+         which closes the voiding this paragraph was written to describe. The two
+         remaining differences are handled above: the fresh-working branch had to
+         be taught to CARRY the flag, and #1995's conflict is exempted for this
+         screen because the report and the screen are both true.
+         ⭐ THE GENERAL POINT, WHICH IS WHY THE OLD TEXT IS QUOTED RATHER THAN
+         DELETED: a comment citing a measurement is the kind most likely to go
+         stale, because the citation is exactly what stops the next reader
+         re-taking it. This one described a defect that upstream had already fixed,
+         and it would have sent someone to build a workaround for it.
+         📌 Arguably rule 6 is wrong here rather than this reader: the Stop hook
+         asserts THE TURN ENDED, which is true and is not in conflict with "a
+         background agent is still running" -- the board conflates the two. That
+         is a fleet-wide precedence change affecting every agent, so it is NOT
+         made unilaterally from this card. Raised rather than taken. */
+      if (scraped.backgroundWait === true) {
+        return { ...scraped, reported: false, conflict: null };
+      }
       return { ...scraped, reported: false, conflict: 'its reports stopped arriving while its screen still shows work, so the reporter may be broken' };
     }
     return {
@@ -4851,6 +5723,24 @@ function reconcileReport(reported, scraped, nowMs, liveAuth, disruptionRec, code
      must still outrank a working screen, so this sits below those branches and
      cannot capture them. */
   if (scraped.state === STATE.WORKING) {
+    /* 🛑 #1889 TAKES UP THE ASYMMETRY THE COMMENT ABOVE NAMES AND LEAVES OPEN.
+       That paragraph says the one honest weakness of leading with the screen is
+       that "a spinner can IN PRINCIPLE belong to a background subprocess while the
+       agent's own turn has ended", and marks it reversible if the free-agent
+       reading ever matters more. `backgroundWait` makes that case DETECTABLE
+       rather than in-principle: the screen is saying, in its own words, that the
+       work is a background agent and the parent's turn is over.
+       ⇒ The STATE is unchanged, deliberately. #1995's call to lead with the screen
+       stands, and this does not reopen #1965. What goes is the CONFLICT, because
+       on this one screen there is nothing to be in conflict about: the report says
+       the TURN ENDED and the screen says A BACKGROUND AGENT IS RUNNING, and both
+       are true at once. Surfacing them as a disagreement tells an operator to go
+       and resolve a contradiction that does not exist.
+       📌 Identical reasoning to rule 5's exemption above, one branch over, and the
+       same structural flag rather than a sentence match so the two cannot drift. */
+    if (scraped.backgroundWait === true) {
+      return { ...scraped, reported: false, conflict: null };
+    }
     return { ...scraped, reported: false, conflict: 'its screen shows it is working while its last report said it was at rest' };
   }
   // `idle`, and `started` with nothing after it: at rest either way.
@@ -4986,6 +5876,17 @@ function panelessCard(key, nowMs, defaultStatus) {
        the heartbeat leg (there is no pane to read working off of). */
     activeWhileWaiting,
     stateReported: status.reported === true,
+    /* 📌 ALWAYS `false` HERE, AND SAYING SO IS THE POINT. `panelessCard` reconciles
+       against `PANELESS_DEFAULT` / `NEVER_RUN_DEFAULT`, neither of which carries
+       `backgroundWait`, and there is no pane to scrape, so nothing can ever set it.
+       Deleting this line leaves every suite green, which is what a reviewer
+       measured. It is kept for SHAPE PARITY with the pane card, so a consumer sees
+       one card shape rather than two, and labelled because this module's own
+       convention two functions away says an unreachable expression that LOOKS like
+       a guard is worse than no expression: it tells the next reader this input is
+       checked when nothing here checks it. Same sentence, same reason, applied to
+       my own line after somebody pointed at it. */
+    stateBackgroundWait: status.backgroundWait === true,
     stateConflict: status.conflict || null,
     context: {
       tokens: null, percent: null, confidence: CONFIDENCE.NONE, notYet: false,
@@ -5295,7 +6196,24 @@ function snapshot() {
     try {
       const isCodexPane = pane.runner === 'codex' || isCodexCommand(pane.command);
       if (isNamedOurs(pane) && !isCodexPane) {
-        const outcome = scrapedStatus.state === STATE.WORKING ? observed.OUTCOME.OK
+        /* 🛑 #1889 EXCLUSION, AND IT IS NOT A TWEAK TO THE RULE ABOVE, IT IS THE
+           RULE ABOVE HOLDING. The OK arm's whole justification is that a scraped
+           WORKING is a WITNESSED live streaming turn. #1889 added one scraped
+           WORKING for which that is false by construction: the parent's turn has
+           ENDED and the row is a frozen transcript line left by a wait, with no
+           request in flight from this pane at all.
+           ⚠️ The stale-scrollback asymmetry this comment already accepts does NOT
+           cover it. That accepts a brief false green because "a finished turn
+           scrapes as idle, not streaming" on the next sweep. A wait row does not:
+           it is frozen, it outlives its own wait, and every sweep re-reads it as
+           WORKING while it stays in reach. The green does not self-heal, so the
+           bound the acceptance rests on is removed, not merely tested.
+           📌 Keyed on the STRUCTURAL flag the classifier sets, never on the
+           sentence, so the two cannot drift apart. Pinned by
+           `status.observed-1921.test.js`, whose row was confirmed to FAIL against
+           this line before the guard was added. */
+        const outcome = (scrapedStatus.state === STATE.WORKING
+          && scrapedStatus.backgroundWait !== true) ? observed.OUTCOME.OK
           : status.state === STATE.AUTH_FAILED ? observed.OUTCOME.REJECTED
           : null;
         if (outcome) observed.saw(pane.name, outcome, now);
@@ -5430,6 +6348,15 @@ function snapshot() {
       /* Whether the state above is the agent's own account (#188's third
          verb) rather than a pane reading. */
       stateReported: status.reported === true,
+      /* #1889. `working` because the screen says the agent is waiting on a
+         BACKGROUND agent, which is a different fact from `working` mid-turn: the
+         parent's own turn has ENDED and its REPL is at its prompt. Published
+         because consumers act on the difference and cannot otherwise see it --
+         `chat.waitingNote` was telling a person their message "will not be read
+         until it finishes" about a pane that reads it immediately. Explicit
+         boolean, never undefined, so a consumer branching on it gets `false`
+         rather than absence on every other state. */
+      stateBackgroundWait: status.backgroundWait === true,
       /* A sentence when the agent's report and the pane reader materially
          disagree, null otherwise. Surfaced rather than silently resolved:
          the two witnesses disagreeing is a fact the operator gets to see. */

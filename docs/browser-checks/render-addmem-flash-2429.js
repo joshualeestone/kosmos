@@ -1,3 +1,4 @@
+// Browser-check-surface: pj-one-add-go
 'use strict';
 /* #2429: the add-member modal closes on a successful add BEFORE the board refresh,
  * so the free-agent picker's empty-state line never flashes.

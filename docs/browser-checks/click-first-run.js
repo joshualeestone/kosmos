@@ -220,18 +220,22 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // Continue SAVES before it advances (a real PUT), so wait for the About-you
     // pane to LEAVE rather than reading the head mid-flight.
     await waitAnchorLeft(page, '#fr-you');
-    // The Your-agents fork (step 9). Against this real machine any of adopt /
-    // create / unknown is legitimate; what must be true is the fork rendered a
-    // real heading and a single onward action.
+    // The Your-agents fork (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
+    // auto-scans/auto-imports, so this step ALWAYS lands on the no-agent "Create your
+    // first agent." / Giddy Up screen, even on a fleet-present (rich) board. What must
+    // be true is it rendered a real heading and a single onward action (Giddy Up).
     ok((await activeHead(page)).length > 0, 'the Your-agents fork rendered a heading');
     ok((await page.locator('#fr-next').textContent()).trim().length > 0, 'and a single onward action');
-    console.log('   ...and out the front door, through the fork ending');
+    console.log('   ...and out the front door, through the Giddy Up create ending');
     await page.click('#fr-next');
     await page.waitForTimeout(600);
+    // #2497: the Giddy Up action is frFinish(openCreate) -- it closes the overlay and
+    // opens the Create-your-first-agent panel (showTab('agents')), so the surface is
+    // #panel-create, not the board grid. The board is un-inert behind it either way.
     ok(await page.isHidden('#firstrun'), 'the overlay closed');
-    ok(await page.isVisible('#grid'), 'the board is there');
+    ok(await page.isVisible('#panel-create'), 'the Create-your-first-agent panel is there (#2497 Giddy Up ending)');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
-      'the board is interactive again');
+      'the app behind is interactive again');
     ok(fs.existsSync(FLAG), 'the flag was written, so it will not reappear');
     ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
     await ctx.close();
@@ -348,7 +352,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await advanceToAnchor(page, '.s3-gate-row');       // S2 file-access is granted, so we can reach S3
     await page.waitForTimeout(400);
     ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is disabled while sleep + tmux are measured-not-granted');
-    // Grant both -> the 1.5s poll re-enables Next.
+    // Grant both -> the gate poll (FR_GATE_POLL_MS, 750ms) re-enables Next.
     await page.unroute('**/api/sleep-status');
     await page.unroute('**/api/a11y-status');
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));

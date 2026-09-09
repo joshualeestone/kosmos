@@ -162,8 +162,21 @@ test('9screen SECURITY: openFileAccessSettings derives its URL, so a caller cann
    real defect (a blind review caught it). Assert both the markup and the handler. */
 test('9screen: the S2 Allow Access button is present and wired to open-file-access-settings', () => {
   assert.match(PAGE, /class="s2-allow"[^>]*>Allow Access</, 'the S2 Allow Access button is gone');
-  const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-2').addEventListener"),
-    PAGE.indexOf("getElementById('fr-pane-2').addEventListener") + 900);
+  // Bound the slice to the handler's OWN closing `});` rather than a fixed offset:
+  // the handler has no nested `});`, so this captures exactly its body and can never
+  // read the removal-guard assertions below into the next handler's code (a fixed
+  // window both guessed the size and risked exactly that).
+  const start = PAGE.indexOf("getElementById('fr-pane-2').addEventListener");
+  const handler = PAGE.slice(start, PAGE.indexOf('});', start) + 3);
   assert.match(handler, /closest\('\.s2-allow'\)/, 'nothing keys on the .s2-allow button');
   assert.match(handler, /\/api\/open-file-access-settings/, 'the Allow Access click does not POST the file-access opener');
+  // Josh 2026-09-08 (blue-Allow, no card): the mock dialog's blue Allow forwards a click through the real .s2-allow
+  // button, guarded so it cannot re-fire. Pin the forward + both guards against
+  // silent removal (a static presence check, matching this handler's existing
+  // string-assertion style; the render check covers the screen, the guard LOGIC was
+  // reviewed).
+  assert.match(handler, /closest\('\.s2-mockallow'\)/, 'the mock Allow no longer forwards a click');
+  assert.match(handler, /querySelector\('#fr-pane-2 \.s2-allow'\)/, 'the mock no longer routes through the real Allow Access button');
+  assert.match(handler, /b\.disabled\)\s*return/, 'the in-flight guard (return when the real button is disabled) is gone');
+  assert.match(handler, /data-granted'\)\)\s*return/, 'the post-grant guard (return when the gate row is granted) is gone');
 });

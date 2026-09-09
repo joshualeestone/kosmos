@@ -64,14 +64,53 @@ test('install-flow-9screen: the gate poll reads /api/a11y-status for the tmux gr
     'the file-access gate reads /api/file-access-status and blocks on nativePresent && !granted');
 });
 
+test('#2451: the /api/a11y-status route serves Kosmos.app trust (a11ystatus.read), not tmuxGrant', () => {
+  // The gate bug was the ROUTE wiring, not the web layer: serving tmuxGrant() (tmux's
+  // path-keyed TCC row, the WRONG subject) returns checkable:false on a normal box, so
+  // the pill sticks on "Checking..." and the fail-safe leaves Next enabled (Josh's
+  // #2451 symptom). Accessibility is keyed on the CALLING binary, so read() (the
+  // native app's own AXIsProcessTrusted = Kosmos.app, the binary the onboarding
+  // registers) is the correct subject. Pin the route to read() and away from tmuxGrant.
+  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const start = SERVER.indexOf("pathname === '/api/a11y-status'");
+  assert.ok(start > -1, 'the /api/a11y-status route exists');
+  // Slice the WHOLE handler (to the next route's `if (pathname ===`) and STRIP block
+  // comments before asserting: the route comment names both read() and tmuxGrant() in
+  // prose, so matching the raw slice greps the COPY, not the code, and cannot fail when
+  // the bug is reintroduced (a-check-containing-a-copy-cannot-fail). Anchor on the
+  // ASSIGNMENT statement (`reading = a11ystatus.X()`), which the comment never contains,
+  // so reintroducing tmuxGrant in the code reds this test.
+  const nextRoute = SERVER.indexOf('if (pathname ===', start + 1);
+  const code = SERVER.slice(start, nextRoute > -1 ? nextRoute : start + 3000).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(code, /reading\s*=\s*a11ystatus\.read\(\)/, 'the a11y-status route serves a11ystatus.read() (Kosmos.app trust)');
+  assert.doesNotMatch(code, /a11ystatus\.tmuxGrant\(/, 'the a11y-status route no longer serves tmuxGrant() (the wrong subject)');
+});
+
+test('#2451: the S3 Automation gate names Kosmos, not tmux (the binary macOS shows + grants)', () => {
+  // Josh sees "Kosmos" in the Accessibility list (the onboarding "Turn On" registers
+  // the kosmos-app), so the gate row label, the mock Accessibility window row, and the
+  // step caption must read "Kosmos". The internal data-gate="tmux" key stays (selector
+  // for FR_GATES / the Turn On handler / render-gated-next), so this pins the VISIBLE
+  // copy, not the attribute.
+  assert.match(S3, /<span class="s3-gate-lbl">Kosmos<\/span>/, 'the a11y gate row label reads "Kosmos"');
+  assert.match(S3, /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small>/, 'the mock Accessibility row names Kosmos');
+  assert.match(S3, /switch Kosmos to On/, 'the step caption says "switch Kosmos to On"');
+  assert.doesNotMatch(S3, /<span class="s3-gate-lbl">TMUX<\/span>/, 'the old "TMUX" visible label is gone');
+  assert.doesNotMatch(S3, /<span class="s3-mtxt">tmux<small>/, 'the old "tmux" mock row is gone');
+  assert.doesNotMatch(S3, /switch TMUX to On/, 'the old "switch TMUX to On" caption is gone');
+});
+
 test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back to open-settings', () => {
   // #1 (Josh 0.6.39): the tmux "Turn On" must fire the real Accessibility PROMPT via
   // Kitty's /api/a11y-prompt trigger (which also injects tmux into the list so it is
   // grantable), not merely open Settings. It falls back to open-accessibility-settings
   // when the native trigger is unavailable. sleep is programmatic (pmset), not a prompt,
   // so it keeps opening Energy settings (no trigger).
-  const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-3').addEventListener"),
-    PAGE.indexOf("getElementById('fr-pane-3').addEventListener") + 1200);
+  // Bound the slice to the handler's OWN closing `});` (a column-0 `\n});`, since it is a
+  // top-level statement) rather than a fixed char offset -- a fixed window silently breaks
+  // when the handler grows (e.g. the #2451/#2559 fr-recheck branch added at its top).
+  const h1s = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
+  const handler = PAGE.slice(h1s, PAGE.indexOf('\n});', h1s));
   assert.match(handler, /\/api\/a11y-prompt/,
     'the tmux Turn On fires the native a11y-prompt trigger (#1)');
   assert.match(handler, /\/api\/open-accessibility-settings/,
@@ -111,4 +150,33 @@ test('kosmos#1214: no em dashes in the S3 gate copy (house rule)', () => {
   for (const spelling of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u{2014}']) {
     assert.ok(!S3.includes(spelling), 'an em dash (' + spelling + ') reached the S3 copy');
   }
+});
+
+test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an immediate gate re-check', () => {
+  // Josh's screen "sat here forever" after he granted -- the poll was 1500ms and there
+  // was no way to force it. Assert: a Check-again button in the S3 pane; a faster poll
+  // interval than the old 1500ms; and the button wired to an immediate re-poll.
+  assert.match(S3, /class="s3-recheck fr-recheck"[^>]*>Check again</, 'S3 has a "Check again" button');
+  // Mona's reassurance + hint copy (addresses Josh sitting on "Checking..." thinking it was stuck).
+  assert.match(S3, /class="s3-recheck-note">This can take a few seconds after you flip the switch\./,
+    'S3 shows the reassurance line under the rows');
+  assert.match(S3, /class="s3-recheck-hint">Turned it on already\? Tap to check now\./,
+    'the Check again button carries its hint');
+  // The poll interval is a named constant, faster than the old 1500ms.
+  const m = PAGE.match(/const FR_GATE_POLL_MS = (\d+);/);
+  assert.ok(m, 'FR_GATE_POLL_MS is a named constant');
+  assert.ok(Number(m[1]) < 1500, `the gate poll is faster than the old 1500ms (got ${m[1]})`);
+  assert.match(PAGE, /setInterval\(\(\) => frPollGates\(screenEl, gen\), FR_GATE_POLL_MS\)/,
+    'the poll timer uses the FR_GATE_POLL_MS constant (not a hardcoded interval)');
+  // The fr-recheck click fires an immediate re-poll of the active gated screen.
+  // Bound the match to frRecheckGates's OWN body (to its closing `\n}`), not a lazy
+  // scan across the whole 2MB file -- otherwise a stray later mention could false-pass.
+  const frcs = PAGE.indexOf('function frRecheckGates()');
+  const frcBody = PAGE.slice(frcs, PAGE.indexOf('\n}', frcs));
+  assert.match(frcBody, /frPollGates\(FR_GATE_SCREEN, FR_GATE_GEN\)/,
+    'frRecheckGates re-polls the active gated screen at the current generation');
+  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
+  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));   // bound to the handler's own close, not a fixed offset
+  assert.match(handler, /closest\('\.fr-recheck'\)[\s\S]*?frRecheckGates\(\)/,
+    'the fr-pane-3 handler routes a .fr-recheck click to frRecheckGates()');
 });

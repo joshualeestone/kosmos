@@ -9,8 +9,8 @@
  * (data-granted) ONLY on a measured grant; #fr-next is disabled ONLY when some row
  * is measured-not-granted (checkable:true && !granted). Uncheckable (a browser, no
  * native writer yet) and any fetch failure NEVER block and NEVER show false green.
- * The 1.5s poll re-checks, so granting in System Settings unlocks Next with no
- * manual re-check.
+ * The poll (FR_GATE_POLL_MS, 750ms) re-checks, so granting in System Settings unlocks
+ * Next on its own; a "Check again" button (#2451/#2559) also lets the user force it now.
  *
  * It ALSO covers the S3 sleep "Turn On" action itself (0.6.41 re-test blocker E):
  * a failed open-settings must show a VISIBLE error (danger colour, not body ink)
@@ -247,7 +247,7 @@ async function fresh(browser) {
   }
 
   /* ---------- the poll unlocks WITHOUT a manual re-check ---------- */
-  console.log('\nThe 1.5s poll unlocks Next when the grant lands, no re-check needed');
+  console.log('\nThe poll unlocks Next on its own when the grant lands (no manual click needed)');
   {
     const { ctx, page } = await fresh(browser);
     // Enter S3 with tmux not-granted (Next disabled), then flip it granted mid-screen.
@@ -262,7 +262,44 @@ async function fresh(browser) {
     tmuxTrusted = true;   // the user grants it in System Settings
     await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 4000 })
       .catch(() => {});
-    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual re-check)');
+    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual click in this scenario)');
+    await ctx.close();
+  }
+
+  /* ---------- #2451/#2559: the manual "Check again" button fires an IMMEDIATE re-check ---------- */
+  // Josh 0.6.50 (7.58.24): after granting, the screen "sat here forever" -- the poll was slow
+  // and there was no way to force it. Assert the S3 "Check again" button exists and, on click,
+  // fires a gate re-check RIGHT NOW (a new /api/a11y-status request lands well inside one poll
+  // interval), and that this manual re-check unlocks Next when the grant has landed.
+  console.log('\n#2451/#2559 -- the S3 "Check again" button forces an immediate gate re-check');
+  {
+    const { ctx, page } = await fresh(browser);
+    await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
+    const step = await stepForAnchor(page, '[data-gate="sleep"]');
+    let tmuxTrusted = false;
+    let a11yHits = 0;
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
+    await page.route('**/api/a11y-status', (r) => { a11yHits += 1; return r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }); });
+    await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(300);
+    const btn = await page.$('#fr-pane-3 .fr-recheck');
+    ok(!!btn, 'the S3 "Check again" button is present');
+    const label = btn ? (await btn.textContent()).trim() : '';
+    ok(/check again/i.test(label), `the button reads "Check again" (got: ${JSON.stringify(label)})`);
+    ok(await nextDisabled(page), 'Next is disabled while the grant has not landed');
+    // Grant it, then FORCE the check via the button and confirm a re-poll fires at once
+    // (before the next timer tick) and unlocks Next.
+    tmuxTrusted = true;
+    const before = a11yHits;
+    if (btn) await btn.click();
+    // 80ms is far under the 750ms poll interval, so a hit in this window is almost
+    // certainly the click's (a timer tick could coincide ~1-in-9, so this is a strong
+    // integration signal, not a proof of isolation -- the DETERMINISTIC wiring guard is
+    // the unit test web.firstrun-a11y-1214.test.js, which pins handler -> frRecheckGates).
+    await page.waitForTimeout(80);
+    ok(a11yHits > before, `clicking "Check again" fired an immediate /api/a11y-status re-check (hits ${before} -> ${a11yHits})`);
+    await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 2000 }).catch(() => {});
+    ok(!(await nextDisabled(page)), 'the manual re-check unlocks Next once the grant has landed');
     await ctx.close();
   }
 
@@ -270,8 +307,10 @@ async function fresh(browser) {
   console.log('\n#2085 -- an uncheckable tmux grant shows the neutral "Checking..." pill, never a false green, never blocks');
   {
     const { ctx, page } = await fresh(browser);
-    // sleep granted (so only tmux is in question); tmux uncheckable (checkable:false) --
-    // exactly what tmuxGrant() returns when the system TCC db cannot be read.
+    // sleep granted (so only the a11y gate is in question); a11y uncheckable
+    // (checkable:false) -- what /api/a11y-status returns when no native verdict is on
+    // file (a11ystatus.read() ENOENT/stale: a browser, or not yet written). This check
+    // mocks the HTTP response directly, so it is engine-agnostic.
     await gotoGate(page, '[data-gate="tmux"]', {
       sleep: { checkable: true, prevented: true },
       tmux: { checkable: false, because: 'the accessibility database was not readable' },
@@ -280,11 +319,20 @@ async function fresh(browser) {
       const row = document.querySelector('[data-gate="tmux"]');
       const disp = (sel) => { const e = row && row.querySelector(sel); return e ? getComputedStyle(e).display : 'missing'; };
       const checkPill = row && row.querySelector('.s3-checking .s3-pill-wait');
+      const lbl = row && row.querySelector('.s3-gate-lbl');
+      const pane = document.getElementById('fr-pane-3');
+      // fr-pane-3 has TWO mock windows (Energy for the sleep row, Accessibility for
+      // this row); pick the Accessibility one by its title, not the first .s3-win.
+      const wins = pane ? Array.from(pane.querySelectorAll('.s3-win')) : [];
+      const axWin = wins.find((w) => { const t = w.querySelector('.s3-title'); return t && /Accessibility/i.test(t.textContent); });
+      const mock = axWin && axWin.querySelector('.s3-mtxt');
       return {
         hasChecking: !!(row && row.hasAttribute('data-checking')),
         hasGranted: !!(row && row.hasAttribute('data-granted')),
         reqDisp: disp('.s3-req'), grantedDisp: disp('.s3-granted'), checkingDisp: disp('.s3-checking'),
         checkText: checkPill ? checkPill.textContent.trim() : null,
+        lblText: lbl ? lbl.textContent.trim() : null,
+        mockText: mock ? mock.textContent.trim() : null,
       };
     });
     ok(st.hasChecking && !st.hasGranted, 'the uncheckable tmux row is data-checking, not data-granted (never a false green)');
@@ -292,6 +340,14 @@ async function fresh(browser) {
       `only the neutral pill shows (checking=${st.checkingDisp}, req/TurnOn=${st.reqDisp}, granted=${st.grantedDisp})`);
     ok(/Checking/i.test(st.checkText || ''), `the neutral pill reads "Checking..." (got: ${JSON.stringify(st.checkText)})`);
     ok(!(await nextDisabled(page)), 'an uncheckable tmux grant does NOT block Next (fail-safe invariant preserved)');
+    // #2451: the gate names Kosmos (the binary macOS shows + grants), never tmux.
+    // The grant is keyed on the calling binary = the kosmos-app, so the row label and
+    // the mock Accessibility row read "Kosmos"; "tmux" here sent Josh looking for a
+    // row macOS never shows.
+    ok(st.lblText === 'Kosmos', `the a11y gate row label reads "Kosmos" (got: ${JSON.stringify(st.lblText)})`);
+    ok(!/tmux/i.test(st.lblText || '') && !/tmux/i.test(st.mockText || ''),
+      `neither the gate label nor the mock names tmux (label=${JSON.stringify(st.lblText)}, mock=${JSON.stringify(st.mockText)})`);
+    ok(/Kosmos/i.test(st.mockText || ''), `the mock Accessibility row names Kosmos (got: ${JSON.stringify(st.mockText)})`);
     await ctx.close();
   }
 

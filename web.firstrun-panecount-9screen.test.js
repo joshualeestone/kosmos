@@ -58,6 +58,71 @@ test('FR_STEPS equals the number of fr-pane-N containers, so the tail steps are 
   assert.equal(steps, 9, 'the 9-screen flow should have FR_STEPS = 9');
 });
 
+test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fires no auto-scan', () => {
+  // The onboarding S9 painter must land every first run on the create / "Giddy Up" screen
+  // (as if the machine had no agents) and must NOT auto-scan/auto-import: the forced create
+  // render returns BEFORE any frScanAgents/frFindAgents call, and ahead of the adopt/create/
+  // unknown path fork, so a non-empty roster still lands on Giddy Up. (#2497, Josh 2026-09-08.)
+  const open = PAGE.indexOf('function frPaintFleet() {');
+  assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
+  const end = PAGE.indexOf('\n}', open);   // the file's function terminator (} at column 0)
+  assert.ok(end !== -1, 'could not find the end of frPaintFleet');
+  const body = PAGE.slice(open, end);
+
+  // The forced no-agent create / Giddy Up render is present.
+  assert.match(body, /title\.textContent = 'Create your first agent\.';/,
+    'frPaintFleet no longer forces the create heading on first run');
+  assert.match(body, /Let\\u2019s get started\./,
+    'frPaintFleet no longer shows the Giddy Up "Let’s get started" copy');
+  assert.match(body, /frActions\(\{ label: 'Giddy Up', go: \(\) => frFinish\(openCreate\) \}\)/,
+    'frPaintFleet no longer renders the Giddy Up action');
+
+  const forced = body.indexOf("frActions({ label: 'Giddy Up'");
+  const forcedReturn = body.indexOf('return;', forced);
+  assert.ok(forced !== -1 && forcedReturn !== -1, 'the forced Giddy Up block or its return is gone');
+
+  // Discovery must still EXIST in the function (kept-but-bypassed arms; the card says do not
+  // delete the engine) -- but every call must sit AFTER the forced return, so none fires on first run.
+  const firstScan = body.indexOf('frScanAgents(');
+  const firstFind = body.indexOf('frFindAgents(');
+  assert.ok(firstScan !== -1 || firstFind !== -1,
+    'no frScanAgents/frFindAgents in frPaintFleet: discovery was deleted (keep it) or this guard is vacuous');
+  if (firstScan !== -1) assert.ok(forcedReturn < firstScan,
+    'a frScanAgents call runs before the forced Giddy Up return: onboarding still auto-scans');
+  if (firstFind !== -1) assert.ok(forcedReturn < firstFind,
+    'a frFindAgents call runs before the forced Giddy Up return: onboarding still auto-discovers');
+
+  // The forced return precedes the path fork, so first run lands on Giddy Up regardless of fleet.
+  const firstPathBranch = body.search(/if \(path === /);
+  assert.ok(firstPathBranch === -1 || forcedReturn < firstPathBranch,
+    'the forced Giddy Up return comes after a path branch; a non-empty roster would miss it');
+});
+
+test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER sub-line', () => {
+  // Everyone now lands on the create / Giddy Up welcome, including a user who already runs agents
+  // in Claude Code or Codex that onboarding deliberately no longer scoops up. One quiet sub-line
+  // under "Let's get started." points that user at the manual Import path on the next screen, so
+  // "where are my agents?" does not reappear one screen later. A silent deletion of the pointer
+  // reintroduces exactly the confusion #2497 removes, so guard it here (source match, the same
+  // shape this file already uses for the welcome copy above).
+  const open = PAGE.indexOf('function frPaintFleet() {');
+  assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
+  const end = PAGE.indexOf('\n}', open);
+  assert.ok(end !== -1, 'could not find the end of frPaintFleet');
+  const body = PAGE.slice(open, end);
+
+  // The copy is split across a string concat in the source, so each phrase below is chosen to sit
+  // entirely within one fragment and never crosses the ' + ' break (a phrase spanning the break
+  // could never match). Together they pin the whole pointer: the question and the Import pointer.
+  assert.match(body, /Already have agents in Claude Code or Codex on this computer\?/,
+    'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
+  assert.match(body, /On the next screen you can import an existing agent\./,
+    'the #2497 pointer no longer names the manual Import path on the next screen');
+  // It must be a POINTER, not a scan: it renders as a static hint paragraph, not a discovery call.
+  assert.match(body, /class="dhint"[^>]*>Already have agents/,
+    'the pointer sub-line is not the muted .dhint hint paragraph it should be');
+});
+
 test('every fr-pane-N carries its own <h2> (frFocusActiveHead focuses it; a null head breaks focus/aria)', () => {
   // frGo -> frFocusActiveHead(pane) does paneEl.querySelector('h2'); a pane with
   // no <h2> would leave FR_ACTIVE_H2 null and the dialog with no accessible name.

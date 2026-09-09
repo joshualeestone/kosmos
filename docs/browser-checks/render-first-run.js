@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-success
 /**
  * Render every first-run state in a real browser and look at it.
  *
@@ -120,11 +121,19 @@ const SHOTS = [
   // drive ran last (prefilled-and-armed versus the empty gated state the
   // name claims).
   { name: 'firstrun-about-you', at: '#fr-you', you: { state: 'absent', you: null, because: null } },
-  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /already have 14 agents/i },
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
-  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /could not see what is on this computer/i },
-  // #1938: found() empty, but the disk scan found one. The create path shows it.
-  { name: 'firstrun-fleet-scan-offer', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, expect: /we found an agent on this computer/i },
+  // #2497 (Josh, 2026-09-08): onboarding no longer forks on path or auto-scans. Every first run
+  // lands on the no-agent "Create your first agent." / Giddy Up screen, so the adopt count,
+  // "could not see", and scan-offer endings that used to render here now all show the create
+  // heading. Real agents come in later via the manual Import Agent (#1652) on Create Agent.
+  { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
+  // #2497 follow-on (Mona Lisa): the create welcome carries a quiet manual-import POINTER sub-line
+  // for the user who already runs agents onboarding no longer scoops up. expectBody asserts it
+  // actually RENDERS in the #fr-fleet box (the source-match guard is web.firstrun-panecount-9screen).
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i, expectBody: /On the next screen you can import an existing agent\./ },
+  { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
+  // #2497: even when the disk scan DID find an agent (SCAN_SOME), first run must NOT show the
+  // "we found an agent" offer -- it lands on the create heading, proving the offer is suppressed.
+  { name: 'firstrun-fleet-scan-suppressed', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_SOME, expect: /create your first agent/i },
 ];
 
 /**
@@ -346,6 +355,17 @@ async function look(page, name) {
         if (!shot.expect.test(headline)) {
           problems.push(`${shot.name} [${scheme}]: fleet ending headline `
             + `"${headline}" does not match ${shot.expect}`);
+        }
+      }
+      // #2497 follow-on: assert the manual-import pointer sub-line RENDERS in the create welcome
+      // box (#fr-fleet), not merely that the headline is right. Reads the box the same way the
+      // headline check reads the title above -- a dropped or broken pointer reddens here.
+      if (shot.expectBody) {
+        const fleetBody = await page.evaluate(() =>
+          (document.getElementById('fr-fleet') || {}).textContent || '');
+        if (!shot.expectBody.test(fleetBody)) {
+          problems.push(`${shot.name} [${scheme}]: fleet body `
+            + `"${fleetBody}" does not contain ${shot.expectBody}`);
         }
       }
       // install-flow-9screen: the standalone machine-check screen (firstrun-4-checks-*,

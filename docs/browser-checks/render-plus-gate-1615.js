@@ -1,3 +1,4 @@
+// Browser-check-surface: plus-state1 plus-flow plus-switch
 'use strict';
 /**
  * The Kosmos Plus tab gates the on-switch on ENROLMENT, on a screen (#1615).

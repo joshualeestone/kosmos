@@ -5877,14 +5877,24 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
-    /* #2085: tmux's REAL grant (tmuxGrant reads its path-keyed row from the
-       system TCC db), NOT read() -- read() surfaced the native app's own
-       AXIsProcessTrusted, which is the false "TMUX ACTIVATED" pill (it answered
-       about the app, not tmux). Same {checkable, trusted} shape, so the S3 tmux
-       gate poll consumes it unchanged; any read failure -> checkable:false ->
-       the neutral "Checking..." pill, never a false green. */
+    /* #2451: serve Kosmos.app's OWN Accessibility trust (a11ystatus.read()), NOT
+       tmuxGrant(). Accessibility is keyed on the CALLING BINARY: the onboarding
+       "Turn On" registers the kosmos-app (Josh sees "Kosmos" in the Accessibility
+       list), and tmux disclaims responsibility for its children and can never hold
+       that grant -- so tmux is the WRONG subject. tmuxGrant() reads tmux's path-keyed
+       row, which is absent / path-key-mismatched on a normal box -> checkable:false
+       forever -> the pill sticks on "Checking..." and the gate fail-safes Next to
+       ENABLED (Josh's #2451 symptom: "stuck on Checking, Next already activated").
+       read() is the native app's AXIsProcessTrusted verdict (written on launch +
+       every 60s, inside STALE_AFTER_MS), so a native install gets a definite
+       trusted:true/false and the gate works; a browser (no writer) stays
+       checkable:false and fail-safe. (#2085 called the app's trust a "false TMUX
+       ACTIVATED" pill under the now-disproven belief that tmux must hold the grant;
+       #2125 resolved the subject is the app. tmuxGrant stays in the engine for a
+       possible #2125-KEEP tmux-identity path.) Same {checkable, trusted} shape, so
+       the S3 gate poll + render-gated-next consume it unchanged. */
     let reading;
-    try { reading = a11ystatus.tmuxGrant(); }
+    try { reading = a11ystatus.read(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
     sendJson(res, 200, reading);
     return;
@@ -6938,10 +6948,6 @@ const server = http.createServer((req, res) => {
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
         }
-        if (kept.recorded !== true) {
-          sendJson(res, 200, { recorded: false, because: kept.because });
-          return;
-        }
         /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
            PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers
            from the day I wrote it: `panelessKeys` and the name arm of
@@ -6955,6 +6961,19 @@ const server = http.createServer((req, res) => {
            signal to keep in step with the first -- it is the same fact, written
            where the roster can read it.
 
+           🛑 #2558: BEFORE THE RECORDED-CHECK, beside the #2146 activity marker
+           and for the same reason it states. By this line the sender is already
+           AUTHENTICATED (`resolveAgentSender` refused at `!sender.ok` above), and
+           an authenticated report is proof of life whether or not its STATE was
+           recorded. Placed AFTER the early-return, a refused-state report -- a
+           #900 auto-`working` over a standing needs_you -- proved life yet never
+           beat liveness, so a PANELESS agent working under a sticky needs_you
+           (its only roster tie is `liveness.alive`, #2146's own population) could
+           go stale and drop off the board while alive and reporting, even as its
+           activity marker still said "working". It stays AUTH-gated here, so this
+           does NOT reopen the #1968 untokened-spoof surface: an unauthenticated
+           report is refused at `!sender.ok` and never reaches this line.
+
            ⚠️ AND IT IS DELIBERATELY NOT `selfreport.record`'s job. That module
            refuses anything without a valid state; a beat carries none, and
            routing liveness through it would make a timer assert `working` and
@@ -6962,8 +6981,12 @@ const server = http.createServer((req, res) => {
            The two stay apart; only the CALL is shared.
 
            ⚠️ THROW-SAFE. Liveness is an improvement to a row, never a reason to
-           refuse a report that has already been recorded. */
+           refuse a report -- recorded or refused. */
         try { liveness.seen(who); } catch { /* the report stands; the row may be thinner */ }
+        if (kept.recorded !== true) {
+          sendJson(res, 200, { recorded: false, because: kept.because });
+          return;
+        }
         /* The phone seam, AFTER the record, and with ZERO translation: the
            report's word IS notify's word. This is the state transition
            notify.js:26 has been waiting for -- `needs_you` stops being a
@@ -10277,9 +10300,41 @@ function start(port = PORT) {
     // running on 4317, which is the common case -- is an unhandled 'error'
     // event that exits with a raw stack trace. Returning a Promise implies the
     // caller can be told; this makes that true.
-    const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
+    const onError = (err) => {
+      server.removeListener('listening', onListening);
+      // #2528: a BIND failure (EADDRINUSE from the restart's port overlap, EACCES, etc.)
+      // is a port/environment problem, NOT the world's board failing to serve, so it must
+      // not count toward abandoning the world -- clear this world's failed-boot counter so
+      // transient port contention can never abandon a HEALTHY world. Only a world that
+      // dies before it ever reaches start() (a genuinely broken world env) accrues.
+      // #2528 fast-follow: this clears the COUNTER but does NOT mark the world confirmed.
+      // A bind failure is transient and is NOT the world serving, so a never-served world
+      // stays unconfirmed (only a real `listening` confirms it). Clearing the counter here
+      // means a world hitting only bind errors keeps retrying rather than abandoning --
+      // correct, because a persistent bind failure is machine-wide (it would hit the default
+      // world too, since the port is per-account not per-world), not a world-specific
+      // lockout, so it is out of this guard's scope.
+      try {
+        const worldenv = require('./engine/worldenv');
+        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open */ }
+      reject(err);
+    };
     const onListening = () => {
       server.removeListener('error', onError);
+      // #2528: the board reached `listening`, so the world it booted into serves --
+      // clear that world's failed-boot counter. A world only accrues attempts while
+      // it fails to reach this point, so a healthy world's count returns to zero
+      // every boot and never trips the abandon-and-fall-back-to-default guard.
+      // #2528 fast-follow: also mark the world CONFIRMED -- reaching `listening` proves it
+      // can serve, so a later failure uses THRESHOLD (a confirmed world gets tolerance),
+      // not the never-served abandon-on-first-fail fast path.
+      try {
+        const worldenv = require('./engine/worldenv');
+        const guard = require('./engine/worldbootguard');
+        guard.clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+        guard.markConfirmed(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open: the guard must never break a healthy boot */ }
       /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
          not at require. At require, ensureToken() would write to a real store on a
          bare `require('./server')` in a unit test. Provisioning after the bind also

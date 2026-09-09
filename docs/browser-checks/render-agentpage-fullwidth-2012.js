@@ -1,3 +1,4 @@
+// Browser-check-surface: d-sec-talk
 'use strict';
 
 /**

@@ -17,6 +17,9 @@
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
+// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count
+// (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
+// all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -96,8 +99,10 @@ const say = (n, cond, note) => {
     await p.waitForSelector('#pj-one-view', { state: 'visible' });
     await p.waitForTimeout(400);
 
-    /* THE DOOR IS UNCONDITIONAL: this project hides nothing, and the control
-       must still be there, because the screen behind it spans every project. */
+    /* THE DOOR IS UNCONDITIONAL: the control is offered from every project view.
+       #2498 scoped the screen BEHIND it to the current project (Ben's 0.6.48
+       finding: 'view all tasks' from a project should show only that project's
+       tasks), so the door is present but the screen is per-project, not global. */
     const doorVisible = await p.isVisible('#pj-alltasks');
     say('the door is offered even though this project hides nothing', doorVisible);
     const doorText = (await p.textContent('#pj-alltasks')) || '';
@@ -110,17 +115,25 @@ const say = (n, cond, note) => {
     const seen = await p.evaluate(() => {
       const screen = document.getElementById('pj-alltasks-view');
       const rows = [...screen.querySelectorAll('.tkcard')].filter((r) => r.getBoundingClientRect().height > 0);
+      const projectIds = [...new Set(rows.map((r) => r.dataset.project))];
       return {
         rows: rows.length,
         heading: (document.getElementById('alltasks-count').innerText || '').trim(),
-        projects: [...new Set(rows.map((r) => r.dataset.project))].length,
+        projects: projectIds.length,
+        projectIds,
         everywhere: document.querySelectorAll('.tkcard').length,
       };
     });
 
     say('the screen renders rows', seen.rows > 0, JSON.stringify(seen));
-    say('the rows span BOTH projects, so this is not the per-project list',
-      seen.projects === 2, 'distinct projects on screen: ' + seen.projects);
+    /* #2498: the door opened from Alpha shows Alpha's tasks ONLY. The screen is
+       scoped to the CURRENT project, not global - so exactly one project on
+       screen, it is the one we opened, and Beta's tasks are absent. */
+    say('the all-tasks screen is scoped to the current project (#2498), not global',
+      seen.projects === 1 && seen.projectIds[0] === made[0],
+      'projects on screen: ' + JSON.stringify(seen.projectIds) + '  current=' + made[0]);
+    say('the other project\'s tasks are not on this scoped screen',
+      !seen.projectIds.includes(made[1]), 'saw ' + JSON.stringify(seen.projectIds) + '  other=' + made[1]);
 
     /* 🔑 THE #1346 ASSERTION. The heading's number must equal the rows the
        person can actually see, counted INSIDE the screen. */
