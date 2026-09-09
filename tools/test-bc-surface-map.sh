@@ -43,22 +43,41 @@ else
   fail "covering did not name render-subprojects-1994.js for a pj-parent change"
 fi
 
+# 2b. WEB-SCOPING (WARNING #1 lock, red-capable): a full multi-file diff whose NON-web file carries a
+#     mapped token must NOT be reported -- the gate diffs ONLY web/index.html. Without the web-section
+#     scoping in _bcm_covering, the engine/foo.js `-const x = "alltasks-count";` line would match and
+#     covering would name render-alltasks.js. The web section here changes only benign markup.
+printf '%s\n' 'diff --git a/engine/foo.js b/engine/foo.js' '--- a/engine/foo.js' '+++ b/engine/foo.js' \
+  '@@ -1 +1 @@' '-const x = "alltasks-count";' '+const x = "alltasks-count2";' \
+  'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
+  '@@ -1 +1 @@' '-  <div>hello</div>' '+  <div>hi</div>' > "$TMP/wd-multi"
+if [ -z "$(bash "$BCM" covering < "$TMP/wd-multi")" ]; then
+  pass "web-scoping: a mapped token changed in a NON-web file is not reported (gate diffs only web/index.html)"
+else
+  fail "web-scoping: covering over-reported a mapped token from a non-web file"
+fi
+
 # 3. AGREEMENT with the gate (no-update case): the same pj-parent change covering names is the
 #    check the gate REFUSES when NO check was updated. Cross-checks the shared map + match (no drift).
 gate_rc=0
 ( . "$HERE/lib/browser-check-surface-gate.sh" \
     && KOSMOS_BCSG_WEBDIFF="$TMP/wd-parent" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
        kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc=$?
-if [ "$gate_rc" -ne 0 ] && printf '%s\n' "$cov" | grep -qx "render-subprojects-1994.js"; then
+if [ "$gate_rc" -eq 1 ] && printf '%s\n' "$cov" | grep -qx "render-subprojects-1994.js"; then
   pass "no-update case: covering names render-subprojects-1994.js and the gate refuses it (rc=$gate_rc)"
 else
   fail "covering/gate disagree on the pj-parent change with no update (gate rc=$gate_rc)"
 fi
+# NB rc==1 not rc!=0: the gate returns exactly 1 on a real refusal (gate `return 1`). A missing/renamed
+# gate function exits 127, which `-ne 0` would misread as a refusal, false-greening the no-drift cross-check.
 
-# 3b. SUPERSET semantics (the WARNING lock): covering is COVERAGE, not a staleness verdict, and is
-#     UPDATE-AGNOSTIC. RE-INVOKE covering WITH the update env set: it must STILL name the check (a
-#     covering that wrongly filtered updated checks -- collapsing to the gate's verdict -- would drop
-#     it here and red). And the gate with that same update passes rc=0, proving covering is a superset.
+# 3b. SUPERSET semantics: covering is COVERAGE, not a staleness verdict. The LOAD-BEARING assertion here
+#     is the CONTRAST: with the check marked updated, the GATE flips to rc=0 (does not flag it), while
+#     covering's output does NOT change (still names it) -- so covering is a strict superset of the gate's
+#     verdict. NB the helper reads NO update state today (no KOSMOS_BCG_FILES code path), so setting that
+#     env on the covering call is a no-op NOW; it is kept as a guard against a FUTURE regression that adds
+#     gate-style update-filtering (which would naturally key on KOSMOS_BCG_FILES) -- that would drop the
+#     check here and red. arm 3 already proves covering names it with no update; this adds the gate-flip.
 gate_rc2=0
 printf 'M\tdocs/browser-checks/render-subprojects-1994.js\n' > "$TMP/files-updated"
 ( . "$HERE/lib/browser-check-surface-gate.sh" \
@@ -81,7 +100,7 @@ gate_rc3=0
 ( . "$HERE/lib/browser-check-surface-gate.sh" \
     && KOSMOS_BCSG_WEBDIFF="$TMP/wd-alltasks" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
        kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc3=$?
-if printf '%s\n' "$cov_at" | grep -qx "render-alltasks.js" && [ "$gate_rc3" -ne 0 ]; then
+if printf '%s\n' "$cov_at" | grep -qx "render-alltasks.js" && [ "$gate_rc3" -eq 1 ]; then
   pass "drift-detector: helper covering + gate agree on a 2nd check/token (render-alltasks / alltasks-count)"
 else
   fail "helper/gate drift on render-alltasks (cov='$cov_at', gate rc=$gate_rc3)"

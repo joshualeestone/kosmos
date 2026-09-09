@@ -44,6 +44,11 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
 - Both read `docs/browser-checks/*.js` `// Browser-check-surface:` annotations as the source of truth,
   with the SAME whole-token boundary match, so covering never disagrees with the gate about WHICH checks
   cover a surface (only about the gate's extra updated/override filtering).
+- SOURCE-SCOPE parity (a diff input): the gate diffs ONLY web/index.html. When `covering` is fed a
+  `diff --git` diff it WEB-SCOPES internally -- keeps only the web/index.html file section's changed body
+  lines -- so a full-repo `git diff | covering` agrees with the gate rather than over-reporting a mapped
+  token that changed in a NON-web file. (An id-list input is caller-asserted changed web tokens; a
+  headerless hunk cannot be file-scoped and is taken as the web diff.)
 
 ## Acceptance
 

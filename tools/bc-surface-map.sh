@@ -68,11 +68,25 @@ _bcm_covering() {
   dir="$1"
   tab="$(printf '\t')"
   changed="$(cat)"                                   # stdin
-  # If the input IS a unified diff (has a diff/hunk header line), keep only its changed body
-  # lines (+/-, not the +++/--- file headers); otherwise (a plain changed-id/token list) use it
-  # verbatim. Detect via a header line rather than a case-glob, which is robust to id lists that
-  # merely contain '-' or newlines.
-  if printf '%s\n' "$changed" | grep -qE '^(diff --git |@@ |\+\+\+ |--- )' 2>/dev/null; then
+  # Reduce stdin to the CHANGED web/index.html surface, matching exactly what the gate sees:
+  # the gate diffs ONLY web/index.html (KOSMOS_BCSG_WEBDIFF = git diff BASE...HEAD -- web/index.html).
+  # Three input shapes:
+  #  1. A (possibly multi-file) unified diff carrying `diff --git` headers -> keep ONLY the
+  #     web/index.html file section's changed body lines (+/-, excluding the +++/--- headers).
+  #     This is what makes a full-repo `git diff | covering` AGREE with the gate instead of
+  #     over-reporting a mapped token that changed in a NON-web file the gate never reads.
+  #  2. A headerless hunk (no `diff --git`, but @@/+++/---) -> cannot file-scope, so keep the
+  #     changed body lines; the caller owns that this is the web diff.
+  #  3. A plain changed-id/token list (no diff markers at all) -> verbatim, each non-empty line a
+  #     caller-asserted changed token. 🛑 Do NOT feed diff CONTEXT lines stripped of headers here:
+  #     with no +/- prefix and no header they read as tokens and would match UNCHANGED surface.
+  if printf '%s\n' "$changed" | grep -qE '^diff --git ' 2>/dev/null; then
+    changed="$(printf '%s\n' "$changed" | awk '
+      /^diff --git / { insec = ($0 ~ /[ ]b\/web\/index\.html$/) ? 1 : 0; next }
+      insec && /^(\+\+\+|---)/ { next }
+      insec && /^[+-]/         { print }
+    ')"
+  elif printf '%s\n' "$changed" | grep -qE '^(@@ |\+\+\+ |--- )' 2>/dev/null; then
     changed="$(printf '%s\n' "$changed" | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' 2>/dev/null || true)"
   fi
   [ -n "$changed" ] || return 0
