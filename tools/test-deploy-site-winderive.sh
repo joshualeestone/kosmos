@@ -69,7 +69,8 @@ printf '#!/bin/sh\nexit 0\n' > "$BIN/vercel"; chmod +x "$BIN/vercel"
 #   agree    - latest-win.json's sha256 == the committed zip's real bytes-hash (the happy path)
 #   drift    - latest-win.json's sha256 != the committed zip's bytes-hash (a hand-edit / partial publish)
 #   absent   - no latest-win.json at all (an older checkout)
-#   nofields - latest-win.json present but missing the "versioned"/"sha256" fields (a malformed manifest)
+#   nofields - latest-win.json present but missing BOTH "versioned" and "sha256" (malformed manifest)
+#   nosha    - latest-win.json has "versioned" but no "sha256" (exercises the sha half of the guard)
 #   nozip    - latest-win.json names a versioned zip that is NOT committed in the checkout
 make_site() {
   local s live mode="$1"
@@ -96,6 +97,7 @@ make_site() {
     agree) printf '{"version":"%s","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$realsha" "$WINV" > "$s/dist/latest-win.json" ;;
     drift) printf '{"version":"%s","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$WINV" > "$s/dist/latest-win.json" ;;
     nofields) printf '{"version":"%s","artifact":"kosmos-win-x64.zip","arch":"x64"}\n' "$V" > "$s/dist/latest-win.json" ;;
+    nosha) printf '{"version":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$WINV" > "$s/dist/latest-win.json" ;;
     nozip) printf '{"version":"%s","sha256":"aaaa","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$WINV" > "$s/dist/latest-win.json" ;;
     absent) : ;;
   esac
@@ -158,6 +160,15 @@ if [ "$RC" != 0 ] && has "$out" "names no versioned/sha256" && has "$out" "#2571
   pass "malformed: a latest-win.json missing versioned/sha256 refuses (does not derive an empty name)"
 else
   bad "did not refuse a fieldless manifest (rc=$RC); out=$out"
+fi
+
+# 5b) VERSIONED PRESENT, SHA256 MISSING (red): exercises the sha half of the guard independently.
+read -r S L <<<"$(make_site nosha)"
+run "$S" "$L"
+if [ "$RC" != 0 ] && has "$out" "names no versioned/sha256" && has "$out" "#2571"; then
+  pass "malformed: a manifest with versioned but no sha256 refuses (the sha half of the guard)"
+else
+  bad "did not refuse a manifest missing only sha256 (rc=$RC); out=$out"
 fi
 
 # 6) POINTER NAMES AN UNCOMMITTED ZIP (red): latest-win.json's versioned zip is not committed -> REFUSE.

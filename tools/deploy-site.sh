@@ -152,13 +152,21 @@ ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]
 # COMMITTED copy; read that one ($H), matching what the deploy actually serves.
 #
 # 🔑 AND IT IS AN INSTRUMENT, not just a name lookup. The derived name is trusted ONLY when the
-# committed latest-win.json's sha256 EQUALS the committed versioned zip's .sha256 sidecar -- a
-# pointer-vs-committed-zip AGREEMENT check. A drifted pointer (a partial publish-kosmos-windows.sh
-# run, or a hand-edited manifest) REFUSES here rather than silently deriving a name whose bytes do
-# not match. This closes the card's weakest premise: latest-win.json is written ONLY by
-# publish-kosmos-windows.sh (measured: the mac release/cut flow does not update it), so deriving
-# blindly would MOVE the staleness; verifying the pointer against the committed sidecar REMOVES it.
-# An explicit KOSMOS_WIN_ZIP still overrides everything (operator escape hatch).
+# committed latest-win.json's sha256 EQUALS the hash of the ACTUAL committed versioned-zip BYTES
+# (git show | shasum, below) -- a pointer-vs-committed-BYTES AGREEMENT check. A drifted pointer (a
+# partial publish-kosmos-windows.sh run, or a hand-edited manifest/blob) REFUSES here rather than
+# silently deriving a name whose bytes do not match.
+#
+# ⚠️ SCOPE, stated precisely so the guarantee is not over-read: this closes INTERNAL
+# pointer-vs-bytes drift WITHIN the committed checkout. It does NOT compare the committed
+# latest-win.json against LIVE the way the tarball's CJ-vs-LJ guard does, and that is deliberate:
+# there is no --promote-style intentional-move flag for the Windows pointer, so a committed-vs-live
+# win check would FALSE-REFUSE a legitimate win-publish deploy (publish-kosmos-windows.sh commits a
+# new win pointer that differs from live BEFORE it is deployed). Checkout FRESHNESS (is $SITE at
+# origin/main?) is the deploy's own site-freshness precondition, not this block's job. The residual
+# is therefore: a checkout current for the mac pointer but stale specifically for the win side
+# derives an internally-consistent but stale win name -- bounded by keeping $SITE fresh before a
+# deploy, not by this check. An explicit KOSMOS_WIN_ZIP overrides everything (operator escape hatch).
 if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   CJW=$(git -C "$SITE" show "$H:dist/latest-win.json" 2>/dev/null) || CJW=""
   if [ -n "$CJW" ]; then
