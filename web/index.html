@@ -8440,6 +8440,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-pill-wait{color:var(--k-ink-3,#8a857c);border-color:var(--k-rule,#c9c6c0)}
         .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
           color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        /* #2451/#2559: the manual "Check again" affordance. A quiet SECONDARY control
+           (not the gold Turn On primary): it does not grant anything, it just re-polls.
+           Left-aligned per Josh. */
+        #fr-pane-3 .s3-recheck-row{margin:2px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        #fr-pane-3 .s3-recheck-note{margin:0 0 6px;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        #fr-pane-3 .s3-recheck-hint{font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        /* Border is gold-deep (not the --k-rule content-divider token): matches the
+           file's secondary-button convention (#fr-alt) and clears WCAG 1.4.11's 3:1
+           non-text contrast on the near-white card, where --k-rule (~1.5:1) does not. */
+        .s3-recheck{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
+          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
+          background:var(--k-surface,#fff);cursor:pointer}
+        .s3-recheck:hover{background:var(--k-surface-2,#f4f1ea)}
+        .s3-recheck:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
+        .s3-recheck[disabled]{opacity:.55;cursor:default}
         .s3-granted{display:none}
         .s3-gate-row[data-granted] .s3-req{display:none}
         .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
@@ -8496,6 +8511,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              window itself is the feedback (same rule as the retired sleep/a11y
              buttons this reuses). The gate poll re-checks and flips the pill on
              its own once granted. -->
+        <!-- #2451/#2559 (Josh 0.6.50, 7.58.24): a manual re-check. The poll already
+             re-checks on its own, but after granting in System Settings the user wants a
+             way to force it NOW rather than wait for the next tick, so the screen does not
+             feel stuck. Left-aligned under the rows, per Josh. Reassurance + hint copy is
+             Mona Lisa's (she owns the wording; Josh left it to us). -->
+        <p class="s3-recheck-note">This can take a few seconds after you flip the switch.</p>
+        <div class="s3-recheck-row">
+          <button class="s3-recheck fr-recheck" type="button">Check again</button>
+          <span class="s3-recheck-hint">Turned it on already? Tap to check now.</span>
+        </div>
         <p class="fr-msg" id="fr-s3-msg" role="status" aria-live="polite"></p>
       </div>
 
@@ -38377,7 +38402,9 @@ let FR_YOU_GEN = 0;
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
    machine; it blocks only when we KNOW a required grant is off. The user grants it
-   in System Settings and the next poll (1.5s) unlocks Next -- no manual re-check.
+   in System Settings and the next poll (FR_GATE_POLL_MS, 750ms) unlocks Next on its
+   own; the "Check again" button (#2451/#2559) only front-runs that next tick for an
+   impatient user, it is not required.
    Generation-guarded: a poll captured on one screen does NOTHING once the step
    moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md).
 
@@ -38413,8 +38440,14 @@ const FR_GATES = {
     blocked: (r) => r.checkable === true && r.trusted !== true,
   },
 };
-let FR_GATE_GEN = 0, FR_GATE_TIMER = null;
-function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } }
+let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
+// #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
+// user granted the permission the pill/Next could sit unchanged for over a second and the
+// screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
+// (750ms) so a grant reflects within about a second, and pair it with a manual "Check
+// again" button (see the fr-recheck handler) so the user can force an immediate re-check.
+const FR_GATE_POLL_MS = 750;
+function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
   if (!spec) return 'uncheckable';
@@ -38454,9 +38487,17 @@ async function frPollGates(screenEl, gen) {
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
+  FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
-  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), 1500);
+  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), FR_GATE_POLL_MS);
   return gen;
+}
+// #2451/#2559: fire an immediate gate re-check (the manual "Check again" affordance).
+// Polls the currently-gated screen at the current generation, so it is a no-op when no
+// gated screen is active and cannot outrace a screen change. Returns the poll promise.
+function frRecheckGates() {
+  if (!FR_GATE_SCREEN) return Promise.resolve();
+  return frPollGates(FR_GATE_SCREEN, FR_GATE_GEN);
 }
 let FR = null;            // what /api/first-run said
 let FR_STEP = 1;
@@ -38990,6 +39031,29 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
+  // instead of waiting for the next poll tick, so a just-granted permission reflects at
+  // once. The poll keeps running regardless; this only front-runs the next tick.
+  const recheck = e.target.closest('.fr-recheck');
+  if (recheck) {
+    const m = document.getElementById('fr-s3-msg');
+    // Do NOT clobber a real error on the shared status line (a "Turn On" failure the user
+    // may not have read yet): only show/clear our own transient "Checking..." when the line
+    // is not currently an error. The re-poll happens either way.
+    const hadErr = !!(m && m.classList.contains('fr-msg-err'));
+    recheck.disabled = true;
+    if (m && !hadErr) m.textContent = 'Checking…';
+    try {
+      await frRecheckGates();
+    } finally {
+      // Re-read the error state: a "Turn On" failure can arrive DURING the await (both
+      // buttons are live), so clear only if the line is still not an error -- never wipe a
+      // freshly-set (or pre-existing) error the user has not read.
+      if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
+      recheck.disabled = false;
+    }
+    return;
+  }
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');
