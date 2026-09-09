@@ -5,11 +5,13 @@
 # tools/lib/browser-check-surface-gate.sh both read; the annotation FORMAT is the single
 # source of truth. The annotation-parse sed and the whole-token boundary match here are
 # COPIED byte-for-byte from the gate (not yet a shared function -- extracting one is a clean
-# follow-up). They agree today because they are identical; a DRIFT-DETECTOR test in
-# test-bc-surface-map.sh asserts the helper and the gate still agree behaviourally across
-# several cases, so an edit to one regex that is not mirrored in the other REDS the suite.
-# 🛑 If you edit the parse/match here, mirror it in the gate (and vice versa) until they share
-# one function.
+# follow-up). They agree today because they are identical. DRIFT-DETECTOR arms in
+# test-bc-surface-map.sh assert the helper and the gate agree BEHAVIOURALLY on: plain tokens
+# (arms 3/3c), a '.'-metachar token AND a mixed-case annotation key (arm 3d) -- so an unmirrored
+# edit to the whole-token boundary match, the metachar ESCAPE, or the case-insensitive KEY reds the
+# suite. This is a STRONG check, not a proof: it does not exercise every path (e.g. head -1
+# multi-annotation). 🛑 If you edit the parse/match here, MIRROR it in the gate (and vice versa)
+# until they share one function.
 #
 # USAGE
 #   tools/bc-surface-map.sh map [dir]
@@ -19,6 +21,8 @@
 #       DOM ids/tokens. Prints the cut-checks that COVER the changed surfaces (one basename per
 #       line, sorted-unique) -- i.e. whose declared tokens appear (whole-token) in the changed
 #       content. Empty = nothing covered.
+#       NB the diff path web-scopes on the DEFAULT `b/web/index.html` prefix, so feed a normal
+#       `git diff` (not diff.noprefix / a custom --dst-prefix), matching the gate's assumption.
 #
 # 🛑 COVERAGE, NOT A STALENESS VERDICT. `covering` answers "which checks EXERCISE these changed
 # surfaces", by token presence only. It is a SUPERSET of "checks the gate would flag stale":

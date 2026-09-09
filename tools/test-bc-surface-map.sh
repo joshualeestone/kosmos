@@ -106,6 +106,34 @@ else
   fail "helper/gate drift on render-alltasks (cov='$cov_at', gate rc=$gate_rc3)"
 fi
 
+# 3d. METACHAR-ESCAPE + CASE-KEY DRIFT ARM (iter-5 WARNING lock, red-capable): arms 3/3c only exercise
+#     plain [a-z-] tokens, so a divergence in the metachar-ESCAPE path or the case-insensitive annotation
+#     KEY would slip past. Seed a TEMP check with a MIXED-CASE key ('Browser-check-Surface:') and a token
+#     carrying a '.' metachar ('foo.bar'); assert helper+gate AGREE on a literal HIT and a lookalike MISS.
+mkdir -p "$TMP/bc"
+printf '%s\n' '// Browser-check-Surface: foo.bar' 'assert(1);' > "$TMP/bc/metachar-check.js"
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '@@ -1 +1 @@' \
+  '-  <x id="foo.bar">a</x>' '+  <x id="foo.bar">b</x>' > "$TMP/wd-foobar"
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '@@ -1 +1 @@' \
+  '-  <x id="fooXbar">a</x>' '+  <x id="fooXbar">b</x>' > "$TMP/wd-fooxbar"
+mc_map="$(bash "$BCM" map "$TMP/bc")"
+mc_lit="$(bash "$BCM" covering "$TMP/bc" < "$TMP/wd-foobar")"
+mc_look="$(bash "$BCM" covering "$TMP/bc" < "$TMP/wd-fooxbar")"
+g_lit=0; g_look=0
+( . "$HERE/lib/browser-check-surface-gate.sh" && KOSMOS_BCSG_DIR="$TMP/bc" \
+    KOSMOS_BCSG_WEBDIFF="$TMP/wd-foobar" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
+    kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || g_lit=$?
+( . "$HERE/lib/browser-check-surface-gate.sh" && KOSMOS_BCSG_DIR="$TMP/bc" \
+    KOSMOS_BCSG_WEBDIFF="$TMP/wd-fooxbar" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
+    kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || g_look=$?
+if printf '%s\n' "$mc_map" | grep -qF 'foo.bar' \
+   && printf '%s\n' "$mc_lit" | grep -qx "metachar-check.js" && [ "$g_lit" -eq 1 ] \
+   && [ -z "$mc_look" ] && [ "$g_look" -eq 0 ]; then
+  pass "metachar/case drift: helper+gate agree on a '.'-token + mixed-case key (literal hits, lookalike misses)"
+else
+  fail "metachar/case drift (map='$mc_map' lit='$mc_lit'/g$g_lit look='$mc_look'/g$g_look)"
+fi
+
 # 4. boundary: pj-parenthetical (substring superset) is NOT covered.
 if [ -z "$(bash "$BCM" covering < "$TMP/wd-substr")" ]; then
   pass "covering: pj-parenthetical (substring of pj-parent) is not covered (boundary match)"

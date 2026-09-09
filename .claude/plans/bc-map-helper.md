@@ -14,9 +14,12 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
    `tools/lib/browser-check-surface-gate.sh` (same sed, same escape + boundary grep, same
    case-insensitive key). 🛑 DECISION (revised from the original "extract into one shared function"):
    at high context I did NOT refactor the merged, working gate to consume a shared function -- that
-   would risk leaving the gate half-refactored. Instead the copies are DRIFT-GUARDED by a behavioural
-   test (a diff on check A's token -> helper covering names A AND the gate refuses A; a second check;
-   a substring non-match), so an unmirrored edit to one regex REDS the suite. Extracting one shared
+   would risk leaving the gate half-refactored. Instead the copies are DRIFT-GUARDED by behavioural
+   arms: plain-token agreement (helper covering names check A AND the gate refuses A; a second check;
+   a substring non-match), PLUS a metachar-escape + mixed-case-key arm (a '.'-token that must match a
+   literal and NOT a lookalike, under a 'Browser-check-Surface:' key). So an unmirrored edit to the
+   boundary match, the metachar ESCAPE, or the case-insensitive KEY reds the suite. It is a STRONG
+   check, not a proof (it does not exercise every path, e.g. head -1 multi-annotation). Extracting one shared
    `kosmos_bc_surface_map`/`token_hits` function used by BOTH is a clean, lower-risk follow-up for a
    fresh session; the drift-test makes the copies safe until then.
 
