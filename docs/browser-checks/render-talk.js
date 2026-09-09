@@ -54,14 +54,17 @@ const { chromium } = require('playwright');
  * machine and renames it, so the shape is whatever the board really serves.
  */
 function liveCard() {
-  try {
-    const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
-    const board = status.snapshot();
-    const card = (board.agents || []).find((a) => a && a.isNamedOurs === true);
-    return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;
-  } catch (err) {
-    return null;
-  }
+  /* 🛑 AN ERROR IS NOT AN EMPTY BOARD, and collapsing them turned a loud red into a
+     quiet green. The first version of this returned null for BOTH, so on a POPULATED
+     box where status.js failed to load or snapshot() threw, the fallback quietly took
+     over, printed a note saying "no live agent on this box" -- a claim nothing had
+     measured -- and the cut passed. Before this branch that case FAILED 3b, correctly.
+     So: `null` means the board really has no card of ours, and a thrown error is
+     re-thrown for the caller to turn into a failure. */
+  const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
+  const board = status.snapshot();
+  const card = (board.agents || []).find((a) => a && a.isNamedOurs === true);
+  return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;
 }
 
 /**
@@ -74,16 +77,34 @@ function liveCard() {
  * every TYPE is whatever `status.snapshot()` emitted. Nothing here was written by
  * hand, which is what keeps it out of the class the comment above describes.
  *
- * ⚠️ A capture rots, and the guard against that is below in the reopen arm: on any
- * box that HAS a live card, the two key sets are compared and a divergence is a
- * FAIL. So the fixture is re-verified by every cut on a populated box, and the
- * quiet box that needs it is the only one that cannot check it.
+ * ⚠️ A capture rots, and there are TWO guards against that, in different places.
+ *   - HERE, in the reopen arm below: on any box with a live card the full nested
+ *     shape is compared, live against live, and a divergence is a FAIL.
+ *   - In `yarn test` (render-talk-goldencard-2519.test.js): a BOX-INDEPENDENT
+ *     top-level comparison, using test-support/fleet.js, which drives the REAL
+ *     `status.snapshot()` over a fake pane source.
+ * 📌 AN EARLIER VERSION OF THIS COMMENT SAID "the quiet box that needs it is the only
+ * one that cannot check it". That was false of this tree and it excused a real gap:
+ * before the fleet-based arm, NOTHING verified the fixture on the box this whole
+ * change exists for. The nested half is still live-only, because a fleet agent has no
+ * recorded usage and its `context` legitimately differs from a real agent's.
  */
-function goldenCard() {
+function goldenCard(fixturePath) {
+  /* `fixturePath` is a test seam, defaulted to the real fixture. Without it the shape
+     floor below is unreachable from a test: with the committed fixture in place the
+     floor never fires, so deleting it reds nothing and it would ship unarmed. That is
+     the defect this tree keeps finding in its own guards. */
   try {
-    const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'agent-card.json'), 'utf8');
+    const raw = fs.readFileSync(fixturePath || path.join(__dirname, 'fixtures', 'agent-card.json'), 'utf8');
     const card = JSON.parse(raw);
     if (!card || typeof card !== 'object' || Array.isArray(card)) return null;
+    /* 🛑 A SHAPE FLOOR, HERE AND NOT ONLY IN THE NODE SUITE. "An object that is not an
+       array" accepts `{}`: openDetail would still run, the reopen arm would still pass,
+       and the box the fallback exists for would get a hollow coverage claim. Anyone
+       invoking tools/browser-checks.sh directly never reaches the node suite's floor,
+       so it has to be enforced where the card is produced. A real card carries ~30
+       fields; a trimmed one is the hand-built literal arriving by another door. */
+    if (Object.keys(card).length < 20) return null;
     return { ...card, sessionName: 'april', name: 'April', state: 'needs_you' };
   } catch (err) {
     return null;
@@ -99,7 +120,15 @@ function goldenCard() {
  * file has corrected that class three times already.
  */
 function realCard() {
-  const live = liveCard();
+  let live;
+  try {
+    live = liveCard();
+  } catch (err) {
+    /* The producer itself is broken. That is a real failure on any box and must not be
+       masked by the fallback: report it as its own source so the caller fails rather
+       than quietly substituting a recording. */
+    return { card: null, source: 'error', error: String((err && err.message) || err) };
+  }
   if (live) return { card: live, source: 'live' };
   const golden = goldenCard();
   if (golden) return { card: golden, source: 'golden' };
@@ -985,7 +1014,11 @@ function unreachableStates() {
       // opens an agent again, and its clear is where a cache can be left
       // speaking for markup that no longer exists. Clearing by hand here would
       // be testing this script's idea of the clear.
-      const { card, source: cardSource } = realCard();
+      const { card, source: cardSource, error: cardError } = realCard();
+      if (cardSource === 'error') {
+        // The producer threw. Before #2519 this failed 3b, and it still must.
+        problems.push(`[${theme}] reopen: status.snapshot() failed (${cardError}), so the card path is BROKEN, not merely empty`);
+      }
       if (cardSource === 'golden') {
         // #2519: covered, but say so. A quiet box and a populated box must not print
         // identical output while driving different inputs.
@@ -1000,10 +1033,32 @@ function unreachableStates() {
         if (!golden) {
           problems.push(`[${theme}] reopen: fixtures/agent-card.json is missing or unreadable, so a quiet box has no card at all`);
         } else {
-          const liveKeys = Object.keys(card).sort().join(',');
-          const goldKeys = Object.keys(golden).sort().join(',');
-          if (liveKeys !== goldKeys) {
-            problems.push(`[${theme}] reopen: the recorded card fixture has drifted from status.snapshot(); re-capture it (live=${liveKeys}) (fixture=${goldKeys})`);
+          /* 🛑 NESTED AND TYPED, NOT JUST TOP-LEVEL NAMES. The comment above says the
+             fixture rots when snapshot() gains or drops a field, and a top-level name
+             comparison cannot see either: `context` and `profile` are one name each.
+             That is not theoretical -- status.js emits a PANELESS card whose `context`
+             carries fewer keys than a pane card's, and `context.percent`, the field
+             this file's own header names as the original trap, lives down there. */
+          const shape = (v, prefix) => {
+            const out = [];
+            for (const k of Object.keys(v).sort()) {
+              const val = v[k];
+              const t = val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val;
+              out.push(`${prefix}${k}:${t}`);
+              if (t === 'object') out.push(...shape(val, `${prefix}${k}.`));
+            }
+            return out;
+          };
+          const liveShape = shape(card, '').join(',');
+          const goldShape = shape(golden, '').join(',');
+          if (liveShape !== goldShape) {
+            /* Print the DIFFERENCE, not both walls of text: a cut operator reading this
+               needs the field that moved, and two 30-field lists make them diff by eye. */
+            const a = new Set(liveShape.split(','));
+            const b = new Set(goldShape.split(','));
+            const onlyLive = [...a].filter((x) => !b.has(x));
+            const onlyFixture = [...b].filter((x) => !a.has(x));
+            problems.push(`[${theme}] reopen: the recorded card fixture has drifted from status.snapshot(). Re-capture it with \`node tools/capture-agent-card.js\`. live-only=[${onlyLive.join(' ')}] fixture-only=[${onlyFixture.join(' ')}]`);
           }
         }
       }
@@ -1793,10 +1848,14 @@ function unreachableStates() {
     await page.close();
   }
   await browser.close();
-  /* #2519: NOTES are not failures and must never read as one. The release gate
-     anchors on `^\s*(FAIL|✖)`, so these are printed on their own lines with a NOTE
-     prefix and take no part in the exit code. They exist so a reader can tell a run
-     that exercised the recorded fixture from one that had a live agent. */
+  /* #2519: NOTES are not failures and must never read as one. They print on their own
+     lines with a NOTE prefix and take no part in the exit code.
+     ⚠️ AND THE GATE'S PATTERN IS WIDER THAN THE ANCHOR. An earlier version of this
+     comment said the gate "anchors on `^\s*(FAIL|✖)`". tools/browser-checks.sh actually
+     greps `'^\s*(FAIL|✖)|Error|Timeout|REFUS|refus'` when quoting a reason, so a note
+     containing the word Error or refused would be quoted as the cause of an unrelated
+     red. Today's note text matches none of those; whoever adds the next one should
+     check against the real pattern rather than this sentence. */
   if (notes.length) {
     console.log('\n=== notes ===');
     console.log(notes.map((n) => `  NOTE  ${n}`).join('\n'));
