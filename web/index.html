@@ -4695,6 +4695,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font: inherit;
   font-size: .8125rem; color: var(--label); cursor: pointer; }
 .pj-thread-show:hover { background: var(--k-sunk); }
+/* #2575: the state-clear control inside the question block. A quiet underlined
+   text button (like Hide), plus a status line for a failure it must not swallow. */
+.pj-question-clearrow { display: flex; align-items: baseline; gap: var(--space-3);
+  flex-wrap: wrap; margin: var(--space-3) 0 0; }
+.pj-question-clear { background: none; border: 0; padding: 0; font: inherit;
+  font-size: .8125rem; color: var(--label-2); text-decoration: underline;
+  cursor: pointer; white-space: nowrap; }
+.pj-question-clear:disabled { opacity: .5; cursor: default; }
+.pj-question-clear-msg { margin: 0; }
 /* 🔑 THE AGENT PAGE'S WINDOW FILLS THE PAGE'S HEIGHT (#2012). It is fed 60 lines
    (`chat.viewport`); the old fixed 560px cap (Josh took 800 -> 560 on
    2026-08-22, ~42 of the 60 visible) was tuned for the NARROW pre-#2012 layout.
@@ -10018,6 +10027,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              prompt with more than two options makes the trailing numbers
              wrong; some day the range comes from the pane. -->
         <p class="fhint" id="pj-answer-how" hidden style="margin:8px 0 0;">Answer by sending the number: 1 or 2.</p>
+        <!-- #2575: clear a STALE waiting state, and it is NOT the same control as
+             Hide. Hide (in the head above) collapses the area for this session and
+             keeps the breadcrumb, because the agent IS waiting and the answer is
+             still owed. This asserts the opposite: the agent is NOT actually
+             waiting -- it resumed work and never self-cleared the needs_you -- so
+             it clears the record via Pete's engine route and the flag stops
+             surfacing at all, on reload included. Lives inside the question block,
+             so it only appears when there is a waiting claim to clear. -->
+        <div class="pj-question-clearrow">
+          <button class="pj-question-clear" id="pj-question-clear" type="button"
+                  aria-label="Clear this waiting flag because the agent is not actually waiting">Not waiting? Clear it</button>
+          <!-- Not a live region: an identical repeat failure would not re-fire it
+               (the round-33 pjAnnounce lesson). The visible line is plain; the
+               announce goes through pjAnnounce beside the write, like #pj-thread-msg. -->
+          <span class="fhint pj-question-clear-msg" id="pj-question-clear-msg"></span>
+        </div>
       </div>
 
       <!-- What we have sent, and how each one went. Ours to keep, because we
@@ -31267,6 +31292,11 @@ let PJ_CURRENT = null;      // the project id being looked at, or null
    (reset on reload). pjApplyEngMode keeps the box hidden while set, and shows the
    safety breadcrumb instead when an agent is genuinely waiting. */
 let PJ_THREAD_HIDDEN = false;
+/* #2575: the sessionName of the agent the open question is about, captured by
+   paintThread whenever it paints an asking state and nulled when it does not.
+   The state-clear button reads THIS (not the picker) so it always targets the
+   exact agent whose waiting flag is on screen. */
+let PJ_QUESTION_AGENT = null;
 let PJ_PICKED = null;       // the folder CHOSEN in the add flow, deliberately
 let PJ_HERE = null;        // the folder being LOOKED AT, which is not the same
 let PJ_ADD_AGENTS = [];     // the agents ticked in the add flow
@@ -34819,6 +34849,7 @@ function openProject(id) {
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
     pjApplyEngMode();
+    PJ_QUESTION_AGENT = null;  // #2575: question hidden here (not via paintThread), so drop the clear target too
     // The heading too (round 22): it is written in exactly one place
     // (paintThread), so without this reset a project with no agents kept
     // "What Mara's screen shows right now" from the LAST thread over an
@@ -36512,6 +36543,15 @@ function paintThread(body) {
   const p = pjById(PJ_CURRENT);
   if (!p || !body) return;
   const name = pjNameOf(p, body.agent && body.agent.sessionName);
+  /* #2575: the state-clear button's target follows the painted question exactly.
+     Set from body.asking (either asking arm below), nulled when not asking, so a
+     click can never clear a flag that is no longer on screen. */
+  PJ_QUESTION_AGENT = body.asking ? ((body.agent && body.agent.sessionName) || null) : null;
+  /* #2575: a clear-failure line is transient, not sticky. Cleared on every repaint
+     so a stale "could not clear" cannot sit next to a question the poll has since
+     refreshed (a new prompt, or the pane scrolled). The failure also spoke through
+     pjAnnounce, so blanking the visible text loses no announcement. */
+  { const cm = document.getElementById('pj-question-clear-msg'); if (cm) cm.textContent = ''; }
 
   /* The question, when the board says this agent is asking one. */
   const qWrap = document.getElementById('pj-question');
@@ -36727,6 +36767,7 @@ async function loadThread() {
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
     pjApplyEngMode();
+    PJ_QUESTION_AGENT = null;  // #2575: question hidden here (not via paintThread), so drop the clear target too
     // Same heading reset as openProject's clear (round 22): the poll takes
     // this branch within a tick of the last agent leaving the project, and
     // the heading otherwise keeps naming the departed agent.
@@ -38204,6 +38245,62 @@ document.getElementById('pj-thread-show').addEventListener('click', () => {
   PJ_THREAD_HIDDEN = false;
   pjApplyEngMode();
 });
+/* #2575: clear a STALE waiting flag through Pete's engine route. This is the
+   STATE half, the opposite of Hide's DISPLAY half: it POSTs to
+   /api/agent/<name>/clear-selfreport, which records `idle` over a
+   waiting-on-a-person self-report so the flag stops surfacing (reload included),
+   and then re-reads the thread so the question comes off the screen at once.
+   Named (not an inline listener) so the test lifts and runs the real thing. */
+async function pjClearState() {
+  const target = PJ_QUESTION_AGENT;
+  const btn = document.getElementById('pj-question-clear');
+  const emsg = document.getElementById('pj-question-clear-msg');
+  /* One string, so the two failure paths are byte-identical -- which is what lets
+     pjAnnounce's round-33 blank-and-reset re-speak a repeated failure (a live
+     region only fires on change; a second identical failure would say nothing). */
+  const FAIL = 'We could not clear that just now. Try again.';
+  const sayFail = () => {
+    /* Visible line (non-live) plus the announce beside it, the #pj-thread-msg
+       pattern: a failed clear must not be swallowed -- leaving the question up
+       with no word is the false-progress this page is built against. */
+    if (emsg) emsg.textContent = FAIL;
+    pjAnnounce(FAIL);
+  };
+  /* No target means no asking state is painted, so there is nothing to clear.
+     The button only shows inside the question block, but the guard keeps a
+     stray click (or a click landing just as the question cleared) a no-op. */
+  if (!target) return;
+  btn.disabled = true;
+  if (emsg) emsg.textContent = '';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'operator-dismissed' }),
+    });
+    let body = {};
+    try { body = await res.json(); } catch { body = {}; }
+    if (!res.ok || !body || body.ok !== true) {
+      sayFail();
+      return;
+    }
+    /* Keyed on `cleared`, not `by` (Pete's contract): `cleared:true` means a real
+       waiting flag was superseded; `cleared:false` is the route's documented
+       idempotent no-op (already idle, or the agent self-cleared in a race). Both
+       are success and both mean the agent is not-waiting now, so re-read the
+       thread either way -- the next paint sees asking:false and hides the
+       question. `by` is provenance and is deliberately not consulted. */
+    await loadThread();
+  } catch {
+    sayFail();
+  } finally {
+    /* Re-enabled unconditionally: on success the question (and this button with
+       it) is gone on the repaint; if the agent is still asking a fresh question
+       the button is live again for the next attempt. */
+    btn.disabled = false;
+  }
+}
+document.getElementById('pj-question-clear').addEventListener('click', pjClearState);
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
 /* #1316: Escape, matching the backdrop click above. */
