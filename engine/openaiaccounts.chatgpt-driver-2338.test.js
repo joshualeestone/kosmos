@@ -4,10 +4,12 @@
  * async into a fresh isolated CODEX_HOME, watch it, and on a clean exit hand off to
  * finishChatgptLogin (the connected gate). This drives the whole lifecycle against a
  * MOCK codex (a tiny executable that writes a chatgpt auth.json and exits, or fails,
- * or sleeps): the one part not exercised here is the stdout URL/code PARSER against
- * REAL codex output, which is verified at the release gate under a real ChatGPT
- * subscription. Everything else -- session state machine, exit -> connected, failure
- * cleanup, cancel cleanup, non-runnable refusal -- is pinned here.
+ * or sleeps): the device-auth stdout URL/code PARSER IS exercised here -- the mock
+ * prints a real-format URL + device code (measured against codex 0.149.1, 2026-09-09)
+ * and the test asserts chatgptLoginStatus surfaces them -- so only the BROWSER-mode
+ * output remains verified at the release gate under a real ChatGPT subscription.
+ * Everything else -- session state machine, exit -> connected, failure cleanup, cancel
+ * cleanup, non-runnable refusal -- is pinned here.
  *
  *   node --test engine/openaiaccounts.chatgpt-driver-2338.test.js
  */
