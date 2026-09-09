@@ -31,7 +31,7 @@ That is the bar. Not "the tests pass".
 
 | # | Capability | State |
 |---|---|---|
-| 1 | install + first run | ❌ **BLOCKER 3** — §3c. No in-product way to get `claude` onto a clean box |
+| 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED (state: partial, see §4) |
 | 4 | **talk to it** | ❌ **BLOCKER 1** — §3 |
