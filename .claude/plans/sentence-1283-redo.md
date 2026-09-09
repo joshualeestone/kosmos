@@ -19,7 +19,7 @@ The first attempt delegated all seven sites to the shared `asSentence()` helper 
 ## Constraints
 - Behaviour-preserving except the removed doubled stop. asSentence trims + handles empty, matching each site's prior guard (verified per-site).
 - No visual change beyond the removed `..`.
-- web/index.html is a shared 1.2MB file; scope is exactly these seven one-line call sites. Collision cleared with Angel (her first-run-screen-fixes merged as #2541, touched none of these regions).
+- web/index.html is a shared 1.2MB file; scope is exactly these three one-line call sites. Collision cleared with Angel (her first-run-screen-fixes merged as #2541, touched none of these regions).
 
 ## Done when
-The three unconditional-append sites no longer double a stop, seven sites call asSentence, the title capitalizer is unchanged, and no other behaviour shifts. Diff: 7 insertions, 8 deletions, web/index.html only.
+The three unconditional-append sites (memWhy, the tunnel status line, placedWords) no longer double a stop, each now guards the terminal stop inline like the other five dressers, the title capitalizer is unchanged, and no other behaviour shifts. Diff: 3 insertions, 3 deletions in web/index.html.
