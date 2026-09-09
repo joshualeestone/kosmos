@@ -75,6 +75,21 @@ test('#2509 read fallback: readToken returns the token when it lives ONLY on the
   assert.equal(boardauth.readToken(), 'deadbeefcafe0001', 'readToken did not fall back to the legacy leaf');
 });
 
+test('#2509 backfill: a legacy-only token is written to the authoritative current leaf, so it survives the legacy leaf being removed', () => {
+  const p = freshData();
+  // The token exists ONLY on the legacy leaf (primary absent) -- the migration
+  // window / a pre-#2439 board. ensureToken must adopt it AND backfill the current leaf.
+  fs.mkdirSync(p.legacy, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(path.join(p.legacy, 'board.token'), 'legacyonly0007', { mode: 0o600 });
+  assert.equal(fs.existsSync(path.join(p.kosmos, 'board.token')), false, 'the current leaf should start empty for this arm');
+  const token = boardauth.ensureToken();
+  assert.equal(token, 'legacyonly0007', 'ensureToken should adopt the legacy-only token, not mint a new one');
+  const primary = path.join(p.kosmos, 'board.token');
+  assert.ok(fs.existsSync(primary), 'the legacy-only token was not backfilled to the authoritative current leaf');
+  assert.equal(fs.readFileSync(primary, 'utf8').trim(), 'legacyonly0007', 'the backfilled current-leaf token does not match');
+  assert.equal(fs.statSync(primary).mode & 0o777, 0o600, 'the backfilled token is not mode 0600');
+});
+
 test('#2509 primary wins: when both leaves have a token, readToken prefers the current leaf and ensureToken re-syncs the mirror', () => {
   const p = freshData();
   fs.mkdirSync(p.kosmos, { recursive: true, mode: 0o700 });

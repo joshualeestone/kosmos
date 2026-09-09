@@ -189,9 +189,13 @@ function mirrorTokenToLegacy(token) {
     }
     try { fs.chmodSync(dir, 0o700); } catch { /* best-effort: match the primary dir mode */ }
     const tmp = path.join(dir, `.${TOKEN_FILE}.${process.pid}.legacy.tmp`);
-    fs.writeFileSync(tmp, token, { mode: 0o600 });
-    try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
-    fs.renameSync(tmp, lp);   // publish the mirror atomically; it tracks the primary, so clobber is correct
+    try {
+      fs.writeFileSync(tmp, token, { mode: 0o600 });
+      try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
+      fs.renameSync(tmp, lp);   // publish the mirror atomically; it tracks the primary, so clobber is correct
+    } finally {
+      try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already renamed into place */ }
+    }
   } catch {
     /* Best-effort. A board that cannot mirror is no worse off than before this
        shim: the primary token still works for a CLI that resolves the new leaf. */
@@ -303,6 +307,10 @@ function ensureToken() {
   // #2439 store rename (and so reads the OLD leaf) presents the SAME token. One
   // call here covers every return path of ensureTokenPrimary(); best-effort and a
   // no-op unless the legacy dir already exists (see mirrorTokenToLegacy).
+  // 🛑 ACTIVATION IS RESTART-GATED, like the #1976 change that caused the freeze:
+  // ensureToken() runs at board boot, so the mirror appears (and a frozen fleet's
+  // self-report resumes) only once a board RUNNING THIS CODE (re)starts with the
+  // legacy dir present. It does not self-heal an already-running board.
   mirrorTokenToLegacy(token);
   return token;
 }
@@ -310,6 +318,26 @@ function ensureToken() {
 function ensureTokenPrimary() {
   const existing = readToken();
   if (existing) {
+    /* #2509: `existing` may have come from the LEGACY-leaf fallback in readToken()
+       when the current leaf has no token yet. Backfill the authoritative current
+       leaf so the token does not live ONLY on the deprecated leaf -- otherwise it
+       would vanish when that leaf is removed (the durable follow-up). Idempotent:
+       skipped when the current leaf already holds this exact token. */
+    let primaryHasIt = false;
+    try { primaryHasIt = fs.readFileSync(tokenPath(), 'utf8').trim() === existing; } catch { primaryHasIt = false; }
+    if (!primaryHasIt) {
+      try {
+        fs.mkdirSync(store.ROOT, { recursive: true, mode: 0o700 });
+        const tmp = path.join(store.ROOT, `.${TOKEN_FILE}.${process.pid}.primary.tmp`);
+        try {
+          fs.writeFileSync(tmp, existing, { mode: 0o600 });
+          try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
+          fs.renameSync(tmp, tokenPath());   // publish the backfill; it tracks the adopted token, so clobber is correct
+        } finally {
+          try { fs.unlinkSync(tmp); } catch { /* our temp; harmless if already renamed into place */ }
+        }
+      } catch { /* best-effort: reads still fall back to the legacy leaf if this fails */ }
+    }
     // Self-heal: re-tighten the mode in case a prior process (or a restore, or a
     // umask slip) left the token file or its dir looser than owner-only. The
     // token is only a boundary while it stays unreadable by another account --
