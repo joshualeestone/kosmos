@@ -4850,7 +4850,17 @@ const server = http.createServer((req, res) => {
           sendJson(res, 400, { error: openaiAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'openai' });
           return;
         }
-        const out = openaiAccounts.startChatgptLogin({ label: body.label, mode: body.mode, codexBin: resolved.bin });
+        // #2584: `reauthDir` signs in again AS an existing chatgpt account rather
+        // than adding a new one. startChatgptLogin.reauthTarget validates it is a
+        // real chatgpt account on this computer (an arbitrary path, or an api-key
+        // account, is refused), so passing it straight through from the body is
+        // safe; a failed reauth cannot touch the live account.
+        const out = openaiAccounts.startChatgptLogin({
+          label: body.label,
+          mode: body.mode,
+          codexBin: resolved.bin,
+          reauthDir: typeof body.reauthDir === 'string' && body.reauthDir ? body.reauthDir : undefined,
+        });
         if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
         // Only the session + mode are known synchronously. authUrl (the browser
         // callback URL, or the device verification URL) and userCode (device mode
