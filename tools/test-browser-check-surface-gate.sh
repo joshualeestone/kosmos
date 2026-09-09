@@ -45,6 +45,8 @@ printf 'fix subprojects layout\n\nBrowser-check-surface: render-subprojects-1994
 # Mixed-case key: the override must be recognized case-insensitively (sibling convention).
 printf 'fix subprojects layout\n\nbrowser-check-Surface: render-subprojects-1994.js copy only\n' > "$TMP/msgs-override-mixedcase"
 printf 'fix subprojects layout\n\nBrowser-check: deferring the check to the cut\n' > "$TMP/msgs-blanket"
+# An override naming a DIFFERENT check must NOT excuse the check under test.
+printf 'fix subprojects layout\n\nBrowser-check-surface: some-other-check.js unrelated reason\n' > "$TMP/msgs-wrongname"
 
 # 1. RED: a mapped token changed, the check not updated, no override -> REFUSE (exit 1).
 if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-none"; then
@@ -80,6 +82,14 @@ if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-override-mixedcas
   pass "allowed: a mixed-case 'browser-check-Surface:' override is recognized (case-insensitive)"
 else
   fail "the override key must be case-insensitive, like the sibling coarse gate"
+fi
+
+# 3c. 🛑 RED-still: an override naming a DIFFERENT check must NOT excuse this one (per-check
+#     precision -- proves the override is scoped to its named basename, not any override).
+if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-wrongname"; then
+  fail "an override naming some-other-check must NOT excuse render-subprojects-1994"
+else
+  pass "still refused: a wrong-name override does not excuse the check under test (per-check scope)"
 fi
 
 # 4b. PASS: a compound identifier merely CONTAINING a mapped token as a substring must

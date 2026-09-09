@@ -40,7 +40,7 @@ kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
   local base bcdir files msgs webdiff changed tab
-  local ann ann_list toks tok esc_tok basename_chk esc_base viol reason
+  local ann ann_list toks tok esc_tok basename_chk esc_base esc_bcdir viol reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
   tab="$(printf '\t')"
@@ -88,15 +88,20 @@ kosmos_browser_check_surface_gate() {
     toks="$(sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$ann" | head -1)"
     [ -n "$toks" ] || continue                     # unannotated: coarse gate handles it
     basename_chk="${ann##*/}"                       # e.g. render-subprojects-1994.js
+    # Escape the dir + basename for the regex matches below, so a literal `.` (in `.js`, or
+    # a temp seam dir path) is not a wildcard. This matters most for the "is this check
+    # updated?" match: a PERMISSIVE match there could FALSELY treat a check as updated and
+    # skip it, missing a real staleness -- the unsafe direction. The class `[][\.^$*]` is a
+    # metachar in BOTH BRE and ERE, so one escape is safe in the grep -E and the sed below.
+    esc_base="$(printf '%s' "$basename_chk" | sed 's/[][\\.^$*]/\\&/g')"
+    esc_bcdir="$(printf '%s' "$bcdir" | sed 's/[][\\.^$*]/\\&/g')"
 
     # Is this check file itself updated on the branch? Then it is not stale by construction.
-    if printf '%s\n' "$files" | grep -qE "^[AM][^${tab}]*${tab}${bcdir}/${basename_chk}$" 2>/dev/null; then
+    if printf '%s\n' "$files" | grep -qE "^[AM][^${tab}]*${tab}${esc_bcdir}/${esc_base}$" 2>/dev/null; then
       continue
     fi
     # A per-check named override with a non-empty reason excuses THIS check only. The key
-    # is case-insensitive (sibling convention); the basename is escaped so its literal `.`
-    # is not a BRE any-char (never restrictive, but hygiene, matching the token escaping).
-    esc_base="$(printf '%s' "$basename_chk" | sed 's/[][\\.^$*]/\\&/g')"
+    # is case-insensitive (sibling convention).
     reason="$(printf '%s\n' "$msgs" | sed -n "s|^[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*${esc_base}[[:space:]]\{1,\}\(.*[^[:space:]].*\)\$|\1|p" | head -1)"
     if [ -n "$reason" ]; then
       echo "browser-check surface gate: ${basename_chk} surface change overridden -- $reason"
