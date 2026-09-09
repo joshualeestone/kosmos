@@ -6948,10 +6948,6 @@ const server = http.createServer((req, res) => {
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
         }
-        if (kept.recorded !== true) {
-          sendJson(res, 200, { recorded: false, because: kept.because });
-          return;
-        }
         /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
            PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers
            from the day I wrote it: `panelessKeys` and the name arm of
@@ -6965,6 +6961,19 @@ const server = http.createServer((req, res) => {
            signal to keep in step with the first -- it is the same fact, written
            where the roster can read it.
 
+           🛑 #2558: BEFORE THE RECORDED-CHECK, beside the #2146 activity marker
+           and for the same reason it states. By this line the sender is already
+           AUTHENTICATED (`resolveAgentSender` refused at `!sender.ok` above), and
+           an authenticated report is proof of life whether or not its STATE was
+           recorded. Placed AFTER the early-return, a refused-state report -- a
+           #900 auto-`working` over a standing needs_you -- proved life yet never
+           beat liveness, so a PANELESS agent working under a sticky needs_you
+           (its only roster tie is `liveness.alive`, #2146's own population) could
+           go stale and drop off the board while alive and reporting, even as its
+           activity marker still said "working". It stays AUTH-gated here, so this
+           does NOT reopen the #1968 untokened-spoof surface: an unauthenticated
+           report is refused at `!sender.ok` and never reaches this line.
+
            ⚠️ AND IT IS DELIBERATELY NOT `selfreport.record`'s job. That module
            refuses anything without a valid state; a beat carries none, and
            routing liveness through it would make a timer assert `working` and
@@ -6972,8 +6981,12 @@ const server = http.createServer((req, res) => {
            The two stay apart; only the CALL is shared.
 
            ⚠️ THROW-SAFE. Liveness is an improvement to a row, never a reason to
-           refuse a report that has already been recorded. */
+           refuse a report -- recorded or refused. */
         try { liveness.seen(who); } catch { /* the report stands; the row may be thinner */ }
+        if (kept.recorded !== true) {
+          sendJson(res, 200, { recorded: false, because: kept.because });
+          return;
+        }
         /* The phone seam, AFTER the record, and with ZERO translation: the
            report's word IS notify's word. This is the state transition
            notify.js:26 has been waiting for -- `needs_you` stops being a
