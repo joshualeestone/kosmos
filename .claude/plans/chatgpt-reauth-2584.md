@@ -8,7 +8,8 @@ There is no way to sign in again AS an existing chatgpt subscription account. `s
 ## Approach: STAGE-AND-PROMOTE
 Keep the live account entirely out of the failure path.
 - `startChatgptLogin({ ..., reauthDir })`: when `reauthDir` is set, run `codex login` into a FRESH throwaway staging dir exactly like a new sign-in (reusing the existing fresh-dir + anti-litter machinery unchanged).
-- On a clean exit AND an identity match, PROMOTE the staging `auth.json` into the live dir via an atomic copy-to-temp + rename (`promoteReauth`). The live dir is written ONLY here, only after full validation.
+- On a clean exit AND an identity match, PROMOTE the staging `auth.json` into the live dir via an atomic `renameSync` MOVE (`promoteReauth`): the staging file is the source, no temp copy; the rename replaces the live file whole and removes the staging copy in one syscall. The live dir is written ONLY here, only after full validation.
+- forgetAccount/removeAccount refuse while a reauth of that account is in flight (its dir is reserved in activeChatgptDirs), so a Disconnect/Remove cannot pull the live dir out from under a pending promote.
 - On any failure/cancel/timeout, nothing is promoted; the staging dir is the disposable one (cleaned by the existing anti-litter). The live account is byte-identical.
 - A sign-in that lands a DIFFERENT account (email mismatch vs the live account) is refused; the live account is left unchanged. This signs in again AS the account, it never swaps it.
 - `reauthTarget()` validates the target is a real chatgpt account on this computer (same name-guard as `forgetAccount`; refuses arbitrary paths and api-key accounts), so the route can pass `reauthDir` straight through from the body.
