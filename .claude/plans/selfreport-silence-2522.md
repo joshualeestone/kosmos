@@ -55,6 +55,13 @@ false alarms are near-impossible while a real outage (like #2509's 5 days) canno
   to the tracking issue via `MONITOR_GH_CMD` (default `gh`); heartbeat every N days so a dead
   channel's own silence is a signal; healthy path silent; NEVER acts. A `--check` mode prints the
   verdict JSON and exits 0/1 without posting - manual/CI/test use.
+  - **Loud-half hardening (iter-2/3):** the stale alarm is re-post-THROTTLED to once per
+    `ALARM_REPOST_HOURS` (default 6) via its own state file, so a multi-day outage does not bury the
+    signal under hundreds of comments; a GENUINE recovery (reason `fresh` only, not the ambiguous
+    `no-agents-running`/`no-reports-ever`) clears the alarm state so the next outage alarms at once;
+    both the heartbeat and alarm clocks advance ONLY on a successful post; and `posNum()` guards
+    every numeric env override so a typo falls back to the default rather than becoming NaN and
+    silently disabling the alarm.
 
 ### Wiring is a DEPLOY step (learned from the convention, not a committed plist)
 I do NOT ship a plist. agent-workforce's launchd jobs are created by the INSTALLER (`install/setup.sh`),
@@ -85,6 +92,14 @@ jobs. #2522 stays OPEN until it is wired and observed alarming (mechanism built 
   independent clock yet; selfreport freshness is the signal available today. If (a) lands, a decoupled
   liveness beat is a better clock and this monitor can switch to it.
 - Sampling (15 min) misses a sub-15-min blip, by design - the same trade coordinator-monitor.sh makes.
+- **An UNREADABLE store reads the same as an ABSENT one (both -> `no-reports-ever` -> no alarm).**
+  `newestReportMs`/`newestAtInFile` return null on a missing dir AND on a permission/disk/unmount/
+  corruption error, so a store that HELD history and then became unreadable by some means other than
+  a frozen writer would not alarm. Distinct from #2509's shape (the board dropped writes; the old
+  files stayed intact and readable), so this would not have caught #2509 either way. Not fixed: an
+  unreadable store is an infra fault this silence-monitor cannot diagnose, and declining to alarm
+  when it literally cannot read is the safe direction (no false alarm). Named here so it is a known
+  edge, like the no-reports-ever gap, not a surprise.
 
 ## Verification
 `engine/selfreport-freshness.test.js`: fresh -> not stale; stale+agents -> stale; stale+NO agents ->

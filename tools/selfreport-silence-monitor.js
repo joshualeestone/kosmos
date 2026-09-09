@@ -219,9 +219,12 @@ function run(argv) {
   }
 
   // Healthy / expected. Silent, except the periodic proof-of-life heartbeat,
-  // whose ABSENCE is how a dead monitor is noticed. Clear the alarm state so the
-  // NEXT outage alarms immediately rather than waiting out a stale throttle.
-  clearAlarm();
+  // whose ABSENCE is how a dead monitor is noticed. Clear the alarm state ONLY on a
+  // genuine recovery (reason 'fresh' = a real report arrived recently), NOT on the
+  // ambiguous non-stale reasons: a flaky `ps` read flips to 'no-agents-running' and
+  // an empty store to 'no-reports-ever', and clearing on those would let the very
+  // next stale sample re-post immediately, defeating the ALARM_REPOST_HOURS throttle.
+  if (v.reason === 'fresh') clearAlarm();
   if (postDueSince(HEARTBEAT_STATE, HEARTBEAT_DAYS * 24 * 60 * 60 * 1000)) {
     if (postComment(`${MARK} still watching. Fleet self-report path healthy `
       + `(${v.reason}; ${v.agentsRunning} agent process(es) running).`)) {

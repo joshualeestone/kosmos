@@ -157,6 +157,33 @@ test('a return to HEALTH clears the alarm state, so a future outage alarms immed
   });
 });
 
+test('a FAILING gh does NOT advance the heartbeat clock (a dead alert channel must not read as watched)', () => {
+  withHarness(({ ghStub, storeDir, dir }) => {
+    // a gh stub that FAILS (exit 1)
+    const failGh = path.join(dir, 'gh-fail.sh');
+    fs.writeFileSync(failGh, '#!/bin/sh\nexit 1\n', { mode: 0o755 });
+    writeReport(storeDir, 'angel', NOW - 2 * MIN); // fresh -> healthy path
+    const hb = path.join(dir, 'hb.txt'); // absent -> heartbeat due
+    const r = runMonitor({ ghStub: failGh, storeDir, agents: 18, nowMs: NOW, heartbeatState: hb });
+    assert.equal(r.code, 0);
+    assert.equal(fs.existsSync(hb), false, 'gh failed, so the heartbeat clock must NOT advance (channel stays "unproven")');
+  });
+});
+
+test('W3: a non-fresh, non-stale sample (no-agents-running) does NOT clear the alarm throttle', () => {
+  withHarness(({ record, ghStub, storeDir, dir }) => {
+    const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due
+    const alarm = path.join(dir, 'alarm.txt');
+    // 1) stale -> posts + marks alarm state
+    writeReport(storeDir, 'angel', NOW - 5 * 24 * 60 * MIN);
+    runMonitor({ ghStub, storeDir, agents: 18, nowMs: NOW, heartbeatState: hb, alarmState: alarm });
+    assert.ok(fs.existsSync(alarm), 'alarm state recorded while stale');
+    // 2) a ps hiccup reads 0 agents -> reason no-agents-running (NOT fresh) -> must NOT clear
+    runMonitor({ ghStub, storeDir, agents: 0, nowMs: NOW + 15 * MIN, heartbeatState: hb, alarmState: alarm });
+    assert.ok(fs.existsSync(alarm), 'a flaky no-agents read must NOT clear the throttle (only a genuine fresh recovery does)');
+  });
+});
+
 // ---- isAgentCommand: the agent-count matcher (the #2509-blind-spot BLOCKER) ----
 // The native installer (2.1.x+) names the process by the VERSION STRING, not
 // `claude`, so a bare `claude` match reads 0 on the native fleet and suppresses
