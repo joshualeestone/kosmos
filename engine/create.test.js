@@ -224,7 +224,7 @@ test('#740: a two-word capitalised name is shown as typed and is one hyphenated 
   assert.match(again.because, /already an agent called/);
 });
 
-test('the display name and the machine name differ ONLY in case, which is what makes the split safe', () => {
+test('the display name and the machine name differ only in case and folded whitespace/periods, which is what makes the split safe', () => {
   /**
    * ⚠️ THE LOAD-BEARING PROPERTY OF 6b. The display name is written into the
    * instruction file an agent boots from — the most powerful write in the
