@@ -52,14 +52,25 @@ per-box bundle update. The DURABLE fix is to update the installed CLI bundle to 
 path (resolves Kosmos natively), after which this mirror can be removed. Filed as a follow-up card so
 the shim does not become permanent debt against the migration.
 
-## Test (engine.boardauth-leaf-2509.test.js)
+## Test (engine.boardauth-leaf-2509.test.js) -- 5 arms
 
 - MIRROR: with a legacy leaf dir present, `ensureToken()` writes board.token to BOTH leaves with the
-  SAME value, mode 0o600. With NO legacy dir, it does NOT create one (never resurrect the deprecated leaf).
+  SAME value, mode 0o600 (the mode assertion is the red-capable #1968-preservation check: a
+  world/group-readable mirror would reopen the cross-account read).
+- NO-RESURRECT: with NO legacy dir, `ensureToken()` does NOT create one (never resurrect the
+  deprecated leaf on a clean install).
 - READ FALLBACK: `readToken()` returns the token from the legacy leaf when the current leaf lacks it.
-- 🛑 RED-CAPABLE, #1968 stays closed: `resolveAgentSender(req, body, roster, {denyPaneFallback:true})`
-  with no token STILL returns `ok:false` (a token-less / foreign report is still refused) -- the arm
-  that proves the token fix did not reopen the spoof. Perturb-checked: it must fail if the deny is removed.
+- BACKFILL: a token found ONLY on the legacy leaf is written to the authoritative current leaf
+  (mode 0o600), so it survives the legacy leaf's eventual removal.
+- PRIMARY WINS: when both leaves have a token, `readToken()` prefers the current leaf and
+  `ensureToken()` re-syncs the mirror (a stale legacy token is overwritten -- no divergence).
+- Non-vacuous: the mirror and backfill arms fail if their respective code paths are removed (verified).
+
+🛑 The #1968 refusal itself (a token-less / bare-`from_pane` report on an enforcing board is STILL
+refused) is NOT re-proven here on purpose: this fix does not touch `resolveAgentSender`,
+`denyPaneFallback`, or the report route, so that behavior is unchanged and is proven end-to-end by
+the existing `server.report-reply-loopback-1968.test.js` (5/5, re-run green with this change). That
+is the red-capable "spoof stays denied" arm for this fix.
 
 ## Acceptance
 
