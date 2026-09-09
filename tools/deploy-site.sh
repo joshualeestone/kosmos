@@ -170,8 +170,9 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
     # in the .sha256 sidecar -- so a zip whose bytes were altered without touching the manifest OR
     # the sidecar (a bad rebase / hand-edit of the tracked blob) is still caught. This is the TRUE
     # pointer-vs-committed-bytes agreement; comparing to the sidecar alone would only prove
-    # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is shasum's, so a git-show
-    # failure does not abort under set -e -- but cat-file -e above has already proven the blob exists.
+    # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is awk's (the last stage,
+    # always 0), so a git-show failure does not abort under set -e -- but cat-file -e above has
+    # already proven the blob exists.
     WSC=$(git -C "$SITE" show "$H:dist/$WV" 2>/dev/null | shasum -a 256 | awk '{print $1}')
     [ "$WPS" = "$WSC" ] || { echo "deploy-site: latest-win.json (sha $WPS) DISAGREES with the committed bytes of $WV (got ${WSC:-none}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so latest-win.json and the zip agree."; exit 1; }
     WINZIP="$WV"

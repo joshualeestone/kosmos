@@ -58,6 +58,11 @@ if [ -n "$dest" ]; then cp "$served_file" "$dest"; else cat "$served_file"; fi
 exit 0
 CURL
 chmod +x "$BIN/curl"
+# deploy-site.sh runs `command -v vercel` as a precondition BEFORE the derive block, so a box with
+# no vercel would exit there and every assertion below would false-fail (the test:shell gate goes
+# spuriously red for an unrelated reason). A bare no-op stub makes the test host-independent; the
+# dry run (no --publish) never actually invokes it.
+printf '#!/bin/sh\nexit 0\n' > "$BIN/vercel"; chmod +x "$BIN/vercel"
 
 # ---- a site checkout committed with latest.json + latest-win.json + the versioned win zip -------
 # $1 mode:
