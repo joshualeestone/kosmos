@@ -31,13 +31,19 @@ That is the bar. Not "the tests pass".
 
 | # | Capability | State |
 |---|---|---|
-| 1 | install + first run | **UNSURVEYED** — see §5 |
+| 1 | install + first run | ❌ **BLOCKER 3** — §3c. No in-product way to get `claude` onto a clean box |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED (state: partial, see §4) |
 | 4 | **talk to it** | ❌ **BLOCKER 1** — §3 |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
-| 6 | survive a reboot | ✅ MEASURED |
+| 6 | survive a reboot | ⚠️ **HALF** — the AGENTS come back (R8, measured). The BOARD does not: **BLOCKER 4**, §3c |
 | 7 | **update the app** | ❌ **BLOCKER 2** — §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
+
+🛑 THAT IS FOUR BLOCKERS, NOT ONE. This table said "one blocker" on 2026-09-09
+because capability 1 had never been looked at. It has now been traced end to end,
+and the capability with no evidence was hiding two more. 📌 THE LESSON IS THE
+FILE'S OWN RULE: an unsurveyed row is not a passing row, and should never again be
+read as one.
 
 Measured 2026-09-08/09 through the real product path (board up, real HTTP routes,
 every result checked against Windows rather than against a return value):
@@ -51,8 +57,12 @@ every result checked against Windows rather than against a return value):
     R7 restore .................. PASS   task Enabled + Running, agent back
     R8 reboot ................... PASS   back at logon in 7s, unattended
 
-So six of the seven capabilities are real. The missing one is the one the other
-six exist to serve.
+⚠️ AND READ THAT LIST FOR WHAT IT IS. R1–R8 measured the AGENT LIFECYCLE, and it
+is genuinely solid. What it did not touch is everything either side of it: getting
+Kosmos onto a machine at all, getting `claude` onto it, keeping the BOARD alive,
+and updating any of it. Those are capabilities 1, 6 and 7, and three of the four
+blockers live there. The rehearsal was never wrong — it was narrower than the bar
+in §1, and this file read it as broader for a day.
 
 ---
 
@@ -202,6 +212,79 @@ and a screen calling it broken.
 
 📌 NOTHING IN THE SURVEY CAUSES DATA LOSS. The worst outcomes are a dead update
 button and a screen that is backwards about reboot survival.
+
+---
+
+## 3c. BLOCKERS 3 and 4 — first run, and the board itself
+
+Traced end to end 2026-09-09, then the two headline claims verified directly.
+This was the row with NO evidence, and it was hiding two blockers.
+
+### BLOCKER 3 — a clean Windows box has no way to get `claude`
+
+`platform.js` sets `RUNNER_DOWNLOADS = ['darwin']`, so `connect.download()` refuses
+on win32 — correctly, and BEFORE any bytes move, because the Claude Code binary it
+would fetch is a macOS build. The refusal is honest and it genuinely reaches the
+screen (`web/index.html` renders the platform sentence verbatim).
+
+🛑 AND THEN THE PRODUCT HAS NOTHING FURTHER TO OFFER. Nowhere in the engine, the
+web assets, the README or docs is a Windows user told HOW to install Claude Code —
+no command, no link. `platform.js`'s own design note assumes "a Windows user
+installs Claude Code themselves", and that half was never built.
+
+⚠️ AND THE ONE ESCAPE HATCH IS HIDDEN FROM EXACTLY THE PERSON WHO NEEDS IT. The
+"already use Terminal? just type `claude`" path is gated on
+`claudeHatchAvailable()`, which resolves the binary — so it appears only for
+somebody who already has it, and is invisible on the clean machine it would help.
+The remaining buttons are "Try again" (repeats the same doomed download) and
+"Continue anyway" (into a board that cannot make a working agent).
+
+So: fails HONESTLY, and is still a blocker. The fix is small and mostly copy —
+tell a Windows user how to install Claude Code, and stop hiding the hatch on the
+machine that needs it — but it has to exist.
+
+### BLOCKER 4 — the BOARD does not come back after a reboot
+
+⚠️ THIS CORRECTS SOMETHING THIS FILE PREVIOUSLY REPORTED AS DONE. R8 measured
+AGENTS returning at logon, and that stands. But the board is a separate process,
+and nothing brings it back.
+
+    Mac    install/setup.sh writes com.kosmos.board.plist with RunAtLoad,
+           so launchd relaunches the BOARD at login
+    win32  nothing. Verified: no Startup entry, no Registry Run key, no
+           Scheduled Task for the board anywhere in tools/windows/ or
+           tools/build-kosmos-windows.sh
+
+`win32job.js`'s Scheduled Tasks are strictly PER-AGENT. So after a reboot the
+fleet is running and the thing you look at it through is gone, with nothing on
+screen saying so — `machine.js`'s label check returns null off-darwin and the row
+is filtered out entirely, so Settings never raises the subject.
+
+📌 AND THE BOARD RUNS IN THE FOREGROUND OF ITS LAUNCHER. `KosmosLauncher.cs` runs
+`node app\server.js` sharing its own console and waits on it, so closing that
+window kills the board. Together: the board is easy to lose and does not come
+back on its own.
+
+FAILS SILENTLY, which is what makes it a blocker rather than an annoyance.
+
+### Also found (DEGRADED), and it is waiting under BLOCKER 1
+
+Every new agent's instructions are written with `kosmosCliShown()` baked in —
+"you can message another agent with `kosmos msg <name> ...`". `engine/clipath.js`
+has NO win32 branch (verified: no `win32`, no `.exe`, no `.cmd`,
+no `process.platform` in the file), so it falls through to a bare `kosmos`, and
+the Windows zip ships no such file. Agents are being told to run a command that
+does not exist.
+
+`messages.js` describes the failure mode in its own comment: "an agent whose shell
+says 'command not found' never reaches the engine, so its failure leaves no
+trace." Masked today only because BLOCKER 1 means no agent can be asked to do
+anything — it becomes live the moment delivery lands.
+
+### What is still open
+
+Whether installkosmos.com actually serves the Windows zip today. The publish
+script only stages into a separate site checkout, so this repo cannot answer it.
 
 ---
 
