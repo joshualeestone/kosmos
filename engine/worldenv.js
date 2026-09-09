@@ -45,6 +45,7 @@
  */
 
 const worlds = require('./worlds');
+const worldbootguard = require('./worldbootguard');
 
 /* #2238: the world the LIVE board actually BOOTED into, captured at bootstrap and
    never changed for the life of the process. This is deliberately NOT a live
@@ -56,6 +57,11 @@ const worlds = require('./worlds');
    and false-succeed the poll before the switch took effect. So /api/status reports
    THIS value, not worlds.activeWorld(base).id. */
 let bootedWorldId = null;
+/* #2528: the registry base captured at boot (world-INDEPENDENT), so the boot-guard
+   can clear this world's failed-boot counter once the board is listening. Captured
+   before applyActiveWorldEnv moves AGENT_WORKFORCE_DATA, so it cannot be re-derived
+   from process.env afterwards. */
+let bootedBase = null;
 
 /*
  * Capture the pre-override registry base from the ORIGINAL env, then apply the
@@ -67,10 +73,33 @@ let bootedWorldId = null;
 function bootstrapWorldEnv(env = process.env) {
   try {
     const base = worlds.baseRoot(env); // MUST be captured before the override moves it
+    bootedBase = base;
     // #2238: capture the booted world id at the SAME registry state applyActiveWorldEnv
     // reads, BEFORE any later setActiveWorld flips the pointer. applyActiveWorldEnv
     // itself reads activeWorld(base) to build the overrides, so this is consistent.
-    bootedWorldId = worlds.activeWorld(base).id;
+    const activeId = worlds.activeWorld(base).id;
+
+    // #2528: if a non-default world has failed to serve on THRESHOLD consecutive
+    // boots, abandon it and boot the DEFAULT world instead, so a dead world can
+    // never lock the user out permanently. Reset the pointer to default so the
+    // switcher and the board agree, and clear the counter so a later retry of that
+    // world starts fresh (a transient failure should not brand it dead forever).
+    if (activeId !== worlds.DEFAULT_ID && worldbootguard.isAbandoned(base, activeId)) {
+      console.error('#2528: world "' + activeId + '" failed to serve '
+        + worldbootguard.THRESHOLD + ' times in a row; falling back to the default world.');
+      try { worlds.setActiveWorld(base, worlds.DEFAULT_ID); } catch (_) { /* fail-open: the default-env return below still lands on default */ }
+      worldbootguard.clear(base, activeId);
+      bootedWorldId = worlds.DEFAULT_ID;
+      return base; // default world: no override applied
+    }
+
+    // Record this boot attempt for a non-default world BEFORE applying its env, so a
+    // boot that crashes before the board serves still counted. The board clears it
+    // the instant it is listening (server.js), so a healthy world's count returns to
+    // zero every boot and never approaches the threshold.
+    if (activeId !== worlds.DEFAULT_ID) worldbootguard.recordAttempt(base, activeId);
+
+    bootedWorldId = activeId;
     const applied = worlds.applyActiveWorldEnv(env, base);
     if (Object.keys(applied).length) {
       // Diagnostic -> stderr, so it never pollutes anything parsing stdout.
@@ -81,6 +110,7 @@ function bootstrapWorldEnv(env = process.env) {
     // legacy / broken env -> the board boots as the DEFAULT world, so that is the
     // world it booted into (fail-open, matching the base=null return).
     bootedWorldId = worlds.DEFAULT_ID;
+    bootedBase = null;
     return null;
   }
 }
@@ -91,4 +121,9 @@ function bootstrapWorldEnv(env = process.env) {
    "unknown", not as the default. */
 function bootedWorld() { return bootedWorldId; }
 
-module.exports = { bootstrapWorldEnv, bootedWorld };
+/* #2528: the registry base the running board booted from, so server.js can clear
+   this world's failed-boot counter once the board is listening. null if
+   bootstrapWorldEnv was never called or hit the broken-env fail-open path. */
+function bootedBaseDir() { return bootedBase; }
+
+module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir };

@@ -10280,6 +10280,14 @@ function start(port = PORT) {
     const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
     const onListening = () => {
       server.removeListener('error', onError);
+      // #2528: the board reached `listening`, so the world it booted into serves --
+      // clear that world's failed-boot counter. A world only accrues attempts while
+      // it fails to reach this point, so a healthy world's count returns to zero
+      // every boot and never trips the abandon-and-fall-back-to-default guard.
+      try {
+        const worldenv = require('./engine/worldenv');
+        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open: the guard must never break a healthy boot */ }
       /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
          not at require. At require, ensureToken() would write to a real store on a
          bare `require('./server')` in a unit test. Provisioning after the bind also
