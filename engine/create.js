@@ -461,14 +461,25 @@ function spokenName(clean) {
  */
 function slugFor(raw) {
   /* #740 (Josh, 2026-08-24 21:17: "I've got to be able to have capitals.
-     I've got to be able to have spaces... first name, last name"): a run of
-     whitespace becomes ONE hyphen, and that is the only thing besides case
-     that changes. Still not safeKey: nothing is stripped, so `Ca.sey` is
-     still refused rather than silently becoming `casey`. "Kira Knightley"
-     is shown as typed and is `kira-knightley` to the machinery; if an agent
-     already holds that machine name, createAgent refuses by name, so two
-     spellings can never land on one folder in silence. */
-  return cleanName(raw).toLowerCase().replace(/\s+/g, '-');
+     I've got to be able to have spaces... first name, last name") and #2605
+     (Josh, 2026-09-09: a title like "Dr." must be allowed, "blocking me from
+     making this agent's name Doctor"): a run of whitespace OR periods becomes
+     ONE hyphen, and case is the only other thing that changes.
+     🛑 STILL NOT safeKey, AND THAT DISTINCTION IS THE WHOLE SAFETY ARGUMENT.
+     safeKey STRIPS, so `Ca.sey` would become `casey` -- a DIFFERENT agent's
+     name, arrived at silently, the exact hole this repo has closed three times.
+     This REPLACES a period with a hyphen (the same as whitespace) rather than
+     removing it, so `Ca.sey` is `ca-sey`, DISTINCT from `casey`, never a silent
+     collision. The change is a NO-OP for any name without a period (`[\s.]+`
+     matches exactly what `\s+` did), so its whole blast radius is the period.
+     "Dr. Maya Okafor" is shown as typed and is `dr-maya-okafor` to the
+     machinery; if an agent already holds that machine name, createAgent refuses
+     by name, so two spellings can never land on one folder in silence.
+     ⚠️ A LEADING period is still refused, not silently dropped: it folds to a
+     leading hyphen, which NAME_RE rejects, so `.Net` is refused rather than
+     becoming `net`. Only the period joins whitespace here; every other
+     character still survives unchanged to be caught by NAME_RE. */
+  return cleanName(raw).toLowerCase().replace(/[\s.]+/g, '-');
 }
 
 function nameProblem(raw) {
