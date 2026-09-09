@@ -4156,33 +4156,45 @@ function byWorkdirDetailed(agentName) {
  * Has Kosmos launched this agent somewhere nothing has yet been written?
  *
  * ⚠️ TRUE ONLY WHEN BOTH HALVES HOLD — see the long note at the caller. The
- * plist is the half that makes the folder's emptiness mean anything: without
+ * JOB is the half that makes the folder's emptiness mean anything: without
  * it, an empty folder says only that the agent did not run HERE.
+ *
+ * 🛑 AND "THE JOB" WAS SPELLED "a .plist" (#570, roadmap §3b), so on Windows —
+ * where the job is a Scheduled Task and no plist is ever written — this half
+ * was false for every agent, and a Windows agent Kosmos had just made fell
+ * through to `neverRecorded`'s "made before Kosmos recorded this". False, about
+ * the one thing Kosmos is certain of. `create.hasJob` is the shared answer now;
+ * `platform` is injected so a Mac can drive the win32 arm, and defaults to the
+ * real one.
  *
  * 📌 Any error reading either fact answers FALSE, so an unreadable machine
  * falls back to the admission rather than to a claim about the agent's life.
  */
-function notYetStarted(agentName) {
+function notYetStarted(agentName, platform) {
   let managed = false;
-  try { managed = fs.existsSync(require('./create').plistPath(agentName)); } catch { return false; }
+  try { managed = require('./create').hasJob(agentName, platform); } catch { return false; }
   if (!managed) return false;
   try { return byWorkdirDetailed(agentName).sawTranscripts === false; } catch { return false; }
 }
 
 /**
- * No launch file at all: made (or hand-started) before Kosmos recorded how it
- * starts. The same plist gate `notYetStarted` trusts, inverted, and it FAILS
+ * No launch job at all: made (or hand-started) before Kosmos recorded how it
+ * starts. The same job gate `notYetStarted` trusts, inverted, and it FAILS
  * TOWARD FALSE: a wrong "never recorded" asserts provenance about an agent we
  * could not check, while a wrong false only leaves the ordinary admission,
  * which is vague but not a claim. Which is why this is create.jobMissing and
- * not !existsSync: only ENOENT counts as absence, an unreadable directory
- * answers "could not check" and stays false. Callers must apply it only to a pane tied
- * to the name (`isNamedOurs`); this function knows files, not panes.
+ * not a negated existence check: only a PROVEN absence counts, and a look that
+ * failed answers "could not check" and stays false. Callers must apply it only
+ * to a pane tied to the name (`isNamedOurs`); this function knows jobs, not panes.
+ *
+ * 📌 On win32 the proof is `schtasks` saying there is no such task, not a
+ * missing file — see create.jobPresence. `platform` is injected for the same
+ * reason it is above.
  */
-function neverRecorded(agentName) {
+function neverRecorded(agentName, platform) {
   // require at CALL time: create.js requires status.js at load, so a
   // top-level require here would be a cycle landing half-initialized.
-  try { return require('./create').jobMissing(agentName) === true; } catch { return false; }
+  try { return require('./create').jobMissing(agentName, platform) === true; } catch { return false; }
 }
 
 function transcriptCwd(file) {
@@ -6628,6 +6640,11 @@ module.exports = {
   TRUST_DIALOG_SENTENCE,
   SELECTOR_GLYPHS,
   isCodexCommand,
+  /* #570: exported so the two job gates can be asserted for BOTH platforms from
+     either one. They read `create.hasJob`/`create.jobMissing`, which used to be
+     a plist stat -- the reason a freshly made Windows agent was told it was
+     "made before Kosmos recorded this". */
+  notYetStarted, neverRecorded,
 };
 
 if (require.main === module) {

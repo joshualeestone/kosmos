@@ -57,6 +57,18 @@ let CALLS = [];
 create.setRunner((file, args) => { CALLS.push([file, ...args].join(' ')); return { ok: true, stdout: '' }; });
 create.setDryRun(false);
 
+/* 🛑 THE PLATFORM IS STATED, NOT INHERITED (#570) -- the same fix step 9 made to
+   remove.test.js, for the same reason. Every fixture below IS a Mac: it writes a
+   `.plist` and asserts about `launchctl` argv. `survey`/`repair` now ask the JOB
+   rather than a file, and on Windows the job is a Scheduled Task -- so a suite
+   that states nothing drives the win32 arm through Mac fixtures and goes red for
+   reasons that have nothing to do with the code under test. The win32 arm is
+   pinned from EITHER platform in jobexists.win32-570.test.js. */
+const mac = {
+  survey: () => register.survey({ platform: 'darwin' }),
+  repair: (o) => register.repair({ platform: 'darwin', ...(o || {}) }),
+};
+
 function agent(name, { folder = true, job = false, profile = true } = {}) {
   if (profile) store.writeProfile(name, { role: 'helper' });
   if (folder) fs.mkdirSync(create.workerDir(name), { recursive: true });
@@ -82,7 +94,7 @@ test('an agent with a folder and no job is the thing being looked for', () => {
   agent('anna', { job: true });
   agent('brigitte');
   agent('marilyn');
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.ok, true);
   assert.deepEqual(s.missing, ['brigitte', 'marilyn']);
   /* ⚠️ THE ROW CARRIES BOTH NAMES. Act on `name`, speak `shownAs`: the panel
@@ -100,7 +112,7 @@ test('the roster comes from what Kosmos wrote, never from what is in the folder'
      every login. The failure direction is to do nothing. */
   reset();
   fs.mkdirSync(path.join(SB, 'workers', 'somebody-elses-thing'), { recursive: true });
-  assert.deepEqual(register.survey().missing, []);
+  assert.deepEqual(mac.survey().missing, []);
 });
 
 test('a removed agent is not resurrected', () => {
@@ -108,7 +120,7 @@ test('a removed agent is not resurrected', () => {
   agent('rick');
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'rick' }]), 'utf8');
-  const s = register.survey();
+  const s = mac.survey();
   assert.deepEqual(s.missing, [], 'an agent somebody removed on purpose was queued to be started again');
   assert.equal(s.agents.find((a) => a.name === 'rick').removed, true);
 });
@@ -122,10 +134,10 @@ test('an unreadable removed list stops everything, rather than guessing', () => 
   agent('rick');
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), '{not json', 'utf8');
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.ok, false);
   assert.match(s.because, /removed/);
-  assert.deepEqual(register.repair().results, [], 'a repair ran against a list we could not read');
+  assert.deepEqual(mac.repair().results, [], 'a repair ran against a list we could not read');
 });
 
 test('a profile with no folder is reported and never acted on', () => {
@@ -133,7 +145,7 @@ test('a profile with no folder is reported and never acted on', () => {
      seconds forever. It stays on the survey so it can be SEEN. */
   reset();
   agent('tom', { folder: false });
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.agents.find((a) => a.name === 'tom').folder, false);
   assert.deepEqual(s.missing, []);
 });
@@ -142,13 +154,13 @@ test('a name that is not a name is not turned into a path', () => {
   reset();
   fs.mkdirSync(store.PROFILES, { recursive: true });
   fs.writeFileSync(path.join(store.PROFILES, '...json'), '{}', 'utf8');
-  assert.deepEqual(register.survey().agents.map((a) => a.name), []);
+  assert.deepEqual(mac.survey().agents.map((a) => a.name), []);
 });
 
 test('the repair writes the job, enables the label, and bootstraps it', () => {
   reset();
   agent('brigitte');
-  const out = register.repair();
+  const out = mac.repair();
   assert.equal(out.ok, true);
   assert.equal(out.installed, 1);
   assert.equal(fs.existsSync(create.plistPath('brigitte')), true, 'no job was written');
@@ -166,7 +178,7 @@ test('the model it last ran as goes into the job, and an unknown one is left out
   reset();
   agent('christina');
   agent('heather');
-  register.repair({ modelFor: (n) => (n === 'christina' ? 'claude-opus-5' : null) });
+  mac.repair({ modelFor: (n) => (n === 'christina' ? 'claude-opus-5' : null) });
   assert.match(fs.readFileSync(create.plistPath('christina'), 'utf8'), /claude-opus-5/);
   /* ⚠️ AND NOT GUESSED. A plist naming the wrong model is a silent downgrade
      that outlives everybody's memory of the day it was written; the
@@ -180,10 +192,10 @@ test('the model it last ran as goes into the job, and an unknown one is left out
 test('what we had to assume travels back, so the screen can say it', () => {
   reset();
   agent('marilyn');
-  const r = register.repair().results[0];
+  const r = mac.repair().results[0];
   assert.match(r.guessed.model, /default/);
   assert.match(r.guessed.account, /main Claude account/);
-  const kept = register.repair({ modelFor: () => 'claude-opus-5' });
+  const kept = mac.repair({ modelFor: () => 'claude-opus-5' });
   assert.deepEqual(kept.results, [], 'it repaired the same agent twice');
 });
 
@@ -193,7 +205,9 @@ test('an existing job is never overwritten', () => {
      silent downgrade this module refuses everywhere else. */
   reset();
   agent('anna', { job: true });
-  const r = create.installJob('anna');
+  // The fixture is a plist, so it is the darwin arm this pins; #570's win32
+  // half of the same guard is in jobexists.win32-570.test.js.
+  const r = create.installJob('anna', { platform: 'darwin' });
   assert.equal(r.ok, false);
   assert.equal(r.already, true);
   assert.equal(fs.readFileSync(create.plistPath('anna'), 'utf8'), '<plist/>');
@@ -211,7 +225,7 @@ test('the job stays on disk when it could not be started', () => {
     if (args[0] === 'bootstrap') return { ok: false };
     return { ok: true, stdout: '' };
   });
-  const r = register.repair().results[0];
+  const r = mac.repair().results[0];
   create.setRunner((file, args) => { CALLS.push([file, ...args].join(' ')); return { ok: true, stdout: '' }; });
   assert.equal(r.ok, true);
   assert.equal(r.started, false);
@@ -225,7 +239,7 @@ test('no job is written when Claude is not on this computer', () => {
   reset();
   agent('dan');
   fs.rmSync(path.join(SB, 'bin', 'claude'));
-  const r = create.installJob('dan');
+  const r = create.installJob('dan', { platform: 'darwin' });
   assert.equal(r.ok, false);
   assert.match(r.because, /could not find Claude/);
   assert.equal(fs.existsSync(create.plistPath('dan')), false);
@@ -242,7 +256,7 @@ test('a machine that has never had an agent is not an unreadable one', () => {
      about. */
   reset();
   fs.rmSync(store.PROFILES, { recursive: true, force: true });
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.ok, true);
   assert.deepEqual(s.agents, []);
   assert.deepEqual(s.missing, []);
@@ -256,13 +270,13 @@ test('the survey speaks the name the person typed', () => {
   reset();
   agent('scarlett');
   store.writeProfile('scarlett', { displayName: 'Scarlett' });
-  const row = register.survey().agents.find((x) => x.name === 'scarlett');
+  const row = mac.survey().agents.find((x) => x.name === 'scarlett');
   assert.equal(row.shownAs, 'Scarlett');
   /* ⚠️ And the acting key is untouched: everything downstream of this builds a
      path, a launchd label and a tmux target out of it. */
   assert.equal(row.name, 'scarlett');
-  assert.deepEqual(register.survey().missing, ['scarlett'], 'the list a repair acts on stopped being machine names');
-  assert.equal(register.repair().results[0].shownAs, 'Scarlett', 'the report speaks the machine name');
+  assert.deepEqual(mac.survey().missing, ['scarlett'], 'the list a repair acts on stopped being machine names');
+  assert.equal(mac.repair().results[0].shownAs, 'Scarlett', 'the report speaks the machine name');
 });
 
 test('#500: a folder or job with no profile is surveyed as a stray, and repair never touches it', () => {
@@ -291,7 +305,7 @@ test('#500: a folder or job with no profile is surveyed as a stray, and repair n
      name; it holds nothing hostage and is not ours to show. */
   fs.mkdirSync(path.join(SB, 'workers', 'Bad Name'), { recursive: true });
 
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.ok, true);
   const byName = new Map(s.agents.map((a) => [a.name, a]));
   assert.equal(byName.get('with-profile').profile, true);
@@ -314,7 +328,7 @@ test('#500: a folder or job with no profile is surveyed as a stray, and repair n
 
   /* repair() acts on missing. After it runs, the stray folder must hold no
      launchd job: minting one would resurrect an agent nobody registered. */
-  const r = register.repair();
+  const r = mac.repair();
   assert.equal(r.ok, true);
   assert.equal(fs.existsSync(create.plistPath('stray-folder')), false,
     'repair wrote a job for a profile-less stray');
@@ -331,7 +345,7 @@ test('#500: a removed name with stray remains is carried as removed and never qu
     JSON.stringify({ at: new Date().toISOString(), name: 'ghost', outcome: 'created' }) + '\n', 'utf8');
   fs.mkdirSync(store.ROOT, { recursive: true });
   fs.writeFileSync(path.join(store.ROOT, 'removed.json'), JSON.stringify([{ name: 'ghost' }]), 'utf8');
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.ok, true);
   const ghost = s.agents.find((a) => a.name === 'ghost');
   assert.ok(ghost, 'the removed stray fell out of the survey entirely');
@@ -351,7 +365,7 @@ test('#500: a directory born long after every line for its name is a later tenan
   fs.appendFileSync(create.createdLogFile(),
     JSON.stringify({ at: '2001-01-01T00:00:00Z', name: 'old-name', outcome: 'created' }) + '\n'
     + JSON.stringify({ at: '2099-01-01T00:00:00Z', name: 'young-name', outcome: 'created' }) + '\n', 'utf8');
-  const s = register.survey();
+  const s = mac.survey();
   const names = s.agents.map((a) => a.name);
   assert.ok(names.includes('young-name'), 'the control stray is absent, so the later-tenant assert proves nothing');
   assert.ok(!names.includes('old-name'), 'a directory born after its only line was shown as that line\'s remains');
@@ -362,13 +376,13 @@ test('#500: an unreadable root reports the sweep failed rather than a confident 
   agent('solo');
   fs.chmodSync(path.join(SB, 'workers'), 0o000);
   try {
-    const s = register.survey();
+    const s = mac.survey();
     assert.equal(s.ok, true, 'an unreadable stray root took the whole survey down');
     assert.equal(s.straySweepFailed, true, 'could-not-look was reported as found-nothing');
   } finally {
     fs.chmodSync(path.join(SB, 'workers'), 0o755);
   }
-  const healthy = register.survey();
+  const healthy = mac.survey();
   assert.equal(healthy.straySweepFailed, false, 'the flag stuck after the root came back');
 });
 
@@ -382,7 +396,7 @@ test('#500: both walks fail soft on a machine with neither root', () => {
   fs.rmSync(path.join(SB, 'workers'), { recursive: true, force: true });
   fs.rmSync(path.join(SB, 'launch'), { recursive: true, force: true });
   store.writeProfile('solo', { role: 'helper' });
-  const s = register.survey();
+  const s = mac.survey();
   assert.equal(s.ok, true);
   assert.deepEqual(s.agents.map((a) => a.name), ['solo']);
 });
@@ -427,7 +441,7 @@ test('#1337: a Codex repair writes its trust entry inside the sandbox, not the r
   agent('codexhome');
   store.writeProfile('codexhome', { role: 'helper', provider: 'openai' });
   fs.rmSync(create.plistPath('codexhome'), { force: true });
-  register.repair();
+  mac.repair();
 
   const sandboxed = path.join(SB, 'home', '.codex', 'config.toml');
   assert.ok(fs.existsSync(sandboxed),
@@ -453,7 +467,7 @@ test('#1400: a Codex agent repairs to a CODEX job, and a Claude agent still repa
   store.writeProfile('codexrepair', { role: 'helper', provider: 'openai' });
   agent('clauderepair');
 
-  register.repair({ modelFor: () => null });
+  mac.repair({ modelFor: () => null });
 
   const codexPlist = fs.readFileSync(create.plistPath('codexrepair'), 'utf8');
   const claudePlist = fs.readFileSync(create.plistPath('clauderepair'), 'utf8');
@@ -478,7 +492,7 @@ test('#1400 CONTROL: a CORRUPT profile still repairs, on the default runner', ()
   reset();
   agent('corruptrepair');
   fs.writeFileSync(path.join(store.PROFILES, 'corruptrepair.json'), '{ not json', 'utf8');
-  const out = register.repair({ modelFor: () => null });
+  const out = mac.repair({ modelFor: () => null });
   const row = out.results.find((r) => r.name === 'corruptrepair');
   assert.ok(row, 'an agent with a corrupt profile was skipped rather than repaired');
   assert.ok(fs.existsSync(create.plistPath('corruptrepair')),

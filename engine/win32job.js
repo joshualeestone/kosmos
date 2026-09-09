@@ -52,10 +52,24 @@ function setRunner(fn) { runFn = typeof fn === 'function' ? fn : null; }
 function run(args) {
   if (runFn) return runFn(args);
   try {
-    const out = cp.execFileSync('schtasks.exe', args, { encoding: 'utf8', timeout: 20000 });
+    /* ⚠️ stderr PIPED, NOT INHERITED, and that is not tidiness. execFileSync's
+       default sends the child's stderr straight to OUR stderr, so every ordinary
+       miss printed `ERROR: The system cannot find the file specified.` into the
+       board's log. Harmless with a handful of calls; `presence` below is asked
+       once per agent by a screen that polls every five seconds, which would turn
+       one honest answer into a stream of alarming lines about nothing. */
+    const out = cp.execFileSync('schtasks.exe', args, {
+      encoding: 'utf8', timeout: 20000, stdio: ['ignore', 'pipe', 'pipe'],
+    });
     return { ok: true, out: String(out || '') };
   } catch (e) {
-    return { ok: false, out: String((e && (e.stdout || e.message)) || ''), code: (e && e.status) };
+    /* stderr FIRST: schtasks says why on stderr ("cannot find", "access is
+       denied"), and that sentence is both what `presence` reads to tell an
+       absent job from an unreadable one and what every `because` shows a
+       person. `e.message` carries it too, behind "Command failed: schtasks.exe
+       …", so it stays as the last resort rather than the first. */
+    const said = (e && (e.stderr || e.stdout)) || '';
+    return { ok: false, out: String(said || (e && e.message) || ''), code: (e && e.status) };
   }
 }
 
@@ -293,34 +307,117 @@ function start(name) {
   return { ok: true };
 }
 
+/* schtasks' way of saying "there is no such task". It is the ONE token that
+   separates a proven absence from a look that failed (access denied, the
+   Task Scheduler service stopped, schtasks itself missing) -- `presence` below
+   turns on it, and `remove` uses it to stay idempotent. One spelling, two
+   readers.
+   ⚠️ ENGLISH ONLY, and that is the SAFE direction rather than an oversight: this
+   text is localized, so on a non-English Windows an absent job reads as "we
+   could not look". `presence` answers UNKNOWN there, and every caller treats
+   unknown as "do not claim" -- a screen says nothing instead of saying no. The
+   inverse (matching loosely and calling a failed look an absence) is the bug
+   this whole change is about. Measured on en-US: ERROR: The system cannot find
+   the file specified. */
+const NO_SUCH_TASK = /cannot find|does not exist/i;
+
 /** Remove the job entirely (the agent is being deleted, not stopped). */
 function remove(name) {
   const r = run(['/Delete', '/F', '/TN', taskName(name)]);
   /* A job that was never registered is already gone -- the same posture
      win32sessions.forget takes, so a delete is idempotent. */
-  if (!r.ok && !/cannot find|does not exist/i.test(r.out || '')) {
+  if (!r.ok && !NO_SUCH_TASK.test(r.out || '')) {
     return { ok: false, because: 'we could not remove the startup job (' + (r.out || '').trim().split('\n')[0] + ')' };
   }
   return { ok: true };
 }
 
 /**
+ * Is there a job for this agent -- and did we manage to look?
+ *
+ * 🛑 THE THREE-STATE ANSWER, AND WHY IT EXISTS (#570, roadmap §3b). Several
+ * modules answered "does this agent have a startup job?" by stat-ing a `.plist`.
+ * On the Mac the plist IS the job, so a missing file is a real no. On Windows no
+ * plist is ever written, so those readers did not refuse -- they answered NO,
+ * confidently and wrongly, about agents whose Scheduled Task was registered and
+ * would bring them back at the next logon (MEASURED on this box: three
+ * registered tasks, three `job: false` rows).
+ *
+ * 🔑 "COULD NOT LOOK" IS NOT "NO", and a boolean cannot say so. `status` below
+ * folds both into `registered: false` because its callers act on the job either
+ * way (a stop that finds nothing has nothing to stop). The callers HERE make a
+ * CLAIM to a person -- "this will not come back", "nothing of it is left" -- and
+ * a claim manufactured from a failed look is the exact defect this fixes.
+ * `create.js`'s `disabledJobs()`/`runningJobs()` already take this posture on
+ * the Mac; this is the same rule on the substrate that needed it.
+ *
+ * Returns { known, registered, enabled }. `known: false` means the look failed
+ * and NOTHING may be concluded -- `registered` is false there only so a caller
+ * that ignores `known` errs toward doing nothing rather than acting.
+ */
+function presence(name) {
+  const r = run(['/Query', '/TN', taskName(name), '/FO', 'LIST']);
+  if (r.ok) {
+    /* schtasks prints a localized "Scheduled Task State" / "Status" line. Read
+       the DISABLED token rather than a positive spelling: the disabled word is
+       stable across the shapes seen, and defaulting to enabled-when-unsure would
+       claim a job is running when we could not tell. Fail toward the honest
+       answer. */
+    return { known: true, registered: true, enabled: !/disabled/i.test(r.out || '') };
+  }
+  if (NO_SUCH_TASK.test(r.out || '')) return { known: true, registered: false };
+  return { known: false, registered: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
+}
+
+/**
+ * Every agent job registered on this machine, in ONE probe.
+ *
+ * 🔑 THE SHAPE `create.js` ALREADY USES for the same question on the Mac
+ * (`disabledJobs`, `runningJobs`): one call for the whole fleet rather than one
+ * per agent, because the screen that asks polls every five seconds. Our tasks
+ * all live under one folder, which is what `TASK_PREFIX` is for, so the folder
+ * query IS the fleet query.
+ *
+ * ⚠️ CSV, NOT LIST, and the reason is localization: `/FO LIST` labels each row
+ * with a translated field name ("TaskName:"), so parsing it would find nothing
+ * on a non-English Windows and report an empty fleet. CSV emits the VALUES with
+ * no labels, so column one is the task path in every locale.
+ *
+ * Returns { known, names:Set } -- an empty folder is a real empty fleet
+ * (schtasks says "cannot find"), anything else it will not answer is unknown.
+ */
+function list() {
+  const r = run(['/Query', '/TN', TASK_PREFIX.split('\\')[0] + '\\', '/FO', 'CSV', '/NH']);
+  if (!r.ok) {
+    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, names: new Set() };
+    return { known: false, names: new Set() };
+  }
+  const names = new Set();
+  for (const line of String(r.out || '').split('\n')) {
+    const m = /^"([^"]*)"/.exec(line.trim());
+    if (!m) continue;
+    // Task paths come back rooted ("\Kosmos\agent-ava"); our prefix is not.
+    const at = m[1].replace(/^\\+/, '');
+    if (at.startsWith(TASK_PREFIX)) names.add(at.slice(TASK_PREFIX.length));
+  }
+  return { known: true, names };
+}
+
+/**
  * Is a job registered for this agent, and is it enabled?
  * Returns { registered, enabled } or { registered:false } -- never throws.
+ *
+ * 📌 KEPT AS A BOOLEAN ON PURPOSE. `remove.js` asks this to decide what to DO,
+ * and there both "no job" and "we could not see one" lead to the same act. Use
+ * `presence` wherever the answer becomes a sentence somebody reads.
  */
 function status(name) {
-  const r = run(['/Query', '/TN', taskName(name), '/FO', 'LIST']);
-  if (!r.ok) return { registered: false };
-  /* schtasks prints a localized "Scheduled Task State" / "Status" line. Read the
-     DISABLED token rather than a positive spelling: the disabled word is stable
-     across the shapes seen, and defaulting to enabled-when-unsure would claim a
-     job is running when we could not tell. Fail toward the honest answer. */
-  const disabled = /disabled/i.test(r.out || '');
-  return { registered: true, enabled: !disabled };
+  const p = presence(name);
+  return p.registered ? { registered: true, enabled: p.enabled } : { registered: false };
 }
 
 module.exports = {
   TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape,
-  install, disable, enable, end, start, remove, status,
+  install, disable, enable, end, start, remove, status, presence, list,
   setRunner, setAnchorer,
 };

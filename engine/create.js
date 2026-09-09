@@ -619,22 +619,60 @@ function nameUsable(raw) {
   return true;
 }
 
+/**
+ * Does this agent have a startup job -- 'yes', 'no', or 'unknown'?
+ *
+ * 🛑 THE ONE ANSWER TO A QUESTION THAT WAS ASKED IN FIVE PLACES (#570, roadmap
+ * §3b). `register.js`, `delete-leftover.js`, `status.js`, `discover.js` and
+ * `installJob` below each stat-ed a `.plist` to decide it. On the Mac the plist
+ * IS the job, so that is right. On Windows the job is a Scheduled Task and no
+ * plist is ever written -- so none of them refused, they all answered NO,
+ * confidently and wrongly, about agents that DO come back at logon (measured on
+ * a real box 2026-09-08, R8). `remove.js` had already solved this with
+ * `jobFor`/`jobOps`; this is that solution moved to where every reader can share
+ * it, rather than a sixth copy.
+ *
+ * 🔑 THREE STATES, NOT TWO, because "we could not look" is not "no" -- the rule
+ * `disabledJobs`/`runningJobs` above already keep, and the one #149/#150 wrote
+ * into `jobMissing`. Both of those callers get exactly what they had; the new
+ * value is that a Windows reader can now tell an absent job from an unreadable
+ * one instead of publishing a claim it never checked.
+ *
+ * ⚠️ `platform` IS INJECTED, NOT READ, and that is the branch's whole method: a
+ * bare `process.platform` cannot be driven from the fleet's Macs, so the win32
+ * arm would sit unexercised and a green suite would say nothing about it. It
+ * defaults to the real platform, so production is unchanged. Same shape as
+ * `installJob`'s `opts.platform`, `remove.jobFor` and `store.dataRootFor`.
+ */
+function jobPresence(name, platform) {
+  if ((platform || process.platform) === 'win32') {
+    /* require at CALL time, matching win32RegisterJob below: this module is
+       required by half the engine and win32job pulls in the anchor. */
+    let p;
+    try { p = require('./win32job').presence(name); } catch { return 'unknown'; }
+    if (!p.known) return 'unknown';
+    return p.registered ? 'yes' : 'no';
+  }
+  try { fs.statSync(plistPath(name)); return 'yes'; } catch (e) {
+    // Only ENOENT is evidence of absence; EACCES and a broken directory are not.
+    return (e && e.code === 'ENOENT') ? 'no' : 'unknown';
+  }
+}
+
 /** Does Kosmos already have a launch job for this name? */
-function hasJob(name) {
-  try { return fs.existsSync(plistPath(name)); } catch { return false; }
+function hasJob(name, platform) {
+  return jobPresence(name, platform) === 'yes';
 }
 /**
  * #149/#150: "no launch file" as a PROVEN absence, never an unreadable one.
- * `!hasJob(name)` fails the wrong way for this question: existsSync swallows
- * EACCES and a broken directory into false, so the negation would stamp
- * "made before Kosmos recorded this", a provenance claim, on every agent the
- * moment LaunchAgents cannot be read. Only ENOENT is evidence of absence;
- * any other failure answers "we could not check", which is false here.
+ * `!hasJob(name)` fails the wrong way for this question: a look that failed
+ * would be swallowed into false, so the negation would stamp "made before
+ * Kosmos recorded this", a provenance claim, on every agent the moment
+ * LaunchAgents cannot be read. Only a proven absence counts; any other failure
+ * answers "we could not check", which is false here.
  */
-function jobMissing(name) {
-  try { fs.statSync(plistPath(name)); return false; } catch (e) {
-    return Boolean(e && e.code === 'ENOENT');
-  }
+function jobMissing(name, platform) {
+  return jobPresence(name, platform) === 'no';
 }
 /* #2245: the brief file an agent boots from depends on its RUNNER -- a codex
    (OpenAI) agent boots from AGENTS.md (engine/discover.js reads it as the codex
@@ -2147,8 +2185,28 @@ function installJob(name, opts) {
   if (!NAME_RE.test(clean)) {
     return { ok: false, because: 'that is not a name this product can build a job from' };
   }
-  if (fs.existsSync(plistPath(clean))) {
+  /* 🛑 THE NEVER-OVERWRITE GUARD, AND IT DID NOT FIRE ON WINDOWS (#570). This
+     stat-ed the plist, so on win32 it answered "no job here" for an agent whose
+     Scheduled Task was registered and whose supervisor was running -- and the
+     win32 arm below does not just register a task, it LAUNCHES THE AGENT. So
+     `repair` (the "Set them to start at login" button, fed by a survey that
+     called every Windows agent unregistered) would have spawned a SECOND live
+     agent in the same folder for every agent on the board.
+
+     ⚠️ UNKNOWN REFUSES ON win32 AND PROCEEDS ON darwin, and the asymmetry is the
+     act, not the platform. On the Mac, proceeding past an unreadable
+     LaunchAgents changes nothing a person has to undo: the plist write fails on
+     the same permission and the agent is never started, so the old behaviour is
+     kept exactly. On Windows the arm below LAUNCHES FIRST, and
+     `win32job.install` overwrites with `/F` -- so proceeding on a look that
+     failed is how two agents end up editing one folder. A refusal is
+     recoverable in one click; a duplicate agent is not. */
+  const already = jobPresence(clean, opts && opts.platform);
+  if (already === 'yes') {
     return { ok: false, already: true, because: 'it already has one' };
+  }
+  if (already === 'unknown' && (opts && opts.platform || process.platform) === 'win32') {
+    return { ok: false, because: 'we could not check whether it already starts on its own, so nothing was changed' };
   }
   if (!fs.existsSync(workerDir(clean))) {
     return { ok: false, because: 'there is no folder for it on this computer' };
@@ -3969,6 +4027,8 @@ module.exports = {
   installJob,
   nameUsable,
   hasJob, jobMissing,
+  // #570: the one three-state answer the plist-stat readers now share.
+  jobPresence,
   setAccount,
   setProvider,
   readJob,

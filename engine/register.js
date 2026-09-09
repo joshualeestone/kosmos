@@ -153,7 +153,35 @@ function readRoot(dir) {
   catch (err) { if (err && err.code === 'ENOENT') return []; throw err; }
 }
 
-function strays(profileNames) {
+/**
+ * "Does this agent have a startup job?", answered once for the whole fleet.
+ *
+ * 🔑 ONE PROBE, NOT ONE PER AGENT, on win32 -- the shape `create.disabledJobs`
+ * and `create.runningJobs` already use for the same question on the Mac. This
+ * screen polls every five seconds, and asking `schtasks` per agent would spend
+ * ~18ms x N (measured on this box) on every tick. Every agent job lives under
+ * one Task Scheduler folder, so the folder query IS the fleet query.
+ *
+ * Answers `true`, `false`, or `null` for "we could not look" -- and null is the
+ * point: this screen makes a CLAIM to a person, and a claim built from a failed
+ * look is what §3b is about. A null row is reported and never acted on.
+ *
+ * 📌 THE MAC ARM IS THE ORIGINAL LINE, UNCHANGED, ON PURPOSE. `existsSync`
+ * swallows EACCES into false there, so an unreadable LaunchAgents would say
+ * "none of your agents come back" -- the same defect class, on the platform this
+ * branch may not change the behaviour of. Left as found, deliberately.
+ */
+function jobReader(platform) {
+  if (platform !== 'win32') {
+    return { win32: false, known: true, fleet: null, of: (name) => fs.existsSync(create.plistPath(name)) };
+  }
+  let all;
+  try { all = require('./win32job').list(); } catch { all = { known: false }; }
+  if (!all.known) return { win32: true, known: false, fleet: null, of: () => null };
+  return { win32: true, known: true, fleet: all.names, of: (name) => all.names.has(name) };
+}
+
+function strays(profileNames, jobs) {
   let failed = false;
   const have = new Set(profileNames);
   const born = new Map();
@@ -206,22 +234,53 @@ function strays(profileNames) {
       } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
     }
   } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
-  try {
-    for (const f of readRoot(create.AGENTS_DIR)) {
-      const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f);
-      if (!m) continue;
-      try {
-        if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(m[1], 'job');
-      } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
-    }
-  } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
+  /* 🛑 THE STRAY-JOB HALF HAS NO DIRECTORY TO WALK ON WINDOWS (#570). A
+     Scheduled Task is a registration, not a file, so this loop found nothing
+     there and the sweep silently reported "no stray jobs" about a machine it had
+     not looked at. `win32job.list` is the enumeration, in one query; a query
+     that fails sets `failed` rather than passing a blank answer off as a clean
+     one, which is the whole reason that flag exists. */
+  if (jobs.win32) {
+    if (!jobs.known) failed = true;
+    else for (const n of jobs.fleet) note(n, 'job');
+  } else {
+    try {
+      for (const f of readRoot(create.AGENTS_DIR)) {
+        const m = /^com\.kosmos\.agent\.(.+)\.plist$/.exec(f);
+        if (!m) continue;
+        try {
+          if (fs.statSync(path.join(create.AGENTS_DIR, f)).isFile()) note(m[1], 'job');
+        } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
+      }
+    } catch (err) { failed = failed || (err && err.code !== 'ENOENT'); }
+  }
   /* found-nothing and could-not-look are different facts; the flag keeps
      the soft direction without manufacturing a confident absence. No
      screen reads it yet; #514's surface is where it lands. */
   return { found, failed };
 }
 
-function survey() {
+/**
+ * 🛑 THIS SCREEN TOLD EVERY WINDOWS USER "NO" (#570, roadmap §3b). `job` was
+ * `fs.existsSync(create.plistPath(name))`, and Windows never writes a plist --
+ * it registers a Scheduled Task. So the one screen whose entire purpose is
+ * answering "will this agent be here after I restart?" answered NO for every
+ * agent on the platform, about a property that had just been MEASURED true on a
+ * real reboot (R8, 2026-09-08). Measured here before the fix: three agents with
+ * registered tasks, three `job: false` rows.
+ *
+ * ⚠️ AND IT WOULD HAVE ACTED ON IT. `missing` feeds the "Set them to start at
+ * login" button, so every Windows agent was offered for repair -- and
+ * `installJob`'s never-overwrite guard stat-ed the same plist, so it would not
+ * have fired either. On win32 that path launches, so the repair would have put a
+ * SECOND live agent in each agent's folder. Both halves are fixed; either alone
+ * would have left the other loaded.
+ *
+ * `opts.platform` is injected so the fleet's Macs can drive the win32 arm; it
+ * defaults to the real platform, so production is unchanged.
+ */
+function survey(opts) {
+  const platform = (opts && opts.platform) || process.platform;
   const k = known();
   const rem = remove.removedNames();
   if (!k.ok) {
@@ -234,6 +293,7 @@ function survey() {
     return { ok: false, because: 'we could not read which agents you have removed, so we are not going to change anything', agents: [], missing: [] };
   }
   const removed = new Set(rem.names);
+  const jobs = jobReader(platform);
   const agents = k.names.map((name) => ({
     name,
     /* ⚠️ ACT ON `name`, SPEAK `shownAs`. Both travel, and the caller must not
@@ -242,14 +302,15 @@ function survey() {
     shownAs: shownName(name),
     removed: removed.has(name),
     folder: fs.existsSync(create.workerDir(name)),
-    job: fs.existsSync(create.plistPath(name)),
+    /* true, false, or NULL for "we could not look" -- see `jobReader`. */
+    job: jobs.of(name),
     /* #500: whether a profile stands behind the name. The stray rows
        below carry false, and everything that ACTS on a name (repair's
        `missing` here, and nothing else today) must require true. */
     profile: true,
   }));
   /* #500: what the disk holds that no profile accounts for. */
-  const sweep = strays(k.names);
+  const sweep = strays(k.names, jobs);
   for (const [name, on] of sweep.found) {
     agents.push({
       name,
@@ -270,8 +331,13 @@ function survey() {
        naming them reads `shownAs` off `agents`.
        ⚠️ AND PROFILE-BACKED ONLY (#500). A stray folder with no profile
        must never be "repaired" into a launchd job: repair would resurrect
-       an agent nobody registered, from nothing but a directory name. */
-    missing: agents.filter((x) => !x.removed && x.folder && !x.job && x.profile).map((x) => x.name),
+       an agent nobody registered, from nothing but a directory name.
+       ⚠️ `job === false`, NOT `!job` (#570). `job` is now three-valued, and the
+       third value is "we could not look" -- which `!job` would read as "has no
+       job" and hand to a button that starts processes. Only a PROVEN absence is
+       acted on; an unknown row is shown and left alone. Nothing changes on the
+       Mac, where `job` is always a boolean. */
+    missing: agents.filter((x) => !x.removed && x.folder && x.job === false && x.profile).map((x) => x.name),
   };
 }
 
@@ -290,7 +356,11 @@ function survey() {
  * a sentence claiming we restored a choice we never had.
  */
 function repair(opts) {
-  const seen = survey();
+  /* The platform travels from the survey into the install, or the two disagree
+     about what a job IS and the repair acts on a set the survey did not report.
+     Defaults to the real platform in both. */
+  const platform = (opts && opts.platform) || process.platform;
+  const seen = survey({ platform });
   if (!seen.ok) return { ok: false, because: seen.because, results: [] };
   const modelFor = (opts && typeof opts.modelFor === 'function') ? opts.modelFor : () => null;
   const results = seen.missing.map((name) => {
@@ -317,7 +387,7 @@ function repair(opts) {
        changed no test. The corrupt-profile control below is what holds this: if
        that contract ever changes, it goes red rather than a dead catch hiding it. */
     const provider = (store.readProfile(name) || {}).provider || null;
-    const r = create.installJob(name, { model, ...(provider === 'openai' ? { runner: 'codex' } : {}) });
+    const r = create.installJob(name, { model, platform, ...(provider === 'openai' ? { runner: 'codex' } : {}) });
     return { name, shownAs: shownName(name), ...r };
   });
   return {

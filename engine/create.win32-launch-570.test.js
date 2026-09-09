@@ -43,7 +43,19 @@ const job = require('./win32job');
 function stubJob() {
   const calls = [];
   job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
-  job.setRunner((args) => { calls.push(args); return { ok: true, out: '' }; });
+  job.setRunner((args) => {
+    calls.push(args);
+    /* ⚠️ A QUERY MUST ANSWER "NO SUCH TASK", NOT BLANKET SUCCESS. `installJob`
+       gained a never-overwrite guard: it asks `presence()` first and refuses an
+       agent that already has a job. A stub that answers ok to EVERY schtasks call
+       makes that query read as "the task is already there", so every arm below
+       refused with "it already has one" -- a fixture that had been describing a
+       machine where every task exists, which nothing noticed while nothing asked.
+       These arms are about a FRESH registration, so the query says not-found in
+       the shape win32job's NO_SUCH_TASK matches. */
+    if (args && args[0] === '/Query') return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+    return { ok: true, out: '' };
+  });
   return calls;
 }
 
@@ -171,13 +183,20 @@ test('#570 asked about win32, installJob launches through the substrate and NEVE
   /* 🔑 AND THE KEEP-ALIVE HALF RAN. On the Mac one plist write buys both "start
      it now" and "start it at every login"; here they are two acts, and the
      second is the one nobody notices missing until a reboot. */
-  assert.equal(tasks.length, 1, 'the at-logon job was registered');
-  assert.equal(tasks[0][0], '/Create');
+  /* ⚠️ FILTERED, NOT COUNTED. installJob now ASKS before it registers -- a
+     never-overwrite guard queries presence first -- so the vector is /Query then
+     /Create. Counting calls made this arm about how many times schtasks was run,
+     which was never the claim; the claim is that the at-logon job was registered
+     exactly once. Asserting the query too, because that guard is what stops a
+     second live agent being put in an agent's folder. */
+  const created = tasks.filter((a) => a[0] === '/Create');
+  assert.equal(created.length, 1, 'the at-logon job was registered exactly once');
+  assert.equal(tasks[0][0], '/Query', 'and it asked whether one already existed first');
   /* Registered from an XML definition, never `/SC ONLOGON` -- that spelling needs
      administrator (measured unelevated 2026-09-08) because it triggers on ANY
      user's logon. win32job.test.js pins the definition's content. */
-  assert.ok(tasks[0].includes('/XML'), 'and it is the RunAtLoad analog, defined in XML');
-  assert.ok(!tasks[0].includes('ONLOGON'), '/SC ONLOGON requires elevation and must not come back');
+  assert.ok(created[0].includes('/XML'), 'and it is the RunAtLoad analog, defined in XML');
+  assert.ok(!created[0].includes('ONLOGON'), '/SC ONLOGON requires elevation and must not come back');
   assert.equal(fs.existsSync(path.join(SANDBOX, 'Library')), false,
     'and no LaunchAgents/plist tree was created');
 });
@@ -260,7 +279,11 @@ test('#570 A FAILED JOB DOES NOT FAIL A LAUNCHED AGENT -- it changes the sentenc
      and the job decides only what we PROMISE. */
   const calls = recordingSpawn();
   job.setAnchorer(() => ({ ok: false, because: 'the anchor could not be written' }));
-  job.setRunner(() => ({ ok: true, out: '' }));
+  /* The /Query must answer not-found, or installJob's never-overwrite guard
+     refuses this fresh agent as one that already has a job -- see stubJob. */
+  job.setRunner((args) => (args && args[0] === '/Query'
+    ? { ok: false, out: 'ERROR: The system cannot find the file specified.' }
+    : { ok: true, out: '' }));
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
   agentFolder('nojob');

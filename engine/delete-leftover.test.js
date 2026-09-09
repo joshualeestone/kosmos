@@ -31,6 +31,16 @@ const calls = [];
 leftover.setRunner((file, args) => { calls.push([file, args]); return { ok: true, stdout: '' }; });
 remove.setRunner(() => ({ ok: true, stdout: '' }));
 
+/* 🛑 THE PLATFORM IS STATED, NOT INHERITED (#570), the same fix step 9 made to
+   remove.test.js. Every fixture below writes a `.plist` and expects the Mac's
+   Trash; on Windows the job is a Scheduled Task, so an unstated platform runs
+   the win32 arm against Mac fixtures. The win32 arm is pinned from EITHER
+   platform in jobexists.win32-570.test.js. */
+const mac = {
+  plan: (name, o) => leftover.plan(name, { platform: 'darwin', ...(o || {}) }),
+  del: (name, o) => leftover.del(name, { platform: 'darwin', ...(o || {}) }),
+};
+
 function leftoverAgent(name, { files = 3, job = true } = {}) {
   const dir = create.workerDir(name);
   fs.mkdirSync(nodePath.join(dir, 'notes'), { recursive: true });
@@ -55,7 +65,7 @@ test.afterEach(() => { status.setPaneSource(null); });
 
 test('the plan counts what a person would lose, in words, and offers the Trash when it can take the files', () => {
   leftoverAgent('april');
-  const p = leftover.plan('april', { now: Date.now() });
+  const p = mac.plan('april', { now: Date.now() });
   assert.equal(p.ok, true, p.because);
   assert.equal(p.folder.files, 3);
   assert.equal(p.toTrash, true);
@@ -70,7 +80,7 @@ test('the plan counts what a person would lose, in words, and offers the Trash w
 test('a running agent is not a leftover, and nothing of it is offered', () => {
   leftoverAgent('busy');
   status.setPaneSource(() => fleet.line({ session: 'busy', claim: 'busy', title: '✳ Claude Code' }));
-  const p = leftover.plan('busy');
+  const p = mac.plan('busy');
   assert.equal(p.ok, false);
   assert.match(p.because, /is running/);
 });
@@ -79,7 +89,7 @@ test('the done-when: delete, and the name passes create again; the files are in 
   leftoverAgent('may');
   /* A removed record too, the realistic shape: removed from the board,
      folder left behind, name refused. */
-  const done = leftover.del('may');
+  const done = mac.del('may');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(done.toTrash, true);
   assert.ok(!fs.existsSync(create.workerDir('may')), 'the folder survived');
@@ -95,15 +105,15 @@ test('the done-when: delete, and the name passes create again; the files are in 
 test('without a Trash the plan says for good, asks for the name, and refuses an untyped delete with nothing changed', () => {
   fs.rmSync(process.env.AGENT_WORKFORCE_TRASH, { recursive: true, force: true });
   leftoverAgent('june');
-  const p = leftover.plan('june');
+  const p = mac.plan('june');
   assert.equal(p.toTrash, false);
   assert.equal(p.typeToConfirm, 'june');
   assert.match(p.reassurance, /cannot be undone/);
   assert.match(p.verb, /^Delete 3 files for good$/);
-  const refused = leftover.del('june', { typed: 'jane' });
+  const refused = mac.del('june', { typed: 'jane' });
   assert.equal(refused.outcome, leftover.OUTCOME.REFUSED);
   assert.ok(fs.existsSync(create.workerDir('june')), 'a refused delete deleted');
-  const done = leftover.del('june', { typed: 'june' });
+  const done = mac.del('june', { typed: 'june' });
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.ok(!fs.existsSync(create.workerDir('june')));
   assert.ok(!fs.existsSync(create.plistPath('june')));
@@ -113,11 +123,11 @@ test('a folder that is a link, or nothing left at all, is refused in words', () 
   fs.mkdirSync(nodePath.join(SANDBOX, 'elsewhere'), { recursive: true });
   fs.mkdirSync(create.WORKERS_DIR, { recursive: true });
   fs.symlinkSync(nodePath.join(SANDBOX, 'elsewhere'), create.workerDir('linky'));
-  const p = leftover.plan('linky');
+  const p = mac.plan('linky');
   assert.equal(p.ok, false);
   assert.match(p.because, /link to somewhere else/);
   assert.ok(fs.existsSync(nodePath.join(SANDBOX, 'elsewhere')));
-  const none = leftover.plan('nobody');
+  const none = mac.plan('nobody');
   assert.equal(none.ok, false);
   assert.match(none.because, /nothing of nobody is left/);
 });
@@ -128,7 +138,7 @@ test('a removed agent stops being hidden once its files are gone, so the board c
   const rec = remove.remove('july');
   assert.notEqual(rec.outcome, remove.OUTCOME.REFUSED, rec.because);
   assert.equal(remove.isHidden('july'), true, 'the fixture is not on the removed list');
-  const done = leftover.del('july');
+  const done = mac.del('july');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   assert.equal(remove.isHidden('july'), false, 'the removed record outlived the files');
 });
@@ -158,7 +168,7 @@ test('#1131: the old token speaks for a NEW agent of the same name -- until the 
   assert.equal(before.ok, true, 'control: the token should speak for a live card of its own name');
 
   quiet();
-  const done = leftover.del('rosa');
+  const done = mac.del('rosa');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
 
   /* The name is now free -- the success sentence says so -- so somebody takes
@@ -175,7 +185,7 @@ test('#1131: the old token speaks for a NEW agent of the same name -- until the 
 test('#1131: an agent that never had a token deletes cleanly, and the step is not reported as a failure', () => {
   leftoverAgent('quiet-one');
   quiet();
-  const done = leftover.del('quiet-one');
+  const done = mac.del('quiet-one');
   assert.equal(done.outcome, leftover.OUTCOME.DELETED, done.because);
   const step = done.steps.find((x) => x.step === 'its sender tokens');
   assert.ok(step, 'the token step was not recorded at all');
@@ -189,7 +199,7 @@ test('#1131: a token that cannot be removed makes the delete PARTIAL, never a DE
   fs.mkdirSync(sendertoken.DIR, { recursive: true });
   fs.mkdirSync(nodePath.join(sendertoken.DIR, store.safeKey('stuckcred') + '.json'), { recursive: true });
   quiet();
-  const done = leftover.del('stuckcred');
+  const done = mac.del('stuckcred');
   assert.notEqual(done.outcome, leftover.OUTCOME.DELETED, 'files gone + credential live was reported as a clean delete');
   assert.match(done.because, /sender tokens/, 'the refusal does not say which part failed');
   assert.ok(!/name is free/.test(done.said || ''), 'it promised the name was free while a credential for it survived');

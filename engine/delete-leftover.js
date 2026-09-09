@@ -23,6 +23,13 @@
  * `<AGENTS_DIR>/<label>.plist` (both resolved by `create.js`, one definition
  * of where an agent lives), and the agent's SENDER TOKENS.
  *
+ * 🛑 ON WINDOWS THE SECOND OF THOSE IS NOT A FILE (#570). The job is a Scheduled
+ * Task, so this module -- which exists to say a name is FREE -- was looking for a
+ * plist that platform never writes, finding none, and freeing names while the
+ * task stayed registered to start an agent under them at the next logon. The
+ * win32 arm asks `win32job` and unregisters the task instead of moving a file;
+ * a look it cannot make REFUSES rather than reporting an empty machine.
+ *
  * 🛑 THE TOKENS ARE HERE BECAUSE OF #1131, AND THE LAST LINE OF THIS FILE IS
  * WHY. On success it says "The name is free." A freed name is re-usable, and
  * until this call the token store was the one thing that outlived the files:
@@ -168,6 +175,13 @@ function trashCanTake(p) {
  */
 function plan(name, opts) {
   const now = (opts && opts.now) || Date.now();
+  /* ⚠️ INJECTED, NOT READ (#570). This module decides whether a NAME IS FREE,
+     and on win32 it asked a `.plist` -- a file that platform never writes -- so
+     it could not see a leftover Scheduled Task and would free a name while the
+     task stayed registered, ready to start an agent under it at the next logon.
+     The default is the real platform, so production is unchanged; the parameter
+     is what lets the fleet's Macs drive the win32 arm. */
+  const platform = (opts && opts.platform) || process.platform;
   const clean = create.cleanName(name);
   const unsafe = remove.unsafeToActOn(clean);
   if (unsafe) return { ok: false, because: unsafe };
@@ -181,7 +195,12 @@ function plan(name, opts) {
   if (live) return { ok: false, because: `${shown} is running, so there is nothing left over to delete. Remove it first if you want it gone.` };
 
   const folderPath = create.workerDir(clean);
-  const jobPath = create.plistPath(clean);
+  /* On the Mac the job is a FILE, and freeing the name means moving it to the
+     Trash beside the folder. On Windows it is a REGISTRATION, so there is
+     nothing to move and `path` stays null -- `del` below removes it through
+     `win32job` instead. `label` is what a person would recognise in Task
+     Scheduler, the same role the launchd label plays. */
+  const jobPath = platform === 'win32' ? null : create.plistPath(clean);
   let folder = null;
   let lst = null;
   try { lst = fs.lstatSync(folderPath); } catch { lst = null; }
@@ -195,7 +214,24 @@ function plan(name, opts) {
     const m = measure(folderPath);
     folder = { path: folderPath, ...m, trash: trashCanTake(folderPath) };
   }
-  const job = fs.existsSync(jobPath) ? { path: jobPath, label: create.serviceLabel(clean), trash: trashCanTake(jobPath) } : null;
+  let job = null;
+  if (platform === 'win32') {
+    const win32job = require('./win32job');
+    const seen = win32job.presence(clean);
+    /* 🛑 A LOOK THAT FAILED IS NOT "NOTHING IS LEFT". Every other refusal in
+       this function is a sentence about something we could see; this one has to
+       be a sentence about not being able to see. Freeing a name while a task
+       still points at it is how an agent comes back at logon under a name
+       somebody has since given to a different agent -- the worst outcome this
+       module has, and it costs one refusal to avoid. Same posture as the
+       running-agent check above, which refuses for the same reason. */
+    if (!seen.known) {
+      return { ok: false, because: `we could not check whether anything still starts ${shown} at login, so we have not offered to delete anything. Try again in a moment.` };
+    }
+    if (seen.registered) job = { path: null, label: win32job.taskName(clean), task: true, trash: false };
+  } else if (fs.existsSync(jobPath)) {
+    job = { path: jobPath, label: create.serviceLabel(clean), trash: trashCanTake(jobPath) };
+  }
   if (!folder && !job) {
     return { ok: false, because: `nothing of ${shown} is left on this computer, so there is nothing to delete. If the name is still refused, something else holds it.` };
   }
@@ -209,26 +245,48 @@ function plan(name, opts) {
     const when = folder.newest ? ', last changed ' + agoWords(folder.newest, now) : '';
     loses.push(`Its folder: ${what}${when}` + (folder.git ? ', including a git repository' : ''));
   }
-  if (job) loses.push('Its auto-start file, so nothing tries to start it again');
+  /* ⚠️ THE NOUN FOLLOWS THE SUBSTRATE, because the person has to be able to go
+     and look at the thing we name. On the Mac it is a file in a folder they can
+     open; on Windows it is an entry in Task Scheduler and there is no file to
+     speak of. Calling a Scheduled Task an "auto-start file" sends somebody
+     hunting for something that does not exist. */
+  const jobIsTask = Boolean(job && job.task);
+  if (job) {
+    loses.push(jobIsTask
+      ? 'Its startup job, so nothing tries to start it again'
+      : 'Its auto-start file, so nothing tries to start it again');
+  }
   const question = `Delete what is left of ${shown}?`;
+  /* A Scheduled Task holds nothing a person can lose, so a job-only leftover is
+     not the "gone for good" case the Trash sentence is written for. */
+  const jobOnlyTask = jobIsTask && !folder;
   const reassurance = toTrash
     ? `Everything goes to the Trash, where you can get it back until you empty it. After this, the name ${shown} is free for a new agent.`
-    : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good. After this, the name ${shown} is free for a new agent.`;
+    : jobOnlyTask
+      ? `Nothing you can lose is stored in it. After this, the name ${shown} is free for a new agent.`
+      : `This cannot be undone: the Trash cannot take these files, so they will be deleted for good. After this, the name ${shown} is free for a new agent.`;
   const verb = folder
     ? (toTrash ? `Move ${filesWords(folder)} to the Trash` : `Delete ${filesWords(folder)} for good`)
-    : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
+    : jobIsTask ? 'Remove its startup job'
+      : (toTrash ? 'Move the auto-start file to the Trash' : 'Delete the auto-start file for good');
   const hint = folder
     ? `${shown}'s folder is still on this computer (${filesWords(folder)}${folder.newest ? ', last changed ' + agoWords(folder.newest, now) : ''}), and the name stays taken until it is gone.`
-    : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
+    : jobIsTask
+      ? `Something on this computer still starts ${shown} when you log in, and the name stays taken until it is gone.`
+      : `An auto-start file for ${shown} is still on this computer, and the name stays taken until it is gone.`;
   return {
     ok: true,
     name: clean,
     shown,
     toTrash,
-    /* Typing the name is asked only when nothing can bring the files back. */
-    typeToConfirm: toTrash ? null : shown,
+    /* Typing the name is asked only when nothing can bring the FILES back --
+       and a job-only Windows leftover has none, so asking there would be
+       ceremony rather than protection. The Mac's cases are untouched. */
+    typeToConfirm: (toTrash || jobOnlyTask) ? null : shown,
     folder: folder && { path: folder.path, files: folder.files, bytes: folder.bytes, newest: folder.newest, capped: folder.capped, git: folder.git },
-    job: job && { path: job.path, label: job.label },
+    /* `task` travels so `del` knows whether to move a file or unregister a job;
+       `path` is null on win32 and every reader of it must check. */
+    job: job && { path: job.path, label: job.label, ...(jobIsTask ? { task: true } : {}) },
     question,
     reassurance,
     loses,
@@ -245,7 +303,9 @@ function trashName(p) {
 /** The act. Re-plans first, so nothing is deleted that the plan would not
     have offered a moment ago. `typed` must match when the plan asks for it. */
 function del(name, opts) {
-  const p = plan(name);
+  /* The re-plan must ask the SAME platform the caller planned against, or a
+     test (and a Mac driving the win32 arm) plans one act and performs another. */
+  const p = plan(name, opts && opts.platform ? { platform: opts.platform } : undefined);
   if (!p.ok) return { outcome: OUTCOME.REFUSED, because: p.because };
   if (p.typeToConfirm && String((opts && opts.typed) || '').trim() !== p.typeToConfirm) {
     return { outcome: OUTCOME.REFUSED, because: `type ${p.typeToConfirm} to confirm; nothing was deleted` };
@@ -269,7 +329,21 @@ function del(name, opts) {
       steps.push({ step: what, ok: false, because: String(err && err.message || err) });
     }
   };
-  if (p.job) {
+  if (p.job && p.job.task) {
+    /* 🛑 THE WINDOWS JOB IS A REGISTRATION, NOT A FILE, so there is nothing to
+       move: it is deleted from Task Scheduler or it is still there. `remove`
+       ends the task and is idempotent about one that was never registered, and
+       it reports rather than throws -- so a failure lands in `stuck` and the
+       outcome is PARTIAL, exactly as an unmovable file would. It must NOT be
+       silently skipped: this whole function ends by saying "The name is free",
+       and a name is not free while something still starts an agent under it. */
+    const what = 'its startup job';
+    let out;
+    try { out = require('./win32job').remove(p.name); }
+    catch (err) { out = { ok: false, because: String((err && err.message) || err) }; }
+    if (out && out.ok) { gone.push(what); steps.push({ step: what, ok: true }); }
+    else { stuck.push(what); steps.push({ step: what, ok: false, because: (out && out.because) || 'no reason given' }); }
+  } else if (p.job) {
     /* Stop the job first, so launchd does not hold a job whose file has
        gone. Best effort: a job that was never loaded answers "not found",
        which is the state we want. */
@@ -309,9 +383,15 @@ function del(name, opts) {
     outcome: OUTCOME.DELETED,
     toTrash: p.toTrash,
     shown: p.shown,
-    said: p.toTrash
-      ? `${p.shown}'s files are in the Trash. The name is free.`
-      : `${p.shown}'s files are deleted. The name is free.`,
+    /* The sentence has to match what was actually removed: a Windows leftover
+       can be a startup job and NOTHING else, and "their files are deleted" about
+       an agent that had none is a false sentence in the one line that reports
+       the act. */
+    said: !p.folder && p.job && p.job.task
+      ? `Nothing starts ${p.shown} any more. The name is free.`
+      : p.toTrash
+        ? `${p.shown}'s files are in the Trash. The name is free.`
+        : `${p.shown}'s files are deleted. The name is free.`,
     steps,
   };
 }
