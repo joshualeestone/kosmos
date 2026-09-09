@@ -8287,8 +8287,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            instead of the old three-card stacked fan. Reads as a single real
            "Terminal would like to access files" dialog with the Allow button ringed,
            so the person recognizes the one prompt they will see and knows to click
-           Allow. Illustrative only (aria-hidden); the functional grant is the
-           .s2-gate-row below, untouched. */
+           Allow. The preview is aria-hidden (a mouse-only affordance). Josh,
+           2026-09-08: the mock's Allow now forwards a click into the real
+           file-access flow (.s2-mockallow), so it is no longer purely illustrative;
+           the keyboard/AT path stays the real Allow Access button in the
+           .s2-gate-row below. */
         .s2-dlg-fan{display:flex;justify-content:center;margin:2px 0 16px}
         .s2-dlg{width:320px;max-width:100%;text-align:left;border-radius:12px;padding:16px 18px 14px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}
@@ -8309,6 +8312,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            lighter #3f92f0 folder icon above intentionally differs, as the real dialog's
            app icon and default button do. */
         .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
+        /* Josh, 2026-09-08: people click the mock "Allow" (they read it as the real
+           macOS button), so it is a live mouse affordance -- cursor signals that.
+           Deliberately interactive inside the aria-hidden preview: it is mouse-only,
+           and the real focusable "Allow Access" button is the keyboard/AT path, so
+           this adds no non-focusable-only control (not a bug, for the next reader). */
+        .s2-mockallow{cursor:pointer}
         .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -8336,7 +8345,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
               <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
               <p class="s2-say">"Terminal" would like to access files in your folders.</p>
             </div>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
           </div>
         </div>
 
@@ -38700,13 +38709,15 @@ async function frPaintYou() {
     // will not advance (SC 3.3.2); the fields carry aria-required too.
     '<p class="vh">The first two answers are needed before Continue.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
-    /* #683: an example name, and NOT the author's. The pack's mock carried
-       "Josh" because Josh drew it about himself, and on anyone else's machine
-       a real first name in the box reads as a previous owner -- the
-       co-founder's install would literally show the name of the person who
-       sent them the app. The sibling placeholders are examples, so this stays
-       one; it just stops being a person connected to the product. */
-    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
+    /* An example name (grey placeholder, not a filled value). #683 changed this
+       away from "Josh" to "Alex" because a real first name in the box can read as
+       a previous owner (a co-founder's install showing the name of whoever sent
+       them the app). Josh, 2026-09-08, overrode that back to "Josh": he has a
+       teammate named Alex and did not want the default landing on a real person
+       on his team. Kept as his explicit call; the #683 read is softened by this
+       being a grey hint rather than a pre-filled value. If the founder-name read
+       matters, a neutral example (e.g. "Sam") satisfies both. */
+    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Josh" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
     '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
     /* #1994 (Josh, live 2026-09-04): the time zone picker is restored to this
@@ -38937,8 +38948,14 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
 }
 
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
-  const b = e.target.closest('.s2-allow');
-  if (!b) return;
+  // Josh, 2026-09-08: the mock dialog's blue "Allow" (aria-hidden preview, mouse-only)
+  // routes a click through the real "Allow Access" button, firing the same flow (see commit).
+  const onMock = e.target.closest('.s2-mockallow');
+  const b = onMock ? document.querySelector('#fr-pane-2 .s2-allow') : e.target.closest('.s2-allow');
+  if (!b || b.disabled) return;
+  // once granted, the real button is hidden but the mock stays visible; do not re-open.
+  const row = b.closest('.s2-gate-row');
+  if (row && row.hasAttribute('data-granted')) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
   try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }
