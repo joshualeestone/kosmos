@@ -25,6 +25,11 @@ run_gate() {
 printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
   '@@ -100,1 +100,1 @@' '-      <span class="pj-parent">under App</span>' \
   '+      <span class="pj-parent">Kosmos › App</span>' > "$TMP/webdiff-parent"
+# A web diff touching a COMPOUND identifier that merely CONTAINS a mapped token as a
+# substring (pj-parent inside pj-parenthetical-note) -- must NOT over-fire (boundary match).
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
+  '@@ -5,1 +5,1 @@' '-  <div class="pj-parenthetical-note">a</div>' \
+  '+  <div class="pj-parenthetical-note">b</div>' > "$TMP/webdiff-substr"
 # A web diff touching only an UNMAPPED token (no check annotates it).
 printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
   '@@ -1,1 +1,1 @@' '-  <div class="zzz-unmapped-nonexistent-token">a</div>' \
@@ -66,6 +71,14 @@ if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-blanket"; then
   fail "the blanket Browser-check: trailer must NOT excuse a surface-mapped staleness"
 else
   pass "still refused under a blanket Browser-check: trailer (the #2498 precision)"
+fi
+
+# 4b. PASS: a compound identifier merely CONTAINING a mapped token as a substring must
+#     NOT fire (whole-token boundary match), or the gate nags every unrelated edit.
+if run_gate "$TMP/webdiff-substr" "$TMP/files-none" "$TMP/msgs-none"; then
+  pass "allowed: pj-parenthetical (substring of pj-parent) does not over-fire (boundary match)"
+else
+  fail "a compound identifier containing a mapped token as a substring must not fire"
 fi
 
 # 5. PASS: a web change touching an UNMAPPED token -> allowed (no over-fire beyond the map).

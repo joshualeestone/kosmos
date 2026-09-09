@@ -39,8 +39,8 @@
 kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
-  local base bcdir files msgs webdiff changed tab f dstat dpath
-  local ann chk toks tok basename_chk viol reason
+  local base bcdir files msgs webdiff changed tab
+  local ann ann_list toks tok esc_tok basename_chk viol reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
   tab="$(printf '\t')"
@@ -74,10 +74,15 @@ kosmos_browser_check_surface_gate() {
   fi
 
   viol=""
-  # 4. Walk every annotated check. `grep -l` over the top-level .js only (matching the
-  #    driver's own glob), then read each one's declared tokens.
-  for ann in "$bcdir"/*.js; do
-    [ -f "$ann" ] || continue                      # no-match glob (nullglob off): skip the literal
+  # 4. Walk every top-level check .js. Enumerate with `find` + newline-split while-read,
+  #    NOT a `"$bcdir"/*.js` glob: under zsh a no-match glob ABORTS the whole function
+  #    (`no matches found`) before any `[ -f ]` guard runs -- the exact
+  #    `zsh-unmatched-glob-skips-the-command-entirely` trap, and this lib is sourced into
+  #    zsh. find returns empty on no match in every shell, so this is nomatch-safe.
+  [ -d "$bcdir" ] || return 0                       # no checks dir: nothing to map (fail-soft)
+  ann_list="$(find "$bcdir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
+  while IFS= read -r ann; do
+    [ -n "$ann" ] || continue
     toks="$(sed -n 's|^[[:space:]]*//[[:space:]]*[Bb]rowser-check-surface:[[:space:]]*\(.*\)$|\1|p' "$ann" | head -1)"
     [ -n "$toks" ] || continue                     # unannotated: coarse gate handles it
     basename_chk="${ann##*/}"                       # e.g. render-subprojects-1994.js
@@ -100,13 +105,17 @@ kosmos_browser_check_surface_gate() {
     # multi-token check. tr turns the space/tab-separated list into one token per line.
     while IFS= read -r tok; do
       [ -n "$tok" ] || continue
-      if printf '%s\n' "$changed" | grep -qF -- "$tok" 2>/dev/null; then
+      # WHOLE-token match, bounded by non-identifier chars, so token `pj-parent` does
+      # NOT over-fire on an unrelated `pj-parenthetical`. Escape ERE metachars first
+      # (tokens are DOM-id-like, but a stray `.` in an annotation must stay literal).
+      esc_tok="$(printf '%s' "$tok" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+      if printf '%s\n' "$changed" | grep -qE "(^|[^A-Za-z0-9_-])${esc_tok}([^A-Za-z0-9_-]|\$)" 2>/dev/null; then
         viol="${viol}  ${basename_chk}  (surface token '${tok}' changed in web/index.html)
 "
         break
       fi
     done <<< "$(printf '%s' "$toks" | tr ' \t' '\n\n')"
-  done
+  done <<< "$ann_list"
 
   [ -n "$viol" ] || return 0
 
@@ -120,6 +129,8 @@ kosmos_browser_check_surface_gate() {
     echo "  - if this surface change genuinely does not affect that check, add a per-check trailer:"
     echo "        Browser-check-surface: <check-basename> <one-line reason>"
     echo "    (the blanket 'Browser-check:' trailer does NOT excuse a surface-mapped staleness.)"
+    echo "    NB: if you take this override path AND touch no docs/browser-checks/ file at all, the"
+    echo "    coarse gate (#1720) still needs its own 'Browser-check: <reason>' trailer as well."
   } >&2
   return 1
 }
