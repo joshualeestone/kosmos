@@ -144,7 +144,7 @@ items with the numbering skipping 4). Counting the items and counting the catego
 different acts, and every version so far has done one while claiming the other:
 
 1. **PINNED to constants.** PIN-LIST-BEGIN
-   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
    PIN-LIST-END
    (Paths, not names: `because` is pinned both top-level and under `context`.)
    🛑 **This does NOT make a re-capture byte-identical**, and the sentence claiming it did
@@ -167,8 +167,11 @@ different acts, and every version so far has done one while claiming the other:
    `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
    `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
    `stateBackgroundWait`, `neverRecorded`.
-5. **The `profile` subtree**, which gets the strictest treatment: EVERY value under it is
-   neutralised, strings and numbers and booleans, at any depth. It is free-form
+5. **The `profile` subtree**, which gets the strictest treatment: every STRING, NUMBER and
+   BOOLEAN under it is neutralised, at any depth. ⚠️ Not literally every value: a `null`
+   survives as null, and an array's LENGTH survives even though its elements are scrubbed.
+   The tool's own `scrubStrings` comment says so and this file said "EVERY value", which is
+   the broader of the two copies. It is free-form
    (`store.readProfile` returns whatever JSON is in the file), so an allowlist there is a
    guarantee resting on what the tree happens to write today. `profile.doctrineVersion`
    is a producer number that reached the recording before this was structural.
@@ -200,6 +203,16 @@ header describes, arriving by another door. Re-record it instead:
 ```
 node tools/capture-agent-card.js     # run on a box that HAS live agents
 ```
+
+🛑 **The suite constrains WHICH card, and the recipe used to say only "a box that has live
+agents".** Three arms require the committed recording to be a **working** capture whose
+**context was measured**: the rename control asserts the file does not already hold
+`needs_you`, the context arm asserts `confidence: "structured"`, and the non-string
+inventory pins the measured `context` key set. A re-capture that picks an idle card, or one
+whose transcript could not be read, reds those three, and two of the three messages would
+not have named re-capture as the cause. So: **capture while an agent of yours is actually
+working and has a readable transcript**, and if you meant to change the recording's shape,
+update those arms deliberately rather than reading their red as a bug.
 
 ⚠️ **An earlier version of this paragraph said the moment you would be tempted to
 hand-edit is "the drift guard's red".** There is no drift guard: it was built on this

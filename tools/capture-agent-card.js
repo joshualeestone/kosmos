@@ -22,11 +22,14 @@
  * writing something empty.
  *
  * What it does, and what it deliberately does not:
- *   - RECORDS every key and type `status.snapshot()` emits, with ONE deliberate
- *     exception: `hasAvatar` is pinned to `true` even when the producer said `false`
- *     (see the pin block for why). "Nothing is invented" was the top-line summary and it
- *     is the line a reader trusts, so the exception belongs here rather than only beside
- *     the code.
+ *   - RECORDS every key and type `status.snapshot()` emits. Four booleans are pinned to
+ *     a constant REGARDLESS of what the producer said, and "with ONE deliberate exception"
+ *     named only the first: `hasAvatar` to `true`, `context.ceilingAssumed` to `true`,
+ *     `context.overCeiling` and `context.notYet` to `false`. "Nothing is invented" was the
+ *     top-line summary and it is the line a reader trusts, so the count belongs here.
+ *     ⚠️ The narrower sentence was repeated twice more in the test file, whose own arm
+ *     poisons those three context booleans with the opposite values and asserts they come
+ *     out pinned. The file proved its own sentence wrong and nothing noticed.
  *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
  *     `because` line, any `stateConflict` sentence, the scraped evidence line, every
  *     string under `profile`, and every string anywhere else that is not re-pinned to a
@@ -44,7 +47,7 @@
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
  *   - PINS these fields to constants. PIN-LIST-BEGIN
- *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+ *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
  *     PIN-LIST-END
  *     ⚠️ PATHS, NOT NAMES, AND THE DIFFERENCE WAS A REAL HOLE. The list carried bare
  *     names with a parenthetical saying where each lived, and `because` IS PINNED IN TWO
@@ -238,6 +241,16 @@ function neutralise(live) {
      first makes the guarantee structural rather than a list somebody has to remember to
      extend, and the known-safe values are put back immediately after. */
   scrubStrings(card);
+  /* 🛑 `disruption.cause` IS BOUNDED AND THE SCRUB LEFT AN IMPOSSIBLE VALUE. The vocabulary
+     is model|provider|instructions|account (web/index.html's restartingLabel branches on
+     exactly those, with a default), so `example-cause` renders as the generic "Restarting
+     agent" and is a value the producer cannot emit. It matters here more than elsewhere:
+     the tool's own header notes chooseCard PREFERS a restarting card, because it carries
+     CONFIDENCE.STRUCTURED. */
+  if (card.disruption && typeof card.disruption === 'object'
+      && typeof card.disruption.cause === 'string') {
+    card.disruption.cause = 'instructions';
+  }
   /* 🛑 THE FREE-FORM SUBTREE GETS BOTH PASSES. scrubStrings took its strings; this takes
      its numbers and booleans, at any depth. `profile.doctrineVersion` (a producer number
      from create.js:3651) reached the committed file before this line existed. */
@@ -258,6 +271,10 @@ function neutralise(live) {
   for (const f of ['state', 'stateConfidence', 'runner']) {
     const v = live[f];
     if (v !== null && v !== undefined && !ENUMS[f].includes(v)) {
+      /* ⚠️ A throw, because neutralise() is the PURE half and a test drives it; the
+         direct-run path below catches it and prints the operator-readable line, matching
+         the other two refusals. A bare stack trace on a branch whose argument is "say WHY
+         on the log the operator reads" would be the one path that does not. */
       throw new Error('refusing to record: status.snapshot() emitted ' + f + '='
         + JSON.stringify(v) + ', which is outside the vocabulary this tool relies on');
     }
@@ -287,9 +304,31 @@ function neutralise(live) {
      ⇒ Keep the SCRUBBED context and re-pin only the two numbers below. */
   if (typeof card.role === 'string') card.role = 'example worker';
   if (typeof card.task === 'string') card.task = 'an example task';
-  if (typeof card.stateEvidence === 'string') card.stateEvidence = '✽ Working… (2m 36s · ↓ 11.4k tokens)';
+  /* ⚠️ THE WORKING EVIDENCE LINE ONLY ON A WORKING CARD. Pinned unconditionally it put
+     "✽ Working…" beside `state: "idle"`. Unlike `because`, stateEvidence is UNBOUNDED
+     scraped pane text, so the scrubbed form left on other states is not an impossible
+     producer value; a Working line beside a non-working state is simply a contradiction,
+     and that is what this avoids. */
+  if (typeof card.stateEvidence === 'string' && card.state === 'working') {
+    card.stateEvidence = '✽ Working… (2m 36s · ↓ 11.4k tokens)';
+  }
   if (typeof card.stateProject === 'string') card.stateProject = 'example-project';
-  if (typeof card.because === 'string') card.because = 'it is mid-task';
+  /* 🛑 `because` FOLLOWS `state`, FOR THE REASON context.confidence FOLLOWS THE NUMBERS.
+     `state` is re-pinned from the RAW card while this was pinned to 'it is mid-task'
+     unconditionally, so a re-capture whose chosen card was idle committed
+     `state: "idle"` beside `because: "it is mid-task"`: a card status.js cannot emit, and
+     reachable, because chooseCard prefers `stateConfidence !== 'none'`, which an idle card
+     satisfies. The identical defect in `context` cost several iterations; the argument was
+     never carried across to the top level.
+     ⚠️ LITERAL RIGHT-HAND SIDES, not a lookup table, because the pin extractor classifies
+     by the KIND of RHS and a table reference reclassifies the field as a re-pin (that
+     dropped the pin count from 22 to 20 once already). Sentences taken from status.js. */
+  if (typeof card.because === 'string') card.because = 'we could not tell what it is doing';
+  if (typeof card.because === 'string' && card.state === 'working') card.because = 'it is mid-task';
+  if (typeof card.because === 'string' && card.state === 'idle') card.because = 'it is sitting at its prompt';
+  if (typeof card.because === 'string' && card.state === 'needs_you') card.because = 'it is asking you something';
+  if (typeof card.because === 'string' && card.state === 'stopped') card.because = 'Claude is not running for this one';
+  if (typeof card.because === 'string' && card.state === 'restarting') card.because = 'we are restarting this agent, so it is briefly out of view';
   if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
   /* PIN the volatile MEASUREMENTS so they do not move between captures.
      🛑 NOT "so a re-run is byte-identical unless the SHAPE moved". That sentence stood
@@ -394,13 +433,21 @@ module.exports = { chooseCard, neutralise, scrubStrings, scrubNonStrings, keySet
 if (require.main === module) {
   const status = require(path.join(__dirname, '..', 'engine', 'status.js'));
   const board = status.snapshot();
-  const { chosen, ours, paneOurs } = chooseCard(board.agents);
+  const { chosen, paneOurs } = chooseCard(board.agents);
   if (!chosen) {
     console.error('no PANE-based agent card of ours on this box, so there is nothing to record.');
     console.error('run this where agents are actually running in panes.');
     process.exit(1);
   }
-  const card = neutralise(chosen);
+  let card;
+  try {
+    card = neutralise(chosen);
+  } catch (err) {
+    console.error(String((err && err.message) || err));
+    console.error('nothing was written. status.js may have grown a state this tool does not know;');
+    console.error('check engine/status.js STATE and CONFIDENCE against the ENUMS above.');
+    process.exit(1);
+  }
   /* 🛑 REFUSE RATHER THAN WRITE A DIFFERENT SHAPE. */
   const before = keySet(chosen);
   const after = keySet(card);

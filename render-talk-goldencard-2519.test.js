@@ -541,7 +541,7 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
     for (const lit of call[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)) noteTexts.push(lit[1]);
   }
   for (const mm of src.matchAll(/notes\.push\(`([^`]*)`\)/g)) noteTexts.push(mm[1]);
-  assert.ok(noteTexts.length >= 5, `found only ${noteTexts.length} NOTE fragments; the extraction is not seeing them`);
+  assert.ok(noteTexts.length >= 13, `found only ${noteTexts.length} NOTE fragments (13 exist); a floor below the true count catches nothing, which this file names elsewhere`);
   for (const t of noteTexts) {
     assert.ok(!gateRe.test(t),
       `a NOTE would be quoted by the release gate as the reason for a red: ${JSON.stringify(t)}`);
@@ -561,7 +561,16 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
      wrong about the source, which is how the last three instruments on this branch
      failed. */
   const { goldenCard } = resolvers()();
-  const poisonPath = path.join(SANDBOX, 'Timeout-REFUS-missing.json');
+  /* 🛑 THE POISON IS BUILT FROM THE GATE'S OWN ALTERNATION, not from two words I picked.
+     It used to be a hardcoded 'Timeout-REFUS' filename, so `Error` and lowercase `refus`
+     were never driven: deleting either of those two replaces in render-talk.js redded
+     NOTHING, and a fifth alternative added to the gate grep would have escaped the same
+     way. The words come out of tools/browser-checks.sh, so the arm widens when the gate
+     does. */
+  const gateWords = (m[1].match(/[A-Za-z]{3,}/g) || []).filter((word) => word !== 'FAIL');
+  assert.ok(gateWords.length >= 4,
+    `only ${gateWords.length} gate words extracted (${gateWords}); the poison would not exercise the alternation`);
+  const poisonPath = path.join(SANDBOX, gateWords.join('-') + '-missing.json');
   const written = [];
   const realWrite = process.stdout.write;
   process.stdout.write = (chunk, ...rest) => { written.push(String(chunk)); return true; };
@@ -578,6 +587,19 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
   /* CONTROL: the raw message WOULD have matched, or the neutralisation is untested. */
   assert.ok(gateRe.test(`ENOENT: no such file or directory, open '${poisonPath}'`),
     'CONTROL: the un-neutralised message does not match the gate, so this arm proves nothing');
+  /* AND EVERY WORD INDIVIDUALLY, so a neutralisation that covers three of four is caught. */
+  for (const word of gateWords) {
+    const one = path.join(SANDBOX, word + '-only-missing.json');
+    const got = [];
+    const w0 = process.stdout.write;
+    process.stdout.write = (chunk) => { got.push(String(chunk)); return true; };
+    try { goldenCard(one); } finally { process.stdout.write = w0; }
+    for (const line of got.join('').split('\n')) {
+      if (!line.trim()) continue;
+      assert.ok(!gateRe.test(line),
+        `a NOTE carrying the gate word ${word} would be quoted as a failure reason: ${JSON.stringify(line)}`);
+    }
+  }
 });
 
 test('#2519: the CATEGORY list is ascending, gap-free, and the same in both documents', () => {
@@ -656,7 +678,7 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
   /* ⚠️ THE EXACT COUNT, NOT A FLOOR WITH SLACK. This was `>= 21` while the code pins
      22, so the first deletion netted to 21 and passed, while the comment below claimed
      the floor catches a net removal. A floor one below the truth catches nothing. */
-  assert.equal(pinned.size, 22, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
+  assert.equal(pinned.size, 23, `the pin count changed: ${pinned.size} -> ${[...pinned].sort()}`);
   assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
     'the set of fields re-pinned FROM another object changed; that is the enum-bounded category and it needs an arm of its own');
 
@@ -671,7 +693,16 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
     ['tools/capture-agent-card.js', src],
     ['docs/browser-checks/render-talk.js', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js'), 'utf8')],
     ['docs/browser-checks/README.md', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'README.md'), 'utf8')],
-    ['.claude/plans/goldencard-2519-20260908T2205.md', fs.readFileSync(path.join(__dirname, '.claude', 'plans', 'goldencard-2519-20260908T2205.md'), 'utf8')],
+    /* ⚠️ FOUND BY GLOB, NOT BY A HARDCODED TIMESTAMP. The plan's filename carries the
+       minute it was created, so renaming or re-dating it made this arm throw ENOENT
+       instead of reporting what it exists to report: a guard that dies on an unrelated
+       rename is not reporting, it is crashing. */
+    ['.claude/plans/goldencard-2519-*.md', (() => {
+      const dir = path.join(__dirname, '.claude', 'plans');
+      const hits = fs.readdirSync(dir).filter((f) => /^goldencard-2519-.*\.md$/.test(f) && !/-pre-challenge\.md$/.test(f));
+      assert.equal(hits.length, 1, `expected exactly one plan file for this branch, found ${hits.length}: ${hits}`);
+      return fs.readFileSync(path.join(dir, hits[0]), 'utf8');
+    })()],
   ];
   const missing = [];
   for (const [where, text] of DOCS) {
@@ -801,7 +832,8 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
         else if (val && typeof val === 'object') walk(val, path);
       }
     })(committed, '');
-    assert.deepEqual(inFixture.sort(), EXPECTED_FIXTURE, 'COMMITTED FIXTURE: ' + WHY);
+    assert.deepEqual(inFixture.sort(), EXPECTED_FIXTURE,
+      'COMMITTED FIXTURE: ' + WHY + ' If you just re-captured, the chosen card may have had an unmeasured context; see the re-capture constraint in docs/browser-checks/README.md');
 
     /* 🛑 AND THE ONE SUBTREE THIS ARM'S OWN RATIONALE IS BUILT ON, WHICH IT COULD NOT SEE.
        Both cards above carry `disruption: null`, and the walk does not descend a null, so
@@ -936,6 +968,54 @@ test('#2519: a disruption timestamp does not reach the recording, and the key se
   }
 });
 
+test('#2519: the top-level `because` follows `state`, so the recording cannot contradict itself', () => {
+  /* 🛑 THE SAME DEFECT AS context.confidence, ONE LEVEL UP, AND IT SURVIVED THAT FIX.
+     `state` is re-pinned from the RAW card while `because` was pinned to 'it is mid-task'
+     unconditionally, so a re-capture whose chosen card was idle committed `state: "idle"`
+     beside `because: "it is mid-task"`, which status.js cannot emit. Reachable: chooseCard
+     prefers `stateConfidence !== 'none'`, which an idle card satisfies.
+     The argument that fixed `context` was never carried to the top level, and the
+     mutation that removes the idle pin redded nothing until this arm existed. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const PAIRS = [
+    ['working', 'it is mid-task'],
+    ['idle', 'it is sitting at its prompt'],
+    ['needs_you', 'it is asking you something'],
+  ];
+  for (const [state, sentence] of PAIRS) {
+    const board = fleet.install([fleet.agent('mara', { state })]);
+    try {
+      const real = board.card('mara');
+      const poisoned = Object.assign({}, real);
+      poisoned.state = state;
+      poisoned.because = 'SECRET:/Users/realoperator/private.txt';
+      const out = cap.neutralise(poisoned);
+      assert.equal(out.state, state, `CONTROL: the card under test is not in state ${state}`);
+      assert.equal(out.because, sentence,
+        `state ${state} was recorded beside a because status.js does not pair with it`);
+    } finally {
+      board.restore();
+    }
+  }
+  /* AND stateEvidence: a "Working" line beside a non-working state is a contradiction. */
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const idle = Object.assign({}, board.card('mara'));
+    idle.state = 'idle';
+    idle.stateEvidence = 'some scraped pane text';
+    assert.ok(!/Working/.test(String(cap.neutralise(idle).stateEvidence)),
+      'an idle card was recorded with a Working evidence line');
+    const working = Object.assign({}, board.card('mara'));
+    working.state = 'working';
+    working.stateEvidence = 'some scraped pane text';
+    assert.match(String(cap.neutralise(working).stateEvidence), /Working/,
+      'CONTROL: the working evidence pin stopped firing, so the check above proves nothing');
+  } finally {
+    board.restore();
+  }
+});
+
 test('#2519: context.confidence and context.because are values the PRODUCER can emit', () => {
   /* 🛑 THE FIXTURE CARRIED AN IMPOSSIBLE CARD in the subtree whose numbers had just been
      made coherent. scrubStrings left `example-confidence` and `example-because`, and
@@ -974,7 +1054,8 @@ test('#2519: context.confidence and context.because are values the PRODUCER can 
     /* AND THE COMMITTED RECORDING MUST AGREE, or the tool was corrected and the fixture
        left behind, which is this branch's most repeated shape. */
     const committed = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-    assert.equal(committed.context.confidence, 'structured');
+    assert.equal(committed.context.confidence, 'structured',
+      'the COMMITTED recording is not a measured capture. If you just re-captured, the tool picked an agent whose transcript could not be read; see the re-capture constraint in docs/browser-checks/README.md');
     assert.equal(committed.context.because, out.context.because);
   } finally {
     board.restore();
@@ -1047,7 +1128,9 @@ test('#2519: the capture writes NULL where the producer wrote null, on the PINNE
     for (const f of UNCONDITIONAL) {
       assert.equal(out[f], null, `${f} was invented where the producer emitted null`);
     }
-    /* ⚠️ hasAvatar IS THE DELIBERATE EXCEPTION AND THE ARM SAYS SO. A producer `false`
+    /* ⚠️ hasAvatar IS ONE OF FOUR DELIBERATE OVERRIDES (with ceilingAssumed, overCeiling
+       and notYet) AND THE ARM SAYS SO. An earlier version called it "THE deliberate
+       exception", singular, in a file whose own context arm poisons the other three. A producer `false`
        becomes `true`, so this pin can DISAGREE with the captured card rather than merely
        stabilise it. That is intended: status.js emits `Boolean(safeAvatar(key))`, which
        depends on whether an avatar file happens to exist for that agent on that box, so
