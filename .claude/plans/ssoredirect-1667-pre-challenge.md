@@ -27,116 +27,116 @@ Reviewer models alternated opus/sonnet on every iteration, starting on opus, so 
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 1 CONVENTION, 4 NITs
 **Self-generated:** 0 of the above (nothing committed by this loop yet)
-- [WARNING] tools/lib/served-verify.sh — the note asserted the target IS an auth page without ever reading Location --> FIXED
-- [WARNING] tools/test-served-verify.sh — arms asserted rc only, so they could not see which route produced it --> FIXED
+- [WARNING] tools/lib/served-verify.sh - the note asserted the target IS an auth page without ever reading Location --> FIXED
+- [WARNING] tools/test-served-verify.sh - arms asserted rc only, so they could not see which route produced it --> FIXED
 
 #### Iteration 2
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/test-served-verify.sh — the fixture modelled a flattening of the failure, not the measured mechanism --> FIXED
+- [WARNING] tools/test-served-verify.sh - the fixture modelled a flattening of the failure, not the measured mechanism --> FIXED
 
 #### Iteration 3
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/test-served-verify.sh — a completeness claim in the header was false --> FIXED
+- [WARNING] tools/test-served-verify.sh - a completeness claim in the header was false --> FIXED
 
 #### Iteration 4
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 2 of the above
-- [WARNING] tools/test-served-verify.sh — a guard whose own tightening lost a handler --> FIXED
+- [WARNING] tools/test-served-verify.sh - a guard whose own tightening lost a handler --> FIXED
 
 #### Iteration 5
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 6 NITs
 **Self-generated:** 3 of the above
-- [WARNING] tools/test-served-verify.sh — whole-file grep satisfied by its own comment --> FIXED
-- [WARNING] tools/test-served-verify.sh — sed slice ran to EOF when its delimiter moved --> FIXED
+- [WARNING] tools/test-served-verify.sh - whole-file grep satisfied by its own comment --> FIXED
+- [WARNING] tools/test-served-verify.sh - sed slice ran to EOF when its delimiter moved --> FIXED
 
 #### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 3 of the above
-- [WARNING] tools/test-served-verify.sh — an arm keyed to `dash` by name skipped silently on CI --> FIXED
+- [WARNING] tools/test-served-verify.sh - an arm keyed to `dash` by name skipped silently on CI --> FIXED
 
 #### Iteration 7
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 1 CONVENTION, 3 NITs
 **Self-generated:** 3 of the above
-- [WARNING] tools/test-served-verify.sh — bounding the extraction to the heredoc moved the hole, did not close it --> FIXED
-- [CONVENTION] package.json — two `#!/bin/sh` files linted with `bash -n` --> FIXED
+- [WARNING] tools/test-served-verify.sh - bounding the extraction to the heredoc moved the hole, did not close it --> FIXED
+- [CONVENTION] package.json - two `#!/bin/sh` files linted with `bash -n` --> FIXED
 
 #### Iteration 8
 **Reviewer model:** sonnet
 **New findings:** 1 BLOCKER, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 1 of the above
-- [BLOCKER] tools/test-served-verify.sh — the extraction matched only ONE of Python's two quote characters, so an undocumented `if p.startswith("/evil/"):` serving 200 text/html left the count unchanged and the suite green --> FIXED
+- [BLOCKER] tools/test-served-verify.sh - the extraction matched only ONE of Python's two quote characters, so an undocumented `if p.startswith("/evil/"):` serving 200 text/html left the count unchanged and the suite green --> FIXED
 
 #### Iteration 9
 **Reviewer model:** opus
 **New findings:** 2 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 5 of the above
-- [BLOCKER] tools/test-served-verify.sh — the pattern required exactly one space around `==` --> FIXED
-- [BLOCKER] tools/test-served-verify.sh — the naming arm was satisfied by PROSE about a handler --> FIXED
-- [WARNING] tools/lib/served-verify.sh — the note prints a redirect target whole, so a live SSO nonce reaches the deploy log --> FIXED later, as kosmos#2566
+- [BLOCKER] tools/test-served-verify.sh - the pattern required exactly one space around `==` --> FIXED
+- [BLOCKER] tools/test-served-verify.sh - the naming arm was satisfied by PROSE about a handler --> FIXED
+- [WARNING] tools/lib/served-verify.sh - the note prints a redirect target whole, so a live SSO nonce reaches the deploy log --> FIXED later, as kosmos#2566
 
 #### Iteration 10
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 1 CONVENTION, 1 NIT
 **Self-generated:** 2 of the above
-- [WARNING] tools/lib/served-verify.sh — the `3??` arm had only ever been driven with a 302 --> FIXED
+- [WARNING] tools/lib/served-verify.sh - the `3??` arm had only ever been driven with a 302 --> FIXED
 
 #### Iteration 11
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 3 of the above
-- [WARNING] tools/test-served-verify.sh — the scope sentence claimed more than the regex --> FIXED
-- [WARNING] tools/test-served-verify.sh — a control STRICTER than the extraction it guarded, with a false failure message --> FIXED
+- [WARNING] tools/test-served-verify.sh - the scope sentence claimed more than the regex --> FIXED
+- [WARNING] tools/test-served-verify.sh - a control STRICTER than the extraction it guarded, with a false failure message --> FIXED
 - Macro finding accepted: the handler-extraction apparatus defends a comment about a fixture. DEFERRED by decision, scope sentence made true instead.
 
 #### Iteration 12
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 0 of the above
-- [WARNING] .claude/plans/ssoredirect-1667.md — disclosures with no tracked card --> FIXED (filed kosmos#2566, linked kosmos#2565)
+- [WARNING] .claude/plans/ssoredirect-1667.md - disclosures with no tracked card --> FIXED (filed kosmos#2566, linked kosmos#2565)
 
 #### Iteration 13
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 3 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/deploy-site.sh — the negative control ran AFTER every check it would have explained, so in the exact host-wide-blind shape the card measured it never ran at all --> FIXED
-- [WARNING] tools/deploy-site.sh — the Windows zip's `.sha256` was served and checked by nothing --> FIXED
+- [WARNING] tools/deploy-site.sh - the negative control ran AFTER every check it would have explained, so in the exact host-wide-blind shape the card measured it never ran at all --> FIXED
+- [WARNING] tools/deploy-site.sh - the Windows zip's `.sha256` was served and checked by nothing --> FIXED
 
 #### Iteration 14
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 2 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/deploy-site.sh — the win-zip sidecar was prevented AFTER the deploy, not before --> FIXED
+- [WARNING] tools/deploy-site.sh - the win-zip sidecar was prevented AFTER the deploy, not before --> FIXED
 
 #### Iteration 15
 **Reviewer model:** opus
 **New findings:** 1 BLOCKER, 4 WARNINGs, 0 CONVENTIONs, 3 NITs
 **Self-generated:** 5 of the above
-- [BLOCKER] tools/test-deploy-site-promote.sh — this branch's sidecar checks broke a DIFFERENT suite earlier in `test:shell`'s `&&` chain, so CI was red while this branch's own suite passed in isolation --> FIXED
-- [WARNING] tools/deploy-site.sh — the POST-deploy control still sat at the bottom of its block --> FIXED
-- [WARNING] tools/deploy-site.sh — `$WINZIP` is thirteen versions stale, so the pair guard guarded an obsolete artifact --> FIXED (alias checked; root cause filed as kosmos#2571)
+- [BLOCKER] tools/test-deploy-site-promote.sh - this branch's sidecar checks broke a DIFFERENT suite earlier in `test:shell`'s `&&` chain, so CI was red while this branch's own suite passed in isolation --> FIXED
+- [WARNING] tools/deploy-site.sh - the POST-deploy control still sat at the bottom of its block --> FIXED
+- [WARNING] tools/deploy-site.sh - `$WINZIP` is thirteen versions stale, so the pair guard guarded an obsolete artifact --> FIXED (alias checked; root cause filed as kosmos#2571)
 
 #### Iteration 16
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 2 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 2 of the above
-- [WARNING] tools/lib/served-verify.sh — the nonce exposure was still unmitigated in code --> FIXED (kosmos#2566 closed in-branch)
-- [WARNING] tools/lib/served-verify.sh — the control proved only `/dist` while `/setup` was trusted on it --> FIXED (kosmos#2565 closed in-branch)
+- [WARNING] tools/lib/served-verify.sh - the nonce exposure was still unmitigated in code --> FIXED (kosmos#2566 closed in-branch)
+- [WARNING] tools/lib/served-verify.sh - the control proved only `/dist` while `/setup` was trusted on it --> FIXED (kosmos#2565 closed in-branch)
 
 #### Iteration 17
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 4 WARNINGs, 0 CONVENTIONs, 5 NITs
 **Self-generated:** 4 of the above
-- [WARNING] tools/test-served-verify.sh — the wiring arms counted and ordered the checks but never required them to REFUSE; rewriting every `|| { ...exit 1; }` to `|| true` left the suite green --> FIXED
-- [WARNING] tools/lib/served-verify.sh — a residual comment survived the change that falsified it --> FIXED
-- [WARNING] tools/test-served-verify.sh — the arm counter's third alternative was unanchored, so a COMMENT could supply it --> FIXED
+- [WARNING] tools/test-served-verify.sh - the wiring arms counted and ordered the checks but never required them to REFUSE; rewriting every `|| { ...exit 1; }` to `|| true` left the suite green --> FIXED
+- [WARNING] tools/lib/served-verify.sh - a residual comment survived the change that falsified it --> FIXED
+- [WARNING] tools/test-served-verify.sh - the arm counter's third alternative was unanchored, so a COMMENT could supply it --> FIXED
 
 #### Iteration 18
 **Reviewer model:** sonnet
@@ -148,14 +148,14 @@ Reviewer models alternated opus/sonnet on every iteration, starting on opus, so 
 **Reviewer model:** opus
 **New findings:** 0 BLOCKERs, 1 WARNING, 0 CONVENTIONs, 4 NITs
 **Self-generated:** 1 of the above
-- [WARNING] tools/lib/served-verify.sh — the escape arm was covering the NOT-SERVED branch while the comment named the `text/html` branch, which is the one site carrying a remote byte outside the note and was uncovered --> FIXED by covering it
-- [NIT] tools/test-served-verify.sh — a missing sibling `deploy-site.sh` passed either way, silently disarming seven wiring arms --> FIXED
+- [WARNING] tools/lib/served-verify.sh - the escape arm was covering the NOT-SERVED branch while the comment named the `text/html` branch, which is the one site carrying a remote byte outside the note and was uncovered --> FIXED by covering it
+- [NIT] tools/test-served-verify.sh - a missing sibling `deploy-site.sh` passed either way, silently disarming seven wiring arms --> FIXED
 
 #### Iteration 20
 **Reviewer model:** sonnet
 **New findings:** 0 BLOCKERs, 0 WARNINGs, 0 CONVENTIONs, 1 NIT
 **Self-generated:** 0 of the above
-**Converged** — no new actionable findings, and 6j passed on the same bytes.
+**Converged** - no new actionable findings, and 6j passed on the same bytes.
 
 ### Final Ledger
 
@@ -191,11 +191,11 @@ Reviewer models alternated opus/sonnet on every iteration, starting on opus, so 
 None. No finding was ever marked ASKED: every product and scope decision on this branch was made here and recorded on the card and in the plan, per the standing ruling that a Kosmos decision is not brought to Josh to unblock it.
 
 ### NITs (non-blocking, across all iterations)
-- [NIT] tools/test-served-verify.sh — exact-equality counters are brittle by design and will red until bumped (iteration 18)
-- [NIT] tools/test-served-verify.sh — the dispatch regex allows mismatched opening/closing quotes, which is a Python syntax error and cannot mis-extract (iteration 18)
-- [NIT] tools/test-served-verify.sh — the comment strip is whole-line only, so a trailing comment on a dispatch line injects a phantom token (noisy, not blind) (iteration 19)
-- [NIT] tools/test-served-verify.sh — the scope sentence says "ONE quoted literal", which describes selection; extraction pulls every literal off a selected line (a superset, safe direction) (iteration 19)
-- [NIT] tools/lib/served-verify.sh — a valueless query or fragment component is still printed whole, which follows from "keep the keys" (iteration 17)
+- [NIT] tools/test-served-verify.sh - exact-equality counters are brittle by design and will red until bumped (iteration 18)
+- [NIT] tools/test-served-verify.sh - the dispatch regex allows mismatched opening/closing quotes, which is a Python syntax error and cannot mis-extract (iteration 18)
+- [NIT] tools/test-served-verify.sh - the comment strip is whole-line only, so a trailing comment on a dispatch line injects a phantom token (noisy, not blind) (iteration 19)
+- [NIT] tools/test-served-verify.sh - the scope sentence says "ONE quoted literal", which describes selection; extraction pulls every literal off a selected line (a superset, safe direction) (iteration 19)
+- [NIT] tools/lib/served-verify.sh - a valueless query or fragment component is still printed whole, which follows from "keep the keys" (iteration 17)
 
 ### Strengths (across all iterations)
 - The diagnostic provably cannot move a verdict: every path returns 0 explicitly, it is only ever a `printf` ARGUMENT inside an already-decided message, and each caller's `return` is unconditional and follows it. Traced independently by five reviewers (iterations 13, 16, 17, 19, 20).
