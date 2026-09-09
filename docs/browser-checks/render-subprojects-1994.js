@@ -1,4 +1,8 @@
 'use strict';
+// Browser-check-surface: pj-parent pjsub
+// (#2518) the distinctive web/index.html tokens this check asserts (the ancestry/parent
+// chip + the sub-projects line); a change to them must update this check at PR time. #2487
+// changed pj-parent to a full ancestry line and staled this check's exact-match to the cut.
 /* #1994: sub-projects UI: a project can name a parent, shown as a tree in the
  * wide Projects tab (indent) and, #2487, a full ancestry line ("Kosmos › App",
  * middle-elided past depth two) with decorative depth dots everywhere narrow, plus

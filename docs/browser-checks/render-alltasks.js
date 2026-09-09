@@ -17,6 +17,9 @@
  *
  * Run: NODE_PATH=$HOME/work/pw-runtime/node_modules node docs/browser-checks/render-alltasks.js
  */
+// Browser-check-surface: pj-alltasks pj-alltasks-view alltasks-count
+// (#2518) the distinctive web/index.html tokens this check asserts, so a change to the
+// all-tasks door/view/count is required to update this check at PR time, not stale it to a cut.
 const { spawn } = require('node:child_process');
 const fs = require('node:fs');
 const os = require('node:os');

@@ -222,6 +222,14 @@ if [ "$NODE_STATUS" -eq 0 ]; then
   ( . "$(dirname "$0")/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
   NODE_STATUS=$?
 fi
+# #2518: the SURFACE-SPECIFIC companion -- refuses a web/index.html change that touches
+# a token a browser-check asserts (its `// Browser-check-surface:` annotation) without
+# updating that check, catching the specific staleness the coarse gate above lets through.
+# Same subshell isolation + fail-soft contract.
+if [ "$NODE_STATUS" -eq 0 ]; then
+  ( . "$(dirname "$0")/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
+  NODE_STATUS=$?
+fi
 
 # --- name the machine, only beside a red -------------------------------------
 if [ "$NODE_STATUS" -eq 126 ] || [ "$NODE_STATUS" -eq 127 ]; then
