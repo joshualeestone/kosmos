@@ -452,6 +452,12 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
      FIRST piece of a multi-part `write('  NOTE ...' + x + ' more text')`. Proved blind by
      mutation: putting the word Error into a LATER fragment left this arm green. So the
      unit is the whole write CALL, and every string literal inside it is tested. */
+  /* ⚠️ KNOWN FRAGILITY, NAMED RATHER THAN LEFT TO BE FOUND: this match is non-greedy to
+     the first `);`, so a NOTE literal containing that two-character sequence would
+     truncate the extraction and silently stop testing the rest of that call. It is a
+     tripwire on the static literals, and the RUNTIME capture at the end of this arm is
+     what actually holds the guarantee for the dynamic path. Three instruments on this
+     branch have now been wrong about the source they read; a runtime capture cannot be. */
   const noteTexts = [];
   for (const call of src.matchAll(/process\.stdout\.write\(([\s\S]*?)\);/g)) {
     if (!/NOTE/.test(call[1])) continue;
@@ -467,6 +473,34 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
      nothing about the texts it just read. */
   assert.ok(gateRe.test('  NOTE  render-talk: an Error occurred'),
     'CONTROL: the gate pattern does not catch a NOTE carrying a gate word');
+
+  /* 🛑 AND NOW THE HALF THE SOURCE SCAN CANNOT SEE, DRIVEN AT RUNTIME. Everything above
+     reads static literals, so it is blind to the INTERPOLATED message in goldenCard's
+     catch, while this arm's title claims no NOTE can be quoted. The interpolated text is
+     not ours to choose: Node embeds the PATH in a thrown fs message, so a fixture path
+     carrying a gate word puts that word into the NOTE.
+     ⇒ Driven through the real function with a path containing "Timeout", and the output
+     captured rather than parsed. A runtime capture cannot be defeated by a regex being
+     wrong about the source, which is how the last three instruments on this branch
+     failed. */
+  const { goldenCard } = resolvers()();
+  const poisonPath = path.join(SANDBOX, 'Timeout-REFUS-missing.json');
+  const written = [];
+  const realWrite = process.stdout.write;
+  process.stdout.write = (chunk, ...rest) => { written.push(String(chunk)); return true; };
+  try { goldenCard(poisonPath); } finally { process.stdout.write = realWrite; }
+  const emitted = written.join('');
+  assert.ok(emitted.includes('NOTE'), 'CONTROL: the poisoned path did not produce a NOTE at all');
+  assert.ok(emitted.includes(SANDBOX) || emitted.includes('missing'),
+    'CONTROL: the NOTE does not carry the message, so neutralising it proves nothing');
+  for (const line of emitted.split('\n')) {
+    if (!line.trim()) continue;
+    assert.ok(!gateRe.test(line),
+      `the interpolated NOTE would be quoted by the release gate: ${JSON.stringify(line)}`);
+  }
+  /* CONTROL: the raw message WOULD have matched, or the neutralisation is untested. */
+  assert.ok(gateRe.test(`ENOENT: no such file or directory, open '${poisonPath}'`),
+    'CONTROL: the un-neutralised message does not match the gate, so this arm proves nothing');
 });
 
 test('#2519: every PINNED field name appears in all four documents that enumerate them', () => {
