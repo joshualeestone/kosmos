@@ -148,6 +148,21 @@ function neutralise(live) {
   if (card.context && typeof card.context === 'object') {
     if (typeof card.context.tokens === 'number') card.context.tokens = 82646;
     if (typeof card.context.percent === 'number') card.context.percent = 8;
+    /* 🛑 THE CEILING TOO, AND THE THREE BOOLEANS DERIVED FROM IT. Leaving `ceiling` as
+       the captured value made the recording INTERNALLY INCONSISTENT: `model` is pinned
+       to a constant, so a re-capture on a box running a different model would commit a
+       card whose model says one thing and whose ceiling was computed for another. A
+       fixture that contradicts itself is worse than a stale one, because nothing reading
+       it can tell which half is the recording.
+       ⚠️ `ceilingAssumed` stays TRUE and is now true by construction: the ceiling here
+       is asserted by this tool, not read from the model. `overCeiling` and `notYet` are
+       pinned to the values the pinned tokens/percent imply (82646 of 1000000 is neither
+       over the ceiling nor unread), so the whole block agrees with itself.
+       Conditional, like every other pin, so a producer null stays null. */
+    if (typeof card.context.ceiling === 'number') card.context.ceiling = 1000000;
+    if (typeof card.context.ceilingAssumed === 'boolean') card.context.ceilingAssumed = true;
+    if (typeof card.context.overCeiling === 'boolean') card.context.overCeiling = false;
+    if (typeof card.context.notYet === 'boolean') card.context.notYet = false;
   }
   return card;
 }

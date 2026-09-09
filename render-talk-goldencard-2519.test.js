@@ -260,7 +260,19 @@ test('#2519: a TRIMMED fixture is refused, not served as a hollow card', () => {
      the whole point is that it is NOT one. */
   fs.writeFileSync(thin, JSON.stringify({ a: 1, b: 2 }) + '\n');
   const { goldenCard } = resolvers()();
-  assert.equal(goldenCard(thin), null, 'a two-field card passed the floor');
+  /* 🛑 THE FLOOR MUST ALSO SAY WHY, and capturing stdout is the only way to see it. A
+     silent `return null` made a readable, valid-JSON, TRIMMED fixture the one cause that
+     explained nothing downstream: harder to diagnose than a deleted file, which at least
+     produces the catch block's NOTE. */
+  const written = [];
+  const realWrite = process.stdout.write;
+  process.stdout.write = (chunk, ...rest) => { written.push(String(chunk)); return realWrite.call(process.stdout, chunk, ...rest); };
+  let thinResult;
+  try { thinResult = goldenCard(thin); } finally { process.stdout.write = realWrite; }
+  assert.equal(thinResult, null, 'a two-field card passed the floor');
+  const note = written.join('');
+  assert.match(note, /NOTE  render-talk/, 'the floor rejected the fixture silently');
+  assert.match(note, /below the floor of 20/, 'the NOTE does not say WHY the fixture was ignored');
   const full = path.join(__dirname, 'docs', 'browser-checks', 'fixtures', 'agent-card.json');
   assert.ok(goldenCard(full), 'CONTROL: the real fixture must still pass, or the floor is just broken');
 });
@@ -356,6 +368,45 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.notEqual(profile.displayName, 'Real Person');
   assert.notEqual(profile.nested.note, 'private', 'a nested string survived');
   assert.equal(profile.count, 7, 'a non-string was altered');
+});
+
+test('#2519: the WHOLE context block is pinned, so the recording cannot contradict itself', () => {
+  /* 🛑 `ceiling` WAS THE LAST PRODUCER VALUE IN context AND NOTHING ASSERTED IT. tokens
+     and percent were pinned and covered; ceiling and the three booleans derived from it
+     passed through as captured. That is not a leak (a ceiling is not identifying) but it
+     is an INCONSISTENCY: `model` is pinned to a constant, so a re-capture on a box
+     running a different model would commit a card whose model says one thing and whose
+     ceiling was computed for another, and nothing reading the fixture could tell which
+     half was the recording.
+     ⚠️ ASSERTED ON A POISONED CARD, not on the committed fixture. The fixture already
+     holds these values, so reading it would prove nothing about the tool that wrote it
+     -- the exact trap the id arm below documents. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const poisoned = Object.assign({}, real);
+    poisoned.context = Object.assign({}, real.context);
+    poisoned.context.ceiling = 200000;
+    poisoned.context.ceilingAssumed = false;
+    poisoned.context.overCeiling = true;
+    poisoned.context.notYet = true;
+    const out = cap.neutralise(poisoned);
+    assert.equal(out.context.ceiling, 1000000, 'the captured ceiling reached the recording');
+    assert.equal(out.context.ceilingAssumed, true, 'ceilingAssumed was not pinned');
+    assert.equal(out.context.overCeiling, false, 'overCeiling was not pinned');
+    assert.equal(out.context.notYet, false, 'notYet was not pinned');
+    /* CONTROL: a producer null must still survive, or "pinned" has quietly become
+       "invented", which is the defect the arm below exists for. */
+    const nulled = Object.assign({}, real);
+    nulled.context = Object.assign({}, real.context);
+    nulled.context.ceiling = null;
+    assert.equal(cap.neutralise(nulled).context.ceiling, null,
+      'a null ceiling was invented into a number');
+  } finally {
+    board.restore();
+  }
 });
 
 test('#2519: the capture writes NULL where the producer wrote null, on the PINNED fields too', () => {

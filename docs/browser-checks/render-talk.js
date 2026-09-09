@@ -71,7 +71,17 @@ function liveCard() {
      drift" -- and this same change DELETES that guard, so the stated reason went stale
      in its own commit. The preference still earns its place: `openDetail` is driven with
      this card and the recording is pane-shaped, so a paneless card would exercise the
-     reopen path with null session/target that the fallback never produces. */
+     reopen path with null session/target that the fallback never produces.
+     ⚠️ THIS IS A BEHAVIOUR CHANGE ON A POPULATED BOX and it is deliberate. The old code
+     was a bare find over `isNamedOurs`, taking whichever card status.js listed first, so
+     on a multi-agent board the arm's input depended on pane ordering. It now depends on
+     shape.
+     ⚠️ AND THE EDGE CASE THAT FOLLOWS FROM IT: on a board where EVERY card of ours is
+     paneless (agents configured, none running in a pane), this returns null and the
+     RECORDING drives the arm, where the old code drove it with a paneless card. That is
+     the better of the two -- openDetail gets the shape it is written for instead of null
+     session/target -- and it is not silent: realCard reports `golden` and the run prints
+     the fallback NOTE, so the log distinguishes it from a live run. */
   const ourCards = (board.agents || []).filter((a) => a && a.isNamedOurs === true);
   const card = ourCards.find((a) => a.paneless !== true) || null;
   return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;
@@ -121,7 +131,18 @@ function goldenCard(fixturePath) {
        invoking tools/browser-checks.sh directly never reaches the node suite's floor,
        so it has to be enforced where the card is produced. A real card carries ~30
        fields; a trimmed one is the hand-built literal arriving by another door. */
-    if (Object.keys(card).length < 20) return null;
+    if (Object.keys(card).length < 20) {
+      /* 🛑 SAY WHY HERE TOO. The catch below explains a missing, corrupt or unreadable
+         fixture, and this branch used to be the one cause that explained nothing: a
+         readable, valid-JSON, TRIMMED fixture returned null silently, so downstream it
+         was indistinguishable from a delete while being harder to diagnose than one.
+         An operator on a quiet box saw only "no agent card and no usable fixture". */
+      process.stdout.write('  NOTE  render-talk: the recorded card fixture has only '
+        + Object.keys(card).length + ' top-level fields, below the floor of 20, so it is'
+        + ' being ignored as a trimmed or hand-built stand-in'
+        + ' -- with no live agent card this FAILS the reopen arm below\n');
+      return null;
+    }
     return { ...card, sessionName: 'april', name: 'April', state: 'needs_you' };
   } catch (err) {
     /* Say WHY on the log the cut streams. A corrupt fixture, a missing one and an
