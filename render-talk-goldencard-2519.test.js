@@ -1679,8 +1679,9 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
     'CONTROL: the drift vocabulary does not match a plausible re-added guard');
 });
 
-/* #2553: the NESTED drift the arm above says is an "acknowledged, unguarded gap", closed
-   WITHOUT the false-red that got the last nested guard removed. */
+/* #2553: nested CONTEXT drift, closed WITHOUT the false-red that got the last nested guard
+   removed. The sibling arm above pins that the live-vs-live nested-equality guard stays
+   absent; this arm is the composition-aware replacement it points to. */
 test('#2553: the recorded fixture context matches a legitimate status.js variant (COMPOSITION-AWARE DRIFT GUARD)', () => {
   /* 🛑 THE GAP render-talk.js NAMES: a rename INSIDE `context` leaves the top-level key set
      identical, so the box-independent arm above (which compares top-level keys only) stays
@@ -1719,9 +1720,23 @@ test('#2553: the recorded fixture context matches a legitimate status.js variant
   const shapes = contextShapes(statusSrc);
   const variants = [...shapes.keys()];
   /* CONTROL: the derivation must have found the variants, or the membership test below is
-     certifying the fixture against an empty set. Four is the count the arm above pins. */
+     certifying the fixture against an empty set.
+     ⚠️ `>= 4`, NOT `=== 4`, on purpose: the EXACT count is the sibling key-set arm's
+     assertion (it reds and gets re-argued if status.js grows a fifth variant). This arm only
+     needs the set to be non-empty and to contain the fixture's own shape, so a legitimate
+     fifth variant should not red HERE too -- the fixture would still match one of the five.
+     The floor is the count the sibling pins, so a broken scan (fewer than four) still reds. */
   assert.ok(variants.length >= 4,
     `CONTROL: only ${variants.length} context variants derived from status.js; the scan matched nothing, so this arm certifies nothing`);
+  /* CONTROL: `contextShapes` hardcodes the NONE_BASE family keys (a rename confined to the
+     `const NONE_BASE = {...}` literal in status.js would otherwise be invisible to the
+     `...NONE_BASE` expansion). Pin the hardcode against the producer's own literal so that
+     rename reds here instead of silently carrying a stale family key into every variant. */
+  const nb = statusSrc.match(/const NONE_BASE = \{([^}]*)\}/);
+  assert.ok(nb, 'CONTROL: could not find the NONE_BASE literal in status.js; the family-key pin is measuring nothing');
+  const nbKeys = [...nb[1].matchAll(/([A-Za-z_]\w*)\s*:/g)].map((m) => m[1]).sort();
+  assert.deepEqual(nbKeys, ['confidence', 'percent', 'tokens'],
+    `status.js NONE_BASE keys are now [${nbKeys}]; update contextShapes' NONE_BASE_KEYS hardcode to match in the same commit`);
 
   const card = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
   assert.ok(card.context && typeof card.context === 'object' && !Array.isArray(card.context),
