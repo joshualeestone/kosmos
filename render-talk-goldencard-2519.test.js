@@ -38,6 +38,8 @@ const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-2519-'));
 /* Removed at the end, as fixture-discipline.test.js does. Eight of these were left on
    disk by earlier runs of this suite before the cleanup was added. */
 process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
+
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
@@ -48,6 +50,33 @@ const assert = require('node:assert/strict');
 
 const CHECK = path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js');
 const FIXTURE = path.join(__dirname, 'docs', 'browser-checks', 'fixtures', 'agent-card.json');
+
+/* 🛑 A FILE-SCOPE SAFETY NET FOR THE COMMITTED FIXTURE, AND IT SITS BELOW `FIXTURE` ON
+   PURPOSE. The I/O-guard arm holds the fixture bytes around its own child spawn, which
+   protects that arm and nothing else: a DOZEN OTHER ARMS `require()` the capture tool in
+   THIS process, so if the tool's write ever sits outside the `require.main` guard, the
+   first of those requires writes the operator's live board over the recording, in the
+   parent, before the I/O arm runs at all.
+   MEASURED: mutating the tool to write above the guard left the committed fixture as `{}`
+   on disk, with eight arms then failing for the wrong reason.
+   🛑 AND THE FIRST VERSION OF THIS NET SILENTLY DID NOTHING. It was placed ABOVE the
+   `const FIXTURE` declaration, so the read hit the temporal dead zone, the `catch`
+   swallowed the ReferenceError, and it disabled itself while looking exactly like a
+   working guard. The same mutation damaged the fixture a second time and the net reported
+   nothing. It now throws on a failed initial read rather than returning null, so it
+   cannot fail quietly again.
+   ⇒ This is a net for a BROKEN TOOL, not a licence to write here: nothing in this suite
+   should modify the fixture, and if it ever fires, the tool is broken. */
+const FIXTURE_BYTES_AT_LOAD = fs.readFileSync(FIXTURE);
+process.on('exit', () => {
+  try {
+    if (!fs.readFileSync(FIXTURE).equals(FIXTURE_BYTES_AT_LOAD)) {
+      fs.writeFileSync(FIXTURE, FIXTURE_BYTES_AT_LOAD);
+      process.stdout.write('  RESTORED the committed fixture: something in this run rewrote it\n');
+    }
+  } catch { /* best effort at exit */ }
+});
+
 const SRC = fs.readFileSync(CHECK, 'utf8');
 
 /* Load the three resolvers out of the check without running it: the file's top level
@@ -923,6 +952,24 @@ test('#2519: the capture tool does its I/O ONLY when run directly', () => {
      been moved below the write. The mtime arm is the one that measures the behaviour. */
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'capture-agent-card.js'), 'utf8');
   assert.match(src, /if \(require\.main === module\)/, 'the I/O guard is gone from the capture tool');
+  /* 🛑 BOTH HALVES OF "ONLY WHEN RUN DIRECTLY", AND THEY ARE CHECKED DIFFERENTLY ON
+     PURPOSE. The runtime half below proves the tool does NOT write when required. This
+     half proves the write is reachable when it IS run directly, and it is a SOURCE check
+     rather than an execution, because executing it is the destructive path: the tool
+     reads this box's live board and writes real identity over the committed,
+     release-gating fixture. That accident has happened once on this branch. A test that
+     runs in every `yarn test` must not carry a window where the artifact holds live data
+     and only a restore puts it back.
+     ⇒ So: the write must live INSIDE the guard block and nowhere before it. A guard
+     moved below the write, which is the failure the runtime half also targets, fails here
+     too, and this half needs no process to prove it. */
+  const guardAt = src.indexOf('if (require.main === module) {');
+  const writeAt = src.indexOf('fs.writeFileSync(OUT');
+  assert.ok(writeAt !== -1, 'CONTROL: the fixture write was not found at all, so its position proves nothing');
+  assert.ok(guardAt !== -1 && writeAt > guardAt,
+    'the fixture write is not inside the require.main guard, so requiring the tool would overwrite the recording');
+  assert.equal(src.slice(0, guardAt).indexOf('fs.writeFileSync(OUT'), -1,
+    'there is a second fixture write ABOVE the guard, which no require-time check would catch');
   /* 🛑 THE BYTES ARE HELD BEFORE THE REQUIRE, AND THAT IS NOT BELT-AND-BRACES. In the
      exact failure this arm exists to catch -- a guard MOVED BELOW the write, which the
      source match above passes -- the `require` on the next line executes the I/O against
