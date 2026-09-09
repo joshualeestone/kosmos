@@ -82,10 +82,13 @@ test('a verdict with no readable time -> uncheckable (cannot judge freshness)', 
 
 /* ---------------------------------------------------------------------------
    #2085: tmuxGrant() reads TMUX's OWN path-keyed Accessibility grant from the
-   system TCC db -- the honest replacement for read() (which surfaced the native
-   APP's trust, the false "TMUX ACTIVATED" pill). The load-bearing invariant is
-   NEVER A FALSE GREEN: only a real auth_value >= 2 for the tmux binary yields
-   trusted:true; every failure path falls to checkable:false ("Checking...").
+   system TCC db. (It was #2085's attempt to replace read() under the belief that
+   tmux held the grant; #2451 restored read() as the /api/a11y-status route reader,
+   because accessibility is keyed on the CALLING binary = the kosmos-app, which is
+   the gate's correct subject. tmuxGrant stays covered here for a possible
+   #2125-KEEP tmux-identity path.) The load-bearing invariant is NEVER A FALSE
+   GREEN: only a real auth_value >= 2 for the tmux binary yields trusted:true;
+   every failure path falls to checkable:false ("Checking...").
 --------------------------------------------------------------------------- */
 
 // A mocked sqlite runner so the branch logic is deterministic without a db. The
@@ -195,11 +198,13 @@ test('#2085 tmuxGrant: real sqlite3 end-to-end against a TCC-shaped db (query + 
 });
 
 test('#2085 tmuxGrant: the PRODUCTION (no-opts) cache path memoizes, and resetGrantCache clears it', () => {
-  // server.js calls tmuxGrant() with NO opts -> useCache is on and the MODULE
-  // runner is used. That load-bearing path is exercised here via setSqliteRunner
-  // (a counting spy) so the 2s memo (elide repeat sqlite spawns) and
-  // resetGrantCache are both covered. A fixed tmuxBin via env keeps the resolve
-  // deterministic without a real binary.
+  // tmuxGrant()'s no-opts path turns useCache on and uses the MODULE runner. (As of
+  // #2451 the /api/a11y-status route serves a11ystatus.read(), not tmuxGrant(), so this
+  // is no longer a route path; tmuxGrant stays a library function for a possible future
+  // #2125-KEEP caller, and its cache/resetGrantCache mechanics are still worth covering.)
+  // Exercised here via setSqliteRunner (a counting spy) so the 2s memo (elide repeat
+  // sqlite spawns) and resetGrantCache are both covered. A fixed tmuxBin via env keeps
+  // the resolve deterministic without a real binary.
   const origBin = process.env.AGENT_WORKFORCE_TMUX_BIN;
   process.env.AGENT_WORKFORCE_TMUX_BIN = '/fake/cachetest/tmux';
   let calls = 0;

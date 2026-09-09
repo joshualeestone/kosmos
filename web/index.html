@@ -8378,7 +8378,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                On default; #fr-next is enabled only when neither gate is measured-not-granted.
              Dynamic: none.  CSS namespace: s3-*
              Copy is Josh's, verbatim. Graphic 1 = macOS Energy pane (reproduced). Graphic 2 = the
-             TMUX permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
+             Kosmos Accessibility permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
              ============================================================ -->
         <style>
         /* The window is an ILLUSTRATION of the macOS pane, not a control: its
@@ -8460,18 +8460,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
         </div>
 
-        <p class="s3-step-cap">2 &middot; when prompted, switch TMUX to On</p>
-        <!-- #2236/0.6.42 #1 (Josh): the tmux grant is Privacy & Security > Accessibility
+        <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
+        <!-- #2236/0.6.42 #1 (Josh): the grant is Privacy & Security > Accessibility
              ("control your computer"), NOT Login Items. The old mock showed the Login Items
              pane, which sent Josh to the wrong Settings pane. Depict Accessibility here.
              (S4's s4-* pane keeps "Login Items" -- that is correct, for bash background
-             activity, a different grant. Do not conflate the two.) Copy: Mona Lisa. -->
+             activity, a different grant. Do not conflate the two.) Copy: Mona Lisa.
+             #2451: the row macOS shows + grants is Kosmos (the calling binary the
+             onboarding registers), not tmux -- so this mock and the gate row below read
+             "Kosmos". The internal data-gate key stays "tmux" (it is the FR_GATES /
+             handler / browser-check selector; the subject is Kosmos.app). -->
         <div class="s3-win" aria-hidden="true">
           <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">tmux<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
+          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
         </div>
         <div class="s3-gate-row" data-gate="tmux">
-          <span class="s3-gate-lbl">TMUX</span>
+          <span class="s3-gate-lbl">Kosmos</span>
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
@@ -38977,11 +38981,13 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  /* #1: tmux fires the native Accessibility PROMPT (Kitty's /api/a11y-prompt, which
-     also injects tmux into the Accessibility list so it appears and is grantable -
-     the gap Josh hit, screenshot 9.51.30). sleep is programmatic (pmset), not a
-     prompt category, so it opens Settings and passes no trigger. Both fall back to
-     opening Settings when the native trigger is unavailable. */
+  /* #1/#2451: the Accessibility row fires the native PROMPT (Kitty's /api/a11y-prompt),
+     which registers the CALLING BINARY (the kosmos-app = Kosmos) in the Accessibility
+     list so it appears and is grantable - the grant is keyed on the calling binary, not
+     tmux (tmux disclaims responsibility for its children and never holds it; #2125). The
+     internal data-gate key stays "tmux" for back-compat, but the subject is Kosmos.app.
+     sleep is programmatic (pmset), not a prompt category, so it opens Settings and passes
+     no trigger. Both fall back to opening Settings when the native trigger is unavailable. */
   const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
   const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
     : gate === 'tmux' ? '/api/open-accessibility-settings' : null;

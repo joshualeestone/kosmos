@@ -64,6 +64,42 @@ test('install-flow-9screen: the gate poll reads /api/a11y-status for the tmux gr
     'the file-access gate reads /api/file-access-status and blocks on nativePresent && !granted');
 });
 
+test('#2451: the /api/a11y-status route serves Kosmos.app trust (a11ystatus.read), not tmuxGrant', () => {
+  // The gate bug was the ROUTE wiring, not the web layer: serving tmuxGrant() (tmux's
+  // path-keyed TCC row, the WRONG subject) returns checkable:false on a normal box, so
+  // the pill sticks on "Checking..." and the fail-safe leaves Next enabled (Josh's
+  // #2451 symptom). Accessibility is keyed on the CALLING binary, so read() (the
+  // native app's own AXIsProcessTrusted = Kosmos.app, the binary the onboarding
+  // registers) is the correct subject. Pin the route to read() and away from tmuxGrant.
+  const SERVER = fs.readFileSync(nodePath.join(__dirname, 'server.js'), 'utf8');
+  const start = SERVER.indexOf("pathname === '/api/a11y-status'");
+  assert.ok(start > -1, 'the /api/a11y-status route exists');
+  // Slice the WHOLE handler (to the next route's `if (pathname ===`) and STRIP block
+  // comments before asserting: the route comment names both read() and tmuxGrant() in
+  // prose, so matching the raw slice greps the COPY, not the code, and cannot fail when
+  // the bug is reintroduced (a-check-containing-a-copy-cannot-fail). Anchor on the
+  // ASSIGNMENT statement (`reading = a11ystatus.X()`), which the comment never contains,
+  // so reintroducing tmuxGrant in the code reds this test.
+  const nextRoute = SERVER.indexOf('if (pathname ===', start + 1);
+  const code = SERVER.slice(start, nextRoute > -1 ? nextRoute : start + 3000).replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.match(code, /reading\s*=\s*a11ystatus\.read\(\)/, 'the a11y-status route serves a11ystatus.read() (Kosmos.app trust)');
+  assert.doesNotMatch(code, /a11ystatus\.tmuxGrant\(/, 'the a11y-status route no longer serves tmuxGrant() (the wrong subject)');
+});
+
+test('#2451: the S3 Automation gate names Kosmos, not tmux (the binary macOS shows + grants)', () => {
+  // Josh sees "Kosmos" in the Accessibility list (the onboarding "Turn On" registers
+  // the kosmos-app), so the gate row label, the mock Accessibility window row, and the
+  // step caption must read "Kosmos". The internal data-gate="tmux" key stays (selector
+  // for FR_GATES / the Turn On handler / render-gated-next), so this pins the VISIBLE
+  // copy, not the attribute.
+  assert.match(S3, /<span class="s3-gate-lbl">Kosmos<\/span>/, 'the a11y gate row label reads "Kosmos"');
+  assert.match(S3, /<span class="s3-mtxt">Kosmos<small>Control your computer<\/small>/, 'the mock Accessibility row names Kosmos');
+  assert.match(S3, /switch Kosmos to On/, 'the step caption says "switch Kosmos to On"');
+  assert.doesNotMatch(S3, /<span class="s3-gate-lbl">TMUX<\/span>/, 'the old "TMUX" visible label is gone');
+  assert.doesNotMatch(S3, /<span class="s3-mtxt">tmux<small>/, 'the old "tmux" mock row is gone');
+  assert.doesNotMatch(S3, /switch TMUX to On/, 'the old "switch TMUX to On" caption is gone');
+});
+
 test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back to open-settings', () => {
   // #1 (Josh 0.6.39): the tmux "Turn On" must fire the real Accessibility PROMPT via
   // Kitty's /api/a11y-prompt trigger (which also injects tmux into the list so it is

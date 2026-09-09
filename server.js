@@ -5877,14 +5877,24 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
-    /* #2085: tmux's REAL grant (tmuxGrant reads its path-keyed row from the
-       system TCC db), NOT read() -- read() surfaced the native app's own
-       AXIsProcessTrusted, which is the false "TMUX ACTIVATED" pill (it answered
-       about the app, not tmux). Same {checkable, trusted} shape, so the S3 tmux
-       gate poll consumes it unchanged; any read failure -> checkable:false ->
-       the neutral "Checking..." pill, never a false green. */
+    /* #2451: serve Kosmos.app's OWN Accessibility trust (a11ystatus.read()), NOT
+       tmuxGrant(). Accessibility is keyed on the CALLING BINARY: the onboarding
+       "Turn On" registers the kosmos-app (Josh sees "Kosmos" in the Accessibility
+       list), and tmux disclaims responsibility for its children and can never hold
+       that grant -- so tmux is the WRONG subject. tmuxGrant() reads tmux's path-keyed
+       row, which is absent / path-key-mismatched on a normal box -> checkable:false
+       forever -> the pill sticks on "Checking..." and the gate fail-safes Next to
+       ENABLED (Josh's #2451 symptom: "stuck on Checking, Next already activated").
+       read() is the native app's AXIsProcessTrusted verdict (written on launch +
+       every 60s, inside STALE_AFTER_MS), so a native install gets a definite
+       trusted:true/false and the gate works; a browser (no writer) stays
+       checkable:false and fail-safe. (#2085 called the app's trust a "false TMUX
+       ACTIVATED" pill under the now-disproven belief that tmux must hold the grant;
+       #2125 resolved the subject is the app. tmuxGrant stays in the engine for a
+       possible #2125-KEEP tmux-identity path.) Same {checkable, trusted} shape, so
+       the S3 gate poll + render-gated-next consume it unchanged. */
     let reading;
-    try { reading = a11ystatus.tmuxGrant(); }
+    try { reading = a11ystatus.read(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
     sendJson(res, 200, reading);
     return;
