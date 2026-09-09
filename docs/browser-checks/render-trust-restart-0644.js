@@ -1,3 +1,4 @@
+// Browser-check-surface: d-trust-restart d-trust-restart-msg
 'use strict';
 
 /**
