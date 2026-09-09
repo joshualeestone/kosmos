@@ -13,7 +13,9 @@
 # 📌 ITS SCOPE, NAMED BY WHAT THE REGEX ACTUALLY MATCHES RATHER THAN BY WHAT IT IS FOR: a line
 # whose first token is `if` or `elif` FOLLOWED BY EXACTLY ONE SPACE, whose subject is the bare name
 # `p` or `rest`, and whose test is `.startswith(` or `==` against ONE quoted literal BEGINNING WITH
-# `/`, in either quote style, with any spacing around `==` but NO SPACE after `startswith(`.
+# `/`, in either quote style, with any spacing around `==` but NO SPACE either side of the
+# `startswith(` paren: `p.startswith ('/x')` and `p.startswith( '/x')` are both valid Python and
+# neither is matched.
 # 📌 PRECISION, because this sentence is the thing the non-fix decision traded for: "ONE quoted
 # literal" describes the SELECTION of a line. The EXTRACTION then pulls EVERY `'/...'` literal off
 # a selected line, so `if p == '/a' or p == '/b':` yields two tokens. That is a superset and fails
@@ -611,6 +613,10 @@ _ui_check 'http://[2001:db8::1]:8080/p'            'http://[2001:db8::1]:8080/p'
 # with BOTH a port AND an `@` in its path over-redacts and loses the host. Safe direction, and
 # pinned here so it cannot change silently in either direction.
 _ui_check 'http://h.example:8080/a/@b'             'http://<redacted>@b'
+# ...and the same residual with NO port at all: an IPv6 literal puts a `:` in the authority too.
+# The comment in the lib used to say the over-redaction needed a port, which was narrower than the
+# behaviour in the false-safety direction. Pinned here so the sentence and the code cannot drift.
+_ui_check 'http://[::1]/users/@handle'             'http://<redacted>@handle'
 [ "$_ui_fail" -eq 1 ] || pass "userinfo redaction handles a raw slash in userinfo, a doubled @, an IPv6 host, a path @, and the named over-redaction residual"
 
 u_msg=$(served_verify_asset_ok "$SSOUSER/dist/real.bin" "an asset behind a redirect carrying userinfo" 2>&1 >/dev/null)
@@ -1206,9 +1212,16 @@ _arm_code=$(/usr/bin/grep -v '^[[:space:]]*#' "$0")
 if [ "$(printf '%s\n' "$_arm_code" | wc -l)" -ge "$(wc -l < "$0")" ]; then
   fail "the comment strip removed no lines from this file, so a comment mentioning the || fail idiom would be counted as an arm"
 fi
-_armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "')
-if [ "$_armsites" -ne 92 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 92. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+# 🛑 AND A FOURTH SHAPE, IN THE NEWEST BLOCK ON THE BRANCH. The counter saw `pass`/`fail` at
+# a line start, `check_rc`, and a trailing `|| fail "`. It did NOT see `_ui_check` rows or a
+# trailing `|| pass "`. MEASURED: deleting all nine `_ui_check` rows left the count unchanged, the
+# suite exit 0, and it still printed a pass asserting five properties of the userinfo redaction
+# after running ZERO assertions. That is exactly the "a deleted section reports PASS" hole this
+# counter exists to close, in the one block covering the newest product function, and no
+# end-to-end arm can reach the adversarial shapes (which is why that function was extracted).
+_armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |^[[:space:]]*_ui_check |\|\| (fail|pass) "')
+if [ "$_armsites" -ne 103 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 103. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi

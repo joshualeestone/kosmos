@@ -227,8 +227,29 @@ note. That marker sat in a query VALUE, so the redaction removed it and that arm
 escape marker moved into the PATH, where redaction does not reach and a backslash is just as legal
 and just as hostile.
 
-⚠️ **RESIDUAL, named not fixed:** a credential in a PATH SEGMENT is still printed whole. Redacting
-path segments would destroy the tell, which is the same objection that killed truncation.
+⚠️ **RESIDUALS, named not fixed.** A credential in a PATH SEGMENT is still printed whole; redacting
+path segments would destroy the tell, which is the same objection that killed truncation. A
+VALUELESS query or fragment component is likewise kept, because it is indistinguishable from a KEY
+and keys are the discriminating signal.
+
+🛑 **AND THE USERINFO WORK, WHICH THIS SECTION DID NOT MENTION AT ALL UNTIL A REVIEWER SAID SO.**
+`_served_verify_redact_userinfo` is the newest product change on the branch and it exists because
+the residual list above once claimed to be COMPLETE while omitting the one URL component that is
+always a credential. Measured: a `Location` of `http://alice:SECRETPASSWORD@host/p?tok=Q#frag=F`
+had its query and fragment redacted correctly and its PASSWORD printed whole.
+
+Its own first version then leaked too, and the second review caught that: it tested the text before
+the FIRST `@` for a `/`, which is not the same question as "is the `@` before the path", so
+`http://user:pa/ss@host/p` was not redacted at all. Userinfo ends at the **last** `@`, and taking
+the first also displayed the wrong host on `http://user@host@evil/p`, the domain-confusion shape.
+It now branches on the RFC authority, and every branch is pinned by a direct table rather than by
+an end-to-end arm, because the adversarial shapes CANNOT be driven end-to-end: curl refuses to
+connect to them, so the caller takes the transport branch and the note never runs.
+
+⚠️ **Its own residual, and the first statement of it was narrower than the behaviour:** a target
+whose authority contains a `:` (an explicit port **or an IPv6 literal**) and whose path contains an
+`@` over-redacts and loses the host. Safe direction, not a shape this infra produces, and both
+forms are pinned as table rows so the sentence and the code cannot drift apart again.
 
 ## The one load-bearing claim on this branch with no instrument behind it
 

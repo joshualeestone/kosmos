@@ -41,11 +41,17 @@
 # The second is the classic domain-confusion shape: a real URL parser reads `user@host` as the
 # userinfo and `evil.example` as the host, so hiding only `user` both leaks and misleads.
 #
-# ⚠️ RESIDUAL, NAMED AND MEASURED: a target with BOTH an explicit port AND an `@` in its path
-# (`http://host:8080/a/@b`) over-redacts to `http://<redacted>@b`, losing the host, which is the
-# primary tell. It fails in the SAFE direction (nothing leaks) and it is not a shape this infra
-# produces. A path `@` with no port (`http://host/users/@handle`) is left alone, which is the
-# common case and is what the `:` test protects.
+# ⚠️ RESIDUAL, NAMED AND MEASURED, AND THE FIRST VERSION OF THIS SENTENCE WAS NARROWER THAN THE
+# BEHAVIOUR, IN THE FALSE-SAFETY DIRECTION. It said the over-redaction needs "BOTH an explicit port
+# AND an `@` in its path". The real trigger is ANY `:` in the authority, which includes an IPv6
+# LITERAL with no port at all. MEASURED, identical under bash, /bin/sh, dash and zsh:
+#     http://[::1]/users/@handle        -> http://<redacted>@handle    (host gone, no port involved)
+#     http://[::1]:8080/users/@handle   -> http://<redacted>@handle
+#     http://host.example/users/@handle -> unchanged                   (the case the old text named)
+# So: a target whose authority contains a `:` (a port OR an IPv6 literal) AND whose path contains an
+# `@` over-redacts and loses the host, which is the primary tell. It fails in the SAFE direction
+# (nothing leaks) and neither shape is one this infra produces. A path `@` with a bare hostname is
+# left alone, which is the common case.
 _served_verify_redact_userinfo() {
   _svru_h=$1
   case "$_svru_h" in
@@ -163,6 +169,16 @@ _served_verify_redirect_note() {
       # ⚠️ RESIDUALS, NAMED NOT FIXED, and the list is meant to be complete rather than indicative:
       #   1. a credential in a PATH SEGMENT is still printed whole. Redacting path segments would
       #      destroy the tell, which is the same objection that killed truncation.
+      #   2a. a `?` or `#` INSIDE the userinfo (`http://user:pa?ss@host/p`) would leave the prefix
+      #      unredacted, because the query/fragment split runs first and the head then carries no
+      #      `@`. Unreachable in practice and MEASURED as such: curl refuses to parse such a
+      #      Location (`curl: (3) The redirect target URL could not be parsed`), so the caller takes
+      #      the transport branch and this note never runs at all.
+      #   2b. curl's OWN stderr from the two primary probes is not silenced (only the note's
+      #      re-fetch is), so a parse or resolve error reaches the deploy log unredacted. Probed
+      #      across `?`- and `#`-in-userinfo, IPv6, a 3000-char target and a metacharacter-laden
+      #      one: curl printed the host at most, never userinfo. The "no credential reaches the log"
+      #      claim is therefore about THE NOTE, and is scoped that way here rather than implied.
       #   2. a VALUELESS query or fragment component is still printed whole (`?url=a&SECRET` keeps
       #      SECRET, `?SECRET` keeps it), because it is indistinguishable from a KEY and keys are
       #      the discriminating signal. This follows correctly from "keep the keys" and it is a

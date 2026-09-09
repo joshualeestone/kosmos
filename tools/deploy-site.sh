@@ -153,8 +153,12 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # The two non-zero codes mean different things and the refusal should not conflate them: 1 is a
 # BLIND host (the #1667 shape, a real finding), 2 is "the probe could not run" (a network blip, and
 # the caller cannot conclude either way). Both refuse, because refusing before a deploy on an
-# unprovable host is the safe direction, but they are named apart. This is the same
-# reason-versus-verdict distinction the diagnostic note exists for.
+# unprovable host is the safe direction, but they are named apart.
+# 📌 AND ONLY HERE, DELIBERATELY, WHICH IS WORTH SAYING BECAUSE THE ASYMMETRY LOOKS LIKE AN
+# OVERSIGHT. This is the one call where the distinction changes what the operator DOES: nothing has
+# been deployed, so a blip means retry and a blind host means stop. The two post-deploy calls both
+# mean "the deploy already ran, investigate" whichever code came back, and the library's own stderr
+# line already says "failed at the transport layer" when it was a blip.
 served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; fi; exit 1; }
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
