@@ -62,6 +62,10 @@ test('everyone() hands the SAME process table to every session', () => {
     get(k) { gets++; return super.get(k); }
   }
   const out = runningas.everyone({
+    /* #570: the DARWIN arm explicitly -- `everyone` now picks an arm from
+       `deps.platform || process.platform`, and `panes`/`procs` are darwin's
+       inputs. Unnamed, this would exercise the win32 reader on a Windows box. */
+    platform: 'darwin',
     panes,
     procs: new CountingMap(procs),
     envOf: () => 'CLAUDE_CONFIG_DIR=/tmp/x',
