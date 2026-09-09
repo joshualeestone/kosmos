@@ -57,10 +57,27 @@ function defaultStoreDir() {
 const REPO = process.env.KOSMOS_REPO || 'joshualeestone/kosmos';
 const ISSUE = process.env.SELFREPORT_SILENCE_ISSUE || '2522';
 const MARK = '[selfreport-silence-monitor]';
-const STALE_MIN = Number(process.env.SELFREPORT_STALE_MINUTES || 45);
-const HEARTBEAT_DAYS = Number(process.env.SELFREPORT_HEARTBEAT_DAYS || 7);
+
+/* A positive-number env override, or the default. A non-numeric or non-positive
+ * override (a typo like SELFREPORT_STALE_MINUTES=fortyfive) would otherwise yield
+ * NaN, and `ageMs > NaN` is always false -- silently DISABLING the alarm (fail-quiet,
+ * the dangerous direction for a monitor). Fall back to the default instead. */
+function posNum(raw, dflt) {
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : dflt;
+}
+const STALE_MIN = posNum(process.env.SELFREPORT_STALE_MINUTES, 45);
+const HEARTBEAT_DAYS = posNum(process.env.SELFREPORT_HEARTBEAT_DAYS, 7);
+/* Re-alarm throttle: a real outage lasts days, and at a 15-min sample an
+ * unthrottled stale branch would post hundreds of near-identical comments and
+ * BURY the very signal it raises. Re-post the alarm at most once per this window;
+ * the first alarm is immediate, then reminders. Advances only on a successful post
+ * (like the heartbeat), so a dead channel keeps trying rather than going quiet. */
+const ALARM_REPOST_HOURS = posNum(process.env.SELFREPORT_ALARM_REPOST_HOURS, 6);
 const HEARTBEAT_STATE = process.env.MONITOR_HEARTBEAT_STATE
   || path.join(process.env.HOME || os.homedir(), '.cache', 'kosmos-selfreport-silence-heartbeat.txt');
+const ALARM_STATE = process.env.MONITOR_ALARM_STATE
+  || path.join(process.env.HOME || os.homedir(), '.cache', 'kosmos-selfreport-silence-alarm.txt');
 
 /* Is this process command name a running Claude agent? THE CANONICAL RULE, applied
  * inline (issue #252, `~/.claude/scripts/lib/claude-process-classify.sh`, mirrored by
@@ -71,10 +88,13 @@ const HEARTBEAT_STATE = process.env.MONITOR_HEARTBEAT_STATE
  * the exact class the canonical rule exists to close. NOT bare `node` (the board and
  * tooling are node; counting them would make the gate always-satisfied). The lib
  * sanctions "source THIS or APPLY ITS RULE"; applied here + pinned by a test so a
- * drift is caught. `pane_current_command`/`ps comm` both report the basename. */
+ * drift is caught. NOTE: on macOS (the launchd runtime this ships on) `ps -axo comm=`
+ * returns the FULL executable path, not the basename, so the strip below is
+ * LOAD-BEARING on every line, not merely defensive: deleting it would make every
+ * command read as a full path, match nothing, and suppress the alarm forever. */
 function isAgentCommand(comm) {
   if (typeof comm !== 'string') return false;
-  const c = comm.trim().replace(/^.*\//, ''); // basename, in case a path leaks through
+  const c = comm.trim().replace(/^.*\//, ''); // REQUIRED: ps comm is a full path on macOS
   return c === 'claude' || c === 'claude.exe' || /^[0-9]+\.[0-9]+\.[0-9]+$/.test(c);
 }
 
@@ -146,20 +166,24 @@ function postComment(body) {
   }
 }
 
-function heartbeatDue() {
+/* Has it been at least `intervalMs` since we last posted through `stateFile`?
+ * Used to throttle BOTH the heartbeat (every HEARTBEAT_DAYS) and the stale-alarm
+ * re-post (every ALARM_REPOST_HOURS). A missing/garbled state file reads DUE, so
+ * the first post always goes out and a wiped state only re-posts sooner. */
+function postDueSince(stateFile, intervalMs) {
   try {
-    const last = Number(fs.readFileSync(HEARTBEAT_STATE, 'utf8').trim());
+    const last = Number(fs.readFileSync(stateFile, 'utf8').trim());
     if (!Number.isFinite(last)) return true;
-    return nowMs() - last > HEARTBEAT_DAYS * 24 * 60 * 60 * 1000;
+    return nowMs() - last > intervalMs;
   } catch {
-    return true; // no state yet -> due (proves the channel once, up front)
+    return true;
   }
 }
 
-function markHeartbeat() {
+function markPosted(stateFile) {
   try {
-    fs.mkdirSync(path.dirname(HEARTBEAT_STATE), { recursive: true });
-    fs.writeFileSync(HEARTBEAT_STATE, String(nowMs()));
+    fs.mkdirSync(path.dirname(stateFile), { recursive: true });
+    fs.writeFileSync(stateFile, String(nowMs()));
   } catch { /* best effort; a missed mark just re-posts sooner */ }
 }
 
@@ -184,19 +208,34 @@ function run(argv) {
   }
 
   if (v.stale) {
-    postComment(alertBody(v));
+    // Re-post at most once per ALARM_REPOST_HOURS so a multi-day outage does not
+    // bury the signal under hundreds of identical comments. The exit code still
+    // reflects staleness every sample (a launchd log line each time); only the
+    // ISSUE POST is throttled.
+    if (postDueSince(ALARM_STATE, ALARM_REPOST_HOURS * 60 * 60 * 1000)) {
+      if (postComment(alertBody(v))) markPosted(ALARM_STATE);
+    }
     return 1; // exit non-zero on a real alarm, so a wrapper/launchd log reflects it
   }
 
   // Healthy / expected. Silent, except the periodic proof-of-life heartbeat,
-  // whose ABSENCE is how a dead monitor is noticed.
-  if (heartbeatDue()) {
+  // whose ABSENCE is how a dead monitor is noticed. Clear the alarm state so the
+  // NEXT outage alarms immediately rather than waiting out a stale throttle.
+  clearAlarm();
+  if (postDueSince(HEARTBEAT_STATE, HEARTBEAT_DAYS * 24 * 60 * 60 * 1000)) {
     if (postComment(`${MARK} still watching. Fleet self-report path healthy `
       + `(${v.reason}; ${v.agentsRunning} agent process(es) running).`)) {
-      markHeartbeat();
+      markPosted(HEARTBEAT_STATE);
     }
   }
   return 0;
+}
+
+/* On a return to health, forget the last-alarm time so a FUTURE outage alarms on
+ * its first sample instead of being silenced by the previous outage's throttle
+ * window. Best-effort; a lingering file only delays one re-alarm by the window. */
+function clearAlarm() {
+  try { fs.rmSync(ALARM_STATE, { force: true }); } catch { /* best effort */ }
 }
 
 if (require.main === module) {

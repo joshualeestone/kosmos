@@ -72,6 +72,14 @@ jobs. #2522 stays OPEN until it is wired and observed alarming (mechanism built 
   that legitimately has nothing to report for 45 min is possible but fleet-wide-implausible given the
   historical rate; the generous threshold absorbs it. If it ever false-alarms, raise the threshold,
   do not remove the gate (removing the gate re-introduces empty-fleet false alarms).
+- **The count EXCLUDES bare `node`, which is a suppression path if the install method changes.**
+  `isAgentCommand` counts `claude`/`claude.exe`/native-version-string, NOT bare `node`. This is
+  REQUIRED today (the ever-present board is a `node` process; counting it would make the empty-fleet
+  gate always-satisfied and false-alarm a genuinely stopped fleet) and matches the canonical
+  `isUnambiguousClaude`. But an agent run via the OLD npm-global install fronts as `node`, so an
+  all-npm-global fleet would count 0 agents and the gate would never open -> alarm suppressed (the
+  dangerous direction). Safe on the native-installer fleet this ships to; revisit if the fleet's
+  install method ever reverts to npm-global.
 - **The monitor reuses the report store's freshness, not liveness.** Liveness froze WITH selfreports
   in #2509 (they share the report handler - see also (a), Pete's decoupling card), so it is not an
   independent clock yet; selfreport freshness is the signal available today. If (a) lands, a decoupled

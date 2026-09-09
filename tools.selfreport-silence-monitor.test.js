@@ -29,7 +29,7 @@ function withHarness(fn) {
   }
 }
 
-function runMonitor({ ghStub, storeDir, agents, nowMs, heartbeatState, args = [] }) {
+function runMonitor({ ghStub, storeDir, agents, nowMs, heartbeatState, alarmState, staleMinutes, args = [] }) {
   const env = {
     ...process.env,
     MONITOR_GH_CMD: ghStub,
@@ -37,7 +37,9 @@ function runMonitor({ ghStub, storeDir, agents, nowMs, heartbeatState, args = []
     MONITOR_AGENT_COUNT: String(agents),
     MONITOR_NOW_MS: String(nowMs),
     MONITOR_HEARTBEAT_STATE: heartbeatState,
-    SELFREPORT_STALE_MINUTES: '45',
+    // isolate the alarm-throttle state to a temp file (never the real cache)
+    MONITOR_ALARM_STATE: alarmState || path.join(path.dirname(heartbeatState), 'alarm.txt'),
+    SELFREPORT_STALE_MINUTES: staleMinutes || '45',
   };
   try {
     const stdout = execFileSync('node', [MONITOR, ...args], { env, encoding: 'utf8' });
@@ -112,6 +114,46 @@ test('--check prints the verdict JSON and exits by staleness WITHOUT posting', (
     assert.equal(v.stale, true);
     assert.equal(v.reason, 'stale');
     assert.equal(ghCalls(record).length, 0, '--check never posts');
+  });
+});
+
+test('STALE re-post is THROTTLED: a second sample within the window does NOT re-post (no burying the signal)', () => {
+  withHarness(({ record, ghStub, storeDir, dir }) => {
+    writeReport(storeDir, 'angel', NOW - 5 * 24 * 60 * MIN);
+    const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due
+    const alarm = path.join(dir, 'alarm.txt');
+    const first = runMonitor({ ghStub, storeDir, agents: 18, nowMs: NOW, heartbeatState: hb, alarmState: alarm });
+    assert.equal(first.code, 1);
+    assert.equal(ghCalls(record).length, 1, 'first stale sample posts');
+    // 15 minutes later, still stale, well within the 6h re-post window
+    const second = runMonitor({ ghStub, storeDir, agents: 18, nowMs: NOW + 15 * MIN, heartbeatState: hb, alarmState: alarm });
+    assert.equal(second.code, 1, 'still exits 1 every sample (a launchd log line)');
+    assert.equal(ghCalls(record).length, 1, 'but does NOT re-post within the window');
+  });
+});
+
+test('a config typo (SELFREPORT_STALE_MINUTES not a number) FALLS BACK to 45, not NaN (the alarm is not silently disabled)', () => {
+  withHarness(({ record, ghStub, storeDir, dir }) => {
+    writeReport(storeDir, 'angel', NOW - 50 * MIN); // older than 45, younger than any larger typo-value
+    const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW));
+    const r = runMonitor({ ghStub, storeDir, agents: 18, nowMs: NOW, heartbeatState: hb, staleMinutes: 'fortyfive' });
+    assert.equal(r.code, 1, 'a garbage threshold must not become NaN and disable the alarm');
+    assert.equal(ghCalls(record).length, 1);
+  });
+});
+
+test('a return to HEALTH clears the alarm state, so a future outage alarms immediately (no throttle carryover)', () => {
+  withHarness(({ record, ghStub, storeDir, dir }) => {
+    const hb = path.join(dir, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due, to isolate
+    const alarm = path.join(dir, 'alarm.txt');
+    // 1) stale -> posts + marks alarm state
+    writeReport(storeDir, 'angel', NOW - 5 * 24 * 60 * MIN);
+    runMonitor({ ghStub, storeDir, agents: 18, nowMs: NOW, heartbeatState: hb, alarmState: alarm });
+    assert.ok(fs.existsSync(alarm), 'alarm state recorded while stale');
+    // 2) healthy -> clears alarm state
+    fs.writeFileSync(path.join(storeDir, 'angel.jsonl'), JSON.stringify({ at: new Date(NOW + 2 * MIN).toISOString() }) + '\n');
+    runMonitor({ ghStub, storeDir, agents: 18, nowMs: NOW + 3 * MIN, heartbeatState: hb, alarmState: alarm });
+    assert.equal(fs.existsSync(alarm), false, 'healthy run clears the alarm throttle so the next outage alarms at once');
   });
 });
 
