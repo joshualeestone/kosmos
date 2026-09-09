@@ -12806,7 +12806,7 @@ function memUnknown(ctx) {
 function memWhy(ctx) {
   const why = ctx && typeof ctx.because === 'string' ? ctx.because.trim() : '';
   if (!why) return '';
-  return why.charAt(0).toUpperCase() + why.slice(1) + '. ';
+  return asSentence(why) + ' ';
 }
 
 /**
@@ -13432,8 +13432,7 @@ function renderConnection(conn, agents, dependsOnClaude) {
     if (bad) return '';                 // the headline already says it
     const why = String(conn.because || '').trim();
     if (!why) return '';
-    const cased = why.charAt(0).toUpperCase() + why.slice(1);
-    return ' ' + (/[.!?]$/.test(cased) ? cased : cased + '.');
+    return ' ' + asSentence(why);
   })();
 
   el.className = 'conn ' + (bad ? 'conn-bad' : 'conn-unsure');
@@ -21616,7 +21615,7 @@ function openDetail(sessionName, section) {
      on its own line, that reads as a fragment; a capital and a full stop make
      it the sentence it is. Nothing else about the words changes. */
   const reason = String(a.because || '').trim();
-  why.textContent = reason ? reason.charAt(0).toUpperCase() + reason.slice(1) + (/[.!?]$/.test(reason) ? '' : '.') : '';
+  why.textContent = reason ? asSentence(reason) : '';
   /* #1841 (Josh, 2026-09-02): status was reported twice -- the top line already
      carries the reported sentence (d-task quotes a.because when stateReported),
      and this line restated it capitalized below. When the state is REPORTED, the
@@ -23566,7 +23565,7 @@ function renderStale(s) {
   // on. its instruction file is not UTF-8 text".
   hideReports(); // #1841: reports section is the Kosmos-made-stale case only
   const why = String(s.because || '');
-  const sentence = why ? `${why.charAt(0).toUpperCase()}${why.slice(1)}${/[.!?]$/.test(why) ? '' : '.'}` : '';
+  const sentence = why ? asSentence(why) : '';
   /**
    * ⚠️ REWORDED 2026-08-11 after Josh read it on screen and could not parse it.
    * It said "We cannot tell whether this is what it is running on", which is
@@ -26596,7 +26595,7 @@ async function paintPlus() {
   const because = plusWords(stat.because || '');
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
-    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+    : (because ? asSentence(because) : '');
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
@@ -36132,7 +36131,7 @@ function pjWhen(at) {
 function placedWords(d) {
   const note = (d && d.paneNote) || '';
   if (!note || d.paneState === 'idle') return '';
-  return note.charAt(0).toUpperCase() + note.slice(1) + '.';
+  return asSentence(note);
 }
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
@@ -36213,7 +36212,7 @@ function pjMsg(m, name) {
 function pjSentence(because) {
   const said = String(because || '').trim();
   if (!said) return '';
-  return said.charAt(0).toUpperCase() + said.slice(1) + (/[.!?]$/.test(said) ? '' : '.');
+  return asSentence(said);
 }
 
 /**
