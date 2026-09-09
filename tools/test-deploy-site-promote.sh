@@ -98,6 +98,12 @@ make_scenario() {  # [committed_sha_override]
   ( cd "$live/dist" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
   printf 'in\npkg:z\n' > "$live/dist/Kosmos.pkg.inputs"
   printf 'WINZIP\n' > "$live/dist/$WINZIP"
+  # the sidecar and the UNVERSIONED alias pair: deploy-site.sh honest-marker-checks both before the
+  # deploy and served-verifies both after it. Without them this fixture refuses at the export check
+  # and nine assertions below collapse for a reason unrelated to what they test.
+  ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
+  printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
+  ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   printf 'setup-script\n' > "$live/setup"
   local newsha; newsha="$(sha_of "$live/dist/$NEWART")"
   write_ptr "$live/dist/latest.json" "$OLD" "oldsha000000" "$OLDART"   # LIVE prod = OLD
@@ -111,6 +117,9 @@ make_scenario() {  # [committed_sha_override]
   local csha="${1:-$newsha}"
   write_ptr "$s/dist/latest.json" "$NEW" "$csha" "$NEWART"            # COMMITTED = NEW
   printf 'WINZIP\n' > "$s/dist/$WINZIP"                                # tracked win zip
+  ( cd "$s/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )       # ...and its tracked sidecar
+  printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"                   # the unversioned win alias
+  ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   git -C "$s" add -A && git -C "$s" commit -q -m "site at $NEW"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
   printf '%s %s' "$s" "$live"
@@ -205,6 +214,12 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   ( cd "$live/dist" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
   printf 'in\npkg:z\n' > "$live/dist/Kosmos.pkg.inputs"
   printf 'WINZIP\n' > "$live/dist/$WINZIP"
+  # the sidecar and the UNVERSIONED alias pair: deploy-site.sh honest-marker-checks both before the
+  # deploy and served-verifies both after it. Without them this fixture refuses at the export check
+  # and nine assertions below collapse for a reason unrelated to what they test.
+  ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
+  printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
+  ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   printf 'setup-script\n' > "$live/setup"
   local oldsha; oldsha="$(sha_of "$live/dist/$OLDART")"
   write_ptr "$live/dist/latest.json" "$NEW" "newsha000000" "$NEWART"   # LIVE prod = NEW
@@ -215,6 +230,9 @@ make_rollback_scenario() {  # echoes "SITE LIVE"
   printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
   write_ptr "$s/dist/latest.json" "$OLD" "$oldsha" "$OLDART"           # COMMITTED = OLD (rollback)
   printf 'WINZIP\n' > "$s/dist/$WINZIP"
+  ( cd "$s/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
+  printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"
+  ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   git -C "$s" add -A && git -C "$s" commit -q -m "site rolled back to $OLD"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
   printf '%s %s' "$s" "$live"

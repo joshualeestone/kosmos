@@ -8524,6 +8524,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
+           the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
+           replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
+           so this is purely information; it never appears on a granted/checking row nor on a
+           fixable desktop (no data-battonly), where "Turn On" can still set Sleep to Never. */
+        .s3-battonly{display:none}
+        .s3-gate-row[data-battonly] .s3-req{display:none}
+        .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-basis:100%;width:100%;margin:2px 0 0}
+        #fr-pane-3 .s3-battonly-note{margin:0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
         </style>
 
         <p class="fc-eyebrow">Automation</p>
@@ -8540,6 +8549,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
+          <!-- #2587: on a laptop that sleeps on battery (data-battonly, set by the
+               /api/sleep-status poll) macOS has no switch to fix it, so the useless
+               "Turn On" is replaced by an honest note. The step no longer gates Next
+               (FR_GATES.sleep gatesNext:false), so this is purely information that stays
+               on the screen while the user moves on -- Mona Lisa's copy. -->
+          <div class="s3-battonly">
+            <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open.</p>
+          </div>
         </div>
 
         <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
@@ -15859,26 +15876,38 @@ function accountQualifiers(list) {
      but this function is pure and exported: a future `list()`, or any other
      caller, must not be able to reintroduce the collision from a distance. So
      track the names already handed out in each group and fall back to the unique
-     `dir` on any collision. `main` is reserved for the default row. */
+     `dir` on any collision. `main` is reserved for the FIRST default row.
+     🛑 #2584 (deferred finding 9, now live): there can be MORE THAN ONE default
+     in a key-group. Each provider has its own default, so a Claude default and an
+     OpenAI ChatGPT default sharing one email (one account in ~/.claude and the
+     other in ~/.codex) both reached this loop and both took `qual = 'main'`, so the two
+     reauth controls #2584 added answered to one accessible name again. The
+     original comment predicted exactly this: "moot only while there is exactly
+     one default ... if you widen what a row can be further, re-check finding 9."
+     #2584 widened it by giving the OpenAI default a reauth button. The fix is to
+     let `main` participate in the same used-set as every other qualifier: the
+     first default in a group keeps `main`; a second falls through to the label,
+     else the unique `dir`, so the two controls stay distinct. */
   const usedByKey = new Map();
   for (const a of rows) {
     const k = key(a);
     const dir = String(a.dir || '');
     if (!k || (count.get(k) || 0) < 2) { out.set(dir, ''); continue; }
+    let used = usedByKey.get(k);
+    if (!used) { used = new Set(); usedByKey.set(k, used); }
     let qual;
-    if (a.isDefault) {
+    if (a.isDefault && !used.has('main')) {
       qual = 'main';
     } else {
-      let used = usedByKey.get(k);
-      if (!used) { used = new Set(); usedByKey.set(k, used); }
       qual = String(a.label || '');
       /* `dir` is unique per row by construction, so it is the collision-proof
          last resort: an empty label, the reserved `main` (which belongs to the
-         default row), or a label another row in this group already took all fall
-         back to it. */
+         first default row and may already be taken by another default in this
+         group), or a label another row in this group already took all fall back
+         to it. */
       if (!qual || qual === 'main' || used.has(qual)) qual = dir;
-      used.add(qual);
     }
+    used.add(qual);
     out.set(dir, qual);
   }
   return out;
@@ -16212,18 +16241,26 @@ async function paintAccounts() {
          (#2441): the product's answer for switching an api-key row to a subscription is
          remove-and-re-add, not reauth-in-place. `a.apiKey` is present-and-false on a
          subscription row, so this narrows to api-key rows alone. */
-      + (isOpenai || a.apiKey ? ''
-        : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-          /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
-             POINT. `qualName` falls back to the provider name so a Disconnect always
-             says WHICH account it removes, because Disconnect appears on both
-             providers and a wrong press is expensive. Reauth appears on CLAUDE ROWS
-             ONLY, so an appended "(Claude)" cannot disambiguate anything: it lands on
-             every ordinary machine as pure verbosity, on the surface where verbosity
-             costs most. When `qual` IS set the two agree, so the disambiguating case
-             is untouched. Pinned below so this is a decision rather than a leftover. */
-          + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
+      /* 🔑 The aria-label appends the qualifier ONLY when `qual` is set (two rows read
+         alike), so on an ordinary machine it stays terse; when it IS set both providers
+         agree, so the disambiguating case is untouched. Reauth now appears on Claude
+         subscription rows AND OpenAI ChatGPT-subscription rows (#2584 gave the latter a
+         real reauth-in-place); it is still withheld from api-key rows of either provider,
+         whose product answer is remove-and-re-add, not reauth-in-place. */
+      + (isOpenai
+        /* #2568/#2584: an OpenAI ChatGPT SUBSCRIPTION row reauths via the SUBSCRIPTION
+           flow (data-openai-reauth -> openAcctReauthOpenai -> the subscription/start
+           reauthDir path), NOT the Claude browser-OAuth flow. An api-key OpenAI row has
+           no sign-in to redo, so it stays suppressed. */
+        ? (a.authMode === 'chatgpt'
+          ? '<button class="acct-reauth" type="button" data-openai-reauth="' + esc(a.dir) + '" '
+            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="' + esc('Signs in again to this ChatGPT subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
+          : '')
+        : (a.apiKey ? ''
+          : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
+            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>'))
       /* #2441: api-key Claude Disconnect is now LIVE. #2420's removal slice landed, so
          `forgetAccount` accepts api-key accounts (erases the stored key + unwires the
          apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
@@ -16375,6 +16412,14 @@ async function paintAccounts() {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.reauth);
       openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
+    });
+  }
+  /* #2568/#2584: the OpenAI ChatGPT reauth opens the SUBSCRIPTION sign-in aimed at this
+     account (reauthDir), not the Claude flow -- its own data attribute keeps the two apart. */
+  for (const btn of box.querySelectorAll('[data-openai-reauth]')) {
+    btn.addEventListener('click', () => {
+      const row = list.find((x) => String(x.dir) === btn.dataset.openaiReauth);
+      openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
     });
   }
   /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
@@ -17116,6 +17161,13 @@ function acctPick(which, opts) {
   acctOpenaiLook().then((o) => {
     acctOpenaiStep(ACCT_OPENAI_READY);
     if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
+    /* #2568/#2584: a reauth goes straight to the ChatGPT sign-in step (re-authing an
+       existing subscription account), like the Claude reauth does, not the provider
+       picker. Only with the runner present -- an existing account implies it; a missing
+       one falls to the install step and the sub-go POST's needsRunner path still routes.
+       acctOpenaiChoose focuses the sign-in button itself, so this runs BEFORE the
+       focus-return below and applies to the focus:false reauth entry too. */
+    if (ACCT_OPENAI_REAUTH_DIR && ACCT_OPENAI_READY !== false) acctOpenaiChoose('sub');
     if (opts && opts.focus === false) return;
     /* #2338: a present-or-unknown runner opens on the picker; a missing one on
        the install button. */
@@ -17164,6 +17216,12 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
    harder to notice because it silently succeeds. openAcctAdd() clears it on
    every visit; the test pins that. */
 let ACCT_REAUTH_DIR = null;
+/* #2568/#2584: the OpenAI ChatGPT account a reauth is signing in again AS, null for a new
+   add. Threaded into the subscription/start POST as `reauthDir`; the #2584 driver refuses
+   to promote unless the fresh sign-in matches this account. Cleared by openAcctAdd() like
+   its Claude sibling ACCT_REAUTH_DIR, so a fresh "+ Add a provider" is never silently a
+   reauth (the dangerous stale-dir direction that rule guards). */
+let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
 const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.';
 /* The stock warning says to sign in to the OTHER Claude account first, which is
@@ -17202,6 +17260,20 @@ function openAcctReauth(dir, email) {
   document.getElementById('acct-add-modal').hidden = false;
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
+}
+/* #2568/#2584: sign in again AS an existing OpenAI ChatGPT-subscription account. Mirror of
+   openAcctReauth but for the OpenAI SUBSCRIPTION flow: set the reauth dir, open the dialog in
+   reauth chrome, and pick OpenAI. acctPick('openai') then routes a reauth straight to the
+   ChatGPT sign-in step (skipping the picker), the same way it does for a Claude reauth, and the
+   subscription/start POST reads ACCT_OPENAI_REAUTH_DIR so the engine refreshes THIS account in
+   place (the #2584 driver refuses to promote unless the sign-in matches it). */
+function openAcctReauthOpenai(dir, email) {
+  ACCT_OPENAI_REAUTH_DIR = dir;
+  acctReauthChrome(true, email);
+  document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-openai-msg').textContent = '';
+  document.getElementById('acct-add-modal').hidden = false;
+  acctPick('openai', { focus: false });
 }
 /* #1704 slice-3: the multiple-Kosmos switcher (list + create). Lists worlds from
    GET /api/worlds and creates them via POST /api/worlds. Switching between worlds
@@ -17736,6 +17808,7 @@ function openAcctAdd() {
     document.getElementById('acct-openai-flow').hidden = true;
   }
   ACCT_REAUTH_DIR = null;
+  ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
@@ -18026,7 +18099,10 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
     const res = await fetch('/api/accounts/openai/subscription/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined }),
+      // #2568/#2584: on a reauth, ACCT_OPENAI_REAUTH_DIR names the account to sign in
+      // again AS; the engine promotes into it only on an identity match. Absent on a
+      // fresh add (openAcctAdd clears it), so this is never accidentally a reauth.
+      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined, reauthDir: ACCT_OPENAI_REAUTH_DIR || undefined }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
@@ -38737,6 +38813,16 @@ const FR_GATES = {
     url: '/api/sleep-status',
     granted: (r) => r.checkable === true && r.prevented === true,
     blocked: (r) => r.checkable === true && r.prevented !== true,
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. The
+    // granted/blocked reads still drive the row's visual state (Activated / Not
+    // activated + Turn On), but frPollGates does not let a blocked sleep row disable
+    // Next. A laptop cannot satisfy it at all (no macOS switch), so gating it trapped
+    // users; the honest note stays on the screen as information.
+    gatesNext: false,
+    // #2587: the unsatisfiable-laptop case (plugged-in-fine, sleeps on battery).
+    // machine.js sets this ONLY on that state, so the honest note replaces the useless
+    // "Turn On" only there, never on a fixable desktop (where Turn On can set Never).
+    battOnly: (r) => r.battOnly === true,
   },
   'tmux': {
     url: '/api/a11y-status',
@@ -38754,23 +38840,28 @@ const FR_GATE_POLL_MS = 750;
 function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
-  if (!spec) return 'uncheckable';
+  if (!spec) return { state: 'uncheckable', battOnly: false };
   // A fetch failure is an empty reading, so every predicate below reads false and
   // the row is uncheckable (fail-safe) -- never blocked, never a false green.
   let r; try { r = await (await fetch(spec.url)).json(); } catch { r = {}; }
   if (!r || typeof r !== 'object') r = {};
-  if (spec.granted(r)) return 'granted';
-  if (spec.blocked(r)) return 'blocked';
-  return 'uncheckable';
+  // #2587: read the unsatisfiable-laptop flag ALONGSIDE the state, so the poll can show
+  // the honest note in place of the useless Turn On on that row (see frPollGates). Absent
+  // predicate (every gate but sleep) is always false.
+  const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
+  if (spec.granted(r)) return { state: 'granted', battOnly };
+  if (spec.blocked(r)) return { state: 'blocked', battOnly };
+  return { state: 'uncheckable', battOnly };
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
   const rows = Array.from(screenEl.querySelectorAll('[data-gate]'));
   if (!rows.length) return;
-  const states = await Promise.all(rows.map(frReadGate));
+  const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
   rows.forEach((row, i) => {
+    const st = reads[i].state;
     // #2085: three visual states, exactly one attribute set (or neither = the
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
@@ -38778,10 +38869,20 @@ async function frPollGates(screenEl, gen) {
     // NOTE: data-checking is set on ANY uncheckable data-gate row, but only the
     // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
     // (that row keeps its default red state, unchanged) -- harmless, not a regression.
-    if (states[i] === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
-    else if (states[i] === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
+    if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
+    else if (st === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
-    if (states[i] === 'blocked') anyBlocked = true;
+    // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
+    // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
+    if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
+    // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
+    // anyone who simply has not set it, can still move on; the honest note stays as
+    // information rather than walling them in. Only genuinely-satisfiable permissions
+    // (Accessibility/tmux, file access) gate Next -- gating those is correct, because
+    // letting a user past an ungranted Accessibility grant lands them in broken agents.
+    const spec = FR_GATES[row.getAttribute('data-gate')];
+    if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
   const next = document.getElementById('fr-next');
   if (!next) return;
@@ -39358,6 +39459,9 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
     }
     return;
   }
+  // #2587: no "Continue anyway" button any more. Josh's ruling made the sleep step
+  // ADVISORY (FR_GATES.sleep gatesNext:false), so Next is never gated on it and there is
+  // nothing to click past -- the honest note simply stays on the screen as information.
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');

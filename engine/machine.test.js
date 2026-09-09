@@ -895,6 +895,15 @@ test('an unreadable AC section does not throw away a readable battery one', () =
   const bothJunk = 'Battery Power:\n sleep                y\n\nAC Power:\n sleep                x\n';
   assert.equal(machine.sleepCheck(bothJunk).state, 'unknown',
     'invented a finding out of two unreadable sections');
+
+  // #2587: this AC-unreadable branch is the DOCUMENTED exclusion (machine.js:165) -- the
+  // note's most important NEGATIVE case. It must NOT carry battOnly, because the advisory
+  // sleep step's honest note promises "plugged in it keeps working" and an unreadable AC
+  // cannot confirm that; the row keeps "Turn On" instead. Pin the flag's absence at both
+  // layers so a later edit that shows the note on an unconfirmable premise fails loudly.
+  assert.ok(!got.battOnly, 'the AC-unreadable branch must not set battOnly (its plugged-in state is unconfirmed)');
+  assert.equal(machine.sleepGate({ pmset: acJunk }).battOnly, false,
+    'sleepGate must not flag the AC-unreadable branch as the laptop-note (battOnly) case');
 });
 
 test('when both power sources sleep, the shorter one is not left unsaid', () => {
@@ -1566,20 +1575,30 @@ test('sleepGate: a desktop that does not sleep -> checkable:true, prevented:true
   assert.deepEqual(machine.sleepGate({ pmset: DESKTOP_AWAKE }), { checkable: true, prevented: true });
 });
 
-test('sleepGate: a desktop that sleeps -> checkable:true, prevented:false (THE state that gates)', () => {
+test('sleepGate: a desktop that sleeps -> checkable:true, prevented:false (it sleeps)', () => {
   const got = machine.sleepGate({ pmset: DESKTOP_SLEEPS });
   assert.equal(got.checkable, true);
   assert.equal(got.prevented, false);
+  // #2587: a fixable desktop is NOT battOnly -- "Turn On" can set Sleep to Never, so it is
+  // not the laptop-note case; the row shows the ordinary "Not activated" + Turn On (advisory;
+  // the sleep step never gates Next either way).
+  assert.equal(got.battOnly, false);
 });
 
 test('sleepGate: a laptop awake on both power sources -> prevented:true', () => {
   assert.deepEqual(machine.sleepGate({ pmset: LAPTOP_ALWAYS_AWAKE }), { checkable: true, prevented: true });
 });
 
-test('sleepGate: a laptop that sleeps on battery -> prevented:false (gates, per the flagged policy)', () => {
+test('sleepGate: a laptop that sleeps on battery -> prevented:false + battOnly:true (the laptop-note case)', () => {
   const got = machine.sleepGate({ pmset: LAPTOP_SLEEPS_ON_BATTERY });
   assert.equal(got.checkable, true);
-  assert.equal(got.prevented, false, 'a machine that can sleep somewhere gates -- no silently-broken Kosmos');
+  assert.equal(got.prevented, false, 'a machine that can sleep somewhere reads prevented:false -- honest');
+  // #2587: THIS is the one state macOS gives no GUI switch to clear (a laptop always
+  // sleeps on battery), so it carries battOnly:true and the advisory first-run sleep step
+  // shows its honest note keyed on it (in place of the useless Turn On). The verdict stays
+  // prevented:false (the engine never claims the Kosmos is safe); the web does not gate Next
+  // on the sleep step at all (#2587 pivot).
+  assert.equal(got.battOnly, true);
 });
 
 test('sleepGate: THE DISCRIMINATOR -- not-prevented and uncheckable are different answers', () => {
