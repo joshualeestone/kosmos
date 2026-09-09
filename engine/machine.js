@@ -301,24 +301,23 @@ function sleepCheck(text) {
  *
  * The mapping from sleepCheck's STATE is direct and positive-only:
  *   OK        -> prevented:true   (it does not sleep)
- *   ATTENTION -> prevented:false  (it sleeps somewhere -- THE state that gates)
+ *   ATTENTION -> prevented:false  (it sleeps somewhere -- the honest reading; the
+ *                                  first-run step shows this but no longer GATES on it, #2587)
  *   UNKNOWN   -> checkable:false  (we could not read it -- fail-safe, never gate)
  * pmset is a shell reading the engine runs itself, so -- unlike a11y and
  * file-access -- this gate needs no native writer and functions at launch.
  *
  * ⚠️ THE LAPTOP-ON-BATTERY CASE (#2587, DECIDED): a LAPTOP that never sleeps
- * plugged in but sleeps on battery is STATE.ATTENTION, so it GATES -- the spec's
- * "no silently-broken Kosmos" intent (unplug it and the agents stop). macOS
- * offers no GUI switch to prevent battery sleep, so on a laptop this gate cannot
- * be turned green from the Energy pane the "Turn On" button opens, and the user
- * was walled with no door (Nick, first outside tester, 2026-09-09). RESOLVED per
- * Josh's standing "make the call yourselves" ruling, not escalated: the
- * unsatisfiable-laptop branch of sleepCheck now sets battOnly:true, and the
- * first-run sleep gate offers an honest "Continue anyway" escape keyed on that
- * flag (note above the button; it does NOT green the step -- state beats a
- * message). Desktops (Mac mini, AC-only) are unaffected and still gate normally.
- * The verdict here stays prevented:false (honest); the WEB grants the informed
- * override, so the engine's "no silently-broken Kosmos" gate is never loosened.
+ * plugged in but sleeps on battery is STATE.ATTENTION (prevented:false), and macOS
+ * offers NO GUI switch to prevent battery sleep -- so when the first-run step gated
+ * Next on it, a laptop user was walled with no door (Nick, first outside tester,
+ * 2026-09-09). Josh's ruling: the SLEEP STEP IS ADVISORY -- it never gates Next.
+ * This engine reading is UNCHANGED and stays honest (prevented:false = it sleeps
+ * somewhere); the web (FR_GATES.sleep gatesNext:false) simply no longer lets a
+ * not-prevented sleep row disable Next, and shows an honest note keyed on the
+ * battOnly flag this branch sets, so the note replaces the useless "Turn On" only on
+ * the laptop-battery case. Accessibility/file-access STAY real gates -- those are
+ * satisfiable, and letting a user past them lands them in broken agents.
  */
 function sleepGate(opts) {
   const runner = (opts && opts.runner) || run;

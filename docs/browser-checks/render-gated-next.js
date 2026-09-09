@@ -174,79 +174,64 @@ async function fresh(browser) {
     await ctx.close();
   }
 
-  /* ---------- #2587: the unsatisfiable-laptop sleep escape ("Continue anyway") ----------
-     A laptop that has AC-sleep off but sleeps on battery is prevented:false forever
-     (macOS has no never-sleep-on-battery switch), so machine.js flags it battOnly. The
-     gate replaces the useless Turn On with an honest note + "Continue anyway" that unlocks
-     Next WITHOUT greening the row. The control arm proves it never shows for a fixable
-     desktop (prevented:false, no battOnly), where Turn On can still satisfy the gate. */
-  console.log('\n#2587 -- a laptop that sleeps on battery gets an honest "Continue anyway" escape');
+  /* ---------- #2587: the sleep step is ADVISORY (Josh's ruling) ----------
+     A laptop that sleeps on battery is prevented:false forever (macOS has no
+     never-sleep-on-battery switch), so gating Next on it walled laptop users in. Now the
+     sleep step NEVER gates Next; the honest note replaces the useless Turn On on that
+     (battOnly) row. Accessibility/tmux STILL gates -- it is satisfiable + required, so
+     letting a user past it would land them in broken agents. Arms: (A) laptop-battery +
+     Accessibility granted -> Next ENABLED though sleep is blocked, note shown, Turn On
+     hidden, not green, no Continue button; (B) laptop-battery + Accessibility NOT granted
+     -> Next stays LOCKED (advisory sleep does not bypass the real gate); (C) control: a
+     fixable desktop that sleeps on AC -> Next ENABLED too (advisory for everyone), no note,
+     Turn On shown. */
+  console.log('\n#2587 -- the sleep step is advisory: it never gates Next, Accessibility still does');
   const sleepUi = (page) => page.evaluate(() => {
     const row = document.querySelector('[data-gate="sleep"]');
     const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
     return {
-      battonly: row.hasAttribute('data-battonly'), granted: row.hasAttribute('data-granted'),
-      continued: row.hasAttribute('data-continued'), escape: vis('.s3-battonly'),
-      turnOn: vis('.s3-req'), green: vis('.s3-granted'), caveat: vis('.s3-continued-pill'),
+      battonly: row.hasAttribute('data-battonly'), green: vis('.s3-granted'),
+      note: vis('.s3-battonly'), turnOn: vis('.s3-req'),
+      hasContinueBtn: !!row.querySelector('.s3-continue'),
     };
   });
-  const activeId = (page) => page.evaluate(() => (document.activeElement && document.activeElement.id) || '');
-  const activeIsPill = (page) => page.evaluate(() => !!(document.activeElement
-    && document.activeElement.classList && document.activeElement.classList.contains('s3-continued-pill')));
   {
+    // (A) laptop that sleeps on battery, Accessibility granted: sleep is blocked but Next is
+    // ENABLED; the honest note replaces Turn On; row not green; no Continue button.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: true },
     });
-    let u = await sleepUi(page);
-    ok(u.battonly, '#2587 the poll marks the laptop-battery row data-battonly');
-    ok(u.escape, 'the "Continue anyway" escape is shown');
-    ok(!u.turnOn, 'the useless "Turn On" is hidden (it cannot fix battery sleep)');
-    ok(!u.green, 'the row is NOT green/Activated before continuing (no false pass)');
-    ok(await nextDisabled(page), 'Next is still locked before the user continues');
-    await page.click('[data-gate="sleep"] .s3-continue');
-    await page.waitForTimeout(200);
-    u = await sleepUi(page);
-    ok(!(await nextDisabled(page)), 'clicking "Continue anyway" unlocks Next');
-    ok(u.continued, 'the row records the informed override (data-continued)');
-    ok(!u.granted && !u.green, 'and it STILL does not go green -- state beats a message');
-    ok(u.caveat, 'the muted "Continuing, with a caveat" is shown instead of a green pass');
-    ok((await activeId(page)) === 'fr-next', 'focus moved to the now-unlocked Next, not dropped to <body>');
-    // The override persists past an AUTOMATIC poll tick (> FR_GATE_POLL_MS 750ms), not just the
-    // manual re-poll the click fires: frPollGates must never clear data-continued.
-    await page.waitForTimeout(900);
-    u = await sleepUi(page);
-    ok(u.continued && !(await nextDisabled(page)), 'data-continued and the unlock survive an automatic poll tick');
+    const u = await sleepUi(page);
+    ok(!(await nextDisabled(page)), '#2587 a blocked sleep row does NOT gate Next (the laptop is not walled in)');
+    ok(u.battonly && u.note, 'the honest laptop note is shown');
+    ok(!u.turnOn, 'the useless "Turn On" is hidden on the laptop-battery row');
+    ok(!u.green, 'the sleep row is NOT shown green/Activated (it honestly still sleeps)');
+    ok(!u.hasContinueBtn, 'there is no "Continue anyway" button any more -- Next just works');
     await ctx.close();
   }
   {
-    // #2587 focus, the second branch: continuing while ANOTHER gate (tmux) still blocks. Next
-    // stays disabled, and continuing hides the button, so focus must land on the caveat pill --
-    // never dropped to <body>. This is the exact case the iter-2 focus fix added.
+    // (B) same laptop-battery sleep, but Accessibility NOT granted: Next stays LOCKED. The
+    // advisory sleep row must not bypass the tmux gate (satisfiable + required).
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), 'with tmux still blocking, Next starts locked');
-    await page.click('[data-gate="sleep"] .s3-continue');
-    await page.waitForTimeout(200);
-    ok(await nextDisabled(page), 'continuing sleep does NOT unlock Next while tmux still blocks (Next gates on both)');
-    const onBody = await page.evaluate(() => document.activeElement === document.body);
-    ok((await activeIsPill(page)) && !onBody, 'focus lands on the caveat pill, not dropped to <body>, when Next stays locked');
+    ok(await nextDisabled(page), '#2587 Accessibility STILL gates Next even when sleep is advisory (no bypass into broken agents)');
     await ctx.close();
   }
   {
-    // CONTROL: a fixable desktop (sleeps on AC, no battOnly). The escape must NOT show --
-    // Turn On CAN set Sleep to Never, so the gate should still gate and offer Turn On.
+    // (C) CONTROL: a fixable desktop that sleeps on AC (no battOnly), Accessibility granted.
+    // Sleep is advisory for EVERYONE, so Next is enabled; but Turn On (which CAN set Never)
+    // still shows, and there is no laptop note.
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: false }, tmux: { checkable: true, trusted: true },
     });
     const u = await sleepUi(page);
-    ok(!u.battonly, '#2587 CONTROL: a fixable desktop is NOT marked data-battonly');
-    ok(!u.escape, 'the escape is NOT shown for a fixable desktop (never skip a satisfiable gate)');
-    ok(u.turnOn, 'the fixable desktop still shows "Turn On"');
-    ok(await nextDisabled(page), 'and Next stays locked (the gate still gates)');
+    ok(!(await nextDisabled(page)), '#2587 CONTROL: a desktop that sleeps also gets a non-gating sleep step (advisory for everyone)');
+    ok(!u.battonly && !u.note, 'a fixable desktop shows no laptop note (not battOnly)');
+    ok(u.turnOn, 'a fixable desktop still shows "Turn On" (it CAN set Sleep to Never)');
     await ctx.close();
   }
 

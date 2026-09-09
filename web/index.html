@@ -8490,32 +8490,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
-        /* #2587: the unsatisfiable-laptop escape (plugged-in-fine, sleeps on battery).
-           Shown ONLY when the poll set data-battonly; it REPLACES the default red
-           "Not activated" + Turn On (Turn On opens the Energy pane, which has no
-           never-sleep-on-battery switch, so it cannot clear this row). Full-width so
-           the note sits ABOVE the button (Mona's placement). It does not appear for a
-           granted/checking row, nor for a fixable desktop (no data-battonly). */
+        /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
+           the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
+           replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
+           so this is purely information; it never appears on a granted/checking row nor on a
+           fixable desktop (no data-battonly), where "Turn On" can still set Sleep to Never. */
         .s3-battonly{display:none}
         .s3-gate-row[data-battonly] .s3-req{display:none}
-        .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-direction:column;gap:8px;flex-basis:100%;width:100%;margin:2px 0 0}
+        .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-basis:100%;width:100%;margin:2px 0 0}
         #fr-pane-3 .s3-battonly-note{margin:0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
-        .s3-battonly-act{display:flex}
-        /* Secondary control (gold-deep border), matching the #fr-alt / s3-recheck
-           convention and clearing WCAG 1.4.11 3:1 non-text contrast -- deliberately NOT
-           the gold Turn On primary, since this does not activate anything. */
-        .s3-continue{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
-          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
-          background:var(--k-surface,#fff);cursor:pointer}
-        .s3-continue:hover{background:var(--k-surface-2,#f4f1ea)}
-        .s3-continue:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
-        /* After Continue: a MUTED caveat (the neutral s3-pill-wait grey, never the green
-           s3-pill-ok), and the note + button are gone. The row stays honestly
-           not-activated (no data-granted); this only records the informed override. */
-        .s3-continued-pill{display:none}
-        .s3-gate-row[data-continued] .s3-battonly-note{display:none}
-        .s3-gate-row[data-continued] .s3-battonly-act{display:none}
-        .s3-gate-row[data-continued] .s3-continued-pill{display:inline-flex;align-items:center}
         </style>
 
         <p class="fc-eyebrow">Automation</p>
@@ -8532,17 +8515,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
-          <!-- #2587: the laptop-that-sleeps-on-battery escape. Shown ONLY when the
-               /api/sleep-status poll sets data-battonly on this row (the plugged-in-fine,
-               sleeps-on-battery case macOS gives no GUI switch to fix), replacing the
-               useless "Turn On". The note is ABOVE the button (read the tradeoff before
-               clicking past it, Mona Lisa's copy + placement). "Continue anyway" records
-               data-continued: it does NOT green the step (state beats a message), it reads
-               as a caveat and stops the row gating Next (an informed override). -->
+          <!-- #2587: on a laptop that sleeps on battery (data-battonly, set by the
+               /api/sleep-status poll) macOS has no switch to fix it, so the useless
+               "Turn On" is replaced by an honest note. The step no longer gates Next
+               (FR_GATES.sleep gatesNext:false), so this is purely information that stays
+               on the screen while the user moves on -- Mona Lisa's copy. -->
           <div class="s3-battonly">
             <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open.</p>
-            <span class="s3-battonly-act"><button class="s3-continue" type="button">Continue anyway</button></span>
-            <span class="s3-pill s3-pill-wait s3-continued-pill" role="status" tabindex="-1">Continuing, with a caveat</span>
           </div>
         </div>
 
@@ -38608,9 +38587,15 @@ const FR_GATES = {
     url: '/api/sleep-status',
     granted: (r) => r.checkable === true && r.prevented === true,
     blocked: (r) => r.checkable === true && r.prevented !== true,
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. The
+    // granted/blocked reads still drive the row's visual state (Activated / Not
+    // activated + Turn On), but frPollGates does not let a blocked sleep row disable
+    // Next. A laptop cannot satisfy it at all (no macOS switch), so gating it trapped
+    // users; the honest note stays on the screen as information.
+    gatesNext: false,
     // #2587: the unsatisfiable-laptop case (plugged-in-fine, sleeps on battery).
-    // machine.js sets this ONLY on that state, so the "Continue anyway" escape
-    // never shows for a fixable desktop (which "Turn On" can set to Never).
+    // machine.js sets this ONLY on that state, so the honest note replaces the useless
+    // "Turn On" only there, never on a fixable desktop (where Turn On can set Never).
     battOnly: (r) => r.battOnly === true,
   },
   'tmux': {
@@ -38634,8 +38619,8 @@ async function frReadGate(row) {
   // the row is uncheckable (fail-safe) -- never blocked, never a false green.
   let r; try { r = await (await fetch(spec.url)).json(); } catch { r = {}; }
   if (!r || typeof r !== 'object') r = {};
-  // #2587: read the unsatisfiable-laptop flag ALONGSIDE the state, so the poll can
-  // offer the "Continue anyway" escape only on that row (see frPollGates). Absent
+  // #2587: read the unsatisfiable-laptop flag ALONGSIDE the state, so the poll can show
+  // the honest note in place of the useless Turn On on that row (see frPollGates). Absent
   // predicate (every gate but sleep) is always false.
   const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
   if (spec.granted(r)) return { state: 'granted', battOnly };
@@ -38661,15 +38646,17 @@ async function frPollGates(screenEl, gen) {
     if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
     else if (st === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
-    // #2587: mark the unsatisfiable-laptop sleep row so its "Continue anyway"
-    // escape shows (CSS keys on [data-battonly]); clear it otherwise. data-continued
-    // is set by the escape's click handler and is deliberately NOT touched here, so
-    // an informed override survives every poll.
+    // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
+    // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
-    // Only 'blocked' gates Next -- EXCEPT a battOnly row the user has explicitly
-    // continued past. That is an informed override, not a granted state: the row
-    // stays honestly not-activated (no green pill) and simply stops blocking Next.
-    if (st === 'blocked' && !(reads[i].battOnly && row.hasAttribute('data-continued'))) anyBlocked = true;
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
+    // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
+    // anyone who simply has not set it, can still move on; the honest note stays as
+    // information rather than walling them in. Only genuinely-satisfiable permissions
+    // (Accessibility/tmux, file access) gate Next -- gating those is correct, because
+    // letting a user past an ungranted Accessibility grant lands them in broken agents.
+    const spec = FR_GATES[row.getAttribute('data-gate')];
+    if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
   const next = document.getElementById('fr-next');
   if (!next) return;
@@ -39246,28 +39233,9 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
     }
     return;
   }
-  // #2587: the "Continue anyway" escape for the unsatisfiable-laptop sleep row.
-  // It records an INFORMED override on the row (data-continued) -- it does not
-  // grant anything and never sets data-granted, so the row stays honestly
-  // not-activated (state beats a message). frPollGates then stops counting this
-  // battOnly row as blocking, so re-polling at once unlocks Next without waiting
-  // for the next tick. Persists across polls (frPollGates never clears it).
-  const cont = e.target.closest('.s3-continue');
-  if (cont) {
-    const crow = cont.closest('[data-gate]');
-    if (crow) crow.setAttribute('data-continued', '');
-    await frRecheckGates();
-    // data-continued hides this button, so move keyboard focus off it rather than letting
-    // it drop to <body>. If continuing unlocked Next (the other gates are satisfied), focus
-    // Next -- the natural next action. If ANOTHER gate (e.g. tmux) still blocks, Next stays
-    // disabled; focus the caveat pill instead, which is visible and (being focused) reliably
-    // announces "Continuing, with a caveat" to a screen reader, and leaves the user one Tab
-    // from the remaining gate's control.
-    const nx = document.getElementById('fr-next');
-    if (nx && !nx.disabled) { nx.focus(); }
-    else if (crow) { const pill = crow.querySelector('.s3-continued-pill'); if (pill) pill.focus(); }
-    return;
-  }
+  // #2587: no "Continue anyway" button any more. Josh's ruling made the sleep step
+  // ADVISORY (FR_GATES.sleep gatesNext:false), so Next is never gated on it and there is
+  // nothing to click past -- the honest note simply stays on the screen as information.
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');
