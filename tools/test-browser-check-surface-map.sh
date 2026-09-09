@@ -14,12 +14,28 @@
 # The kosmos#2518 batch-2 review found fr-return whose only occurrence sat on a multi-line
 # <!-- --> CONTINUATION line, and the iteration-2 review found the mirror hole: a comment
 # OPENING after real code on the same line (`<markup> <!-- token -->`). A "does the line start
-# with a marker" heuristic missed both, so the classifier is now POSITION-ACCURATE.
+# with a marker" heuristic missed both, so the classifier is POSITION-ACCURATE.
 #
-# dstat/dpath naming avoided; no tied var names (path/status/cdpath); find, not a glob
-# (zsh aborts a no-match glob); every glob quoted. Runs under bash (shebang), wired into
-# test:shell. Surface tokens are DOM ids ([A-Za-z0-9_-]+, no ERE metachars), so the awk
-# boundary match needs no escaping; the sibling gate escapes because it cannot assume that.
+# HOW: split_halves walks a file ONCE, splitting every line into a CODE half (comment spans
+# blanked to spaces) and a COMMENT half (code spans blanked), preserving character positions so
+# the whole-token boundary match still sees the token's real neighbours. A token is FUNCTIONAL if
+# it lands in the code half, COMMENT if in the comment half. Doing the walk once per FILE (not
+# once per token) keeps the whole guard fast on a 40k-line web/index.html.
+#
+# Handles the two block-comment forms exactly (<!-- -->, /* */; they do not nest, one form inside
+# the other is just comment text) and line // comments, treated as a comment to end-of-line UNLESS
+# the // is the :// of a URL scheme (guarded on a preceding : only). KNOWN RESIDUAL, accepted for a
+# dev-time honesty guard: no string tokenizer, so a bare /* or // inside a quoted string literal
+# (`"a//b"`, `"a/*b"`) is read as a real marker. Both residual directions are the SAFE one -- a
+# false FAIL (a live token read as dead), never a false pass: a stray // or /* only ever moves
+# later text INTO the comment half, which can hide a functional occurrence but can never invent
+# one. Not tripped by any current token; the fix (JS/HTML tokenization) is out of proportion here;
+# the per-check override is the escape hatch if it ever bites.
+#
+# dstat/dpath naming avoided; no tied var names (path/status/cdpath); find, not a glob (zsh aborts
+# a no-match glob); every glob quoted. Runs under bash (shebang), wired into test:shell. Surface
+# tokens are DOM ids ([A-Za-z0-9_-]+, no ERE metachars), so the grep boundary needs no escaping;
+# the sibling gate escapes because it cannot assume that.
 set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 WEB="$REPO/web/index.html"
@@ -28,28 +44,14 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 [ -f "$WEB" ] || { echo "FAIL  no web/index.html at $WEB"; exit 1; }
 [ -d "$BCDIR" ] || { echo "FAIL  no $BCDIR"; exit 1; }
 
-# token_web_scan <token> <file> -> prints "<functional_lines> <comment_lines>".
-# POSITION-ACCURATE. Each line is split into a code half (comment spans blanked to spaces)
-# and a comment half (code spans blanked), preserving character positions so the whole-token
-# boundary match still sees the token's real neighbours. A line contributes at most 1 to each
-# count (matching the original per-line semantics; a line where the token appears BOTH in code
-# and in a comment counts toward both, which is correct). Comment state persists across lines,
-# so a multi-line <!-- --> or /* */ CONTINUATION line is comment (the fr-return case), AND a
-# comment that OPENS after real code on the same line (`<markup> <!-- token -->`) puts the
-# token on the comment side (the trailing-comment case the iteration-2 review found -- the old
-# "does the line START with a marker" heuristic missed it and false-passed a dead token).
-#
-# Handles the two block-comment forms exactly (<!-- -->, /* */; they do not nest, and one
-# form inside the other is just comment text) and line // comments guarded against : " ' so a
-# URL (https://, href="//cdn"), not a comment, stays code. KNOWN RESIDUAL, accepted for a
-# dev-time honesty guard: no string tokenizer, so a bare /* or // inside a quoted string
-# literal is read as a real marker and can desync block state until the next closer. This
-# risks a FALSE FAIL (a live token read as dead) rather than a false pass, is not tripped by
-# any current token, and the fix (JS/HTML tokenization) is out of proportion here; the
-# per-check override is the escape hatch if it ever bites.
-token_web_scan() {
-  awk -v tok="$1" '
-    BEGIN { b = "(^|[^A-Za-z0-9_-])" tok "([^A-Za-z0-9_-]|$)" }
+_TMPS=()
+_mktmp() { local t; t="$(mktemp "${TMPDIR:-/tmp}/bcsm.XXXXXX")"; _TMPS+=("$t"); printf '%s' "$t"; }
+cleanup() { [ "${#_TMPS[@]}" -gt 0 ] && rm -f "${_TMPS[@]}"; }
+trap cleanup EXIT
+
+# split_halves <infile> <codeout> <cmtout>: one pass, position-accurate (see header).
+split_halves() {
+  awk -v CODE="$2" -v CMT="$3" '
     { line=$0; code=""; cmt=""; n=length(line); i=1
       while (i <= n) {
         if (inhtml) {
@@ -63,18 +65,37 @@ token_web_scan() {
         if (substr(line,i,4)=="<!--") { code=code"    "; cmt=cmt"<!--"; inhtml=1; i+=4; continue }
         if (substr(line,i,2)=="/*")   { code=code"  ";  cmt=cmt"/*";  inblock=1; i+=2; continue }
         if (substr(line,i,2)=="//") {
+          # A // begins a line comment UNLESS it is the :// of a URL scheme. Guard on a preceding
+          # colon ONLY (a colon right before // is essentially always a scheme like https:// or
+          # wss://). A preceding quote is deliberately NOT exempted: a string END followed by a
+          # comment reads as a comment, which is correct; exempting the quote would keep the
+          # comment in the code half and false-pass a comment-only token (the dangerous
+          # direction). No protocol-relative quote-slash-slash URL exists in web/index.html for a
+          # quote exemption to protect, and one would cost only a false FAIL (the safe direction).
           prevc=(i>1)?substr(line,i-1,1):""
-          if (prevc!=":" && prevc!="\"" && prevc!="'"'"'") {
+          if (prevc!=":") {
             rest=substr(line,i); pad=rest; gsub(/./," ",pad); code=code pad; cmt=cmt rest; break
           }
         }
         code=code substr(line,i,1); cmt=cmt" "; i++
       }
-      if (code ~ b) fn++
-      if (cmt  ~ b) cc++
+      print code > CODE
+      print cmt  > CMT
     }
-    END { print (fn+0)" "(cc+0) }' "$2"
+    END { close(CODE); close(CMT) }' "$1"
 }
+
+# token_web_scan <token> <code-half> <cmt-half> -> "<functional_lines> <comment_lines>".
+# grep -c counts LINES containing a whole-token match (a line where the token appears in BOTH
+# halves counts toward both, which is correct). grep exits 1 on zero matches; with no `set -e`
+# the count is still captured. Surface tokens carry no ERE metachars, so the pattern is literal.
+token_web_scan() {
+  local b="(^|[^A-Za-z0-9_-])$1([^A-Za-z0-9_-]|\$)"
+  printf '%s %s' "$(grep -cE "$b" "$2")" "$(grep -cE "$b" "$3")"
+}
+
+WEB_CODE="$(_mktmp)"; WEB_CMT="$(_mktmp)"
+split_halves "$WEB" "$WEB_CODE" "$WEB_CMT"
 
 annotated=0
 while IFS= read -r f; do
@@ -85,14 +106,14 @@ while IFS= read -r f; do
   base="${f##*/}"
   while IFS= read -r t; do
     [ -n "$t" ] || continue
-    scan="$(token_web_scan "$t" "$WEB")"; fn="${scan%% *}"; cmt="${scan##* }"
+    scan="$(token_web_scan "$t" "$WEB_CODE" "$WEB_CMT")"; fn="${scan%% *}"; cmt="${scan##* }"
     if [ "$fn" -ge 1 ]; then
       # A comment occurrence alongside the functional one is a minor OVER-FIRE risk (a
       # wording edit to that comment fires the gate; the per-check override clears it). It
       # is TOLERATED, not failed: the merged seeds carry such tokens and this codebase
       # documents ids in comments widely, so requiring comment-free would reject most tokens
       # and break the baseline. The gate still does real work whenever the id itself changes.
-      ok "$base: '$t' -- $fn functional occurrence(s)$( [ "$cmt" -gt 0 ] && printf ' (+%s comment mention(s), tolerated over-fire)' "$cmt")"
+      ok "$base: '$t' -- $fn functional line(s)$( [ "$cmt" -gt 0 ] && printf ' (+%s comment line(s), tolerated over-fire)' "$cmt")"
     else
       bad "$base: '$t' has NO functional occurrence in web/index.html ($cmt comment/absent) -- a DEAD annotation the gate can never legitimately fire on; it fires only on a comment-wording edit. Choose a token with a real id=/selector/getElementById occurrence."
     fi
@@ -107,7 +128,7 @@ done <<< "$(find "$BCDIR" -maxdepth 1 -type f -name '*.js' 2>/dev/null)"
 # RED-CAPABILITY, on a synthetic fixture (not web/index.html, so it does not drift). Each arm
 # is a shape the guard must classify correctly or it cannot be trusted; a broken classifier
 # flips at least one, so an all-green run means the classifier is sound across these shapes.
-_fx="$(mktemp "${TMPDIR:-/tmp}/bcsm-fx.XXXXXX")"
+_fx="$(_mktmp)"
 printf '%s\n' \
   '<div id="tok-func">x</div>' \
   '<!-- a multi-line comment' \
@@ -118,8 +139,10 @@ printf '%s\n' \
   'still in the comment -->' \
   'foo(); /* tok-block old id */ bar();' \
   '<a href="https://tok-url.example/x">link</a>' \
+  'var s = "a"//tok-strcmt is a real line comment right after a string quote' \
   '<span>nothing</span>' > "$_fx"
-_chk() { got="$(token_web_scan "$1" "$_fx")"; [ "$got" = "$2" ] && ok "CONTROL ($4): $3 (got '$got')" || bad "CONTROL ($4): $3 -- got '$got', want '$2'"; }
+_fxc="$(_mktmp)"; _fxm="$(_mktmp)"; split_halves "$_fx" "$_fxc" "$_fxm"
+_chk() { got="$(token_web_scan "$1" "$_fxc" "$_fxm")"; [ "$got" = "$2" ] && ok "CONTROL ($4): $3 (got '$got')" || bad "CONTROL ($4): $3 -- got '$got', want '$2'"; }
 _chk tok-func  "1 0" "a real id= occurrence is functional"                              "functional"
 _chk tok-cont  "0 1" "a token on a multi-line <!-- --> continuation line is comment"     "continuation"
 _chk tok-trail "0 1" "a token in a comment OPENING after code on the same line is comment" "trailing-same-line"
@@ -127,8 +150,8 @@ _chk tok-split "1 0" "a real id= before a trailing comment on the same line stay
 _chk tok-note  "0 1" "a token in a same-line-opened comment that closes on a later line is comment" "split-line-comment"
 _chk tok-block "0 1" "a token inside a mid-line /* */ block is comment"                   "block-comment"
 _chk tok-url   "1 0" "a token in a // that is really a URL (https://) stays functional"    "url-not-comment"
+_chk tok-strcmt "0 1" "a // line comment right after a string quote is comment, not a URL" "quote-then-linecomment"
 _chk tok-absent "0 0" "an absent token is neither functional nor comment"                  "absent"
-rm -f "$_fx"
 
 [ "$FAILS" -eq 0 ] && echo "browser-check surface map: all arms passed" || echo "browser-check surface map: $FAILS FAILED"
 exit "$FAILS"
