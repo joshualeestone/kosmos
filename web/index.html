@@ -8500,8 +8500,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            mass sat above centre. flex centring WITH line-height:1 collapses the
            line box to the glyph, so vertical + horizontal centring is on the glyph
            itself. Cog size unchanged (Josh: the size is right). */
-        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;line-height:1;font-size:44px;
+        /* Josh, 2026-09-08 (said ~5-6 builds running): the cog would not sit
+           centred in its grey box. ROOT CAUSE (Mona): the U+2699 glyph carries
+           font bearings that seat its ink high and left, so every prior fix that
+           tuned flex/line-height was dragged back by the glyph metrics. DURABLE
+           FIX: drop the glyph for an inline SVG gear, which is centred by
+           construction (no bearings) and matches the real macOS badge. Box 52->48
+           (slightly smaller per Josh); the 32px SVG keeps the same visual cog size
+           as the old 44px glyph ink, so the cog is NOT reduced. line-height/
+           font-size are gone because there is no text glyph any more. */
+        .s4-gear{width:48px;height:48px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
+        .s4-gear svg{width:32px;height:32px;display:block;color:#3a3a38}
         /* 🛑 #768-batch (Josh, 5.44.01, said THREE times; Mona third-round correction) --
            the reason it kept regressing: a BARE class (0,1,0) LOSES to `#firstrun
            .fr-body p` (0,1,1,1), which forces 400/1.0625rem on every first-run p
@@ -8526,7 +8536,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>This is totally normal.</p>
 
         <div class="s4-notif" aria-hidden="true">
-          <span class="s4-gear">&#9881;</span>
+          <span class="s4-gear"><svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7zm0 2a1.5 1.5 0 1 1 0 3 1.5 1.5 0 0 1 0-3z"/><path d="M13.03 2h-2.06a1 1 0 0 0-.98.8l-.28 1.4a7.5 7.5 0 0 0-1.36.79l-1.35-.47a1 1 0 0 0-1.2.44L4.77 6.95a1 1 0 0 0 .22 1.26l1.07.93a7.6 7.6 0 0 0 0 1.57l-1.07.93a1 1 0 0 0-.22 1.26l1.03 1.79a1 1 0 0 0 1.2.44l1.35-.47c.42.32.88.59 1.36.79l.28 1.4a1 1 0 0 0 .98.8h2.06a1 1 0 0 0 .98-.8l.28-1.4c.48-.2.94-.47 1.36-.79l1.35.47a1 1 0 0 0 1.2-.44l1.03-1.79a1 1 0 0 0-.22-1.26l-1.07-.93a7.6 7.6 0 0 0 0-1.57l1.07-.93a1 1 0 0 0 .22-1.26l-1.03-1.79a1 1 0 0 0-1.2-.44l-1.35.47a7.5 7.5 0 0 0-1.36-.79l-.28-1.4a1 1 0 0 0-.98-.8z"/></svg></span>
           <div>
             <p class="s4-nt">App Background Activity</p>
             <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
