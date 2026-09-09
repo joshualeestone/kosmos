@@ -170,7 +170,7 @@ test('9screen: the S2 Allow Access button is present and wired to open-file-acce
   const handler = PAGE.slice(start, PAGE.indexOf('});', start) + 3);
   assert.match(handler, /closest\('\.s2-allow'\)/, 'nothing keys on the .s2-allow button');
   assert.match(handler, /\/api\/open-file-access-settings/, 'the Allow Access click does not POST the file-access opener');
-  // #2451: the mock dialog's blue Allow forwards a click through the real .s2-allow
+  // Josh 2026-09-08 (blue-Allow, no card): the mock dialog's blue Allow forwards a click through the real .s2-allow
   // button, guarded so it cannot re-fire. Pin the forward + both guards against
   // silent removal (a static presence check, matching this handler's existing
   // string-assertion style; the render check covers the screen, the guard LOGIC was

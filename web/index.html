@@ -8287,8 +8287,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            instead of the old three-card stacked fan. Reads as a single real
            "Terminal would like to access files" dialog with the Allow button ringed,
            so the person recognizes the one prompt they will see and knows to click
-           Allow. Illustrative only (aria-hidden); the functional grant is the
-           .s2-gate-row below, untouched. */
+           Allow. The preview is aria-hidden (a mouse-only affordance). Josh,
+           2026-09-08: the mock's Allow now forwards a click into the real
+           file-access flow (.s2-mockallow), so it is no longer purely illustrative;
+           the keyboard/AT path stays the real Allow Access button in the
+           .s2-gate-row below. */
         .s2-dlg-fan{display:flex;justify-content:center;margin:2px 0 16px}
         .s2-dlg{width:320px;max-width:100%;text-align:left;border-radius:12px;padding:16px 18px 14px;
           background:#ececec;border:1px solid #d8d6d2;color:#1c1b19;box-shadow:0 10px 26px rgba(0,0,0,.18)}

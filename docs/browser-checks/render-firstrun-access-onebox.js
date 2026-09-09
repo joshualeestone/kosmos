@@ -10,9 +10,11 @@
  * two Don't Allow / Allow buttons, and a ring drawn around Allow so the person
  * clicks Allow rather than Don't Allow.
  *
- * This is the illustrative preview only (`.s2-dlg-fan`, aria-hidden). The
- * functional grant is the `.s2-gate-row` below it, which this change does not
- * touch and this check does not assert.
+ * This is the preview (`.s2-dlg-fan`, aria-hidden). Josh, 2026-09-08: its Allow is
+ * now a live mouse affordance (`.s2-mockallow`) that forwards into the real
+ * file-access flow, asserted below; the keyboard/AT grant path stays the real
+ * `.s2-gate-row` Allow Access button, whose click wiring this check does not assert
+ * (that is pinned in engine/machine.a11y-1344.test.js).
  *
  * WHY A SOURCE TEST CANNOT SEE THE RING. The ring is a `::after` pseudo-element
  * on `.s2-db.s2-hl` -- a computed result. A rule that loses the cascade, or a
@@ -150,7 +152,7 @@ function isBlue(rgb) {
       state.hasDeny && state.hasAllow && state.allowSized,
       `deny ${state.hasDeny}, allow ${state.hasAllow}, sized ${state.allowSized}`);
 
-    // #2451: people click the mock "Allow" (they read it as the real macOS button),
+    // Josh 2026-09-08 (blue-Allow, no card): people click the mock "Allow" (they read it as the real macOS button),
     // so it is a live mouse affordance -- it carries the .s2-mockallow hook and a
     // pointer cursor. The click BEHAVIOUR (it routes through the real Allow Access
     // button and is guarded against re-firing) is pinned in engine/machine.a11y-1344
