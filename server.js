@@ -10307,6 +10307,13 @@ function start(port = PORT) {
       // not count toward abandoning the world -- clear this world's failed-boot counter so
       // transient port contention can never abandon a HEALTHY world. Only a world that
       // dies before it ever reaches start() (a genuinely broken world env) accrues.
+      // #2528 fast-follow: this clears the COUNTER but does NOT mark the world confirmed.
+      // A bind failure is transient and is NOT the world serving, so a never-served world
+      // stays unconfirmed (only a real `listening` confirms it). Clearing the counter here
+      // means a world hitting only bind errors keeps retrying rather than abandoning --
+      // correct, because a persistent bind failure is machine-wide (it would hit the default
+      // world too, since the port is per-account not per-world), not a world-specific
+      // lockout, so it is out of this guard's scope.
       try {
         const worldenv = require('./engine/worldenv');
         require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
@@ -10319,9 +10326,14 @@ function start(port = PORT) {
       // clear that world's failed-boot counter. A world only accrues attempts while
       // it fails to reach this point, so a healthy world's count returns to zero
       // every boot and never trips the abandon-and-fall-back-to-default guard.
+      // #2528 fast-follow: also mark the world CONFIRMED -- reaching `listening` proves it
+      // can serve, so a later failure uses THRESHOLD (a confirmed world gets tolerance),
+      // not the never-served abandon-on-first-fail fast path.
       try {
         const worldenv = require('./engine/worldenv');
-        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+        const guard = require('./engine/worldbootguard');
+        guard.clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+        guard.markConfirmed(worldenv.bootedBaseDir(), worldenv.bootedWorld());
       } catch (_) { /* fail-open: the guard must never break a healthy boot */ }
       /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
          not at require. At require, ensureToken() would write to a real store on a
