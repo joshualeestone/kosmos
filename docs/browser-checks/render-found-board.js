@@ -1,3 +1,4 @@
+// Browser-check-surface: found-toggle
 /**
  * The board's panel for agents on this Mac that Kosmos is not looking after.
  *

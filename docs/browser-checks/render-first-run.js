@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-return
 /**
  * Render every first-run state in a real browser and look at it.
  *

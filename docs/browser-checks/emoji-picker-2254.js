@@ -1,3 +1,4 @@
+// Browser-check-surface: pj-emoji-btn
 /* #2254: the composer emoji picker inserts a glyph at the cursor in #pj-post.
  *
  * Josh: "add a card so that the user could add emojis to their input." This is
