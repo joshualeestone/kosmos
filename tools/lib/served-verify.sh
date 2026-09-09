@@ -55,7 +55,10 @@
 # so the cost is a possibly-misleading reason rather than a wrong result, but reusing the first
 # response is not possible without a second curl invocation shape and this is not worth that.
 #
-# 🛑 EVERY MESSAGE SITE USES printf '%s\n', NOT echo, AND THAT IS NOT STYLE. ⚠️ The first version
+# 🛑 EVERY MESSAGE SITE USES printf, NOT echo, AND THAT IS NOT STYLE. (The note below uses
+# `printf '<literal> %s ... %s'` rather than `printf '%s\n'`; an earlier version of this sentence
+# said every site used `'%s\n'`, which was false for the ONE site that actually emits the remote
+# value. What matters is that the remote value is an ARGUMENT, never part of the format.) ⚠️ The first version
 # of this sentence was FALSE where it stood: the conversion matched only the sites ending `>&2`, so
 # the success-path message on stdout stayed an `echo` one line below a comment claiming every site
 # had been converted. That is the defect class this branch exists to remove, surviving in the one
@@ -70,12 +73,20 @@
 # (the verdict text precedes the substitution and the return is unconditional), but a note whose
 # stated contract is REPORT WHAT WAS OBSERVED must not be the one thing that reports something else.
 _served_verify_redirect_note() {
-  _svrn_out=$(curl -sS --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$1" 2>/dev/null) || return 0
+  # ⚠️ A TIGHTER BUDGET THAN THE PROBES IT EXPLAINS (5s/10s, not 10s/30s). The verdict is already
+  # decided by the time this runs, and it is a command substitution inside the message, so a
+  # black-holing host would otherwise withhold the refusal for up to 30s per failing check. A
+  # diagnostic must not delay the answer it annotates.
+  _svrn_out=$(curl -sS --connect-timeout 5 --max-time 10 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$1" 2>/dev/null) || return 0
   _svrn_code=${_svrn_out%% *}
   _svrn_target=${_svrn_out#* }
   case "$_svrn_code" in
     3??)
       [ -n "$_svrn_target" ] || _svrn_target='(no Location reported)'
+      # ⚠️ RESIDUAL: printf stops the SHELL interpreting escapes, but raw control bytes already in
+      # the header (an ESC colour sequence, say) still reach the terminal verbatim. Deploy log and
+      # operator terminal only, and stripping them would fight the "report what was observed"
+      # contract, so it is named rather than filtered.
       printf ' MECHANISM: un-followed, this URL answers %s and redirects to %s. Judge that target: an auth/login page answers 200 to every path (the #1667 shape), and a catch-all route or SPA rewrite produces the same blindness for a different reason. Either way the status carries no information about your asset.' "$_svrn_code" "$_svrn_target"
       ;;
     *) : ;;

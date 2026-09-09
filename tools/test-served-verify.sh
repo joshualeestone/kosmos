@@ -312,12 +312,28 @@ esac
 # difference between echo and printf. The lib is #!/bin/sh and tools/deploy-site.sh is too, and on
 # Debian-family hosts /bin/sh IS dash. MEASURED on this box with a Location of
 # `http://x/a\tb\cTRUNCATED`: dash and zsh render the tab and DROP everything after \c; bash does
-# not. So drive the real lib under dash and assert the tail survives.
-if command -v dash >/dev/null 2>&1; then
-  esc_out=$(dash -c '. "$1"/lib/served-verify.sh; served_verify_asset_ok "$2/dist/real.bin" "an asset behind an escaped Location" 2>&1 >/dev/null' _ "$DIR" "$SSOESC" 2>/dev/null)
+# not. ⚠️ AND macOS IS NOT EXEMPT: /bin/sh on this box truncates too, and tools/deploy-site.sh is
+# #!/bin/sh, so the hazard is live where these deploys actually run, not only on Debian hosts. A
+# reader who took the Debian framing literally could reasonably delete this arm.
+# The sub-shell's own stderr is NOT discarded: swallowing it turned a sourcing or syntax failure
+# into an empty result and a failure message with no cause.
+# 🛑 PROBE FOR A TRUNCATING SHELL, DO NOT NAME ONE. This is the ONLY arm that can see the branch's
+# headline change, and keying it to `dash` made it skip SILENTLY on any box without dash. CI runs
+# macos-latest, where dash is not guaranteed, so the one arm covering printf-vs-echo was likely
+# skipping exactly where it mattered, with no arm-count assertion to notice.
+# MEASURED here: dash, zsh AND /bin/sh all truncate `echo "A\cB"` to `A`; bash does not.
+ESC_SH=""
+for _c in dash zsh sh /bin/sh; do
+  command -v "$_c" >/dev/null 2>&1 || continue
+  [ "$("$_c" -c 'echo "A\cB"' 2>/dev/null)" = "A" ] || continue
+  ESC_SH="$_c"; break
+done
+if [ -n "$ESC_SH" ]; then
+  pass "found a shell whose echo truncates at backslash-c, so the printf fix is observable here: $ESC_SH"
+  esc_out=$("$ESC_SH" -c '. "$1"/lib/served-verify.sh; served_verify_asset_ok "$2/dist/real.bin" "an asset behind an escaped Location" 2>&1 >/dev/null' _ "$DIR" "$SSOESC")
   case "$esc_out" in
-    *TRUNCATEDMARKER*) pass "under dash, a Location carrying backslash escapes prints whole (printf, not echo)" ;;
-    *) fail "under dash the diagnostic was TRUNCATED or mangled by a server-controlled Location; use printf '%s' not echo. Got: $esc_out" ;;
+    *TRUNCATEDMARKER*) pass "under $ESC_SH, a Location carrying backslash escapes prints whole (printf, not echo)" ;;
+    *) fail "under $ESC_SH the diagnostic was TRUNCATED or mangled by a server-controlled Location; use printf not echo. Got: $esc_out" ;;
   esac
   loc=$(curl -sS -o /dev/null -w '%{redirect_url}' "$SSOESC/dist/real.bin" 2>/dev/null)
   case "$loc" in
@@ -325,7 +341,7 @@ if command -v dash >/dev/null 2>&1; then
     *) fail "CONTROL: the fixture's Location lacks the marker ($loc); the dash arm is vacuous" ;;
   esac
 else
-  echo "  skip dash not installed; the echo-vs-printf arm cannot run here"
+  fail "no shell here truncates at backslash-c, so the printf-vs-echo arm could not run. It is the only arm covering that fix; do not read this suite as green for it."
 fi
 
 # 🛑 THE HEADER IS DERIVED, NOT RESTATED. Two prose counts went stale here, so this arm reads the
@@ -334,7 +350,16 @@ fi
 # ⚠️ THE HEADER REGION IS DELIMITED, NOT COUNTED. A hardcoded `sed -n '1,45p'` is a magic number
 # that needs bumping by hand as the header grows; the failure direction was safe (a spurious FAIL)
 # but the count is exactly the kind of thing this file keeps getting wrong.
+# 🛑 THE DELIMITER MUST EXIST, OR sed PRINTS TO EOF AND THIS ARM IS VACUOUS. With no `set -u` line
+# to stop at, $hdr becomes the WHOLE FILE and every handler token is trivially "named", because they
+# all appear in the server source below. MEASURED: undocumenting /ssogone correctly reds, and then
+# adding a single TRAILING SPACE to `set -u` (behaviourally identical, as would `set -eu`) turns it
+# green again.
+/usr/bin/grep -qx 'set -u' "$0" || fail "the header delimiter line is gone; the slice below would run to EOF and pass trivially"
 hdr=$(sed -n '1,/^set -u$/p' "$0")
+if [ "$(printf '%s\n' "$hdr" | wc -l)" -ge "$(wc -l < "$0")" ]; then
+  fail "the header slice is the whole file; the naming check below cannot fail"
+fi
 # ⚠️ THE TRAILING SLASH IS LOAD-BEARING. Extracting `/sso` and substring-matching it against the
 # header made this guard VACUOUS for that one handler: `/sso` is a prefix of /ssologin, /ssomissing,
 # /ssoesc, /ssonoct, /ssonoctpage and /ssogone, so documenting ANY of the six satisfied it and a
@@ -344,13 +369,24 @@ hdr=$(sed -n '1,/^set -u$/p' "$0")
 # trailing slash there stopped matching `p.startswith('/discriminating')`, which has none, so the
 # guard quietly stopped checking the sound host entirely and the >= 5 floor was too loose to notice.
 # Match an optional slash in the DISPATCH, and keep whatever slash it carries in the TOKEN.
-srv_paths=$(/usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" "$0" | /usr/bin/grep -oE "/[a-z]+/?" | sort -u)
+# 🛑 BOUNDED TO THE HEREDOC, BECAUSE THE FILE CONTAINS PROSE ABOUT ITS OWN DISPATCH. Grepping the
+# whole file let a COMMENT supply a token: the comment above quotes
+# p.startswith('/discriminating'), so rewriting the REAL dispatch into an equivalent the regex
+# cannot see left this arm printing 9 and the suite green. That is precisely the regression this
+# guard was added to catch, and it was blind to it for that one handler.
+srv_src=$(sed -n '/srv\.py" <</,/^PY$/p' "$0")
+srv_paths=$(printf '%s\n' "$srv_src" | /usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" | /usr/bin/grep -oE "/[a-z]+/?" | sort -u)
+# CONTROL: the slice must BE a slice. If the address never matched, sed prints to EOF and this arm
+# silently degrades to grepping the whole file again.
+if [ "$(printf '%s\n' "$srv_src" | wc -l)" -ge "$(wc -l < "$0")" ]; then
+  fail "the server-source slice is as long as the whole file; the heredoc delimiters moved and this arm is grepping prose again"
+fi
 n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # The floor is the COUNT OF DISPATCH BRANCHES, not a round number: nine today. A floor below the
 # truth is what let the lost /discriminating go unnoticed, which this file has now been bitten by
 # twice (a `>= 5` here, and a `>= 8` on another branch).
 if [ "$n_paths" -ne 9 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 9. If you added or removed a server behaviour, update this number in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash in the pattern did exactly that once)"
+  fail "the handler extraction found $n_paths dispatch paths, expected 9: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   missing=""
