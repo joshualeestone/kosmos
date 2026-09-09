@@ -31,8 +31,11 @@ const store = require('./store');
    cleaning it up after -- so the worktree stays clean even if an arm throws. The
    `existsSync` assertions still pass: they resolve r.node/r.boot against the SAME cwd
    the mkdir used. `anchorDir` is pure and the other arms use absolute temp paths, so
-   neither depends on cwd being the worktree. Node runs each test file in its own
-   process (--test-isolation=process), so this cannot affect a sibling file. */
+   neither depends on cwd being the worktree. And worktree cleanliness does NOT depend
+   on process isolation at all: the chdir runs at load before any test, so cwd is the
+   temp dir regardless. (Node runs each test file in its own process by DEFAULT --
+   run-tests.sh passes no --test-isolation flag -- so this also cannot affect a sibling
+   file; but even under a shared process the worktree stays clean, verified.) */
 const _win32OrigCwd = process.cwd();
 const _win32LeakCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win32-cwd-'));
 process.chdir(_win32LeakCwd);

@@ -30,8 +30,10 @@ into a fresh `mkdtemp` dir, and a `test.after` restores the original cwd and rem
   they resolve r.node/r.boot against the SAME cwd the mkdir used.
 - No production-code change (ensureAnchored takes no injectable fs). `anchorDir` is pure and the
   other arms use absolute temp paths, so neither depends on cwd being the worktree.
-- Safe under the runner: `--test-isolation=process` gives each file its own process, so the chdir
-  cannot affect a sibling test file.
+- Safe under the runner: Node isolates each test file in its own process by DEFAULT (run-tests.sh
+  passes no `--test-isolation` flag), so the chdir cannot affect a sibling test file. And even that
+  does not matter for the bug: the chdir runs at load before any test, so worktree cleanliness holds
+  regardless of isolation (verified under a shared process too).
 
 ## Verified
 
@@ -40,9 +42,13 @@ into a fresh `mkdtemp` dir, and a `test.after` restores the original cwd and rem
 
 ## Weakest premise
 
-That `--test-isolation=process` holds (each file its own process), so the module-level chdir is
-scoped to this file. If the runner ever shared a process across files, a concurrent file could see
-the changed cwd between this file's chdir and its `test.after` restore. Mitigated: the restore is in
-`test.after` (runs even on failure), and any leak still lands in a temp dir, never the worktree --
-so the actual bug (worktree dirtiness) cannot recur regardless. The isolation flag is set in
-run-tests.sh / the node invocation, checked at build time.
+That Node's DEFAULT per-file process isolation holds, so the module-level chdir is scoped to this
+file. run-tests.sh passes NO `--test-isolation` flag (verified end-to-end: `tools/run-tests.sh`
+runs `node --test "${FILES[@]}"` with no isolation flag anywhere) -- isolation is Node's default,
+not a guard this repo sets, so do not grep run-tests.sh for one. If the runner ever shared a process
+across files, a concurrent file could see the changed cwd between this file's chdir and its
+`test.after` restore. Mitigated, and this is the key point: the chdir runs at LOAD before any test,
+so cwd is the temp dir before anything runs, and the restore is in `test.after` (runs even on
+failure) -- so the actual bug (worktree dirtiness) cannot recur regardless of isolation (verified by
+running both files under a shared process too: worktree stayed clean). The only residual is a
+hypothetical sibling that depends on cwd under shared isolation, which is not how the suite runs.

@@ -28,7 +28,10 @@ const anchor = require('./win32anchor');
    permanently red on every macOS worktree. Isolating cwd here PREVENTS the leak
    reaching the worktree (it lands in the temp dir, removed below) even if an arm
    throws. Assertions resolve against the same cwd the mkdir used, so they are
-   unaffected; each test file runs in its own process (--test-isolation=process). */
+   unaffected. Worktree cleanliness does not depend on process isolation: the chdir
+   runs at load before any test. (Node isolates each test file in its own process by
+   DEFAULT -- run-tests.sh passes no --test-isolation flag -- and even a shared process
+   keeps the worktree clean, verified.) */
 const _win32OrigCwd = process.cwd();
 const _win32LeakCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win32-cwd-'));
 process.chdir(_win32LeakCwd);
