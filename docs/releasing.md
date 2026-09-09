@@ -32,7 +32,7 @@ improvement it gained would have died with the session that wrote it.
    one without the other tells every installed copy to update to a version the
    download does not contain.
 5. **Copy `/setup`.** 🛑 It is served from the site **root**, not from `dist/`,
-   so copying the bundle does not carry it — and **both** paths run it: a new
+   so copying the bundle does not carry it - and **both** paths run it: a new
    install (`curl … /setup | sh`) and an existing one updating itself
    (`engine/update.js` re-runs `setupUrl()`). It was stale on the site by a
    whole change before this step existed, **while three correct checks of the
@@ -45,7 +45,7 @@ improvement it gained would have died with the session that wrote it.
    the only field written at release time, and the page's own rule is never to
    edit an existing entry.
 8. **Deploy.**
-9. **Verify what is SERVED** — `tools/verify-served.sh`, retried, because a
+9. **Verify what is SERVED** - `tools/verify-served.sh`, retried, because a
    deploy is live before every edge has it and one read cannot tell "not
    published" from "not yet".
 10. **Restart the board on THIS Mac, if it runs from this repo.**
@@ -78,7 +78,7 @@ product becomes a new line in the check rather than something somebody has to
 remember.
 
 ⚠️ **It leads with a 404 control.** An empty body and a missing file look
-identical, and a wrong URL reads as an outage — that happened to a reviewer
+identical, and a wrong URL reads as an outage - that happened to a reviewer
 within a minute of 0.2.11 going out. The control's own first version was buggy
 (`curl -fsS … || echo 404` printed `404404`, because `-f` makes curl exit
 non-zero and the fallback appends), which is the best argument for it.
@@ -93,7 +93,7 @@ Breaks the code on purpose, runs the named test, and restores.
 
 🛑 **It refuses on a dirty tree, and that refusal is the point.** The loop ends
 in `git checkout`, which discards uncommitted work silently. On 2026-08-21 that
-ate a real fix **seven times in one day** — twice unnoticed until a test written
+ate a real fix **seven times in one day** - twice unnoticed until a test written
 minutes later failed, and once a reverted state was committed on top of the loss.
 
 ⚠️ **"Commit before you perturb" was written down after the first one and failed
@@ -125,6 +125,25 @@ a different problem.
    predict, so nothing to age.** The file is gitignored: it is an input to a release,
    not a tracked file. The copy is still yours to write - only the timestamp and the
    placement are mechanical.
+
+   ⚠️ **After a SUCCESSFUL cut the file is NOT removed (#2513).** It stays at
+   `$REPO/.release-entry.html` still holding the id of the version you just shipped
+   and the literal `TIMESTAMP` placeholder, unreplaced: step 7a's stamp is written
+   onto the page (`$SITE/versions.html`), never back into this file. Nothing
+   incorrect can ship through it: the NEXT cut's
+   step 1 refuses the leftover file - its id still names the shipped version, not the
+   one now being cut - naming the file and stating why, before anything is built.
+   (Version mismatch is the reason THIS leftover trips; step 1 also refuses a pending
+   file for missing/duplicate `article` blocks or a missing `TIMESTAMP`, each named
+   the same way.) But that refusal is an extra, surprising paragraph on an
+   otherwise-clean start. **Overwrite the file with the next
+   release's entry, or delete it, when you begin the next cut** and the refusal
+   never appears. Having the cut remove it for you was rejected deliberately (#2513):
+   the cut path is the highest-blast-radius file in the tree, and a cut that deletes
+   an operator-written input is the exact move `release_site_restore` already refuses,
+   since it never removes what it did not certainly create. (This is a different
+   leftover from the dead-attempt one below: that is a FAILED attempt leaving the
+   entry on the PAGE; this is a SUCCESSFUL cut leaving the source FILE.)
 
    **(b) Hand-stamp it on the page.** **Set `rel-d` to about FIFTEEN minutes AHEAD
    of launch**, in the site's `versions.html`. This is the original flow, unchanged and
