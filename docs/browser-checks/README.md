@@ -130,10 +130,18 @@ noticed it a third time in this file.
 **What the tool actually does, in three categories.** Everything the producer supplies is
 in exactly one of them, and an earlier version of this list claimed there were only two:
 
-1. **PINNED**, so a re-capture is byte-identical unless the shape moved: `hasAvatar`,
-   `model`, `modelName`, `disruption.startedAt`, the whole of `context` (`tokens`,
-   `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`,
-   `because`) and two profile timestamps.
+1. **PINNED to constants.** PIN-LIST-BEGIN
+   `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt`, `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence` PIN-LIST-END
+   (`startedAt` is under `disruption`; `tokens` through `confidence` are under `context`.)
+   🛑 **This does NOT make a re-capture byte-identical**, and the sentence claiming it did
+   survived here after being struck in the tool's own header. `state`, `stateConfidence`
+   and `runner` come from the raw card; the structural booleans pass through as captured;
+   six fields vary between null and a value. The pins stop the volatile MEASUREMENTS
+   moving, nothing more.
+   ⚠️ **"And two profile timestamps" was wrong twice over.** No pin touches a profile
+   timestamp. `scrubStrings` rewrites ANY ISO-dated string at any depth anywhere in the
+   card to one constant. That is a scrub, not a pin, and it is neither two fields nor
+   profile-specific.
 2. **STRUCTURAL BOOLEANS passed through**, because each has two possible values, carries
    nothing identifying, and must survive or the recording stops being a real card shape:
    `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,

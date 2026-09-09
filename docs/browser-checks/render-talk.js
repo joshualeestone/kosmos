@@ -59,8 +59,14 @@ function liveCard() {
      box where status.js failed to load or snapshot() threw, the fallback quietly took
      over, printed a note saying "no live agent on this box" -- a claim nothing had
      measured -- and the cut passed. Before this branch that case FAILED 3b, correctly.
-     So: `null` means the board really has no card of ours, and a thrown error is
-     re-thrown for the caller to turn into a failure. */
+     So: a thrown error is re-thrown for the caller to turn into a failure, and `null`
+     means no PANE card of ours was selectable.
+     🛑 NOT "the board really has no card of ours", which is what this line said and which
+     the same comment block contradicts twenty lines down. Null also arrives when every
+     card of ours is PANELESS, and it would arrive if `isNamedOurs` itself regressed to
+     false for all of them. In both of those the recording drives the arm on a POPULATED
+     box, where the old code drove it with a live card. That is visible (source `golden`,
+     the fallback NOTE prints) but it is not "no card of ours exists". */
   const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
   const board = status.snapshot();
   /* 🛑 A PANE CARD, matching what the fixture records. status.js emits PANELESS cards
@@ -101,14 +107,39 @@ function liveCard() {
  * with live agents. Every KEY is the producer's and each field's TYPE is preserved.
  * ⚠️ NOT "only identifying string content is neutralised". That sentence was wrong here,
  * and it is the THIRD copy of it: the same claim was corrected in the capture tool, then
- * in the plan, then in the README, and missed here each time. The tool also PINS the
- * volatile values so a re-capture is byte-identical unless the shape moved: `hasAvatar`, `model`/`modelName`, `disruption.startedAt`, the whole of `context` (tokens, percent, ceiling, ceilingAssumed, overCeiling, notYet, confidence, because) and two profile timestamps.
- * THE FULL SET, WHICH AN ARM CHECKS AGAINST THE CODE: `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt` (under `disruption`), and `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because` (under `context`). Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`, `stateConfidence`, `runner`.
- * ⚠️ THAT LIST HAS GONE STALE TWICE, in all four copies at once each time (here, the
- * tool's header, the README and the plan), because a commit that adds a pin updates the
- * pin block's own comment and not the four enumerations describing it. If you add a pin,
- * grep for one of these field names before you finish. It scrubs EVERY value under `profile`, strings AND numbers AND booleans at any depth, because it is free-form and an allowlist there rests on what the tree happens to write today (`profile.doctrineVersion` is a producer number that reached the recording before this was structural),
- * not the two ids: the tree also writes absolute paths into it.
+ * in the plan, then in the README, and missed here each time.
+ *
+ * THE FULL PIN SET, WHICH AN ARM CHECKS AGAINST THE CODE. PIN-LIST-BEGIN
+ * `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt`, `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence` PIN-LIST-END
+ * (`startedAt` is under `disruption`; `tokens` through `confidence` are under `context`.)
+ * Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`,
+ * `stateConfidence`, `runner`.
+ *
+ * 🛑 THE PINS DO NOT MAKE A RE-CAPTURE BYTE-IDENTICAL, and the sentence claiming they do
+ * stood here after the same sentence had been struck in the tool's own header. A file
+ * asserting a thing and its negation is worse than either answer, which is the rule this
+ * very header states twenty lines down. `state`, `stateConfidence` and `runner` come from
+ * the RAW card, the structural booleans pass through as captured, and role, task,
+ * stateEvidence, stateProject, stateConflict and disruption each vary between null and a
+ * value. The recording holds `state: "working"`, a fact about one capture. What the pins
+ * buy is that the volatile MEASUREMENTS do not move.
+ *
+ * ⚠️ "AND TWO PROFILE TIMESTAMPS" WAS WRONG TWICE OVER and sat in three copies. No pin
+ * touches a profile timestamp. What exists is `scrubStrings`' date branch, which rewrites
+ * ANY string matching an ISO date, at any depth, anywhere in the card, to one constant.
+ * That is a SCRUB, not a pin, and it is neither two fields nor profile-specific.
+ *
+ * It scrubs EVERY value under `profile` (strings and numbers and booleans, at any depth)
+ * rather than a listed subset, because `profile` is free-form and an allowlist there
+ * rests on what the tree happens to write today: `profile.doctrineVersion` is a producer
+ * number that reached the recording before this was structural.
+ * ⚠️ AN EARLIER VERSION OF THAT SENTENCE ENDED "not the two ids", left dangling by an
+ * edit, which read as though `id` and `idInstall` were EXEMPT from the scrub. They are
+ * scrubbed to constants like everything else, and an arm exists to prove it.
+ *
+ * ⚠️ THAT PIN LIST HAS GONE STALE TWICE, in all four copies at once each time. If you add
+ * a pin, grep for one of these field names before you finish; an arm now reds if a
+ * document omits one.
  *
  * ⚠️ A capture rots, and ONE guard notices, not two. The TOP-LEVEL key set is compared
  * box-independently in `yarn test` (render-talk-goldencard-2519.test.js), using
@@ -141,6 +172,17 @@ function goldenCard(fixturePath) {
        invoking tools/browser-checks.sh directly never reaches the node suite's floor,
        so it has to be enforced where the card is produced. A real card carries ~30
        fields; a trimmed one is the hand-built literal arriving by another door. */
+    /* ⚠️ THE RENAME BELOW LEAVES THE CARD INTERNALLY INCONSISTENT, and it is inherited
+       rather than introduced here: the reopen arm drives `{...card, state: 'needs_you'}`
+       while `because` still reads "it is mid-task" and `stateEvidence` still reads
+       "✽ Working…". The live path has always done the same to a live card, so this is
+       main's behaviour, not a regression from the fallback.
+       ⇒ Named rather than fixed, deliberately. This branch argued at length that a
+       fixture contradicting itself is worse than a stale one and made `context` coherent
+       on that basis, so leaving this unnamed would be the same overstatement the branch
+       keeps correcting. Fixing it means changing what the arm feeds `openDetail` in a
+       check that CANNOT be run from here, which trades an unverifiable rendering change
+       for a consistency the arm does not read. */
     if (Object.keys(card).length < 20) {
       /* 🛑 SAY WHY HERE TOO. The catch below explains a missing, corrupt or unreadable
          fixture, and this branch used to be the one cause that explained nothing: a

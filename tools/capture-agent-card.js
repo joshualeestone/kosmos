@@ -32,9 +32,14 @@
  *     (status.js:4628, 4630, 4658 -- no transcript, empty tail, no non-synthetic match),
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
- *   - PINS these fields to constants: `hasAvatar`, `model`, `modelName`,
- *     `disruption.startedAt`, and the whole of `context` (`tokens`, `percent`,
- *     `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because`).
+ *   - PINS these fields to constants. PIN-LIST-BEGIN
+ *     `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt`, `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence` PIN-LIST-END
+ *     (`startedAt` is under `disruption`; `tokens` through `confidence` are under
+ *     `context`; the rest are top-level.)
+ *     ⚠️ THIS LIST NAMED FOUR OF THE TWENTY-ONE and the arm checking it was green,
+ *     because the arm compared against the WHOLE FILE and the names it looked for were
+ *     extracted from this same file: `src.includes(f)` is true by construction. The
+ *     sentinels above bound the region it actually reads.
  *     🛑 "SO A RE-RUN IS BYTE-IDENTICAL UNLESS THE SHAPE MOVED" WAS THE CLAIM HERE AND IT
  *     IS FALSE. A re-capture minutes later on the same box differs without any shape
  *     moving: `state`, `stateConfidence` and `runner` are restored from the RAW card
@@ -107,8 +112,8 @@ function chooseCard(agents) {
    into it that no pin names. `profile.doctrineVersion` is a producer NUMBER, written at
    birth by create.js:3651 from defaults.DOCTRINE_VERSION and again by doctrine.js:209,
    and `doctrineDeclined` beside it. Neither is identity-bearing, but neither was pinned
-   nor documented, so a re-capture on almost any real agent was not byte-identical, which
-   four places claim it is.
+   nor documented, so a re-capture on almost any real agent was not byte-identical. Four
+   documents claimed it was; all four have since been corrected.
    ⇒ SO THE CATEGORIES ARE THREE, NAMED HONESTLY:
      1. PINNED below to constants (the list in the header).
      1b. RE-PINNED FROM THE RAW CARD because status.js ENUM-BOUNDS them: `state` and
@@ -222,7 +227,11 @@ function neutralise(live) {
   if (typeof card.stateProject === 'string') card.stateProject = 'example-project';
   if (typeof card.because === 'string') card.because = 'it is mid-task';
   if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
-  /* PIN the volatile values so a re-run is byte-identical unless the SHAPE moved. */
+  /* PIN the volatile MEASUREMENTS so they do not move between captures.
+     🛑 NOT "so a re-run is byte-identical unless the SHAPE moved". That sentence stood
+     HERE while this same file struck it in capitals in the header block above, which is a
+     file asserting a claim and its negation about its own behaviour. See the header for
+     what actually varies. */
   /* ⚠️ THE ONE PIN THAT DELIBERATELY DISAGREES WITH THE CAPTURED CARD. A producer `false`
      becomes `true`, and that is intended rather than an oversight: status.js emits
      `Boolean(safeAvatar(key))`, which depends on whether an avatar file happens to exist

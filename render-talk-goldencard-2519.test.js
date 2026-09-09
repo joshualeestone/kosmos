@@ -115,7 +115,11 @@ test('#2519: goldenCard() returns a usable card, so a QUIET box is covered', () 
      committed fixture already carries sessionName 'april' and name 'April', so those two
      assertions pass whether or not goldenCard renames anything -- they read as coverage
      of the rename and are not. `state` is the one field the fixture does not already
-     hold ('idle' in the recording), so deleting the rename reds exactly this line. */
+     hold: the recording carries 'working', so deleting the rename reds exactly this line.
+     ⚠️ THIS PARENTHETICAL SAID 'idle' AND THE FIXTURE SAYS 'working'. The assertion was
+     always right (it is a notEqual control against needs_you); the sentence describing a
+     file two directories away was not, which is this branch's named defect class showing
+     up in a comment that exists to explain a control. */
   const raw = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
   assert.notEqual(raw.state, 'needs_you', 'CONTROL: the fixture must NOT already hold the renamed state, or the next line proves nothing');
   assert.equal(card.state, 'needs_you', 'goldenCard did not apply the rename the live path applies');
@@ -476,24 +480,32 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
      added without updating a document reds this arm, which is the only mechanism that
      has not already failed here. */
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'capture-agent-card.js'), 'utf8');
-  /* Split every `card.<f> = <rhs>` by what the RHS is: a constant is a PIN, and
-     `= live.<f>` is the separate enum-bounded RE-PIN category the documents name apart.
-     ⚠️ THE RHS IS CAPTURED AND TESTED, not excluded by a lookahead. The first version
-     used `=\s*(?!live\.)`, and the engine simply backtracked the `\s*` to zero so the
-     lookahead ran against " live.state" and passed: every re-pin was misfiled as a pin.
-     A second version matched `===` comparisons as assignments. Both produced a confident
-     wrong list, which is what this arm exists to stop happening to prose. */
+  /* Split every `card.<f> = <rhs>` by WHAT THE RHS IS: a LITERAL is a pin, a REFERENCE to
+     another object is the separate enum-bounded re-pin the documents name apart.
+     ⚠️ THE CLASSIFIER USED TO KEY ON THE IDENTIFIERS `live.` AND `card.`, so a re-pin
+     written through any alias (`const raw = live; card.x = raw.x`) was silently filed as
+     a PIN and the re-pin guard below stopped firing. A name pin defeated by a rename is
+     the anti-pattern this very file condemns elsewhere. What actually distinguishes the
+     two is the KIND of right-hand side, so that is what is tested.
+     ⚠️ Two earlier instruments were also wrong: one matched `===` comparisons as
+     assignments, and one used a lookahead the engine defeated by backtracking the
+     whitespace, so it ran against " live.state" and passed. */
   const pinned = new Set();
   const repinned = new Set();
   for (const m of src.matchAll(/card(?:\.\w+)?\.(\w+)\s*(?<![=!<>])=(?![=>])\s*(\S+)/g)) {
-    (/^(live|card)\./.test(m[2]) ? repinned : pinned).add(m[1]);
+    (/^(['"]|\d|true|false|typeof)/.test(m[2]) ? pinned : repinned).add(m[1]);
   }
-  /* 🛑 ASSERT THE EXTRACTION FOUND SOMETHING. A regex matching nothing makes every loop
-     below vacuous and this arm would pass on an empty set. */
-  assert.ok(pinned.size >= 15, `the pin extraction found only ${pinned.size}: ${[...pinned]}`);
+  assert.ok(pinned.size >= 21, `the pin extraction found only ${pinned.size}: ${[...pinned]}`);
   assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
-    'the set of fields re-pinned FROM the raw card changed; that is the enum-bounded category and it needs an arm of its own');
+    'the set of fields re-pinned FROM another object changed; that is the enum-bounded category and it needs an arm of its own');
 
+  /* 🛑 THE REGION, NOT THE WHOLE FILE, AND THAT WAS A REAL HOLE. The first version asked
+     `text.includes(f)` of each document, which is (a) TRUE BY CONSTRUCTION for the tool
+     itself, since `pinned` was extracted from that same text, so it checked three
+     documents while claiming four; and (b) satisfied incidentally elsewhere for common
+     words like `name`, `session`, `model`, `because`. Measured while it was green: the
+     tool's own list named FOUR of the twenty-one pins. The sentinels bound the region so
+     a name must appear in the ENUMERATION, not merely somewhere in the file. */
   const DOCS = [
     ['tools/capture-agent-card.js', src],
     ['docs/browser-checks/render-talk.js', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js'), 'utf8')],
@@ -502,13 +514,89 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
   ];
   const missing = [];
   for (const [where, text] of DOCS) {
-    for (const f of pinned) if (!text.includes(f)) missing.push(`${where} omits ${f}`);
+    const region = text.split('PIN-LIST-BEGIN')[1];
+    assert.ok(region !== undefined, `${where} has no PIN-LIST-BEGIN sentinel, so the enumeration cannot be located`);
+    const list = region.split('PIN-LIST-END')[0];
+    assert.ok(list !== undefined && list.length > 0, `${where} has no PIN-LIST-END sentinel`);
+    assert.ok(list.length < 2000, `${where}'s pin region is ${list.length} chars; the sentinels are not bounding an enumeration`);
+    for (const f of pinned) if (!list.includes('`' + f + '`')) missing.push(`${where} omits ${f}`);
   }
   assert.deepEqual(missing, [], `the pin enumeration has gone stale again:\n  ${missing.join('\n  ')}`);
-  /* CONTROL: the check must be able to report a miss, or an empty `missing` proves
-     nothing about the documents. */
-  assert.ok(!DOCS[0][1].includes('zzzNeverPinnedName'),
-    'CONTROL: the doc text matches an invented name, so includes() proves nothing');
+  /* CONTROL: the region check must be able to report a miss. */
+  const anyRegion = DOCS[0][1].split('PIN-LIST-BEGIN')[1].split('PIN-LIST-END')[0];
+  assert.ok(!anyRegion.includes('`zzzNeverPinnedName`'),
+    'CONTROL: the pin region matches an invented name, so includes() proves nothing');
+});
+
+test('#2519: the non-string INVENTORY outside profile is fixed, so a new producer number reds', () => {
+  /* 🛑 THE ONE GAP NOTHING COULD SEE. The string guarantee is structural (scrub the whole
+     card, then re-pin) and `profile` is structural on the non-string axis too. Everywhere
+     else, numbers and booleans are held back only by the INDIVIDUAL pins in `context` and
+     `disruption`. That is honestly documented and it was not enforced: the
+     `disruption.startedAt` epoch-ms timestamp reached the recording exactly this way, and
+     the key-set refusal cannot see it, because a value the producer adds inside an
+     existing subtree changes no TOP-LEVEL key.
+     ⇒ So the inventory is pinned. Every number and boolean the neutralised card carries
+     outside `profile` is listed here. A producer that grows a new one reds this arm, and
+     whoever sees the red has to decide whether it needs a pin, which is the decision that
+     was never prompted before.
+     ⚠️ DRIVEN THROUGH THE REAL PRODUCER via fleet.install, not read off the committed
+     fixture: an arm that reads the artifact cannot notice the producer growing a field. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const out = cap.neutralise(board.card('mara'));
+    const found = [];
+    (function walk(v, at) {
+      if (!v || typeof v !== 'object') return;
+      for (const k of Object.keys(v)) {
+        const path = at ? at + '.' + k : k;
+        if (path === 'profile' || path.startsWith('profile.')) continue;
+        const val = v[k];
+        if (typeof val === 'number' || typeof val === 'boolean') found.push(path);
+        else if (val && typeof val === 'object') walk(val, path);
+      }
+    })(out, '');
+    /* The STRUCTURAL BOOLEANS, present on every card whatever its context shape. */
+    const STRUCTURAL = [
+      'nameDerived', 'isAgentPane', 'isAgentSession', 'isFleetSession', 'isNamedOurs',
+      'paneless', 'stateProjectInferred', 'activeWhileWaiting', 'stateReported',
+      'stateBackgroundWait', 'neverRecorded', 'hasAvatar',
+    ];
+    /* ⚠️ TWO INVENTORIES, BECAUSE `context` HAS FIVE KEY SETS IN status.js AND THE TWO
+       CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
+       the no-reading shape; the committed recording was captured from an agent with a
+       measured context. A single expected list would have been wrong for one of them, and
+       the first version of this arm guessed one list and redded on its first run, which
+       is how the difference got noticed. */
+    const EXPECTED_LIVE = STRUCTURAL.concat(['context.neverRecorded', 'context.notYet']).sort();
+    const EXPECTED_FIXTURE = STRUCTURAL.concat([
+      'context.ceiling', 'context.ceilingAssumed', 'context.notYet', 'context.overCeiling',
+      'context.percent', 'context.tokens',
+    ]).sort();
+    assert.ok(found.length >= 10, `CONTROL: the walk found only ${found.length} non-strings; it is not traversing the card`);
+    const WHY = 'the set of numbers and booleans that reach a committed file outside `profile` has CHANGED. '
+      + 'If the producer added a field, decide whether it is identifying and needs a pin '
+      + '(that is how disruption.startedAt got in); if a pin was removed, that is a leak.';
+    assert.deepEqual(found.sort(), EXPECTED_LIVE, 'LIVE CARD: ' + WHY);
+    /* AND THE SHIPPED ARTIFACT, which is the thing an operator can actually read. */
+    const committed = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+    const inFixture = [];
+    (function walk(v, at) {
+      if (!v || typeof v !== 'object') return;
+      for (const k of Object.keys(v)) {
+        const path = at ? at + '.' + k : k;
+        if (path === 'profile' || path.startsWith('profile.')) continue;
+        const val = v[k];
+        if (typeof val === 'number' || typeof val === 'boolean') inFixture.push(path);
+        else if (val && typeof val === 'object') walk(val, path);
+      }
+    })(committed, '');
+    assert.deepEqual(inFixture.sort(), EXPECTED_FIXTURE, 'COMMITTED FIXTURE: ' + WHY);
+  } finally {
+    board.restore();
+  }
 });
 
 test('#2519: NOTHING under profile survives, on the non-string axis either', () => {
@@ -577,10 +665,14 @@ test('#2519: a disruption timestamp does not reach the recording, and the key se
      PREFERS it. `disruption` is null in today's fixture, which is the only reason this
      was an exposure rather than a leak, and a comment concluding "nothing identifying is
      numeric today" is exactly what would have stopped the next person looking.
-     ⚠️ AND THE KEY-SET REFUSAL IS DRIVEN HERE. It lived inside the tool's `require.main`
-     block, unreachable from any test, while a comment read as though the export had
-     fixed both refusals. It is load-bearing: several pins would ADD a key on a producer
-     that lacks one, which is what it exists to catch. */
+     ⚠️ THE COMPARATOR IS DRIVEN HERE. THE REFUSAL IS NOT, AND THE DIFFERENCE MATTERS.
+     `keySet` is exported and exercised below; the refusal that uses it
+     (`if (before !== after) { console.error(...); process.exit(1); }`) is still inside
+     the tool's `require.main` block and is still a guard nothing runs. Exporting the
+     comparator made the refusal TESTABLE, not TESTED, and an earlier version of this
+     comment claimed the latter. The paneless refusal, by contrast, genuinely is driven.
+     It is load-bearing: several pins would ADD a key on a producer that lacks one, which
+     is what it exists to catch. */
   const cap = require('./tools/capture-agent-card.js');
   const fleet = require('./test-support/fleet.js');
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
