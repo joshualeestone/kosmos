@@ -59,7 +59,7 @@ not boot.
 
 ## Verification
 
-- `engine/worldbootguard-2528.test.js`: 4/4. The keystone arm boots a never-serving
+- `engine/worldbootguard-2528.test.js`: 5/5. The keystone arm boots a never-serving
   world THRESHOLD times (each STILL tries the named world -- the fallback is
   conditional, proven non-vacuous), then asserts the next boot falls back to default,
   resets the pointer, preserves the Home entry, and clears the counter. Plus the unit
