@@ -20,11 +20,18 @@
  * What it does, and what it deliberately does not:
  *   - RECORDS every key and type `status.snapshot()` emits. Nothing is invented.
  *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
- *     `because` line, any `stateConflict` sentence, the scraped evidence line, and the
- *     every string under `profile`, and every string anywhere else that is not re-pinned
- *     to a known-safe producer value below. "Known-safe" means ENUM-BOUNDED by status.js
+ *     `because` line, any `stateConflict` sentence, the scraped evidence line, every
+ *     string under `profile`, and every string anywhere else that is not re-pinned to a
+ *     known-safe producer value below. "Known-safe" means ENUM-BOUNDED by status.js
  *     (state, stateConfidence, runner), not merely "a field I recognise": model and
- *     modelName are regex-extracted from a transcript and are pinned to constants. It preserves each field's TYPE: a null stays null.
+ *     modelName are regex-extracted from a transcript and are pinned to constants.
+ *   - PRESERVES each field's TYPE: where the producer emits null, the recording carries
+ *     null. ⚠️ EVERY re-pin below is therefore conditional on the field already being a
+ *     string. An unconditional pin was the defect here: `model` was assigned a string
+ *     unconditionally while `readModel()` returns `{model: null}` on three paths
+ *     (status.js:4628, 4630, 4658 -- no transcript, empty tail, no non-synthetic match),
+ *     so a tied agent with an unreadable transcript produced a card this recording could
+ *     not represent, while four separate copies of this sentence claimed otherwise.
  *   - PINS the volatile values so a re-run is byte-identical unless the shape moved:
  *     `hasAvatar`, `context.tokens`, `context.percent` and two profile timestamps.
  *     ⚠️ An earlier version of this paragraph said the tool "does not touch structure,
@@ -42,7 +49,7 @@ const OUT = path.join(__dirname, '..', 'docs', 'browser-checks', 'fixtures', 'ag
  * The pure half: choose a card and neutralise it. Exported so a test can DRIVE it.
  *
  * 🛑 SPLIT OUT BECAUSE NOTHING DROVE THIS TOOL. Both refusals below (no pane card, key
- * set changed) were guards nothing ran, and mutating the neutralisation reded no arm.
+ * set changed) were guards nothing ran, and mutating the neutralisation redded no arm.
  * A capture tool whose own correctness is unchecked is a poor guardian of a fixture.
  */
 function chooseCard(agents) {
@@ -58,7 +65,15 @@ function chooseCard(agents) {
 }
 
 /* Every STRING anywhere under an object is replaced; non-strings keep their type and
-   value. Nothing identifying can survive by being unlisted.
+   value. No identifying STRING can survive by being unlisted.
+   🛑 THE GUARANTEE IS STRING-ONLY, AND SAYING SO IS THE POINT. An earlier version of
+   this sentence read "nothing identifying can survive", which is broader than the code:
+   numbers and booleans reach the recording verbatim, and an array's LENGTH survives
+   even though its elements are scrubbed. Nothing identifying is numeric in today's card
+   (`context.ceiling` is the only unpinned producer number in the committed fixture), so
+   this is the next field's exposure rather than a live leak -- but it is the same shape
+   this file has corrected four times, sitting on the non-string axis, and a sentence
+   that overstates the guarantee is how it stays unexamined.
    🛑 AND NO PROPERTY OF THE RAW VALUE MAY SURVIVE EITHER, LENGTH INCLUDED. `id` was
    scrubbed as `'0'.repeat(val.length)`, which re-emits the producer's value length.
    Today's profile ids are twelve characters, so the output looked like a constant and
@@ -93,10 +108,12 @@ function neutralise(live) {
      first makes the guarantee structural rather than a list somebody has to remember to
      extend, and the known-safe values are put back immediately after. */
   scrubStrings(card);
-  card.session = 'april-discord';
-  card.sessionName = 'april';
-  card.name = 'April';
-  card.target = 'april-discord:0.0';
+  /* ⚠️ CONDITIONAL, LIKE EVERY OTHER RE-PIN. An unconditional assignment writes a string
+     where the producer emitted null, which breaks the type guarantee stated above. */
+  if (typeof card.session === 'string') card.session = 'april-discord';
+  if (typeof card.sessionName === 'string') card.sessionName = 'april';
+  if (typeof card.name === 'string') card.name = 'April';
+  if (typeof card.target === 'string') card.target = 'april-discord:0.0';
   card.state = live.state;
   card.stateConfidence = live.stateConfidence;
   card.runner = live.runner;   // normalised to 'codex'|'claude' by status.js, enum-bounded
@@ -110,8 +127,8 @@ function neutralise(live) {
      neutralise() with that string verbatim, into a COMMITTED file.
      ⇒ Pinned to constants. The fixture does not need this box's real model, and no
      re-pin may take a field the producer does not bound. */
-  card.model = 'claude-opus-5';
-  card.modelName = 'Claude Opus 5';
+  card.model = typeof card.model === 'string' ? 'claude-opus-5' : card.model;
+  card.modelName = typeof card.modelName === 'string' ? 'Claude Opus 5' : card.modelName;
   /* 🛑 DO NOT CLONE THE RAW context BACK IN. An earlier version did exactly that, one
      line after scrubbing the whole card, which restored every unscrubbed string in it.
      MEASURED: a card whose `context.because` read

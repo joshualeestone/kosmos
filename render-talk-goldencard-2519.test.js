@@ -111,9 +111,16 @@ test('#2519: goldenCard() returns a usable card, so a QUIET box is covered', () 
   const { goldenCard } = resolvers()();
   const card = goldenCard();
   assert.ok(card, 'no card from the fixture: a box with no agents would fail 3b, which is the bug');
-  assert.equal(card.sessionName, 'april', 'the fallback must be renamed exactly as the live path renames');
+  /* ⚠️ THE RENAME IS WHAT THIS ARM CAN ACTUALLY SEE, and only `state` proves it. The
+     committed fixture already carries sessionName 'april' and name 'April', so those two
+     assertions pass whether or not goldenCard renames anything -- they read as coverage
+     of the rename and are not. `state` is the one field the fixture does not already
+     hold ('idle' in the recording), so deleting the rename reds exactly this line. */
+  const raw = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  assert.notEqual(raw.state, 'needs_you', 'CONTROL: the fixture must NOT already hold the renamed state, or the next line proves nothing');
+  assert.equal(card.state, 'needs_you', 'goldenCard did not apply the rename the live path applies');
+  assert.equal(card.sessionName, 'april');
   assert.equal(card.name, 'April');
-  assert.equal(card.state, 'needs_you');
 });
 
 test('#2519: realCard() REPORTS ITS SOURCE, so a quiet run cannot look like a live one', () => {
@@ -174,8 +181,14 @@ test('#2519: the fixture carries the PLACEHOLDER identity, asserted positively',
   /* 🛑 NOTHING IDENTIFYING ANYWHERE UNDER profile, asserted structurally rather than by
      listing the keys this box happens to emit. The tree also writes `dir` (an absolute
      path), `displayName`, `role` and `reportsTo` into profiles; the committed fixture is
-     clean today only because the captured agent carried none of them. The capture now
-     scrubs every string under profile, and this is what notices if that stops. */
+     clean today only because the captured agent carried none of them.
+     🛑 THIS ARM READS THE COMMITTED FIXTURE, SO IT CANNOT TEST THE PRODUCER. An earlier
+     version of this sentence said it "notices if the capture stops scrubbing profile",
+     which is false: the file on disk is already scrubbed, so no change to scrubStrings
+     can red this. It notices a BAD RECORDING after someone re-captures, which is worth
+     having and is a different job. The producer-side coverage is the separate
+     `scrubs EVERY string under profile` arm, which drives scrubStrings directly. Same
+     distinction the id arm below proves by mutation. */
   const strings = [];
   (function walk(v, at) {
     if (!v || typeof v !== 'object') return;
@@ -233,7 +246,11 @@ test('#2519: a TRIMMED fixture is refused, not served as a hollow card', () => {
      reopen arm would still pass, giving the box the fallback exists for a coverage claim
      with nothing behind it. The floor lives in goldenCard() rather than only in this
      suite, because anyone invoking tools/browser-checks.sh directly never reaches here. */
+  /* ⚠️ REGISTERED FOR CLEANUP BEFORE ANY ASSERTION. Removing it on the success path only
+     leaks a directory on every failure, which is what left eight of them on disk before
+     the SANDBOX at the top of this file got its exit handler. */
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-2519-'));
+  process.on('exit', () => { try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* best effort */ } });
   const thin = path.join(dir, 'thin.json');
   /* ⚠️ NEUTRAL KEYS, NOT CARD-SHAPED ONES, and deliberately so. The floor counts keys,
      so any small object proves it. A `{sessionName, name}` literal here reads as a
@@ -246,7 +263,6 @@ test('#2519: a TRIMMED fixture is refused, not served as a hollow card', () => {
   assert.equal(goldenCard(thin), null, 'a two-field card passed the floor');
   const full = path.join(__dirname, 'docs', 'browser-checks', 'fixtures', 'agent-card.json');
   assert.ok(goldenCard(full), 'CONTROL: the real fixture must still pass, or the floor is just broken');
-  fs.rmSync(dir, { recursive: true, force: true });
 });
 
 test('#2519: realCard PREFERS a live card, and says so', () => {
@@ -306,7 +322,7 @@ test('#2519: a THROWING producer is an error, NOT an empty board', () => {
 
 test('#2519: the capture PRESERVES types and never invents a value', () => {
   /* 🛑 THE TOOL ITSELF, DRIVEN. Nothing exercised it before, so mutating the
-     neutralisation reded no arm: the guards inside it were guards nothing ran.
+     neutralisation redded no arm: the guards inside it were guards nothing ran.
      status.js emits null for several of these fields (measured on an 18-agent board:
      role string x14 / null x4, stateEvidence null x13 / string x5), and an
      unconditional string assignment invents a value the producer cannot emit. */
@@ -340,6 +356,67 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.notEqual(profile.displayName, 'Real Person');
   assert.notEqual(profile.nested.note, 'private', 'a nested string survived');
   assert.equal(profile.count, 7, 'a non-string was altered');
+});
+
+test('#2519: the capture writes NULL where the producer wrote null, on the PINNED fields too', () => {
+  /* 🛑 THE ARM ABOVE COVERS ONLY THE CONDITIONAL PINS (role, task, stateEvidence,
+     stateProject, stateConflict), so it could not see that `session`, `sessionName`,
+     `name`, `target`, `model` and `modelName` were assigned UNCONDITIONALLY. Those six
+     wrote a string wherever the producer wrote null, contradicting the type-preservation
+     sentence that appears in four places on this branch.
+     ⚠️ AND `model` IS NOT HYPOTHETICAL. status.js's readModel() returns `{model: null}`
+     on three paths -- no transcript file, an empty tail read, and no non-synthetic match
+     in the last 64KB -- and status.js:6239 binds `model: null` outright for an untied
+     pane. A tied agent whose transcript cannot be read is an ordinary card, and before
+     this arm the recording could not represent it. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    /* ⚠️ BUILT BY MUTATING A REAL CARD, NOT BY WRITING ONE. An override literal listing
+       session/sessionName/name/target reads as a hand-built card to fixture-discipline's
+       lint, which flagged the first version of this arm and was right to: a literal here
+       would pin MY idea of the shape rather than the producer's. */
+    const UNCONDITIONAL = ['session', 'sessionName', 'name', 'target', 'model', 'modelName'];
+    const nulled = Object.assign({}, real);
+    for (const f of UNCONDITIONAL) nulled[f] = null;
+    const out = cap.neutralise(nulled);
+    for (const f of UNCONDITIONAL) {
+      assert.equal(out[f], null, `${f} was invented where the producer emitted null`);
+    }
+    /* CONTROL: the pins must still fire on a string, or "preserves null" is just a
+       neutralisation that stopped working. */
+    const poisoned = Object.assign({}, real);
+    poisoned.name = 'Real Person';
+    poisoned.model = '/Users/realoperator/secret';
+    poisoned.modelName = '/Users/realoperator/secret';
+    const pinned = cap.neutralise(poisoned);
+    assert.equal(pinned.name, 'April', 'the name pin stopped firing on a string');
+    assert.equal(pinned.model, 'claude-opus-5', 'the model pin stopped firing on a string');
+    assert.equal(pinned.modelName, 'Claude Opus 5', 'the modelName pin stopped firing on a string');
+  } finally {
+    board.restore();
+  }
+});
+
+test('#2519: the capture tool does its I/O ONLY when run directly', () => {
+  /* 🛑 A GUARD NOTHING RAN, WHICH IS THIS BRANCH'S OWN NAMED DEFECT. This suite
+     `require()`s the capture tool to drive its pure half. Without the
+     `require.main === module` guard, every `yarn test` run would call the real
+     status.snapshot() -- the AGENT_WORKFORCE_* sandbox controls the data and workers
+     roots, NOT tmux, so it would read the operator's live board -- and overwrite the
+     committed, release-gating fixture. Silently: a re-capture looks exactly like a
+     legitimate re-capture.
+     ⚠️ ASSERTED TWO WAYS, because the source match alone would pass on a guard that had
+     been moved below the write. The mtime arm is the one that measures the behaviour. */
+  const src = fs.readFileSync(path.join(__dirname, 'tools', 'capture-agent-card.js'), 'utf8');
+  assert.match(src, /if \(require\.main === module\)/, 'the I/O guard is gone from the capture tool');
+  const before = fs.statSync(FIXTURE).mtimeMs;
+  delete require.cache[require.resolve('./tools/capture-agent-card.js')];
+  require('./tools/capture-agent-card.js');
+  assert.equal(fs.statSync(FIXTURE).mtimeMs, before,
+    'requiring the capture tool rewrote the committed fixture');
 });
 
 test('#2519: an id is scrubbed to a CONSTANT, so not even its length survives', () => {
@@ -477,8 +554,14 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      ⇒ The anti-rot check is the TOP-LEVEL comparison in this file instead, where a
      false red costs a test run rather than a release. If you are about to re-add a
      nested guard to the check, measure the profile shapes on a real board first. */
-  assert.ok(!/has drifted from status\.snapshot/.test(SRC),
-    'a live-vs-fixture drift guard is back in the check; read this arm before re-adding one');
+  /* 🛑 THE HATCH GATES THIS ASSERTION TOO, and leaving it off was a barrier. The phrase
+     banned here is the wording this file's own re-capture instruction uses ("the recorded
+     card has drifted from status.snapshot(); re-capture with ..."), so a
+     composition-aware guard written with the natural message would have redded the very
+     fix this branch says is still owed -- while the failure text sent the reader to an
+     escape hatch that did not apply to it. */
+  assert.ok(!/has drifted from status\.snapshot/.test(SRC) || /COMPOSITION-AWARE DRIFT GUARD/.test(SRC),
+    'a live-vs-fixture drift guard is back in the check without declaring itself composition-aware');
   /* ⚠️ Matched on the FAILURE TEXT and the recursion shape, not on one identifier: a
      re-added guard written with different variable names would slip past a name pin, and
      this tree calls that out as an anti-pattern. */

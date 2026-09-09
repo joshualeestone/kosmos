@@ -1044,6 +1044,15 @@ function unreachableStates() {
       const { card, source: cardSource, error: cardError } = realCard();
       if (cardSource === 'error') {
         // The producer threw. Before #2519 this failed 3b, and it still must.
+        /* ⚠️ KNOWN AND DELIBERATELY NOT COLLAPSED: one broken producer pushes THREE
+           problems per theme (here, the clear-path line, and the stranded-box line), and
+           tools/browser-checks.sh quotes only `head -3` of the reason, so a producer
+           failure fills the operator's quoted reason with restatements of itself and
+           hides any other red. Collapsing them means changing control flow in a
+           release-gating check that CANNOT be run from here (it needs a browser), to
+           improve a log line. That trades an unverifiable regression risk for an
+           ergonomic gain, so it is recorded rather than done. Each line is true and
+           names a different unchecked path; the cost is noise, not a wrong verdict. */
         problems.push(`[${theme}] reopen: status.snapshot() failed (${cardError}), so the card path is BROKEN, not merely empty`);
       }
       if (cardSource === 'golden') {
