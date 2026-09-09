@@ -10,13 +10,15 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
 
 ## The build (no-browser)
 
-1. Extract the annotation parse into a SHARED, reusable function in the gate lib
-   `tools/lib/browser-check-surface-gate.sh`:
-   `kosmos_bc_surface_map [dir]` -> prints `<check-basename><TAB><space-separated tokens>` for every
-   annotated check (default dir docs/browser-checks). This is the single source of the map.
-   Refactor the gate's own loop to CONSUME `kosmos_bc_surface_map` (so the gate and the helper cannot
-   drift -- one parser). The gate's per-check logic (updated? override? token-match?) is unchanged; its
-   existing 12-arm test must still pass.
+1. The helper's annotation parse + whole-token match are COPIED byte-for-byte from the gate
+   `tools/lib/browser-check-surface-gate.sh` (same sed, same escape + boundary grep, same
+   case-insensitive key). 🛑 DECISION (revised from the original "extract into one shared function"):
+   at high context I did NOT refactor the merged, working gate to consume a shared function -- that
+   would risk leaving the gate half-refactored. Instead the copies are DRIFT-GUARDED by a behavioural
+   test (a diff on check A's token -> helper covering names A AND the gate refuses A; a second check;
+   a substring non-match), so an unmirrored edit to one regex REDS the suite. Extracting one shared
+   `kosmos_bc_surface_map`/`token_hits` function used by BOTH is a clean, lower-risk follow-up for a
+   fresh session; the drift-test makes the copies safe until then.
 
 2. New `tools/bc-surface-map.sh` (the CLI Baron invokes), sourcing the lib:
    - `map`      -> the raw map (`<check><TAB><tokens>` lines).

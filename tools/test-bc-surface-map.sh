@@ -55,18 +55,36 @@ else
   fail "covering/gate disagree on the pj-parent change with no update (gate rc=$gate_rc)"
 fi
 
-# 3b. SUPERSET semantics (the WARNING lock): covering is COVERAGE, not a staleness verdict. When
-#     the covering check IS updated on the branch, the gate passes (rc=0, not stale) but covering
-#     STILL names the check -- so a consumer must not read covering as "will red at the cut".
+# 3b. SUPERSET semantics (the WARNING lock): covering is COVERAGE, not a staleness verdict, and is
+#     UPDATE-AGNOSTIC. RE-INVOKE covering WITH the update env set: it must STILL name the check (a
+#     covering that wrongly filtered updated checks -- collapsing to the gate's verdict -- would drop
+#     it here and red). And the gate with that same update passes rc=0, proving covering is a superset.
 gate_rc2=0
 printf 'M\tdocs/browser-checks/render-subprojects-1994.js\n' > "$TMP/files-updated"
 ( . "$HERE/lib/browser-check-surface-gate.sh" \
     && KOSMOS_BCSG_WEBDIFF="$TMP/wd-parent" KOSMOS_BCG_FILES="$TMP/files-updated" KOSMOS_BCG_MSGS="/dev/null" \
        kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc2=$?
-if [ "$gate_rc2" -eq 0 ] && printf '%s\n' "$cov" | grep -qx "render-subprojects-1994.js"; then
-  pass "superset: with the check UPDATED the gate passes (rc=0) yet covering still names it (coverage, not verdict)"
+cov_upd="$(KOSMOS_BCG_FILES="$TMP/files-updated" bash "$BCM" covering < "$TMP/wd-parent")"
+if [ "$gate_rc2" -eq 0 ] && printf '%s\n' "$cov_upd" | grep -qx "render-subprojects-1994.js"; then
+  pass "superset: covering (re-run WITH the update env) still names the check while the gate passes rc=0"
 else
-  fail "superset semantics broken (gate rc=$gate_rc2; covering should still name the covered check)"
+  fail "superset broken: covering must ignore update state (gate rc=$gate_rc2, cov_upd='$cov_upd')"
+fi
+
+# 3c. DRIFT-DETECTOR on a SECOND check + token: a diff touching render-alltasks's token
+#     alltasks-count -> covering names render-alltasks.js AND the gate (no update) refuses it. If the
+#     parse/match ever drift between the helper and the gate, this behavioural agreement breaks.
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '@@ -1 +1 @@' \
+  '-  <b id="alltasks-count">3</b>' '+  <b id="alltasks-count">4 tasks</b>' > "$TMP/wd-alltasks"
+cov_at="$(bash "$BCM" covering < "$TMP/wd-alltasks")"
+gate_rc3=0
+( . "$HERE/lib/browser-check-surface-gate.sh" \
+    && KOSMOS_BCSG_WEBDIFF="$TMP/wd-alltasks" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
+       kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc3=$?
+if printf '%s\n' "$cov_at" | grep -qx "render-alltasks.js" && [ "$gate_rc3" -ne 0 ]; then
+  pass "drift-detector: helper covering + gate agree on a 2nd check/token (render-alltasks / alltasks-count)"
+else
+  fail "helper/gate drift on render-alltasks (cov='$cov_at', gate rc=$gate_rc3)"
 fi
 
 # 4. boundary: pj-parenthetical (substring superset) is NOT covered.
