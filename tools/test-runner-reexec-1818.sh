@@ -66,10 +66,12 @@ common_env=(KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_R
 # ---------------------------------------------------------------------------
 if git -C "$REPO" worktree add -q -b "$TESTBR" "$TESTWT" HEAD 2>"$T/wt.err"; then
   # #2594: `-u KOSMOS_BC_FROZEN_RUNNER` -- this arm STRUCTURALLY needs it UNSET (it
-  # tests that a symbolic-HEAD run freezes and RE-EXECS; the freeze block only fires
-  # when FROZEN_RUNNER is absent, browser-checks.sh:131). A cut-inherited value would
-  # silently skip the re-exec and false-red the "Frozen at"/"frozen runner copy"
-  # assertions below. Same env-hygiene as the ARM-3 control's `-u`, kept consistent.
+  # tests that a symbolic-HEAD run freezes and RE-EXECS; the freeze+re-exec block is
+  # the `elif symbolic-ref` at browser-checks.sh:140, taken only when FROZEN_RUNNER
+  # is absent -- when it is present the `if` at :131 runs the checks in-process, no
+  # freeze). A cut-inherited value would silently skip the re-exec and false-red the
+  # "Frozen at" (line 79) and frozen-path-distinctness (lines 90-95) assertions
+  # below. Same env-hygiene as the ARM-3 control's `-u`, kept consistent.
   out="$(cd "$TESTWT" && env -u KOSMOS_BC_FROZEN_RUNNER "${common_env[@]}" bash "$TESTWT/tools/browser-checks.sh" 2>&1)"; rc=$?
 
   [ "$rc" -eq 0 ] \
