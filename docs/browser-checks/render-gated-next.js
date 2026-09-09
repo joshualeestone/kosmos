@@ -9,8 +9,8 @@
  * (data-granted) ONLY on a measured grant; #fr-next is disabled ONLY when some row
  * is measured-not-granted (checkable:true && !granted). Uncheckable (a browser, no
  * native writer yet) and any fetch failure NEVER block and NEVER show false green.
- * The 1.5s poll re-checks, so granting in System Settings unlocks Next with no
- * manual re-check.
+ * The poll (FR_GATE_POLL_MS, 750ms) re-checks, so granting in System Settings unlocks
+ * Next on its own; a "Check again" button (#2451/#2559) also lets the user force it now.
  *
  * It ALSO covers the S3 sleep "Turn On" action itself (0.6.41 re-test blocker E):
  * a failed open-settings must show a VISIBLE error (danger colour, not body ink)
@@ -247,7 +247,7 @@ async function fresh(browser) {
   }
 
   /* ---------- the poll unlocks WITHOUT a manual re-check ---------- */
-  console.log('\nThe 1.5s poll unlocks Next when the grant lands, no re-check needed');
+  console.log('\nThe poll unlocks Next on its own when the grant lands (no manual click needed)');
   {
     const { ctx, page } = await fresh(browser);
     // Enter S3 with tmux not-granted (Next disabled), then flip it granted mid-screen.
@@ -262,7 +262,44 @@ async function fresh(browser) {
     tmuxTrusted = true;   // the user grants it in System Settings
     await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 4000 })
       .catch(() => {});
-    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual re-check)');
+    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual click in this scenario)');
+    await ctx.close();
+  }
+
+  /* ---------- #2451/#2559: the manual "Check again" button fires an IMMEDIATE re-check ---------- */
+  // Josh 0.6.50 (7.58.24): after granting, the screen "sat here forever" -- the poll was slow
+  // and there was no way to force it. Assert the S3 "Check again" button exists and, on click,
+  // fires a gate re-check RIGHT NOW (a new /api/a11y-status request lands well inside one poll
+  // interval), and that this manual re-check unlocks Next when the grant has landed.
+  console.log('\n#2451/#2559 -- the S3 "Check again" button forces an immediate gate re-check');
+  {
+    const { ctx, page } = await fresh(browser);
+    await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
+    const step = await stepForAnchor(page, '[data-gate="sleep"]');
+    let tmuxTrusted = false;
+    let a11yHits = 0;
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
+    await page.route('**/api/a11y-status', (r) => { a11yHits += 1; return r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }); });
+    await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(300);
+    const btn = await page.$('#fr-pane-3 .fr-recheck');
+    ok(!!btn, 'the S3 "Check again" button is present');
+    const label = btn ? (await btn.textContent()).trim() : '';
+    ok(/check again/i.test(label), `the button reads "Check again" (got: ${JSON.stringify(label)})`);
+    ok(await nextDisabled(page), 'Next is disabled while the grant has not landed');
+    // Grant it, then FORCE the check via the button and confirm a re-poll fires at once
+    // (before the next timer tick) and unlocks Next.
+    tmuxTrusted = true;
+    const before = a11yHits;
+    if (btn) await btn.click();
+    // 80ms is far under the 750ms poll interval, so a hit in this window is almost
+    // certainly the click's (a timer tick could coincide ~1-in-9, so this is a strong
+    // integration signal, not a proof of isolation -- the DETERMINISTIC wiring guard is
+    // the unit test web.firstrun-a11y-1214.test.js, which pins handler -> frRecheckGates).
+    await page.waitForTimeout(80);
+    ok(a11yHits > before, `clicking "Check again" fired an immediate /api/a11y-status re-check (hits ${before} -> ${a11yHits})`);
+    await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 2000 }).catch(() => {});
+    ok(!(await nextDisabled(page)), 'the manual re-check unlocks Next once the grant has landed');
     await ctx.close();
   }
 
