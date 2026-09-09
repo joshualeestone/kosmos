@@ -13,7 +13,7 @@
 # 📌 ITS SCOPE, NAMED BY WHAT THE REGEX ACTUALLY MATCHES RATHER THAN BY WHAT IT IS FOR: a line
 # whose first token is `if` or `elif` FOLLOWED BY EXACTLY ONE SPACE, whose subject is the bare name
 # `p` or `rest`, and whose test is `.startswith(` or `==` against ONE quoted literal BEGINNING WITH
-# `/`, in either quote style, with any spacing around `==`. That is a restriction on the METHOD, and
+# `/`, in either quote style, with any spacing around `==` but NO SPACE after `startswith(`. That is a restriction on the METHOD, and
 # the earlier wording ("if/elif on p or rest") implied it was a restriction on the SUBJECT.
 # ⚠️ THE TWO CLAUSES IN CAPITALS WERE MISSING FROM THIS SENTENCE AND ARE IN THE REGEX. MEASURED:
 # `if  p == '/twospaceafterif':` (two spaces after `if`) is NOT matched, and `if p == 'noslash':`
@@ -209,7 +209,7 @@ class H(http.server.BaseHTTPRequestHandler):
             # and TRUNCATES at the \c; printf '%s' does not. Without this fixture the suite, which
             # runs under bash, could not see the difference.
             self.send_response(302)
-            # \U0001f6d1 THE ESCAPES ARE IN THE PATH, NOT A QUERY VALUE. They lived in `?a=...` until the
+            # 🛑 THE ESCAPES ARE IN THE PATH, NOT A QUERY VALUE. They lived in `?a=...` until the
             # note began redacting query values (kosmos#2566), which would have removed the marker
             # and red the printf-vs-echo arm for a reason unrelated to escapes. A backslash is just
             # as legal, and just as hostile, in a path.
@@ -222,7 +222,10 @@ class H(http.server.BaseHTTPRequestHandler):
             # the KEYS and redact the VALUES (kosmos#2566): keys are the discriminating tell, values
             # are payload. SECRETNONCEVALUE must never appear in the note.
             self.send_response(302)
-            self.send_header('Location', '/ssologin?url=https%3A%2F%2Fdeploy.example&nonce=SECRETNONCEVALUE')
+            # the FRAGMENT carries a secret too: an implicit-flow `#access_token=...` is the same
+            # hazard as a query nonce, and the first redaction handled only `?` (and silently ate a
+            # fragment that followed a query, because the value match ran to the next `&`).
+            self.send_header('Location', '/ssologin?url=https%3A%2F%2Fdeploy.example&nonce=SECRETNONCEVALUE#access_token=SECRETFRAGVALUE')
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
@@ -441,7 +444,12 @@ echo "-- kosmos#2566: query VALUES are redacted, query KEYS are kept --"
 q_msg=$(served_verify_asset_ok "$SSOQ/dist/real.bin" "an asset behind a redirect carrying a query" 2>&1 >/dev/null)
 case "$q_msg" in
   *SECRETNONCEVALUE*) fail "the note printed a secret-shaped query VALUE verbatim. A refusal lands in the deploy log and in a retained agent transcript, so a live nonce would too. Got: $q_msg" ;;
-  *) pass "the note does not print the query value (a live SSO nonce cannot reach the log)" ;;
+  *SECRETFRAGVALUE*) fail "the note printed a secret-shaped FRAGMENT value verbatim. An implicit-flow #access_token= is the same hazard as a query nonce. Got: $q_msg" ;;
+  *) pass "the note prints neither the query value nor the fragment value (a live SSO nonce or token cannot reach the log)" ;;
+esac
+case "$q_msg" in
+  *"#access_token=<redacted>"*) pass "the fragment survives with its KEY intact and its value redacted, rather than being swallowed or printed whole" ;;
+  *) fail "the fragment was lost or left unredacted. A value match that runs to the next & eats it when a query precedes it, which is two different answers to 'report what was observed'. Got: $q_msg" ;;
 esac
 case "$q_msg" in
   *"redirects to"*"/ssologin?url=<redacted>&nonce=<redacted>"*)
@@ -701,6 +709,23 @@ if [ -f "$DS" ]; then
       pass "the post-deploy negative control (line $_ctl2) runs BEFORE the post-deploy byte comparison (line $_sm1), so a host that went blind after the deploy is diagnosed rather than reported as wrong bytes"
     else
       fail "deploy-site.sh compares served bytes at line $_sm1 but does not re-prove the host discriminates until line $_ctl2. A host that went blind after the deploy refuses with 'wrong bytes on the live site' instead of the mechanism."
+    fi
+    # 🛑 EXISTENCE, ARITY AND ORDER WERE ALL ASSERTED. WHETHER A FAILING CHECK REFUSES WAS NOT.
+    # MEASURED: rewrite every `served_verify_host_discriminates "$HOST" ... || { ...exit 1; }` and
+    # every `served_verify_asset_ok "$HOST/..." ... || { ...exit 1; }` into `... || true` and the
+    # suite stays green with 0 FAIL. The branch's headline product consequence is that a blind host
+    # STOPS THE DEPLOY, and that consequence was guarded by nothing: every wiring arm matched the
+    # call as a substring and never looked at what follows `||`. Asymmetric with the byte-exact
+    # assertion on the refusal's WORDING one file over, which is pinned to the character.
+    _sv_calls=$(printf '%s\n' "$_ds_code" | /usr/bin/grep -E '^[[:space:]]*served_verify_(host_discriminates|asset_ok) "\$HOST')
+    _sv_n=$(printf '%s\n' "$_sv_calls" | /usr/bin/grep -c .)
+    _sv_guarded=$(printf '%s\n' "$_sv_calls" | /usr/bin/grep -c '|| { .*exit 1; }')
+    if [ "$_sv_n" -lt 8 ]; then
+      fail "found only $_sv_n served_verify_* calls on \$HOST in deploy-site.sh, expected at least 8 (3 controls plus 5 assets). This arm must not pass on a search that found nothing."
+    elif [ "$_sv_n" -ne "$_sv_guarded" ]; then
+      fail "$_sv_n served_verify_* calls on \$HOST but only $_sv_guarded of them refuse: each must be followed by '|| { ... exit 1; }'. A check whose failure is swallowed is not a check, and every other arm here would still pass."
+    else
+      pass "all $_sv_n served_verify_* calls in deploy-site.sh refuse on failure (not just present, counted and ordered: they actually stop the deploy)"
     fi
     # 🛑 THE ROOT ROUTE MUST BE PROVED BEFORE /setup IS TRUSTED (kosmos#2565). Every control in
     # this script probed /dist, and /setup is at the root, so a host blind only off /dist passed
@@ -1016,9 +1041,19 @@ fi
 # close. Then, with check_rc added, it still missed the trailing `|| fail "..."` form: deleting the
 # `set -u` delimiter guard, a real arm, again left the count unchanged. Three forms now, and the
 # lesson is the one this whole file is about: a counter counts the shape you pictured, not the arms.
-_armsites=$(/usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "' "$0")
-if [ "$_armsites" -ne 82 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 82. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+# 🛑 AND A THIRD TIME, THE SAME DEFECT THIS FILE HAS CLOSED TWICE ELSEWHERE: the `|| fail "`
+# alternative is UNANCHORED, so A COMMENT CAN SUPPLY IT. MEASURED: delete the real `set -u`
+# delimiter arm and add one comment line reading `# ... cmd || fail "something"`, and the count
+# stays put with the suite green. The server-source extraction closed this by anchoring to a
+# dispatch statement AND stripping comments; the manifest arm closed it by anchoring to the start
+# of an entry. This counter did neither, in the one place nobody thought to look: the counter.
+_arm_code=$(/usr/bin/grep -v '^[[:space:]]*#' "$0")
+if [ "$(printf '%s\n' "$_arm_code" | wc -l)" -ge "$(wc -l < "$0")" ]; then
+  fail "the comment strip removed no lines from this file, so a comment mentioning the || fail idiom would be counted as an arm"
+fi
+_armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "')
+if [ "$_armsites" -ne 85 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 85. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi

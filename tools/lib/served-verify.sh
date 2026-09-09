@@ -101,28 +101,41 @@ _served_verify_redirect_note() {
       # TRUNCATION and wrong about the option space: the discriminating signal is the host, the
       # path, and WHICH KEYS ARE PRESENT. The values are payload and carry no diagnostic signal, so
       # redacting them costs the note nothing and leaks nothing.
-      # ⚠️ RESIDUAL, NAMED NOT FIXED: a credential in a PATH SEGMENT is still printed whole.
-      # Redacting path segments would destroy the tell, which is the same objection that killed
-      # truncation. If a host ever puts a secret in a path, that is a different question.
+      # ⚠️ RESIDUALS, NAMED NOT FIXED, and the list is meant to be complete rather than indicative:
+      #   1. a credential in a PATH SEGMENT is still printed whole. Redacting path segments would
+      #      destroy the tell, which is the same objection that killed truncation.
+      #   2. a VALUELESS query or fragment component is still printed whole (`?url=a&SECRET` keeps
+      #      SECRET, `?SECRET` keeps it), because it is indistinguishable from a KEY and keys are
+      #      the discriminating signal. This follows correctly from "keep the keys" and it is a
+      #      shape the first version of this list did not mention.
+      # 🛑 SPLIT AT THE FIRST `?` OR `#`, AND REDACT ONLY AFTER IT. The path is never touched,
+      # because the path is half the tell. The FRAGMENT is redacted like the query: an implicit-flow
+      # `#access_token=...` is exactly the shape this exists to keep out of a retained transcript,
+      # and the first version handled only `?`. That version also SWALLOWED a fragment when a query
+      # was present (`?url=abc#frag` lost `#frag`, because the value match ran to the next `&`) and
+      # kept it when one was not, which is two different answers to "report what was observed".
+      # `[^&#]*` stops a value at either separator, so both are now preserved and both are redacted.
       case "$_svrn_target" in
-        *\?*)
-          _svrn_base=${_svrn_target%%\?*}
-          _svrn_q=${_svrn_target#*\?}
-          _svrn_q=$(printf '%s' "$_svrn_q" | sed 's/=[^&]*/=<redacted>/g')
-          _svrn_target="${_svrn_base}?${_svrn_q}"
+        *\?*|*\#*)
+          _svrn_head=$(printf '%s' "$_svrn_target" | sed 's/[?#].*$//')
+          _svrn_tail=${_svrn_target#"$_svrn_head"}
+          _svrn_tail=$(printf '%s' "$_svrn_tail" | sed 's/=[^&#]*/=<redacted>/g')
+          _svrn_target="${_svrn_head}${_svrn_tail}"
           ;;
       esac
       # ⚠️ RESIDUAL: printf stops the SHELL interpreting escapes, but raw control bytes already in
       # the header (an ESC colour sequence, say) still reach the terminal verbatim. Deploy log and
       # operator terminal only, and stripping them would fight the "report what was observed"
       # contract, so it is named rather than filtered.
-      # ⚠️ SECOND RESIDUAL, AND IT IS THE ONE WITH A BLAST RADIUS: the target is printed WHOLE,
-      # QUERY STRING INCLUDED. A Vercel SSO redirect lands on something shaped
-      # `.../sso-api?url=<deployment>&nonce=<...>`, so a failing check copies a short-lived nonce,
-      # and whatever else a host chooses to put in a query, into the deploy log and the operator's
-      # terminal. Not filtered, for the same "report what was observed" reason and because
-      # truncating at `?` would hide the discriminating half of a catch-all-route diagnosis. Named
-      # so that whoever ships these logs somewhere shared knows what is in them.
+      # 📌 SUPERSEDED, KEPT ONLY AS THE RECORD OF A WRONG CALL. This block used to read: "the target
+      # is printed WHOLE, QUERY STRING INCLUDED ... Not filtered, for the same report-what-was-
+      # observed reason and because truncating at `?` would hide the discriminating half." That was
+      # TRUE UNTIL kosmos#2566 AND IS NOW FALSE: the code fifteen lines above redacts query values.
+      # It is prefixed rather than deleted because the reasoning is worth keeping and the sentence
+      # is not: the objection to TRUNCATION was right, and it was mistaken for an objection to
+      # redaction, which is what kept a live nonce in a retained transcript for twelve commits.
+      # ⚠️ It also stood unprefixed for one commit, contradicting the accurate note above it, with
+      # an audience of "whoever ships these logs somewhere shared" -- the one reader it misinformed.
       printf ' | MECHANISM: un-followed, this URL answers %s and redirects to %s. Judge that target: an auth/login page answers 200 to every path (the #1667 shape), and a catch-all route or SPA rewrite produces the same blindness for a different reason. Either way the status carries no information about your asset.' "$_svrn_code" "$_svrn_target"
       ;;
     *) : ;;

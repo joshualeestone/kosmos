@@ -150,7 +150,12 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # it PREVENTS rather than reports.
 # 📌 The post-deploy call stays and is not redundant: it asks a different question (is the host
 # still sound now that we have published), and a host can go blind between the two.
-served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control failed against $HOST (see the reason above). Nothing has been deployed."; exit 1; }
+# The two non-zero codes mean different things and the refusal should not conflate them: 1 is a
+# BLIND host (the #1667 shape, a real finding), 2 is "the probe could not run" (a network blip, and
+# the caller cannot conclude either way). Both refuse, because refusing before a deploy on an
+# unprovable host is the safe direction, but they are named apart. This is the same
+# reason-versus-verdict distinction the diagnostic note exists for.
+served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; fi; exit 1; }
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure

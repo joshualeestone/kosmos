@@ -211,6 +211,40 @@ and just as hostile.
 ⚠️ **RESIDUAL, named not fixed:** a credential in a PATH SEGMENT is still printed whole. Redacting
 path segments would destroy the tell, which is the same objection that killed truncation.
 
+## The one load-bearing claim on this branch with no instrument behind it
+
+Three pre-deploy gates refuse the deploy if the `git archive` of the site checkout does not carry
+`kosmos-win-x64.zip`, its `.sha256`, or `$WINZIP.sha256`. **They fail closed with a clear message,
+and their premise is a hand measurement, not a check.** No suite here touches `chaoskosmos-site`,
+so nothing in this repo can re-verify it.
+
+Re-measured 2026-09-09 10:22 CDT against the live checkout at `c0d7344`, working tree clean, asking
+git what a `git archive` of HEAD would actually carry:
+
+```
+$ for f in dist/kosmos-0.6.24-win-x64.zip dist/kosmos-0.6.24-win-x64.zip.sha256 \
+           dist/kosmos-win-x64.zip dist/kosmos-win-x64.zip.sha256; do
+    git -C ~/work/chaoskosmos-site cat-file -e "HEAD:$f" && echo "TRACKED $f"
+  done
+TRACKED dist/kosmos-0.6.24-win-x64.zip
+TRACKED dist/kosmos-0.6.24-win-x64.zip.sha256
+TRACKED dist/kosmos-win-x64.zip
+TRACKED dist/kosmos-win-x64.zip.sha256
+```
+
+⚠️ **That is a SNAPSHOT of one repo at one commit, and it is the weakest thing on the branch.** If
+any of the four leaves that checkout, every production deploy refuses before deploying. It is the
+safe direction and it is loud, but it is not instrumented.
+
+✅ **kosmos#2571 is what turns it into an instrument**, which is a better argument for that card
+than the one I filed it with: deriving the Windows artifact from `latest-win.json` makes the
+`$WINZIP` check a real pointer-versus-committed integrity check instead of a name nobody updates.
+Baron Draxum has picked it up. **Sequencing agreed 2026-09-09 10:22 CDT: he builds #2571 on
+`origin/main` now and rebases onto merged #1667**, because #1667 has no merge date I can promise
+(seventeen iterations, no quiet run) and this block is still being changed by reviewers, so
+stacking his branch on mine would buy repeated rebases onto a moving target. I owe him notice if
+that block changes again, and notice when #1667 merges.
+
 ## A bare-status surface this slice did NOT convert, and why
 
 `deploy-site.sh`'s pre-deploy `fetch` / `verify_sha` sequence still uses `curl -fsSL` on `$HOST` and
