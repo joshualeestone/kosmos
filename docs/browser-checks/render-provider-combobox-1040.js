@@ -1,8 +1,9 @@
 'use strict';
 /**
- * kosmos#1040 2b: the provider logo combobox (enhanceProviderSelect), over BOTH remaining
+ * kosmos#1040 2b: the provider logo combobox (enhanceProviderSelect), over ALL THREE
  * provider selects (#d-provider, the switch dialog; #acct-provider-pick, the Add-a-provider
- * screen). Drives the SHIPPED widget in the real page and asserts the WAI-ARIA combobox
+ * screen; #create-provider, the Create Agent form). Drives the SHIPPED widget in the real
+ * page and asserts the WAI-ARIA combobox
  * contract: the native <select> stays the source of truth (hidden, still in the DOM with its
  * options), the trigger shows the selected mark+label, open/close + keyboard nav +
  * Enter-select sync the hidden select's .value and fire `change`, Esc closes and refocuses,
@@ -34,6 +35,7 @@ function ok(name, cond, detail) { if (!cond) problems.push(name + (detail ? '  '
 const SELECTS = [
   { id: 'd-provider', claudeVal: 'anthropic' },
   { id: 'acct-provider-pick', claudeVal: 'claude' },
+  { id: 'create-provider', claudeVal: 'anthropic' },   // #1040 2b final select: the Create Agent form (same 'anthropic' vocab as #d-provider).
 ];
 
 (async () => {
@@ -272,11 +274,49 @@ const SELECTS = [
     await page.close();
   }
 
+  // #1040 2b: #create-provider is the ONLY enhanced select in a fixed-width (18rem) stepped
+  // flex row (#cstep-name .msteps .frow), elbow-aligned with #create-account / #create-model.
+  // enhanceProviderSelect clips the native select and inserts a .pcombo with no width of its
+  // own, so without the scoped 18rem rule the widget sizes to its content and the provider row
+  // stops lining up with the rows beneath it (a pixel-alignment regression Josh has flagged on
+  // this screen). Assert the enhanced trigger width matches the sibling #create-model select.
+  {
+    const page = await browser.newPage({ viewport: { width: 900, height: 700 } });
+    const pageErrors = [];
+    page.on('pageerror', (e) => pageErrors.push(e.message));
+    await page.goto(PAGE);
+    const r = await page.evaluate(() => {
+      const sel = document.getElementById('create-provider');
+      const model = document.getElementById('create-model');
+      const wrap = sel && sel.parentNode.querySelector('.pcombo');
+      if (!sel || !model || !wrap) return { fatal: 'no #create-provider / #create-model / .pcombo widget' };
+      // Un-hide the create panel + every hidden ancestor so the stepped row is laid out.
+      for (let p = sel; p && p !== document.body; p = p.parentNode) {
+        if (p.hasAttribute && p.hasAttribute('hidden')) p.hidden = false;
+        if (p.style && p.style.display === 'none') p.style.display = '';
+      }
+      const trigger = wrap.querySelector('.pcombo-trigger');
+      const tw = Math.round(trigger.getBoundingClientRect().width);
+      const mw = Math.round(model.getBoundingClientRect().width);
+      return { tw, mw };
+    });
+    if (r.fatal) problems.push('[create-width] ' + r.fatal);
+    else {
+      // Row parity: the widget width tracks the sibling 18rem select (within 2px), and is
+      // clearly wider than a content-sized trigger would be (> 200px), so a collapsed/
+      // content-sized widget (the bug this rule fixes) reds rather than passing.
+      ok('[create-width] the #create-provider combobox widget matches the stepped-row width of #create-model (not content-sized)',
+        Math.abs(r.tw - r.mw) <= 2 && r.tw > 200, JSON.stringify(r));
+    }
+    if (pageErrors.length) problems.push('[create-width] pageerror: ' + pageErrors.join(' | '));
+    await page.close();
+  }
+
   await browser.close();
   if (problems.length) {
     console.error('render-provider-combobox-1040: ' + problems.length + ' problem(s)');
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-provider-combobox-1040: the #d-provider and #acct-provider-pick logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
+  console.log('render-provider-combobox-1040: the #d-provider, #acct-provider-pick and #create-provider logo comboboxes keep the native select as source of truth, open/navigate/select/close by keyboard, sync + fire change, disable coming-soon rows, fall back to a chip for Grok, and re-render on a programmatic change; and the reauth screen hides the whole #acct-provider-pick chooser (widget included). Screenshots: ' + shots.join(', '));
 })();
