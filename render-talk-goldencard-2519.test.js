@@ -109,6 +109,58 @@ function resolvers() {
     parts + '; return { liveCard, goldenCard, realCard };')(fs, path, req || require, path.dirname(CHECK));
 }
 
+/* The distinct `context` key-sets status.js can emit, keyed by their sorted key CSV and
+   counting occurrences. Scans every context-shaped object literal (one carrying `because:`
+   and either `confidence:` or `...NONE_BASE`, whose keys include tokens and because) and
+   EXPANDS the `...NONE_BASE` spread, which a named-function walk cannot see.
+   🛑 SHARED BY TWO ARMS ON PURPOSE. The "context key-set" arm counts these (four distinct,
+   the family shape eleven times); the #2553 nested-drift arm asserts the recorded fixture
+   matches one of them. An inline byte-copy in each would be the drift this very tree keeps
+   catching in its own guards, so the scan lives once, here. */
+function contextShapes(statusSrc) {
+  const NONE_BASE_KEYS = ['tokens', 'percent', 'confidence'];
+  const objKeys = (body) => {
+    const clean = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const keys = new Set();
+    let d = 0; let tok = '';
+    for (let k = 0; k < clean.length; k++) {
+      const ch = clean[k];
+      if ('{(['.includes(ch)) d++;
+      else if ('})]'.includes(ch)) d--;
+      if (d === 0 && (ch === ',' || k === clean.length - 1)) {
+        const t = (tok + (k === clean.length - 1 ? ch : '')).trim();
+        if (/^\.\.\.NONE_BASE\b/.test(t)) NONE_BASE_KEYS.forEach((x) => keys.add(x));
+        else { const m = t.match(/^([A-Za-z_]\w*)\s*(?::|$)/); if (m) keys.add(m[1]); }
+        tok = '';
+      } else tok += ch;
+    }
+    return [...keys].sort();
+  };
+  const shapes = new Map();
+  for (let i = 0; (i = statusSrc.indexOf('{', i)) !== -1; i++) {
+    let d = 0; let j = i;
+    for (; j < statusSrc.length; j++) {
+      if (statusSrc[j] === '{') d++;
+      else if (statusSrc[j] === '}') { d--; if (!d) break; }
+    }
+    if (j >= statusSrc.length) continue;
+    const body = statusSrc.slice(i + 1, j);
+    /* ⚠️ THE `< 400` CUTOFF IS LOAD-BEARING FOR TWO ARMS NOW (the key-set arm and the
+       #2553 nested-drift arm), and the margin is not large: measuredResult's body is the
+       longest context literal at ~337 chars. If a variant's body grows past 400 it drops
+       out of this scan, and both arms notice rather than pass silently -- the key-set arm's
+       `shapes.size === 4` reds, and the nested-drift arm's `shapes.has(ctxKeys)` reds once
+       the fixture's own variant is the one that fell out. Raise the cutoff (and re-derive)
+       if a legitimate context builder ever needs a longer body. */
+    if (body.length >= 400 || !/\bbecause\s*:/.test(body)) continue;
+    if (!/\bconfidence\s*:/.test(body) && !/\.\.\.NONE_BASE/.test(body)) continue;
+    const k = objKeys(body);
+    if (!k.includes('tokens') || !k.includes('because')) continue;
+    shapes.set(k.join(','), (shapes.get(k.join(',')) || 0) + 1);
+  }
+  return shapes;
+}
+
 test('#2519: this suite is SANDBOXED, so it cannot read the operator live state', () => {
   /* 🛑 AN ENVIRONMENTAL GUARD REDS NOTHING BY DEFAULT, which is why it needs an arm.
      Deleting the four process.env lines at the top of this file would silently point
@@ -263,11 +315,16 @@ test('#2519: the fixture matches what status.snapshot() ACTUALLY emits, on ANY b
        the ceiling fields. Both are legitimate producer output for different states, so
        demanding nested equality against a fleet card asserts something untrue.
        ⇒ The box-independent claim is that snapshot() still emits THESE THIRTY FIELDS.
-       ⚠️ AND THE NESTED COMPARISON NO LONGER EXISTS ANYWHERE. An earlier version of this
-       comment said it "lives in render-talk.js's own guard" -- that guard was removed on
-       this branch and an arm below pins its absence, so this file asserted it both ways,
-       which is the exact contradiction render-talk.js's header names. Nested drift is an
-       acknowledged, unguarded gap. */
+       ⚠️ THE NESTED-EQUALITY comparison (this recording vs a live card, key path by key
+       path) NO LONGER EXISTS ANYWHERE, and must not: an earlier version of this comment
+       said it "lives in render-talk.js's own guard", that guard was removed on this branch
+       (an arm below pins its absence) because it false-reds on composition, and this file
+       once asserted it both ways -- the exact contradiction render-talk.js's header names.
+       ⇒ #2553 closes the nested gap a DIFFERENT way, which is why re-adding it is not
+       re-adding the bug: the COMPOSITION-AWARE DRIFT GUARD arm below checks the recording's
+       context against the SET of shapes status.js can emit (not against one live card), so
+       composition passes and only an un-re-captured producer change reds. So nested CONTEXT
+       drift is guarded; live-vs-live nested equality is deliberately still absent. */
     /* 🛑 THE RAW FILE, NOT goldenCard's OUTPUT. `goldenCard` spreads the renamed
        sessionName, name and state back over the recording, so those three keys are
        RE-ADDED even when the file on disk has lost them: the
@@ -679,40 +736,9 @@ test('#2519: the context key-set claim is DERIVED from status.js, not restated',
      context returns would leave every assertion green while the count in the docs went
      stale. The count is derived here by scanning every context-shaped object literal in
      status.js and expanding the `...NONE_BASE` spread, which the named-function walk
-     cannot see. */
-  const NONE_BASE_KEYS = ['tokens', 'percent', 'confidence'];
-  const objKeys = (body) => {
-    const clean = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-    const keys = new Set();
-    let d = 0; let tok = '';
-    for (let k = 0; k < clean.length; k++) {
-      const ch = clean[k];
-      if ('{(['.includes(ch)) d++;
-      else if ('})]'.includes(ch)) d--;
-      if (d === 0 && (ch === ',' || k === clean.length - 1)) {
-        const t = (tok + (k === clean.length - 1 ? ch : '')).trim();
-        if (/^\.\.\.NONE_BASE\b/.test(t)) NONE_BASE_KEYS.forEach((x) => keys.add(x));
-        else { const m = t.match(/^([A-Za-z_]\w*)\s*(?::|$)/); if (m) keys.add(m[1]); }
-        tok = '';
-      } else tok += ch;
-    }
-    return [...keys].sort();
-  };
-  const shapes = new Map();
-  for (let i = 0; (i = statusSrc.indexOf('{', i)) !== -1; i++) {
-    let d = 0; let j = i;
-    for (; j < statusSrc.length; j++) {
-      if (statusSrc[j] === '{') d++;
-      else if (statusSrc[j] === '}') { d--; if (!d) break; }
-    }
-    if (j >= statusSrc.length) continue;
-    const body = statusSrc.slice(i + 1, j);
-    if (body.length >= 400 || !/\bbecause\s*:/.test(body)) continue;
-    if (!/\bconfidence\s*:/.test(body) && !/\.\.\.NONE_BASE/.test(body)) continue;
-    const k = objKeys(body);
-    if (!k.includes('tokens') || !k.includes('because')) continue;
-    shapes.set(k.join(','), (shapes.get(k.join(',')) || 0) + 1);
-  }
+     cannot see. The scan itself is the shared `contextShapes` helper (used by the #2553
+     nested-drift arm too), so the two cannot byte-drift from each other. */
+  const shapes = contextShapes(statusSrc);
   assert.equal(shapes.size, 4,
     `status.js now emits ${shapes.size} distinct context key sets, not four: ${[...shapes.keys()].join(' | ')}. `
     + 'That count is the stated justification for the top-level-only anti-rot comparison, so it has to be re-argued, not just re-typed.');
@@ -1651,6 +1677,99 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      a pattern that matches nothing. */
   assert.ok(DRIFT_WORDS.test("problems.push(`[x] reopen: the recorded card no longer matches the live one`)"),
     'CONTROL: the drift vocabulary does not match a plausible re-added guard');
+});
+
+/* #2553: nested CONTEXT drift, closed WITHOUT the false-red that got the last nested guard
+   removed. The sibling arm above pins that the live-vs-live nested-equality guard stays
+   absent; this arm is the composition-aware replacement it points to. */
+test('#2553: the recorded fixture context matches a legitimate status.js variant (COMPOSITION-AWARE DRIFT GUARD)', () => {
+  /* 🛑 THE GAP render-talk.js NAMES: a rename INSIDE `context` leaves the top-level key set
+     identical, so the box-independent arm above (which compares top-level keys only) stays
+     green, and the recording drives a `context` shape the producer no longer emits -- on
+     exactly the quiet boxes the fallback exists for.
+     🛑 WHY THIS IS NOT THE GUARD THAT WAS REMOVED. That one compared the recording against
+     ONE LIVE card and fired on board COMPOSITION (measured on an 18-agent board: two profile
+     shapes, four context key-sets). This looks at NO board. It derives the SET of context
+     key-sets status.js can emit and asserts the recording matches one of them, so any
+     legitimate variant passes and only a producer change that was not re-captured reds. That
+     is what COMPOSITION-AWARE means here, and it is why re-adding a guard is not re-adding
+     the bug.
+     🛑 AND WHY IT LIVES IN THIS TEST, NOT IN render-talk.js. The arm above states the
+     reason for the top-level anti-rot comparison: "where a false red costs a test run rather
+     than a release." A cut-time nested check in render-talk.js would put a false red back on
+     the release path, which the card calls the documented worst case. Placed here, a false
+     red (a real producer schema change that wants a re-capture) reds `yarn test`, never a cut.
+     ⚠️ CONTEXT ONLY, NOT profile, AND THAT IS DELIBERATE. Measured in web/index.html: every
+     card-context read is GUARDED (pctOf uses `ctx && Number.isFinite(ctx.percent)`;
+     memPrint/memUnknown/assumedCeilingNote use `ctx && ctx.KEY`/`typeof ctx.because ===
+     'string'`; overCeiling/neverRecorded/noCeiling use `ctx && ctx.KEY === true` and notYet
+     uses `!!(ctx && ctx.notYet)` -- all null-safe on the `ctx &&` half either way).
+     There are ZERO unguarded context reads, so a missing key never BREAKS the page -- what a
+     stale recording costs is COVERAGE (the reopen render silently takes the empty-context
+     branch). profile is free-form (the tree writes dir/displayName/role/reportsTo per
+     operator), scrubbed wholesale by the capture, and every page profile read is guarded
+     (`a.profile && a.profile.role`), so a missing profile key is COMPOSITION, never drift --
+     the exact guarded-vs-unguarded crux the card raises, resolved for profile by exclusion
+     rather than a guard that would false-red on every board.
+     ⚠️ WEAKEST PREMISE, NAMED: a PAGE-ONLY rename (the page reads `ctx.pct` while status.js
+     still emits `percent` and the fixture still carries `percent`) is NOT caught here -- the
+     fixture matches the producer, so this is green. It is acceptable because a page-only
+     context rename breaks LIVE cards on a populated box too (every board row reads context),
+     so it is a board-level failure caught elsewhere, not the quiet-box-specific gap. The gap
+     THIS closes is recording-vs-producer divergence. */
+  const statusSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
+  const shapes = contextShapes(statusSrc);
+  const variants = [...shapes.keys()];
+  /* CONTROL: the derivation must have found the variants, or the membership test below is
+     certifying the fixture against an empty set.
+     ⚠️ `>= 4`, NOT `=== 4`, on purpose: the EXACT count is the sibling key-set arm's
+     assertion (it reds and gets re-argued if status.js grows a fifth variant). This arm only
+     needs the set to be non-empty and to contain the fixture's own shape, so a legitimate
+     fifth variant should not red HERE too -- the fixture would still match one of the five.
+     The floor is the count the sibling pins, so a broken scan (fewer than four) still reds. */
+  assert.ok(variants.length >= 4,
+    `CONTROL: only ${variants.length} context variants derived from status.js; the scan matched nothing, so this arm certifies nothing`);
+  /* CONTROL: `contextShapes` hardcodes the NONE_BASE family keys (a rename confined to the
+     `const NONE_BASE = {...}` literal in status.js would otherwise be invisible to the
+     `...NONE_BASE` expansion). Pin the hardcode against the producer's own literal so that
+     rename reds here instead of silently carrying a stale family key into every variant. */
+  const nb = statusSrc.match(/const NONE_BASE = \{([^}]*)\}/);
+  assert.ok(nb, 'CONTROL: could not find the NONE_BASE literal in status.js; the family-key pin is measuring nothing');
+  const nbKeys = [...nb[1].matchAll(/([A-Za-z_]\w*)\s*:/g)].map((m) => m[1]).sort();
+  assert.deepEqual(nbKeys, ['confidence', 'percent', 'tokens'],
+    `status.js NONE_BASE keys are now [${nbKeys}]; update contextShapes' NONE_BASE_KEYS hardcode to match in the same commit`);
+
+  const card = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  assert.ok(card.context && typeof card.context === 'object' && !Array.isArray(card.context),
+    'the recorded fixture has no nested `context` object, so the reopen render drives an empty context');
+  const ctxKeys = Object.keys(card.context).sort().join(',');
+  assert.ok(shapes.has(ctxKeys),
+    `the recorded fixture's context shape [${ctxKeys}] matches NO status.js variant {${variants.join(' | ')}}; `
+    + 'a context key was renamed or added in status.js and the recording was not re-captured. '
+    + 'Re-capture with node tools/capture-agent-card.js');
+
+  /* CONTROL: a fixture whose percent is renamed must match NO variant, or the membership
+     assertion above cannot detect the very rename this arm exists to catch. percent is a
+     NONE_BASE key, present in every variant, so removing it drops the fixture out of all of
+     them. */
+  const renamed = Object.keys(card.context).map((k) => (k === 'percent' ? 'pct' : k)).sort().join(',');
+  assert.notEqual(renamed, ctxKeys, 'CONTROL: the fixture carries no percent key, so this perturbation changed nothing');
+  assert.ok(!shapes.has(renamed),
+    `CONTROL: a fabricated context with percent renamed to pct matched a variant [${renamed}], so this arm cannot detect a rename`);
+
+  /* The fixture is the measuredResult variant TODAY. Pinned so a re-capture that lands a
+     DIFFERENT (still legitimate) variant is a visible, reviewed change rather than a silent
+     one -- and so this arm does not quietly become a membership test that any of the four
+     shapes satisfies. If a deliberate re-capture changed the state, update this one line in
+     the same commit. */
+  const MEASURED = ['because', 'ceiling', 'ceilingAssumed', 'confidence', 'notYet', 'overCeiling', 'percent', 'tokens'].join(',');
+  assert.equal(ctxKeys, MEASURED,
+    `the committed fixture is no longer the measuredResult context shape (it is [${ctxKeys}]); `
+    + 'if the re-capture was deliberate, update this pin in the same commit');
+  /* CONTROL: measuredResult must actually be one of the derived variants, or the pin above
+     is asserting a shape the producer cannot emit. */
+  assert.ok(shapes.has(MEASURED),
+    'CONTROL: the pinned measuredResult shape is not among the derived status.js variants, so the pin is stale');
 });
 
 test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
