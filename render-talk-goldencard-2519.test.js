@@ -391,27 +391,78 @@ test('#2519: the three RE-PINNED fields are enum-bounded, and nothing else may j
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
   try {
     const real = board.card('mara');
-    /* The enum vocabularies, read from the producer rather than restated here. */
+    /* 🛑 READ FROM THE PRODUCER, NOT RESTATED. The first version of this arm carried the
+       comment "the enum vocabularies, read from the producer rather than restated here"
+       above a HAND-TYPED array, and that array was already missing STATE.AUTH_FAILED
+       (status.js:257), a reachable card state. The branch's most repeated defect,
+       reproduced inside the guard written to catch it, one iteration after the guard was
+       added. status.js exports both enums; there was never a reason to retype them. */
     const status = require('./engine/status.js');
-    const snap = status.snapshot();
-    assert.ok(snap && Array.isArray(snap.agents), 'CONTROL: the producer did not answer');
+    const STATES = Object.values(status.STATE);
+    const CONFIDENCES = Object.values(status.CONFIDENCE);
+    assert.ok(STATES.length >= 8 && STATES.includes('auth_failed'),
+      `CONTROL: status.STATE did not come through as an enum: ${STATES}`);
+    assert.ok(CONFIDENCES.length === 3, `CONTROL: status.CONFIDENCE changed shape: ${CONFIDENCES}`);
     const out = cap.neutralise(Object.assign({}, real));
-    assert.ok(['working', 'needs_you', 'idle', 'unknown', 'stopped', 'rate_limited', 'blocked', 'restarting']
-      .includes(out.state), `state left the enum: ${out.state}`);
-    assert.ok(['structured', 'scraped', 'none'].includes(out.stateConfidence),
+    assert.ok(STATES.includes(out.state), `state left the enum: ${out.state}`);
+    assert.ok(CONFIDENCES.includes(out.stateConfidence),
       `stateConfidence left the enum: ${out.stateConfidence}`);
+    /* ⚠️ `runner` IS RESTATED, AND THAT IS SAID RATHER THAN DISGUISED. status.js does not
+       expose a runner enum: it is a ternary at the pane card literal that can yield only
+       'codex' or 'claude'. There is nothing to read, so the two values are written here
+       with the reason, instead of a comment implying they were derived. */
     assert.ok(['codex', 'claude'].includes(out.runner), `runner left the enum: ${out.runner}`);
     /* CONTROL, and the one that matters: a value the producer cannot emit must be
-       recognisable as such, or the three assertions above are just restating today's
-       board back to itself. */
+       recognisable as such, or the assertions above just restate today's board. */
     const poisoned = Object.assign({}, real);
     poisoned.state = '/Users/realoperator/leaked-state';
-    assert.ok(!['working', 'needs_you', 'idle', 'unknown', 'stopped', 'rate_limited', 'blocked', 'restarting']
-      .includes(cap.neutralise(poisoned).state),
+    assert.ok(!STATES.includes(cap.neutralise(poisoned).state),
       'CONTROL: a poisoned state was accepted as an enum value, so the check above cannot fail');
   } finally {
     board.restore();
   }
+});
+
+test('#2519: no NOTE the check emits can be quoted by the release gate as a failure reason', () => {
+  /* 🛑 THE PLAN CLAIMED "an arm pins that" AND NO SUCH ARM EXISTED. The nearest one only
+     checks that notes go through notes.push rather than problems.push; it never compared
+     the NOTE TEXT against the gate's pattern. So the claim was a document describing a
+     test that was never written, which is this branch's most repeated defect wearing its
+     most convincing disguise.
+     🛑 AND THE PATTERN IS READ FROM THE SHELL SCRIPT, NOT RESTATED. An earlier version of
+     that claim, in four copies, said the gate anchors on `^\s*(FAIL|✖)`; it also greps
+     Error|Timeout|REFUS|refus, unanchored, anywhere in the line. Retyping it here would
+     re-create exactly that failure. */
+  const gate = fs.readFileSync(path.join(__dirname, 'tools', 'browser-checks.sh'), 'utf8');
+  const m = gate.match(/grep -E '([^']+)' "\$cap"/);
+  assert.ok(m, 'CONTROL: the reason-quoting grep was not found in tools/browser-checks.sh; this arm is measuring nothing');
+  const gateRe = new RegExp(m[1].replace(/\\s/g, '[ \\t]'));
+  assert.ok(gateRe.test('  FAIL  something'), 'CONTROL: the extracted gate pattern does not match a FAIL line');
+  assert.ok(gateRe.test('an Error happened'), 'CONTROL: the extracted gate pattern does not match an unanchored Error');
+
+  const src = fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js'), 'utf8');
+  /* Every literal this file emits with a NOTE prefix, plus every string pushed into
+     `notes`. Both channels reach the same log the gate reads. */
+  /* 🛑 EVERY FRAGMENT OF THE CONCATENATION, NOT JUST THE ONE CARRYING THE WORD "NOTE".
+     The first version of this extraction matched `'  NOTE  ...'` literals, which is the
+     FIRST piece of a multi-part `write('  NOTE ...' + x + ' more text')`. Proved blind by
+     mutation: putting the word Error into a LATER fragment left this arm green. So the
+     unit is the whole write CALL, and every string literal inside it is tested. */
+  const noteTexts = [];
+  for (const call of src.matchAll(/process\.stdout\.write\(([\s\S]*?)\);/g)) {
+    if (!/NOTE/.test(call[1])) continue;
+    for (const lit of call[1].matchAll(/'((?:[^'\\]|\\.)*)'/g)) noteTexts.push(lit[1]);
+  }
+  for (const mm of src.matchAll(/notes\.push\(`([^`]*)`\)/g)) noteTexts.push(mm[1]);
+  assert.ok(noteTexts.length >= 5, `found only ${noteTexts.length} NOTE fragments; the extraction is not seeing them`);
+  for (const t of noteTexts) {
+    assert.ok(!gateRe.test(t),
+      `a NOTE would be quoted by the release gate as the reason for a red: ${JSON.stringify(t)}`);
+  }
+  /* CONTROL: a NOTE carrying a gate word must be caught, or the loop above proves
+     nothing about the texts it just read. */
+  assert.ok(gateRe.test('  NOTE  render-talk: an Error occurred'),
+    'CONTROL: the gate pattern does not catch a NOTE carrying a gate word');
 });
 
 test('#2519: every PINNED field name appears in all four documents that enumerate them', () => {

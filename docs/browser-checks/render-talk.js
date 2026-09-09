@@ -162,8 +162,16 @@ function goldenCard(fixturePath) {
        here at runtime (no live pane card of ours) that makes realCard report `none`,
        which pushes a problem and FAILS the arm. A bare NOTE reads as benign for
        something that is about to red the cut. */
+    /* ⚠️ err.message ONLY, NEVER String(err). A native Error's toString() prepends the
+       literal word "Error: ", and the release gate's reason grep matches `Error`
+       UNANCHORED anywhere in a line (tools/browser-checks.sh:730), so the fallback would
+       have turned this NOTE into a quotable failure reason. Unreachable today, since
+       readFileSync and JSON.parse both carry a non-empty message, but the whole point of
+       the NOTE channel is that it cannot be read as a failure, and a residual that
+       depends on every future thrower having a message is not that guarantee. */
+    const why = (err && typeof err.message === 'string' && err.message) || 'no message on the thrown value';
     process.stdout.write('  NOTE  render-talk: the recorded card fixture could not be read: '
-      + String((err && err.message) || err)
+      + why
       + ' -- with no live agent card this FAILS the reopen arm below\n');
     return null;
   }
