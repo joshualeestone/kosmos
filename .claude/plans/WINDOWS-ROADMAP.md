@@ -36,7 +36,7 @@ That is the bar. Not "the tests pass".
 | 3 | board + roster | ✅ MEASURED (state: partial, see §4) |
 | 4 | **talk to it** | ❌ **BLOCKER 1** — §3 |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
-| 6 | survive a reboot | ⚠️ **HALF** — the AGENTS come back (R8, measured). The BOARD does not: **BLOCKER 4**, §3c |
+| 6 | survive a reboot | ✅ AGENTS measured (R8). BOARD: **BLOCKER 4 CLOSED** 2026-09-09 — an at-logon task, proven end to end via /Run; a real logon still owed |
 | 7 | **update the app** | ❌ **BLOCKER 2** — §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
 
 🛑 THAT IS FOUR BLOCKERS, NOT ONE. This table said "one blocker" on 2026-09-09
@@ -379,6 +379,40 @@ STILL OWED HERE: the console window. A task-launched board has no visible window
 the board's stdout goes nowhere, so the registration sentence printed at boot is
 seen only by somebody who started Kosmos from a console. And `KosmosLauncher.cs`
 is unchanged, so a hand-started board still dies with its window.
+
+### BLOCKER 4 CLOSED (2026-09-09) — `engine/win32board.js`
+
+An at-logon Scheduled Task `Kosmos\board`, registered from XML naming the current
+user — reusing `win32job`'s `taskUser`/`xmlEscape` so the measured
+"`/SC ONLOGON` needs administrator" fact has ONE copy, not two. Same `Kosmos`
+folder as the agent tasks (one place a person looks), different prefix, so nothing
+listing `Kosmos\agent-` picks it up. Registered by the board's own first run,
+because a portable zip has no install step. The task runs a durable `board-boot.js`
+in the anchor which reads the SHARED `engine-path` pointer, so one write moves the
+board and every agent onto a new install together.
+
+`boardrestart.js` gained a win32 arm, with `canSelfRestart(platform)` /
+`selfRestart(platform)` as parameters rather than `process.platform` reads. Two
+boards are prevented by `server.js`'s existing port bind — respected, not
+duplicated.
+
+🔑 MEASURED, INCLUDING ONE HYPOTHESIS REFUTED. The tempting one-call restart
+policy, `StopExisting`, leaves **NO BOARD AT ALL**: the new instance starts while
+the old still holds the port, dies on EADDRINUSE, and the old is stopped anyway.
+Zero boards, not two. `IgnoreNew` is correct — and `/Run` against an
+already-running task starts nothing WHILE STILL REPORTING SUCCESS, so no caller
+may read that exit code as proof. The port also stays bound ~1s after `/End`,
+which is why the restart is End → wait → Run from a detached helper.
+
+`machine.boardAutostartCheck` returned null off-darwin, so Windows Settings never
+raised the subject while the answer was NO for every Windows board ever run. It
+now has a win32 arm — missing / switched off / in place — each naming the task and
+the removal command.
+
+📌 STILL OWED: a REAL LOGON. The trigger shape is byte-identical to the one R8
+measured firing at a real logon, and `/Run` was proven end to end, but the box was
+not rebooted. `KosmosLauncher.cs` is also unchanged, so a hand-started board still
+dies with its window.
 
 ### Also found (DEGRADED), and it is waiting under BLOCKER 1
 
