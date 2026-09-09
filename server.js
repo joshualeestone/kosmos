@@ -8573,7 +8573,14 @@ const server = http.createServer((req, res) => {
           : 'operator dismissed a stale needs_you';
         /* by:'operator' is the one provenance a caller may assert; auto is left
            falsey so the #900 guard does NOT refuse this idle over the standing
-           needs_you -- it lands and supersedes it. */
+           needs_you -- it lands and supersedes it.
+           `name` is the raw URL segment, not a resolved card's canonical
+           `sessionName` the way /api/report uses `sender.card.sessionName` -- and
+           that is safe rather than an oversight: selfreport.fileFor re-applies
+           store.safeKey, and any `name` that passed knownAgent() above necessarily
+           safeKeys to the same file the board reads and /api/report writes. So the
+           two routes land on the identical record; do not "fix" this into a
+           card-resolution step that could key a different file. */
         const kept = selfreport.record(name, { state: 'idle', because: reason, by: 'operator' });
         if (!kept.recorded) {
           sendJson(res, 400, { ok: false, because: kept.because || 'that self-report could not be cleared' });

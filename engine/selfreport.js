@@ -105,6 +105,19 @@ function cappedSentence(value, cap) {
  * only ever report as itself. That property is what makes this record
  * evidence rather than something anyone on the machine can forge.
  */
+/* 🛑 SECURITY BOUNDARY (#2575). `entry.by === 'operator'` is honored by this
+   function for ANY caller that passes it -- record() cannot know who is calling,
+   so it does not police the field. The invariant "only a person, via the
+   operator-only clear route, may set operator provenance" is therefore enforced
+   ONE LAYER UP, at the HTTP boundary: routes build `entry` field-by-field and
+   never spread an untrusted `req.body` into it. In particular /api/report
+   (server.js) copies state/project/because/on/owner/until/instance/auto and
+   deliberately NOT `by`, so an agent cannot stamp its own report `operator` and
+   bypass the #900 auto-guard. That boundary is red-guarded by the FORGERY GUARD
+   test in server.clear-selfreport-2575.test.js (a /api/report with body
+   by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
+   keep building entry explicitly -- spreading a request body here silently
+   reopens the operator-provenance forgery. */
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {

@@ -116,7 +116,20 @@ test('a NON-waiting agent is an idempotent no-op: cleared:false, ok:true, the cu
     assert.equal(r.json.ok, true);
     assert.equal(r.json.cleared, false, 'nothing sticky to clear');
     assert.equal(r.json.state, 'working', 'the fresh state is reported back');
+    assert.equal(r.json.by, 'agent', 'a no-op reports the CURRENT provenance (agent here), not operator and not null -- by is the provenance of the resulting state');
     assert.equal(selfreport.read(session).state, 'working', 'a no-op must not write anything');
+  });
+});
+
+test('blocked (the other WAITING_ON_A_PERSON state) is cleared over HTTP just like needs_you', async () => {
+  await withAgent('cs-blocked', async (session) => {
+    selfreport.record(session, { state: 'blocked', because: 'rate limited', owner: 'provider' });
+    const r = await clearPost(session);
+    assert.equal(r.code, 200, r.text);
+    assert.equal(r.json.cleared, true, 'a standing blocked must be clearable, not only needs_you');
+    assert.equal(r.json.state, 'idle');
+    assert.equal(r.json.by, 'operator');
+    assert.equal(selfreport.read(session).state, 'idle', 'the operator idle superseded the blocked in the record');
   });
 });
 
