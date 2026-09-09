@@ -16062,11 +16062,29 @@ async function paintAccounts() {
       connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
     } else if (badge === 'unchecked') {
       connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
+    } else if (isOpenai && a.authMode === 'chatgpt') {
+      /* #2568: a ChatGPT SUBSCRIPTION row. Its checkLive() honestly returns state
+         UNKNOWN with a real, LONG because sentence ("this sign-in method is not yet
+         checked live; it may or may not still work") -- there is no live probe for a
+         subscription sign-in yet (openaiaccounts.js checkLive). OpenAI rows carry no
+         server `badge`, so before this it fell to the legacy fallback below and rendered
+         that whole sentence in the pill span. The pill classes are `white-space: nowrap`,
+         so a long sentence cannot wrap: it overflowed the pill and collided with the email
+         beside it -- Josh saw `jo$h@bookuio...in method is not yet checked live` on v0.6.50.
+         A subscription sign-in DOES exist here (the connected gate is auth_mode:chatgpt with
+         a decodable identity), so the honest SHORT pill is the signed-in-unverified shape --
+         a credential exists, not verified live -- mirroring the Claude signed_in_unverified
+         pill above. The full sentence stays in the title, the same short-visible/full-in-title
+         rule the #1921 badge vocabulary already uses, so the pill states what it knows without
+         the whole reason living in the visible span. This is the "auth_mode-shape display"
+         #2568 asks the OpenAI row to adopt. */
+      connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not checked live</span>';
     } else {
       /* The legacy state ternary, kept as the fallback for any row without a `badge`.
-         Two rows land here today: an OpenAI row (the server overlays `badge` onto Claude
-         rows only, so OpenAI rows never carry one), and -- under a version skew (new page,
-         old server) -- a Claude row. Neither may blank the badge. */
+         Two rows land here today: an OpenAI API-KEY row (the server overlays `badge` onto
+         Claude rows only, so OpenAI rows never carry one; a chatgpt OpenAI row is handled by
+         the branch just above), and -- under a version skew (new page, old server) -- a Claude
+         row. Neither may blank the badge. */
       connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected" title="' + esc(connectedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
         : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
