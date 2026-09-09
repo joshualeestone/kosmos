@@ -8,12 +8,28 @@
 # wrong twice ("three behaviours" over four, then "four handlers plus two landing pages" over five
 # and three), each time in the sentence that had just been corrected for the same class. An arm at
 # the end of this file DERIVES the handler list from the server source and fails if one is not named
-# below, which is the only version of this that has not gone stale. 📌 ITS SCOPE, STATED RATHER THAN
-# IMPLIED BY THE WORD "DERIVES": it reads DISPATCH STATEMENTS (`if`/`elif` on `p` or `rest`), top
-# level and sub-dispatch, in EITHER quote style, with or without spaces around `==`. A handler
-# reached some other way would still be invisible to it: a routing table, a regex, a dict lookup, or
-# a startswith() given a TUPLE of prefixes rather than one string. This file's history says the
-# honest move is to name that rather than let "derived" imply completeness it does not have.
+# below, which is the only version of this that has not gone stale.
+#
+# 📌 ITS SCOPE, NAMED BY WHAT THE REGEX ACTUALLY MATCHES RATHER THAN BY WHAT IT IS FOR: a line
+# whose first token is `if` or `elif`, whose subject is the bare name `p` or `rest`, and whose test
+# is `.startswith(` or `==` against ONE quoted literal, in either quote style, with any spacing
+# around `==`. That is a restriction on the METHOD, and the earlier wording ("if/elif on p or rest")
+# implied it was a restriction on the SUBJECT. MEASURED, three handlers each answering 200 text/html
+# to every path, each leaving this arm green at its expected count:
+#   if self.path.startswith('/evilself/'):     <- `self.path` is literally what `p` is derived from
+#   if p.endswith('/evilend'):
+#   if p in ('/evilin', '/evilin2'):
+#
+# 🛑 THOSE ARE OUT OF SCOPE BY DESIGN, NOT BY OVERSIGHT, AND THE WIDENING STOPS HERE. Seven
+# closures of this guard have each produced the next evasion (a comment supplying a token, a slice
+# running to EOF, a count floor, a character class blind to digits, one quote character, one spacing
+# of `==`, prose standing in for documentation), and what it defends is the accuracy of a COMMENT
+# ABOUT A FIXTURE INSIDE A TEST. No product behaviour depends on it. Closing the next hole costs
+# more than the hole does, so the honest move is to state the scope truthfully and stop.
+# 🔑 THE WEAKEST PREMISE IN THAT CALL, named because it is what would make the race worth
+# resuming: an undocumented fixture handler can only cause a stale comment SO LONG AS no arm selects
+# a fixture path dynamically. If one ever does, an undocumented handler could make an arm pass for
+# the wrong reason, and this guard becomes product-relevant again.
 #
 # 🛑 THE MANIFEST IS DELIMITED, ONE LINE PER TOKEN, AND THE ARM MATCHES ONLY AT THE START OF AN
 # ENTRY. Before this, the arm asked whether the token appeared ANYWHERE in the header, so PROSE
@@ -40,6 +56,7 @@
 #   /ssonoctpage            200 with no content-type at all, behind a redirect
 #   /ssonoloc/              302 with NO Location header at all
 #   /sso301/                301, not 302, so the note's `3??` arm is more than a 302 arm
+#   /sso308/                308, so that arm is more than a 301-or-302 arm either
 # --- MANIFEST END ---
 #
 # WHY SEVERAL OF THOSE EXIST, which is the part that does not belong in a manifest:
@@ -52,8 +69,13 @@
 #   /ssomissing/ and /ssonoct/ exist because those two call sites of the diagnostic were asserted by
 #     RETURN CODE ONLY, and rc cannot see whether a reason was printed.
 #   /ssonoloc/ is the note's `(no Location reported)` branch, the last uncovered path in it.
-#   /sso301/ exists because every other redirect fixture sent 302, so narrowing the note's `3??`
-#     arm to a literal `302` left the suite GREEN. The comment on that arm names an http-to-https
+#   /sso301/ and /sso308/ exist because every other redirect fixture sent 302, so narrowing the
+#     note's `3??` arm left the suite GREEN: first to a literal `302`, and then, once /sso301/
+#     existed, to `30[12]`. Three distinct codes are now driven and a control keeps it that way.
+#     📌 WHAT IS DELIBERATELY NOT GUARDED: narrowing `3??` to `30?` is invisible here and always
+#     will be, because every real redirect status is 300-308. That is a distinction with no
+#     behavioural difference, and pretending to guard it would be the third layer of a guard that
+#     already defends only a comment. The comment on that arm names an http-to-https
 #     upgrade and an apex-to-www redirect, both commonly 301, as cases it covers; nothing tested
 #     that claim until this fixture.
 #   /ssoesc/ makes the echo-vs-printf difference observable under a shell whose echo truncates.
@@ -168,6 +190,15 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
+        if p.startswith('/sso308/'):
+            # a THIRD distinct 3xx. With only 301 and 302 driven, narrowing the note's `3??` arm to
+            # `30[12]` was invisible; the arm's comment names cases whose real statuses span
+            # 301/307/308, so the broadest claim had the narrowest coverage.
+            self.send_response(308)
+            self.send_header('Location', '/ssologin')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if p.startswith('/sso301/'):
             # 🛑 301, NOT 302, ON PURPOSE. The note fires on `3??`, and every other redirect
             # fixture here sends 302, so a regression narrowing that arm to a literal `302` was
@@ -262,6 +293,7 @@ SSOESC="http://127.0.0.1:$PORT/ssoesc"
 SSOFLAP="http://127.0.0.1:$PORT/ssoflap"
 SSONOLOC="http://127.0.0.1:$PORT/ssonoloc"
 SSO301="http://127.0.0.1:$PORT/sso301"
+SSO308="http://127.0.0.1:$PORT/sso308"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -307,17 +339,14 @@ esac
 # overclaim while a re-introduction differing only in capitalisation walked past it: appending
 # "Note: it IS An Auth page most likely." passed the suite silently. Same tr idiom the lib already
 # uses for content-type, and for the same reason.
-_oc_hit=""
-_sso_msg_lc=$(printf '%s' "$sso_msg" | tr '[:upper:]' '[:lower:]')
-for _oc in "that is the auth-redirect shape" "is an auth" "is a login page" "is an sso" "definitely" "which means it is"; do
-  case "$_sso_msg_lc" in
-    *"$_oc"*) [ -n "$_oc_hit" ] || _oc_hit="$_oc" ;;
-  esac
-done
-# One FAIL per root cause: a message tripping two forbidden phrasings is still one overclaim.
-if [ -n "$_oc_hit" ]; then
-  fail "the note asserts what the redirect target IS ('$_oc_hit'), which it never established: it reads a status and a URL, not the page"
-fi
+# 🛑 THE SIX-PHRASE DENYLIST THAT USED TO LIVE HERE IS RETIRED, AND ITS REMOVAL IS THE POINT.
+# The whole-refusal-line equality below asserts the message is BYTE-EXACT, so the loop could only
+# ever fire on a message that arm had already failed: it was an arm guarding another arm. It also
+# emitted no `ok` line and, unlike every other matcher in this file, had no positive control proving
+# it could match anything. Kept only as this note, because the phrasings it named are real history:
+# "that is the auth-redirect shape", "is an auth", "is a login page", "is an sso", "definitely",
+# "which means it is" -- each an assertion about what the target IS, from a function that reads a
+# status and a URL and never sees the page.
 case "$sso_msg" in
   *"Judge that target"*) pass "CONTROL: the note hands the interpretation to the operator rather than concluding it" ;;
   *) fail "the note no longer hedges; it must describe the redirect, not diagnose it. Got: $sso_msg" ;;
@@ -359,6 +388,14 @@ if [ "$_vok" -eq 1 ]; then
 else
   fail "the refusal line is not the shipped text, so something was added or reworded somewhere in it (verdict, URL or note). If you changed the wording on purpose, update these literals in the SAME commit. Expected head: [$_verdict_head] Expected tail: [$_verdict_tail] Got: [$sso_msg] Note portion seen: [$_note_actual]"
 fi
+
+m308=$(served_verify_asset_ok "$SSO308/dist/real.bin" "an asset behind a 308" 2>&1 >/dev/null); rc308=$?
+check_rc "$rc308" 1 "an asset behind a 308 is caught (the landing page's text/html)"
+case "$m308" in
+  *"MECHANISM: un-followed, this URL answers 308 and redirects to"*"/ssologin"*)
+    pass "the note fires on a 308 too, so its arm is not a 301-or-302 arm" ;;
+  *) fail "the note did not name a 308. Two driven codes let a narrowing to 30[12] pass; three do not. Got: $m308" ;;
+esac
 
 m301=$(served_verify_asset_ok "$SSO301/dist/real.bin" "an asset behind a 301" 2>&1 >/dev/null); rc301=$?
 check_rc "$rc301" 1 "an asset behind a 301 is caught (the landing page's text/html)"
@@ -654,9 +691,13 @@ srv_paths=$(printf '%s\n' "$srv_code" \
 # CONTROL: a NON-302 3xx fixture must remain, or the note's `3??` arm is only ever driven with a
 # 302 and narrowing it to `302` goes unnoticed. MEASURED before /sso301/ existed: that narrowing
 # left the suite green.
-_non302=$(printf '%s\n' "$srv_code" | /usr/bin/grep -oE 'send_response\(3[0-9][0-9]\)' | /usr/bin/grep -v '302' | /usr/bin/grep -c .)
-if [ "$_non302" -eq 0 ]; then
-  fail "every redirect fixture now sends 302, so nothing drives the note's 3?? arm with another 3xx; narrowing that arm to a literal 302 would be invisible again"
+# 🛑 DISTINCT CODES, NOT "SOME NON-302". The first version of this control only asked that SOME
+# non-302 3xx existed, which 301 satisfied, so narrowing the note's arm from `3??` to `30[12]` was
+# still invisible. Counting DISTINCT codes is what makes a narrowing to any one code, or any pair,
+# red. Three today: 301, 302, 308.
+_n3xx=$(printf '%s\n' "$srv_code" | /usr/bin/grep -oE 'send_response\(3[0-9][0-9]\)' | sort -u | /usr/bin/grep -c .)
+if [ "$_n3xx" -lt 3 ]; then
+  fail "the fixture server drives only $_n3xx distinct 3xx status codes; with fewer than three, narrowing the note's 3?? arm to that one code or that pair is invisible. Add a redirect fixture with a code not already used."
 fi
 if ! printf '%s\n' "$srv_code" | /usr/bin/grep -qE "^[[:space:]]*(el)?if (p|rest)==['\"]/"; then
   fail "no SPACELESS == dispatch is left in the fixture server, so nothing proves the extraction tolerates missing spaces around ==; an undocumented 'if p==\"/x\":' would be invisible to it again"
@@ -664,7 +705,13 @@ fi
 # CONTROL, AND IT IS WHY ONE DISPATCH BELOW IS DELIBERATELY DOUBLE-QUOTED: without a double-quoted
 # dispatch in the fixture, nothing here exercises the half of the pattern that was just added, and a
 # future edit normalising the quotes would silently restore the blindness with every arm still green.
-if ! printf '%s\n' "$srv_code" | /usr/bin/grep -qE "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]==[[:space:]])\"/"; then
+# 🛑 THIS CONTROL WAS TIGHTER THAN THE EXTRACTION IT GUARDS, AND ITS MESSAGE WAS THEN FALSE.
+# It required exactly one space around `==` while the extraction accepts any, so rewriting the
+# fixture's double-quoted dispatch to `if p=="/ssologin":` (behaviour-identical, still double-quoted,
+# still extracted, count unchanged) reds the suite with "no DOUBLE-QUOTED dispatch is left" -- which
+# is untrue, and sends the next engineer at a problem that does not exist. A control must not be
+# stricter than the thing it controls. Same spacing rule as the extraction now.
+if ! printf '%s\n' "$srv_code" | /usr/bin/grep -qE "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]*==[[:space:]]*)\"/"; then
   fail "no DOUBLE-QUOTED dispatch is left in the fixture server, so nothing proves the extraction is quote-agnostic; a handler written with double quotes would be invisible to it again"
 fi
 # 🛑 CONTROL: THE SLICE MUST END AT THE TERMINATOR. ⚠️ The first version of this control checked
@@ -692,8 +739,8 @@ n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # in prose or here. An earlier version said "ten top-level and five sub-dispatch"; nothing read
 # those two numbers, so adding one sub-path and bumping the total would have left both stale -- the
 # exact failure this file's opening paragraph disclaims.
-if [ "$n_paths" -ne 17 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 17: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
+if [ "$n_paths" -ne 18 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 18: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   # 🛑 MATCH INSIDE THE DELIMITED MANIFEST ONLY, AND ONLY AT THE START OF AN ENTRY. Asking
@@ -720,6 +767,13 @@ $man
 MANIFEST
       [ "$_found" -eq 1 ] || missing="$missing $_p"
     done
+    # 🛑 BOTH DIRECTIONS. The loop below catches a handler with NO entry; an entry for a handler
+    # that no longer EXISTS stayed green, so the manifest could rot in the one direction nobody
+    # looks. The equality catches that in one line.
+    _man_entries=$(printf '%s\n' "$man" | /usr/bin/grep -c '^#   /')
+    if [ "$_man_entries" -ne "$n_paths" ]; then
+      fail "the manifest has $_man_entries entries but the dispatch has $n_paths paths. If you removed a handler, remove its entry in the same commit; if you added one, add an entry."
+    fi
     if [ -n "$missing" ]; then
       fail "these server handlers have no MANIFEST ENTRY of their own:$missing. Prose mentioning a handler elsewhere in the header no longer counts as documenting it; add one '#   <token>  <one line>' entry inside the MANIFEST block."
     else

@@ -69,6 +69,44 @@ by two different routes (with `-L`, the landing page's content-type; without it,
 an rc-only arm could not see the transport property its own label named. They assert the message
 now, which is what made the `-L`-drop mutation visible.
 
+## The decision I made against my own work: the extraction guard stops widening
+
+Iteration 11 of the challenge loop made a macro finding I accept. The handler-count and manifest
+apparatus in `tools/test-served-verify.sh` is three layers deep: a guard on the documentation of a
+fixture inside a test. It has been defeated seven times on this branch (a comment supplying a
+token, a sed slice running to EOF, a count floor below the truth, a character class blind to a
+digit, one of Python's two quote characters, one spacing of `==`, and prose standing in for
+documentation), and the same reviewer demonstrated three further evasions that are still open:
+`if self.path.startswith(...)`, `if p.endswith(...)`, and `if p in (...)`.
+
+**The call: I did NOT close those three.** I made the scope sentence name what the regex actually
+matches (a restriction on the METHOD, `.startswith(` or `==`, not on the subject) and stated in the
+file that the widening stops there, by design rather than by oversight.
+
+**What I rejected:** closing them. Each previous closure produced the next evasion, and what this
+guard defends is the accuracy of a comment about a fixture. No product behaviour depends on it. The
+file's own history is the evidence that the race does not terminate.
+
+**Weakest premise:** that an undocumented fixture handler can only cause a stale comment. That
+holds only so long as no arm selects a fixture path dynamically. If one ever does, an undocumented
+handler could make an arm pass for the wrong reason, and the guard becomes product-relevant again.
+That is what would change my mind, and it is named in the test file too.
+
+**What I kept, because it is cheap and catches a real edit:** the exact `n_paths` equality, and the
+manifest arm now made bidirectional (an entry for a handler that no longer exists used to stay
+green). What I retired: a six-phrase overclaim denylist that the whole-refusal-line equality had
+already subsumed, which emitted no `ok` line and had no control proving it could match anything.
+
+## Known gap I did NOT close here, filed instead
+
+`served_verify_host_discriminates` builds its negative control under `/dist/`, while
+`tools/deploy-site.sh` also asserts `$HOST/setup`, a different route. A host that discriminates
+under `/dist/` and is blind under `/setup` would pass the control and then be trusted for `/setup`.
+It is equivalent for the deployment-wide SSO shape the card measured, and not equivalent for a
+route-scoped blindness. It is pre-existing (the function arrived with kosmos#2268, not with this
+branch), and changing the probe shape changes a verdict-bearing function that two other slices of
+#1667 already depend on. Filed rather than changed here.
+
 ## Disclosure: a refusal can now print a credential-shaped value into the deploy log
 
 The note prints the redirect target WHOLE, query string included, and `tools/deploy-site.sh` puts
