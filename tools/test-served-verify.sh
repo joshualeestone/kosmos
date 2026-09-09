@@ -6,13 +6,14 @@
 # It sources the SAME lib deploy-site.sh sources (not a copy) and drives it against a local server
 # with the behaviours listed below. ⚠️ NO COUNT IS STATED HERE ON PURPOSE. This sentence has been
 # wrong twice ("three behaviours" over four, then "four handlers plus two landing pages" over five
-# and three), each time in the sentence that had just been corrected for the same # An arm at
+# and three), each time in the sentence that had just been corrected for the same class. An arm at
 # the end of this file DERIVES the handler list from the server source and fails if one is not named
 # below, which is the only version of this that has not gone stale. 📌 ITS SCOPE, STATED RATHER THAN
 # IMPLIED BY THE WORD "DERIVES": it reads DISPATCH STATEMENTS (`if`/`elif` on `p` or `rest`), top
-# level and sub-dispatch. A handler reached some other way -- a routing table, a regex, a dict
-# lookup -- would still be invisible to it, and this file's history says the honest move is to name
-# that rather than let "derived" imply completeness it does not have.
+# level and sub-dispatch, in EITHER quote style. A handler reached some other way would still be
+# invisible to it: a routing table, a regex, a dict lookup, or a startswith() given a TUPLE of
+# prefixes rather than one string. This file's history says the honest move is to name that rather
+# than let "derived" imply completeness it does not have.
 #   /discriminating/...  a sound host with FIVE sub-paths and a 404 floor: /dist/real.bin -> 200
 #                        octet-stream, /setup -> 200 text/plain, /dist/htmlpage.bin -> 200 text/html,
 #                        /dist/htmlcaps.bin -> 200 Text/HTML (mixed case), /dist/nocontenttype.bin ->
@@ -158,7 +159,12 @@ class H(http.server.BaseHTTPRequestHandler):
         if p == '/ssonoctpage':
             self._send_noct(200, b'bytes behind a redirect, with no content-type at all')
             return
-        if p == '/ssologin':
+        if p == "/ssologin":
+            # 🛑 DOUBLE-QUOTED ON PURPOSE, DO NOT NORMALISE. This is the fixture's only
+            # double-quoted dispatch, and it is what proves the handler extraction below is
+            # quote-agnostic. Python treats the two styles identically; the extraction did not, and
+            # an undocumented `if p.startswith("/evil/"):` was invisible to it while the suite
+            # stayed green. An arm fails if this line ever becomes single-quoted again.
             # the login page the redirect lands on: 200 text/html for anything that reaches it.
             self._send(200, 'text/html; charset=utf-8', b'<html><body>SSO login page</body></html>')
             return
@@ -475,9 +481,20 @@ srv_code=$(printf '%s\n' "$srv_src" | /usr/bin/grep -v '^[[:space:]]*#')
 # ⚠️ AND THE CHARACTER CLASS WAS `[a-z]+`, SO A HANDLER NAMED WITH A DIGIT OR A HYPHEN WAS INVISIBLE.
 # MEASURED: adding `if p.startswith('/sso-x2/'):` serving 200 text/html left the count at 9 and the
 # suite green. The quoted literal is now taken whole, whatever characters it carries.
+# 🛑 BOTH QUOTE STYLES. The pattern matched only SINGLE-quoted literals, and Python does not
+# care: MEASURED, adding `if p.startswith("/evil/"):` serving 200 text/html for every path left the
+# count at 15, the naming arm trivially green (no token was ever surfaced to check) and the suite
+# exited 0 with an undocumented blind-host handler in the fixture. That is not one of the exclusions
+# named below -- it is the exact mechanism this guard claims to cover, defeated by a quote.
 srv_paths=$(printf '%s\n' "$srv_code" \
-  | /usr/bin/grep -E "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]==[[:space:]])'/[^']*'" \
-  | /usr/bin/grep -oE "'/[^']*'" | tr -d "'" | sort -u)
+  | /usr/bin/grep -E "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]==[[:space:]])['\"]/[^'\"]*['\"]" \
+  | /usr/bin/grep -oE "['\"]/[^'\"]*['\"]" | tr -d "'\"" | sort -u)
+# CONTROL, AND IT IS WHY ONE DISPATCH BELOW IS DELIBERATELY DOUBLE-QUOTED: without a double-quoted
+# dispatch in the fixture, nothing here exercises the half of the pattern that was just added, and a
+# future edit normalising the quotes would silently restore the blindness with every arm still green.
+if ! printf '%s\n' "$srv_code" | /usr/bin/grep -qE "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]==[[:space:]])\"/"; then
+  fail "no DOUBLE-QUOTED dispatch is left in the fixture server, so nothing proves the extraction is quote-agnostic; a handler written with double quotes would be invisible to it again"
+fi
 # 🛑 CONTROL: THE SLICE MUST END AT THE TERMINATOR. ⚠️ The first version of this control checked
 # only that the slice was shorter than the file, and its comment said "if the address never matched,
 # sed prints to EOF". Both were wrong, in opposite directions, and MEASURED:
