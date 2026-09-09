@@ -16442,7 +16442,7 @@ async function paintAccounts() {
     const targetDir = btn.dataset.forget || btn.dataset.remove;
     /* Delete says "for good" (it IS irreversible); Disconnect deliberately does
        not, because a rename survives and its success sentence says so. */
-    const CONFIRM = isRemove ? 'Delete for good?' : 'Remove it?';
+    const CONFIRM = isRemove ? 'Delete for good?' : 'Disconnect?';
     /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
        Disconnect link at the bottom that asks first". It shipped without
        the asking half, so one click removed an account with no confirm.
@@ -16459,7 +16459,7 @@ async function paintAccounts() {
     const REST = btn.textContent;
     /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
        SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
-       in accessible-name computation, so relabelling `textContent` to "Remove it?"
+       in accessible-name computation, so relabelling `textContent` to "Disconnect?"
        changed what a sighted person sees and NOTHING a screen reader announces: the
        name was identical before and after arming, both presses. So the whole "ask
        first" promise of #1683 was sighted-only on a control whose cost is an OAuth
