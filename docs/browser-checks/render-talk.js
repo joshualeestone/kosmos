@@ -1029,55 +1029,27 @@ function unreachableStates() {
         // identical output while driving different inputs.
         notes.push(`[${theme}] reopen: no live agent on this box, so the RECORDED card fixture drove the clear path`);
       }
-      if (cardSource === 'live') {
-        /* 🛑 THE FIXTURE'S ANTI-ROT GUARD, and it can only run HERE. A recorded card
-           goes stale the moment status.snapshot() grows or drops a field, and the box
-           that NEEDS the fixture is precisely the one that cannot notice. So every box
-           that has a live card re-verifies the capture: same key set, or FAIL. */
-        const golden = goldenCard();
-        if (!golden) {
-          problems.push(`[${theme}] reopen: fixtures/agent-card.json is missing or unreadable, so a quiet box has no card at all`);
-        } else {
-          /* 🛑 NESTED AND TYPED, NOT JUST TOP-LEVEL NAMES. The comment above says the
-             fixture rots when snapshot() gains or drops a field, and a top-level name
-             comparison cannot see either: `context` and `profile` are one name each.
-             That is not theoretical -- status.js emits a PANELESS card whose `context`
-             carries fewer keys than a pane card's, and `context.percent`, the field
-             this file's own header names as the original trap, lives down there. */
-          /* 🛑 KEY PATHS, NOT TYPES, and an earlier version compared types. What this
-             guard is for is snapshot() GAINING OR DROPPING a field; a type comparison
-             also fires on ordinary value variation, which is not drift.
-             MEASURED: status.js emits `stateConflict: status.conflict || null`, so it
-             is a sentence or null depending on whether that agent has a conflict right
-             now. On this box at the time: 10 of 18 cards string, 8 null. A typed
-             comparison would therefore have FAILED a populated box roughly half the
-             time, on a difference that means nothing. Names still catch the real thing,
-             including `context.percent` disappearing, which this file's header names as
-             the original trap. */
-          const shape = (v, prefix) => {
-            const out = [];
-            for (const k of Object.keys(v).sort()) {
-              const val = v[k];
-              out.push(`${prefix}${k}`);
-              if (val && typeof val === 'object' && !Array.isArray(val)) {
-                out.push(...shape(val, `${prefix}${k}.`));
-              }
-            }
-            return out;
-          };
-          const liveShape = shape(card, '').join(',');
-          const goldShape = shape(golden, '').join(',');
-          if (liveShape !== goldShape) {
-            /* Print the DIFFERENCE, not both walls of text: a cut operator reading this
-               needs the field that moved, and two 30-field lists make them diff by eye. */
-            const a = new Set(liveShape.split(','));
-            const b = new Set(goldShape.split(','));
-            const onlyLive = [...a].filter((x) => !b.has(x));
-            const onlyFixture = [...b].filter((x) => !a.has(x));
-            problems.push(`[${theme}] reopen: the recorded card fixture has drifted from status.snapshot(). Re-capture it with \`node tools/capture-agent-card.js\`. live-only=[${onlyLive.join(' ')}] fixture-only=[${onlyFixture.join(' ')}]`);
-          }
-        }
-      }
+      /* 🛑 THERE IS NO LIVE-VS-FIXTURE DRIFT GUARD HERE, AND REMOVING IT WAS THE FIX.
+         An earlier version of this branch compared the live card's nested key paths
+         against the recording and pushed a PROBLEM on any difference. It was unsound,
+         and it would have redded release cuts on ordinary board composition.
+         MEASURED on an 18-agent board: TWO distinct `profile` shapes among pane cards
+         of ours -- 17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty,
+         because store.readProfile() returns {} for an agent with no profile file. So
+         one card in eighteen made the guard fire. `profile` is a free-form operator
+         record and `context` has five different key sets in status.js depending on
+         whether that agent has a readable transcript and a known ceiling, so no two
+         cards are guaranteed to share a nested shape at all.
+         ⚠️ AND WHICH CARD IS COMPARED WAS ARBITRARY: liveCard() takes the first pane
+         card tmux lists, while the capture tool deliberately prefers one with real
+         evidence. The guard was comparing an arbitrary card against a recording of a
+         hand-picked one, so whether a cut went red depended on pane ordering, and
+         "re-capture it" would only have moved which card failed.
+         ⇒ The fixture's anti-rot check lives in `yarn test` instead
+         (render-talk-goldencard-2519.test.js), where it compares the TOP-LEVEL key set
+         only. That set comes from one fixed object literal in status.js, so it is the
+         same for every card, and a false red there costs a test run rather than a
+         release. A guard that reds a cut on board composition is worse than no guard. */
       if (!card) {
         problems.push(`[${theme}] reopen: no agent card and no usable fixture, so the clear path is UNCHECKED`);
       } else {

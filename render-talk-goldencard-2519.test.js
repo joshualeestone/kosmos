@@ -62,8 +62,11 @@ test('#2519: the recorded fixture exists and parses', () => {
   const card = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
   assert.equal(typeof card, 'object');
   assert.ok(!Array.isArray(card));
-  assert.ok(Object.keys(card).length > 20,
+  assert.ok(Object.keys(card).length >= 20,
     `a real card carries ~30 fields; ${Object.keys(card).length} suggests a hand-built literal, which is the class this fixture exists to avoid`);
+  /* ⚠️ `>= 20`, matching goldenCard()'s `< 20` refusal exactly. They were `> 20` and
+     `< 20`, so a producer that settled on exactly 20 fields would have passed the
+     shipped floor and redded the suite: two spellings of one threshold. */
 });
 
 test('#2519: goldenCard() returns a usable card, so a QUIET box is covered', () => {
@@ -83,7 +86,10 @@ test('#2519: realCard() REPORTS ITS SOURCE, so a quiet run cannot look like a li
   const r = realCard();
   assert.ok(r && typeof r === 'object' && 'card' in r && 'source' in r,
     'realCard must return {card, source}');
-  assert.ok(['live', 'golden', 'none'].includes(r.source), `unexpected source ${r.source}`);
+  /* 'error' belongs here: on a box where status.js legitimately throws, omitting it made
+     the unit suite red with "unexpected source" instead of the check reporting the
+     condition it was built to report. */
+  assert.ok(['live', 'golden', 'none', 'error'].includes(r.source), `unexpected source ${r.source}`);
   assert.ok(r.card, 'neither a live card nor the fixture resolved');
 });
 
@@ -97,16 +103,41 @@ test('#2519: the fixture carries the PLACEHOLDER identity, asserted positively',
   assert.equal(card.sessionName, 'april');
   assert.equal(card.name, 'April');
   assert.equal(card.target, 'april-discord:0.0');
-  assert.equal(card.role, 'example worker');
-  assert.equal(card.task, 'an example task');
+  /* ⚠️ null OR the placeholder, never "must be a string". The producer emits null for
+     several of these (measured: role null on 4 of 18 cards, stateEvidence null on 13 of
+     18), and an earlier version of this arm asserted the string form positively -- which
+     meant the SUITE REQUIRED the invented values and would have redded if the capture
+     tool were corrected. A test that pins a defect in place is worse than no test. */
+  assert.ok(card.role === null || card.role === 'example worker', `role is ${JSON.stringify(card.role)}`);
+  assert.ok(card.task === null || card.task === 'an example task', `task is ${JSON.stringify(card.task)}`);
+  assert.ok(card.stateProject === null || card.stateProject === 'example-project');
   /* ⚠️ NOT `''`. The capture preserves the TYPE and neutralises only string CONTENT,
      because status.js emits `status.conflict || null` and an empty string is a value it
      can never produce. So: null, or a neutral sentence. */
   assert.ok(card.stateConflict === null || card.stateConflict === 'an example conflict',
     `stateConflict is ${JSON.stringify(card.stateConflict)}, which is neither null nor the neutral sentence`);
-  assert.match(card.stateEvidence, /^✽ Working…/);
+  assert.ok(card.stateEvidence === null || /^✽ Working…/.test(card.stateEvidence),
+    `stateEvidence is ${JSON.stringify(card.stateEvidence)}`);
   assert.match(card.profile.idInstall, /^0{8}-0{4}-4000-8000-0{12}$/);
   assert.match(card.profile.id, /^0+$/);
+  /* 🛑 NOTHING IDENTIFYING ANYWHERE UNDER profile, asserted structurally rather than by
+     listing the keys this box happens to emit. The tree also writes `dir` (an absolute
+     path), `displayName`, `role` and `reportsTo` into profiles; the committed fixture is
+     clean today only because the captured agent carried none of them. The capture now
+     scrubs every string under profile, and this is what notices if that stops. */
+  const strings = [];
+  (function walk(v, at) {
+    if (!v || typeof v !== 'object') return;
+    for (const k of Object.keys(v)) {
+      const val = v[k];
+      if (typeof val === 'string') strings.push([at + k, val]);
+      else walk(val, at + k + '.');
+    }
+  })(card.profile, '');
+  for (const [where, val] of strings) {
+    assert.ok(!val.includes('/'), `profile.${where} carries a path: ${val}`);
+    assert.ok(/^(example-|0+$|2026-|00000000-)/.test(val), `profile.${where} is not neutralised: ${val}`);
+  }
 });
 
 test('#2519: the fixture matches what status.snapshot() ACTUALLY emits, on ANY box', () => {
@@ -220,58 +251,83 @@ test('#2519: a THROWING producer is an error, NOT an empty board', () => {
   assert.match(r.error, /status\.js is broken/);
 });
 
-/* The drift comparison itself, lifted out of the check so it can be DRIVEN rather than
-   grepped for. An earlier version of the arm below only regex-matched the source for two
-   literal strings, so it could not fail if the comparison logic were replaced with
-   something wrong -- and that is exactly what happened: two blockers shipped past it. */
-function shapeFn() {
-  const at = SRC.indexOf('const shape = (v, prefix) => {');
-  assert.notEqual(at, -1, 'could not find the drift comparison; the test is stale, not the code');
-  const end = SRC.indexOf('};', SRC.indexOf('return out;', at));
-  assert.notEqual(end, -1, 'could not find the end of the drift comparison');
-  return new Function(SRC.slice(at, end + 2) + '; return shape;')();
-}
-
-test('#2519: the drift guard does NOT fire on ordinary value variation', () => {
-  /* 🛑 THE BLOCKER THIS ARM EXISTS FOR. status.js emits
-     `stateConflict: status.conflict || null`, so it is a sentence or null depending on
-     whether that agent has a conflict. Measured on this box: 10 of 18 cards string, 8
-     null. The first version of the guard compared TYPES, so it would have failed a
-     populated box roughly half the time on a difference that means nothing -- and the
-     first version of the fixture made it worse by recording `stateConflict: ''`, a value
-     the producer can never emit. */
-  const shape = shapeFn();
-  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-  const nullConflict = JSON.parse(JSON.stringify(golden));
-  nullConflict.stateConflict = null;
-  assert.deepEqual(shape(golden, ''), shape(nullConflict, ''),
-    'a live card with no conflict reads as drift, so the guard fails populated boxes for nothing');
+test('#2519: the capture PRESERVES types and never invents a value', () => {
+  /* 🛑 THE TOOL ITSELF, DRIVEN. Nothing exercised it before, so mutating the
+     neutralisation reded no arm: the guards inside it were guards nothing ran.
+     status.js emits null for several of these fields (measured on an 18-agent board:
+     role string x14 / null x4, stateEvidence null x13 / string x5), and an
+     unconditional string assignment invents a value the producer cannot emit. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const withNulls = Object.assign({}, real, { role: null, task: null, stateEvidence: null, stateProject: null, stateConflict: null });
+    const out = cap.neutralise(withNulls);
+    for (const f of ['role', 'task', 'stateEvidence', 'stateProject', 'stateConflict']) {
+      assert.equal(out[f], null, `${f} was invented where the producer emitted null`);
+    }
+    const withStrings = Object.assign({}, real, { role: 'secret role', stateEvidence: 'secret evidence' });
+    const out2 = cap.neutralise(withStrings);
+    assert.equal(out2.role, 'example worker', 'a real role survived neutralisation');
+    assert.notEqual(out2.stateEvidence, 'secret evidence', 'real evidence survived neutralisation');
+  } finally {
+    board.restore();
+  }
 });
 
-test('#2519: the drift guard DOES fire when a field disappears', () => {
-  /* The discriminating half. Without it the arm above is satisfied by a guard that
-     compares nothing at all. context.percent is the field this file's header names as
-     the original trap, and it lives below the top level. */
-  const shape = shapeFn();
-  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-  const dropped = JSON.parse(JSON.stringify(golden));
-  delete dropped.context.percent;
-  assert.notDeepEqual(shape(golden, ''), shape(dropped, ''),
-    'a NESTED field vanished and the guard did not notice');
-  const added = JSON.parse(JSON.stringify(golden));
-  added.somethingNew = 1;
-  assert.notDeepEqual(shape(golden, ''), shape(added, ''), 'a new top-level field did not register');
+test('#2519: the capture scrubs EVERY string under profile, including unlisted ones', () => {
+  /* profile is free-form: the tree also writes `dir` (an absolute path), `displayName`
+     and `reportsTo`. A neutralisation that lists what it knows about is clean only for
+     the agent that happened to be captured, and this file is committed. */
+  const cap = require('./tools/capture-agent-card.js');
+  const profile = { dir: '/Users/someone/work/secret-repo', displayName: 'Real Person', nested: { note: 'private' }, count: 7 };
+  cap.scrubStrings(profile);
+  assert.ok(!profile.dir.includes('/'), `an absolute path survived: ${profile.dir}`);
+  assert.notEqual(profile.displayName, 'Real Person');
+  assert.notEqual(profile.nested.note, 'private', 'a nested string survived');
+  assert.equal(profile.count, 7, 'a non-string was altered');
 });
 
-test('#2519: the fixture records values the PRODUCER can actually emit', () => {
-  /* `stateConflict: ''` was invented: status.js emits `status.conflict || null`, never
-     an empty string. A fixture carrying a value the producer cannot produce is the
-     invented-fixture class arriving inside the recording. */
-  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
-  assert.notEqual(golden.stateConflict, '', 'stateConflict is an empty string, which status.js never emits');
-  assert.ok(golden.stateConflict === null || (typeof golden.stateConflict === 'string' && golden.stateConflict.length > 0));
-  assert.equal(golden.paneless, false,
-    'the fixture must be a PANE card: a paneless one has a different shape and would make the guard report board composition as drift');
+test('#2519: the capture refuses a PANELESS card', () => {
+  /* Its shape differs from a pane card's, so recording one would make the fixture a
+     different shape from the card the reopen arm opens. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const paneless = Object.assign({}, real, { paneless: true, session: 'paneless-one' });
+    const pane = Object.assign({}, real, { paneless: false, session: 'pane-one', stateConfidence: 'scraped' });
+    assert.equal(cap.chooseCard([paneless, pane]).chosen.session, 'pane-one');
+    assert.equal(cap.chooseCard([paneless]).chosen, null, 'a paneless-only board should yield nothing to record');
+  } finally {
+    board.restore();
+  }
+});
+
+test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => {
+  /* 🛑 THIS ARM PINS A REMOVAL, and the reason matters more than the code. An earlier
+     version of this branch compared the live card's nested key paths against the
+     recording inside render-talk.js and pushed a PROBLEM on any difference. It fired on
+     ordinary board composition, not drift.
+     MEASURED on an 18-agent board: TWO distinct `profile` shapes among our pane cards,
+     17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty, because
+     store.readProfile() returns {} for an agent with no profile file. `profile` is a
+     free-form operator record and `context` has five key sets in status.js depending on
+     that agent's transcript and ceiling, so no two cards are guaranteed to share a
+     nested shape.
+     ⚠️ And WHICH card was compared was arbitrary: liveCard() takes the first pane card
+     tmux lists while the capture prefers one with real evidence, so whether a release
+     cut went red depended on pane ordering, and "re-capture it" would only have moved
+     which card failed.
+     ⇒ The anti-rot check is the TOP-LEVEL comparison in this file instead, where a
+     false red costs a test run rather than a release. If you are about to re-add a
+     nested guard to the check, measure the profile shapes on a real board first. */
+  assert.ok(!/has drifted from status\.snapshot/.test(SRC),
+    'a live-vs-fixture drift guard is back in the check; read this arm before re-adding one');
+  assert.ok(!/const shape = \(v, prefix\)/.test(SRC),
+    'the nested shape comparison is back in the check');
 });
 
 test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
@@ -297,17 +353,6 @@ test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
   } finally {
     board.restore();
   }
-});
-
-test('#2519: the check GUARDS the fixture against drift on any box that has a live card', () => {
-  /* The fixture rots the moment status.snapshot() gains or drops a field, and the
-     quiet box that needs it is exactly the one that cannot notice. So the guard runs
-     where a live card exists. Without this the fallback would decay silently, which
-     is worse than the failure it replaced. */
-  assert.match(SRC, /has drifted from status\.snapshot\(\)/,
-    'no drift guard: the recorded fixture would rot unnoticed');
-  assert.match(SRC, /cardSource === 'live'/,
-    'the drift guard must run on the LIVE path, which is the only place it can');
 });
 
 test('#2519: a fallback run emits a NOTE, and notes can never read as failures', () => {

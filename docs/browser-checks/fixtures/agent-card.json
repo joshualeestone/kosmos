@@ -39,9 +39,9 @@
   "hasAvatar": true,
   "profile": {
     "instructionsWrite": {
-      "who": "kosmos",
+      "who": "example-who",
       "at": "2026-09-03T00:00:00.000Z",
-      "because": "Kosmos told it how connecting a provider works"
+      "because": "example-because"
     },
     "updatedAt": "2026-09-03T00:00:00.000Z",
     "id": "000000000000",
