@@ -219,3 +219,75 @@ test('#570 autonomy and model coexist, and launchArgs still come last', () => {
   const argv = launcher.argvFor({ launchArgs: ['--session-id', 'zz'] }, { runner: 'claude', model: 'haiku' });
   assert.deepEqual(argv, ['--dangerously-skip-permissions', '--model', 'haiku', '--session-id', 'zz']);
 });
+
+/* ── the streaming launch (7c) ────────────────────────────────────────────── */
+
+test('#570 7c a streaming agent is asked for stream-json IN and OUT, and keeps its pipes', () => {
+  /* The pipes ARE the feature: stdin is the delivery channel this platform has
+     had no substitute for, and stdout is the event stream that replaces the Mac's
+     pane scrape. `launch()` passes stdio:'ignore' deliberately; this must not. */
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ cmd, argv, opts }); return { pid: 555, stdin: {}, unref() {} }; });
+  const r = launcher.launchStreaming({ name: 'streamer-1', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32' });
+
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(calls[0].opts.stdio, ['pipe', 'pipe', 'pipe'], 'nobody can type into a stdio:ignore agent');
+  assert.equal(calls[0].opts.detached, undefined, 'a detached child with pipes is a child whose pipes nobody holds');
+  const a = calls[0].argv;
+  assert.ok(a.includes('-p') && a.includes('--input-format') && a.includes('--output-format'),
+    'the streaming shape, measured to stay open across turns: ' + a.join(' '));
+  assert.equal(a[a.indexOf('--input-format') + 1], 'stream-json');
+  assert.equal(a[a.indexOf('--output-format') + 1], 'stream-json');
+  assert.ok(a.includes('--dangerously-skip-permissions'), 'an unattended agent still gets autonomy');
+});
+
+test('#570 7c a FRESH agent pins the minted id; a RESUME names the id it already has', () => {
+  /* 🔑 --session-id and --resume are mutually exclusive, and which one appears
+     says whether this is a birth or a return. Measured: a resume answers with the
+     SAME session id, which is what keeps the ownership record, the roster join
+     and the stop path pointing at one agent rather than two. */
+  const fresh = launcher.streamArgvFor({ launchArgs: ['--session-id', 'minted-1'] }, { runner: 'claude' });
+  assert.ok(fresh.includes('--session-id'), 'a fresh agent pins what win32create minted');
+  assert.ok(!fresh.includes('--resume'), 'and does not also ask to resume');
+
+  const back = launcher.streamArgvFor({ launchArgs: ['--session-id', 'minted-1'] },
+    { runner: 'claude', resumeSessionId: 'already-mine' });
+  assert.ok(back.includes('--resume'), 'a returning agent names its id');
+  assert.equal(back[back.indexOf('--resume') + 1], 'already-mine');
+  assert.ok(!back.includes('--session-id'), 'never both -- they are mutually exclusive');
+});
+
+test('#570 7c a RESUME mints nothing, so one agent never gets two ownership records', () => {
+  /* ⚠️ prepareSession WRITES the record. Calling it on a resume would file a
+     SECOND row for one agent -- exactly the duplicate-name hazard win32live
+     documents, arriving through the restart path that is supposed to be routine. */
+  const before = Object.keys(win32sessions.read()).length;
+  launcher.setSpawn(() => ({ pid: 556, stdin: {}, unref() {} }));
+
+  const r = launcher.launchStreaming({
+    name: 'streamer-2', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    resumeSessionId: 'a-session-we-already-own',
+  });
+
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.resumed, true);
+  assert.equal(r.sessionId, 'a-session-we-already-own', 'it returns to the id it was given');
+  assert.equal(Object.keys(win32sessions.read()).length, before, 'a resume records nothing new');
+});
+
+test('#570 7c a message is ONE json line, in the shape stream-json reads', () => {
+  const line = launcher.messageLine('hello agent');
+  assert.ok(line.endsWith('\n'), 'newline-delimited, or the reader never sees it');
+  assert.equal(line.indexOf('\n'), line.length - 1, 'exactly one line -- a newline inside would split the message');
+  const parsed = JSON.parse(line);
+  assert.deepEqual(parsed, {
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: 'hello agent' }] },
+  });
+});
+
+test('#570 7c the streaming launch refuses the same things the detached one does', () => {
+  launcher.setSpawn(() => ({ pid: 1, stdin: {}, unref() {} }));
+  assert.match(launcher.launchStreaming({ name: 'x', cwd: SANDBOX, platform: 'darwin' }).because, /launchd/);
+  assert.match(launcher.launchStreaming({ name: 'x', cwd: 'work/here', platform: 'win32' }).because, /absolute/);
+});

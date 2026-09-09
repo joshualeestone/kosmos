@@ -240,4 +240,133 @@ function launch(spec) {
   };
 }
 
-module.exports = { launch, childEnv, argvFor, AUTONOMY, INHERITED_MARKERS, setSpawn };
+/* ── the streaming launch (7c) ──────────────────────────────────────────────
+ *
+ * 🛑 WHY A SECOND LAUNCH SHAPE, AND WHY IT IS NOT A REPLACEMENT YET. `launch()`
+ * above starts a DETACHED agent through `cmd /c start`, deliberately, so the
+ * agent outlives whatever started it. That is the right shape for everything
+ * #570 built -- and it is exactly why a Windows agent cannot be TOLD anything:
+ * `stdio: 'ignore'` means nobody holds its stdin, and this platform has no tmux
+ * pane to type into instead.
+ *
+ * 🔑 A STREAMING SESSION IS THE DOCUMENTED WAY IN, and it was measured before it
+ * was designed against (see .claude/plans/WINDOWS-ROADMAP.md §3):
+ *
+ *      claude -p --input-format stream-json --output-format stream-json
+ *
+ *   - it does NOT run one turn and exit; it stays open and answers messages as
+ *     they arrive on stdin, one JSON line each
+ *   - it is STILL listed by `claude agents --json` as kind:"interactive", with a
+ *     pid and a session id -- so win32roster, win32live, win32stop and win32job
+ *     all keep working on it unchanged
+ *   - and it RESUMES: a new process given `--resume <id>` continues the same
+ *     conversation under the SAME session id
+ *
+ * ⚠️ THE TRADE IS OWNERSHIP, AND IT IS NOT FREE. Holding stdin means the agent is
+ * OUR CHILD: if the holder dies, the child's stdin closes and the agent exits.
+ * The detached launch survived its starter; this one does not. That is acceptable
+ * only because the holder is the SUPERVISOR, whose entire job is to outlive the
+ * agent and restart it -- and because a restart is now `--resume`, so the
+ * conversation is re-opened rather than replaced. Adopt-not-replace becomes
+ * resume-not-replace: a supervisor cannot adopt a pipe somebody else holds, but
+ * it can re-open the same session id, which every other module already keys on.
+ *
+ * 📌 NOT WIRED IN THIS COMMIT. `create.js` and `win32supervisor.js` still use
+ * `launch()`. This is the substrate, measured and tested on its own first, which
+ * is the order this lane has learned to work in.
+ */
+
+/** One message, in the shape `--input-format stream-json` reads. */
+function messageLine(text) {
+  return JSON.stringify({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: String(text) }] },
+  }) + '\n';
+}
+
+/**
+ * The argv for a streaming agent.
+ *
+ * 🔑 `--resume` AND `--session-id` ARE MUTUALLY EXCLUSIVE, and which one is used
+ * says whether this is a birth or a return. A fresh agent pins the id win32create
+ * minted (`prepared.launchArgs`, spliced verbatim -- the one-mint-point rule). A
+ * returning one names the id it already has, and Claude Code answers with the
+ * same id rather than a new one (measured), which is what keeps the ownership
+ * record, the roster join and the stop path pointing at the same agent.
+ */
+function streamArgvFor(prepared, opts) {
+  const o = opts || {};
+  const argv = argvFor({ launchArgs: [] }, o);   // autonomy + model, no id yet
+  argv.push('-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose');
+  if (o.resumeSessionId) argv.push('--resume', String(o.resumeSessionId));
+  else argv.push(...prepared.launchArgs);
+  return argv;
+}
+
+/**
+ * Start a streaming agent and KEEP its pipes.
+ *
+ * Returns { ok:true, name, sessionId, child } -- `child` is a live ChildProcess
+ * whose stdin takes `messageLine()` and whose stdout emits newline-delimited
+ * events. Or { ok:false, because }, and it never throws.
+ *
+ * ⚠️ ON RESUME NOTHING IS MINTED. `prepareSession` writes the ownership record and
+ * the token; a resume already has both, so re-preparing would file a SECOND record
+ * for one agent -- the duplicate-name hazard win32live documents. The caller
+ * passes the id it is returning to, and the record is left alone.
+ */
+function launchStreaming(spec) {
+  const s = spec || {};
+  const plat = s.platform || process.platform;
+  if (plat !== 'win32') return { ok: false, because: 'this launcher is for Windows; the Mac path is launchd' };
+  if (!s.cwd || !path.isAbsolute(String(s.cwd))) return { ok: false, because: 'an agent needs an absolute folder to run in' };
+
+  /* Trust first, and it gates -- the same rule and the same reason as `launch()`:
+     an untrusted spawn sits on a dialog nobody can see. A resume needs it too; the
+     folder's trust can have been revoked while the agent was down. */
+  let trusted;
+  try { trusted = trust.trustFolder(s.cwd, { configDir: s.configDir || null, createIfAbsent: true, agentDefaultAccount: !s.configDir }); }
+  catch (e) { trusted = { ok: false, because: 'we could not write the trust entry (' + ((e && e.code) || 'unknown') + ')' }; }
+  if (!trusted.ok) return { ok: false, because: 'we did not start it, because we could not vouch for its folder first: ' + trusted.because };
+
+  let prepared;
+  if (s.resumeSessionId) {
+    prepared = { ok: true, name: s.name, sessionId: String(s.resumeSessionId), launchArgs: [], token: s.token || '' };
+  } else {
+    prepared = win32create.prepareSession({ name: s.name, runner: s.runner });
+    if (!prepared.ok) return { ok: false, because: prepared.because };
+  }
+
+  const argv = streamArgvFor(prepared, s);
+  const bin = s.claudeBin || 'claude';
+  let child;
+  try {
+    child = spawner()(bin, argv, {
+      cwd: s.cwd,
+      env: childEnv(process.env, prepared.token, s.configDir),
+      windowsHide: true,
+      /* 🔑 PIPES, AND THIS IS THE WHOLE POINT. `launch()` passes 'ignore' so the
+         agent is nobody's child; here stdin is the delivery channel and stdout is
+         the event stream that replaces the Mac's pane scrape. NOT detached: a
+         detached child with pipes is a child whose pipes nobody is holding. */
+      stdio: ['pipe', 'pipe', 'pipe'],
+    });
+  } catch (e) {
+    if (!s.resumeSessionId) { try { win32create.abandon(prepared); } catch { /* best effort */ } }
+    return { ok: false, because: 'we could not start it (' + ((e && e.code) || 'unknown') + ')' };
+  }
+
+  return {
+    ok: true,
+    name: prepared.name,
+    sessionId: prepared.sessionId,
+    resumed: Boolean(s.resumeSessionId),
+    child,
+    tokenBecause: prepared.tokenBecause || null,
+  };
+}
+
+module.exports = {
+  launch, launchStreaming, messageLine, streamArgvFor,
+  childEnv, argvFor, AUTONOMY, INHERITED_MARKERS, setSpawn,
+};
