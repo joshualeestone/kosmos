@@ -103,9 +103,11 @@ extracted Kosmos builds. This is very likely why a Bun call dropped the
 
     C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/win32anchor.test.js engine/win32job.test.js engine/win32supervisor.test.js engine/win32launch.test.js engine/win32roster.test.js engine/win32capture.test.js engine/win32create.test.js engine/win32live.test.js engine/win32stop.test.js engine/create.win32-launch-570.test.js engine/remove.win32-job-570.test.js engine/platform.test.js engine/win32-separator-guard.test.js
 
-Expect 121/121. `engine/remove.test.js` is PRE-EXISTING RED here (launchd/tmux
-fixtures) -- **12 pass/49 fail** is the known-good state since 7b, not a
-regression; the one that moved is explained under "7b DONE" at the bottom.
+Expect 121/121. ~~`engine/remove.test.js` is PRE-EXISTING RED here (launchd/tmux
+fixtures) -- **12 pass/49 fail** is the known-good state since 7b~~ **PORTED
+(step 9): it is 61/61 on this box.** Run it too:
+
+    C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/remove.test.js
 
 ## The working rule that prevents another loss
 
@@ -247,7 +249,7 @@ session to a bare prompt. Use:
 | 7c | deliver a message to a Windows agent | SPIKED -- documented path found, ready to build |
 | 7d | rollback killed the launcher pid, not the agent | DONE, 127/127 green |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
-| 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
+| 9 | follow-up: port remove.test.js fixtures off launchd/tmux | DONE -- 61/61 on Windows (was 12/49) |
 
 ## Open questions owned by Josh (neither blocks the code)
 - ~~Windows Memory Diagnostic~~ RUN 2026-09-08, "detected no errors" (events 1101
@@ -296,9 +298,45 @@ test, so the new branches are pinned directly in
 `engine/remove.win32-job-570.test.js` instead -- which asserts the DISPATCH from
 either platform rather than fighting the fixtures.
 
-📌 FOLLOW-UP WORTH A CARD: remove.test.js's fixtures are the last Mac-only
+~~📌 FOLLOW-UP WORTH A CARD: remove.test.js's fixtures are the last Mac-only
 assumption in this lane. Until they are ported, a Windows box cannot run the
-removal suite end to end.
+removal suite end to end.~~
+
+### STEP 9 DONE 2026-09-09: 12/49 -> 61/61, with nothing softened
+
+The port did not touch `remove.js` and did not delete or weaken one assertion --
+the census is identical (293 -> 292 `assert.*`, and the one that went is a
+duplicated write-probe folded into a helper that five tests now call instead of
+two). Three Mac-only assumptions, three fixes:
+
+1. **The platform was inherited, not stated.** `remove.js` already took
+   `opts.platform` everywhere (`remove`/`restore`/`restart`/`plan`/`jobFor`) --
+   built that way so its win32 branch could be driven from a Mac -- and the suite
+   simply never passed one. A `mac.*` shim now states `darwin` at all 89 call
+   sites, and `madeAgent` passes it to `createAgent` too, or creation takes its
+   Scheduled-Task arm and writes no plist for the assertions to be about. That
+   one change alone was 12/49 -> 54/7.
+2. **`/bin/echo` is not runnable on Windows**, so every fixture agent was
+   REFUSED at `runnerRunnable`. The bins are now host-shaped, forward-slashed
+   (`create.unusablePath` rejects a backslash when the job platform is darwin,
+   so a native `C:\...` would be refused by the very arm under test). Never
+   spawned: `create.setRunner` is stubbed.
+3. **`fs.chmodSync(dir, 0o500)` is a no-op on Windows** -- chmod there sets the
+   read-only bit on FILES, and a directory's write access is an ACL. Five
+   fixtures were building a writable directory and failing on their own controls.
+   The win32 arm puts a DIRECTORY at the temp path `writeRemoved` writes beside
+   the list, so the write throws EISDIR on the exact call the containment is
+   around while the list stays readable -- which is the distinction those tests
+   draw against the read-refusal path. POSIX keeps chmod untouched. The unreadable
+   -list fixture gets the mirror treatment (file moved aside, directory in its
+   place). Both arms verified by disabling them: 5 red and 1 red respectively.
+
+🔑 NOT A DEFECT IN remove.js -- but one worth knowing, found on the way. The
+`#169` stale-record fixture PREDICTED the trust key with `path.join`, i.e.
+backslashed on Windows, while `trustFolder` deliberately forward-slashes it
+(Claude Code does not read a backslashed project key -- trust.js measures both
+arms). So the fixture seeded the person's answer under a key nothing looks up.
+Fixture-side, fixed there; `trust.js` is correct.
 
 ## The merge (2026-09-08): what it actually cost
 
