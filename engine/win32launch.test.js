@@ -81,10 +81,18 @@ test('#570 with no token of its own, an agent does NOT inherit somebody elses', 
 // --- the argv: one mint point ---------------------------------------------------
 
 test('#570 launchArgs are spliced VERBATIM, so the recorded id is the running id', () => {
+  /* ⚠️ THE EXPECTED VECTORS GREW AN AUTONOMY FLAG, and that is the fix rather
+     than a concession. This arm's claim is that `launchArgs` are spliced VERBATIM
+     and stay LAST -- not that nothing may precede them; the model case below
+     always showed something could. The exact vectors it pinned happened to be the
+     ones with no permission flag, which is precisely the defect: an unattended
+     agent in a hidden console freezes on its first prompt. Kept as exact
+     deepEquals so a future flag has to be looked at rather than waved through. */
   const prepared = { launchArgs: ['--session-id', 'pinned-uuid'] };
-  assert.deepEqual(launcher.argvFor(prepared, {}), ['--session-id', 'pinned-uuid']);
+  assert.deepEqual(launcher.argvFor(prepared, {}),
+    ['--dangerously-skip-permissions', '--session-id', 'pinned-uuid']);
   assert.deepEqual(launcher.argvFor(prepared, { model: 'haiku' }),
-    ['--model', 'haiku', '--session-id', 'pinned-uuid'],
+    ['--dangerously-skip-permissions', '--model', 'haiku', '--session-id', 'pinned-uuid'],
     'a model goes BEFORE the pinned args and never rewrites them');
 });
 
@@ -166,4 +174,48 @@ test('#570 a spawn that THROWS undoes the record and the token, leaving nothing 
   assert.equal(r.ok, false);
   assert.match(r.because, /could not start it/);
   assert.equal(sendertoken.live('winagent-3').length, 0, 'the token did not outlive the failed launch');
+});
+
+test('#570 an UNATTENDED agent is launched with autonomy, or it freezes where nobody can see it', () => {
+  /* 🛑 THE DEFECT THIS PINS SHIPPED. `bin/agent-supervisor.sh` states the rule for
+     the Mac in its own words -- "--dangerously-skip-permissions is not optional
+     for an unattended agent. Without it the agent starts, looks healthy, and
+     freezes forever on its first permission prompt with nobody there to answer
+     it" -- and the win32 argv carried no permission flag at all.
+
+     ⚠️ AND WINDOWS NEEDS IT MORE THAN THE MAC DOES. A Mac agent lives in a tmux
+     pane a person can attach to and answer. This platform runs the agent in a
+     console created HIDDEN, so the prompt is on no screen that exists, while
+     `claude agents --json` keeps reporting `idle` and the board keeps drawing a
+     healthy row. Same shape as the trust dialog this module's header describes,
+     one prompt over.
+
+     📌 It survived because nothing ever reached a prompt: with no delivery path
+     (7c) a Windows agent had never been ASKED to do anything, so the rehearsal's
+     agents sat idle and never needed an approval. */
+  const argv = launcher.argvFor({ launchArgs: ['--session-id', 'abc'] }, { runner: 'claude' });
+  assert.ok(argv.includes('--dangerously-skip-permissions'),
+    'an agent nobody can answer for must not be able to ask: ' + argv.join(' '));
+  assert.ok(argv.indexOf('--dangerously-skip-permissions') < argv.indexOf('--session-id'),
+    'flags precede the spliced launchArgs, which stay verbatim and last');
+});
+
+test('#570 the autonomy flag is the RUNNER\'s spelling, and an unknown runner gets none', () => {
+  /* codex spells it differently, and the Mac pairs them the same way. An unknown
+     runner gets NO flag rather than a guessed one: a wrong flag is a refused
+     launch, which is loud, and inventing autonomy for a runner we do not know is
+     the one direction that must not be guessed. */
+  const codex = launcher.argvFor({ launchArgs: [] }, { runner: 'codex' });
+  assert.deepEqual(codex, ['--dangerously-bypass-approvals-and-sandbox']);
+
+  const unknown = launcher.argvFor({ launchArgs: [] }, { runner: 'gemini' });
+  assert.deepEqual(unknown, [], 'no flag invented for a runner we do not know');
+
+  // Absent runner means claude, which is what every existing caller means.
+  assert.deepEqual(launcher.argvFor({ launchArgs: [] }, {}), ['--dangerously-skip-permissions']);
+});
+
+test('#570 autonomy and model coexist, and launchArgs still come last', () => {
+  const argv = launcher.argvFor({ launchArgs: ['--session-id', 'zz'] }, { runner: 'claude', model: 'haiku' });
+  assert.deepEqual(argv, ['--dangerously-skip-permissions', '--model', 'haiku', '--session-id', 'zz']);
 });

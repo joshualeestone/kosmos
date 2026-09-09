@@ -106,9 +106,46 @@ function childEnv(baseEnv, token, configDir) {
  * rule win32create states -- rebuilding it here would be a second place for the
  * recorded id and the running id to disagree.
  */
+/* The autonomy flag, per runner. The Mac states the rule and this platform needs
+   it MORE, not less -- see AUTONOMY below. codex's spelling of claude's
+   --dangerously-skip-permissions is --dangerously-bypass-approvals-and-sandbox,
+   the same pairing bin/agent-supervisor.sh uses. */
+const AUTONOMY = Object.freeze({
+  claude: '--dangerously-skip-permissions',
+  codex: '--dangerously-bypass-approvals-and-sandbox',
+});
+
 function argvFor(prepared, opts) {
   const o = opts || {};
   const argv = [];
+  /**
+   * 🛑 AUTONOMY IS NOT OPTIONAL FOR AN UNATTENDED AGENT, and this platform had
+   * been launching without it. `bin/agent-supervisor.sh` says it outright:
+   *
+   *     "--dangerously-skip-permissions is not optional for an unattended agent.
+   *      Without it the agent starts, looks healthy, and freezes forever on its
+   *      first permission prompt with nobody there to answer it."
+   *
+   * The Mac at least has a tmux pane a person can attach to and answer. Windows
+   * runs the agent in a console created HIDDEN, so there is no screen the prompt
+   * could appear on -- the agent would sit at it forever while `claude agents
+   * --json` reports `idle` and the board draws a healthy row.
+   *
+   * ⚠️ THIS IS THE TRUST-DIALOG DEFECT AGAIN, one prompt over. This module's own
+   * header describes the same shape and calls it out: a hidden console cannot show
+   * anybody a question, so "an agent that cannot be seen waiting is worse than an
+   * agent that never started". Trust was fixed by pre-accepting it; permissions
+   * were missed, because until delivery lands (7c) no Windows agent had ever been
+   * asked to DO anything -- the rehearsal made agents and they sat idle, so
+   * nothing ever reached a prompt.
+   *
+   * 📌 The runner picks the spelling. An unknown runner gets NO flag rather than a
+   * guessed one: a wrong flag is a refused launch, which is loud, and inventing
+   * autonomy for a runner we do not know is the one direction that must not be
+   * guessed.
+   */
+  const autonomy = AUTONOMY[String(o.runner || prepared.runner || 'claude')];
+  if (autonomy) argv.push(autonomy);
   if (o.model) argv.push('--model', String(o.model));
   return argv.concat(prepared.launchArgs);
 }
@@ -203,4 +240,4 @@ function launch(spec) {
   };
 }
 
-module.exports = { launch, childEnv, argvFor, INHERITED_MARKERS, setSpawn };
+module.exports = { launch, childEnv, argvFor, AUTONOMY, INHERITED_MARKERS, setSpawn };
