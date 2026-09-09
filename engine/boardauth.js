@@ -183,7 +183,9 @@ function mirrorTokenToLegacy(token) {
     let current = null;
     try { current = fs.readFileSync(lp, 'utf8').trim(); } catch { /* absent */ }
     if (current === token) {
-      // Already mirrored; just re-tighten the mode in case a restore loosened it.
+      // Already mirrored; re-tighten both the dir and the file in case a restore or
+      // umask slip loosened either, matching ensureTokenPrimary's self-heal pattern.
+      try { fs.chmodSync(dir, 0o700); } catch { /* best-effort */ }
       try { fs.chmodSync(lp, 0o600); } catch { /* best-effort */ }
       return;
     }
