@@ -25,8 +25,16 @@ test('firstrun.state() carries the platform facts, matching platform.describe()'
   assert.ok(s.platform, 'the state must carry a platform field for the gate screen');
   assert.deepEqual(s.platform, platform.describe(), 'the field is exactly platform.describe() (machine facts, no copy)');
   assert.equal(s.platform.supported, platform.isSupported(), 'supported agrees with the gate decision');
-  // No user-facing copy leaked into the wire shape -- only machine facts.
-  assert.deepEqual(Object.keys(s.platform).sort(), ['platform', 'supported']);
+  /* No user-facing copy leaked into the wire shape -- only machine facts.
+     `runnerDownloads` is the THIRD such fact, added when #570's flip split the
+     one gate in two (e3870c49): win32 gained `supported` so agents can run, while
+     runner DOWNLOADS stay darwin-only, and describe() reports both. This list was
+     left at two names by that commit, so the arm went red on every platform --
+     the deepEqual against describe() above already agreed, and only this
+     hand-written list disagreed with it. Kept as an explicit list rather than
+     derived from describe(), because its job is to notice a NEW key: a fourth
+     one, especially a copy string, has to be looked at rather than waved through. */
+  assert.deepEqual(Object.keys(s.platform).sort(), ['platform', 'runnerDownloads', 'supported']);
 });
 
 test('server.js arms live execution only under the isSupported() gate (source-asserted)', () => {

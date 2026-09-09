@@ -167,11 +167,22 @@ test('#570 a job is REFUSED when the anchor cannot be written, not registered to
   assert.equal(calls.length, 0, 'nothing may be registered when the anchor failed');
 });
 
+/* The joined command line, rebuilt from what actually ships. `taskCommand` used
+   to return this, but nothing in production called it -- `taskXml` builds the
+   definition from `taskExec` -- so it was a second derivation of the command
+   string kept alive only by these two tests, and the #265 orphan guard was right
+   to flag it. The assertions below are about quoting and argument POSITION, which
+   are properties of taskExec's output, so they are made on that directly. */
+function joined(spec) {
+  const e = job.taskExec(spec);
+  return '"' + e.command + '" ' + e.args;
+}
+
 test('#570 every path in the command is quoted', () => {
   /* `C:\Program Files\...` is an ordinary install location. An unquoted argument
      truncates at the space, the task registers happily, and it runs the wrong
      thing -- a failure with no error anywhere. */
-  const cmd = job.taskCommand({
+  const cmd = joined({
     name: 'spacey', cwd: 'C:\\Users\\a b\\work', node: 'C:\\Program Files\\Kosmos\\runtime\\node.exe',
     supervisor: 'C:\\Program Files\\Kosmos\\app\\engine\\win32supervisor.js',
   });
@@ -185,7 +196,7 @@ test('#570 the argument vector is POSITIONAL and never shifts', () => {
      new argument optional and defaulted. A missing middle value is '-' rather
      than omitted, or a task registered before the argument existed would feed
      the next value into the wrong slot. */
-  const cmd = job.taskCommand({ name: 'n', cwd: 'C:\\w', configDir: 'C:\\cfg' });
+  const cmd = joined({ name: 'n', cwd: 'C:\\w', configDir: 'C:\\cfg' });
   const quoted = cmd.match(/"[^"]*"/g).map((s) => s.slice(1, -1));
   const argv = quoted.slice(2);   // after node + supervisor
   assert.deepEqual(argv, ['n', 'C:\\w', '-', 'C:\\cfg', 'claude']);

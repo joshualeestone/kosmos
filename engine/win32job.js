@@ -98,11 +98,6 @@ function taskExec(spec) {
   };
 }
 
-function taskCommand(spec) {
-  const e = taskExec(spec);
-  return '"' + e.command + '" ' + e.args;
-}
-
 /* XML, not a command line, so the five characters that end an element or an
    attribute cannot come from a path. `C:\a & b\node.exe` is an ordinary folder. */
 function xmlEscape(v) {
@@ -126,7 +121,24 @@ function taskUser(env) {
   const e = env || {};
   const p = process.env;
   const domain = e.USERDOMAIN || e.COMPUTERNAME || p.USERDOMAIN || p.COMPUTERNAME || '';
-  const user = e.USERNAME || p.USERNAME || '';
+  /* 🔑 `os.userInfo()` IS THE LAST FALLBACK, AND IT IS WHAT LETS A MAC ASSERT THIS
+     ARM. `USERNAME` is a Windows spelling; POSIX sets `USER`. So on the fleet's
+     CI -- which is a Mac, and which drives this module with `platform: 'win32'`
+     exactly as the branch's discipline requires -- `taskUser` found nothing and
+     `install` refused with "we could not tell which user this computer signs in
+     as". Five win32 tests were red there for that one reason, on a branch whose
+     whole method is that a Mac can exercise the Windows arm.
+
+     ⚠️ AND IT IS NOT A TEST ACCOMMODATION. `os.userInfo().username` is the account
+     this process actually runs as, which is precisely what the task's principal
+     and logon trigger have to name; on Windows it agrees with `USERNAME`. An env
+     that carries the field still wins, so the sandbox seam (#570 defect 4, where
+     an injected env with no USERNAME produced an empty `<UserId>`) is unchanged --
+     this only replaces "give up" with "ask the operating system". */
+  let user = e.USERNAME || p.USERNAME || '';
+  if (!user) {
+    try { user = (os.userInfo() || {}).username || ''; } catch { user = ''; }
+  }
   if (!user) return '';
   return domain ? domain + '\\' + user : user;
 }
@@ -308,7 +320,7 @@ function status(name) {
 }
 
 module.exports = {
-  TASK_PREFIX, taskName, taskCommand, taskExec, taskXml, taskUser, xmlEscape,
+  TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape,
   install, disable, enable, end, start, remove, status,
   setRunner, setAnchorer,
 };

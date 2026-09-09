@@ -147,25 +147,40 @@ test('#570 a FAILED end leaves the record alone -- we did not end that session',
     'forgetting a session that is still running would drop it off the board while it runs');
 });
 
-test('#570 the default look-again reads EPERM as ALIVE, not as gone', () => {
-  /* The fail-closed direction, and the one that is easy to get backwards: a throw
-     from process.kill is not "the process is gone" -- only ESRCH is. Asserted
-     through the real default (no setAlive), by killing a pid nobody owns. */
-  /* MEASURED on this box rather than assumed, because the pid to use is not the
-     POSIX one. `process.kill(pid, 0)` under the bundled node on Windows 11:
+test('#570 the liveness rule: ONLY ESRCH means gone -- EPERM and anything else mean alive', () => {
+  /* 🛑 THIS TEST USED TO BE PLATFORM-DEPENDENT, WHICH IS THIS LANE'S OWN DEFECT
+     ABOUT PLATFORMS, COMMITTED IN A TEST ABOUT PLATFORMS. It asserted the rule
+     through a real pid, picked by measuring Windows:
 
-         2      -> ESRCH   (no such process -- pid 2 is not a Windows pid)
-         4      -> EPERM   (System: very much running, and not ours to signal)
-         999999 -> ESRCH
-         self   -> no throw
+         Windows 11:  pid 2 -> ESRCH,  pid 4 -> EPERM (System, alive, not ours)
 
-     So pid 4 is the un-signallable-but-alive case here; a test written around
-     POSIX's pid 1/2 asserts nothing on Windows, and passed for the wrong reason. */
-  win32stop.setLive(live({ ghost: { sessionId: SID, pid: 4, status: 'idle' } }));
+     and then went red on the fleet's Macs, where pid 4 answers ESRCH. A guard
+     about platform behaviour that only holds on one platform is not a guard.
+
+     🔑 The rule is about the ERROR CODE, so it is asserted on the error code, via
+     the pure function the default look-again now decides with. This runs the same
+     on every platform, which is the whole discipline this branch is built on. */
+  assert.equal(win32stop.aliveFromError({ code: 'ESRCH' }), false,
+    'ESRCH is the one code that means the process is gone');
+  assert.equal(win32stop.aliveFromError({ code: 'EPERM' }), true,
+    'EPERM means it is very much there and not ours to signal -- reading it as gone would report a kill that never happened');
+  assert.equal(win32stop.aliveFromError({ code: 'EINVAL' }), true, 'anything we cannot interpret is still alive');
+  assert.equal(win32stop.aliveFromError(undefined), true, 'and so is a throw with no code at all');
+});
+
+test('#570 the default look-again, exercised for real on whatever platform this is', () => {
+  /* The pure rule above says what the mapping is; this says the default actually
+     uses it. Both facts hold on every platform: this process is alive, and a pid
+     far above any real one is not. */
+  win32stop.setLive(() => new Map([['self', { sessionId: SID, pid: process.pid, status: 'busy' }]]));
   recordingKill();
-  const r = win32stop.end('ghost');
-  assert.equal(r.ok, false, 'an un-signallable process is still a running process');
+  const r = win32stop.end('self');
+  assert.equal(r.ok, false, 'we are running, so the look-again must not call us gone');
   assert.match(r.because, /still running/);
+
+  win32stop.setLive(() => new Map([['ghost', { sessionId: SID, pid: 999999, status: 'idle' }]]));
+  recordingKill();
+  assert.equal(win32stop.end('ghost').ok, true, 'a pid nothing owns reads as gone');
 });
 
 /* ── endSession: the rollback's question is not the removal's ──────────────── */

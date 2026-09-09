@@ -91,18 +91,34 @@ function run(args) {
    ESRCH means gone, and that is the answer we want. */
 let aliveFn = null;
 function setAlive(fn) { aliveFn = typeof fn === 'function' ? fn : null; }
+
+/**
+ * The decision itself: given what `process.kill(pid, 0)` threw, is the process
+ * still there?
+ *
+ * ⚠️ ESRCH is the ONLY code that means gone. EPERM means the process is very much
+ * there and we may not signal it -- reading that as "gone" would report a
+ * successful kill over a live agent, which is the one answer this module must
+ * never give. Anything we cannot interpret is treated as still alive, the
+ * fail-closed direction.
+ *
+ * 🔑 A PURE FUNCTION, AND THAT IS THE POINT -- the same reason `win32launch`
+ * keeps `childEnv` and `argvFor` pure. Its first test asserted the rule through a
+ * real pid, chosen by measuring Windows (pid 4 is System there: alive, and not
+ * ours to signal). That test then FAILED ON THE FLEET'S MACS, where pid 4 answers
+ * ESRCH -- a guard about platform behaviour that only held on one platform, which
+ * is this lane's own recurring defect turned on its own test. The rule is about
+ * the error code, so it is asserted on the error code.
+ */
+function aliveFromError(e) { return !(e && e.code === 'ESRCH'); }
+
 function alive(pid) {
   if (aliveFn) return Boolean(aliveFn(pid));
   try {
     process.kill(pid, 0);
     return true;
   } catch (e) {
-    /* ⚠️ ESRCH is the ONLY code that means gone. EPERM means the process is very
-       much there and we may not signal it -- reading that as "gone" would report
-       a successful kill over a live agent, which is the one answer this module
-       must never give. Anything we cannot interpret is treated as still alive,
-       the fail-closed direction. */
-    return !(e && e.code === 'ESRCH');
+    return aliveFromError(e);
   }
 }
 
@@ -251,4 +267,4 @@ function killAndForget(pid, sessionId) {
   return { ok: true };
 }
 
-module.exports = { end, endSession, resolve, setRunner, setAlive, setLive, setPark };
+module.exports = { end, endSession, resolve, aliveFromError, setRunner, setAlive, setLive, setPark };
