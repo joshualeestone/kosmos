@@ -270,8 +270,10 @@ async function fresh(browser) {
   console.log('\n#2085 -- an uncheckable tmux grant shows the neutral "Checking..." pill, never a false green, never blocks');
   {
     const { ctx, page } = await fresh(browser);
-    // sleep granted (so only tmux is in question); tmux uncheckable (checkable:false) --
-    // exactly what tmuxGrant() returns when the system TCC db cannot be read.
+    // sleep granted (so only the a11y gate is in question); a11y uncheckable
+    // (checkable:false) -- what /api/a11y-status returns when no native verdict is on
+    // file (a11ystatus.read() ENOENT/stale: a browser, or not yet written). This check
+    // mocks the HTTP response directly, so it is engine-agnostic.
     await gotoGate(page, '[data-gate="tmux"]', {
       sleep: { checkable: true, prevented: true },
       tmux: { checkable: false, because: 'the accessibility database was not readable' },
@@ -280,11 +282,20 @@ async function fresh(browser) {
       const row = document.querySelector('[data-gate="tmux"]');
       const disp = (sel) => { const e = row && row.querySelector(sel); return e ? getComputedStyle(e).display : 'missing'; };
       const checkPill = row && row.querySelector('.s3-checking .s3-pill-wait');
+      const lbl = row && row.querySelector('.s3-gate-lbl');
+      const pane = document.getElementById('fr-pane-3');
+      // fr-pane-3 has TWO mock windows (Energy for the sleep row, Accessibility for
+      // this row); pick the Accessibility one by its title, not the first .s3-win.
+      const wins = pane ? Array.from(pane.querySelectorAll('.s3-win')) : [];
+      const axWin = wins.find((w) => { const t = w.querySelector('.s3-title'); return t && /Accessibility/i.test(t.textContent); });
+      const mock = axWin && axWin.querySelector('.s3-mtxt');
       return {
         hasChecking: !!(row && row.hasAttribute('data-checking')),
         hasGranted: !!(row && row.hasAttribute('data-granted')),
         reqDisp: disp('.s3-req'), grantedDisp: disp('.s3-granted'), checkingDisp: disp('.s3-checking'),
         checkText: checkPill ? checkPill.textContent.trim() : null,
+        lblText: lbl ? lbl.textContent.trim() : null,
+        mockText: mock ? mock.textContent.trim() : null,
       };
     });
     ok(st.hasChecking && !st.hasGranted, 'the uncheckable tmux row is data-checking, not data-granted (never a false green)');
@@ -292,6 +303,14 @@ async function fresh(browser) {
       `only the neutral pill shows (checking=${st.checkingDisp}, req/TurnOn=${st.reqDisp}, granted=${st.grantedDisp})`);
     ok(/Checking/i.test(st.checkText || ''), `the neutral pill reads "Checking..." (got: ${JSON.stringify(st.checkText)})`);
     ok(!(await nextDisabled(page)), 'an uncheckable tmux grant does NOT block Next (fail-safe invariant preserved)');
+    // #2451: the gate names Kosmos (the binary macOS shows + grants), never tmux.
+    // The grant is keyed on the calling binary = the kosmos-app, so the row label and
+    // the mock Accessibility row read "Kosmos"; "tmux" here sent Josh looking for a
+    // row macOS never shows.
+    ok(st.lblText === 'Kosmos', `the a11y gate row label reads "Kosmos" (got: ${JSON.stringify(st.lblText)})`);
+    ok(!/tmux/i.test(st.lblText || '') && !/tmux/i.test(st.mockText || ''),
+      `neither the gate label nor the mock names tmux (label=${JSON.stringify(st.lblText)}, mock=${JSON.stringify(st.mockText)})`);
+    ok(/Kosmos/i.test(st.mockText || ''), `the mock Accessibility row names Kosmos (got: ${JSON.stringify(st.mockText)})`);
     await ctx.close();
   }
 

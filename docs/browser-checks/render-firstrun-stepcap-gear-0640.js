@@ -6,7 +6,7 @@
  * Login Items pane -- see arms 4-6 below.
  *
  * #9: the two numbered step captions ("1 keep this computer awake", "2 when prompted,
- * switch TMUX to On") are `<p class="s3-step-cap">`. A bare `.s3-step-cap` (0,1,0) loses
+ * switch Kosmos to On") are `<p class="s3-step-cap">`. A bare `.s3-step-cap` (0,1,0) loses
  * its font to `#firstrun .fr-body p` (1,1,1, 400/1.0625rem), so they rendered 17px/400
  * uppercase+tracked = "gigantic + stretched". The 0.6.39 pass only tightened margin +
  * the gate label, never the caption font. Fix: scope to `#firstrun .fr-body p.s3-step-cap`
@@ -85,17 +85,19 @@ function unhide(id) {
         const c = getComputedStyle(e);
         return { text: e.textContent.trim().slice(0, 40), px: parseFloat(c.fontSize), wt: String(c.fontWeight) };
       });
-      // #2236/0.6.42 #1: the tmux window must depict Privacy & Security > Accessibility,
-      // NOT Login Items. There are two .s3-win blocks (Energy step 1, tmux step 2); pick
-      // the tmux one by its "tmux" main label so this is robust to reordering.
+      // #2236/0.6.42 #1: the Accessibility window must depict Privacy & Security >
+      // Accessibility, NOT Login Items. There are two .s3-win blocks (Energy step 1,
+      // Accessibility step 2); pick it by its window TITLE (/Accessibility/i), robust to
+      // reordering AND to the #2451 relabel of the row's main label (tmux -> Kosmos). If
+      // the pre-fix page titled it "Login Items", no window matches -> tmuxTitle stays
+      // null -> the assertions below go RED (fails closed, still catches the regression).
       let tmuxTitle = null, tmuxSub = null;
       for (const w of pane.querySelectorAll('.s3-win')) {
-        const mt = w.querySelector('.s3-mtxt');
-        const mainLabel = mt && mt.childNodes[0] ? mt.childNodes[0].textContent.trim().toLowerCase() : '';
-        if (mainLabel === 'tmux') {
-          const titleEl = w.querySelector('.s3-title');
-          const subEl = mt.querySelector('small');
-          tmuxTitle = titleEl ? titleEl.textContent.trim() : null;
+        const titleEl = w.querySelector('.s3-title');
+        if (titleEl && /Accessibility/i.test(titleEl.textContent)) {
+          const mt = w.querySelector('.s3-mtxt');
+          const subEl = mt && mt.querySelector('small');
+          tmuxTitle = titleEl.textContent.trim();
           tmuxSub = subEl ? subEl.textContent.trim() : null;
           break;
         }
