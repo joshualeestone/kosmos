@@ -38952,16 +38952,14 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
 }
 
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
-  // Josh, 2026-09-08: the mock dialog's blue "Allow" is what people actually click
-  // (they read it as the real macOS button), so it fires the SAME file-access flow
-  // as the real "Allow Access" button. The mock sits in an aria-hidden preview, so
-  // it stays a mouse-only affordance; the keyboard-reachable control is the real
-  // "Allow Access" button, which this handler also serves. A click on the mock
-  // routes through that real button, so the disabled state and message line stay on
-  // one control rather than a decorative span.
+  // Josh, 2026-09-08: the mock dialog's blue "Allow" (aria-hidden preview, mouse-only)
+  // routes a click through the real "Allow Access" button, firing the same flow (see commit).
   const onMock = e.target.closest('.s2-mockallow');
   const b = onMock ? document.querySelector('#fr-pane-2 .s2-allow') : e.target.closest('.s2-allow');
-  if (!b) return;
+  if (!b || b.disabled) return;
+  // once granted, the real button is hidden but the mock stays visible; do not re-open.
+  const row = b.closest('.s2-gate-row');
+  if (row && row.hasAttribute('data-granted')) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
   try { await frFirePermission('/api/file-access-prompt', '/api/open-file-access-settings', msg); }

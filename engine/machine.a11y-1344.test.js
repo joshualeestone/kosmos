@@ -162,8 +162,11 @@ test('9screen SECURITY: openFileAccessSettings derives its URL, so a caller cann
    real defect (a blind review caught it). Assert both the markup and the handler. */
 test('9screen: the S2 Allow Access button is present and wired to open-file-access-settings', () => {
   assert.match(PAGE, /class="s2-allow"[^>]*>Allow Access</, 'the S2 Allow Access button is gone');
+  // Window widened 900 -> 1400 when the handler grew (#2451 mock-Allow forward +
+  // granted-gate): the assertions below still guard the same real wiring, they just
+  // need to see past the added lines to reach the frFirePermission call.
   const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-2').addEventListener"),
-    PAGE.indexOf("getElementById('fr-pane-2').addEventListener") + 900);
+    PAGE.indexOf("getElementById('fr-pane-2').addEventListener") + 1400);
   assert.match(handler, /closest\('\.s2-allow'\)/, 'nothing keys on the .s2-allow button');
   assert.match(handler, /\/api\/open-file-access-settings/, 'the Allow Access click does not POST the file-access opener');
 });

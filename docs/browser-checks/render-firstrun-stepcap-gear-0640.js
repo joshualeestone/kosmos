@@ -156,12 +156,9 @@ function unhide(id) {
         nbWeight: nbc ? Number(nbc.fontWeight) : null,
         ntSize: ntc ? parseFloat(ntc.fontSize) : null,
         nbSize: nbc ? parseFloat(nbc.fontSize) : null,
-        // The cog is centred by flex + line-height:1 on the glyph, not place-items on
-        // a line box that let the gear's ascent push it high. line-height is the
-        // LOAD-BEARING half: flex centres the line box, and only line-height:1
-        // collapses that box to the glyph, so it is pinned too.
-        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent,
-        gearLine: c.lineHeight, gearFont: parseFloat(c.fontSize) };
+        // The cog is an inline SVG centred by flex; the centring is asserted by the
+        // measured svgDx/svgDy offset above, not by a glyph line-height proxy.
+        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
