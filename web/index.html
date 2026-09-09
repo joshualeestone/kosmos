@@ -38700,13 +38700,15 @@ async function frPaintYou() {
     // will not advance (SC 3.3.2); the fields carry aria-required too.
     '<p class="vh">The first two answers are needed before Continue.</p>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-name">What should your agents call you?</label>' +
-    /* #683: an example name, and NOT the author's. The pack's mock carried
-       "Josh" because Josh drew it about himself, and on anyone else's machine
-       a real first name in the box reads as a previous owner -- the
-       co-founder's install would literally show the name of the person who
-       sent them the app. The sibling placeholders are examples, so this stays
-       one; it just stops being a person connected to the product. */
-    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Alex" aria-required="true"></div>' +
+    /* An example name (grey placeholder, not a filled value). #683 changed this
+       away from "Josh" to "Alex" because a real first name in the box can read as
+       a previous owner (a co-founder's install showing the name of whoever sent
+       them the app). Josh, 2026-09-08, overrode that back to "Josh": he has a
+       teammate named Alex and did not want the default landing on a real person
+       on his team. Kept as his explicit call; the #683 read is softened by this
+       being a grey hint rather than a pre-filled value. If the founder-name read
+       matters, a neutral example (e.g. "Sam") satisfies both. */
+    '<input class="inp" type="text" id="fr-you-name" maxlength="80" placeholder="Josh" aria-required="true"></div>' +
     '<div class="fr-youfield"><label class="fieldlab" for="fr-you-do">What do you do?</label>' +
     '<input class="inp" type="text" id="fr-you-do" maxlength="200" placeholder="I run a company that builds AI tools" aria-required="true"></div>' +
     /* #1994 (Josh, live 2026-09-04): the time zone picker is restored to this
