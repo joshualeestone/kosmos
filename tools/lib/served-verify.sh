@@ -49,6 +49,10 @@
 # It runs ONLY on a failure path, where one extra request is free and something is already wrong. A
 # transport failure yields no note rather than a second error: a diagnostic must never change a
 # verdict the caller already reached, so every path here returns 0 and prints nothing on doubt.
+# ⚠️ THAT TRANSPORT-FAILURE PATH IS NOW DRIVEN, NOT MERELY ASSERTED. It had no fixture, so nothing
+# proved the note stays silent when its own request fails while the caller's already succeeded. The
+# test's /ssoflap/ host 302s the caller's probe and then kills the connection on the note's
+# un-followed re-fetch, which exercises the `|| return 0` below with the verdict already made.
 # Same headers as the real probes, or it could describe a response the verdict was not based on.
 # ⚠️ RESIDUAL, NAMED: this is a SECOND request, so a flaky or adversarial host can answer it
 # differently from the one the verdict came from. It is diagnostic-only and cannot move a verdict,
@@ -62,7 +66,12 @@
 # of this sentence was FALSE where it stood: the conversion matched only the sites ending `>&2`, so
 # the success-path message on stdout stayed an `echo` one line below a comment claiming every site
 # had been converted. That is the defect class this branch exists to remove, surviving in the one
-# sentence that claimed completeness. The redirect target is
+# sentence that claimed completeness.
+# ⚠️ WHAT IS CONVERTED IS NOT WHAT IS GUARDED, AND THIS SENTENCE HAS BEEN A FALSE COMPLETENESS
+# CLAIM TWICE, SO IT NOW SAYS BOTH. Every site is converted; exactly ONE is covered by a test (the
+# *text/html* branch, driven through /ssoesc's Location of backslash escapes). The others emit only
+# values this file constructs, so no remote byte reaches a shell there and the uncovered sites are
+# defence-in-depth rather than a live hazard. The redirect target is
 # the first field a REMOTE host writes into our output, and `echo` interprets backslash escapes in
 # several shells. MEASURED on this box with a Location of `http://x/a\tb\cTRUNCATED`:
 #   dash  -> tab rendered, and everything after \c DROPPED

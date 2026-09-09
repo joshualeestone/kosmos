@@ -6,14 +6,28 @@
 # It sources the SAME lib deploy-site.sh sources (not a copy) and drives it against a local server
 # with the behaviours listed below. ⚠️ NO COUNT IS STATED HERE ON PURPOSE. This sentence has been
 # wrong twice ("three behaviours" over four, then "four handlers plus two landing pages" over five
-# and three), each time in the sentence that had just been corrected for the same class. An arm at
-# the end of this file DERIVES the handler list from the server source and fails if one is not
-# named below, which is the only version of this that has not gone stale:
-#   /discriminating/...  a sound host: /dist/real.bin -> 200 octet-stream, /setup -> 200 text/plain,
-#                        /dist/htmlpage.bin -> 200 text/html, anything else -> 404.
+# and three), each time in the sentence that had just been corrected for the same # An arm at
+# the end of this file DERIVES the handler list from the server source and fails if one is not named
+# below, which is the only version of this that has not gone stale. 📌 ITS SCOPE, STATED RATHER THAN
+# IMPLIED BY THE WORD "DERIVES": it reads DISPATCH STATEMENTS (`if`/`elif` on `p` or `rest`), top
+# level and sub-dispatch. A handler reached some other way -- a routing table, a regex, a dict
+# lookup -- would still be invisible to it, and this file's history says the honest move is to name
+# that rather than let "derived" imply completeness it does not have.
+#   /discriminating/...  a sound host with FIVE sub-paths and a 404 floor: /dist/real.bin -> 200
+#                        octet-stream, /setup -> 200 text/plain, /dist/htmlpage.bin -> 200 text/html,
+#                        /dist/htmlcaps.bin -> 200 Text/HTML (mixed case), /dist/nocontenttype.bin ->
+#                        200 with NO content-type at all, anything else -> 404. 🛑 THE LAST TWO WERE
+#                        MISSING AND THE LINE SAID "anything else -> 404", which was FALSE for both:
+#                        the derived arm below saw only the TOP-LEVEL dispatch, so the sub-dispatch
+#                        could go stale exactly the way the prose counts did. It now reads both.
 #   /blind/...           the CONSEQUENCE, flattened: EVERY path -> 200 text/html, no redirect.
 #   /sso/... + /ssologin the MECHANISM April measured: every /sso/ path 302s to /ssologin, which
 #                        then answers 200 text/html to anything reaching it.
+#   /ssoflap/...         302s the FIRST request to a path and kills the connection on every later
+#                        one, so the caller's probe succeeds and the DIAGNOSTIC's own un-followed
+#                        re-fetch fails. Covers _served_verify_redirect_note's `|| return 0`, which
+#                        had no fixture: nothing proved the note stays silent rather than adding a
+#                        second error to a verdict already reached.
 #   /ssomissing/ -> /ssogone      a redirect landing on a 404, so the NOT-SERVED branch is reached
 #                                 WITH a redirect in front of it.
 #   /ssoesc/ -> /ssologin?...     a redirect whose Location carries BACKSLASH ESCAPES, so the
@@ -60,6 +74,9 @@ cat > "$T/srv.py" <<'PY'
 import http.server
 
 class H(http.server.BaseHTTPRequestHandler):
+    # per-path request counter, for the one-shot /ssoflap/ host below
+    _seen = {}
+
     def _send(self, code, ctype, body):
         self.send_response(code)
         self.send_header('Content-Type', ctype)
@@ -91,6 +108,23 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Location', '/ssologin')
             self.send_header('Content-Length', '0')
             self.end_headers()
+            return
+        if p.startswith('/ssoflap/'):
+            # 🛑 THE CALLER'S PROBE SUCCEEDS AND THE DIAGNOSTIC'S OWN REQUEST FAILS. The first request
+            # to a given path 302s, so served_verify_asset_ok follows it to /ssologin and reddens on
+            # text/html exactly as normal; every LATER request to that same path is answered by
+            # closing the connection, which is what _served_verify_redirect_note's un-followed
+            # re-fetch gets. That is the only way to drive its `|| return 0` with a verdict already
+            # made, and the note must stay SILENT there rather than append a second error.
+            n = H._seen.get(p, 0)
+            H._seen[p] = n + 1
+            if n == 0:
+                self.send_response(302)
+                self.send_header('Location', '/ssologin')
+                self.send_header('Content-Length', '0')
+                self.end_headers()
+                return
+            self.close_connection = True
             return
         if p.startswith('/ssomissing/'):
             # a redirect that lands on a 404: reaches served_verify_asset_ok's NOT-SERVED branch
@@ -177,6 +211,7 @@ SSO="http://127.0.0.1:$PORT/sso"
 SSOMISSING="http://127.0.0.1:$PORT/ssomissing"
 SSONOCT="http://127.0.0.1:$PORT/ssonoct"
 SSOESC="http://127.0.0.1:$PORT/ssoesc"
+SSOFLAP="http://127.0.0.1:$PORT/ssoflap"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -236,6 +271,44 @@ fi
 case "$sso_msg" in
   *"Judge that target"*) pass "CONTROL: the note hands the interpretation to the operator rather than concluding it" ;;
   *) fail "the note no longer hedges; it must describe the redirect, not diagnose it. Got: $sso_msg" ;;
+esac
+# 🛑 THE SIX ABOVE ARE A LIST, NOT A CLASS, AND THE COMMENT ON THEM CLAIMED OTHERWISE. MEASURED:
+# appending "This target serves an SSO login screen, so the status is meaningless." to the note
+# trips none of the six and the suite stays green -- and that sentence is precisely what the comment
+# forbids, an assertion about what the target IS. The list is kept because it names the phrasings
+# this note has actually worn and it gives a precise failure message, but the guard that is really
+# class-wide is this one: the note must be EXACTLY the shipped sentence with the observed status and
+# target substituted in. Any extra sentence, however worded, reds it, and so does a reworded one.
+_note_expected=" | MECHANISM: un-followed, this URL answers 302 and redirects to http://127.0.0.1:$PORT/ssologin. Judge that target: an auth/login page answers 200 to every path (the #1667 shape), and a catch-all route or SPA rewrite produces the same blindness for a different reason. Either way the status carries no information about your asset."
+case "$sso_msg" in
+  *" | MECHANISM:"*) _note_actual=" | MECHANISM:${sso_msg#* | MECHANISM:}" ;;
+  *) _note_actual="(no note present at all)" ;;
+esac
+if [ "$_note_actual" = "$_note_expected" ]; then
+  pass "the note is EXACTLY the shipped sentence plus the observed status and target; no extra claim can hide in it"
+else
+  fail "the note is not the shipped sentence, so something was added or reworded. If you changed the wording on purpose, update this literal in the SAME commit; if you did not, an extra claim has appeared in a diagnostic whose contract is to report only what it observed. Expected: [$_note_expected] Got: [$_note_actual]"
+fi
+
+echo "-- the note's OWN request fails, the caller's did not --"
+# CONTROL FIRST, on its own path so it cannot disturb the arm below: the fixture must really refuse
+# a second request, or the silence proved below is the silence of a note that had nothing to fail on.
+curl -sS -o /dev/null --max-time 5 "$SSOFLAP/control.bin" >/dev/null 2>&1; _f1=$?
+curl -sS -o /dev/null --max-time 5 "$SSOFLAP/control.bin" >/dev/null 2>&1; _f2=$?
+if [ "$_f1" -eq 0 ] && [ "$_f2" -ne 0 ]; then
+  pass "CONTROL: the one-shot fixture answers the first request and FAILS the second (curl rc=$_f2)"
+else
+  fail "CONTROL: the one-shot fixture is not one-shot (first rc=$_f1, second rc=$_f2), so the arm below cannot tell a silent note from a note whose probe never failed"
+fi
+flap_msg=$(served_verify_asset_ok "$SSOFLAP/dist/real.bin" "an asset behind a one-shot redirect" 2>&1 >/dev/null); flap_rc=$?
+check_rc "$flap_rc" 1 "a one-shot-redirect host still reddens on the landing page's text/html"
+case "$flap_msg" in
+  *"MECHANISM: un-followed"*)
+    fail "the note SPOKE although its own re-fetch failed. A diagnostic whose probe failed must print nothing, or it describes a response the verdict was not based on. Got: $flap_msg" ;;
+  *"content-type is 'text/html"*)
+    pass "the note stayed silent on its own transport failure and the primary refusal survives intact" ;;
+  *)
+    fail "the primary refusal is missing or reworded, so this arm cannot distinguish a silent note from a lost message. Got: $flap_msg" ;;
 esac
 # CONTROL: the flattened blind host reaches its 200 WITHOUT a redirect, so it must NOT claim one.
 blind_msg=$(served_verify_host_discriminates "$BLIND" 2>&1 >/dev/null)
@@ -341,10 +414,15 @@ if [ -n "$ESC_SH" ]; then
     *) fail "under $ESC_SH the diagnostic was TRUNCATED or mangled by a server-controlled Location; use printf not echo. Got: $esc_out" ;;
   esac
   loc=$(curl -sS -o /dev/null -w '%{redirect_url}' "$SSOESC/dist/real.bin" 2>/dev/null)
-  case "$loc" in
-    *TRUNCATEDMARKER*) pass "CONTROL: the fixture really serves a Location carrying the marker" ;;
-    *) fail "CONTROL: the fixture's Location lacks the marker ($loc); the dash arm is vacuous" ;;
-  esac
+  # 🛑 ASSERT THE ESCAPE, NOT JUST THE MARKER. A marker-only control still holds if curl
+  # percent-encodes the backslash -- and then there is no `\c` left for a shell to truncate at, so
+  # the arm above would pass under `echo` too and this control would have quietly stopped being able
+  # to see the failure it names. MEASURED here: curl emits the backslashes verbatim.
+  if printf '%s' "$loc" | /usr/bin/grep -qF 'TRUNCATEDMARKER' && printf '%s' "$loc" | /usr/bin/grep -qF '\c'; then
+    pass "CONTROL: the fixture's Location really carries a literal backslash-c before the marker ($loc)"
+  else
+    fail "CONTROL: the fixture's Location lacks the literal backslash-c escape or the marker ($loc); the truncation arm above is vacuous"
+  fi
 else
   fail "no shell here truncates at backslash-c, so the printf-vs-echo arm could not run. It is the only arm covering that fix; do not read this suite as green for it."
 fi
@@ -382,7 +460,24 @@ fi
 # cannot see left this arm printing 9 and the suite green. That is precisely the regression this
 # guard was added to catch, and it was blind to it for that one handler.
 srv_src=$(sed -n '/srv\.py" <</,/^PY$/p' "$0")
-srv_paths=$(printf '%s\n' "$srv_src" | /usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" | /usr/bin/grep -oE "/[a-z]+/?" | sort -u)
+# 🛑 BOUNDING TO THE HEREDOC MOVED THE HOLE, IT DID NOT CLOSE IT: the heredoc is itself the file's
+# densest comment region, about ten blocks of it. MEASURED on a copy: rewrite the real dispatch
+# `if p.startswith('/blind/'):` into `if p[:7] == '/blind/':` and add ONE comment line INSIDE the
+# heredoc quoting the old form, and the count stayed 9, the naming arm passed and the suite exited
+# 0 with /blind/ no longer extracted -- byte for byte the regression this guard exists to catch, one
+# layer in. Two changes close it, and THE ANCHOR IS THE LOAD-BEARING ONE: the pattern now matches
+# only a DISPATCH STATEMENT (`if`/`elif` on `p` or `rest`, at the start of a line), which a comment
+# cannot be. Stripping comment lines first is belt-and-braces, not the fix.
+srv_code=$(printf '%s\n' "$srv_src" | /usr/bin/grep -v '^[[:space:]]*#')
+# 🛑 THE SUB-DISPATCH COUNTS TOO. /discriminating routes five sub-paths through `rest == ...`,
+# and an extraction that read only the top level left /dist/htmlcaps.bin and /dist/nocontenttype.bin
+# undocumented while the header asserted "anything else -> 404" -- false for both, and green.
+# ⚠️ AND THE CHARACTER CLASS WAS `[a-z]+`, SO A HANDLER NAMED WITH A DIGIT OR A HYPHEN WAS INVISIBLE.
+# MEASURED: adding `if p.startswith('/sso-x2/'):` serving 200 text/html left the count at 9 and the
+# suite green. The quoted literal is now taken whole, whatever characters it carries.
+srv_paths=$(printf '%s\n' "$srv_code" \
+  | /usr/bin/grep -E "^[[:space:]]*(el)?if (p|rest)(\.startswith\(|[[:space:]]==[[:space:]])'/[^']*'" \
+  | /usr/bin/grep -oE "'/[^']*'" | tr -d "'" | sort -u)
 # 🛑 CONTROL: THE SLICE MUST END AT THE TERMINATOR. ⚠️ The first version of this control checked
 # only that the slice was shorter than the file, and its comment said "if the address never matched,
 # sed prints to EOF". Both were wrong, in opposite directions, and MEASURED:
@@ -392,16 +487,22 @@ srv_paths=$(printf '%s\n' "$srv_src" | /usr/bin/grep -oE "p\.startswith\('/[a-z]
 # /^PY$/ produced a slice hundreds of lines too long but still SHORTER than the file, and the
 # length check never fired. Asserting the last line IS the terminator catches that directly, and
 # the empty case is caught by the same assertion.
+# CONTROL: the comment strip must actually remove lines. If it silently became a no-op nobody would
+# notice, and the belt-and-braces half of the fix above would be decoration.
+if [ "$(printf '%s\n' "$srv_code" | wc -l)" -ge "$(printf '%s\n' "$srv_src" | wc -l)" ]; then
+  fail "the comment strip removed no lines from the server source, so it is a no-op and the dispatch anchor is the only defence left"
+fi
 _srv_last=$(printf '%s\n' "$srv_src" | tail -1)
 if [ "$_srv_last" != "PY" ]; then
   fail "the server-source slice does not end at the heredoc terminator (last line: '$_srv_last'). The delimiters moved, so this arm is reading unrelated lines, not the server."
 fi
 n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
-# The floor is the COUNT OF DISPATCH BRANCHES, not a round number: nine today. A floor below the
-# truth is what let the lost /discriminating go unnoticed, which this file has now been bitten by
-# twice (a `>= 5` here, and a `>= 8` on another branch).
-if [ "$n_paths" -ne 9 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 9: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once)"
+# The floor is the COUNT OF DISPATCH BRANCHES, not a round number: fifteen today -- ten top-level
+# and five sub-dispatch, which is why it is not the nine it was before the sub-dispatch was read. A
+# floor below the truth is what let the lost /discriminating go unnoticed, which this file has now
+# been bitten by twice (a `>= 5` here, and a `>= 8` on another branch).
+if [ "$n_paths" -ne 15 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 15: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   missing=""
