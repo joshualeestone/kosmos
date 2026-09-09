@@ -34,11 +34,15 @@ test('#2129: the button is gated on body.answerNote (trust dialog ONLY, not the 
   // The default-hide runs every paint before the branches, so a non-trust paint leaves it hidden.
   const hide = PAGE.split('\n').filter((l) => /if \(qTrust\) qTrust\.hidden = true;/.test(l));
   assert.ok(hide.length >= 1, 'the button is defaulted hidden each paint');
-  // Control that CAN fail: if the guard were dropped (unhidden unconditionally),
-  // this catches it. answerNote is null for the reported/false question (#1629),
-  // so gating on it is what keeps the button off the #2456/#2575 false box.
+  // Division of labour between the two assertions, so neither is mistaken for the other:
+  //  - The `show.length === 1` assertion above catches the GUARD being DROPPED: remove the
+  //    `body.answerNote` guard and the guarded pattern no longer matches, so show.length -> 0
+  //    and it reds. (answerNote is null for the reported/false question #1629, so that guard is
+  //    what keeps the button off the #2456/#2575 false box.)
+  //  - This count-of-1 assertion catches a SECOND unhide site being added: any extra
+  //    `qTrust.hidden = false` anywhere (guarded or not) makes the count exceed 1 and reds.
   assert.equal((PAGE.match(/qTrust\.hidden = false/g) || []).length, 1,
-    'the button is unhidden in exactly one place, and that place requires answerNote');
+    'the button is unhidden in exactly one place (no second, unguarded unhide site)');
 });
 
 test('#2129: the button POSTs the same trust-and-restart route, self-contained', () => {
