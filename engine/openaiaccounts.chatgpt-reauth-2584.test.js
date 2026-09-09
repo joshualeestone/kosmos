@@ -68,9 +68,14 @@ async function waitFor(sessionId, pred, ms = 4000) {
 const terminal = (x) => x.state === 'connected' || x.state === 'error';
 
 test('happy path: a matching reauth refreshes the SAME account in place, and leaves no staging dir', async () => {
-  const dir = writeChatgptAccount('.codex-refresh', 'sam@example.com');
+  // Give the pre-reauth account a marker the fresh sign-in will NOT write, so the
+  // promote is observable (a same-email refresh otherwise produces identical bytes).
+  const dir = nodePath.join(SANDBOX, '.codex-refresh');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+    JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: idToken('sam@example.com') }, _pre_reauth: true }));
   const before = authBytes(dir);
-  process.env.FAKE_ID_TOKEN = idToken('sam@example.com'); // same identity signs in again
+  process.env.FAKE_ID_TOKEN = idToken('sam@example.com'); // the same identity signs in again
   const slotsBefore = workSlots().length;
   const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
   assert.equal(r.ok, true, r.because);
@@ -80,11 +85,41 @@ test('happy path: a matching reauth refreshes the SAME account in place, and lea
   assert.equal(s.account.dir, dir);
   assert.equal(s.account.authMode, 'chatgpt');
   assert.equal(s.account.email, 'sam@example.com');
-  // The live auth.json was refreshed (re-written), and still parses as the account.
-  assert.notEqual(authBytes(dir), null);
+  // The live auth.json was actually REPLACED by the fresh sign-in (the promote ran),
+  // not left as the stale one.
+  assert.notEqual(authBytes(dir), before, 'the live auth.json was replaced by the fresh sign-in');
+  assert.equal(authBytes(dir).includes('_pre_reauth'), false, 'the stale pre-reauth auth.json was replaced, not merged');
   // No staging .codex-work* slot persists.
   await new Promise((res) => setTimeout(res, 50));
   assert.equal(workSlots().length, slotsBefore, 'the throwaway staging dir was cleaned up');
+});
+
+test('FAIL CLOSED: a sign-in whose identity cannot be decoded is refused, and the live account is UNCHANGED', async () => {
+  // The live account is a normal decodable chatgpt account; the fresh sign-in lands an
+  // auth.json whose id_token does not decode (email null) -- pre-fix the && guard
+  // short-circuited to the promote branch and copied it over the live account.
+  const dir = writeChatgptAccount('.codex-unverifiable', 'real@example.com');
+  const before = authBytes(dir);
+  process.env.FAKE_ID_TOKEN = 'not-a-decodable-jwt';
+  const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+  assert.equal(r.ok, true, r.because);
+  const s = await waitFor(r.sessionId, terminal);
+  assert.equal(s.state, 'error', 'an unverifiable sign-in must not be promoted');
+  assert.match(s.error, /could not confirm/i);
+  assert.equal(authBytes(dir), before, 'the live account auth.json is byte-identical: never promoted over');
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal(workSlots().length, 0, 'the staging dir was cleaned up');
+});
+
+test('a reauth target whose OWN identity cannot be read is refused up front (cannot match a refresh to a swap)', () => {
+  const dir = nodePath.join(SANDBOX, '.codex-noident');
+  fs.mkdirSync(dir, { recursive: true });
+  // A chatgpt account whose id_token does not decode: authMode chatgpt, email null.
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'),
+    JSON.stringify({ auth_mode: 'chatgpt', tokens: { id_token: 'not-a-decodable-jwt' } }));
+  const r = openai.startChatgptLogin({ codexBin: MOCK, reauthDir: dir });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /could not read this account/i);
 });
 
 test('identity mismatch: a reauth that lands a DIFFERENT account is refused and the live account is UNCHANGED', async () => {

@@ -762,7 +762,14 @@ function reauthTarget(dir) {
   if (who.authMode !== 'chatgpt') {
     return { error: 'that account is an API key, not a ChatGPT subscription' };
   }
-  return { dir: clean, isDefault: clean === path.resolve(defaultDir()), expectEmail: who.email || null };
+  if (!who.email) {
+    // Reauth-in-place works by MATCHING identity, so an account whose identity we
+    // cannot read cannot be safely refreshed in place: we could not tell a refresh
+    // from a swap. Refuse here (the product answer there is remove-and-re-add), and
+    // fail closed again at the promote guard for the new sign-in's identity.
+    return { error: 'we could not read this account\'s identity, so it cannot be refreshed in place' };
+  }
+  return { dir: clean, isDefault: clean === path.resolve(defaultDir()), expectEmail: who.email };
 }
 
 /* #2584: promote a completed reauth's auth.json from the throwaway STAGING dir
@@ -775,13 +782,17 @@ function reauthTarget(dir) {
 function promoteReauth(stagingDir, liveDir) {
   const src = authFile(stagingDir);
   const dst = authFile(liveDir);
-  const tmp = `${dst}.reauth-${crypto.randomBytes(6).toString('hex')}.tmp`;
   try {
-    fs.copyFileSync(src, tmp);
-    fs.renameSync(tmp, dst);
+    // Atomic MOVE within the one filesystem (both dirs are under this computer's home).
+    // rename BOTH replaces the live auth.json whole (it is never left half-written) AND
+    // removes the staging copy in the SAME syscall -- so there is no window in which
+    // both dirs hold a valid auth.json for list() to surface as a duplicate account
+    // (#1492), which a copy-then-remove would leave open between the two steps.
+    fs.renameSync(src, dst);
     return { ok: true };
   } catch {
-    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    // The live account is untouched on failure (rename is all-or-nothing), and the
+    // staging dir is cleaned by the caller's dropDirIfOurs.
     return { ok: false, because: 'we signed in but could not update this account on the computer' };
   }
 }
@@ -812,20 +823,28 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
   if (reauthDir != null && String(reauthDir) !== '') {
     reauth = reauthTarget(reauthDir);
     if (reauth.error) return { ok: false, because: reauth.error };
+    // Refuse a second concurrent reauth of the SAME account (the guard pattern
+    // resolveFreshChatgptDir already uses for a labelled dir). Allowing it is not
+    // destructive -- last promote wins and both are the same account -- but one
+    // in-flight reauth per account keeps the model simple and matches this file.
+    if (activeChatgptDirs.has(reauth.dir)) return { ok: false, because: 'a sign-in for that account is already in progress' };
   }
   // A reauth stages in a fresh unlabelled slot and ignores `label` (the account
   // keeps its own name); a new sign-in resolves by label as before.
   const spot = resolveFreshChatgptDir(reauth ? null : label);
   if (spot.error) return { ok: false, because: spot.error };
-  // Reserve the work slot for the life of this sign-in, so a concurrent start
-  // is handed a different one (see resolveFreshChatgptDir / nextWorkDir).
+  // Reserve the work slot for the life of this sign-in, so a concurrent start is
+  // handed a different one (see resolveFreshChatgptDir / nextWorkDir). For a reauth,
+  // reserve the live account dir too, so a second concurrent reauth of it is refused.
   activeChatgptDirs.add(spot.dir);
+  if (reauth) activeChatgptDirs.add(reauth.dir);
   const args = m === 'device' ? ['login', '--device-auth'] : ['login'];
   let child;
   try {
     child = spawn(bin, args, { env: { ...process.env, CODEX_HOME: spot.dir }, stdio: ['ignore', 'pipe', 'pipe'] });
   } catch {
     activeChatgptDirs.delete(spot.dir);
+    if (reauth) activeChatgptDirs.delete(reauth.dir);
     if (spot.madeDir) { try { fs.rmSync(spot.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     return { ok: false, because: 'we could not start the OpenAI sign-in' };
   }
@@ -855,7 +874,7 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
   // Free the work slot and drop a temp dir. Call ONLY when the child is confirmed
   // gone (its `exit`, or a spawn that produced no child), never right after a
   // still-async kill(). Idempotent: Set.delete and rmSync(force) both no-op twice.
-  const freeSlotAndDir = () => { activeChatgptDirs.delete(session.dir); dropDirIfOurs(); };
+  const freeSlotAndDir = () => { activeChatgptDirs.delete(session.dir); if (session.reauthDir) activeChatgptDirs.delete(session.reauthDir); dropDirIfOurs(); };
   const onData = (d) => {
     session.buf += String(d);
     const parsed = parseChatgptLoginOutput(session.buf);
@@ -902,8 +921,17 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
           // which removes only the staging dir.
           const got = identityOf(session.dir);
           const newEmail = got && got.email ? got.email : null;
-          if (session.expectEmail && newEmail && newEmail !== session.expectEmail) {
-            session.error = 'that sign-in was for a different account, so this account was left unchanged';
+          // FAIL CLOSED: promote ONLY when both identities are readable AND equal. If
+          // either the live account's identity (session.expectEmail) or the new
+          // sign-in's (newEmail) cannot be decoded, we cannot confirm this refreshes
+          // the SAME account, so we refuse rather than promote an unverified auth.json
+          // over the live one. An `&&` chain that promotes on the else would fail OPEN
+          // exactly when identity is unreadable -- the worst case. (reauthTarget already
+          // refuses an emailless live account, so a null here is the new sign-in.)
+          if (!(session.expectEmail && newEmail && newEmail === session.expectEmail)) {
+            session.error = (session.expectEmail && newEmail)
+              ? 'that sign-in was for a different account, so this account was left unchanged'
+              : 'we could not confirm that sign-in is the same account, so this account was left unchanged';
           } else {
             const promoted = promoteReauth(session.dir, session.reauthDir);
             if (promoted.ok) {
