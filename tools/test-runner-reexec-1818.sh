@@ -138,11 +138,28 @@ fi
 #                   probe is effective and can return the dangerous answer.
 #          SUBJECT  (FROZEN_RUNNER=1):  the guard is skipped and the run PROCEEDS
 #                   to the clean skip -- proves the :110 skip is what unblocks it.
+#
+# 🛑 #2594: BOTH arms `env -u` the two vars that SKIP the :110 guard
+# (KOSMOS_HARNESS_IGNORE_CUT, KOSMOS_BC_FROZEN_RUNNER), because `env VAR=val` ADDS
+# to the inherited environment, it does NOT clear it. When this test runs INSIDE a
+# release cut, $REPO is release.sh's frozen DETACHED-HEAD checkout AND the cut
+# exports KOSMOS_HARNESS_IGNORE_CUT=1 into step 3's `yarn test`. The CONTROL then
+# inherited that var, the :110 guard was skipped, browser-checks.sh fell through to
+# the detached-HEAD branch (:216 "isolated by release.sh's own freeze") and exited
+# 0 -- so the CONTROL's expected refuse never fired and it FALSE-RED a cut on a
+# contended box (measured: the broken form exits 0 under that env, the `-u` form
+# refuses rc=1). Clearing the vars makes each arm assert its OWN condition rather
+# than whatever the ambient cut env happens to carry: the CONTROL's guard always
+# runs (so a live probe must refuse), and the SUBJECT's skip is attributable to the
+# FROZEN_RUNNER=1 it sets, not to a stray inherited IGNORE_CUT. Detached-HEAD alone
+# does NOT break the CONTROL -- the :110 guard runs before the freeze block, so it
+# refuses first (measured); the inherited guard-skip is the whole cause.
 probe="$T/probe-live"
 printf '#!/bin/sh\nprintf "99999 bash tools/browser-checks.sh\\n"\n' > "$probe"; chmod +x "$probe"
 
 # CONTROL: no FROZEN_RUNNER, no harness override, a live probe -> must refuse.
-out="$(cd "$REPO" && env KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
+out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT -u KOSMOS_BC_FROZEN_RUNNER \
+  KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
   KOSMOS_PW_NODE_PATH= KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
 if [ "$rc" -ne 0 ] && has "$out" "browser-checks.sh"; then
@@ -152,7 +169,10 @@ else
 fi
 
 # SUBJECT: same live probe, but FROZEN_RUNNER=1 -> guard skipped, run proceeds.
-out="$(cd "$REPO" && env KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
+# `-u KOSMOS_HARNESS_IGNORE_CUT` so the skip is attributable to FROZEN_RUNNER=1
+# (which this arm sets), not to a cut-inherited IGNORE_CUT.
+out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT \
+  KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
   KOSMOS_BC_FROZEN_RUNNER=1 KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && ! has "$out" "already live"; then
