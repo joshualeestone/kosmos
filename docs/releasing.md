@@ -116,9 +116,21 @@ failed cut is not clean: it may have written into the site checkout before it
 died, and the next attempt trips on the leftovers with a message that describes
 a different problem.
 
-1. **The versions entry's stamp.** **Set `rel-d` to about FIFTEEN minutes AHEAD
-   of launch**, in the site's `versions.html`. That is the whole instruction; the
-   detail below is why.
+1. **The versions entry's stamp.** **Two shapes, and the second removes the guess.**
+
+   **(a) Leave it as a FILE and let the cut stamp it (#1455, preferred).** Write the
+   entry into `$REPO/.release-entry.html` (or wherever `KOSMOS_ENTRY_FILE` points),
+   with the literal word `TIMESTAMP` where the time goes. Step 1 accepts it as pending;
+   step 7a inserts it and stamps it with the minute it actually publishes. **Nothing to
+   predict, so nothing to age.** The file is gitignored: it is an input to a release,
+   not a tracked file. The copy is still yours to write - only the timestamp and the
+   placement are mechanical.
+
+   **(b) Hand-stamp it on the page.** **Set `rel-d` to about FIFTEEN minutes AHEAD
+   of launch**, in the site's `versions.html`. This is the original flow, unchanged and
+   still fully gated. The detail below is why the window is what it is, and it applies
+   only to this shape: under (a) the stamp is written at the deploy, so it is zero
+   minutes old when the gate reads it.
 
    **Two gates read it, and they do not use the same window (#1463).**
 
@@ -227,9 +239,29 @@ a different problem.
    (`.tar.gz` and `.sha256`, both gitignored) and re-cut. A 200 means it was
    served: bump the version instead, exactly as the guard says.
 3. **The site checkout's uncommitted state.** A dead attempt can leave
-   `dist/latest.json` and `setup.sha256` modified. The next successful cut makes
-   them consistent and commits them; until then, nobody should deploy the site
-   by hand (`vercel deploy` from the checkout publishes the working tree, #649).
+   `dist/latest.json`, `setup.sha256` **and, under shape (a), the versions entry
+   itself** modified.
+
+   🛑 **The pending-entry shape has a leftover of its own, and it is the one that will
+   surprise you.** Step 7a inserts the entry into `$SITE/versions.html`. If the attempt
+   dies at 7a or later, the entry is now ON THE PAGE, stamped for the minute that
+   attempt reached 7a. The retry therefore takes the ORIGINAL gate, on the page, at the
+   4-minute past bound - so once that stamp is more than four minutes old the next
+   attempt refuses, and step 1's advice ("leave it as an entry file carrying TIMESTAMP
+   and the deploy stamps it for you") is advice you already followed and cannot
+   re-engage.
+
+   ✅ **The fix is one line and it is not obvious from the refusal:** remove the
+   inserted entry from `$SITE/versions.html` (`git -C <site> checkout -- versions.html`
+   if nothing else in it is yours), leaving your `.release-entry.html` in place. The
+   next attempt inserts and stamps it again, fresh.
+
+   ⭐ "Nothing to predict, so nothing to age" is true of an attempt that dies BEFORE
+   7a, which is most of them. It stops being true the moment the entry is on the page.
+
+   As for `dist/latest.json` and `setup.sha256`: the next successful cut makes them
+   consistent and commits them; until then, nobody should deploy the site by hand
+   (`vercel deploy` from the checkout publishes the working tree, #649).
 4. **The tree must hold still.** Every attempt freezes to the sha at its start
    and takes ~25 minutes; a merge that lands mid-cut cannot be in it, and a page
    check that reads the live checkout can go red on it. Attempt six died on a

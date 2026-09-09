@@ -343,9 +343,17 @@ git -C "$REPO" log --oneline -8 | cat
 # destroyed the measurement that justified it, and nobody would notice, because
 # the failures would simply blend into a busier bucket.
 step "== 1b. the versions entry, before anything is built =="
-kosmos_versions_entry_gate "$V" "$SITE/versions.html" "Nothing has been built yet." \
-  "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7." \
-  "$KOSMOS_STEP1_PAST_BOUND" || exit 1
+# #1455: where a PENDING entry file may be left instead of hand-stamping the page.
+# Overridable, and defaulted into $REPO rather than $SITE so a stray file can never
+# be picked up by the site deploy and published as a page.
+# 🛑 EXPANDED HERE, WHILE $REPO IS STILL THE MAIN CHECKOUT. $REPO is reassigned to the
+# frozen build worktree further down, so this default MUST be taken now: the operator
+# writes their entry in their own checkout, not in a worktree the cut creates. The
+# value is absolute from this point on and does not follow the reassignment.
+KOSMOS_ENTRY_FILE="${KOSMOS_ENTRY_FILE:-$REPO/.release-entry.html}"
+kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has been built yet." \
+  "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
+  "$KOSMOS_STEP1_PAST_BOUND" "$KOSMOS_ENTRY_FILE" || exit 1
 
 step "== 2. the version, in one place =="
 node -e "
@@ -887,8 +895,71 @@ step "== 7. the versions page needs its entry BEFORE you deploy =="
 # and a reader of release.sh was left with a bare call. This paragraph is the
 # pointer back. The windows, the asymmetry and the six fail-open instances are
 # documented in the lib.
+# 🛑 #1455: STAMP IT HERE, AND ONLY HERE. tools/insert-release-entry.js stamps with
+# the minute it runs, and its own header says that is correct ONLY immediately before
+# the deploy: run at step 1 it would produce exactly the aged stamp the gate below
+# exists to reject. This is the last moment before publication.
+#
+# ⭐ SAFE ON THE OLD FLOW BY THE TOOL'S OWN CONTRACT: when the version is already on
+# the page it prints "nothing written" and exits 0, so a hand-stamped cut reaches this
+# line and passes straight through it unchanged.
+#
+# ⚠️ AND THE GATE BELOW STAYS AS THE BACKSTOP. If this insert does not happen, or
+# happens wrongly, the entry is missing or misstamped and step 7 refuses exactly as it
+# does today. Nothing here can turn a bad stamp into a shipped one; it can only remove
+# the operator's need to have guessed the minute right.
+if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
+  # 7a, not 6b: this runs INSIDE step 7, after its banner and before its gate. An
+  # earlier draft numbered it 6b, which would have printed a step that reads as
+  # belonging before step 6 while executing after step 7 -- the cut record is read
+  # top to bottom by whoever is diagnosing a failed cut.
+  # 🛑 SAVE THE STEP LABEL AND PUT IT BACK. `step` overwrites $_STEP, and the EXIT
+  # trap records the LAST value into cut-suite-runs.log. Without the restore below, a
+  # step 7 GATE refusal on the pending flow is filed under `step=_7a._stamp_...`, and
+  # that log is the only instrument that counted versions-entry deaths -- the four rows
+  # that justified #1463, and the same bucket #1455's effect would be read from. A fix
+  # that corrupts the measurement of the thing it fixes is worse than no fix.
+  _step_before_7a="$_STEP"
+  step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
+  # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
+  # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
+  # at the sha being cut -- the same house pattern step 9 uses for verify-served.sh, and
+  # the right one: a cut publishes what it froze, including the code that does the
+  # publishing. $KOSMOS_ENTRY_FILE was expanded at step 1 against the main checkout,
+  # which is where the operator wrote it.
+  # ⚠️ CONSEQUENCE, STATED RATHER THAN DISCOVERED: a sha whose tree has no readable
+  # copy of the tool reaches here with nothing to run, and release.sh deliberately
+  # permits cutting a sha behind origin. Refuse with a sentence rather than let node
+  # emit a module-not-found stack into the cut record.
+  # 📌 NOT "older than #1455", which an earlier version of this comment claimed and
+  # which is false: `git log --follow` puts the tool in the tree from 2026-08-21, well
+  # before this branch. The existence check is still the right check -- it is keyed on
+  # what is actually there rather than on a date -- but a sha in that window DOES have
+  # a tool, one without this branch's every-occurrence stamp fix.
+  if [ ! -r "$REPO/tools/insert-release-entry.js" ]; then
+    echo "   the sha being cut has no readable tools/insert-release-entry.js, so it"
+    echo "   cannot stamp a pending entry. Either cut a sha that carries it, or put the"
+    echo "   entry on the page by hand and stamp it yourself (docs/releasing.md)."
+    exit 1
+  fi
+  # 🛑 AND THE PAGE, NOT ONLY THE TOOL. The site checkout can change under a cut that
+  # takes fifteen minutes, which is the whole reason step 7 re-gates at all. If
+  # versions.html has gone by now, node's readFileSync throws and the cut record gets a
+  # raw ENOENT stack instead of the gate's "cannot read ... That is the site checkout's
+  # versions page" sentence. That is the same shape as the step 1 blocker this branch
+  # already fixed in the wrapper, one step later.
+  if [ ! -r "$SITE/versions.html" ]; then
+    echo "   cannot read $SITE/versions.html, so there is nothing to insert the entry"
+    echo "   into. That is the site checkout's versions page. Check the path, not the copy."
+    exit 1
+  fi
+  node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1
+  # Back to step 7's label, so the gate below reports under the step it belongs to.
+  _STEP="$_step_before_7a"
+fi
+
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \
-  "Paste the clock line above into the entry's rel-d and re-run." \
+  "Paste the clock line above into the entry's rel-d and re-run, or leave the entry as a file carrying TIMESTAMP and let the deploy stamp it (#1455)." \
   "$KOSMOS_LATE_PAST_BOUND" || exit 1
 
 step "== 7b. the site's release files are committed and pushed BEFORE they deploy =="

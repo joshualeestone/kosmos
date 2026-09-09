@@ -12,8 +12,12 @@
  * never inside or over an existing one).
  *
  * ⚠️ AND THE PAGE'S OWN RULE IS NEVER TO EDIT AN EXISTING ENTRY. This only ever
- * INSERTS: it refuses if the version is already on the page rather than
+ * INSERTS: when the version is already on the page it writes NOTHING rather than
  * replacing it, so a re-run cannot quietly rewrite history.
+ * 📌 "Writes nothing", not "refuses": it exits 0, which is what lets the cut call it
+ * unconditionally. An earlier version of this sentence said "refuses", and the
+ * paragraph below said "exits 0" -- a header contradicting its own file, which this
+ * tree treats as a defect rather than a wording preference.
  *
  * The entry file carries `TIMESTAMP` where the time goes.
  *
@@ -24,34 +28,22 @@
  * by the time step 7 reads it. So running this BEFORE launching a cut produces
  * exactly the stamp the gates are built to reject.
  *
- * ⚠️ THIS TOOL IS CURRENTLY INVOKED BY NOTHING. Measured 2026-08-28: a sweep of
- * the whole tree finds no caller -- every file that names it does so in prose.
- * Control: `verify-served`, which IS wired, appears in 16 files including
- * release.sh and package.json. It has no test and no mention in the runbook, so
- * today the stamp is written by hand and this tool is an unused alternative,
- * not the mechanism.
+ * ✅ WIRED, #1455 (2026-09-08). tools/release.sh calls this at step 7a, immediately
+ * before the step 7 gate, when a pending entry file is present -- the moment this
+ * header's rule above says is the only correct one. The old hand-stamped flow is
+ * untouched and still works: this exits 0 with "nothing written" when the version is
+ * already on the page, so a hand-stamped cut passes straight through the call.
  *
- * 📌 I have now published a wrong count for this TWICE, in this same paragraph.
- * First "the control appears in five files", which came from a sweep I had piped
- * through `head -5`, so it reported the limit I passed rather than the count.
- * Then, correcting it, "the only files naming it are this one and two comments"
- * -- there are four, the fourth being tools.release-gate.test.js, added by the
- * same branch that added the other two.
+ * 📌 THE PARAGRAPH THAT USED TO SIT HERE WAS STALE IN TWO DIRECTIONS, and both are
+ * worth recording rather than quietly deleting. It said "it has no test" -- it has had
+ * one since package.json began running tools/test-insert-release-entry.sh in
+ * test:shell. And it said "invoked by nothing", measured 2026-08-28, which was true
+ * then and is what kosmos#1455 was filed about.
  *
- * ⇒ The enumeration is gone rather than corrected a third time. A count of
- * incidental prose mentions was never the claim worth making, it changes every
- * time anyone writes a sentence about this file, and I kept getting it wrong
- * BECAUSE it was decoration rather than the measurement. The claim that matters
- * is zero callers, it has a working control, and it is stable.
- *
- * ⭐ WIRING IT IN IS THE REAL CURE FOR THE STAMP-DRIFT CLASS and is worth its own
- * card: a machine reading the clock AT the moment of publication has an offset of
- * zero by construction, so the +/-20 window stops being something an operator has
- * to predict. That is also the guard's own stated intent: the check is made
- * against `date` at the moment of release, which is the one thing an estimate
- * cannot agree with by accident. It is deliberately NOT done
- * inside #1463, which only moves an existing check: this one changes what the
- * release script writes to a published page.
+ * ⭐ The count in it had ALREADY been published wrong twice (once from a sweep piped
+ * through `head -5`, which reported the limit rather than the count). A file that
+ * argues from its own measurement has to re-measure when it changes, or it teaches the
+ * next reader something false with all the authority of a comment that was once right.
  */
 
 const fs = require('node:fs');
@@ -98,7 +90,11 @@ const when = new Date().toLocaleString('en-US', {
   month: 'long', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit',
   timeZoneName: 'short',
 }).replace(' at ', ', ');
-const stamped = entry.replace('TIMESTAMP', when);
+/* 🛑 EVERY OCCURRENCE, NOT THE FIRST. `String.replace` with a string pattern
+   replaces once, so an entry carrying TIMESTAMP twice went out with a literal
+   `TIMESTAMP` on the public page. Pre-existing, and harmless only while nothing
+   called this; #1455 makes the path live, which is what turns it into a defect. */
+const stamped = entry.split('TIMESTAMP').join(when);
 
 /* Above the newest entry, and above its comment if it has one: the comment
    belongs to the entry below it, so inserting between them would orphan it. */
