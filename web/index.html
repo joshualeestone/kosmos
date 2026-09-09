@@ -15861,26 +15861,38 @@ function accountQualifiers(list) {
      but this function is pure and exported: a future `list()`, or any other
      caller, must not be able to reintroduce the collision from a distance. So
      track the names already handed out in each group and fall back to the unique
-     `dir` on any collision. `main` is reserved for the default row. */
+     `dir` on any collision. `main` is reserved for the FIRST default row.
+     🛑 #2584 (deferred finding 9, now live): there can be MORE THAN ONE default
+     in a key-group. Each provider has its own default, so a Claude default and an
+     OpenAI ChatGPT default sharing one email (e.g. josh@book.io on ~/.claude and
+     ~/.codex) both reached this loop and both took `qual = 'main'`, so the two
+     reauth controls #2584 added answered to one accessible name again. The
+     original comment predicted exactly this: "moot only while there is exactly
+     one default ... if you widen what a row can be further, re-check finding 9."
+     #2584 widened it by giving the OpenAI default a reauth button. The fix is to
+     let `main` participate in the same used-set as every other qualifier: the
+     first default in a group keeps `main`; a second falls through to the label,
+     else the unique `dir`, so the two controls stay distinct. */
   const usedByKey = new Map();
   for (const a of rows) {
     const k = key(a);
     const dir = String(a.dir || '');
     if (!k || (count.get(k) || 0) < 2) { out.set(dir, ''); continue; }
+    let used = usedByKey.get(k);
+    if (!used) { used = new Set(); usedByKey.set(k, used); }
     let qual;
-    if (a.isDefault) {
+    if (a.isDefault && !used.has('main')) {
       qual = 'main';
     } else {
-      let used = usedByKey.get(k);
-      if (!used) { used = new Set(); usedByKey.set(k, used); }
       qual = String(a.label || '');
       /* `dir` is unique per row by construction, so it is the collision-proof
          last resort: an empty label, the reserved `main` (which belongs to the
-         default row), or a label another row in this group already took all fall
-         back to it. */
+         first default row and may already be taken by another default in this
+         group), or a label another row in this group already took all fall back
+         to it. */
       if (!qual || qual === 'main' || used.has(qual)) qual = dir;
-      used.add(qual);
     }
+    used.add(qual);
     out.set(dir, qual);
   }
   return out;
