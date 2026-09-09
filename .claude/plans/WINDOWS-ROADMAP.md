@@ -298,6 +298,60 @@ So: fails HONESTLY, and is still a blocker. The fix is small and mostly copy —
 tell a Windows user how to install Claude Code, and stop hiding the hatch on the
 machine that needs it — but it has to exist.
 
+#### ✅ CLOSED 2026-09-09. What was built, and what was deliberately not.
+
+`publicView` now serves two machine facts (`platform`, `canInstallClaude`, the
+latter being `platformGate.canDownloadRunner`), and the stuck card's note has a
+win32 arm on them: **Kosmos cannot install Claude Code on Windows, you install
+it, here is the command, then press Try again.** The command is MEASURED, not
+composed — `https://claude.ai/install.ps1` answered 200 with a real PowerShell
+installer that reads the same `downloads.claude.ai` manifest `connect.js`'s own
+downloader reads, verifies a SHA256, and runs `claude install`. It is carried
+beside `code.claude.com/docs/en/quickstart` rather than instead of it, because a
+command in shipped source ages and a vendor page does not.
+
+🔑 AND THE OTHER HALF WAS ALREADY DONE, WHICH IS WHY THIS SLICE WAS SMALL. The
+installer lands `claude.exe` under `%USERPROFILE%\.local\bin\` — the exact rung
+`runners.resolveBin('claude')` resolves, through the PATHEXT candidates #570
+added. MEASURED on this box, live: `resolveBin('claude').present` → **true**,
+`subscription.check()` → **connected**, `checkLive()` → **connected**. So once
+Claude Code is installed and signed in, `start()` takes the CONNECTED
+short-circuit and the person is past the screen. There was nothing to fix there;
+it needed measuring, and it measured good.
+
+⚠️ THE HATCH WAS NOT UNGATED, AND THE GATE TURNS OUT TO BE RIGHT. On a Mac,
+three of the five stuck causes mean Claude Code was never installed AND Kosmos
+is the thing that installs it, so offering "type `claude`" there is a wall with
+a sign on it (#205/#996). The Windows problem is not that the hatch is gated —
+it is that Windows needed a DIFFERENT affordance, because the hatch answers "how
+do I sign in" and the missing question was "how do I get it at all". Both notes
+now render together on a Windows box that has `claude.exe` but is stuck for some
+other reason: they answer different questions and neither replaces the other.
+
+📌 THE REFUSAL WAS NOT WEAKENED, and it now has a test of its own —
+`connect.download(…, 'win32')` had NO guard before this, only
+`platform.canDownloadRunner` did, so the gate could have stayed intact while the
+call site quietly stopped consulting it.
+
+📌 LEFT ALONE, ON PURPOSE, AND NAMED SO IT IS NOT LOST:
+- **`frClaudeConfirmSentence` still says "we need to install Claude Code first"
+  on Windows**, before the doomed press. It is FALSE there — Kosmos will not.
+  Not touched here because it is a different screen with its own copy history
+  (#1556/#996) and its own three guard files, and the person meets the true
+  sentence one click later. Worth a small follow-up.
+- **`downloads.claude.ai` DOES publish `win32-x64` and `win32-arm64` builds** —
+  read out of `install.ps1` directly. So `RUNNER_DOWNLOADS = ['darwin']` is a
+  statement about `platformKey()` hard-coding `darwin-${arch}` and about the
+  `<binary> install` step, not about the artifact's existence. A real
+  click-to-connect on Windows is therefore POSSIBLE and is a proper slice, not a
+  copy change. Refusing remains correct until somebody builds it.
+- **`installVendor`'s `findElsewhere` probe is POSIX-only** (`/opt/homebrew`,
+  `/usr/local`, `/usr/bin/which`), so a Windows user who installs Claude Code by
+  `npm` or `winget` — landing it somewhere other than `~/.local/bin` — is still
+  invisible to Kosmos. Dead code on win32 today (`install()` refuses at the
+  download gate first), which is why it was not widened; the instruction the
+  card gives is deliberately the one whose landing spot Kosmos already resolves.
+
 ### BLOCKER 4 — the BOARD does not come back after a reboot
 
 ⚠️ THIS CORRECTS SOMETHING THIS FILE PREVIOUSLY REPORTED AS DONE. R8 measured

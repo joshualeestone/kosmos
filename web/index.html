@@ -5971,6 +5971,18 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                 border-radius: 8px; padding: var(--space-4) var(--space-5);
                 margin-top: var(--space-5); max-height: 9em; overflow: auto;
                 white-space: pre-wrap; word-break: break-all; }
+/* A command a person is meant to RUN, which is the opposite errand from
+   .fr-conn-tail above: that one is a transcript to show somebody, deliberately
+   quiet and never for reading closely. This one has to be read exactly and
+   typed or copied, so it takes the same box and gives back the size and the ink
+   -- and it does not break mid-word, because a wrapped command is a wrong one.
+   Its own class rather than a second meaning for the tail's, since the tail's
+   comment would then be describing two things. (#570) */
+.fr-cmd { font: var(--text-callout) var(--font-mono); color: var(--label);
+          background: var(--bg-sunken); border: 0.5px solid var(--separator);
+          border-radius: 8px; padding: var(--space-4) var(--space-5);
+          margin: var(--space-4) 0; overflow-x: auto;
+          white-space: pre-wrap; overflow-wrap: anywhere; }
 .fr-code-row { display: flex; gap: var(--space-4); margin-top: var(--space-4); flex-wrap: wrap; }
 .fr-code-row input { flex: 1; min-width: 200px; font: var(--text-body) var(--font-mono);
                      padding: var(--space-4) var(--space-5); border-radius: var(--radius-control);
@@ -6091,6 +6103,9 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* Same reasoning as `#firstrun .inp` above: paper, not the card's own white. */
 #firstrun .fr-code-row input { background: var(--field-fill); color: var(--k-ink); border-color: var(--border-strong); }
 #firstrun .fr-conn-tail { color: var(--k-ink-2); background: rgba(20,22,26,.04); border-color: var(--k-rule); }
+/* The overlay's own palette, same as its sibling above -- but the FULL ink, not
+   the quiet one: this is the line a person has to copy correctly. (#570) */
+#firstrun .fr-cmd { color: var(--k-ink); background: rgba(20,22,26,.04); border-color: var(--k-rule); }
 #firstrun .llm { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
                  border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: #fff; }
 #firstrun .llm.off { background: rgba(20,22,26,.02); }
@@ -39948,8 +39963,51 @@ function frPaintConnect(st) {
      * offering the command there answers `command not found` at exactly the
      * wrong moment (#205).
      */
-    + '<div class="fr-note">Nothing is broken by this. You can try again, '
-    + 'or carry on and connect later from Settings.'
+    /**
+     * 🛑 #570: ON WINDOWS "TRY AGAIN" IS THE SAME DOOMED DOWNLOAD, AND NOTHING
+     * ON THIS CARD SAID WHAT ELSE TO DO. `connect.download()` refuses before any
+     * bytes move because the binary it fetches is a macOS build, and that
+     * refusal reaches the detail line above verbatim -- honest, and a dead end:
+     * the two buttons were "Try again" (repeat it) and "Continue anyway" (a
+     * board that cannot make a working agent). Nowhere in the engine, the web
+     * assets, the README or the docs was a Windows user told how to get Claude
+     * Code, while `engine/platform.js`'s own note assumed they would.
+     *
+     * ⚠️ THIS IS NOT THE #996 IMPERATIVE, AND THE DIFFERENCE IS WHETHER A WAY
+     * WITHOUT IT EXISTS. The hatch below is hidden from a person who has no
+     * Claude Code because on a Mac Kosmos installs it for them, so telling them
+     * to type a command is offering a wall with a sign on it. On Windows there
+     * is no other route at all: Kosmos will not fetch a runner here, so a
+     * disclosure would hide the ONLY path from exactly the person who needs it.
+     * A standing instruction is right when it is the only true one.
+     *
+     * ⚠️ THE COMMAND IS MEASURED, NOT COMPOSED. `https://claude.ai/install.ps1`
+     * answered 200 with a real PowerShell installer (2026-09-09, this box): it
+     * picks win32-x64/win32-arm64 off the SAME `downloads.claude.ai` manifest
+     * this file's downloader reads, verifies a SHA256, and runs `claude install`
+     * -- which lands `claude.exe` at `%USERPROFILE%\.local\bin\`, the exact rung
+     * `runners.resolveBin('claude')` resolves. So the instruction and the check
+     * that lets a person past this screen agree by construction. The docs link
+     * is carried BESIDE it rather than instead of it, because a command in
+     * shipped source ages and a vendor page does not.
+     *
+     * 📌 GATED ON BOTH FIELDS `publicView` serves, never on the platform alone:
+     * `canInstallClaude === false` is what makes "install it yourself" true, and
+     * `platform === 'win32'` is what makes THIS command the right one. The day
+     * Kosmos publishes a Windows runner build the first goes true and this note
+     * retires itself, instead of going on naming a command nobody needs.
+     */
+    + '<div class="fr-note">'
+    + ((st && st.platform === 'win32' && st.canInstallClaude === false)
+      ? 'Nothing is broken by this. Kosmos cannot install Claude Code on Windows: '
+        + 'the copy it fetches is a macOS build. Claude Code has to be installed by you. '
+        + 'In Windows PowerShell, run:'
+        + '<pre class="fr-cmd">irm https://claude.ai/install.ps1 | iex</pre>'
+        + 'When it finishes, press Try again. The current instructions are at '
+        + '<a href="https://code.claude.com/docs/en/quickstart" target="_blank" rel="noopener">'
+        + 'code.claude.com/docs/en/quickstart</a>. You can also carry on and connect '
+        + 'later from Settings.'
+      : 'Nothing is broken by this. You can try again, or carry on and connect later from Settings.')
     + ((st && st.canRunClaude)
       ? '<details class="fr-hatch"><summary>Already use Terminal?</summary>'
         + 'You can sign in to Claude outside Kosmos: open Terminal, type <b>claude</b>, '
