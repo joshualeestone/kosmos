@@ -1,3 +1,4 @@
+// Browser-check-surface: pj-emoji-btn
 'use strict';
 
 /**

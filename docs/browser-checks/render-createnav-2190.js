@@ -1,3 +1,4 @@
+// Browser-check-surface: create-msg
 'use strict';
 // #2190: Create advances to the PROGRESS ('made') screen instead of showing
 // 'Making it…' inline on the create screen, and an error/refusal routes BACK to

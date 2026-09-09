@@ -1,3 +1,4 @@
+// Browser-check-surface: pjs-sound-toggle
 'use strict';
 /* #2407: the per-project new-message "bubble pop" plays in the REAL page.
  *

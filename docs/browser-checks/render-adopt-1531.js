@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-fleet-title
 /**
  * #2497: the ADOPT PROMPT is GONE from first run (kosmos#1531 behavior superseded).
  *
