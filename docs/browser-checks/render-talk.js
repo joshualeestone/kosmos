@@ -1069,7 +1069,12 @@ function unreachableStates() {
          is why liveCard prefers a pane card), and a false red there costs a test run rather than a
          release. A guard that reds a cut on board composition is worse than no guard. */
       if (!card) {
-        problems.push(`[${theme}] reopen: no agent card and no usable fixture, so the clear path is UNCHECKED`);
+        /* Worded from the SOURCE: on `error` the fixture was never consulted at all
+           (realCard returns before goldenCard runs), so claiming "no usable fixture"
+           there would assert something nothing measured. */
+        problems.push(cardSource === 'error'
+          ? `[${theme}] reopen: the card producer failed, so the clear path is UNCHECKED`
+          : `[${theme}] reopen: no agent card and no usable fixture, so the clear path is UNCHECKED`);
       } else {
         const reopened = await page.evaluate((c) => {
           try { window.__card = c; LAST = [c]; openDetail(c.sessionName); return true; }
@@ -1106,7 +1111,9 @@ function unreachableStates() {
         return { before, after: document.getElementById('d-dmthread').textContent.slice(0, 40) };
       }, STATES['2-answered-placed']) : null;
       if (!threadAfterReopen) {
-        problems.push(`[${theme}] reopen: no agent card and no usable fixture, so the STRANDED-BOX path is UNCHECKED`);
+        problems.push(cardSource === 'error'
+          ? `[${theme}] reopen: the card producer failed, so the STRANDED-BOX path is UNCHECKED`
+          : `[${theme}] reopen: no agent card and no usable fixture, so the STRANDED-BOX path is UNCHECKED`);
       } else if (threadAfterReopen.after !== threadAfterReopen.before) {
         problems.push(`[${theme}] reopen: the thread box is stranded after a reopen `
           + `(${JSON.stringify(threadAfterReopen.before)} -> ${JSON.stringify(threadAfterReopen.after)})`);

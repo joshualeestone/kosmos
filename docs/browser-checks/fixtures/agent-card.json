@@ -29,12 +29,12 @@
     "overCeiling": false,
     "notYet": false,
     "ceiling": 1000000,
-    "ceilingAssumed": false,
+    "ceilingAssumed": true,
     "confidence": "example-confidence",
     "because": "example-because"
   },
-  "model": "claude-opus-4-8",
-  "modelName": "Claude Opus 4.8",
+  "model": "claude-opus-5",
+  "modelName": "Claude Opus 5",
   "neverRecorded": true,
   "hasAvatar": true,
   "profile": {

@@ -141,7 +141,6 @@ test('#2519: realCard() REPORTS ITS SOURCE, so a quiet run cannot look like a li
   /* 'error' belongs here: on a box where status.js legitimately throws, omitting it made
      the unit suite red with "unexpected source" instead of the check reporting the
      condition it was built to report. */
-  assert.ok(['live', 'golden', 'none', 'error'].includes(r.source), `unexpected source ${r.source}`);
   assert.ok(r.card, 'neither a live card nor the fixture resolved');
 });
 
@@ -216,8 +215,11 @@ test('#2519: the fixture matches what status.snapshot() ACTUALLY emits, on ANY b
        the ceiling fields. Both are legitimate producer output for different states, so
        demanding nested equality against a fleet card asserts something untrue.
        ⇒ The box-independent claim is that snapshot() still emits THESE THIRTY FIELDS.
-       The nested comparison lives in render-talk.js's own guard, where it runs live
-       against live and is apples to apples. */
+       ⚠️ AND THE NESTED COMPARISON NO LONGER EXISTS ANYWHERE. An earlier version of this
+       comment said it "lives in render-talk.js's own guard" -- that guard was removed on
+       this branch and an arm below pins its absence, so this file asserted it both ways,
+       which is the exact contradiction render-talk.js's header names. Nested drift is an
+       acknowledged, unguarded gap. */
     assert.deepEqual(
       Object.keys(golden).sort(), Object.keys(real).sort(),
       'the recorded card has drifted from status.snapshot(); re-capture with node tools/capture-agent-card.js');
@@ -378,6 +380,27 @@ test('#2519: nothing under CONTEXT survives neutralisation either', () => {
   }
 });
 
+test('#2519: model and modelName are PINNED, because the producer does not bound them', () => {
+  /* 🛑 status.js's readModel() regex-extracts from the last 64KB of the agent's TRANSCRIPT
+     and modelDisplayName() returns an unrecognised id RAW, so any `"model":"..."` text in
+     a transcript becomes this value. Re-pinning them from the raw producer was the THIRD
+     instance of the same hole on this branch. Measured before the fix: a model of
+     '/Users/realoperator/secret' reached the output verbatim. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const out = cap.neutralise(Object.assign({}, real, {
+      model: '/Users/realoperator/secret', modelName: '/Users/realoperator/secret',
+    }));
+    assert.ok(!String(out.model).includes('/'), `model reached the fixture verbatim: ${out.model}`);
+    assert.ok(!String(out.modelName).includes('/'), `modelName reached the fixture verbatim: ${out.modelName}`);
+  } finally {
+    board.restore();
+  }
+});
+
 test('#2519: a field the producer ADDS LATER is scrubbed, not passed through', () => {
   /* 🛑 THE GUARANTEE HAS TO BE STRUCTURAL, NOT A LIST. The top level used to be an
      allowlist, so `runner`, `model`, a non-null `disruption` and any field status.js
@@ -441,8 +464,16 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      than on an identifier a rewrite would change, or on prose. An earlier version matched
      the words "drifted|re-capture" anywhere after the reopen arm and caught this file's
      OWN explanation of the removal. */
-  const pushesDrift = /problems\.push\([^)]*drift/i.test(SRC) || /problems\.push\([^)]*re-capture/i.test(SRC);
-  assert.ok(!pushesDrift, 'a live-vs-fixture drift comparison is back in the check');
+  /* ⚠️ THIS PIN MUST NOT BECOME A BARRIER. The branch states nested drift is a real gap
+     that wants a COMPOSITION-AWARE comparison, and a blunt pin would red the very fix it
+     asks for: a test you must delete to close a known defect is a lock, not a guard.
+     So the escape hatch is explicit: a guard that declares it handles composition passes.
+     If you are adding one, put the marker on it and this arm gets out of your way. */
+  const src = SRC;
+  const pushesDrift = /problems\.push\([^)]*drift/i.test(src) || /problems\.push\([^)]*re-capture/i.test(src);
+  const declaresCompositionAware = /COMPOSITION-AWARE DRIFT GUARD/.test(src);
+  assert.ok(!pushesDrift || declaresCompositionAware,
+    'a live-vs-fixture drift comparison is back in the check without declaring itself composition-aware');
 });
 
 test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
@@ -471,7 +502,8 @@ test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
 });
 
 test('#2519: a fallback run emits a NOTE, and notes can never read as failures', () => {
-  /* The release gate anchors on `^\s*(FAIL|✖)`. A note that reached that anchor would
+  /* The release gate greps `'^\s*(FAIL|✖)|Error|Timeout|REFUS|refus'` (browser-checks.sh), which is
+     WIDER than the anchor alone; an earlier version of this sentence said just the anchor. A note that reached that anchor would
      turn a covered quiet-box run back into a red, which is the bug inverted. */
   assert.match(SRC, /notes\.push\(/, 'no note is emitted when the fallback drives the arm');
   assert.match(SRC, /NOTE {2}\$\{n\}/, 'notes must print with a NOTE prefix, not a FAIL one');

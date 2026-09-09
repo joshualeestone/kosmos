@@ -22,7 +22,9 @@
  *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
  *     `because` line, any `stateConflict` sentence, the scraped evidence line, and the
  *     every string under `profile`, and every string anywhere else that is not re-pinned
- *     to a known-safe producer value below. It preserves each field's TYPE: a null stays null.
+ *     to a known-safe producer value below. "Known-safe" means ENUM-BOUNDED by status.js
+ *     (state, stateConfidence, runner), not merely "a field I recognise": model and
+ *     modelName are regex-extracted from a transcript and are pinned to constants. It preserves each field's TYPE: a null stays null.
  *   - PINS the volatile values so a re-run is byte-identical unless the shape moved:
  *     `hasAvatar`, `context.tokens`, `context.percent` and two profile timestamps.
  *     ⚠️ An earlier version of this paragraph said the tool "does not touch structure,
@@ -87,9 +89,19 @@ function neutralise(live) {
   card.target = 'april-discord:0.0';
   card.state = live.state;
   card.stateConfidence = live.stateConfidence;
-  card.runner = live.runner;
-  card.model = live.model;
-  card.modelName = live.modelName;
+  card.runner = live.runner;   // normalised to 'codex'|'claude' by status.js, enum-bounded
+  /* 🛑 model AND modelName ARE **NOT** ENUM-BOUNDED, and re-pinning them from the raw
+     producer was the third instance of this same hole (context was the second).
+     status.js's readModel() extracts by REGEX over the last 64KB of the agent's
+     TRANSCRIPT (`/"model":"([^"]+)"/g`) and falls back to the last match, and
+     modelDisplayName() returns an unrecognised id RAW. So any `"model":"..."` occurrence
+     in transcript text -- a quoted JSON blob inside a tool result, for instance -- becomes
+     this value. MEASURED: a card carrying model '/Users/realoperator/secret' came out of
+     neutralise() with that string verbatim, into a COMMITTED file.
+     ⇒ Pinned to constants. The fixture does not need this box's real model, and no
+     re-pin may take a field the producer does not bound. */
+  card.model = 'claude-opus-5';
+  card.modelName = 'Claude Opus 5';
   /* 🛑 DO NOT CLONE THE RAW context BACK IN. An earlier version did exactly that, one
      line after scrubbing the whole card, which restored every unscrubbed string in it.
      MEASURED: a card whose `context.because` read
