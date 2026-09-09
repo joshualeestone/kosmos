@@ -40,6 +40,17 @@ If every host this runs against serves /setup and /dist through the SAME route, 
 cheap next to a false-green certification of a not-served /setup, and the prod alias case the
 card measured (#1667 SSO) is exactly the route-scoped shape this closes.
 
+## Residual (raised in review, bounded rather than left)
+The control proves discrimination for a route PREFIX (a nonexistent sibling under it), the
+granularity real rewrites / catch-alls / SPA fallbacks use. It does NOT catch a blindness
+scoped to an EXACT literal path (a rewrite of exactly `/setup` with no wildcard and no
+catch-all): a sibling probe 404s correctly and the control passes. That case is unreachable by
+ANY negative control in principle (nothing routes identically to an exact match, so there is
+nothing to probe) and is largely covered from the other side -- served_verify_asset_ok rejects
+a 200 carrying text/html, the usual exact-route rewrite target -- leaving only a non-html
+exact-route rewrite of the one path, a shape this infra does not produce. Documented in the
+lib comment too.
+
 ## Only caller affected
 `deploy-site.sh` is the sole runtime caller of the function (grep-verified repo-wide); the
 default-route param keeps it and any future caller unchanged unless they opt into a route.

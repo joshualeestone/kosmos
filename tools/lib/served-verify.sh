@@ -38,6 +38,16 @@
 # A caller that trusts 200s under a different route (e.g. deploy-site.sh trusts `$HOST/setup`, the
 # site root) must PROVE discrimination THERE too, by passing that route (`/` for the site root).
 # A trailing slash is stripped so `/` probes the root (`$HOST/__...`) rather than `$HOST//__...`.
+#
+# ⚠️ RESIDUAL, BOUNDED: this proves discrimination for the route PREFIX (a nonexistent sibling under
+# it), which is the granularity real rewrites / catch-alls / SPA fallbacks operate at. It does NOT
+# catch a blindness scoped to an EXACT literal path (e.g. a rewrite of exactly `/setup` -> a 200 with
+# no wildcard and no catch-all elsewhere): a sibling probe 404s correctly and the control passes. That
+# case is unreachable by ANY negative control in principle -- no other path routes identically to an
+# exact match, so there is nothing to probe -- and it is largely covered from the other side:
+# served_verify_asset_ok rejects a 200 carrying text/html (the usual exact-route rewrite target is an
+# html page), leaving only a non-html exact-route rewrite of the one path, which is not a shape this
+# infra produces. Named rather than left to be found.
 served_verify_host_discriminates() {
   _svhd_host=$1
   _svhd_route=${2:-/dist}
