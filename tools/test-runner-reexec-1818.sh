@@ -144,26 +144,34 @@ fi
 #          SUBJECT  (FROZEN_RUNNER=1):  the guard is skipped and the run PROCEEDS
 #                   to the clean skip -- proves the :110 skip is what unblocks it.
 #
-# 🛑 #2594: BOTH arms `env -u` the two vars that SKIP the :110 guard
-# (KOSMOS_HARNESS_IGNORE_CUT, KOSMOS_BC_FROZEN_RUNNER), because `env VAR=val` ADDS
-# to the inherited environment, it does NOT clear it. When this test runs INSIDE a
-# release cut, $REPO is release.sh's frozen DETACHED-HEAD checkout AND the cut
-# exports KOSMOS_HARNESS_IGNORE_CUT=1 into step 3's `yarn test`. The CONTROL then
-# inherited that var, the :110 guard was skipped, browser-checks.sh fell through to
-# the detached-HEAD branch (:216 "isolated by release.sh's own freeze") and exited
-# 0 -- so the CONTROL's expected refuse never fired and it FALSE-RED a cut on a
-# contended box (measured: the broken form exits 0 under that env, the `-u` form
-# refuses rc=1). Clearing the vars makes each arm assert its OWN condition rather
-# than whatever the ambient cut env happens to carry: the CONTROL's guard always
-# runs (so a live probe must refuse), and the SUBJECT's skip is attributable to the
-# FROZEN_RUNNER=1 it sets, not to a stray inherited IGNORE_CUT. Detached-HEAD alone
-# does NOT break the CONTROL -- the :110 guard runs before the freeze block, so it
-# refuses first (measured); the inherited guard-skip is the whole cause.
+# 🛑 #2594: the arms `env -u` the vars that SKIP the :110 guard, because
+# `env VAR=val` ADDS to the inherited environment, it does NOT clear it. The CONTROL
+# clears BOTH guard-skip vars (KOSMOS_HARNESS_IGNORE_CUT, KOSMOS_BC_FROZEN_RUNNER);
+# the SUBJECT clears only IGNORE_CUT (it SETS FROZEN_RUNNER=1 itself, the thing under
+# test); ARM 1 clears FROZEN_RUNNER (it needs it unset to test the re-exec).
+# The failure this fixes: when this test runs INSIDE a release cut, $REPO is
+# release.sh's frozen DETACHED-HEAD checkout AND the INVOKING environment carries
+# KOSMOS_HARNESS_IGNORE_CUT=1 -- release.sh does NOT export it (it only READS it as
+# an operator escape hatch, release.sh:242), but a reserved-box cut invocation
+# commonly runs with it set, and step 3's `yarn test` (release.sh:514) inherits it.
+# The CONTROL then inherited that var, the :110 guard was skipped, browser-checks.sh
+# fell through to the detached-HEAD branch (:216 "isolated by release.sh's own
+# freeze") and exited 0 -- so the CONTROL's expected refuse never fired and it
+# FALSE-RED a cut on a contended box (measured: the broken form exits 0 under that
+# env, the `-u` form refuses rc=1). Clearing the vars makes each arm assert its OWN
+# condition rather than whatever the ambient env happens to carry: the CONTROL's
+# guard always runs (so a live probe must refuse), and the SUBJECT's skip is
+# attributable to the FROZEN_RUNNER=1 it sets, not to a stray inherited IGNORE_CUT.
+# Detached-HEAD alone does NOT break the CONTROL -- the :110 guard runs before the
+# freeze block, so it refuses first (measured); the inherited guard-skip is the
+# whole cause. The arms also `-u KOSMOS_BC_SELF_PID` (a guard input:
+# kosmos_refuse_if_browser_run_live reads it to decide "self" for its subtree
+# exclusion) so no inherited value can shift what the guard treats as its own run.
 probe="$T/probe-live"
 printf '#!/bin/sh\nprintf "99999 bash tools/browser-checks.sh\\n"\n' > "$probe"; chmod +x "$probe"
 
 # CONTROL: no FROZEN_RUNNER, no harness override, a live probe -> must refuse.
-out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT -u KOSMOS_BC_FROZEN_RUNNER \
+out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT -u KOSMOS_BC_FROZEN_RUNNER -u KOSMOS_BC_SELF_PID \
   KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
   KOSMOS_PW_NODE_PATH= KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
@@ -184,7 +192,7 @@ fi
 # for the same reason the control and common_env set it (#2594): a stray ambient
 # value would make resolve_pw find a real Playwright, skip the clean
 # KOSMOS_SKIP_BROWSER_CHECKS exit, and either false-red or launch a real browser.
-out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT \
+out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT -u KOSMOS_BC_SELF_PID \
   KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" KOSMOS_PW_NODE_PATH= \
   KOSMOS_BC_FROZEN_RUNNER=1 KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
