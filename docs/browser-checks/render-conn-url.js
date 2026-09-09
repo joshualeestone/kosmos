@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-conn-url
 /**
  * The sign-in step's fallback link, which Josh photographed overlapping itself
  * (#1209): "Browser did not open?" with the button's box riding up over it.
