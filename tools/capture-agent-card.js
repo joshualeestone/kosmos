@@ -130,14 +130,14 @@ function chooseCard(agents) {
    and `doctrineDeclined` beside it. Neither is identity-bearing, but neither was pinned
    nor documented, so a re-capture on almost any real agent was not byte-identical. Four
    documents claimed it was; all four have since been corrected.
-   ⇒ SO THE CATEGORIES ARE FOUR TREATMENTS AND ONE GAP, NAMED HONESTLY. ⚠️ This line said
+   ⇒ SO THERE ARE FIVE TREATMENTS AND ONE GAP. CATEGORY-LIST-BEGIN ⚠️ This line said
      THREE and then listed four, with item 1b's own text calling itself "a REAL fourth
      category" two lines below, and it had no room for the gap at (5) that the non-string
      inventory arm exists to detect. That is the same "there is no third category"
      sentence this header spends twenty lines correcting, in a new spelling, written by
      the same hand that wrote the correction.
      1. PINNED below to constants (the list in the header).
-     1b. RE-PINNED FROM THE RAW CARD because status.js ENUM-BOUNDS them: `state` and
+     2. RE-PINNED FROM THE RAW CARD because status.js ENUM-BOUNDS them: `state` and
         `stateConfidence` come from the STATE and CONFIDENCE constants, `runner` from a
         ternary that can only yield 'codex' or 'claude'. This is a REAL fourth category
         and calling it a sub-case of (1) is what let three successive versions of this
@@ -145,7 +145,12 @@ function chooseCard(agents) {
         ⚠️ It is also the shape this file was burned by four times, so the reliance is
         pinned by an arm rather than trusted: poison `state` with a path and it must not
         survive.
-     2. STRUCTURAL BOOLEANS passed through by design -- nameDerived, isAgentPane,
+     3. SCRUBBED STRINGS THAT ARE RE-PINNED TO NOTHING, such as `disruption.cause`, which
+        comes out as `example-cause`. Neutralised, but pinned to no constant, so they are
+        in neither (1) nor (2). This category was missing from THIS list while the README
+        carried it, which is the two documents disagreeing about how many categories exist
+        while both claim to enumerate them.
+     4. STRUCTURAL BOOLEANS passed through by design -- nameDerived, isAgentPane,
         isAgentSession, isFleetSession, isNamedOurs, paneless, stateProjectInferred,
         activeWhileWaiting, stateReported, stateBackgroundWait, neverRecorded. Each has
         two possible values, carries nothing identifying, and MUST survive or the
@@ -153,16 +158,17 @@ function chooseCard(agents) {
         ⚠️ TOP-LEVEL ONLY. A boolean nested outside `profile` (a future `context` flag,
         say) is in this category too and is not enumerated, because the enumeration is of
         the ones that exist today.
-     5. A NON-STRING ADDED OUTSIDE `profile` is in NONE of the above and reaches the
-        committed file verbatim. A GAP, not a treatment: measured, a `pid` added to the
-        card or inside `disruption` comes out unchanged, and the key-set refusal cannot
-        see a field added inside an existing subtree. Two arms pin the current inventory
-        so the NEXT one reds a test rather than arriving silently; nothing prevents it.
-     3. THE `profile` SUBTREE, which gets the STRICTEST treatment of anything here:
+     5. THE `profile` SUBTREE, which gets the STRICTEST treatment of anything here:
         scrubNonStrings below neutralises every number and boolean under it, at any
         depth. It is free-form, so an allowlist there is a guarantee held by coincidence
         of what the tree happens to write today, which is the failure this whole file
         is a record of.
+     6. A NON-STRING ADDED OUTSIDE `profile` is in NONE of the above and reaches the
+        committed file verbatim. A GAP, not a treatment: measured, a `pid` added to the
+        card or inside `disruption` comes out unchanged, and the key-set refusal cannot
+        see a field added inside an existing subtree. Two arms pin the current inventory
+        so the NEXT one reds a test rather than arriving silently; nothing prevents it.
+     CATEGORY-LIST-END
    🛑 AND NO PROPERTY OF THE RAW VALUE MAY SURVIVE EITHER, LENGTH INCLUDED. `id` was
    scrubbed as `'0'.repeat(val.length)`, which re-emits the producer's value length.
    Today's profile ids are twelve characters, so the output looked like a constant and
@@ -212,6 +218,17 @@ function scrubNonStrings(v) {
   }
 }
 
+/* The vocabularies the three raw re-pins rely on. Written here rather than imported so the
+   tool does not load status.js just to validate; an arm cross-checks them against
+   status.js's STATE and CONFIDENCE exports, so a divergence reds a test rather than
+   silently widening what this tool will record. `runner` has no export to check: it is a
+   ternary at the pane card literal that can yield only these two. */
+const ENUMS = {
+  state: ['working', 'needs_you', 'rate_limited', 'auth_failed', 'idle', 'stopped', 'restarting', 'blocked', 'unknown'],
+  stateConfidence: ['structured', 'scraped', 'none'],
+  runner: ['codex', 'claude'],
+};
+
 function neutralise(live) {
   const card = JSON.parse(JSON.stringify(live));
   /* 🛑 SCRUB THE WHOLE CARD, THEN RE-PIN. The top level used to be an ALLOWLIST, so
@@ -231,6 +248,20 @@ function neutralise(live) {
   if (typeof card.sessionName === 'string') card.sessionName = 'april';
   if (typeof card.name === 'string') card.name = 'April';
   if (typeof card.target === 'string') card.target = 'april-discord:0.0';
+  /* 🛑 THE ENUM RELIANCE IS NOW ENFORCED, NOT MERELY DOCUMENTED. These three are copied
+     from the RAW producer, and that is only sound while status.js bounds them. This file's
+     whole history is that "the producer cannot emit it" is a claim somebody has to keep
+     true: `model` was re-pinned on exactly that reasoning and turned out to be
+     regex-extracted from transcript text. So the tool REFUSES rather than recording a
+     value outside the vocabulary, and an arm checks this vocabulary against status.js's
+     own exports so the two cannot drift apart silently. */
+  for (const f of ['state', 'stateConfidence', 'runner']) {
+    const v = live[f];
+    if (v !== null && v !== undefined && !ENUMS[f].includes(v)) {
+      throw new Error('refusing to record: status.snapshot() emitted ' + f + '='
+        + JSON.stringify(v) + ', which is outside the vocabulary this tool relies on');
+    }
+  }
   card.state = live.state;
   card.stateConfidence = live.stateConfidence;
   card.runner = live.runner;   // normalised to 'codex'|'claude' by status.js, enum-bounded
@@ -355,7 +386,7 @@ function neutralise(live) {
  */
 function keySet(card) { return Object.keys(card).sort().join(','); }
 
-module.exports = { chooseCard, neutralise, scrubStrings, scrubNonStrings, keySet };
+module.exports = { chooseCard, neutralise, scrubStrings, scrubNonStrings, keySet, ENUMS };
 
 /* ⚠️ THE I/O ONLY WHEN RUN DIRECTLY. Without this guard, a test that required this file
    to exercise the functions above would overwrite the committed fixture as a side effect

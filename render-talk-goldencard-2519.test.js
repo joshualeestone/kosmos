@@ -478,12 +478,27 @@ test('#2519: the three RE-PINNED fields are enum-bounded, and nothing else may j
        'codex' or 'claude'. There is nothing to read, so the two values are written here
        with the reason, instead of a comment implying they were derived. */
     assert.ok(['codex', 'claude'].includes(out.runner), `runner left the enum: ${out.runner}`);
-    /* CONTROL, and the one that matters: a value the producer cannot emit must be
-       recognisable as such, or the assertions above just restate today's board. */
+    /* 🛑 THE RELIANCE IS ENFORCED NOW, SO THE ASSERTION CHANGES SHAPE. It used to check
+       that a poisoned state came OUT unrecognisable, which proved only that the arm could
+       tell. The tool REFUSES it instead: a value outside the vocabulary is not recorded at
+       all, which is the behaviour `model` needed and did not have when it turned out to be
+       regex-extracted from transcript text. */
     const poisoned = Object.assign({}, real);
     poisoned.state = '/Users/realoperator/leaked-state';
-    assert.ok(!STATES.includes(cap.neutralise(poisoned).state),
-      'CONTROL: a poisoned state was accepted as an enum value, so the check above cannot fail');
+    assert.throws(() => cap.neutralise(poisoned), /outside the vocabulary/,
+      'a state outside the enum was RECORDED rather than refused');
+    /* 🛑 AND THE TOOL'S VOCABULARY MUST MATCH THE PRODUCER'S. It is written into the tool
+       rather than imported, so the two can drift; this is what makes the drift red a test
+       instead of silently widening what the tool will record. */
+    assert.deepEqual(cap.ENUMS.state.slice().sort(), STATES.slice().sort(),
+      "the tool's state vocabulary has drifted from status.STATE");
+    assert.deepEqual(cap.ENUMS.stateConfidence.slice().sort(), CONFIDENCES.slice().sort(),
+      "the tool's confidence vocabulary has drifted from status.CONFIDENCE");
+    /* CONTROL: a null still passes, because the producer emits null for these on some
+       cards and a refusal that fired on null would refuse ordinary boards. */
+    const nulled = Object.assign({}, real);
+    nulled.state = null;
+    assert.equal(cap.neutralise(nulled).state, null, 'a producer null was refused');
   } finally {
     board.restore();
   }
@@ -563,6 +578,49 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
   /* CONTROL: the raw message WOULD have matched, or the neutralisation is untested. */
   assert.ok(gateRe.test(`ENOENT: no such file or directory, open '${poisonPath}'`),
     'CONTROL: the un-neutralised message does not match the gate, so this arm proves nothing');
+});
+
+test('#2519: the CATEGORY list is ascending, gap-free, and the same in both documents', () => {
+  /* 🛑 THE SENTENCE COUNTING THESE CATEGORIES HAS NOW BEEN WRONG SIX TIMES, each version
+     written one iteration after the previous was corrected: "nothing identifying can
+     survive", "nothing identifying is numeric", "there is no third category", "everything
+     is in exactly one of three", "in five categories" printed over six items with the
+     numbering skipping 4, and then "four treatments and one gap, six items", which is four
+     plus one making six.
+     🛑 AND THE NUMBERING ITSELF REPRODUCED THE MISTAKE. The re-pinned category was labelled
+     `1b`, which reads as a sub-case of (1), in the same paragraph that says calling it a
+     sub-case is what let three versions claim "exactly one of them". The two documents also
+     listed the categories in two DIFFERENT orders, and one was missing a category the other
+     carried.
+     ⇒ Prose has failed at this six times, so it is checked: ascending, gap-free, identical
+     count in both. */
+  const DOCS = [
+    ['docs/browser-checks/README.md', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'README.md'), 'utf8'), /^(\d+)\. \*\*/gm],
+    ['tools/capture-agent-card.js', fs.readFileSync(path.join(__dirname, 'tools', 'capture-agent-card.js'), 'utf8'), /^ {5}(\d+)\. /gm],
+  ];
+  const counts = [];
+  for (const [where, text, re] of DOCS) {
+    const b = text.indexOf('CATEGORY-LIST-BEGIN');
+    const e = text.indexOf('CATEGORY-LIST-END');
+    assert.ok(b !== -1 && e > b, `${where} has no CATEGORY-LIST sentinels, so the enumeration cannot be located`);
+    const nums = [...text.slice(b, e).matchAll(re)].map((m) => Number(m[1]));
+    assert.ok(nums.length >= 5, `${where}: found only ${nums.length} numbered categories: ${nums}`);
+    assert.deepEqual(nums, nums.slice().sort((x, y) => x - y),
+      `${where} lists its categories OUT OF ORDER: ${nums}`);
+    assert.deepEqual(nums, Array.from({ length: nums.length }, (_, i) => i + 1),
+      `${where}'s category numbering is not 1..${nums.length} gap-free: ${nums}`);
+    counts.push([where, nums.length]);
+  }
+  assert.equal(counts[0][1], counts[1][1],
+    `the two documents enumerate different numbers of categories: ${JSON.stringify(counts)}`);
+  /* AND THE PROSE COUNT MUST MATCH THE ITEMS, which is the specific act every wrong
+     version got backwards. */
+  const readme = DOCS[0][1];
+  const claim = readme.match(/(FIVE|FOUR|SIX|THREE) treatments and (ONE|TWO) gap/);
+  assert.ok(claim, 'the README no longer states how many treatments and gaps there are');
+  const WORDS = { THREE: 3, FOUR: 4, FIVE: 5, SIX: 6, ONE: 1, TWO: 2 };
+  assert.equal(WORDS[claim[1]] + WORDS[claim[2]], counts[0][1],
+    `the README says ${claim[0]}, which is ${WORDS[claim[1]] + WORDS[claim[2]]} items, but lists ${counts[0][1]}`);
 });
 
 test('#2519: every PINNED field name appears in all four documents that enumerate them', () => {
@@ -698,20 +756,30 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
         else if (val && typeof val === 'object') walk(val, path);
       }
     })(out, '');
-    /* The STRUCTURAL BOOLEANS, present on every card whatever its context shape. */
+    /* 🛑 TWO DIFFERENT THINGS, AND CALLING THEM ONE WAS A FALSE CLAIM. The eleven below
+       are the STRUCTURAL BOOLEANS (category 4): the producer's own values, passed
+       through. `hasAvatar` is NOT one of them. It is a PIN (category 1), forced to `true`
+       even when the producer said `false`, which is the one pin that deliberately
+       disagrees with the captured card. An earlier version of this array listed it as the
+       twelfth structural boolean under a comment calling them all pass-throughs, which
+       contradicts the canonical enumeration in the README and the tool header and would
+       tell a reader the real captured value survives. They are concatenated here because
+       this arm cares about which non-strings REACH THE FILE, not how they got there. */
     const STRUCTURAL = [
       'nameDerived', 'isAgentPane', 'isAgentSession', 'isFleetSession', 'isNamedOurs',
       'paneless', 'stateProjectInferred', 'activeWhileWaiting', 'stateReported',
-      'stateBackgroundWait', 'neverRecorded', 'hasAvatar',
+      'stateBackgroundWait', 'neverRecorded',
     ];
+    const PINNED_BOOLEAN = ['hasAvatar'];
+    const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN);
     /* ⚠️ TWO INVENTORIES, BECAUSE `context` HAS FIVE KEY SETS IN status.js AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
        measured context. A single expected list would have been wrong for one of them, and
        the first version of this arm guessed one list and redded on its first run, which
        is how the difference got noticed. */
-    const EXPECTED_LIVE = STRUCTURAL.concat(['context.neverRecorded', 'context.notYet']).sort();
-    const EXPECTED_FIXTURE = STRUCTURAL.concat([
+    const EXPECTED_LIVE = ALWAYS.concat(['context.neverRecorded', 'context.notYet']).sort();
+    const EXPECTED_FIXTURE = ALWAYS.concat([
       'context.ceiling', 'context.ceilingAssumed', 'context.notYet', 'context.overCeiling',
       'context.percent', 'context.tokens',
     ]).sort();

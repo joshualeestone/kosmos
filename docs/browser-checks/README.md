@@ -133,8 +133,10 @@ written yet. The categories below are what happens AFTER that whole-card scrub. 
 the old version learned only about the ISO-date branch and the `profile` subtree and could
 have concluded the rest was untouched.
 
-**What the tool does after the scrub: FOUR treatments and ONE gap, six items in all
-because one treatment splits.** ⚠️ This sentence has now been
+**What the tool does after the scrub: FIVE treatments and ONE gap. CATEGORY-LIST-BEGIN**
+⚠️ The line above said "FOUR treatments and ONE gap, six items in all", which is four plus
+one making six. Counting the categories is the act every version of this sentence has got
+wrong, so the numbering below is now ascending, gap-free, and checked by an arm. ⚠️ This sentence has now been
 wrong five times, each version claiming a smaller number than the truth ("nothing
 identifying can survive", "nothing identifying is numeric", "there is no third category",
 "everything is in exactly one of three", and then "in five categories" printed above SIX
@@ -154,18 +156,18 @@ different acts, and every version so far has done one while claiming the other:
    timestamp. `scrubStrings` rewrites ANY ISO-dated string at any depth anywhere in the
    card to one constant. That is a scrub, not a pin, and it is neither two fields nor
    profile-specific.
-2. **STRUCTURAL BOOLEANS passed through**, because each has two possible values, carries
+2. **RE-PINNED from the raw card** because status.js enum-bounds them: `state`,
+   `stateConfidence`, `runner`. Not constants, not structural booleans, not under
+   `profile`. The old "exactly one of three" sentence had no room for these and the tool's
+   own header calls them a real category.
+3. **SCRUBBED STRINGS that are not re-pinned at all**, such as `disruption.cause`, which
+   becomes `example-cause`. Neutralised, but pinned to nothing.
+4. **STRUCTURAL BOOLEANS passed through**, because each has two possible values, carries
    nothing identifying, and must survive or the recording stops being a real card shape:
    `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
    `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
    `stateBackgroundWait`, `neverRecorded`.
-1b. **RE-PINNED from the raw card** because status.js enum-bounds them: `state`,
-   `stateConfidence`, `runner`. Not constants, not structural booleans, not under
-   `profile`. The old "exactly one of three" sentence had no room for these and the tool's
-   own header calls them a real category.
-1c. **SCRUBBED STRINGS that are not re-pinned at all**, such as `disruption.cause`, which
-   becomes `example-cause`. Neutralised, but pinned to nothing.
-3. **The `profile` subtree**, which gets the strictest treatment: EVERY value under it is
+5. **The `profile` subtree**, which gets the strictest treatment: EVERY value under it is
    neutralised, strings and numbers and booleans, at any depth. It is free-form
    (`store.readProfile` returns whatever JSON is in the file), so an allowlist there is a
    guarantee resting on what the tree happens to write today. `profile.doctrineVersion`
@@ -178,14 +180,15 @@ above.** A second copy stood here, in the bare-name-plus-parenthetical form that
 sitting OUTSIDE the sentinels the arm reads. The branch went from four copies to six while
 claiming it had made the enumeration mechanical. An arm now reds on any second
 enumeration outside the sentinels.
-
-5. **A NON-STRING the producer adds OUTSIDE `profile`**, which is in none of the above and
+6. **A NON-STRING the producer adds OUTSIDE `profile`**, which is in none of the above and
    reaches the committed file verbatim. This is a real gap, not a treatment: measured, a
    `pid: 48213` added to the card or inside `disruption` comes out unchanged, and the
    key-set refusal cannot see a field added inside an existing subtree. Two arms pin the
    current inventory (the live card and the shipped artifact, plus the `disruption`
    subtree explicitly) so that the NEXT one reds a test instead of arriving silently, but
    nothing prevents it.
+
+**CATEGORY-LIST-END**
 
 🛑 **That list has gone stale twice, in all four copies at once each time** (this file,
 the tool's header, `render-talk.js`'s header, the plan). If you add a pin, grep for one of
