@@ -210,18 +210,32 @@ function record(sessionName, entry) {
        field records what the rule SAW, never a re-derivation of it, so the two
        cannot drift.
 
-       ⚠️ THREE VALUES, NOT A BOOLEAN, and that is the whole reason it is not
-       `auto: true`. A line written before this field existed carries no `by`
-       and reads as null -- unknown provenance, which is the honest answer
-       rather than a manufactured one, and the same posture `instance` takes
-       two fields up. An omitted boolean would collapse "the agent typed it"
-       into "we do not know", which is the ambiguity this exists to remove.
+       ⚠️ THREE WRITTEN VALUES, NOT A BOOLEAN, and that is the whole reason it
+       is not `auto: true`. 'auto' (a lifecycle hook), 'agent' (the agent chose
+       to say it), and 'operator' (a person cleared a stale self-report on the
+       agent's behalf, via the operator-only clear route -- #2575). A line
+       written before this field existed carries no `by` and reads as null --
+       unknown provenance, which is the honest answer rather than a manufactured
+       one, and the same posture `instance` takes two fields up. An omitted
+       boolean would collapse "the agent typed it" into "we do not know", which
+       is the ambiguity this exists to remove.
+
+       🔑 #2575: 'operator' is the ONE value a caller may assert on the entry
+       (`entry.by === 'operator'`), and only the operator-only clear route sets
+       it. An operator clear has `auto` falsey, so the #900 guard above does NOT
+       refuse it -- it lands and supersedes a standing needs_you. It is safe
+       because the cleared state RE-DERIVES on the next poll (a scraped working
+       outranks a reported idle, #1995; a genuine on-screen prompt re-raises
+       needs_you; the agent's own next report re-raises), so an operator-clear
+       removes the STICKY reported red, it does not permanently silence a real
+       need. That re-derivation is why letting a person report AS the agent here
+       does not break the evidence model the rest of this file keeps.
 
        Append-only, so no migration and no rewrite of history. `v` stays 1:
        read() picks fields by name and no reader asserts a key set, so a bump
        would make every reader handle two shapes for a change none of them has
        to handle. */
-    by: entry.auto === true ? 'auto' : 'agent',
+    by: entry.by === 'operator' ? 'operator' : (entry.auto === true ? 'auto' : 'agent'),
     at,
   };
   try {
@@ -316,10 +330,12 @@ function read(sessionName) {
     /* Null for a pane-derived report, which is most of them: the pane arm has
        no notion of a run. Null means "not known", never "only one run". */
     instance: latest.instance || null,
-    /* #1453: 'auto' (a lifecycle hook wrote it), 'agent' (the agent chose to
-       say it), or null for a line written before the field existed. Null is
-       "not known", never "an agent typed it" -- a caller that treats absence
-       as agent-typed reintroduces exactly the miscount this field removes. */
+    /* #1453 + #2575: 'auto' (a lifecycle hook wrote it), 'agent' (the agent
+       chose to say it), 'operator' (a person cleared a stale self-report on the
+       agent's behalf), or null for a line written before the field existed.
+       Null is "not known", never "an agent typed it" -- a caller that treats
+       absence as agent-typed reintroduces exactly the miscount this field
+       removes. */
     by: latest.by || null,
     project,
     /* Whether the project came from the latest report itself (stated) or from
