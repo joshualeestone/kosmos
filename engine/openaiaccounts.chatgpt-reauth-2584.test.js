@@ -168,6 +168,50 @@ test('a CANCELLED reauth leaves the live account byte-identical', async () => {
   assert.equal(workSlots().length, 0, 'cancel removes the staging dir once the child exits');
 });
 
+test('a second concurrent reauth of the SAME account is refused, and the reservation is released after the first ends', async () => {
+  const dir = writeChatgptAccount('.codex-concurrent', 'conc@example.com');
+  process.env.FAKE_CODEX_SLEEP = '1'; // the first reauth stays in-flight
+  process.env.FAKE_ID_TOKEN = idToken('conc@example.com');
+  const first = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+  assert.equal(first.ok, true, first.because);
+  await waitFor(first.sessionId, (x) => x.state === 'awaiting-browser' || x.state === 'awaiting-code' || x.state === 'starting');
+  // A second reauth of the same account while the first is in flight is refused.
+  const second = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+  assert.equal(second.ok, false);
+  assert.match(second.because, /already in progress/i);
+  // End the first; its reservation must release (else future reauths are blocked forever).
+  openai.cancelChatgptLogin(first.sessionId);
+  delete process.env.FAKE_CODEX_SLEEP;
+  let third = null;
+  for (let i = 0; i < 200; i += 1) {
+    third = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+    if (third.ok) break;
+    await new Promise((res) => setTimeout(res, 20));
+  }
+  assert.equal(third.ok, true, 'the reservation was never released: ' + (third && third.because));
+  await waitFor(third.sessionId, terminal); // let it settle so no session dangles
+});
+
+test('a promote FAILURE (live dir not writable) is refused and the live account is byte-identical', async () => {
+  const dir = writeChatgptAccount('.codex-nowrite', 'nw@example.com');
+  const before = authBytes(dir);
+  process.env.FAKE_ID_TOKEN = idToken('nw@example.com'); // identity matches, so we reach the promote
+  // r-x: the existing auth.json stays readable (so reauthTarget + before/after reads work),
+  // but the dir is not writable, so promoteReauth's renameSync into it throws.
+  fs.chmodSync(dir, 0o500);
+  try {
+    const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+    assert.equal(r.ok, true, r.because);
+    const s = await waitFor(r.sessionId, terminal);
+    assert.equal(s.state, 'error', 'a promote that cannot write the live dir must not report connected');
+    assert.equal(authBytes(dir), before, 'a failed promote leaves the live account byte-identical');
+  } finally {
+    fs.chmodSync(dir, 0o700); // restore so the sandbox cleans up
+  }
+  await new Promise((res) => setTimeout(res, 50));
+  assert.equal(workSlots().length, 0, 'the staging dir was cleaned up even when the promote failed');
+});
+
 test('a bogus reauth target is refused up front (not an account / an api-key account)', () => {
   // not a codex home at all
   const bad = openai.startChatgptLogin({ codexBin: MOCK, reauthDir: nodePath.join(SANDBOX, 'not-an-account') });
