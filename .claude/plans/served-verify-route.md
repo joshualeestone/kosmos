@@ -55,5 +55,17 @@ lib comment too.
 `deploy-site.sh` is the sole runtime caller of the function (grep-verified repo-wide); the
 default-route param keeps it and any future caller unchanged unless they opt into a route.
 
+## Raised in review, dispositioned
+- WARNING (operational): the new root control is a live fail-closed gate addition -- deploys now
+  also require the site root to discriminate. INTENDED: a soft-404 root makes a /setup 200
+  unverifiable, so refusing is correct, not a false-refuse. Documented in the deploy-site comment.
+- NIT (robustness): the route param now normalises a missing leading slash (a caller passing
+  `setup` no longer yields a malformed `${host}setup/...`); no-op for the `/dist` and `/` callers.
+- NIT (coverage boundary, DEFERRED): the test drives the lib function directly; deploy-site's root
+  call site (like its sibling 328/329/335 calls) is not unit-covered, so reverting only that one
+  line would pass the suite. Accepted as consistent with the existing untested deploy-site
+  orchestration, which runs against real infra; the load-bearing logic (the control itself) IS
+  covered red-capably.
+
 ## Validate
 served-verify suite (13 arms), full node suite + test:shell. Challenge-loop, proof, 6j, PR.

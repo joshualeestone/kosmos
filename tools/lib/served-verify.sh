@@ -51,6 +51,10 @@
 served_verify_host_discriminates() {
   _svhd_host=$1
   _svhd_route=${2:-/dist}
+  # Normalise: ensure ONE leading slash (a caller passing `setup` must not yield the malformed
+  # `${host}setup/__...`), then strip a trailing slash so `/` maps to root (`${host}/__...`, not
+  # `${host}//__...`). Both are no-ops for the existing `/dist` and `/` callers.
+  case "$_svhd_route" in /*) ;; *) _svhd_route="/$_svhd_route" ;; esac
   _svhd_route=${_svhd_route%/}
   _svhd_url="${_svhd_host}${_svhd_route}/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
   _svhd_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$_svhd_url") || {

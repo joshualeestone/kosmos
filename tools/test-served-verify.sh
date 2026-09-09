@@ -145,6 +145,12 @@ check_rc "$rc" 0 "#2565: the DEFAULT /dist control PASSES the route-blind host (
 # /dist control missed. If this returns 0 the route parameter buys nothing.
 served_verify_host_discriminates "$ROUTEBLIND" "/" >/dev/null 2>&1; rc=$?
 check_rc "$rc" 1 "#2565: the ROOT-route control CATCHES the route-scoped blindness the /dist control missed"
+# RED-CAPABLE: a route passed WITHOUT a leading slash is normalised to one. `dist` must behave as
+# `/dist` -> probes /routeblind/dist/<nonexistent> -> 404 -> rc 0. WITHOUT normalisation the malformed
+# `${host}dist/...` (i.e. /routeblinddist/...) falls to the blind root branch -> 200 -> rc 1, so this
+# arm fails; it is not vacuous.
+served_verify_host_discriminates "$ROUTEBLIND" "dist" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "#2565: a leading-slash-less route ('dist') is normalised to '/dist' (not a malformed probe)"
 
 echo "-- asset content-type tell --"
 served_verify_asset_ok "$SOUND/dist/real.bin" "the real asset" >/dev/null 2>&1; rc=$?

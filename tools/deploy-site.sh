@@ -331,6 +331,12 @@ served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo 
 # 200 at $HOST/setup is meaningful -- a route-scoped blindness (a catch-all / rewrite / SPA fallback
 # at the root) discriminates under /dist and is blind at the root. Prove the ROOT route discriminates
 # before trusting the /setup 200, aiming the control at the route this line is about to trust.
+# ⚠️ OPERATIONAL: this is a live, fail-closed GATE ADDITION -- the deploy now also requires the site
+# ROOT to 404 a nonexistent path. INTENDED: if the root soft-404s (serves 200 for unknown paths, e.g.
+# a custom 404 page or landing redirect), a 200 at /setup is genuinely unverifiable, so refusing is
+# correct rather than a false-refuse. #1667 established the production alias discriminates host-wide
+# and /setup is a real text/plain route, so the root should discriminate; a refusal here means the
+# host's root routing changed and wants investigation, not that this gate is wrong.
 served_verify_host_discriminates "$HOST" "/" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed for the ROOT route that serves /setup (see above), so a 200 at /setup would be meaningless; the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 
