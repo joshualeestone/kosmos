@@ -259,3 +259,53 @@ test('#570 A FAILED JOB DOES NOT FAIL A LAUNCHED AGENT -- it changes the sentenc
     'a durability we did not get must never be claimed');
   assert.match(String(r.because), /not come back by itself/, 'and the shortfall is said plainly');
 });
+
+test('#570 7d the launch does NOT hand back a pid that is not the agent', () => {
+  /* 🛑 MEASURED ON THE BOX. `cmd /c start` is the only way to give the agent its
+     own console, so the process we spawn is CMD -- and cmd exits the instant
+     `start` has handed off. A live agent's parent pid was already dead when
+     checked. The field was called `pid`, and create.js's rollback duly called
+     process.kill() on it: it killed nothing, or -- once Windows reused the number
+     -- something else. Renamed so no future caller can read it as the agent's.
+     The agent's REAL pid comes from `claude agents --json`, joined on the session
+     id (engine/win32live). */
+  const folder = agentFolder('pidname-1');
+  recordingSpawn();
+  const out = launcher.launch({ name: 'pidname-1', cwd: folder, claudeBin: REAL_BIN, platform: 'win32' });
+
+  assert.equal(out.ok, true, out.because);
+  assert.equal(Object.prototype.hasOwnProperty.call(out, 'pid'), false,
+    'a field called `pid` here is a trap: it is the launcher\'s, not the agent\'s');
+  assert.equal(out.launcherPid, 777, 'kept under an honest name -- it IS what we spawned');
+  assert.ok(out.sessionId, 'and the id, which is the handle that actually addresses the agent');
+});
+
+test('#570 7d the rollback ends the session BY ID, and never process.kill()s a launcher pid', () => {
+  /* The defect: a create that failed after the launch deleted the worker folder
+     and the task while the agent it had just started kept running -- because the
+     only thing it tried to kill was a pid that had already exited.
+
+     Asserted at the source rather than by driving a failure, because the two
+     facts that matter are both textual: the rollback must reach win32stop with a
+     SESSION ID, and it must not carry a process.kill of a launch pid. */
+  const src = fs.readFileSync(path.join(__dirname, 'create.js'), 'utf8');
+  /* Anchored on the task removal, which is unique to the rollback arm.
+     `if (jobPlatform === 'win32')` is NOT unique -- it appears nine times in this
+     file, and anchoring there sliced a different branch entirely. */
+  const arm = src.slice(src.indexOf("require('./win32job').remove(name)"));
+  const rollback = arm.slice(0, arm.indexOf('return;'));
+
+  assert.match(rollback, /win32stop'\)\.endSession\(win32Launched\.sessionId\)/,
+    'the rollback must end the session it started, addressed by its id');
+
+  /* ⚠️ COMMENTS STRIPPED BEFORE THE NEGATIVE. The comment above this code in
+     create.js explains the defect by NAMING `process.kill`, so a raw text search
+     matches the explanation and goes red on the fix. A guard that cannot tell
+     code from the comment describing it is worse than no guard: it would have
+     been "fixed" by deleting the sentence that says why. */
+  const code = rollback.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+  assert.doesNotMatch(code, /process\.kill\(/,
+    'a process.kill here is the defect: the pid it had was the launcher\'s, already dead');
+  assert.ok(rollback.indexOf('remove(name)') < rollback.indexOf('endSession'),
+    'and the TASK still goes first -- a logon inside that window would start it back up');
+});

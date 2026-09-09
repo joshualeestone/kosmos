@@ -40,7 +40,7 @@ function recordingKill(reply) {
   return calls;
 }
 
-function reset() { win32stop.setRunner(null); win32stop.setAlive(null); win32stop.setLive(null); }
+function reset() { win32stop.setRunner(null); win32stop.setAlive(null); win32stop.setLive(null); win32stop.setPark(null); }
 test.afterEach(reset);
 test.after(reset);
 
@@ -166,4 +166,71 @@ test('#570 the default look-again reads EPERM as ALIVE, not as gone', () => {
   const r = win32stop.end('ghost');
   assert.equal(r.ok, false, 'an un-signallable process is still a running process');
   assert.match(r.because, /still running/);
+});
+
+/* ── endSession: the rollback's question is not the removal's ──────────────── */
+
+test('#570 endSession WAITS for a session that has not registered yet', () => {
+  /* The defect this exists for: a win32 agent takes ~5s to register, and a
+     create rollback can run inside that window. A single look would see nothing,
+     conclude there was nothing to stop, and walk away from a live agent. */
+  let looks = 0;
+  win32stop.setLive(() => {
+    looks += 1;
+    // Not there for the first two looks, then it registers.
+    if (looks < 3) return new Map();
+    return new Map([['pigeonpete', { sessionId: SID, pid: 4242, status: 'idle' }]]);
+  });
+  const kills = recordingKill();
+  win32stop.setAlive(() => false);
+  const napped = [];
+  win32stop.setPark((ms) => napped.push(ms));
+
+  const r = win32stop.endSession(SID, { waitMs: 5000, stepMs: 500 });
+  assert.equal(r.ok, true, 'it waited, saw it appear, and ended it');
+  assert.deepEqual(kills, ['/PID 4242 /T /F']);
+  assert.equal(looks, 3, 'it kept looking rather than trusting the first empty answer');
+  assert.deepEqual(napped, [500, 500], 'and it parked between looks instead of spinning');
+});
+
+test('#570 endSession that never sees the session reports FAILURE, not "already gone"', () => {
+  /* ⚠️ The whole point. `end(name)` answers an OPEN question, so an empty look is
+     a legitimate "nothing is running". This answers a CLOSED one -- we started
+     this session -- so never seeing it is a thing we could not do, and the caller
+     must be able to say so. */
+  win32stop.setLive(() => new Map());
+  const kills = recordingKill();
+  win32stop.setPark(() => {});
+
+  const r = win32stop.endSession(SID, { waitMs: 20, stepMs: 10 });
+  assert.equal(r.ok, false, 'silence is not success here');
+  assert.match(r.because, /never appeared/);
+  assert.deepEqual(kills, [], 'and nothing was killed on a guess');
+});
+
+test('#570 endSession matches on the session ID, never on the name', () => {
+  /* A rollback deletes the worker folder, so acting on the wrong session is
+     unrecoverable. Two live agents, and only the id says which one we started. */
+  const other = 'cccccccc-bbbb-cccc-dddd-eeeeeeeeeeee';
+  win32stop.setLive(() => new Map([
+    ['someone-else', { sessionId: other, pid: 111, status: 'busy' }],
+    ['ours', { sessionId: SID, pid: 222, status: 'idle' }],
+  ]));
+  const kills = recordingKill();
+  win32stop.setAlive(() => false);
+
+  assert.equal(win32stop.endSession(SID, { waitMs: 0 }).ok, true);
+  assert.deepEqual(kills, ['/PID 222 /T /F'], 'it ended OUR session, not the one next to it');
+});
+
+test('#570 endSession forgets the record too, so no row outlives the deleted folder', () => {
+  const sid = 'dddddddd-bbbb-cccc-dddd-eeeeeeeeeeee';
+  win32sessions.record(sid, { name: 'rolled-back', runner: 'claude' });
+  win32stop.setLive(() => new Map([['rolled-back', { sessionId: sid, pid: 4242, status: 'idle' }]]));
+  recordingKill();
+  win32stop.setAlive(() => false);
+
+  assert.equal(win32stop.endSession(sid, { waitMs: 0 }).ok, true);
+  assert.equal(win32sessions.isOurs(sid), false,
+    'a rollback that left the record would leave a board row for a folder it deleted');
 });

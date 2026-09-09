@@ -154,8 +154,69 @@ function end(name, opts) {
   }
   // Nothing owned is running under that name: the end state we wanted.
   if (!found.found) return { ok: true, already: true };
+  return killAndForget(found.pid, found.sessionId);
+}
 
-  const r = run(['/PID', String(found.pid), '/T', '/F']);
+/* A bounded synchronous park, the shape chat.js and filelock.js already use:
+   Atomics.wait on a private buffer blocks this thread for the timeout with no
+   busy loop. Seamed so a test never actually sleeps. */
+const PARK = new Int32Array(new SharedArrayBuffer(4));
+let parkFn = null;
+function setPark(fn) { parkFn = typeof fn === 'function' ? fn : null; }
+function park(ms) {
+  if (parkFn) { parkFn(ms); return; }
+  try { Atomics.wait(PARK, 0, 0, ms); } catch { /* a park we cannot take is not a failure */ }
+}
+
+/**
+ * End the session with THIS id, waiting for it to appear if it has not yet.
+ *
+ * 🛑 WHY THIS IS NOT `end(name)`, AND THE DIFFERENCE IS THE WHOLE POINT. `end`
+ * asks an open question -- "is anything of ours running under this name?" -- and
+ * an empty answer is a legitimate "nothing is". This asks a closed one: the
+ * caller JUST LAUNCHED this session and holds its id, so "it is not in the live
+ * list" does not mean it is not running. It means NOT YET.
+ *
+ * ⚠️ A win32 agent takes ~5s to register (measured, see win32launch). A rollback
+ * that reads the list once, immediately, sees nothing and concludes there is
+ * nothing to stop -- and walks away from a live agent it started. That is the
+ * false-zero this module family exists to refuse, one layer up: positive
+ * knowledge that a launch happened outranks an empty look.
+ *
+ * So it polls to `waitMs` before giving up, and giving up is reported as a
+ * FAILURE with a sentence, never as "already gone".
+ */
+function endSession(sessionId, opts) {
+  const o = opts || {};
+  const waitMs = Number.isFinite(o.waitMs) ? o.waitMs : 12000;
+  const stepMs = Number.isFinite(o.stepMs) ? o.stepMs : 500;
+  let waited = 0;
+  for (;;) {
+    const map = liveByName(o);
+    if (map) {
+      for (const hit of map.values()) {
+        if (hit && hit.sessionId === sessionId) {
+          if (!Number.isInteger(hit.pid) || hit.pid <= 0) {
+            return { ok: false, because: 'it is running but we could not find its process' };
+          }
+          return killAndForget(hit.pid, sessionId);
+        }
+      }
+    }
+    if (waited >= waitMs) break;
+    park(Math.min(stepMs, waitMs - waited));
+    waited += stepMs;
+  }
+  /* ⚠️ NOT `{ok:true}`. It may have died on its own, in which case there was
+     nothing to end -- but it may equally be a session that is slow to register,
+     and we cannot tell those apart. The caller launched it, so the honest answer
+     is that we could not confirm it stopped. */
+  return { ok: false, because: 'we started it, but it never appeared in the list of running agents, so we could not stop it' };
+}
+
+/** The kill, the look-again, and the record -- shared by both entry points. */
+function killAndForget(pid, sessionId) {
+  const r = run(['/PID', String(pid), '/T', '/F']);
   /* taskkill answers 128 for a pid that is not there, which is success for us --
      the same "already in the end state" reading as launchd's exit 3. The message
      is matched too, because taskkill's exit codes are not uniform across Windows
@@ -168,7 +229,7 @@ function end(name, opts) {
   /* ⚠️ LOOK AGAIN. The kill's own answer is not evidence the process has gone --
      the rule both Mac call sites already carry, and the one that stops a removal
      being reported over a live agent. */
-  if (alive(found.pid)) {
+  if (alive(pid)) {
     return { ok: false, because: 'it is still running after we asked it to close' };
   }
 
@@ -185,9 +246,9 @@ function end(name, opts) {
      to the roster because nothing live matches it -- and reporting the kill as a
      failure over it would be far worse, since the caller would then tell somebody
      their agent is still running when it is not. */
-  if (found.sessionId) win32sessions.forget(found.sessionId);
+  if (sessionId) win32sessions.forget(sessionId);
 
   return { ok: true };
 }
 
-module.exports = { end, resolve, setRunner, setAlive, setLive };
+module.exports = { end, endSession, resolve, setRunner, setAlive, setLive, setPark };

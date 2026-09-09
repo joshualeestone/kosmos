@@ -244,6 +244,8 @@ session to a bare prompt. Use:
 | 7 | PHASE 3 dress rehearsal R1-R8 | R1,R2,R4,R5,R6,R7,R8 PASS. **R3 FAILS** -- see 7c |
 | 7a | port createAgentInner's launch block to win32 | DONE -- R1 PASSES on the box |
 | 7b | port remove.js's process-ending half off tmux | DONE, 121/121 green -- R4-R7 now runnable |
+| 7c | deliver a message to a Windows agent | SPIKED -- substrate proven, API open |
+| 7d | rollback killed the launcher pid, not the agent | DONE, 127/127 green |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
 
@@ -689,3 +691,89 @@ Left as it was found: `winreh-2` running under its supervisor, its task enabled;
 the board process stopped (it was not running before). `winreh-3`/`winreh-4` were
 created for the rehearsal and removed again -- tasks Disabled, folders kept,
 Restore offered for both.
+
+## THE 7c SPIKE: the substrate exists, and it is not a pty (2026-09-08)
+
+Three candidates were considered for delivering a message to a Windows agent.
+
+**1. Claude Code's own local session messaging -- WORKS, PROVEN END TO END.**
+A Kosmos-launched agent (hidden console, `stdio: 'ignore'`, and with every
+`CLAUDE_CODE_MESSAGING_*` marker deliberately STRIPPED at launch) is nonetheless
+listed as an addressable peer session on this machine, and a message sent to it
+was acted on:
+
+    sent  -> "write C:\...\winreh-2\spike-7c.txt containing DELIVERED"
+    file arrived ~5s later, contents: DELIVERED
+
+So the agent is reachable without tmux, without a pane, and without a pty. This
+is the substrate 7c should be built on.
+
+**2. `AttachConsole` + `WriteConsoleInput`** -- the literal `send-keys` analog.
+NOT PURSUED. Writing synthetic keystrokes into another process's console is
+input-injection tooling whatever the intent, and it was refused by policy on this
+machine. It is also the wrong dependency: it simulates a human at a keyboard to
+reach a program that has a real message channel.
+
+**3. A stdin pipe held by Kosmos** -- RULED OUT by the launch design. `win32launch`
+starts the agent through `cmd /c start` with `stdio: 'ignore'`, because that is
+the only way to give it its own console (a TUI needs one; `DETACHED_PROCESS` gets
+none). Kosmos never holds the child's stdin, and taking it would cost the console.
+
+THE OPEN QUESTION FOR 7c IS THE API, NOT THE SUBSTRATE. The delivery above went
+through a Claude session's own messaging channel. What `chat.js` needs is the
+programmatic equivalent for a PLAIN NODE PROCESS -- the board is not a Claude
+session and has no `CLAUDE_CODE_MESSAGING_SOCKET`. `claude agents --help` exposes
+no send verb, so that is the thing to find out next.
+
+THE DEPENDENCY IS ALREADY ACCEPTED, which is the argument for taking this route
+rather than fearing it: `win32roster` and `win32capture` both already stand on
+`claude agents --json`. Session messaging is the same surface, not a new class of
+risk.
+
+## 7d: the rollback killed the wrong process (found while spiking 7c)
+
+🛑 `win32launch.launch` RETURNED A PID THAT WAS NEVER THE AGENT'S. The agent is
+started through `cmd /c start` -- the only way to give it its own console -- so
+the process Node spawns is CMD, and cmd exits the instant `start` has handed off.
+Measured on the box:
+
+    agent pid 19848 (claude.exe)  ->  parent pid 19868  ->  ALREADY DEAD
+
+`create.js`'s rollback called `process.kill(win32Launched.pid)` on exactly that
+number. So a create that failed AFTER the launch:
+
+    removed the Scheduled Task ................ ok
+    killed a pid that had already exited ...... no-op (or, once Windows reused
+                                                that number, something else)
+    deleted the worker folder ................. ok
+    told the person it had been taken back off their computer
+
+...while the agent it had just started kept running, in a folder that no longer
+existed, with its ownership record intact -- so the board would still show a row
+for it.
+
+⚠️ 7a MADE THIS REACHABLE, exactly as 7b made defect 5 reachable. The earlier
+note in this file ("no residue is left by the failed create -- checked") was true
+when it was written: the launch failed at `launchctl bootstrap` before it started
+anything. Once 7a made the launch actually work, a later failure had something
+live to leave behind.
+
+FIXED with `win32stop.endSession(sessionId)`, and the session ID is the point:
+
+- **By ID, not by pid** -- the pid we had was the launcher's.
+- **By ID, not by name** -- a rollback deletes a folder, so acting on the wrong
+  session is unrecoverable.
+- **It WAITS.** An agent takes ~5s to register, and a rollback can easily run
+  inside that window. `end(name)` answers an OPEN question, so an empty look is a
+  legitimate "nothing is running"; this is a CLOSED one -- we started this
+  session -- so an empty look means NOT YET. Never seeing it is reported as a
+  failure with a sentence, never as "already gone".
+- **It forgets the record**, so no board row outlives the deleted folder.
+
+The misleading field is now `launcherPid`, kept rather than dropped because it is
+still the honest answer to "what did we spawn" -- and pinned by a test, because a
+field called `pid` that is not the process's pid is a trap that already cost one
+defect.
+
+    win32 surface (13 files) ......... 127/127 green
+    create.test.js / remove.test.js .. identical to HEAD (61/100 and 12/49)

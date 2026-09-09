@@ -3250,8 +3250,26 @@ function createAgentInner(opts) {
        the job must stop being a job before anything else is undone. */
     if (jobPlatform === 'win32') {
       try { require('./win32job').remove(name); } catch { /* never registered is the common case */ }
-      if (win32Launched && win32Launched.pid) {
-        try { process.kill(win32Launched.pid); } catch { /* already gone, which is the end state we wanted */ }
+      /* 🛑 THE PID THE LAUNCH RETURNS IS NOT THE AGENT'S, which is why this used
+         to roll back over a still-running agent. `win32launch` starts the session
+         through `cmd /c start` (the only way to give it its own console), so the
+         spawned process is CMD, and cmd exits the moment `start` has handed off.
+         Measured on the box: a live agent's parent pid is already dead. So
+         `process.kill(launcherPid)` killed nothing -- or, once Windows had reused
+         that number, something else entirely -- and the rollback then deleted the
+         worker folder and the task while the agent it had just started kept
+         running, with its ownership record intact and its folder gone.
+
+         🔑 ADDRESSED BY SESSION ID, NOT BY PID OR NAME. We know exactly which
+         session we started, and `win32stop.endSession` waits for it to appear
+         before concluding it is not there -- an agent takes ~5s to register, and
+         a rollback can easily run inside that window. `end(name)` would be the
+         wrong call here: an empty look is a legitimate "nothing running" for an
+         open question, and this is a closed one. It also forgets the ownership
+         record, so no row outlives the folder this is about to delete. */
+      if (win32Launched && win32Launched.sessionId) {
+        try { require('./win32stop').endSession(win32Launched.sessionId); }
+        catch { /* best effort: a rollback must finish even if the kill throws */ }
       }
       try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
       return;

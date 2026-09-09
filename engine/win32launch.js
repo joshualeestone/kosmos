@@ -187,7 +187,16 @@ function launch(spec) {
     ok: true,
     name: prepared.name,
     sessionId: prepared.sessionId,
-    pid: child && child.pid ? child.pid : null,
+    /* ⚠️ NOT THE AGENT'S PID, AND THE NAME NOW SAYS SO. `cmd /c start` is what
+       gives the agent its own console, so the process we spawned is CMD -- and
+       cmd exits the instant `start` has handed off. Measured on the box: a live
+       agent's parent pid is already dead. This was called `pid`, and create.js's
+       rollback duly called `process.kill()` on it, which killed nothing (or, once
+       Windows reused the number, something else) and left the agent running.
+       THE AGENT'S REAL PID COMES FROM `claude agents --json`, joined through the
+       session id -- see engine/win32live. Kept and renamed rather than dropped,
+       because a launcher pid is still the honest answer to "what did we spawn". */
+    launcherPid: child && child.pid ? child.pid : null,
     /* Surfaced, not swallowed: a session with no token still runs and still shows
        on the board, but it cannot self-report needs_you or blocked. */
     tokenBecause: prepared.tokenBecause || null,
