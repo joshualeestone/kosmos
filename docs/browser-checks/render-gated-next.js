@@ -148,7 +148,7 @@ async function fresh(browser) {
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: true }, tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), 'S3 sleep-granted but tmux-not still disables Next (needs BOTH)');
+    ok(await nextDisabled(page), 'Accessibility (tmux) not-granted still disables Next -- it gates even with sleep granted (sleep is advisory, #2587)');
     ok(await rowGranted(page, 'sleep'), 'the granted (sleep) row is green');
     ok(!(await rowGranted(page, 'tmux')), 'the not-granted (tmux) row is not green');
     await ctx.close();
