@@ -18,6 +18,27 @@
  * instead. This mirrors update.js's installedRoot() from-source guard -- the
  * reason the original slice (server.js:2717) deferred self-restart was exactly
  * this, and the guard is what makes it safe to do now.
+ *
+ * ─── #570: AND THE SAME QUESTION ON WINDOWS ──────────────────────────────────
+ *
+ * 🛑 THIS MODULE HAD NO win32 ARM AT ALL, so a Windows world switch always fell
+ * through the launchd checks to "restart it by hand" -- honestly, but with a
+ * sentence about a `com.kosmos.board` launchd job that does not exist on that
+ * machine. Two of the three reasons it gave were unreachable there
+ * (`process.getuid` is not a function on win32, so `loadedJob` could never
+ * succeed), which made the refusal a Mac answer wearing a Windows coat.
+ *
+ * 🔑 THE WINDOWS ANSWER TO "WILL A STOP BRING THIS BOARD BACK" IS A DIFFERENT
+ * FACT, not a translated one. There is no supervisor and no `bin\kosmos` wrapper
+ * to drive (`engine/clipath.js`'s installed layout is `$KOSMOS_HOME/bin/kosmos`,
+ * and the Windows bundle ships no such file -- so `installedKosmosCli()` is null
+ * there by construction, and the `kosmos` arm below is correctly unreachable).
+ * What exists is the board's own at-logon Scheduled Task (engine/win32board.js),
+ * and the question becomes: was THIS board started by that task? If it was,
+ * ending the task ends this process and running it starts a fresh one. If it was
+ * not -- a hand-started `Kosmos.exe`, a from-source `node server.js` -- then
+ * ending the task stops nothing and running it would start a SECOND board that
+ * dies on the port. So the same conservative rule holds, on a different proof.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -61,7 +82,23 @@ let runner = (cmd, args) => {
 };
 function setRunner(fn) { runner = fn; }
 
-function uid() { return typeof process.getuid === 'function' ? process.getuid() : null; }
+/* #570: the win32 seam, alongside the launchctl one and for the same reason -- a
+   test must never shell a real `schtasks` or bounce the operator's own board.
+   Lazily required so a Mac never loads the Windows module just to read a plist. */
+let boardOpsFn = () => require('./win32board');
+function setBoardOps(fn) { boardOpsFn = typeof fn === 'function' ? fn : () => require('./win32board'); }
+
+/**
+ * ⚠️ INJECTABLE FOR THE MIRROR OF THIS BRANCH'S OWN RULE. The rule is that a Mac
+ * must be able to assert the win32 arm; the same discipline run backwards says
+ * the fleet's WINDOWS box must be able to assert the darwin arm -- and it could
+ * not, because `process.getuid` does not exist there, so `loadedJob()` failed for
+ * a reason that had nothing to do with the guard under test. Four assertions
+ * about a Mac-only decision were red on Windows, measured 2026-09-09, and every
+ * one of them went green on this seam alone. The default is unchanged. */
+let uidFn = () => (typeof process.getuid === 'function' ? process.getuid() : null);
+function setUid(fn) { uidFn = typeof fn === 'function' ? fn : () => (typeof process.getuid === 'function' ? process.getuid() : null); }
+function uid() { return uidFn(); }
 
 // The on-disk plist must declare UNCONDITIONAL KeepAlive (<true/>). This is kept
 // ALONGSIDE the LOADED check below, not instead of it: `launchctl print`'s summary
@@ -158,9 +195,14 @@ function launchctlKeepAlive() {
  *                      bring back -- resolves to null and is NEVER restarted.
  * Every uncertainty -> canRestart:false, and the caller reports restartRequired for
  * a manual restart instead.
+ *
+ * #570: `platform` is a defaulted PARAMETER, never a bare `process.platform`
+ * read, so a Mac can assert the win32 arm and a Windows box the darwin one --
+ * the discipline `engine/remove.js`'s `jobOps(platform)` set for this branch.
  * @returns {{canRestart:boolean, because:string, via?:string, cli?:string}}
  */
-function canSelfRestart() {
+function canSelfRestart(platform = process.platform) {
+  if (platform === 'win32') return win32CanRestart();
   const la = launchctlKeepAlive();
   if (la.canRestart) return { canRestart: true, because: la.because, via: 'launchctl' };
   const cli = installedCliFn();
@@ -169,6 +211,39 @@ function canSelfRestart() {
   }
   // Neither path viable: surface the launchctl reason for the manual banner.
   return { canRestart: false, because: la.because, via: null };
+}
+
+/**
+ * #570: the Windows arm of the same question, and it is ONE fact rather than
+ * three. See this file's header for why the Mac's three checks do not translate.
+ *
+ * 🛑 EVERY REFUSAL NAMES SOMETHING A PERSON CAN DO. That is the actual defect
+ * BLOCKER 4 is about: the board not coming back was bad, and nothing SAYING so
+ * was what made it a blocker. A Windows board that cannot bounce itself must say
+ * which of the two reasons it is -- nothing registered to start it, or this
+ * particular board was not started by what is registered -- because those have
+ * different remedies.
+ */
+function win32CanRestart() {
+  let ops;
+  try { ops = boardOpsFn(); } catch (e) {
+    return { canRestart: false, via: null, because: `we could not check how this board is started on Windows (${String((e && e.message) || e)}); restart it by hand` };
+  }
+  const st = ops.status();
+  if (!st.registered) {
+    return { canRestart: false, via: null,
+      because: 'nothing on this computer starts the board at logon yet, so stopping it would not bring it back; restart it by hand' };
+  }
+  if (st.enabled === false) {
+    return { canRestart: false, via: null,
+      because: `the job that starts the board at logon (${ops.TASK_NAME}) is switched off, so stopping it would not bring it back; restart it by hand` };
+  }
+  if (!ops.startedByTask()) {
+    return { canRestart: false, via: null,
+      because: `this board was started by hand rather than by its logon job (${ops.TASK_NAME}), so stopping that job would not stop this board; restart it by hand` };
+  }
+  return { canRestart: true, via: 'schtasks',
+    because: `the board runs from its logon job (${ops.TASK_NAME}) and will be started again from it` };
 }
 
 /**
@@ -224,9 +299,13 @@ function kosmosRestart(cli) {
  * launchctl stop (gui-domain target, falling back to the bare label).
  * @returns {{ok:boolean, because?:string}}
  */
-function selfRestart() {
-  const can = canSelfRestart();
+function selfRestart(platform = process.platform) {
+  const can = canSelfRestart(platform);
   if (!can.canRestart) return { ok: false, because: can.because };
+  /* #570: end the logon task, wait for the board to actually be gone, run it
+     again -- driven from a detached helper, because step one kills this process.
+     engine/win32board.restart() owns the sequence and the measurement behind it. */
+  if (can.via === 'schtasks') return boardOpsFn().restart();
   if (can.via === 'kosmos') return kosmosRestart(can.cli);
   const u = uid();
   let r = runner('launchctl', ['stop', `gui/${u}/${BOARD_LABEL}`]);
@@ -235,4 +314,4 @@ function selfRestart() {
   return { ok: true };
 }
 
-module.exports = { canSelfRestart, selfRestart, setRunner, setInstalledCli, setSpawner };
+module.exports = { canSelfRestart, selfRestart, setRunner, setInstalledCli, setSpawner, setBoardOps, setUid };
