@@ -67,11 +67,17 @@
 # the success-path message on stdout stayed an `echo` one line below a comment claiming every site
 # had been converted. That is the defect class this branch exists to remove, surviving in the one
 # sentence that claimed completeness.
-# ⚠️ WHAT IS CONVERTED IS NOT WHAT IS GUARDED, AND THIS SENTENCE HAS BEEN A FALSE COMPLETENESS
-# CLAIM TWICE, SO IT NOW SAYS BOTH. Every site is converted; exactly ONE is covered by a test (the
-# *text/html* branch, driven through /ssoesc's Location of backslash escapes). The others emit only
-# values this file constructs, so no remote byte reaches a shell there and the uncovered sites are
-# defence-in-depth rather than a live hazard. The redirect target is
+# ⚠️ WHAT IS CONVERTED IS NOT WHAT IS GUARDED, AND THIS SENTENCE HAS NOW BEEN WRONG THREE TIMES.
+# Every site is converted. Which ones are COVERED was stated wrongly twice over: it named the
+# *text/html* branch, and /ssoesc's escaped Location matches no fixture handler, so curl -L lands
+# on the fixture's terminal 404 and the arm was actually driving the NOT-SERVED branch. MEASURED:
+# printf -> echo on the text/html branch left the suite GREEN; the same mutation on the NOT-SERVED
+# branch red it. The two errors compounded, because the text/html branch is the ONE site that
+# interpolates a remote byte outside the note (${_svao_ct}, the server's own Content-Type), which
+# is exactly the site the old sentence excused as needing no coverage.
+# ✅ BOTH ARE COVERED NOW: /ssoesc reaches the NOT-SERVED branch and /ssoesc2 redirects to a
+# handler that answers 200 text/html, so the text/html branch is driven with an escaped Location
+# in its message too. Each is asserted under a shell whose echo truncates. The redirect target is
 # the first field a REMOTE host writes into our output, and `echo` interprets backslash escapes in
 # several shells. MEASURED on this box with a Location of `http://x/a\tb\cTRUNCATED`:
 #   dash  -> tab rendered, and everything after \c DROPPED

@@ -13,7 +13,11 @@
 # 📌 ITS SCOPE, NAMED BY WHAT THE REGEX ACTUALLY MATCHES RATHER THAN BY WHAT IT IS FOR: a line
 # whose first token is `if` or `elif` FOLLOWED BY EXACTLY ONE SPACE, whose subject is the bare name
 # `p` or `rest`, and whose test is `.startswith(` or `==` against ONE quoted literal BEGINNING WITH
-# `/`, in either quote style, with any spacing around `==` but NO SPACE after `startswith(`. That is a restriction on the METHOD, and
+# `/`, in either quote style, with any spacing around `==` but NO SPACE after `startswith(`.
+# 📌 PRECISION, because this sentence is the thing the non-fix decision traded for: "ONE quoted
+# literal" describes the SELECTION of a line. The EXTRACTION then pulls EVERY `'/...'` literal off
+# a selected line, so `if p == '/a' or p == '/b':` yields two tokens. That is a superset and fails
+# in the safe direction (an extra token needs a manifest entry), but it is not what "one" says. That is a restriction on the METHOD, and
 # the earlier wording ("if/elif on p or rest") implied it was a restriction on the SUBJECT.
 # ⚠️ THE TWO CLAUSES IN CAPITALS WERE MISSING FROM THIS SENTENCE AND ARE IN THE REGEX. MEASURED:
 # `if  p == '/twospaceafterif':` (two spaces after `if`) is NOT matched, and `if p == 'noslash':`
@@ -69,6 +73,8 @@
 #   /sso301/                301, not 302, so the note's `3??` arm is more than a 302 arm
 #   /sso308/                308, so that arm is more than a 301-or-302 arm either
 #   /ssoq/                  302 whose Location carries a QUERY with a secret-shaped value
+#   /ssoesc2/               like /ssoesc/, but its escaped Location LANDS on 200 text/html
+#   /esclanding             the 200 text/html that /ssoesc2/'s escaped Location resolves to
 #   /routeblind/            200 text/html for everything at this prefix...
 #   /routeblind/dist/       ...but 404 under /dist, so it is blind ONLY off the /dist route
 # --- MANIFEST END ---
@@ -93,6 +99,11 @@
 #     upgrade and an apex-to-www redirect, both commonly 301, as cases it covers; nothing tested
 #     that claim until this fixture.
 #   /ssoesc/ makes the echo-vs-printf difference observable under a shell whose echo truncates.
+#     🛑 IT REACHES THE **NOT-SERVED** BRANCH, NOT THE text/html ONE, and a comment in the lib
+#     claimed the opposite for twelve commits: the escaped Location matches no handler, so curl -L
+#     lands on the terminal 404. MEASURED: printf -> echo on the text/html branch left the suite
+#     GREEN. /ssoesc2/ exists to close that, because the text/html branch is the ONE message site
+#     that interpolates a remote byte outside the note (the server's own Content-Type header).
 #     🛑 ITS MARKER MOVED FROM THE QUERY INTO THE PATH when kosmos#2566's redaction landed:
 #     the note now redacts query VALUES, which would have eaten the marker and red an arm that has
 #     nothing to do with redaction. The escape hazard is identical in a path.
@@ -216,6 +227,20 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Location', '/ssologin\\tb\\cTRUNCATEDMARKER')
             self.send_header('Content-Length', '0')
             self.end_headers()
+            return
+        if p.startswith('/ssoesc2/'):
+            # like /ssoesc/, but the escaped Location resolves to a handler that answers 200
+            # text/html, so served_verify_asset_ok takes the *text/html* branch instead of the
+            # NOT-SERVED one. That branch is the only message site carrying a remote byte outside
+            # the note, and it was uncovered while a comment said it was the covered one.
+            self.send_response(302)
+            self.send_header('Location', '/esclanding\\tb\\cTRUNCATEDMARKER2')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if p.startswith('/esclanding'):
+            # startswith, not ==, because the escaped suffix is part of the resolved path.
+            self._send(200, 'text/html; charset=utf-8', b'<html><body>escaped landing</body></html>')
             return
         if p.startswith('/ssoq/'):
             # a Location carrying a QUERY whose values look like credentials. The note must print
@@ -344,6 +369,7 @@ SSONOLOC="http://127.0.0.1:$PORT/ssonoloc"
 SSO301="http://127.0.0.1:$PORT/sso301"
 SSO308="http://127.0.0.1:$PORT/sso308"
 SSOQ="http://127.0.0.1:$PORT/ssoq"
+SSOESC2="http://127.0.0.1:$PORT/ssoesc2"
 ROUTEBLIND="http://127.0.0.1:$PORT/routeblind"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
@@ -620,6 +646,19 @@ if [ -n "$ESC_SH" ]; then
     *TRUNCATEDMARKER*) pass "under $ESC_SH, a Location carrying backslash escapes prints whole (printf, not echo)" ;;
     *) fail "under $ESC_SH the diagnostic was TRUNCATED or mangled by a server-controlled Location; use printf not echo. Got: $esc_out" ;;
   esac
+  # 🛑 THE SECOND ESCAPE ARM, ON THE OTHER BRANCH. /ssoesc/ above reaches the NOT-SERVED
+  # branch; this one lands on a 200 text/html, which is the only message site that also
+  # interpolates a remote byte of its own (the Content-Type). A comment claimed this branch was
+  # the covered one while it was the uncovered one.
+  esc2_out=$("$ESC_SH" -c '. "$1"/lib/served-verify.sh; served_verify_asset_ok "$2/dist/real.bin" "an asset behind an escaped Location landing on html" 2>&1 >/dev/null' _ "$DIR" "$SSOESC2")
+  case "$esc2_out" in
+    *TRUNCATEDMARKER2*) pass "under $ESC_SH, the *text/html* branch also prints an escaped Location whole (printf, not echo)" ;;
+    *) fail "under $ESC_SH the text/html branch TRUNCATED a server-controlled Location. That branch is the one message site carrying a remote byte outside the note, and it was the site a comment wrongly called covered. Got: $esc2_out" ;;
+  esac
+  case "$esc2_out" in
+    *"content-type is 'text/html"*) pass "CONTROL: the /ssoesc2 arm really reaches the text/html branch, not the NOT-SERVED one (which is what /ssoesc drives)" ;;
+    *) fail "CONTROL: /ssoesc2 did not reach the text/html branch, so the arm above is testing the same branch as /ssoesc and proves nothing new. Got: $esc2_out" ;;
+  esac
   loc=$(curl -sS -o /dev/null -w '%{redirect_url}' "$SSOESC/dist/real.bin" 2>/dev/null)
   # 🛑 ASSERT THE ESCAPE, NOT JUST THE MARKER. A marker-only control still holds if curl
   # percent-encodes the backslash -- and then there is no `\c` left for a shell to truncate at, so
@@ -719,7 +758,9 @@ if [ -f "$DS" ]; then
     # assertion on the refusal's WORDING one file over, which is pinned to the character.
     _sv_calls=$(printf '%s\n' "$_ds_code" | /usr/bin/grep -E '^[[:space:]]*served_verify_(host_discriminates|asset_ok) "\$HOST')
     _sv_n=$(printf '%s\n' "$_sv_calls" | /usr/bin/grep -c .)
-    _sv_guarded=$(printf '%s\n' "$_sv_calls" | /usr/bin/grep -c '|| { .*exit 1; }')
+    # The pattern does NOT pin the spacing after `exit 1`: a legitimate `|| { echo ...; exit 1 ; }`
+    # would otherwise red this arm, which is the "so tight it reds on a correct edit" defect.
+    _sv_guarded=$(printf '%s\n' "$_sv_calls" | /usr/bin/grep -c '|| { .*exit 1')
     if [ "$_sv_n" -lt 8 ]; then
       fail "found only $_sv_n served_verify_* calls on \$HOST in deploy-site.sh, expected at least 8 (3 controls plus 5 assets). This arm must not pass on a search that found nothing."
     elif [ "$_sv_n" -ne "$_sv_guarded" ]; then
@@ -793,8 +834,15 @@ if [ -f "$DS" ]; then
   else
     fail "deploy-site.sh reads \$HOST at line $_ds_curl but does not prove it discriminates until line $_ds_ctl. On a host-wide-blind host the earlier read returns the login page with a 200 and the script refuses with a symptom instead of the mechanism, which is the #1667 failure itself."
   fi
+elif [ -f "$DIR/../package.json" ]; then
+  # 🛑 A DISCRIMINATING CONDITION, because "the file is missing" passed either way and that
+  # silently disarmed SEVEN wiring arms. `$DIR/../package.json` exists only in the repo layout, so
+  # in the repo a missing deploy-site.sh is a REAL failure, and only a true standalone copy of the
+  # suite takes the stated skip below. `_armsites` cannot notice this: it counts source call sites,
+  # not executed ones.
+  fail "deploy-site.sh is missing from $DIR but this IS the repo layout ($DIR/../package.json exists), so seven wiring arms just silently did not run. If the file moved, update DS in the same commit."
 else
-  pass "deploy-site.sh is not beside this test (a copy of the suite, not the repo), so the wiring arm did not run. STATED, not silently skipped: every other arm drives the library and is unaffected."
+  pass "deploy-site.sh is not beside this test AND this is not the repo layout (no ../package.json), so the wiring arms did not run. STATED, not silently skipped: every other arm drives the library and is unaffected."
 fi
 
 echo "-- the lib is #!/bin/sh, and package.json lints it with sh -n --"
@@ -911,6 +959,10 @@ srv_src=$(awk '/srv\.py" <</ && !started { started = 1; inblk = 1 }
 # layer in. Two changes close it, and THE ANCHOR IS THE LOAD-BEARING ONE: the pattern now matches
 # only a DISPATCH STATEMENT (`if`/`elif` on `p` or `rest`, at the start of a line), which a comment
 # cannot be. Stripping comment lines first is belt-and-braces, not the fix.
+# 📌 WHOLE-LINE COMMENTS ONLY. A TRAILING comment on a dispatch line
+# (`if p == '/a':  # unlike '/b'`) still injects a phantom token. That fails NOISY (the count
+# mismatches and names the extra token) rather than hiding a handler, and stripping trailing `#`
+# would have to reason about `#` inside a string literal, so it is named rather than done.
 srv_code=$(printf '%s\n' "$srv_src" | /usr/bin/grep -v '^[[:space:]]*#')
 # 🛑 THE SUB-DISPATCH COUNTS TOO. /discriminating routes five sub-paths through `rest == ...`,
 # and an extraction that read only the top level left /dist/htmlcaps.bin and /dist/nocontenttype.bin
@@ -985,8 +1037,8 @@ n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # in prose or here. An earlier version said "ten top-level and five sub-dispatch"; nothing read
 # those two numbers, so adding one sub-path and bumping the total would have left both stale -- the
 # exact failure this file's opening paragraph disclaims.
-if [ "$n_paths" -ne 21 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 21: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
+if [ "$n_paths" -ne 23 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 23: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   # 🛑 MATCH INSIDE THE DELIMITED MANIFEST ONLY, AND ONLY AT THE START OF AN ENTRY. Asking
@@ -1052,8 +1104,8 @@ if [ "$(printf '%s\n' "$_arm_code" | wc -l)" -ge "$(wc -l < "$0")" ]; then
   fail "the comment strip removed no lines from this file, so a comment mentioning the || fail idiom would be counted as an arm"
 fi
 _armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "')
-if [ "$_armsites" -ne 85 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 85. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+if [ "$_armsites" -ne 86 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 86. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi
