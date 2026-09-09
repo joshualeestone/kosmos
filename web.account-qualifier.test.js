@@ -91,6 +91,27 @@ test('control: the extracted function discriminates in both directions', () => {
   assert.equal(cleanNames.length, 0, 'the clean arm produced qualifiers, so the function qualifies unconditionally and the tests above are vacuous');
 });
 
+/* #2584 (deferred finding 9, made live). `main` is reserved for the default row,
+   but there can be MORE THAN ONE default in a key-group: each provider has its
+   own default, so a Claude default and an OpenAI ChatGPT default that share one
+   email land in the same group and BOTH used to take 'main'. #2584 gave the
+   OpenAI default a reauth button, so the two controls then answered to one
+   accessible name ("Sign in again as <email> (main)") -- the exact 3b browser
+   check that red'd. This mirrors the real condition that produced it: one email
+   with a Claude default in ~/.claude and an OpenAI ChatGPT default in ~/.codex.
+   The qualifier must keep them distinct. Reds on the pre-fix page (both get
+   'main'). */
+test('two defaults sharing a login are named distinctly (cross-provider default collision)', () => {
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const q = qualifiers([claudeDefault, openaiDefault]);
+  const a = q.get(claudeDefault.dir);
+  const b = q.get(openaiDefault.dir);
+  assert.notEqual(a, '', 'the first default row is anonymous beside its cross-provider twin');
+  assert.notEqual(b, '', 'the second default row is anonymous beside its twin, so its reauth control shares a name');
+  assert.notEqual(a, b, 'both defaults got the SAME qualifier, so the two reauth controls still answer to one accessible name -- deferred finding 9');
+});
+
 /* The screen half. The control's accessible name is what named-controls reads and
    what a screen reader announces, and it is a different string from the visible
    row, so it needs its own pin.
