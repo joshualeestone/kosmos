@@ -97,7 +97,7 @@ manifest arm now made bidirectional (an entry for a handler that no longer exist
 green). What I retired: a six-phrase overclaim denylist that the whole-refusal-line equality had
 already subsumed, which emitted no `ok` line and had no control proving it could match anything.
 
-## Known gap I did NOT close here, filed instead
+## Known gap I did NOT close here: filed as kosmos#2565
 
 `served_verify_host_discriminates` builds its negative control under `/dist/`, while
 `tools/deploy-site.sh` also asserts `$HOST/setup`, a different route. A host that discriminates
@@ -105,9 +105,9 @@ under `/dist/` and is blind under `/setup` would pass the control and then be tr
 It is equivalent for the deployment-wide SSO shape the card measured, and not equivalent for a
 route-scoped blindness. It is pre-existing (the function arrived with kosmos#2268, not with this
 branch), and changing the probe shape changes a verdict-bearing function that two other slices of
-#1667 already depend on. Filed rather than changed here.
+#1667 already depend on. **Filed as kosmos#2565** rather than changed here.
 
-## Disclosure: a refusal can now print a credential-shaped value into the deploy log
+## Disclosure: a refusal can print a credential-shaped value into the deploy log (kosmos#2566)
 
 The note prints the redirect target WHOLE, query string included, and `tools/deploy-site.sh` puts
 that into the deploy log and the operator's terminal on every served-verify refusal. A live Vercel
@@ -121,6 +121,13 @@ this output ever reaches a shared or retained log. Whoever owns retention for th
 know a refusal can emit that value. Named here rather than only in the code comment, because the
 code comment reaches the next person editing the file and not the person choosing where the log
 goes.
+
+⚠️ **And naming it in two documents was still not enough, which is the correction worth keeping.**
+A later reviewer pointed out that a disclosure with no tracked card relies on someone reading this
+file, and the person who needs it (whoever owns deploy-log retention) has no reason to open it.
+**Filed as kosmos#2566.** The same reviewer made the same point about the gap above, which is now
+kosmos#2565. Where a decision needs an audience outside the branch, the card IS the delivery
+mechanism and a plan section is not.
 
 ## Weakest premise
 
