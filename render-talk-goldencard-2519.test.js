@@ -239,8 +239,20 @@ test('#2519: the fixture matches what status.snapshot() ACTUALLY emits, on ANY b
        this branch and an arm below pins its absence, so this file asserted it both ways,
        which is the exact contradiction render-talk.js's header names. Nested drift is an
        acknowledged, unguarded gap. */
+    /* 🛑 THE RAW FILE, NOT goldenCard's OUTPUT. `goldenCard` spreads the renamed
+       sessionName, name and state back over the recording, so those three keys are
+       RE-ADDED even when the file on disk has lost them: the
+       ⚠️ (Written without a literal example on purpose. The first version quoted the
+       spread inline and fixture-discipline's hand-built-card lint fired on the COMMENT,
+       which is the lint being blunt rather than wrong; rewording is cheaper than an
+       exemption, and an exemption is how a blunt guard stops guarding.)
+       comparison could not see those three going missing, which are the keys a rot would
+       most plausibly take. The neighbouring arms do not close it either
+       (`notEqual(raw.state, 'needs_you')` passes on `undefined`, and the key floor
+       tolerates a 29-key file). */
+    const onDisk = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
     assert.deepEqual(
-      Object.keys(golden).sort(), Object.keys(real).sort(),
+      Object.keys(onDisk).sort(), Object.keys(real).sort(),
       'the recorded card has drifted from status.snapshot(); re-capture with node tools/capture-agent-card.js');
   } finally {
     board.restore();
@@ -524,10 +536,14 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
      ⚠️ Two earlier instruments were also wrong: one matched `===` comparisons as
      assignments, and one used a lookahead the engine defeated by backtracking the
      whitespace, so it ran against " live.state" and passed. */
+  /* ⚠️ PATHS, NOT NAMES. Keyed on the bare name, `because` (pinned top-level AND under
+     `context`) appeared once and a pin at a second LOCATION under an already-listed name
+     was invisible to this arm by construction. */
   const pinned = new Set();
   const repinned = new Set();
-  for (const m of src.matchAll(/card(?:\.\w+)?\.(\w+)\s*(?<![=!<>])=(?![=>])\s*(\S+)/g)) {
-    (/^(['"]|\d|true|false|typeof)/.test(m[2]) ? pinned : repinned).add(m[1]);
+  for (const m of src.matchAll(/card((?:\.\w+)+)\s*(?<![=!<>])=(?![=>])\s*(\S+)/g)) {
+    const p = m[1].slice(1);
+    (/^(['"]|\d|true|false|typeof)/.test(m[2]) ? pinned : repinned).add(p);
   }
   assert.ok(pinned.size >= 21, `the pin extraction found only ${pinned.size}: ${[...pinned]}`);
   assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
@@ -554,6 +570,13 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
     assert.ok(list !== undefined && list.length > 0, `${where} has no PIN-LIST-END sentinel`);
     assert.ok(list.length < 2000, `${where}'s pin region is ${list.length} chars; the sentinels are not bounding an enumeration`);
     for (const f of pinned) if (!list.includes('`' + f + '`')) missing.push(`${where} omits ${f}`);
+    /* 🛑 AND THE OTHER DIRECTION, WHICH WAS NOT CHECKED. A name left in a region after
+       its pin is deleted from the code stayed green: the `pinned.size` floor catches a
+       NET removal, but an add-plus-remove nets out and passes with a stale enumeration,
+       which is exactly the "stale in all four copies" failure this arm exists to stop. */
+    for (const m of list.matchAll(/`([\w.]+)`/g)) {
+      if (!pinned.has(m[1])) missing.push(`${where} lists ${m[1]}, which the code does not pin`);
+    }
   }
   assert.deepEqual(missing, [], `the pin enumeration has gone stale again:\n  ${missing.join('\n  ')}`);
   /* CONTROL: the region check must be able to report a miss. */
@@ -628,6 +651,35 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       }
     })(committed, '');
     assert.deepEqual(inFixture.sort(), EXPECTED_FIXTURE, 'COMMITTED FIXTURE: ' + WHY);
+
+    /* 🛑 AND THE ONE SUBTREE THIS ARM'S OWN RATIONALE IS BUILT ON, WHICH IT COULD NOT SEE.
+       Both cards above carry `disruption: null`, and the walk does not descend a null, so
+       nothing under `disruption` ever reached `found`. The comment cites
+       `disruption.startedAt` as the field that got in exactly this way and promised a red
+       for the next one, and a SECOND disruption number redded nothing.
+       ⚠️ MEASURED before this block: a card with
+       `disruption: {cause, startedAt, timedOut, pid: 48213, host}` came out of neutralise
+       with `pid: 48213` VERBATIM, and `keySet(out) === keySet(poisoned)` stayed true, so
+       the key-set refusal cannot see it either.
+       ⇒ The subtree is driven explicitly, because a card that HAS a disruption is a state
+       neither of the two cards above is ever in. */
+    const withDisruption = Object.assign({}, board.card('mara'));
+    withDisruption.disruption = { cause: 'restart', startedAt: 1757000123456, timedOut: false };
+    const dOut = cap.neutralise(withDisruption);
+    const dFound = [];
+    (function walk(v, at) {
+      if (!v || typeof v !== 'object') return;
+      for (const k of Object.keys(v)) {
+        const path = at ? at + '.' + k : k;
+        const val = v[k];
+        if (typeof val === 'number' || typeof val === 'boolean') dFound.push(path);
+        else if (val && typeof val === 'object') walk(val, path);
+      }
+    })(dOut.disruption, 'disruption');
+    assert.deepEqual(dFound.sort(), ['disruption.startedAt', 'disruption.timedOut'],
+      'DISRUPTION SUBTREE: ' + WHY);
+    assert.equal(dOut.disruption.startedAt, 1757000000000,
+      'the producer disruption timestamp reached the recording');
   } finally {
     board.restore();
   }
@@ -1123,6 +1175,11 @@ test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
   }
 });
 
+/* ⚠️ THREE SOURCE GREPS, AND THAT IS ALL THIS ARM IS. It would stay green if `notes` were
+   never printed, or if the `if (cardSource === 'golden')` branch selected the wrong case.
+   The BEHAVIOUR is held by the source/label arms and by the runtime NOTE capture above;
+   this is a cheap tripwire on the shape, and saying so is the point, because an arm named
+   like this one reads as more coverage than it holds. */
 test('#2519: a fallback run emits a NOTE, and notes can never read as failures', () => {
   /* The release gate greps `'^\s*(FAIL|✖)|Error|Timeout|REFUS|refus'` (browser-checks.sh), which is
      WIDER than the anchor alone; an earlier version of this sentence said just the anchor. A note that reached that anchor would

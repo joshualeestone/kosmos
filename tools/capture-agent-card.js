@@ -26,16 +26,24 @@
  *     (state, stateConfidence, runner), not merely "a field I recognise": model and
  *     modelName are regex-extracted from a transcript and are pinned to constants.
  *   - PRESERVES each field's TYPE: where the producer emits null, the recording carries
- *     null. ⚠️ EVERY re-pin below is therefore conditional on the field already being a
- *     string. An unconditional pin was the defect here: `model` was assigned a string
+ *     null. ⚠️ EVERY re-pin to a CONSTANT below is therefore conditional on the field
+ *     already being a string. The three ENUM re-pins (`state`, `stateConfidence`,
+ *     `runner`) are unconditional and do not need the guard, because they copy the
+ *     producer's own value and so cannot invent a type. An earlier version of this
+ *     sentence said "every re-pin", which those three contradict. An unconditional pin was the defect here: `model` was assigned a string
  *     unconditionally while `readModel()` returns `{model: null}` on three paths
  *     (status.js:4628, 4630, 4658 -- no transcript, empty tail, no non-synthetic match),
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
  *   - PINS these fields to constants. PIN-LIST-BEGIN
- *     `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt`, `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence` PIN-LIST-END
- *     (`startedAt` is under `disruption`; `tokens` through `confidence` are under
- *     `context`; the rest are top-level.)
+ *     `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+ *     PIN-LIST-END
+ *     ⚠️ PATHS, NOT NAMES, AND THE DIFFERENCE WAS A REAL HOLE. The list carried bare
+ *     names with a parenthetical saying where each lived, and `because` IS PINNED IN TWO
+ *     PLACES (top-level and under `context`) while the name appeared once and the
+ *     parenthetical filed the second under "top-level". The arm checked name membership,
+ *     so a pin at a second LOCATION under an already-listed name was invisible to it by
+ *     construction.
  *     ⚠️ THIS LIST NAMED FOUR OF THE TWENTY-ONE and the arm checking it was green,
  *     because the arm compared against the WHOLE FILE and the names it looked for were
  *     extracted from this same file: `src.includes(f)` is true by construction. The

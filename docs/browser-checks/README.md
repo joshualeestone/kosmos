@@ -127,12 +127,22 @@ field's TYPE is preserved (a null stays null).
 and the same wrong sentence was corrected twice elsewhere in this change before anyone
 noticed it a third time in this file.
 
-**What the tool actually does, in three categories.** Everything the producer supplies is
-in exactly one of them, and an earlier version of this list claimed there were only two:
+**The central guarantee, which this file never actually stated:** `scrubStrings` replaces
+EVERY string anywhere in the card, at any depth, including fields status.js has not been
+written yet. The categories below are what happens AFTER that whole-card scrub. A reader of
+the old version learned only about the ISO-date branch and the `profile` subtree and could
+have concluded the rest was untouched.
+
+**What the tool does after the scrub, in five categories.** ⚠️ This sentence has now been
+wrong four times, each version claiming a smaller number than the truth ("nothing
+identifying can survive", "nothing identifying is numeric", "there is no third category",
+"everything is in exactly one of three"). The count below is five, and the fifth is a gap
+rather than a treatment:
 
 1. **PINNED to constants.** PIN-LIST-BEGIN
-   `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt`, `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence` PIN-LIST-END
-   (`startedAt` is under `disruption`; `tokens` through `confidence` are under `context`.)
+   `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.startedAt`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+   PIN-LIST-END
+   (Paths, not names: `because` is pinned both top-level and under `context`.)
    🛑 **This does NOT make a re-capture byte-identical**, and the sentence claiming it did
    survived here after being struck in the tool's own header. `state`, `stateConfidence`
    and `runner` come from the raw card; the structural booleans pass through as captured;
@@ -147,6 +157,12 @@ in exactly one of them, and an earlier version of this list claimed there were o
    `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
    `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
    `stateBackgroundWait`, `neverRecorded`.
+2b. **RE-PINNED from the raw card** because status.js enum-bounds them: `state`,
+   `stateConfidence`, `runner`. Not constants, not structural booleans, not under
+   `profile`. The old "exactly one of three" sentence had no room for these and the tool's
+   own header calls them a real category.
+2c. **SCRUBBED STRINGS that are not re-pinned at all**, such as `disruption.cause`, which
+   becomes `example-cause`. Neutralised, but pinned to nothing.
 3. **The `profile` subtree**, which gets the strictest treatment: EVERY value under it is
    neutralised, strings and numbers and booleans, at any depth. It is free-form
    (`store.readProfile` returns whatever JSON is in the file), so an allowlist there is a
@@ -155,6 +171,14 @@ in exactly one of them, and an earlier version of this list claimed there were o
 
 **The full set, which `render-talk-goldencard-2519.test.js` extracts from the code and
 checks against this file:** `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt` (under `disruption`), and `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because` (under `context`). Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`, `stateConfidence`, `runner`.
+
+5. **A NON-STRING the producer adds OUTSIDE `profile`**, which is in none of the above and
+   reaches the committed file verbatim. This is a real gap, not a treatment: measured, a
+   `pid: 48213` added to the card or inside `disruption` comes out unchanged, and the
+   key-set refusal cannot see a field added inside an existing subtree. Two arms pin the
+   current inventory (the live card and the shipped artifact, plus the `disruption`
+   subtree explicitly) so that the NEXT one reds a test instead of arriving silently, but
+   nothing prevents it.
 
 🛑 **That list has gone stale twice, in all four copies at once each time** (this file,
 the tool's header, `render-talk.js`'s header, the plan). If you add a pin, grep for one of
