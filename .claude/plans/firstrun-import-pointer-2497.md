@@ -15,8 +15,8 @@ confusion #2497 removes, reappearing.
 Add one quiet sub-line under "Let's get started." in `frPaintFleet` (web/index.html), styled as the
 muted `.dhint` hint:
 
-> Already have agents in Claude Code or Codex on this Mac? You can bring one into Kosmos from the
-> next screen, under Import.
+> Already have agents in Claude Code or Codex on this Mac? On the next screen you can import an
+> agent you already have.
 
 It is the design/copy spec drafted on the #2497 card (Mona Lisa). It is a POINTER, not a scan: it
 lists nothing and finds nothing, so it does not reintroduce the auto-import garbage the card removed.

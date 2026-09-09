@@ -116,7 +116,7 @@ test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER su
   // could never match). Together they pin the whole pointer: the question and the Import pointer.
   assert.match(body, /Already have agents in Claude Code or Codex on this Mac\?/,
     'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
-  assert.match(body, /bring one into Kosmos from the next screen, under Import\./,
+  assert.match(body, /On the next screen you can import an agent you already have\./,
     'the #2497 pointer no longer names the manual Import path on the next screen');
   // It must be a POINTER, not a scan: it renders as a static hint paragraph, not a discovery call.
   assert.match(body, /class="dhint"[^>]*>Already have agents/,
