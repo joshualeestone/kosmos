@@ -27,12 +27,15 @@ is the "a control proves only the arm you aim it at" defect in a verdict-bearing
 
 ## Test (test-served-verify.sh, red-capable)
 New `/routeblind` fixture: discriminates under /dist (a nonexistent /dist path 404s) but is
-blind at the root (200 for every root path). Three arms:
+blind at the root (200 for every root path). Four new arms:
 - sound host passes the ROOT-route control (rc 0) -- the root probe is a real control, not
   always-red (no false-red of a sound host).
 - the route-blind host PASSES the default /dist control (rc 0) -- reproduces the gap.
 - the route-blind host is CAUGHT by the ROOT-route control (rc 1) -- the fix returns the
-  dangerous answer. 13/13 arms pass.
+  dangerous answer.
+- a leading-slash-less route ('dist') is normalised to '/dist' (rc 0), red-capable: without
+  the normalisation the malformed probe falls into the blind-root branch (rc 1). (added iter-2)
+The suite runs 14 arms total, all pass.
 
 ## Weakest premise (from the card, verified mine)
 If every host this runs against serves /setup and /dist through the SAME route, the second
@@ -68,4 +71,4 @@ default-route param keeps it and any future caller unchanged unless they opt int
   covered red-capably.
 
 ## Validate
-served-verify suite (13 arms), full node suite + test:shell. Challenge-loop, proof, 6j, PR.
+served-verify suite (14 arms, all pass), full node suite + test:shell. Challenge-loop, proof, 6j, PR.
