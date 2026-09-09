@@ -165,7 +165,9 @@ test('acctOpenaiSubReset returns the sub-step to rest and re-enables the button'
 test('a start with no sessionId does not strand a disabled button', () => {
   const i = PAGE.indexOf("'/api/accounts/openai/subscription/start'");
   assert.ok(i > -1, 'the subscription start handler moved');
-  const body = PAGE.slice(i, i + 1100);
+  // 1400 (was 1100): #2568/#2584 added a reauthDir comment + field to the request body
+  // above this guard, so the guard sits a few lines further into the handler now.
+  const body = PAGE.slice(i, i + 1400);
   assert.match(body, /if \(!out \|\| !out\.sessionId\)/, 'a 2xx start with no sessionId is not guarded, so the button stays disabled behind a stuck message');
   // The guard must throw so the shared catch re-enables the button.
   const guard = body.slice(body.indexOf('!out.sessionId'));

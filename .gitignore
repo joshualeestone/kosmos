@@ -52,3 +52,6 @@ dist/
 # #1455: the optional pending release entry, stamped and inserted by the cut.
 # Never committed: it is an input to a release, not a tracked file.
 .release-entry.html
+
+# Agent worktrees (engine/subagent scratch checkouts, never part of the tree)
+.claude/worktrees/

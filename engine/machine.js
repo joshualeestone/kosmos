@@ -163,6 +163,14 @@ function sleepCheck(text) {
      * mirrored, in the same function.
      */
     if (battFirst !== null && battFirst > 0) {
+      // #2587: DELIBERATELY no battOnly here (a documented exclusion, not an oversight).
+      // The advisory sleep step's honest note promises "plugged in it keeps working", which
+      // needs a CONFIRMED acSleep===0. This branch could not read the AC section at all, so
+      // we cannot make that promise honestly -- and unlike the battery-only case, the row
+      // keeps its "Turn On" (the Energy pane may still hold a real AC fix). A user here
+      // resolves the unreadable-AC first; if a battery-only sleep then remains, the
+      // acSleep===0 branch below shows the note. Rare in practice (pmset almost always
+      // prints a readable AC section); the note on an unconfirmable premise would be worse.
       return {
         key: 'sleep',
         state: STATE.ATTENTION,
@@ -256,6 +264,13 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.ATTENTION,
+      // #2587: the ONE sleepCheck state macOS offers no GUI switch to clear -- a
+      // laptop always sleeps on battery, and the Energy pane the "Turn On" button
+      // opens has no "never sleep on battery" toggle. The advisory first-run sleep
+      // step shows its honest laptop note on this flag (replacing the useless Turn
+      // On), so the note appears ONLY here, never for a fixable desktop (the
+      // acSleep>0 branch above, which Turn On can still set to Never).
+      battOnly: true,
       title: 'This computer keeps working plugged in, and sleeps on battery',
       detail: `Plugged in it never sleeps. On battery it sleeps after ${batterySleep} `
         + `${batterySleep === 1 ? 'minute' : 'minutes'}, and your agents stop with it. `
@@ -287,18 +302,23 @@ function sleepCheck(text) {
  *
  * The mapping from sleepCheck's STATE is direct and positive-only:
  *   OK        -> prevented:true   (it does not sleep)
- *   ATTENTION -> prevented:false  (it sleeps somewhere -- THE state that gates)
+ *   ATTENTION -> prevented:false  (it sleeps somewhere -- the honest reading; the
+ *                                  first-run step shows this but no longer GATES on it, #2587)
  *   UNKNOWN   -> checkable:false  (we could not read it -- fail-safe, never gate)
  * pmset is a shell reading the engine runs itself, so -- unlike a11y and
  * file-access -- this gate needs no native writer and functions at launch.
  *
- * ⚠️ WEAKEST PREMISE (flagged for Josh, not decided here): a LAPTOP that never
- * sleeps plugged in but sleeps on battery is STATE.ATTENTION, so it GATES. That
- * is the spec's "no silently-broken Kosmos" intent (unplug it and the agents
- * stop), but it means a laptop user who will not prevent battery sleep is
- * blocked at S3 with no skip. The launch target is desktop Macs (Mac mini
- * prints AC-only and maps cleanly to OK/ATTENTION); the laptop-on-battery policy
- * is a product call to confirm, not a detection bug.
+ * ⚠️ THE LAPTOP-ON-BATTERY CASE (#2587, DECIDED): a LAPTOP that never sleeps
+ * plugged in but sleeps on battery is STATE.ATTENTION (prevented:false), and macOS
+ * offers NO GUI switch to prevent battery sleep -- so when the first-run step gated
+ * Next on it, a laptop user was walled with no door (Nick, first outside tester,
+ * 2026-09-09). Josh's ruling: the SLEEP STEP IS ADVISORY -- it never gates Next.
+ * This engine reading is UNCHANGED and stays honest (prevented:false = it sleeps
+ * somewhere); the web (FR_GATES.sleep gatesNext:false) simply no longer lets a
+ * not-prevented sleep row disable Next, and shows an honest note keyed on the
+ * battOnly flag this branch sets, so the note replaces the useless "Turn On" only on
+ * the laptop-battery case. Accessibility/file-access STAY real gates -- those are
+ * satisfiable, and letting a user past them lands them in broken agents.
  */
 function sleepGate(opts) {
   const runner = (opts && opts.runner) || run;
@@ -310,7 +330,7 @@ function sleepGate(opts) {
   }
   const row = sleepCheck(pm.stdout);
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
-  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title };
+  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
   return { checkable: false, because: row.title };
 }
 

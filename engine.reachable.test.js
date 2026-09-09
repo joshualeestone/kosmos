@@ -21,6 +21,8 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   setRunner: 'test seam: injects the tmux runner',
+  setAnchorer: 'test seam (#570): injects engine/win32job.js\'s anchor step, so a suite never copies the 92 MB interpreter and a Mac is never asked to write a Windows path -- both of which happen the moment installJob is driven with platform:"win32", which is exactly how this branch is asserted. Named here rather than passing by luck: "setAnchorer" is unique to that file, while its sibling setRunner escapes only by colliding with every other file\'s runner seam.',
+  readPointer: 'engine/win32anchor.js (#570): the readable counterpart of the engine-path pointer. The generated supervisor-boot shim CANNOT call it -- the shim exists precisely to bootstrap before the engine is locatable, so it inlines its own readFileSync -- and the production reader that would use this is the recorded follow-up "refresh the engine pointer at server start on win32" (step 8 in .claude/plans/win32-keepalive-570.md), which is not this slice. Dormant with a named card, not orphaned.',
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',

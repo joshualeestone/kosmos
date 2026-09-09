@@ -9,8 +9,8 @@
  * (data-granted) ONLY on a measured grant; #fr-next is disabled ONLY when some row
  * is measured-not-granted (checkable:true && !granted). Uncheckable (a browser, no
  * native writer yet) and any fetch failure NEVER block and NEVER show false green.
- * The 1.5s poll re-checks, so granting in System Settings unlocks Next with no
- * manual re-check.
+ * The poll (FR_GATE_POLL_MS, 750ms) re-checks, so granting in System Settings unlocks
+ * Next on its own; a "Check again" button (#2451/#2559) also lets the user force it now.
  *
  * It ALSO covers the S3 sleep "Turn On" action itself (0.6.41 re-test blocker E):
  * a failed open-settings must show a VISIBLE error (danger colour, not body ink)
@@ -148,7 +148,7 @@ async function fresh(browser) {
     await gotoGate(page, '[data-gate="sleep"]', {
       sleep: { checkable: true, prevented: true }, tmux: { checkable: true, trusted: false },
     });
-    ok(await nextDisabled(page), 'S3 sleep-granted but tmux-not still disables Next (needs BOTH)');
+    ok(await nextDisabled(page), 'Accessibility (tmux) not-granted still disables Next -- it gates even with sleep granted (sleep is advisory, #2587)');
     ok(await rowGranted(page, 'sleep'), 'the granted (sleep) row is green');
     ok(!(await rowGranted(page, 'tmux')), 'the not-granted (tmux) row is not green');
     await ctx.close();
@@ -171,6 +171,67 @@ async function fresh(browser) {
     });
     ok(!(await nextDisabled(page)), 'S3 both-uncheckable never blocks (fail-safe)');
     ok(!(await rowGranted(page, 'sleep')) && !(await rowGranted(page, 'tmux')), 'and neither uncheckable row is false-green');
+    await ctx.close();
+  }
+
+  /* ---------- #2587: the sleep step is ADVISORY (Josh's ruling) ----------
+     A laptop that sleeps on battery is prevented:false forever (macOS has no
+     never-sleep-on-battery switch), so gating Next on it walled laptop users in. Now the
+     sleep step NEVER gates Next; the honest note replaces the useless Turn On on that
+     (battOnly) row. Accessibility/tmux STILL gates -- it is satisfiable + required, so
+     letting a user past it would land them in broken agents. Arms: (A) laptop-battery +
+     Accessibility granted -> Next ENABLED though sleep is blocked, note shown, Turn On
+     hidden, not green, no Continue button; (B) laptop-battery + Accessibility NOT granted
+     -> Next stays LOCKED (advisory sleep does not bypass the real gate); (C) control: a
+     fixable desktop that sleeps on AC -> Next ENABLED too (advisory for everyone), no note,
+     Turn On shown. */
+  console.log('\n#2587 -- the sleep step is advisory: it never gates Next, Accessibility still does');
+  const sleepUi = (page) => page.evaluate(() => {
+    const row = document.querySelector('[data-gate="sleep"]');
+    const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
+    return {
+      battonly: row.hasAttribute('data-battonly'), green: vis('.s3-granted'),
+      note: vis('.s3-battonly'), turnOn: vis('.s3-req'),
+      hasContinueBtn: !!row.querySelector('.s3-continue'),
+    };
+  });
+  {
+    // (A) laptop that sleeps on battery, Accessibility granted: sleep is blocked but Next is
+    // ENABLED; the honest note replaces Turn On; row not green; no Continue button.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: true },
+    });
+    const u = await sleepUi(page);
+    ok(!(await nextDisabled(page)), '#2587 a blocked sleep row does NOT gate Next (the laptop is not walled in)');
+    ok(u.battonly && u.note, 'the honest laptop note is shown');
+    ok(!u.turnOn, 'the useless "Turn On" is hidden on the laptop-battery row');
+    ok(!u.green, 'the sleep row is NOT shown green/Activated (it honestly still sleeps)');
+    ok(!u.hasContinueBtn, 'there is no "Continue anyway" button any more -- Next just works');
+    await ctx.close();
+  }
+  {
+    // (B) same laptop-battery sleep, but Accessibility NOT granted: Next stays LOCKED. The
+    // advisory sleep row must not bypass the tmux gate (satisfiable + required).
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: false },
+    });
+    ok(await nextDisabled(page), '#2587 Accessibility STILL gates Next even when sleep is advisory (no bypass into broken agents)');
+    await ctx.close();
+  }
+  {
+    // (C) CONTROL: a fixable desktop that sleeps on AC (no battOnly), Accessibility granted.
+    // Sleep is advisory for EVERYONE, so Next is enabled; but Turn On (which CAN set Never)
+    // still shows, and there is no laptop note.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false }, tmux: { checkable: true, trusted: true },
+    });
+    const u = await sleepUi(page);
+    ok(!(await nextDisabled(page)), '#2587 CONTROL: a desktop that sleeps also gets a non-gating sleep step (advisory for everyone)');
+    ok(!u.battonly && !u.note, 'a fixable desktop shows no laptop note (not battOnly)');
+    ok(u.turnOn, 'a fixable desktop still shows "Turn On" (it CAN set Sleep to Never)');
     await ctx.close();
   }
 
@@ -247,7 +308,7 @@ async function fresh(browser) {
   }
 
   /* ---------- the poll unlocks WITHOUT a manual re-check ---------- */
-  console.log('\nThe 1.5s poll unlocks Next when the grant lands, no re-check needed');
+  console.log('\nThe poll unlocks Next on its own when the grant lands (no manual click needed)');
   {
     const { ctx, page } = await fresh(browser);
     // Enter S3 with tmux not-granted (Next disabled), then flip it granted mid-screen.
@@ -262,7 +323,44 @@ async function fresh(browser) {
     tmuxTrusted = true;   // the user grants it in System Settings
     await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 4000 })
       .catch(() => {});
-    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual re-check)');
+    ok(!(await nextDisabled(page)), 'the poll re-checks and unlocks Next once tmux is granted (no manual click in this scenario)');
+    await ctx.close();
+  }
+
+  /* ---------- #2451/#2559: the manual "Check again" button fires an IMMEDIATE re-check ---------- */
+  // Josh 0.6.50 (7.58.24): after granting, the screen "sat here forever" -- the poll was slow
+  // and there was no way to force it. Assert the S3 "Check again" button exists and, on click,
+  // fires a gate re-check RIGHT NOW (a new /api/a11y-status request lands well inside one poll
+  // interval), and that this manual re-check unlocks Next when the grant has landed.
+  console.log('\n#2451/#2559 -- the S3 "Check again" button forces an immediate gate re-check');
+  {
+    const { ctx, page } = await fresh(browser);
+    await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
+    const step = await stepForAnchor(page, '[data-gate="sleep"]');
+    let tmuxTrusted = false;
+    let a11yHits = 0;
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
+    await page.route('**/api/a11y-status', (r) => { a11yHits += 1; return r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }); });
+    await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
+    await page.waitForTimeout(300);
+    const btn = await page.$('#fr-pane-3 .fr-recheck');
+    ok(!!btn, 'the S3 "Check again" button is present');
+    const label = btn ? (await btn.textContent()).trim() : '';
+    ok(/check again/i.test(label), `the button reads "Check again" (got: ${JSON.stringify(label)})`);
+    ok(await nextDisabled(page), 'Next is disabled while the grant has not landed');
+    // Grant it, then FORCE the check via the button and confirm a re-poll fires at once
+    // (before the next timer tick) and unlocks Next.
+    tmuxTrusted = true;
+    const before = a11yHits;
+    if (btn) await btn.click();
+    // 80ms is far under the 750ms poll interval, so a hit in this window is almost
+    // certainly the click's (a timer tick could coincide ~1-in-9, so this is a strong
+    // integration signal, not a proof of isolation -- the DETERMINISTIC wiring guard is
+    // the unit test web.firstrun-a11y-1214.test.js, which pins handler -> frRecheckGates).
+    await page.waitForTimeout(80);
+    ok(a11yHits > before, `clicking "Check again" fired an immediate /api/a11y-status re-check (hits ${before} -> ${a11yHits})`);
+    await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 2000 }).catch(() => {});
+    ok(!(await nextDisabled(page)), 'the manual re-check unlocks Next once the grant has landed');
     await ctx.close();
   }
 

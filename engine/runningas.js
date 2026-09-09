@@ -42,12 +42,58 @@
  * process tree, or a signed-in account. The acceptance bar for #1304 was that
  * whatever gets built has a control that can return the other value; a module
  * that can only be run against the real machine cannot have one.
+ *
+ * ─────────────────────────────────────────────────────────────────────────────
+ * 🪟 THE win32 ARM (#570), AND WHAT IT CAN AND CANNOT SEE.
+ *
+ * Everything above is the darwin arm and is unchanged. Windows has no tmux, so
+ * `tmux list-panes` -- the call that turned a session name into a pid -- answers
+ * nothing there, and so did this whole module: the board could not report a
+ * win32 agent's real account or model at all.
+ *
+ * 🔑 THE NAME -> pid STEP IS `engine/win32live`'s JOIN, NOT A SECOND COPY. That
+ * module is THE ownership join for win32 (`claude agents --json` ∩ the
+ * fail-closed `win32sessions` record), it already resolves the board's name, and
+ * it already carries the pid -- so this arm asks it rather than re-deriving it.
+ * Duplicated derivations are this repo's most expensive recurring defect and the
+ * win32 seams had already paid for it twice; see win32live's header.
+ *
+ * 🔑 AND IT SKIPS TRAP 1 ENTIRELY. There is no pid tree to walk here: the pid in
+ * `claude agents --json` IS the Claude process, not a shell whose grandchild is
+ * Claude. `claudeUnder` is darwin's answer to a tmux pane's first child being the
+ * bun plugin, and it has no win32 counterpart because the problem does not exist.
+ *
+ * 🛑 THE ACCOUNT IS NOT KNOWABLE LIVE ON WINDOWS, AND THIS ARM SAYS SO RATHER
+ * THAN GUESSING. On a Mac the account is `CLAUDE_CONFIG_DIR` in the process
+ * ENVIRONMENT (trap 3), read with `ps -Eww`. Windows has no supported way for an
+ * ordinary process to read another process's environment -- Win32_Process
+ * exposes CommandLine and not the environment block -- so the variable is
+ * invisible here. ⚠️ AND ITS ABSENCE IS NOT EVIDENCE. Darwin may fall back to
+ * the default config dir when the var is missing, because there the env WAS read
+ * and the var genuinely was not set. Here the env was never read at all, so
+ * "therefore the default account" would be a confident answer off a look that
+ * did not happen -- precisely the failure this module exists to remove, and
+ * precisely the one that made Baron's brief wrong (he had been MIGRATED off the
+ * account everything said he was on). So `account`, `organization` and
+ * `configDir` are all null, `because` says why, and `server.js:whoamiFor` then
+ * falls through to the RECORD for the account and labels it `from: 'record'` --
+ * an honest, already-built fallback rather than a new one.
+ *
+ * 📌 CONSIDERED AND DELIBERATELY NOT DONE: inferring the config dir by hunting
+ * for the session's `<sessionId>.jsonl` transcript under each known account. It
+ * is a real live read, but accounts that share memory are symlinked onto ONE
+ * projects tree (`accounts.sharesMemory`), so a hit can belong to several
+ * accounts at once and the honest outcome would often be the same null. A new
+ * derivation of "which account owns this directory" is not worth adding for a
+ * sometimes-answer; if the launch path ever puts the account on the command line
+ * or in the ownership record, THAT is where this should read it from.
  */
 
 const { execFileSync } = require('node:child_process');
 const os = require('node:os');
 const path = require('node:path');
 const accounts = require('./accounts');
+const win32live = require('./win32live');
 
 const HOME = () => process.env.AGENT_WORKFORCE_HOME || os.homedir();
 
@@ -137,6 +183,167 @@ function claudeUnder(panePid, procs) {
   return null;
 }
 
+/* ── the win32 arm ───────────────────────────────────────────────────────── */
+
+/* The sentinel PowerShell prints AFTER the process list. It is what separates
+   "we looked and that process is not there" from "the look never happened":
+   Get-CimInstance with a filter that matches nothing exits 0 with NO output, so
+   an empty stdout is otherwise indistinguishable from powershell.exe missing, a
+   spent budget, or a timeout. Same false-zero rule the whole win32 family holds
+   -- an unmade look must never read as an empty answer. */
+const WIN32_CMDLINES_OK = 'KOSMOS-CMDLINES-OK';
+
+/**
+ * pid -> command line, for a batch of pids, in ONE shell.
+ *
+ * ⚠️ BATCHED ON PURPOSE, and this is the lesson `everyone()` already paid for
+ * below: a per-pid reader here would start a PowerShell per agent, and a
+ * PowerShell start is ~0.5s, so the worst case would scale with the fleet AND
+ * each spawn would carry its own slice of the shared budget.
+ *
+ * 🔑 NOTHING EXTERNAL IS INTERPOLATED. The filter is built only from values that
+ * already passed `Number.isInteger(n) && n > 0`, so no caller-controlled text
+ * reaches the script text. Keep that gate if this ever grows another field.
+ *
+ * ⚠️ `Out-String -Width 32767` is NOT decoration. PowerShell wraps host output at
+ * the console buffer width, and a wrapped command line loses `--model` off the
+ * end silently -- a missing model that looks exactly like an agent started
+ * without one. 32767 is the Windows command-line length limit, so nothing real
+ * can exceed it.
+ *
+ * @returns {Map<number,string>|null} pid -> command line (a process whose command
+ *   line is not readable, e.g. a protected one, maps to ''), or null if the read
+ *   itself failed.
+ */
+function defaultCmdlines(pids, deadline) {
+  const ids = [];
+  for (const p of pids) if (Number.isInteger(p) && p > 0 && !ids.includes(p)) ids.push(p);
+  // No pids to ask about is a complete, successful answer, not a failed read.
+  if (!ids.length) return new Map();
+  const filter = ids.map((n) => 'ProcessId=' + n).join(' or ');
+  const script = "Get-CimInstance Win32_Process -Filter '" + filter + "' | "
+    + 'ForEach-Object { "$($_.ProcessId) $($_.CommandLine)" } | Out-String -Width 32767; '
+    + "'" + WIN32_CMDLINES_OK + "'";
+  return parseCmdlines(sh('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], deadline));
+}
+
+/**
+ * Parse what `defaultCmdlines` asked PowerShell for. Exported for testability:
+ * it is the only part of the win32 process read that can be exercised without a
+ * real machine, and a shell that is stubbed away proves nothing about it.
+ */
+function parseCmdlines(out) {
+  const text = String(out == null ? '' : out);
+  const lines = text.split(/\r?\n/);
+  // The sentinel proves the shell ran to completion. Without it, refuse.
+  if (!lines.some((l) => l.trim() === WIN32_CMDLINES_OK)) return null;
+  const map = new Map();
+  for (const line of lines) {
+    // `<pid> <command line>`. A command line containing a newline would leave
+    // unmatched continuation lines, which are dropped rather than mis-attributed
+    // to the previous pid -- a truncated command line is a wrong answer, and a
+    // missing one is only an unknown.
+    const m = line.match(/^(\d+) ?(.*)$/);
+    if (m && !map.has(Number(m[1]))) map.set(Number(m[1]), m[2]);
+  }
+  return map;
+}
+
+/** `--model` off a command line, the one field win32 CAN read live. */
+function modelIn(cmd) {
+  const m = String(cmd == null ? '' : cmd).match(/--model[= ](\S+)/);
+  return m ? m[1] : null;
+}
+
+/* Said once, because both win32 entry points return it and two phrasings of one
+   fact is how a caller ends up believing they are two facts. */
+const WIN32_NO_ACCOUNT =
+  'Windows cannot read another process\'s environment, so which account this agent is signed in as is not knowable live here';
+
+/** One win32 answer, given the joined entry and an already-read command table. */
+function win32Answer(entry, cmds) {
+  if (entry.pid == null) {
+    /* ⚠️ NOT "no such agent" and NOT "no account". The session is live and ours;
+       it just reports no process we can inspect (a session still registering, or
+       a background one). A different fact, so a different sentence. */
+    return { ok: false, because: `${entry.name} is live but reports no process id, so there is nothing to inspect` };
+  }
+  if (cmds == null) return { ok: false, because: 'we could not read the process table on this computer' };
+  const cmd = cmds.get(entry.pid);
+  if (cmd == null) {
+    return { ok: false, because: `process ${entry.pid} for ${entry.name} was gone by the time we looked at it` };
+  }
+  return {
+    ok: true,
+    /* All three null, all three for the same reason, spelled out in the header:
+       the environment that carries CLAUDE_CONFIG_DIR is unreadable on Windows,
+       and its ABSENCE is not evidence of the default account. */
+    account: null,
+    organization: null,
+    model: modelIn(cmd),
+    configDir: null,
+    /* ⚠️ `because` ON A SUCCESSFUL READ, which the darwin arm never does. `ok`
+       means the look happened; the sentence names the HALF of the question this
+       platform cannot answer, so a caller rendering it says something true
+       instead of inventing a reason. Nothing renders `because` when `ok` is true
+       today (server.js reads only ok/account/configDir/model), so this is
+       additive rather than a contract change for the existing reader. */
+    because: WIN32_NO_ACCOUNT,
+  };
+}
+
+function runningAsWin32(session, deps = {}) {
+  const deadline = deps.budgetMs != null ? Date.now() + deps.budgetMs : null;
+  /* THE ownership join, injectable as one seam. A test supplies a Map and needs
+     no `claude`, no ownership record and no Windows -- which is the point: the
+     fleet's Macs have to be able to assert this arm. */
+  const live = deps.live || (() => win32live.byName());
+  const cmdlines = deps.cmdlines || ((pids) => defaultCmdlines(pids, deadline));
+  const owned = live();
+  if (owned == null) {
+    /* ⚠️ A FAILED LOOK, NOT AN EMPTY MACHINE. win32live returns null when
+       `claude agents --json` could not be read, and "no agents are running" is a
+       different answer from "we could not see what is running". */
+    return { ok: false, because: 'we could not read the live Claude sessions on this computer' };
+  }
+  const entry = owned.get(session);
+  /* Not "there is no such agent": an unrecorded session (the operator's own) is
+     deliberately invisible to the join, so "not one of ours that we can see" is
+     the honest scope of this refusal. */
+  if (!entry) return { ok: false, because: `no session called ${session} that Kosmos owns on this computer` };
+  return win32Answer(entry, cmdlines([entry.pid]));
+}
+
+function everyoneWin32(deps = {}) {
+  const deadline = deps.budgetMs != null ? Date.now() + deps.budgetMs : null;
+  const live = deps.live || (() => win32live.byName());
+  const cmdlines = deps.cmdlines || ((pids) => defaultCmdlines(pids, deadline));
+  const owned = live();
+  if (owned == null) return [];
+  /* ONE process read for the whole fleet, hoisted for exactly the reason the
+     darwin `everyone()` hoists `procs` (see its comment): a per-session read
+     would spawn a PowerShell per agent and multiply the timeout by the fleet. */
+  const cmds = cmdlines([...owned.values()].map((e) => e.pid));
+  return [...owned.values()]
+    .map((entry) => ({ session: entry.name, ...win32Answer(entry, cmds) }))
+    .sort((a, b) => a.session.localeCompare(b.session));
+}
+
+/* ── the platform seam ───────────────────────────────────────────────────── */
+
+/**
+ * ⚠️ INJECTABLE, NOT A BARE `process.platform` READ, and the reason is the
+ * acceptance bar this module was built to: whatever gets built must have a
+ * control that can return the other value. The fleet is Macs and the port is
+ * Windows, so a bare read would make each arm unassertable from the other
+ * machine -- half the tests would be decoration on whichever box ran them.
+ * Same shape as `boardauth.ownerOnlyModeIsEnforced(platform)` and
+ * `create.unusablePath(bin, platform)`.
+ */
+function armFor(deps) {
+  return (deps && deps.platform) || process.platform;
+}
+
 /**
  * What one agent is running on.
  *
@@ -144,8 +351,17 @@ function claudeUnder(panePid, procs) {
  * failure `ok` is false and `because` is a sentence, because "we could not tell"
  * and "it is running on nothing" are different answers and only one of them is
  * ever true.
+ *
+ * 🪟 On win32 this dispatches to a different reader (see the header): the same
+ * answer shape, read through `win32live`'s ownership join instead of tmux, with
+ * `account`/`configDir` honestly null and `because` saying why.
  */
 function runningAs(session, deps = {}) {
+  if (armFor(deps) === 'win32') return runningAsWin32(session, deps);
+  return runningAsDarwin(session, deps);
+}
+
+function runningAsDarwin(session, deps = {}) {
   /* `budgetMs` bounds the WHOLE live read, not each call (kosmos#1366). The route
      wants "answer or fall back", and three independent 5s timeouts gave a worst
      case equal to the client's own patience, so a slow reader produced NO answer
@@ -189,6 +405,7 @@ function runningAs(session, deps = {}) {
 
 /** Every agent pane, so one call answers "who is on what". */
 function everyone(deps = {}) {
+  if (armFor(deps) === 'win32') return everyoneWin32(deps);
   /* 🛑 `procs` IS HOISTED FOR THE SAME REASON `panes` ALWAYS WAS, AND ITS ABSENCE
      HERE WAS COSTING A FULL PROCESS-TABLE READ PER SESSION. `runningAs` falls back
      to `defaultProcs()` whenever `deps.procs` is missing, and this loop forwarded
@@ -207,10 +424,13 @@ function everyone(deps = {}) {
   return out.sort((a, b) => a.session.localeCompare(b.session));
 }
 
-/* `_sh` is exported for TESTABILITY and for no other reason,
+/* `_sh` and `_parseCmdlines` are exported for TESTABILITY and for no other reason,
    which is stated here so nobody reads them as API. kosmos#1366's budget is not
    observable through `runningAs`: injecting a dep is exactly what suppresses the
    behaviour under test, and a fake pid makes a real read return empty anyway, so
-   both arms agree for the wrong reason. Without these the guard cannot go red, and
-   a test that cannot go red is decoration. */
-module.exports = { runningAs, everyone, claudeUnder, _sh: sh };
+   both arms agree for the wrong reason. `_parseCmdlines` is the same case on the
+   win32 side: injecting `cmdlines` replaces the shell AND its parser, so the
+   sentinel rule (an unmade look is not an empty answer) would be asserted
+   nowhere. Without these the guards cannot go red, and a test that cannot go red
+   is decoration. */
+module.exports = { runningAs, everyone, claudeUnder, _sh: sh, _parseCmdlines: parseCmdlines };

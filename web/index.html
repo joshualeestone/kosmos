@@ -1335,16 +1335,28 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .onode .face > * { opacity: .5; transition: opacity .12s ease; }
 .onode:hover .face > *, .onode:focus-visible .face > * { opacity: 1; }
 .onode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; border-radius: 50%; }
-/* the state ring, drawn around the face */
-.onode::after {
-  content: ""; position: absolute; inset: -5px; border-radius: 50%;
-  border: 3px solid transparent; pointer-events: none;
+/* #2576/#2577: the outer ring is now the CONTEXT gauge, drawn on EVERY node by
+   orgRing() -- the same .gt/.gf reading the grid, list and detail views draw. It
+   sits just outside the face, exactly where the old partial-arc STATE ring used
+   to. State no longer draws a ring here: needs-you moves to the corner badge
+   below (a different visual channel, so both context and attention show at once),
+   and working/unknown/resting states carry no ring at all. Idle always had none.
+   .gt/.gf carry their own dark-theme overrides, so the ring themes for free. */
+.onode .oring {
+  /* Explicit 54px (the 44px face + the 5px the ring sits outside it on each
+     side), paired with inset like .dring/.lring/.agauge svg rather than left to
+     inset alone, so a viewBox-only SVG is never a zero-size node. */
+  position: absolute; inset: -5px; width: 54px; height: 54px; pointer-events: none; display: block;
 }
-.onode.attn::after { border-color: #b3261e; border-bottom-color: transparent; }
-.onode.work::after { border-color: transparent; border-top-color: #1f7a4d; }
-.onode.unk::after  { border: 3px dashed var(--k-ink-2); opacity: .7; }
-/* ⚠️ idle has no rule at all, on purpose. It is the resting state, and a
-   colour here would put colour on nearly every node nearly always. */
+/* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
+   verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
+   sits where the old ring was and reads alongside the context gauge. ~43% of the
+   44px face. The glyph carries its own ground-colour halo (stroke var(--k-bg)),
+   so the red triangle holds over a light or dark photo in either theme. */
+.onode .owarn {
+  position: absolute; top: -3px; right: -3px;
+  width: 19px; height: 17px; pointer-events: none;
+}
 /* ⚠️ THERE IS NO PERSISTENT SELECTED STATE, and Josh's two notes together are
    why. Faces dim until moused over, AND clicking one opens that agent's page.
    So a click LEAVES: nothing stays selected because nothing stays. The solid
@@ -1381,8 +1393,6 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 }
 .onode:hover .callout, .onode:focus-visible .callout { opacity: 1; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .onode.attn::after { border-color: #ff8c82; border-bottom-color: transparent; }
-  :root:not([data-theme="light"]) .onode.work::after { border-color: transparent; border-top-color: #6fd3a0; }
   :root:not([data-theme="light"]) .onode .face { background: #3a3d42; }
 }
 .viewtoggle { display: inline-flex; border: 0.5px solid var(--separator);
@@ -4569,6 +4579,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    because-sentence still wraps under rather than squeezing the name. */
 .pj-member { display: flex; align-items: center; gap: var(--space-4); flex-wrap: nowrap;
   padding: var(--space-4); border: 0.5px solid var(--separator); border-radius: var(--radius-control); }
+/* #2574: a project member row opens that agent's page on click. Only the project
+   view (#pj-one-agents) wires the nav, so only it shows the clickable affordance. */
+#pj-one-agents .pj-member[data-agent] { cursor: pointer; }
+#pj-one-agents .pj-member[data-agent]:hover { background: var(--k-sunk); }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
@@ -4670,6 +4684,26 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .pj-question { margin: var(--space-5) 0; padding-left: var(--space-4);
   border-left: 2px solid var(--warn-ink); }
 .pj-question .pj-screen { max-height: 240px; }
+/* #2575: the dismiss control on the "Talk to one of them" header, and the safety
+   breadcrumb that restores the area while an agent is waiting on an answer. */
+.pj-thread-head { display: flex; justify-content: space-between; align-items: baseline; }
+.pj-thread-hide { background: none; border: 0; padding: 0; margin-left: var(--space-3);
+  font: inherit; font-size: .8125rem; color: var(--label-2);
+  text-decoration: underline; cursor: pointer; white-space: nowrap; }
+.pj-thread-show { display: block; width: 100%; text-align: left; background: none;
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control);
+  padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font: inherit;
+  font-size: .8125rem; color: var(--label); cursor: pointer; }
+.pj-thread-show:hover { background: var(--k-sunk); }
+/* #2575: the state-clear control inside the question block. A quiet underlined
+   text button (like Hide), plus a status line for a failure it must not swallow. */
+.pj-question-clearrow { display: flex; align-items: baseline; gap: var(--space-3);
+  flex-wrap: wrap; margin: var(--space-3) 0 0; }
+.pj-question-clear { background: none; border: 0; padding: 0; font: inherit;
+  font-size: .8125rem; color: var(--label-2); text-decoration: underline;
+  cursor: pointer; white-space: nowrap; }
+.pj-question-clear:disabled { opacity: .5; cursor: default; }
+.pj-question-clear-msg { margin: 0; }
 /* 🔑 THE AGENT PAGE'S WINDOW FILLS THE PAGE'S HEIGHT (#2012). It is fed 60 lines
    (`chat.viewport`); the old fixed 560px cap (Josh took 800 -> 560 on
    2026-08-22, ~42 of the 60 visible) was tuned for the NARROW pre-#2012 layout.
@@ -6414,8 +6448,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .apphead .tab.on { background: rgba(245,245,244,.08); }
 }
 
-:root[data-theme="dark"] .onode.attn::after { border-color: #ff8c82; border-bottom-color: transparent; }
-:root[data-theme="dark"] .onode.work::after { border-color: transparent; border-top-color: #6fd3a0; }
 :root[data-theme="dark"] .onode .face { background: #3a3d42; }
 
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
@@ -7012,6 +7044,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              inherits a claim written for the other container. The plan
              specified `.delivery.failed` here and the plan was wrong. -->
         <p class="qout" id="d-qask-fail" hidden></p>
+        <!-- #2129 recovery: the one-click Trust & Restart, surfaced HERE for the
+             folder-trust prompt so a person stuck on it acts in one click
+             instead of the Terminal arrow-key path. Same route and behaviour as
+             the Terminal tab's #d-trust-restart; kept SELF-CONTAINED (no shared
+             helper) so it cannot break the qask isolation tests. The render
+             unhides it ONLY when body.answerNote is set (the trust dialog is the
+             only state that carries it, #1629), so it never shows on the
+             #2456/#2575 reported-question false state. -->
+        <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
+        <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
       </div>
     </div>
     <!-- Search above the thread (#403), the room's control on the agent's own
@@ -8440,6 +8482,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-pill-wait{color:var(--k-ink-3,#8a857c);border-color:var(--k-rule,#c9c6c0)}
         .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
           color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        /* #2451/#2559: the manual "Check again" affordance. A quiet SECONDARY control
+           (not the gold Turn On primary): it does not grant anything, it just re-polls.
+           Left-aligned per Josh. */
+        #fr-pane-3 .s3-recheck-row{margin:2px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        #fr-pane-3 .s3-recheck-note{margin:0 0 6px;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        #fr-pane-3 .s3-recheck-hint{font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        /* Border is gold-deep (not the --k-rule content-divider token): matches the
+           file's secondary-button convention (#fr-alt) and clears WCAG 1.4.11's 3:1
+           non-text contrast on the near-white card, where --k-rule (~1.5:1) does not. */
+        .s3-recheck{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
+          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
+          background:var(--k-surface,#fff);cursor:pointer}
+        .s3-recheck:hover{background:var(--k-surface-2,#f4f1ea)}
+        .s3-recheck:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
+        .s3-recheck[disabled]{opacity:.55;cursor:default}
         .s3-granted{display:none}
         .s3-gate-row[data-granted] .s3-req{display:none}
         .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
@@ -8452,6 +8509,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
+           the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
+           replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
+           so this is purely information; it never appears on a granted/checking row nor on a
+           fixable desktop (no data-battonly), where "Turn On" can still set Sleep to Never. */
+        .s3-battonly{display:none}
+        .s3-gate-row[data-battonly] .s3-req{display:none}
+        .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-basis:100%;width:100%;margin:2px 0 0}
+        #fr-pane-3 .s3-battonly-note{margin:0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
         </style>
 
         <p class="fc-eyebrow">Automation</p>
@@ -8468,6 +8534,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
+          <!-- #2587: on a laptop that sleeps on battery (data-battonly, set by the
+               /api/sleep-status poll) macOS has no switch to fix it, so the useless
+               "Turn On" is replaced by an honest note. The step no longer gates Next
+               (FR_GATES.sleep gatesNext:false), so this is purely information that stays
+               on the screen while the user moves on -- Mona Lisa's copy. -->
+          <div class="s3-battonly">
+            <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open.</p>
+          </div>
         </div>
 
         <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
@@ -8496,6 +8570,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              window itself is the feedback (same rule as the retired sleep/a11y
              buttons this reuses). The gate poll re-checks and flips the pill on
              its own once granted. -->
+        <!-- #2451/#2559 (Josh 0.6.50, 7.58.24): a manual re-check. The poll already
+             re-checks on its own, but after granting in System Settings the user wants a
+             way to force it NOW rather than wait for the next tick, so the screen does not
+             feel stuck. Left-aligned under the rows, per Josh. Reassurance + hint copy is
+             Mona Lisa's (she owns the wording; Josh left it to us). -->
+        <p class="s3-recheck-note">This can take a few seconds after you flip the switch.</p>
+        <div class="s3-recheck-row">
+          <button class="s3-recheck fr-recheck" type="button">Check again</button>
+          <span class="s3-recheck-hint">Turned it on already? Tap to check now.</span>
+        </div>
         <p class="fr-msg" id="fr-s3-msg" role="status" aria-live="polite"></p>
       </div>
 
@@ -9920,10 +10004,23 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          the room was waiting on exactly this question: when five agents are on a
          project, who answers. The answer is ONE of them, chosen here. Everything
          answering at once and nothing answering are the same bug. -->
+    <!-- #2575: the safety breadcrumb. When the person has dismissed the "Talk to
+         one of them" area but an agent is still waiting on an answer, this compact
+         line keeps the waiting signal visible (never a false calm) and restores
+         the full area on click. Sibling of #pj-thread so it shows while that box
+         is hidden; its text is set by pjApplyEngMode when an agent is waiting. -->
+    <button class="pj-thread-show" id="pj-thread-show" type="button" hidden></button>
     <div class="field" id="pj-thread">
       <!-- No id: nothing read the one it carried (round 25), the same
            unread-surface rule as the thread payload's agents copy. -->
-      <span class="flabel">Talk to one of them</span>
+      <div class="pj-thread-head">
+        <span class="flabel">Talk to one of them</span>
+        <!-- #2575: dismiss/collapse. A "not now" for the current session (reset on
+             reload), so the per-agent question + second composer stop cluttering the
+             Projects page; the breadcrumb above restores it if an agent is waiting. -->
+        <button class="pj-thread-hide" id="pj-thread-hide" type="button"
+                aria-label="Hide the talk-to-one-agent area">Hide</button>
+      </div>
       <p class="fhint">Every message goes to the one agent you pick. The others
          are on the project and are not in this conversation.</p>
       <div class="frow">
@@ -9957,6 +10054,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              prompt with more than two options makes the trailing numbers
              wrong; some day the range comes from the pane. -->
         <p class="fhint" id="pj-answer-how" hidden style="margin:8px 0 0;">Answer by sending the number: 1 or 2.</p>
+        <!-- #2575: clear a STALE waiting state, and it is NOT the same control as
+             Hide. Hide (in the head above) collapses the area for this session and
+             keeps the breadcrumb, because the agent IS waiting and the answer is
+             still owed. This asserts the opposite: the agent is NOT actually
+             waiting -- it resumed work and never self-cleared the needs_you -- so
+             it clears the record via Pete's engine route and the flag stops
+             surfacing at all, on reload included. Lives inside the question block,
+             so it only appears when there is a waiting claim to clear. -->
+        <div class="pj-question-clearrow">
+          <button class="pj-question-clear" id="pj-question-clear" type="button"
+                  aria-label="Clear this waiting flag because the agent is not actually waiting">Not waiting? Clear it</button>
+          <!-- Not a live region: an identical repeat failure would not re-fire it
+               (the round-33 pjAnnounce lesson). The visible line is plain; the
+               announce goes through pjAnnounce beside the write, like #pj-thread-msg. -->
+          <span class="fhint pj-question-clear-msg" id="pj-question-clear-msg"></span>
+        </div>
       </div>
 
       <!-- What we have sent, and how each one went. Ours to keep, because we
@@ -13228,6 +13341,13 @@ function card(a) {
    stopped agent, and reading a field the route does not emit is the defect
    the roster fixture exists to throw on. */
 const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Needs you"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
+/* #2577: the org-chart node's needs-you corner badge is the SAME glyph as the
+   list row, DERIVED from it by a class swap so the triangle, the exclamation and
+   the built-in ground halo (stroke var(--k-bg)) can never drift apart -- only the
+   class differs, so CSS places it top-right on a node instead of centred on a
+   row. One mark means "needs you" on a tile, a pill, a row and a node (Mona Lisa,
+   #2577). web.org-view.test.js pins that the two carry the identical path. */
+const ONODE_WARN = LROW_WARN.replace('class="lwarn"', 'class="owarn"');
 function lrowRing(a) {
   const pct = pctOf(a.context);
   if (pct === null) return '';
@@ -13248,6 +13368,22 @@ function detailRing(a) {
   const R = 47, C = 2 * Math.PI * R;
   const band = memBand(pct);
   return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
+    <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
+  </svg>`;
+}
+/* #2576: the SAME context gauge for the org-chart node, scaled by CSS to sit
+   just outside the 44px node face (.onode .oring, inset -5px) where the state arc
+   used to. Same reading (pctOf) and band (memBand) as lrowRing, detailRing, the
+   cards and the MEMORY panel, so every surface agrees; unknown context (pct null)
+   draws nothing, matching them. Geometry mirrors detailRing (viewBox 100, r47,
+   sw4); the .oring CSS box does the scaling down to node size. */
+function orgRing(a) {
+  const pct = pctOf(a.context);
+  if (pct === null) return '';
+  const R = 47, C = 2 * Math.PI * R;
+  const band = memBand(pct);
+  return `<svg class="oring" viewBox="0 0 100 100" aria-hidden="true">
     <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
     <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
   </svg>`;
@@ -16002,11 +16138,29 @@ async function paintAccounts() {
       connBadge = '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>';
     } else if (badge === 'unchecked') {
       connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
+    } else if (isOpenai && a.authMode === 'chatgpt') {
+      /* #2568: a ChatGPT SUBSCRIPTION row. Its checkLive() honestly returns state
+         UNKNOWN with a real, LONG because sentence ("this sign-in method is not yet
+         checked live; it may or may not still work") -- there is no live probe for a
+         subscription sign-in yet (openaiaccounts.js checkLive). OpenAI rows carry no
+         server `badge`, so before this it fell to the legacy fallback below and rendered
+         that whole sentence in the pill span. The pill classes are `white-space: nowrap`,
+         so a long sentence cannot wrap: it overflowed the pill and collided with the email
+         beside it -- Josh saw `jo$h@bookuio...in method is not yet checked live` on v0.6.50.
+         A subscription sign-in DOES exist here (the connected gate is auth_mode:chatgpt with
+         a decodable identity), so the honest SHORT pill is the signed-in-unverified shape --
+         a credential exists, not verified live -- mirroring the Claude signed_in_unverified
+         pill above. The full sentence stays in the title, the same short-visible/full-in-title
+         rule the #1921 badge vocabulary already uses, so the pill states what it knows without
+         the whole reason living in the visible span. This is the "auth_mode-shape display"
+         #2568 asks the OpenAI row to adopt. */
+      connBadge = '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in · not checked live</span>';
     } else {
       /* The legacy state ternary, kept as the fallback for any row without a `badge`.
-         Two rows land here today: an OpenAI row (the server overlays `badge` onto Claude
-         rows only, so OpenAI rows never carry one), and -- under a version skew (new page,
-         old server) -- a Claude row. Neither may blank the badge. */
+         Two rows land here today: an OpenAI API-KEY row (the server overlays `badge` onto
+         Claude rows only, so OpenAI rows never carry one; a chatgpt OpenAI row is handled by
+         the branch just above), and -- under a version skew (new page, old server) -- a Claude
+         row. Neither may blank the badge. */
       connBadge = a.connection && a.connection.state === 'connected' ? '<span class="acct-connected" title="' + esc(connectedWhy) + '"><span class="dot" aria-hidden="true"></span>Signed in</span>'
         : a.connection && a.connection.state === 'none' ? '<span class="acct-none" title="' + esc(noneWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(noneWhy) + '</span>'
         : '<span class="acct-unknown" title="' + esc(unknownWhy) + '"><span class="dot" aria-hidden="true"></span>' + esc(unknownWhy) + '</span>';
@@ -16060,18 +16214,26 @@ async function paintAccounts() {
          (#2441): the product's answer for switching an api-key row to a subscription is
          remove-and-re-add, not reauth-in-place. `a.apiKey` is present-and-false on a
          subscription row, so this narrows to api-key rows alone. */
-      + (isOpenai || a.apiKey ? ''
-        : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-          /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
-             POINT. `qualName` falls back to the provider name so a Disconnect always
-             says WHICH account it removes, because Disconnect appears on both
-             providers and a wrong press is expensive. Reauth appears on CLAUDE ROWS
-             ONLY, so an appended "(Claude)" cannot disambiguate anything: it lands on
-             every ordinary machine as pure verbosity, on the surface where verbosity
-             costs most. When `qual` IS set the two agree, so the disambiguating case
-             is untouched. Pinned below so this is a decision rather than a leftover. */
-          + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
+      /* 🔑 The aria-label appends the qualifier ONLY when `qual` is set (two rows read
+         alike), so on an ordinary machine it stays terse; when it IS set both providers
+         agree, so the disambiguating case is untouched. Reauth now appears on Claude
+         subscription rows AND OpenAI ChatGPT-subscription rows (#2584 gave the latter a
+         real reauth-in-place); it is still withheld from api-key rows of either provider,
+         whose product answer is remove-and-re-add, not reauth-in-place. */
+      + (isOpenai
+        /* #2568/#2584: an OpenAI ChatGPT SUBSCRIPTION row reauths via the SUBSCRIPTION
+           flow (data-openai-reauth -> openAcctReauthOpenai -> the subscription/start
+           reauthDir path), NOT the Claude browser-OAuth flow. An api-key OpenAI row has
+           no sign-in to redo, so it stays suppressed. */
+        ? (a.authMode === 'chatgpt'
+          ? '<button class="acct-reauth" type="button" data-openai-reauth="' + esc(a.dir) + '" '
+            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="' + esc('Signs in again to this ChatGPT subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
+          : '')
+        : (a.apiKey ? ''
+          : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
+            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>'))
       /* #2441: api-key Claude Disconnect is now LIVE. #2420's removal slice landed, so
          `forgetAccount` accepts api-key accounts (erases the stored key + unwires the
          apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
@@ -16225,6 +16387,14 @@ async function paintAccounts() {
       openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
     });
   }
+  /* #2568/#2584: the OpenAI ChatGPT reauth opens the SUBSCRIPTION sign-in aimed at this
+     account (reauthDir), not the Claude flow -- its own data attribute keeps the two apart. */
+  for (const btn of box.querySelectorAll('[data-openai-reauth]')) {
+    btn.addEventListener('click', () => {
+      const row = list.find((x) => String(x.dir) === btn.dataset.openaiReauth);
+      openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
+    });
+  }
   /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
      `disabled`. Making the default row's control focusable so a keyboard user
      can reach the reason ALSO makes it pressable, and the shared handler below
@@ -16340,7 +16510,7 @@ async function paintAccounts() {
     const targetDir = btn.dataset.forget || btn.dataset.remove;
     /* Delete says "for good" (it IS irreversible); Disconnect deliberately does
        not, because a rename survives and its success sentence says so. */
-    const CONFIRM = isRemove ? 'Delete for good?' : 'Remove it?';
+    const CONFIRM = isRemove ? 'Delete for good?' : 'Disconnect?';
     /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
        Disconnect link at the bottom that asks first". It shipped without
        the asking half, so one click removed an account with no confirm.
@@ -16488,7 +16658,7 @@ async function paintAccounts() {
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
         /* Restore the resting label, or a refused remove leaves the button
-           reading "Remove it?" and the NEXT single click acts. */
+           reading "Disconnect?" and the NEXT single click acts. */
         armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
         /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
            THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
@@ -16964,6 +17134,13 @@ function acctPick(which, opts) {
   acctOpenaiLook().then((o) => {
     acctOpenaiStep(ACCT_OPENAI_READY);
     if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
+    /* #2568/#2584: a reauth goes straight to the ChatGPT sign-in step (re-authing an
+       existing subscription account), like the Claude reauth does, not the provider
+       picker. Only with the runner present -- an existing account implies it; a missing
+       one falls to the install step and the sub-go POST's needsRunner path still routes.
+       acctOpenaiChoose focuses the sign-in button itself, so this runs BEFORE the
+       focus-return below and applies to the focus:false reauth entry too. */
+    if (ACCT_OPENAI_REAUTH_DIR && ACCT_OPENAI_READY !== false) acctOpenaiChoose('sub');
     if (opts && opts.focus === false) return;
     /* #2338: a present-or-unknown runner opens on the picker; a missing one on
        the install button. */
@@ -17012,6 +17189,12 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
    harder to notice because it silently succeeds. openAcctAdd() clears it on
    every visit; the test pins that. */
 let ACCT_REAUTH_DIR = null;
+/* #2568/#2584: the OpenAI ChatGPT account a reauth is signing in again AS, null for a new
+   add. Threaded into the subscription/start POST as `reauthDir`; the #2584 driver refuses
+   to promote unless the fresh sign-in matches this account. Cleared by openAcctAdd() like
+   its Claude sibling ACCT_REAUTH_DIR, so a fresh "+ Add a provider" is never silently a
+   reauth (the dangerous stale-dir direction that rule guards). */
+let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
 const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.';
 /* The stock warning says to sign in to the OTHER Claude account first, which is
@@ -17050,6 +17233,20 @@ function openAcctReauth(dir, email) {
   document.getElementById('acct-add-modal').hidden = false;
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
+}
+/* #2568/#2584: sign in again AS an existing OpenAI ChatGPT-subscription account. Mirror of
+   openAcctReauth but for the OpenAI SUBSCRIPTION flow: set the reauth dir, open the dialog in
+   reauth chrome, and pick OpenAI. acctPick('openai') then routes a reauth straight to the
+   ChatGPT sign-in step (skipping the picker), the same way it does for a Claude reauth, and the
+   subscription/start POST reads ACCT_OPENAI_REAUTH_DIR so the engine refreshes THIS account in
+   place (the #2584 driver refuses to promote unless the sign-in matches it). */
+function openAcctReauthOpenai(dir, email) {
+  ACCT_OPENAI_REAUTH_DIR = dir;
+  acctReauthChrome(true, email);
+  document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-openai-msg').textContent = '';
+  document.getElementById('acct-add-modal').hidden = false;
+  acctPick('openai', { focus: false });
 }
 /* #1704 slice-3: the multiple-Kosmos switcher (list + create). Lists worlds from
    GET /api/worlds and creates them via POST /api/worlds. Switching between worlds
@@ -17584,6 +17781,7 @@ function openAcctAdd() {
     document.getElementById('acct-openai-flow').hidden = true;
   }
   ACCT_REAUTH_DIR = null;
+  ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
@@ -17874,7 +18072,10 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
     const res = await fetch('/api/accounts/openai/subscription/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined }),
+      // #2568/#2584: on a reauth, ACCT_OPENAI_REAUTH_DIR names the account to sign in
+      // again AS; the engine promotes into it only on an identity match. Absent on a
+      // fresh add (openAcctAdd clears it), so this is never accidentally a reauth.
+      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined, reauthDir: ACCT_OPENAI_REAUTH_DIR || undefined }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
@@ -18456,7 +18657,21 @@ function pjApplyEngMode() {
   if (box) {
     const q = document.getElementById('pj-question');
     const asking = Boolean(q) && !q.hidden;
-    box.hidden = !ENG_ON && !asking;
+    /* #2575: a DISMISSED area stays hidden even while an agent is asking, so the
+       per-agent question + second composer stop cluttering the Projects page
+       (Josh: it "shows very often" and "can't be dismissed"). The dismiss is a
+       "not now" for the session (PJ_THREAD_HIDDEN, reset on reload). */
+    box.hidden = !ENG_ON && (!asking || PJ_THREAD_HIDDEN);
+    /* SAFETY, and it is load-bearing: dismissing must never become the false-calm
+       #370/#2146 exists to prevent. When the box is hidden BY the dismiss while an
+       agent is genuinely asking (Off mode only; ENG mode always shows the box),
+       the breadcrumb keeps the waiting signal visible and restores the full area. */
+    const crumb = document.getElementById('pj-thread-show');
+    if (crumb) {
+      const show = !ENG_ON && asking && PJ_THREAD_HIDDEN;
+      crumb.hidden = !show;
+      if (show) crumb.textContent = 'An agent is waiting on an answer. Show it.';
+    }
   }
 }
 
@@ -18904,7 +19119,7 @@ function paintOrg() {
    * ⚠️ THE HUB IS INCLUDED IN THE BOX, because it is part of the drawing: a
    * fleet that all reports upward would otherwise centre the agents and push
    * the hub off the edge. Its own 52px radius counts, as does a node's 22px
-   * plus the 5px its state ring sits outside that.
+   * plus the 5px its context ring sits outside that.
    *
    * 📌 Same nodes, same scale, translated. Nothing here changes who is where
    * relative to anything else.
@@ -18943,15 +19158,16 @@ function paintOrg() {
     wires.push('<line data-for="' + esc(name) + '" x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
       + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="edge"/>');
     const a = spot.node.agent;
-    /* The state vocabulary is the CARD's, read through the same table the grid
-       and the list read, so the three views cannot disagree about an agent.
-       Three states draw a ring (attn / working / unknown); the resting states
-       (idle, paused, stopped) carry none. #2019: 'restarting' DELIBERATELY joins
-       the no-ring resting group here -- this compact constellation is not the
-       place for the animated K (the card / row / detail carry that), and no ring
-       still reads as present-and-quiet, never as "gone". */
-    const st = cardStOf(a).st;
-    const ring = st === 'attn' ? ' attn' : st === 'working' ? ' work' : st === 'unknown' ? ' unk' : '';
+    /* #2576/#2577: the state vocabulary is still the CARD's, read through the
+       same table the grid and the list read, so the three views cannot disagree
+       about an agent -- but state no longer draws the outer ring here. That ring
+       is now the CONTEXT gauge (orgRing, #2576), on every node. Only needs-you
+       gets a mark, and it is a corner BADGE (ONODE_WARN, #2577), a different
+       visual channel, so a needs-you agent shows BOTH its attention badge and its
+       context ring where the old red arc crowded the ring out. Working, unknown
+       and the resting states (idle, paused, stopped, #2019 restarting) carry no
+       badge: present-and-quiet with their context ring, matching the list row. */
+    const needsYou = cardStOf(a).st === 'attn';
     const shown = a.name || a.sessionName;
     const face = a.hasAvatar
       ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar" alt="" draggable="false">'
@@ -18960,10 +19176,17 @@ function paintOrg() {
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
-    nodes.push('<button class="onode' + ring + '" type="button" data-agent="' + esc(a.sessionName) + '"'
+    nodes.push('<button class="onode" type="button" data-agent="' + esc(a.sessionName) + '"'
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
-      + ' aria-label="Open ' + esc(shown) + '">'
+      /* #2577: the badge's own aria-label is inert inside a button that has its
+         own aria-label (the accessible name comes from the attribute alone, not
+         from descendant content), so needs-you would be visual-only here. Fold it
+         into the button's accessible name, the way the list row conveys it through
+         LROW_WARN sitting OUTSIDE any button. */
+      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : '') + '">'
+      + orgRing(a)
       + '<span class="face"' + tint + '>' + face + '</span>'
+      + (needsYou ? ONODE_WARN : '')
       + (nameAtRest ? '<span class="oname">' + esc(shown) + '</span>' : '')
       /* A name alone is a label; "Open Anna" is a control, and the node IS one
          (#284: "say what it does"). The gold is the app's action treatment, so
@@ -19569,6 +19792,10 @@ function boardEmpty() {
 // projects reads: two in-flight looks must not paint out of order.
 let PJ_BROWSE_GEN = 0;
 let CURRENT = null;
+/* #2574: the project a detail view was opened FROM (a project-member click), so
+   detail-back returns to that project instead of All agents. null for every
+   other opener. */
+let DETAIL_FROM_PROJECT = null;
 
 /**
  * Just the picture.
@@ -20837,6 +21064,7 @@ async function paintTalk(sessionName, agentName) {
   const qtext = document.getElementById('d-qask-text');
   const qopts = document.getElementById('d-qopts');
   const qout = document.getElementById('d-qout');
+  const qTrust = document.getElementById('d-qask-trust-restart');
   const live = body.presence === 'on';
   const nowHidden = !body.asking || stillTheSame;
   /**
@@ -20900,6 +21128,9 @@ async function paintTalk(sessionName, agentName) {
     if (!closing) say.focus();
     else document.getElementById('d-talk-box').focus();
   }
+  /* #2129: default the recovery button hidden every paint, so it only shows
+     where the branch below explicitly turns it on. */
+  if (qTrust) qTrust.hidden = true;
   if (body.asking && body.question) {
     /* #1629: for Claude Code's trust dialog the ROUTE sends `answerNote`, the
        same sentence its send refusal uses, because the composer below invites
@@ -20916,6 +21147,10 @@ async function paintTalk(sessionName, agentName) {
     // The agent's screen, or its reported words, in the treatment the room uses.
     pjSetScreen(qtext, body.question.text);
     qtext.hidden = false;
+    /* #2129: surface the one-click Trust & Restart ONLY for the folder-trust
+       prompt, which is the only state carrying body.answerNote (#1629). Never on
+       the #2456/#2575 reported-question false state (answerNote null there). */
+    if (qTrust && body.answerNote) qTrust.hidden = false;
   } else if (!body.asking) {
     /* ⚠️ CLEARED WHEN NOTHING IS ASKING. They sit behind `hidden`, so nothing
        was shown — but the render check reads them directly and found the last
@@ -21455,9 +21690,13 @@ async function sendTalk(text, chose, attachment) {
   }
 }
 
-function openDetail(sessionName, section) {
+function openDetail(sessionName, section, fromProject) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
+     detail-back returns to the project; every existing caller passes no 3rd
+     arg -> null -> the unchanged All-agents back. */
+  DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   URL_TAB = 'detail';
@@ -21843,12 +22082,20 @@ function openDetail(sessionName, section) {
      an in-flight POST; a receipt that already landed for A persists until cleared here. */
   document.getElementById('d-trust-restart-msg').textContent = '';
   document.getElementById('d-open-terminal-msg').textContent = '';
+  /* #2129: the chat-box twin of #d-trust-restart-msg. Same reason: the qask box
+     elements are reused, not rebuilt per agent, so a landed receipt would stand
+     under the next agent unless cleared on switch. */
+  { const m = document.getElementById('d-qask-trust-restart-msg'); if (m) m.textContent = ''; }
   /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
      left them disabled; re-enable for the agent we are opening. The leaving agent's own
      `finally` re-enable is then a harmless no-op, and its late receipt is dropped by the
      capture-and-recheck above, so re-enabling here cannot cross agents. */
   document.getElementById('d-trust-restart').disabled = false;
   document.getElementById('d-open-terminal').disabled = false;
+  /* #2129: re-enable the chat-box Trust & Restart for the agent we are opening,
+     same as the two above (an in-flight POST for the leaving agent left it
+     disabled; the leaving agent's own finally re-enable is a harmless no-op). */
+  { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its
@@ -23708,7 +23955,14 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('detail-back').addEventListener('click', () => showTab('agents'));
+document.getElementById('detail-back').addEventListener('click', () => {
+  /* #2574: a detail opened from a project member returns to that project; every
+     other opener returns to All agents (unchanged). */
+  const pid = DETAIL_FROM_PROJECT;
+  DETAIL_FROM_PROJECT = null;
+  if (pid) { showTab('projects'); openProject(pid); }
+  else showTab('agents');
+});
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
@@ -25586,6 +25840,35 @@ document.getElementById('d-trust-restart').addEventListener('click', async () =>
   const forAgent = CURRENT.sessionName;
   const btn = document.getElementById('d-trust-restart');
   const msg = document.getElementById('d-trust-restart-msg');
+  btn.disabled = true;
+  msg.textContent = 'Trusting and restarting…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/trust-and-restart',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = r.because || r.error
+        || (res.ok ? 'Restarting.' : 'We could not trust and restart this agent.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* #2129: the chat-box twin of the Trust & Restart handler above. Deliberately a
+   SELF-CONTAINED copy, not a shared helper, so the qask isolation tests that
+   lift this region do not throw on a delegate defined elsewhere. Same route,
+   same capture-and-recheck (CURRENT.sessionName === forAgent) so a receipt
+   cannot land under a different agent if the person switches mid-POST. */
+document.getElementById('d-qask-trust-restart').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-qask-trust-restart');
+  const msg = document.getElementById('d-qask-trust-restart-msg');
   btn.disabled = true;
   msg.textContent = 'Trusting and restarting…';
   try {
@@ -31124,6 +31407,15 @@ const PJ_DRAFTS = {};
 // the Back button on purpose (round 36).
 let PJ_LAST_OPENED = null;
 let PJ_CURRENT = null;      // the project id being looked at, or null
+/* #2575: the person dismissed the "Talk to one of them" area for this session
+   (reset on reload). pjApplyEngMode keeps the box hidden while set, and shows the
+   safety breadcrumb instead when an agent is genuinely waiting. */
+let PJ_THREAD_HIDDEN = false;
+/* #2575: the sessionName of the agent the open question is about, captured by
+   paintThread whenever it paints an asking state and nulled when it does not.
+   The state-clear button reads THIS (not the picker) so it always targets the
+   exact agent whose waiting flag is on screen. */
+let PJ_QUESTION_AGENT = null;
 let PJ_PICKED = null;       // the folder CHOSEN in the add flow, deliberately
 let PJ_HERE = null;        // the folder being LOOKED AT, which is not the same
 let PJ_ADD_AGENTS = [];     // the agents ticked in the add flow
@@ -31290,7 +31582,7 @@ function pjMember(m, suppressTold, withMinus) {
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
-  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '">'
+  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '" data-agent="' + esc(m.sessionName) + '">'
     + face
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
@@ -34676,6 +34968,7 @@ function openProject(id) {
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
     pjApplyEngMode();
+    PJ_QUESTION_AGENT = null;  // #2575: question hidden here (not via paintThread), so drop the clear target too
     // The heading too (round 22): it is written in exactly one place
     // (paintThread), so without this reset a project with no agents kept
     // "What Mara's screen shows right now" from the LAST thread over an
@@ -36369,6 +36662,15 @@ function paintThread(body) {
   const p = pjById(PJ_CURRENT);
   if (!p || !body) return;
   const name = pjNameOf(p, body.agent && body.agent.sessionName);
+  /* #2575: the state-clear button's target follows the painted question exactly.
+     Set from body.asking (either asking arm below), nulled when not asking, so a
+     click can never clear a flag that is no longer on screen. */
+  PJ_QUESTION_AGENT = body.asking ? ((body.agent && body.agent.sessionName) || null) : null;
+  /* #2575: a clear-failure line is transient, not sticky. Cleared on every repaint
+     so a stale "could not clear" cannot sit next to a question the poll has since
+     refreshed (a new prompt, or the pane scrolled). The failure also spoke through
+     pjAnnounce, so blanking the visible text loses no announcement. */
+  { const cm = document.getElementById('pj-question-clear-msg'); if (cm) cm.textContent = ''; }
 
   /* The question, when the board says this agent is asking one. */
   const qWrap = document.getElementById('pj-question');
@@ -36584,6 +36886,7 @@ async function loadThread() {
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
     pjApplyEngMode();
+    PJ_QUESTION_AGENT = null;  // #2575: question hidden here (not via paintThread), so drop the clear target too
     // Same heading reset as openProject's clear (round 22): the poll takes
     // this branch within a tick of the last agent leaving the project, and
     // the heading otherwise keeps naming the departed agent.
@@ -38037,11 +38340,86 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
   if (!btn || !PJ_CURRENT) return;
   openMemModal(btn, document.getElementById('pjs-members-msg'));
 });
+/* The project members list opens an agent's detail page on click (#2574). The
+   remove (minus) button is INSIDE the member row, so it is checked FIRST and
+   returns -- mirroring the board grid's inner-control-first rule -- or a member
+   click would also open the agent. */
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const btn = e.target.closest('.pj-minus[data-drop]');
-  if (!btn || !PJ_CURRENT) return;
-  openMemModal(btn, document.getElementById('pj-one-msg'));
+  if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
+  // #2574: a member click opens that agent's detail page, id-keyed via data-agent
+  // (sessionName) -- the SAME open-agent path the agents grid uses (openDetail) --
+  // passing PJ_CURRENT so detail-back returns to this project.
+  const member = e.target.closest('.pj-member[data-agent]');
+  if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
 });
+/* #2575: dismiss/restore the "Talk to one of them" area. Dismiss is a per-session
+   "not now"; pjApplyEngMode then hides the box and shows the safety breadcrumb
+   while an agent is waiting, and the breadcrumb restores the full area. */
+document.getElementById('pj-thread-hide').addEventListener('click', () => {
+  PJ_THREAD_HIDDEN = true;
+  pjApplyEngMode();
+});
+document.getElementById('pj-thread-show').addEventListener('click', () => {
+  PJ_THREAD_HIDDEN = false;
+  pjApplyEngMode();
+});
+/* #2575: clear a STALE waiting flag through Pete's engine route. This is the
+   STATE half, the opposite of Hide's DISPLAY half: it POSTs to
+   /api/agent/<name>/clear-selfreport, which records `idle` over a
+   waiting-on-a-person self-report so the flag stops surfacing (reload included),
+   and then re-reads the thread so the question comes off the screen at once.
+   Named (not an inline listener) so the test lifts and runs the real thing. */
+async function pjClearState() {
+  const target = PJ_QUESTION_AGENT;
+  const btn = document.getElementById('pj-question-clear');
+  const emsg = document.getElementById('pj-question-clear-msg');
+  /* One string, so the two failure paths are byte-identical -- which is what lets
+     pjAnnounce's round-33 blank-and-reset re-speak a repeated failure (a live
+     region only fires on change; a second identical failure would say nothing). */
+  const FAIL = 'We could not clear that just now. Try again.';
+  const sayFail = () => {
+    /* Visible line (non-live) plus the announce beside it, the #pj-thread-msg
+       pattern: a failed clear must not be swallowed -- leaving the question up
+       with no word is the false-progress this page is built against. */
+    if (emsg) emsg.textContent = FAIL;
+    pjAnnounce(FAIL);
+  };
+  /* No target means no asking state is painted, so there is nothing to clear.
+     The button only shows inside the question block, but the guard keeps a
+     stray click (or a click landing just as the question cleared) a no-op. */
+  if (!target) return;
+  btn.disabled = true;
+  if (emsg) emsg.textContent = '';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'operator-dismissed' }),
+    });
+    let body = {};
+    try { body = await res.json(); } catch { body = {}; }
+    if (!res.ok || !body || body.ok !== true) {
+      sayFail();
+      return;
+    }
+    /* Keyed on `cleared`, not `by` (Pete's contract): `cleared:true` means a real
+       waiting flag was superseded; `cleared:false` is the route's documented
+       idempotent no-op (already idle, or the agent self-cleared in a race). Both
+       are success and both mean the agent is not-waiting now, so re-read the
+       thread either way -- the next paint sees asking:false and hides the
+       question. `by` is provenance and is deliberately not consulted. */
+    await loadThread();
+  } catch {
+    sayFail();
+  } finally {
+    /* Re-enabled unconditionally: on success the question (and this button with
+       it) is gone on the repaint; if the agent is still asking a fresh question
+       the button is live again for the next attempt. */
+    btn.disabled = false;
+  }
+}
+document.getElementById('pj-question-clear').addEventListener('click', pjClearState);
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
 /* #1316: Escape, matching the backdrop click above. */
@@ -38377,7 +38755,9 @@ let FR_YOU_GEN = 0;
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
    machine; it blocks only when we KNOW a required grant is off. The user grants it
-   in System Settings and the next poll (1.5s) unlocks Next -- no manual re-check.
+   in System Settings and the next poll (FR_GATE_POLL_MS, 750ms) unlocks Next on its
+   own; the "Check again" button (#2451/#2559) only front-runs that next tick for an
+   impatient user, it is not required.
    Generation-guarded: a poll captured on one screen does NOTHING once the step
    moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md).
 
@@ -38406,6 +38786,16 @@ const FR_GATES = {
     url: '/api/sleep-status',
     granted: (r) => r.checkable === true && r.prevented === true,
     blocked: (r) => r.checkable === true && r.prevented !== true,
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. The
+    // granted/blocked reads still drive the row's visual state (Activated / Not
+    // activated + Turn On), but frPollGates does not let a blocked sleep row disable
+    // Next. A laptop cannot satisfy it at all (no macOS switch), so gating it trapped
+    // users; the honest note stays on the screen as information.
+    gatesNext: false,
+    // #2587: the unsatisfiable-laptop case (plugged-in-fine, sleeps on battery).
+    // machine.js sets this ONLY on that state, so the honest note replaces the useless
+    // "Turn On" only there, never on a fixable desktop (where Turn On can set Never).
+    battOnly: (r) => r.battOnly === true,
   },
   'tmux': {
     url: '/api/a11y-status',
@@ -38413,27 +38803,38 @@ const FR_GATES = {
     blocked: (r) => r.checkable === true && r.trusted !== true,
   },
 };
-let FR_GATE_GEN = 0, FR_GATE_TIMER = null;
-function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } }
+let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
+// #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
+// user granted the permission the pill/Next could sit unchanged for over a second and the
+// screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
+// (750ms) so a grant reflects within about a second, and pair it with a manual "Check
+// again" button (see the fr-recheck handler) so the user can force an immediate re-check.
+const FR_GATE_POLL_MS = 750;
+function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
-  if (!spec) return 'uncheckable';
+  if (!spec) return { state: 'uncheckable', battOnly: false };
   // A fetch failure is an empty reading, so every predicate below reads false and
   // the row is uncheckable (fail-safe) -- never blocked, never a false green.
   let r; try { r = await (await fetch(spec.url)).json(); } catch { r = {}; }
   if (!r || typeof r !== 'object') r = {};
-  if (spec.granted(r)) return 'granted';
-  if (spec.blocked(r)) return 'blocked';
-  return 'uncheckable';
+  // #2587: read the unsatisfiable-laptop flag ALONGSIDE the state, so the poll can show
+  // the honest note in place of the useless Turn On on that row (see frPollGates). Absent
+  // predicate (every gate but sleep) is always false.
+  const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
+  if (spec.granted(r)) return { state: 'granted', battOnly };
+  if (spec.blocked(r)) return { state: 'blocked', battOnly };
+  return { state: 'uncheckable', battOnly };
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
   const rows = Array.from(screenEl.querySelectorAll('[data-gate]'));
   if (!rows.length) return;
-  const states = await Promise.all(rows.map(frReadGate));
+  const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
   rows.forEach((row, i) => {
+    const st = reads[i].state;
     // #2085: three visual states, exactly one attribute set (or neither = the
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
@@ -38441,10 +38842,20 @@ async function frPollGates(screenEl, gen) {
     // NOTE: data-checking is set on ANY uncheckable data-gate row, but only the
     // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
     // (that row keeps its default red state, unchanged) -- harmless, not a regression.
-    if (states[i] === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
-    else if (states[i] === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
+    if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
+    else if (st === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
-    if (states[i] === 'blocked') anyBlocked = true;
+    // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
+    // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
+    if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
+    // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
+    // anyone who simply has not set it, can still move on; the honest note stays as
+    // information rather than walling them in. Only genuinely-satisfiable permissions
+    // (Accessibility/tmux, file access) gate Next -- gating those is correct, because
+    // letting a user past an ungranted Accessibility grant lands them in broken agents.
+    const spec = FR_GATES[row.getAttribute('data-gate')];
+    if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
   const next = document.getElementById('fr-next');
   if (!next) return;
@@ -38454,9 +38865,17 @@ async function frPollGates(screenEl, gen) {
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
+  FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
-  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), 1500);
+  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), FR_GATE_POLL_MS);
   return gen;
+}
+// #2451/#2559: fire an immediate gate re-check (the manual "Check again" affordance).
+// Polls the currently-gated screen at the current generation, so it is a no-op when no
+// gated screen is active and cannot outrace a screen change. Returns the poll promise.
+function frRecheckGates() {
+  if (!FR_GATE_SCREEN) return Promise.resolve();
+  return frPollGates(FR_GATE_SCREEN, FR_GATE_GEN);
 }
 let FR = null;            // what /api/first-run said
 let FR_STEP = 1;
@@ -38990,6 +39409,32 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
+  // instead of waiting for the next poll tick, so a just-granted permission reflects at
+  // once. The poll keeps running regardless; this only front-runs the next tick.
+  const recheck = e.target.closest('.fr-recheck');
+  if (recheck) {
+    const m = document.getElementById('fr-s3-msg');
+    // Do NOT clobber a real error on the shared status line (a "Turn On" failure the user
+    // may not have read yet): only show/clear our own transient "Checking..." when the line
+    // is not currently an error. The re-poll happens either way.
+    const hadErr = !!(m && m.classList.contains('fr-msg-err'));
+    recheck.disabled = true;
+    if (m && !hadErr) m.textContent = 'Checking…';
+    try {
+      await frRecheckGates();
+    } finally {
+      // Re-read the error state: a "Turn On" failure can arrive DURING the await (both
+      // buttons are live), so clear only if the line is still not an error -- never wipe a
+      // freshly-set (or pre-existing) error the user has not read.
+      if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
+      recheck.disabled = false;
+    }
+    return;
+  }
+  // #2587: no "Continue anyway" button any more. Josh's ruling made the sleep step
+  // ADVISORY (FR_GATES.sleep gatesNext:false), so Next is never gated on it and there is
+  // nothing to click past -- the honest note simply stays on the screen as information.
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');

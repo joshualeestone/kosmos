@@ -299,6 +299,15 @@ test('piece ten: the + sits at the card heads and the minus on the member rows, 
   // listeners (the settings rows above and the tab view here), so the
   // pin moved from the listener body onto the shared function.
   assert.match(src, /getElementById\('pj-one-agents'\)\.addEventListener\('click', \(e\) => \{\n\s+const btn = e\.target\.closest\('\.pj-minus\[data-drop\]'\);[\s\S]{0,80}openMemModal\(btn, document\.getElementById\('pj-one-msg'\)\)/);
+  // #2574: the SAME handler also opens an agent's detail page when a member row
+  // (not the minus) is clicked -- id-keyed via data-agent (sessionName), through
+  // the same openDetail path the agents grid uses, passing PJ_CURRENT so Back
+  // returns to the project it was opened from. Pinned here beside the minus route
+  // because it is the same #pj-one-agents listener.
+  assert.match(src, /const member = e\.target\.closest\('\.pj-member\[data-agent\]'\);[\s\S]{0,90}openDetail\(member\.dataset\.agent, undefined, PJ_CURRENT\)/, '#2574: a project-member click opens that agent detail, id-keyed');
+  // #2574: the member row carries the id the nav keys on, and detail-back is origin-aware.
+  assert.match(src, /return '<div class="pj-member'[\s\S]{0,120}data-agent="' \+ esc\(m\.sessionName\)/, '#2574: pjMember row carries data-agent=sessionName');
+  assert.match(src, /getElementById\('detail-back'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,200}DETAIL_FROM_PROJECT[\s\S]{0,120}openProject\(pid\)/, '#2574: detail-back returns to the project when opened from a member');
   assert.match(src, /function openMemModal\(btn, msg\) \{[\s\S]{0,1200}getElementById\('mem-modal'\)\.hidden = false;/);
   assert.match(src, /getElementById\('mem-go'\)\.addEventListener\('click', \(\) => \{[\s\S]{0,300}dropMember\(p\.btn, p\.msg \|\| document\.getElementById\('pj-one-msg'\)\)/);
   // Hidden outside the mode; on hover inside it. The Remove door steps aside there.

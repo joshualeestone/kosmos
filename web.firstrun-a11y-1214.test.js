@@ -106,8 +106,11 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
   // grantable), not merely open Settings. It falls back to open-accessibility-settings
   // when the native trigger is unavailable. sleep is programmatic (pmset), not a prompt,
   // so it keeps opening Energy settings (no trigger).
-  const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-3').addEventListener"),
-    PAGE.indexOf("getElementById('fr-pane-3').addEventListener") + 1200);
+  // Bound the slice to the handler's OWN closing `});` (a column-0 `\n});`, since it is a
+  // top-level statement) rather than a fixed char offset -- a fixed window silently breaks
+  // when the handler grows (e.g. the #2451/#2559 fr-recheck branch added at its top).
+  const h1s = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
+  const handler = PAGE.slice(h1s, PAGE.indexOf('\n});', h1s));
   assert.match(handler, /\/api\/a11y-prompt/,
     'the tmux Turn On fires the native a11y-prompt trigger (#1)');
   assert.match(handler, /\/api\/open-accessibility-settings/,
@@ -147,4 +150,89 @@ test('kosmos#1214: no em dashes in the S3 gate copy (house rule)', () => {
   for (const spelling of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u{2014}']) {
     assert.ok(!S3.includes(spelling), 'an em dash (' + spelling + ') reached the S3 copy');
   }
+});
+
+test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an immediate gate re-check', () => {
+  // Josh's screen "sat here forever" after he granted -- the poll was 1500ms and there
+  // was no way to force it. Assert: a Check-again button in the S3 pane; a faster poll
+  // interval than the old 1500ms; and the button wired to an immediate re-poll.
+  assert.match(S3, /class="s3-recheck fr-recheck"[^>]*>Check again</, 'S3 has a "Check again" button');
+  // Mona's reassurance + hint copy (addresses Josh sitting on "Checking..." thinking it was stuck).
+  assert.match(S3, /class="s3-recheck-note">This can take a few seconds after you flip the switch\./,
+    'S3 shows the reassurance line under the rows');
+  assert.match(S3, /class="s3-recheck-hint">Turned it on already\? Tap to check now\./,
+    'the Check again button carries its hint');
+  // The poll interval is a named constant, faster than the old 1500ms.
+  const m = PAGE.match(/const FR_GATE_POLL_MS = (\d+);/);
+  assert.ok(m, 'FR_GATE_POLL_MS is a named constant');
+  assert.ok(Number(m[1]) < 1500, `the gate poll is faster than the old 1500ms (got ${m[1]})`);
+  assert.match(PAGE, /setInterval\(\(\) => frPollGates\(screenEl, gen\), FR_GATE_POLL_MS\)/,
+    'the poll timer uses the FR_GATE_POLL_MS constant (not a hardcoded interval)');
+  // The fr-recheck click fires an immediate re-poll of the active gated screen.
+  // Bound the match to frRecheckGates's OWN body (to its closing `\n}`), not a lazy
+  // scan across the whole 2MB file -- otherwise a stray later mention could false-pass.
+  const frcs = PAGE.indexOf('function frRecheckGates()');
+  const frcBody = PAGE.slice(frcs, PAGE.indexOf('\n}', frcs));
+  assert.match(frcBody, /frPollGates\(FR_GATE_SCREEN, FR_GATE_GEN\)/,
+    'frRecheckGates re-polls the active gated screen at the current generation');
+  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
+  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));   // bound to the handler's own close, not a fixed offset
+  assert.match(handler, /closest\('\.fr-recheck'\)[\s\S]*?frRecheckGates\(\)/,
+    'the fr-pane-3 handler routes a .fr-recheck click to frRecheckGates()');
+});
+
+test('#2587: the sleep step is ADVISORY (never gates Next); Accessibility still gates; the honest laptop note stays', () => {
+  // Josh's ruling: a laptop that sleeps on battery cannot satisfy the sleep permission
+  // (macOS has no never-sleep-on-battery switch), so the step must not wall the user in.
+  // The sleep row never disables Next; Accessibility/file-access still gate (they are
+  // satisfiable + required). The honest note replaces the useless Turn On on the laptop
+  // (battOnly) case only. There is no "Continue anyway" button -- Next just works.
+
+  // 1. sleep is marked non-gating (gatesNext:false), keeps its battOnly predicate, and is
+  //    the ONLY advisory gate (tmux/file-access must still gate).
+  const frSleep = PAGE.slice(PAGE.indexOf("'sleep': {"), PAGE.indexOf("'tmux': {"));
+  assert.ok(frSleep.length > 0 && frSleep.length < 1100, 'the FR_GATES.sleep block was not bounded (markers moved)');
+  assert.match(frSleep, /gatesNext:\s*false/, 'FR_GATES.sleep is not marked gatesNext:false, so it would still gate Next');
+  assert.match(frSleep, /battOnly:\s*\(r\)\s*=>\s*r\.battOnly === true/, 'FR_GATES.sleep lost its battOnly predicate');
+  const frGatesStart = PAGE.indexOf('const FR_GATES = {');
+  const frGatesBlock = PAGE.slice(frGatesStart, PAGE.indexOf('\n};', frGatesStart));
+  assert.equal((frGatesBlock.match(/gatesNext:\s*false/g) || []).length, 1,
+    'exactly one gate (sleep) may be advisory; the Accessibility/tmux gate must still gate Next');
+
+  // 2. frReadGate surfaces battOnly alongside the state (for the note).
+  const frs = PAGE.indexOf('async function frReadGate(');
+  const frBody = PAGE.slice(frs, PAGE.indexOf('\n}', frs));
+  assert.match(frBody, /battOnly\s*=\s*spec\.battOnly\s*\?\s*spec\.battOnly\(r\) === true/, 'frReadGate does not read the battOnly flag');
+
+  // 3. frPollGates: a blocked row gates Next ONLY when its spec is not gatesNext:false, so a
+  //    blocked sleep row never disables Next. data-battonly is set for the note; data-granted
+  //    only on the granted state. The old data-continued override is gone.
+  const fps = PAGE.indexOf('async function frPollGates(');
+  const fpBody = PAGE.slice(fps, PAGE.indexOf('\n}', fps));
+  assert.match(fpBody, /st === 'blocked' && !\(spec && spec\.gatesNext === false\)\)\s*anyBlocked = true/,
+    'frPollGates still lets an advisory (gatesNext:false) row block Next');
+  assert.match(fpBody, /reads\[i\]\.battOnly && st === 'blocked'\)\s*row\.setAttribute\('data-battonly'/,
+    'frPollGates does not mark the battOnly row with data-battonly (for the note)');
+  assert.match(fpBody, /if \(st === 'granted'\) \{ row\.setAttribute\('data-granted'/, 'data-granted must be set only on the granted state');
+  assert.doesNotMatch(fpBody, /data-continued/, 'a stale data-continued override survives in frPollGates');
+
+  // 4. The sleep row markup: the honest note stays; the Continue button + caveat pill are GONE.
+  const sleepStart = S3.indexOf('s3-gate-row" data-gate="sleep"');
+  const tmuxStart = S3.indexOf('s3-gate-row" data-gate="tmux"');
+  assert.ok(sleepStart > -1 && tmuxStart > sleepStart, 'the sleep/tmux gate row markup markers were not found in order');
+  const sleepRow = S3.slice(sleepStart, tmuxStart);
+  assert.match(sleepRow, /class="s3-battonly-note">Your agents keep working while this computer is plugged in and open/,
+    'the honest laptop note (Mona copy) is missing or altered');
+  assert.doesNotMatch(sleepRow, /s3-continue|Continue anyway|s3-continued-pill/,
+    'the Continue-anyway button / caveat pill must be gone -- the step no longer gates Next, so there is nothing to click past');
+
+  // 5. The pane handler has no .s3-continue branch any more.
+  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
+  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));
+  assert.doesNotMatch(handler, /closest\('\.s3-continue'\)/, 'a stale .s3-continue handler branch survives');
+
+  // 6. CSS: data-battonly still hides the useless Turn On and shows the note; no stale escape CSS.
+  assert.match(S3, /\.s3-gate-row\[data-battonly\] \.s3-req\{display:none\}/, 'the battOnly state does not hide the useless Turn On');
+  assert.match(S3, /\.s3-gate-row\[data-battonly\] \.s3-battonly\{display:flex/, 'the battOnly note is not shown when data-battonly is set');
+  assert.doesNotMatch(S3, /s3-continued-pill|s3-continue\{|data-continued/, 'stale escape CSS (continue button / caveat pill / data-continued) survives');
 });
