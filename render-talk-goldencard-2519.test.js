@@ -340,6 +340,44 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.equal(profile.count, 7, 'a non-string was altered');
 });
 
+test('#2519: nothing under CONTEXT survives neutralisation either', () => {
+  /* 🛑 THE SAME GUARANTEE, ON THE SUBTREE THAT ESCAPED IT. The whole-card scrub was
+     immediately undone for `context` by a line that cloned the RAW producer object back
+     in. Measured before the fix: a context.because of
+     "SECRET:/Users/realoperator/private.txt" reached the output verbatim. `profile` had
+     an arm; `context` did not, which is why it went unnoticed. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const poisoned = Object.assign({}, real, {
+      context: Object.assign({}, real.context, { because: 'SECRET:/Users/realoperator/private.txt' }),
+    });
+    const out = cap.neutralise(poisoned);
+    assert.ok(!String(out.context.because).includes('/'),
+      `context.because reached the fixture verbatim: ${out.context.because}`);
+    /* ⚠️ THE PIN IS CONDITIONAL AND SO IS THIS. A fleet agent has no recorded usage, so
+       its context.tokens/percent are NULL, and preserving null is the correct
+       type-preserving behaviour: an earlier version of this arm demanded numbers
+       unconditionally and failed for the right reason. Assert the contract, not one
+       board's values. */
+    for (const f of ['tokens', 'percent']) {
+      const before = poisoned.context[f];
+      const after = out.context[f];
+      if (typeof before === 'number') assert.equal(typeof after, 'number', `${f} lost its type`);
+      else assert.equal(after, before, `${f} was invented where the producer emitted ${JSON.stringify(before)}`);
+    }
+    const pinned = cap.neutralise(Object.assign({}, real, {
+      context: Object.assign({}, real.context, { tokens: 999, percent: 77 }),
+    }));
+    assert.equal(pinned.context.tokens, 82646, 'a numeric tokens was not pinned');
+    assert.equal(pinned.context.percent, 8, 'a numeric percent was not pinned');
+  } finally {
+    board.restore();
+  }
+});
+
 test('#2519: a field the producer ADDS LATER is scrubbed, not passed through', () => {
   /* 🛑 THE GUARANTEE HAS TO BE STRUCTURAL, NOT A LIST. The top level used to be an
      allowlist, so `runner`, `model`, a non-null `disruption` and any field status.js

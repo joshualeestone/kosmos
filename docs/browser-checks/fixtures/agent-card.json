@@ -30,8 +30,8 @@
     "notYet": false,
     "ceiling": 1000000,
     "ceilingAssumed": false,
-    "confidence": "structured",
-    "because": "measured, against a limit we have watched it hit"
+    "confidence": "example-confidence",
+    "because": "example-because"
   },
   "model": "claude-opus-4-8",
   "modelName": "Claude Opus 4.8",

@@ -74,25 +74,6 @@ function scrubStrings(v) {
 
 function neutralise(live) {
   const card = JSON.parse(JSON.stringify(live));
-  card.session = 'april-discord';
-  card.sessionName = 'april';
-  card.name = 'April';
-  card.target = 'april-discord:0.0';
-  /* 🛑 PRESERVE EVERY TYPE. The producer emits null for several of these, and an
-     unconditional string invents a value it cannot produce. MEASURED on an 18-agent
-     board: role string x14 / null x4, stateEvidence null x13 / string x5, stateProject
-     null x18. An earlier version assigned all three unconditionally. */
-  if (typeof card.role === 'string') card.role = 'example worker';
-  if (typeof card.task === 'string') card.task = 'an example task';
-  if (typeof card.stateEvidence === 'string') card.stateEvidence = '✽ Working… (2m 36s · ↓ 11.4k tokens)';
-  if (typeof card.stateProject === 'string') card.stateProject = 'example-project';
-  if (typeof card.because === 'string') card.because = 'it is mid-task';
-  /* status.js emits `status.conflict || null`: a sentence or null, NEVER an empty string.
-     An earlier version forced '', a value the producer cannot emit. */
-  if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
-  /* 🛑 NEUTRALISE THE PROFILE BY DEFAULT, NOT BY LIST. It is a free-form operator record;
-     the tree also writes `dir` (an ABSOLUTE PATH), `displayName`, `role` and `reportsTo`.
-     A list-based scrub is clean only for the agent that happened to be captured. */
   /* 🛑 SCRUB THE WHOLE CARD, THEN RE-PIN. The top level used to be an ALLOWLIST, so
      `runner`, `model`, `modelName`, a non-null `disruption` and ANY FIELD status.js ADDS
      LATER passed through verbatim into a committed file. The key-set refusal below cannot
@@ -109,7 +90,14 @@ function neutralise(live) {
   card.runner = live.runner;
   card.model = live.model;
   card.modelName = live.modelName;
-  card.context = JSON.parse(JSON.stringify(live.context || null));
+  /* 🛑 DO NOT CLONE THE RAW context BACK IN. An earlier version did exactly that, one
+     line after scrubbing the whole card, which restored every unscrubbed string in it.
+     MEASURED: a card whose `context.because` read
+     "SECRET:/Users/realoperator/private.txt" came out of neutralise() carrying that
+     string verbatim, into a COMMITTED file. status.js draws context.because from a small
+     set of templates today, but one of them interpolates a live model name, so the field
+     is not guaranteed static and the guarantee must not depend on that.
+     ⇒ Keep the SCRUBBED context and re-pin only the two numbers below. */
   if (typeof card.role === 'string') card.role = 'example worker';
   if (typeof card.task === 'string') card.task = 'an example task';
   if (typeof card.stateEvidence === 'string') card.stateEvidence = '✽ Working… (2m 36s · ↓ 11.4k tokens)';
