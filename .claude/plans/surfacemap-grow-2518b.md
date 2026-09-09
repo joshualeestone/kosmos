@@ -5,30 +5,40 @@ Second map-growth batch on top of the merged mechanism (Pete's #2525 gate + my #
 validation guard). #2518 stays open as the incremental-map tracker. Each annotation is one
 more cut-time check that can no longer stale silently at a PR that touches its surface.
 
-## Change (+13 checks)
-Added `// Browser-check-surface: <token>` to 13 browser-checks, one distinctive DOM id each,
-every token VERIFIED (by a tighter check than batch 1): present whole-token in web/index.html,
-low-occurrence (1-6), and COMMENT-FREE — no occurrence on a `//`, `*` (block-comment
-continuation), or `<!--` line, and every occurrence preceded by a selector char (`" ' # .`),
-so a prose-wording edit cannot over-fire the gate:
+## Change (+12 checks)
+Added `// Browser-check-surface: <token>` to 12 browser-checks, one distinctive DOM id each,
+every token VERIFIED to have at least one FUNCTIONAL occurrence in web/index.html (an id=,
+selector, or getElementById string), low-occurrence (1-6). The primary requirement is
+FUNCTIONAL PRESENCE — a token the gate can legitimately fire on; a stray comment mention
+alongside is a tolerated minor over-fire (the per-check override clears it), consistent with
+the merged seeds:
 - render-found-count (fr-foundcount), render-github-door (s-sec-connect),
   render-boot-no-flash (boot-cover), render-composer-reset (pj-post-go),
   render-head-row (pj-room-search), render-detail-header-1841 (d-doctrine-add),
-  render-agent-nav (d-nav-talk), render-addmem-flash-2429 (pj-one-add-go),
+  render-agent-nav (d-nav-talk),
   render-member-modal (pj-one-agents), render-found-board (found-toggle),
   render-agentpage-fullwidth-2012 (d-sec-talk), emoji-picker-2254 (pj-emoji-btn),
-  render-first-run (fr-return).
-- The tighter check SKIPPED render-engmode-gate-2131 (d-qask sits on a comment line) — the
-  block-comment hole batch 1's looser analyzer would have missed. Left coarse.
+  render-first-run (fr-success).
+- DROPPED render-addmem-flash-2429 (pj-one-add-go): its only web occurrence is inside a comment
+  (0 functional) — a DEAD token the gate could never legitimately fire on. Reverted to origin.
+- Corrected in flight: render-first-run first carried fr-return, whose only web occurrence sat
+  on a multi-line `<!-- -->` comment CONTINUATION line (a removed feature) — dead + over-fire.
+  The batch-2 review caught it; swapped to fr-success (1 functional, 0 comment).
+- render-engmode-gate-2131 (d-qask sits on a comment line) left unannotated for the same reason.
 
 ## Validation
-- tools/test-browser-check-surface-map.sh (the #2529 guard): all 21 annotations' tokens present
-  whole-token; red-capable; non-vacuous.
+- tools/test-browser-check-surface-map.sh (the #2529 guard, ENHANCED this batch): every
+  annotated token has >=1 FUNCTIONAL occurrence (dead tokens hard-FAIL); comment mentions
+  alongside are tolerated over-fire. Now comment-aware (tracks multi-line `<!-- -->` / `/* */`
+  state, so a token on a comment CONTINUATION line is classified as comment, not functional —
+  the exact case fr-return exposed). Carries 3 synthetic controls (functional / comment-
+  continuation / absent) proving the classifier is red-capable. All 20 annotations pass.
 - Pete's test-browser-check-surface-gate.sh still passes; annotations preserve trailing newlines.
 
 ## Scope / weakest premise
-Check-file annotations only, no code, no product change. Weakest premise: distinctiveness is a
-low-count + functional-only heuristic; a token could be low-count + functional yet sit on a line
-that changes for a reason unrelated to the check (rare over-fire, resolved by the per-check
-override). Conservative token choice + the comment-free verify keep that risk low. Incremental;
-~110 checks remain for future batches.
+Check-file annotations only, no code, no product change. Weakest premise: FUNCTIONAL-presence is
+the honesty bar; a token could be functional yet sit on a line that changes for a reason unrelated
+to the check (rare over-fire, resolved by the per-check override). The over-fire risk is TOLERATED
+by design — requiring comment-free would reject most tokens (this codebase documents ids in
+comments widely) and break the merged seeds, which themselves carry comment mentions. Conservative
+low-count token choice keeps residual over-fire risk low. Incremental; ~110 checks remain.

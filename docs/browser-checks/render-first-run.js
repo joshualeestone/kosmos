@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-return
+// Browser-check-surface: fr-success
 /**
  * Render every first-run state in a real browser and look at it.
  *
