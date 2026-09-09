@@ -1,3 +1,4 @@
+// Browser-check-surface: d-ring
 'use strict';
 /**
  * #1915: the memory ring on the agent DETAIL avatar, on a screen.
