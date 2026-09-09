@@ -25,12 +25,15 @@
 # Handles the two block-comment forms exactly (<!-- -->, /* */; they do not nest, one form inside
 # the other is just comment text) and line // comments, treated as a comment to end-of-line UNLESS
 # the // is the :// of a URL scheme (guarded on a preceding : only). KNOWN RESIDUAL, accepted for a
-# dev-time honesty guard: no string tokenizer, so a bare /* or // inside a quoted string literal
-# (`"a//b"`, `"a/*b"`) is read as a real marker. Both residual directions are the SAFE one -- a
-# false FAIL (a live token read as dead), never a false pass: a stray // or /* only ever moves
-# later text INTO the comment half, which can hide a functional occurrence but can never invent
-# one. Not tripped by any current token; the fix (JS/HTML tokenization) is out of proportion here;
-# the per-check override is the escape hatch if it ever bites.
+# dev-time honesty guard: there is no string tokenizer. A stray OPENER (/* or // inside a real code
+# string, `var s="a/*b"`) can falsely open a comment and blank later real code -- a false FAIL (a
+# live token read as dead), the SAFE direction. A CLOSER (--> or */) is NOT a string-literal hazard:
+# HTML and JS comments contain no string literals, so --> ends an HTML comment and */ ends a block
+# comment at their FIRST occurrence regardless of surrounding quotes -- exactly what the browser and
+# the gate do. So the classifier tracks the real parser there, not the author's intent, and a token
+# after such a closer is genuinely code (correctly functional), not a false pass. The one true
+# residual is therefore the opener/false-FAIL case above; not tripped by any current token; the fix
+# (full JS/HTML tokenization) is out of proportion here; the per-check override is the escape hatch.
 #
 # dstat/dpath naming avoided; no tied var names (path/status/cdpath); find, not a glob (zsh aborts
 # a no-match glob); every glob quoted. Runs under bash (shebang), wired into test:shell. Surface
@@ -88,9 +91,13 @@ split_halves() {
 # token_web_scan <token> <code-half> <cmt-half> -> "<functional_lines> <comment_lines>".
 # grep -c counts LINES containing a whole-token match (a line where the token appears in BOTH
 # halves counts toward both, which is correct). grep exits 1 on zero matches; with no `set -e`
-# the count is still captured. Surface tokens carry no ERE metachars, so the pattern is literal.
+# the count is still captured. The token is ERE-escaped with the SAME sed the sibling gate uses
+# (browser-check-surface-gate.sh), so a token carrying a metachar (`.`, `+`, ...) matches only
+# itself, not a lookalike -- parity with the gate, and never a false pass. (Surface tokens are
+# DOM ids in practice, but the annotation parser accepts any string, so this must not assume.)
 token_web_scan() {
-  local b="(^|[^A-Za-z0-9_-])$1([^A-Za-z0-9_-]|\$)"
+  local esc; esc="$(printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+  local b="(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)"
   printf '%s %s' "$(grep -cE "$b" "$2")" "$(grep -cE "$b" "$3")"
 }
 
@@ -140,6 +147,7 @@ printf '%s\n' \
   'foo(); /* tok-block old id */ bar();' \
   '<a href="https://tok-url.example/x">link</a>' \
   'var s = "a"//tok-strcmt is a real line comment right after a string quote' \
+  '<div id="tokXdot">x</div>' \
   '<span>nothing</span>' > "$_fx"
 _fxc="$(_mktmp)"; _fxm="$(_mktmp)"; split_halves "$_fx" "$_fxc" "$_fxm"
 _chk() { got="$(token_web_scan "$1" "$_fxc" "$_fxm")"; [ "$got" = "$2" ] && ok "CONTROL ($4): $3 (got '$got')" || bad "CONTROL ($4): $3 -- got '$got', want '$2'"; }
@@ -151,6 +159,7 @@ _chk tok-note  "0 1" "a token in a same-line-opened comment that closes on a lat
 _chk tok-block "0 1" "a token inside a mid-line /* */ block is comment"                   "block-comment"
 _chk tok-url   "1 0" "a token in a // that is really a URL (https://) stays functional"    "url-not-comment"
 _chk tok-strcmt "0 1" "a // line comment right after a string quote is comment, not a URL" "quote-then-linecomment"
+_chk 'tok.dot' "0 0" "a token with an ERE metachar is escaped, so tok.dot does NOT match tokXdot" "metachar-escaped"
 _chk tok-absent "0 0" "an absent token is neither functional nor comment"                  "absent"
 
 [ "$FAILS" -eq 0 ] && echo "browser-check surface map: all arms passed" || echo "browser-check surface map: $FAILS FAILED"
