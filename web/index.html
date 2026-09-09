@@ -16452,7 +16452,7 @@ async function paintAccounts() {
     const targetDir = btn.dataset.forget || btn.dataset.remove;
     /* Delete says "for good" (it IS irreversible); Disconnect deliberately does
        not, because a rename survives and its success sentence says so. */
-    const CONFIRM = isRemove ? 'Delete for good?' : 'Remove it?';
+    const CONFIRM = isRemove ? 'Delete for good?' : 'Disconnect?';
     /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
        Disconnect link at the bottom that asks first". It shipped without
        the asking half, so one click removed an account with no confirm.
@@ -16600,7 +16600,7 @@ async function paintAccounts() {
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
         /* Restore the resting label, or a refused remove leaves the button
-           reading "Remove it?" and the NEXT single click acts. */
+           reading "Disconnect?" and the NEXT single click acts. */
         armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
         /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
            THIS ONE DID NOT. `btn.disabled = true` at the top of this handler

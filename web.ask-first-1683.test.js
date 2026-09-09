@@ -47,7 +47,7 @@ function world(fetchImpl, provider) {
      the two-selector form. The extracted block covers both Disconnect
      (data-forget) and Delete-and-remove (data-remove); this fixture's btn
      carries data-forget, so it exercises the Disconnect path (isRemove false ->
-     CONFIRM "Remove it?", body {dir}), unchanged. */
+     CONFIRM "Disconnect?", body {dir}), unchanged. */
   const start = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-forget], [data-remove]'))");
   const end = SCRIPT.indexOf("for (const btn of box.querySelectorAll('[data-share]'))", start);
   assert.ok(start > 0 && end > start, 'the remove-account binding moved; re-anchor this test');
@@ -142,7 +142,7 @@ test('#1683: the first click asks and does NOT reach the engine', async () => {
 
   await w.click();
   assert.deepEqual(calls, [], 'ONE CLICK REACHED THE ENGINE: the account was removed without asking');
-  assert.equal(w.btn.textContent, 'Remove it?', 'the button must say what the next press will do');
+  assert.equal(w.btn.textContent, 'Disconnect?', 'the button must say what the next press will do');
   assert.equal(w.btn.classList.has.has('armed'), true, 'the armed class is applied (its visual treatment lives in the .acct-disconnect.armed CSS rule, guarded by the #1710 test below; this stub has no stylesheet and cannot see appearance)');
 
   await w.click();
@@ -155,7 +155,7 @@ test('#1683: the label does not promise deletion, because the engine only forget
      which is careful to say the sign-in file is still on the computer. */
   const w = world(async () => ({ ok: true, json: async () => ({}) }));
   w.click();
-  assert.equal(w.btn.textContent, 'Remove it?');
+  assert.equal(w.btn.textContent, 'Disconnect?');
   assert.doesNotMatch(w.btn.textContent, /for good|delete|permanent/i,
     'the confirm must not promise more than the engine does');
 });
@@ -173,7 +173,7 @@ test('#1683: blur disarms, so a half-taken click does not linger', async () => {
 test('#1683: a refused remove disarms, so the next single click cannot fire blind', async () => {
   /* Matches the established behaviour of the sibling confirm in
      web.lost-phone.test.js: a refusal disarms and the following click re-arms.
-     Without this the button would sit reading "Remove it?" after a failure and
+     Without this the button would sit reading "Disconnect?" after a failure and
      one press would act. */
   let asked = 0;
   const w = world(async () => { asked += 1; return { ok: false, json: async () => ({ error: 'the engine said no' }) }; });
@@ -184,11 +184,11 @@ test('#1683: a refused remove disarms, so the next single click cannot fire blin
 
   await w.click();
   assert.equal(asked, 1, 'STILL ARMED AFTER A REFUSAL: the third click fired blind');
-  assert.equal(w.btn.textContent, 'Remove it?', 'the third click should have re-armed');
+  assert.equal(w.btn.textContent, 'Disconnect?', 'the third click should have re-armed');
 });
 
 /* 🛑 THE ARMED STATE MUST REACH THE ACCESSIBLE NAME. `aria-label` wins over
-   name-from-content, so relabelling textContent to "Remove it?" changes what a
+   name-from-content, so relabelling textContent to "Disconnect?" changes what a
    sighted person sees and NOTHING a screen reader announces. Without this arm the
    confirm that #1683 exists to add is sighted-only, on a control whose cost is an
    OAuth sign-in, and every other test in this file passes anyway because they all
@@ -202,9 +202,9 @@ test('#1683: arming changes the ACCESSIBLE NAME, not only the visible label', ()
   assert.notEqual(armed, rest,
     'the accessible name did not change on arming, so a screen-reader user cannot tell the confirm happened');
   /* WCAG 2.5.3 Label in Name: the accessible name must CONTAIN the visible words,
-     and starting with them is what makes "click Remove it?" work for speech input.
+     and starting with them is what makes "click Disconnect?" work for speech input.
      Asserted as a prefix rather than a substring because the order is the point. */
-  assert.ok(armed.indexOf('Remove it?') === 0,
+  assert.ok(armed.indexOf('Disconnect?') === 0,
     'the armed name does not start with the VISIBLE label, so a speech-input user cannot say what they see (WCAG 2.5.3)');
   assert.ok(armed.indexOf(rest) > 0,
     'the armed name dropped the account identity, which is what tells two rows apart');
