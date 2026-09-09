@@ -156,12 +156,61 @@ being allowed to run agents. The SELF-updater is a different path and is not
 gated by it at all — so this is genuinely unguarded rather than deliberately
 refused.
 
-📌 OPEN QUESTION, and it decides how bad this is: whether `lastAttempt.because`
-("the installer could not be started: spawn /bin/sh ENOENT") actually reaches the
-Settings update card. If it does, this fails HONESTLY and a Windows user is told
-to update by hand. If it does not, the button does nothing and says nothing —
-which is the silent failure this codebase exists to refuse. **Settle this before
-sizing the fix.**
+### SETTLED 2026-09-09, and the answer is worse than the question assumed
+
+🛑 THE SPAWN IS UNREACHABLE, AND THE PERSON IS TOLD THE OPPOSITE OF THE TRUTH.
+
+    update.js installedRoot()   requires  <home>/runtime/bin/node
+    the Windows bundle stages             runtime/node.exe   (no runtime/bin)
+
+So `installedRoot()` is null on every Windows install; `server.js` sends no offer;
+the Install button is never drawn; `maybeAutoInstall()` returns early — and the
+card falls through to **"Up to date."** A Windows box with a newer release
+published says it is current. That is a silent lie rather than a failed button,
+which makes it worse than the ENOENT this section was originally about.
+
+Two more on the same trace:
+- the overlay prints `attempt.code` and `attempt.log` and **never
+  `attempt.because`**, so the ENOENT sentence would be dropped by the page even if
+  the spawn ran;
+- forcing `POST /api/update` today answers *"this Kosmos runs from its source
+  code, so it updates from git"* — false for a portable-zip install, and it points
+  at git.
+
+**GUARDED** (`6d9e9a0b`): `platform.js` gains `SELF_INSTALL`/`canSelfInstall` in
+the shape `RUNNER_DOWNLOADS` already uses, `beginInstall` refuses before the spawn
+with a sentence somebody can act on, and the route answers 409 with the true
+reason. That is the guard, not the updater.
+
+⚠️ THE ORDERING CONSTRAINT IS THE SHARP EDGE. `installedRoot()` must NOT learn the
+Windows layout until a swap exists — that single line is what turns the button on,
+and live execution IS armed on win32, so the spawn would be real. The guard is
+what stands there if somebody does it anyway.
+
+📌 STILL OWED: rendering the "Up to date." lie honestly (`/api/update/check`
+already returns `source`; the page throws it away).
+
+### What a real Windows updater costs
+
+More exists than assumed: `tools/publish-kosmos-windows.sh` ALREADY publishes the
+fetch-and-verify half (versioned zip, `.sha256` sidecars, a `latest-win.json`
+manifest), and `win32anchor` already provides the updater's most important tool —
+a durable `node.exe` OUTSIDE the extract tree, so the swapper never runs on the
+interpreter it is replacing.
+
+What is genuinely hard: there is nothing to restart the board with (no `bin\kosmos`,
+no board-level task — see BLOCKER 4, and the two are really one problem); a running
+image cannot be overwritten, though it CAN be renamed, which is the whole trick;
+and there is no canonical install location, because the bundle is a portable zip
+extracted into a versioned folder wherever the person chose.
+
+    A  refuse honestly                         DONE. Windows updates by hand, forever
+    B  sidecar swap driven from the anchor      ~3-4 slices  <- recommended next
+    C  a real install step (setup.sh's analog)  ~6-8 slices, deletes the problem
+                                                rather than routing around it; B is
+                                                a strict subset of it
+    D  MSIX + App Installer                     large, needs signing; probably right
+                                                eventually, wrong for the next slice
 
 A Windows updater also has to answer what the Mac's `curl | sh` answers: fetch,
 verify, replace a RUNNING install, and restart the board. The anchor already
