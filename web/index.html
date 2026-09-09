@@ -16197,18 +16197,26 @@ async function paintAccounts() {
          (#2441): the product's answer for switching an api-key row to a subscription is
          remove-and-re-add, not reauth-in-place. `a.apiKey` is present-and-false on a
          subscription row, so this narrows to api-key rows alone. */
-      + (isOpenai || a.apiKey ? ''
-        : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
-          /* 🔑 CONDITIONAL HERE, UNCONDITIONAL ON DISCONNECT, AND THE ASYMMETRY IS THE
-             POINT. `qualName` falls back to the provider name so a Disconnect always
-             says WHICH account it removes, because Disconnect appears on both
-             providers and a wrong press is expensive. Reauth appears on CLAUDE ROWS
-             ONLY, so an appended "(Claude)" cannot disambiguate anything: it lands on
-             every ordinary machine as pure verbosity, on the surface where verbosity
-             costs most. When `qual` IS set the two agree, so the disambiguating case
-             is untouched. Pinned below so this is a decision rather than a leftover. */
-          + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
-          + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>')
+      /* 🔑 The aria-label appends the qualifier ONLY when `qual` is set (two rows read
+         alike), so on an ordinary machine it stays terse; when it IS set both providers
+         agree, so the disambiguating case is untouched. Reauth now appears on Claude
+         subscription rows AND OpenAI ChatGPT-subscription rows (#2584 gave the latter a
+         real reauth-in-place); it is still withheld from api-key rows of either provider,
+         whose product answer is remove-and-re-add, not reauth-in-place. */
+      + (isOpenai
+        /* #2568/#2584: an OpenAI ChatGPT SUBSCRIPTION row reauths via the SUBSCRIPTION
+           flow (data-openai-reauth -> openAcctReauthOpenai -> the subscription/start
+           reauthDir path), NOT the Claude browser-OAuth flow. An api-key OpenAI row has
+           no sign-in to redo, so it stays suppressed. */
+        ? (a.authMode === 'chatgpt'
+          ? '<button class="acct-reauth" type="button" data-openai-reauth="' + esc(a.dir) + '" '
+            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="' + esc('Signs in again to this ChatGPT subscription and updates this account rather than making a second one.') + '">Sign in again</button>'
+          : '')
+        : (a.apiKey ? ''
+          : '<button class="acct-reauth" type="button" data-reauth="' + esc(a.dir) + '" '
+            + 'aria-label="Sign in again as ' + who + (qual ? ' (' + esc(qual) + ')' : '') + '" '
+            + 'title="' + esc('Signs in again as ' + (a.email || 'this account') + ' and updates this account rather than making a second one.') + '">Sign in again</button>'))
       /* #2441: api-key Claude Disconnect is now LIVE. #2420's removal slice landed, so
          `forgetAccount` accepts api-key accounts (erases the stored key + unwires the
          apiKeyHelper pointer), and the disabled "removal coming" arm that #2433 wrapped
@@ -16360,6 +16368,14 @@ async function paintAccounts() {
     btn.addEventListener('click', () => {
       const row = list.find((x) => String(x.dir) === btn.dataset.reauth);
       openAcctReauth(btn.dataset.reauth, (row && row.email) || '');
+    });
+  }
+  /* #2568/#2584: the OpenAI ChatGPT reauth opens the SUBSCRIPTION sign-in aimed at this
+     account (reauthDir), not the Claude flow -- its own data attribute keeps the two apart. */
+  for (const btn of box.querySelectorAll('[data-openai-reauth]')) {
+    btn.addEventListener('click', () => {
+      const row = list.find((x) => String(x.dir) === btn.dataset.openaiReauth);
+      openAcctReauthOpenai(btn.dataset.openaiReauth, (row && row.email) || '');
     });
   }
   /* 🛑 THE OTHER HALF OF `aria-disabled`, WITHOUT WHICH IT IS WORSE THAN
@@ -17101,6 +17117,13 @@ function acctPick(which, opts) {
   acctOpenaiLook().then((o) => {
     acctOpenaiStep(ACCT_OPENAI_READY);
     if (o && !o.present && o.job && o.job.phase && o.job.phase !== 'failed') acctOpenaiWatch();
+    /* #2568/#2584: a reauth goes straight to the ChatGPT sign-in step (re-authing an
+       existing subscription account), like the Claude reauth does, not the provider
+       picker. Only with the runner present -- an existing account implies it; a missing
+       one falls to the install step and the sub-go POST's needsRunner path still routes.
+       acctOpenaiChoose focuses the sign-in button itself, so this runs BEFORE the
+       focus-return below and applies to the focus:false reauth entry too. */
+    if (ACCT_OPENAI_REAUTH_DIR && ACCT_OPENAI_READY !== false) acctOpenaiChoose('sub');
     if (opts && opts.focus === false) return;
     /* #2338: a present-or-unknown runner opens on the picker; a missing one on
        the install button. */
@@ -17149,6 +17172,12 @@ document.getElementById('acct-provider-pick').addEventListener('change', (e) => 
    harder to notice because it silently succeeds. openAcctAdd() clears it on
    every visit; the test pins that. */
 let ACCT_REAUTH_DIR = null;
+/* #2568/#2584: the OpenAI ChatGPT account a reauth is signing in again AS, null for a new
+   add. Threaded into the subscription/start POST as `reauthDir`; the #2584 driver refuses
+   to promote unless the fresh sign-in matches this account. Cleared by openAcctAdd() like
+   its Claude sibling ACCT_REAUTH_DIR, so a fresh "+ Add a provider" is never silently a
+   reauth (the dangerous stale-dir direction that rule guards). */
+let ACCT_OPENAI_REAUTH_DIR = null;
 const ACCT_ADD_TITLE = 'Add a provider';
 const ACCT_ADD_INTRO = 'Pick which AI provider you want to connect. Anthropic Claude and OpenAI work today; the rest are listed so you can see what is coming.';
 /* The stock warning says to sign in to the OTHER Claude account first, which is
@@ -17187,6 +17216,20 @@ function openAcctReauth(dir, email) {
   document.getElementById('acct-add-modal').hidden = false;
   acctPick('claude', { focus: false });
   document.getElementById('acct-add').focus();
+}
+/* #2568/#2584: sign in again AS an existing OpenAI ChatGPT-subscription account. Mirror of
+   openAcctReauth but for the OpenAI SUBSCRIPTION flow: set the reauth dir, open the dialog in
+   reauth chrome, and pick OpenAI. acctPick('openai') then routes a reauth straight to the
+   ChatGPT sign-in step (skipping the picker), the same way it does for a Claude reauth, and the
+   subscription/start POST reads ACCT_OPENAI_REAUTH_DIR so the engine refreshes THIS account in
+   place (the #2584 driver refuses to promote unless the sign-in matches it). */
+function openAcctReauthOpenai(dir, email) {
+  ACCT_OPENAI_REAUTH_DIR = dir;
+  acctReauthChrome(true, email);
+  document.getElementById('acct-add-note').textContent = '';
+  document.getElementById('acct-openai-msg').textContent = '';
+  document.getElementById('acct-add-modal').hidden = false;
+  acctPick('openai', { focus: false });
 }
 /* #1704 slice-3: the multiple-Kosmos switcher (list + create). Lists worlds from
    GET /api/worlds and creates them via POST /api/worlds. Switching between worlds
@@ -17721,6 +17764,7 @@ function openAcctAdd() {
     document.getElementById('acct-openai-flow').hidden = true;
   }
   ACCT_REAUTH_DIR = null;
+  ACCT_OPENAI_REAUTH_DIR = null;
   acctReauthChrome(false);
   document.getElementById('acct-add-note').textContent = '';
   document.getElementById('acct-openai-msg').textContent = '';
@@ -18011,7 +18055,10 @@ document.getElementById('acct-openai-sub-go').addEventListener('click', async (e
     const res = await fetch('/api/accounts/openai/subscription/start', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined }),
+      // #2568/#2584: on a reauth, ACCT_OPENAI_REAUTH_DIR names the account to sign in
+      // again AS; the engine promotes into it only on an identity match. Absent on a
+      // fresh add (openAcctAdd clears it), so this is never accidentally a reauth.
+      body: JSON.stringify({ mode: 'browser', label: (labelField && labelField.value.trim()) || undefined, reauthDir: ACCT_OPENAI_REAUTH_DIR || undefined }),
     });
     const out = await res.json().catch(() => null);
     if (!res.ok) {
