@@ -155,7 +155,12 @@ DATA_PATHS_BEFORE="$(data_paths)"
 # catch); what is wrong is that the list is updated AFTER a red cut instead of
 # in the commit that adds the file.
 # ⇒ IF YOU ADD A FILE TO installSupervisor, ADD IT HERE IN THE SAME COMMIT.
-EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/source-channel)"
+# ⇒ AND THE SAME FOR A FILE THE BOARD WRITES ON ITS FIRST BOOT: this gate boots
+#   the installed board, so a set-once boot marker legitimately lands here too.
+#   That is the case the installSupervisor-only wording missed, which is how
+#   .world-confirmed.json (#2528/#2569: server.js onListening -> markConfirmed,
+#   the set-once "this world genuinely served" marker) drifted the 0.6.51 cut.
+EXPECTED_ADDS="$(printf '%s\n' ./Kosmos/bin/agent-supervisor.sh ./Kosmos/bin/codex-report-bridge.js ./Kosmos/bin/engine-path ./Kosmos/source-channel ./Kosmos/.world-confirmed.json)"
 
 # ⚠️ THE PRODUCT'S DEFAULT PORT, RECORDED BEFORE ANYTHING RUNS, and checked
 # again at the end. Found by Splinter, 2026-08-21: a test run left a board
