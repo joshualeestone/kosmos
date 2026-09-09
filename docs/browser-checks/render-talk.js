@@ -64,9 +64,14 @@ function liveCard() {
   const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
   const board = status.snapshot();
   /* 🛑 A PANE CARD, matching what the fixture records. status.js emits PANELESS cards
-     too and they also carry `isNamedOurs: true`, but their shape legitimately differs
-     (a smaller `context`, null session/target/runner/model). Taking whichever came
-     first made the drift guard report board COMPOSITION as drift. */
+     too and they also carry `isNamedOurs: true`, but their shape legitimately differs:
+     a smaller `context`, and null session/target/runner/model.
+     ⚠️ THE REASON IS SHAPE, NOT THE DRIFT GUARD. An earlier version of this comment
+     justified the preference by "it made the drift guard report board COMPOSITION as
+     drift" -- and this same change DELETES that guard, so the stated reason went stale
+     in its own commit. The preference still earns its place: `openDetail` is driven with
+     this card and the recording is pane-shaped, so a paneless card would exercise the
+     reopen path with null session/target that the fallback never produces. */
   const ourCards = (board.agents || []).filter((a) => a && a.isNamedOurs === true);
   const card = ourCards.find((a) => a.paneless !== true) || null;
   return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;

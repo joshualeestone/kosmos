@@ -19,10 +19,29 @@
  * runs inside the real check. A browser run on this fleet needs the shared browser
  * and a quiet box, and neither is available to a unit test.
  */
-const test = require('node:test');
-const assert = require('node:assert/strict');
+const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
+
+/* 🛑 SANDBOX FIRST, BEFORE ANY REQUIRE, and an earlier version of this file did NOT.
+   `engine/status` resolves its roots ONCE at require time, and `test-support/fleet`
+   fakes only the pane SOURCE: `workersDir()` still falls back to ~/work/workers and
+   store.js still falls back to the real Application Support directory. So the arms below
+   were reading this operator's live worker-instruction and profile stores, and one arm
+   that calls realCard() with no stub ran the REAL `status.snapshot()` against every live
+   pane on the machine: measured at ~349ms against under 10ms for every stubbed arm.
+   tools/run-tests.sh states the invariant this broke: "every store-using test sandboxes
+   before requiring... Such a test is a bug, and its red still shows."
+   ⚠️ It was raised as a WARNING on the previous review pass and I did not act on it. It
+   came back as a BLOCKER, which is the argument for acting on warnings. */
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-2519-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
 
 const CHECK = path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js');
 const FIXTURE = path.join(__dirname, 'docs', 'browser-checks', 'fixtures', 'agent-card.json');
@@ -58,6 +77,20 @@ function resolvers() {
     parts + '; return { liveCard, goldenCard, realCard };')(fs, path, req || require, path.dirname(CHECK));
 }
 
+test('#2519: this suite is SANDBOXED, so it cannot read the operator live state', () => {
+  /* 🛑 AN ENVIRONMENTAL GUARD REDS NOTHING BY DEFAULT, which is why it needs an arm.
+     Deleting the four process.env lines at the top of this file would silently point
+     engine/status and engine/store back at ~/work/workers and the real Application
+     Support directory, and every arm below would still pass while reading this
+     operator's live agents. This is what notices. */
+  for (const v of ['AGENT_WORKFORCE_DATA', 'AGENT_WORKFORCE_WORKERS', 'AGENT_WORKFORCE_CLAUDE_CONFIG', 'AGENT_WORKFORCE_LAUNCH']) {
+    const val = process.env[v];
+    assert.ok(val, `${v} is unset: this suite would read the operator's live state`);
+    assert.ok(val.startsWith(SANDBOX), `${v} points outside the sandbox: ${val}`);
+  }
+  assert.ok(!SANDBOX.startsWith(process.env.HOME + '/work'), 'the sandbox is inside the live workers tree');
+});
+
 test('#2519: the recorded fixture exists and parses', () => {
   const card = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
   assert.equal(typeof card, 'object');
@@ -82,10 +115,24 @@ test('#2519: realCard() REPORTS ITS SOURCE, so a quiet run cannot look like a li
   /* The reason this returns {card, source} rather than a bare card. A silent fallback
      would print identical output on a populated and a quiet box while driving
      different inputs, and render-talk has corrected that class three times. */
-  const { realCard } = resolvers()();
-  const r = realCard();
+  /* 🛑 INSIDE fleet.install, SO THE PANE SOURCE IS FAKED TOO. The AGENT_WORKFORCE_*
+     sandbox at the top of this file controls the DATA and WORKERS roots; it does NOT
+     control tmux. Measured: with only the env sandbox, this arm still returned
+     source='live' with 30 keys, because status.snapshot() was scanning the operator's
+     real panes. That makes the result depend on who happens to be running on the box.
+     fleet.install fakes the pane source, so "live" here is a card this test created. */
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  let r;
+  try {
+    const { realCard } = resolvers()();
+    r = realCard();
+  } finally {
+    board.restore();
+  }
   assert.ok(r && typeof r === 'object' && 'card' in r && 'source' in r,
     'realCard must return {card, source}');
+  assert.equal(r.source, 'live', 'a faked live board was present and realCard did not use it');
   /* 'error' belongs here: on a box where status.js legitimately throws, omitting it made
      the unit suite red with "unexpected source" instead of the check reporting the
      condition it was built to report. */
@@ -179,7 +226,6 @@ test('#2519: a TRIMMED fixture is refused, not served as a hollow card', () => {
      reopen arm would still pass, giving the box the fallback exists for a coverage claim
      with nothing behind it. The floor lives in goldenCard() rather than only in this
      suite, because anyone invoking tools/browser-checks.sh directly never reaches here. */
-  const os = require('node:os');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gc-2519-'));
   const thin = path.join(dir, 'thin.json');
   /* ⚠️ NEUTRAL KEYS, NOT CARD-SHAPED ONES, and deliberately so. The floor counts keys,

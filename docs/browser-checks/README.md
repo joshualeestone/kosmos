@@ -120,8 +120,16 @@ looks like.
 
 `fixtures/agent-card.json` is a **recording** of one agent card as `status.snapshot()`
 emits it, used by `render-talk.js`'s reopen arm on a box with **no live agents** so the
-arm keeps its coverage instead of failing the cut. Every key and type is the producer's;
-only identifying string content is neutralised.
+arm keeps its coverage instead of failing the cut. Every KEY is the producer's, and each
+field's TYPE is preserved (a null stays null).
+
+⚠️ **Not "only identifying string content is neutralised".** That sentence was wrong here
+and the same wrong sentence was corrected twice elsewhere in this change before anyone
+noticed it a third time in this file. The tool also PINS volatile values so a re-capture
+is byte-identical unless the shape moved: `hasAvatar` (a boolean), `context.tokens` and
+`context.percent` (numbers), and two profile timestamps. And it scrubs EVERY string under
+`profile`, not a listed subset, because `profile` is free-form and the tree writes
+absolute paths into it.
 
 🛑 **Do not hand-edit it.** That is the invented-fixture defect `render-talk.js`'s own
 header describes, arriving by another door, and the drift guard's red is exactly the
