@@ -134,15 +134,19 @@ board_origin_label() {
 # The argv is attacker-shaped input in general; this only ever reads a token and
 # hands it to `dirname`/`cd`, never evaluates it.
 board_script_path_from_args() {
-  local args="${1:-}" tok
-  # `set -u` safe: $args defaulted. Unquoted expansion word-splits deliberately
-  # (this file is bash, run under its own shebang and sourced into bash callers).
-  for tok in $args; do
-    case "$tok" in
-      *.js) printf '%s' "$tok"; return 0 ;;
-    esac
-  done
-  return 0
+  local args="${1:-}"
+  # Unquoted $args to WORD-SPLIT the command line into tokens (this file is bash,
+  # run under its own shebang and sourced into bash callers). `set -f` disables
+  # PATHNAME EXPANSION so a token like `*.js` is split out literally rather than
+  # globbed against the cwd into an unrelated filesystem match -- splitting only,
+  # never a filesystem read. In a subshell so the option never leaks to the
+  # caller (and the subshell's stdout is this function's, captured by $(...)).
+  ( set -f
+    for tok in $args; do
+      case "$tok" in
+        *.js) printf '%s' "$tok"; exit 0 ;;
+      esac
+    done )
 }
 
 # board_code_dir_from_args <argv-string> <cwd> -- the directory the board's CODE
@@ -169,4 +173,17 @@ board_code_dir_from_args() {
   # so a logical path is both correct and consistent. Silent (empty) if the
   # directory does not exist -- the caller then falls back to the cwd.
   ( CDPATH= cd "$(dirname "$script")" 2>/dev/null && pwd )
+}
+
+# board_cwd_note <codedir> <cwd> -- a " (cwd <cwd>)" suffix for the board line, but
+# ONLY when the code tree and the cwd are different trees. The #2515 disagreement
+# is the interesting fact: the installed board's code is the checkout while its cwd
+# is $HOME. Empty when either is missing or when they are the same directory (-ef,
+# inode compare, so a firmlink/symlink spelling difference does not count as
+# disagreement), so the caller can append it unconditionally.
+board_cwd_note() {
+  local codedir="${1:-}" cwd="${2:-}"
+  [ -n "$codedir" ] && [ -n "$cwd" ] || return 0
+  [ "$cwd" -ef "$codedir" ] && return 0
+  printf ' (cwd %s)' "$cwd"
 }

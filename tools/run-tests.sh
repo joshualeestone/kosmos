@@ -76,10 +76,9 @@ seen_before() {
     fi
     # The cwd is worth printing only when it is a DIFFERENT tree than the code:
     # on this machine they disagree (code = the checkout, cwd = $HOME), and that
-    # disagreement is itself the interesting fact. Silent when they match.
-    if [ -n "$codedir" ] && [ -n "$cwd" ] && ! [ "$cwd" -ef "$codedir" ]; then
-      where="$where (cwd $cwd)"
-    fi
+    # disagreement is itself the interesting fact. board_cwd_note handles the
+    # empty/equal cases (returns nothing), so append it unconditionally.
+    command -v board_cwd_note >/dev/null 2>&1 && where="$where$(board_cwd_note "$codedir" "$cwd")"
     lines+=("a live board on :16180, pid $pid, running from $where")
   done
   # Page gates running beside this: each holds a kosmos-bc.* dir in TMPDIR

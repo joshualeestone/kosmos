@@ -226,6 +226,37 @@ _old="$(HOME="$T/fakehome" board_origin_label "$T/fakehome")"
   && ok "#2515 CONTROL: keying on the \$HOME cwd still declines to the bare path (the miss #2515 fixes)" \
   || bad "#2515 CONTROL: the \$HOME cwd did not decline, so the arm above proves nothing: $_old"
 
+# GLOB SAFETY: the argv is split with `set -f`, so a token containing a glob
+# metachar is taken LITERALLY, never expanded against the cwd. Run from a dir that
+# holds a real .js decoy: without set -f, `*.js` would become `decoy.js`; with it,
+# the literal `*.js` is returned (a first-.js token). This is the red-capable arm
+# for the set -f fix -- it fails if the noglob is dropped.
+mkdir -p "$T/globtest"; : > "$T/globtest/decoy.js"
+gt="$(cd "$T/globtest" && board_script_path_from_args "node *.js --port 16180")"
+[ "$gt" = "*.js" ] \
+  && ok "argv: a glob-metachar token is taken literally, not expanded against the cwd (set -f)" \
+  || bad "argv: '*.js' was globbed to a filesystem match, so set -f is not in effect: $gt"
+
+# board_cwd_note: annotate the board line with its cwd ONLY when the cwd is a
+# different tree than the code. Silent on equal (incl. a symlinked spelling of the
+# same tree, via -ef) or on a missing side, so the caller appends it blindly.
+[ "$(board_cwd_note "$T/mainco" "$T/fakehome")" = " (cwd $T/fakehome)" ] \
+  && ok "cwd-note: a cwd on a different tree than the code is annotated" \
+  || bad "cwd-note: a differing cwd was not annotated: $(board_cwd_note "$T/mainco" "$T/fakehome")"
+[ -z "$(board_cwd_note "$T/mainco" "$T/mainco")" ] \
+  && ok "cwd-note: an equal cwd is silent (no redundant note)" \
+  || bad "cwd-note: an equal cwd produced a note: $(board_cwd_note "$T/mainco" "$T/mainco")"
+ln -s "$T/mainco" "$T/symmain"
+[ -z "$(board_cwd_note "$T/mainco" "$T/symmain")" ] \
+  && ok "cwd-note: a symlinked cwd of the SAME tree is silent (-ef inode, not a string compare)" \
+  || bad "cwd-note: a symlinked same-tree cwd was annotated: $(board_cwd_note "$T/mainco" "$T/symmain")"
+[ -z "$(board_cwd_note "" "$T/fakehome")" ] \
+  && ok "cwd-note: a missing codedir is silent" \
+  || bad "cwd-note: a missing codedir produced a note: $(board_cwd_note "" "$T/fakehome")"
+[ -z "$(board_cwd_note "$T/mainco" "")" ] \
+  && ok "cwd-note: a missing cwd is silent" \
+  || bad "cwd-note: a missing cwd produced a note: $(board_cwd_note "$T/mainco" "")"
+
 # --- INTEGRATION. Every arm above calls the library directly. Delete the source
 # line or the call in run-tests.sh and all of them stay green while the feature is
 # gone, because the fail-open path is deliberately silent.
@@ -247,6 +278,11 @@ grep -qF 'board_origin_label "${codedir:-$cwd}"' "$REPO/tools/run-tests.sh" \
 grep -qF 'board_code_dir_from_args' "$REPO/tools/run-tests.sh" \
   && ok "INTEGRATION: run-tests.sh RESOLVES the code tree from the process argv (#2515)" \
   || bad "INTEGRATION: run-tests.sh no longer resolves the code tree -- #2515's cwd-keyed miss is back"
+# The cwd-disagreement note is new shipped behaviour; pin its emit so a deletion of
+# the annotation (it sits outside the awk-extracted fail-open block) is caught.
+grep -qF 'board_cwd_note "$codedir" "$cwd"' "$REPO/tools/run-tests.sh" \
+  && ok "INTEGRATION: run-tests.sh appends the cwd-disagreement note" \
+  || bad "INTEGRATION: the cwd-disagreement note is no longer emitted"
 # THE THIRD DELETION PATH. Sourcing the library and calling it are not enough: the
 # computed value must reach the line that is actually printed. Measured, and this
 # is why the arm exists: changing the emit line back to ${cwd:-an unknown
