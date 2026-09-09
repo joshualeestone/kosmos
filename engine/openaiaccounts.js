@@ -741,17 +741,81 @@ function parseChatgptLoginOutput(text) {
   return out;
 }
 
+/* #2584: validate a dir handed to startChatgptLogin as a REAUTH target -- the
+ * existing chatgpt-subscription account to sign in again AS. It must be a codex
+ * home directly inside this computer's home (the same NAME guard forgetAccount
+ * uses, so an arbitrary path is refused as "not an account"), and it must
+ * currently hold a chatgpt account (auth_mode:chatgpt with a decodable identity).
+ * Returns the resolved dir, whether it is the default home, and the CURRENT email
+ * so the reauth can refuse a sign-in that lands a DIFFERENT account (a swap, not
+ * a refresh). An api-key account is refused: it is not reauthable via this flow,
+ * the same line the UI draws (api-key rows switch by remove-and-re-add). */
+function reauthTarget(dir) {
+  const home = path.resolve(homeDir());
+  const clean = path.resolve(String(dir == null ? '' : dir));
+  const base = path.basename(clean);
+  if (path.dirname(clean) !== home || !(base === '.codex' || base.startsWith('.codex-'))) {
+    return { error: 'that is not an OpenAI account on this computer' };
+  }
+  const who = identityOf(clean);
+  if (!who) return { error: 'that account has no readable sign-in to refresh' };
+  if (who.authMode !== 'chatgpt') {
+    return { error: 'that account is an API key, not a ChatGPT subscription' };
+  }
+  return { dir: clean, isDefault: clean === path.resolve(defaultDir()), expectEmail: who.email || null };
+}
+
+/* #2584: promote a completed reauth's auth.json from the throwaway STAGING dir
+ * into the LIVE account dir, atomically. Copied to a temp beside the live
+ * auth.json then renamed, so the live account is never left half-written even if
+ * the process dies mid-promote: the rename is atomic within the one filesystem
+ * (both are under this computer's home). The live dir is touched ONLY here, and
+ * ONLY after the sign-in verified AND the identity matched -- so no failure of
+ * the sign-in itself can reach it. */
+function promoteReauth(stagingDir, liveDir) {
+  const src = authFile(stagingDir);
+  const dst = authFile(liveDir);
+  const tmp = `${dst}.reauth-${crypto.randomBytes(6).toString('hex')}.tmp`;
+  try {
+    fs.copyFileSync(src, tmp);
+    fs.renameSync(tmp, dst);
+    return { ok: true };
+  } catch {
+    try { fs.rmSync(tmp, { force: true }); } catch { /* best effort */ }
+    return { ok: false, because: 'we signed in but could not update this account on the computer' };
+  }
+}
+
 /**
  * Start a ChatGPT subscription sign-in: spawn `codex login` (browser) or
  * `codex login --device-auth` (device) into a fresh isolated CODEX_HOME and watch
  * it. Non-blocking; the caller polls chatgptLoginStatus.
- * @returns {{ok:true, sessionId:string, mode:string, authUrl?:string, userCode?:string} | {ok:false, because:string}}
+ *
+ * #2584: pass `reauthDir` to sign in again AS an existing chatgpt account. The
+ * sign-in still runs in a fresh throwaway staging dir; on success + an identity
+ * match its auth.json is promoted atomically into `reauthDir`. A failed or
+ * cancelled reauth leaves the live account untouched (no duplicate, no loss).
+ * @param {{label?:string, mode?:string, codexBin:string, reauthDir?:string}} args
+ * @returns {{ok:true, sessionId:string, mode:string} | {ok:false, because:string}}
  */
-function startChatgptLogin({ label, mode, codexBin } = {}) {
+function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
   const bin = String(codexBin || '');
   if (!bin || !runners.isRunnable(bin)) return { ok: false, because: MISSING_RUNNER_SENTENCE };
   const m = mode === 'device' ? 'device' : 'browser';
-  const spot = resolveFreshChatgptDir(label);
+  // #2584: a REAUTH signs in again AS an existing chatgpt account. Validate the
+  // target first, then run the sign-in into a FRESH throwaway STAGING dir exactly
+  // like a new sign-in, and promote its auth.json into the live dir ONLY on
+  // success + an identity match. The live account is never in the failure/cleanup
+  // path, so a failed/cancelled/timed-out reauth can neither destroy nor
+  // duplicate it (#1492). Reuses the fresh-dir + anti-litter machinery unchanged.
+  let reauth = null;
+  if (reauthDir != null && String(reauthDir) !== '') {
+    reauth = reauthTarget(reauthDir);
+    if (reauth.error) return { ok: false, because: reauth.error };
+  }
+  // A reauth stages in a fresh unlabelled slot and ignores `label` (the account
+  // keeps its own name); a new sign-in resolves by label as before.
+  const spot = resolveFreshChatgptDir(reauth ? null : label);
   if (spot.error) return { ok: false, because: spot.error };
   // Reserve the work slot for the life of this sign-in, so a concurrent start
   // is handed a different one (see resolveFreshChatgptDir / nextWorkDir).
@@ -766,7 +830,7 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
     return { ok: false, because: 'we could not start the OpenAI sign-in' };
   }
   const sessionId = crypto.randomBytes(16).toString('hex');
-  const session = { id: sessionId, child, dir: spot.dir, label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false };
+  const session = { id: sessionId, child, dir: spot.dir, label: reauth ? null : label, madeDir: spot.madeDir, mode: m, state: 'starting', buf: '', account: null, error: null, timer: null, forceKillTimer: null, exited: false, reaped: false, reauthDir: reauth ? reauth.dir : null, reauthIsDefault: reauth ? reauth.isDefault : false, expectEmail: reauth ? reauth.expectEmail : null };
   chatgptSessions.set(sessionId, session);
   // Anti-litter a sign-in that did NOT land a subscription account:
   //   - a dir WE created -> remove it whole;
@@ -775,6 +839,15 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
   //     leaves a spurious account in an existing slot (it would surface in list()).
   // A real subscription account (session.account set) is always kept.
   const dropDirIfOurs = () => {
+    // #2584: for a REAUTH the real account lives in session.reauthDir; session.dir
+    // is a throwaway STAGING slot, so it is ALWAYS removed here -- on success its
+    // auth.json has already been promoted, on failure nothing was promoted. The
+    // live account dir is NEVER touched by cleanup, which is exactly what makes a
+    // failed reauth unable to destroy or duplicate it.
+    if (session.reauthDir) {
+      try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ }
+      return;
+    }
     if (session.account) return;
     if (session.madeDir) { try { fs.rmSync(session.dir, { recursive: true, force: true }); } catch { /* best effort */ } }
     else { try { fs.rmSync(authFile(session.dir), { force: true }); } catch { /* best effort */ } }
@@ -820,8 +893,32 @@ function startChatgptLogin({ label, mode, codexBin } = {}) {
     }
     if (code === 0) {
       const fin = finishChatgptLogin({ dir: session.dir, label: session.label });
-      if (fin.ok) { session.state = 'connected'; session.account = fin.account; freeSlotAndDir(); reapChatgptSession(session); return; }
-      session.error = fin.because;
+      if (fin.ok) {
+        if (session.reauthDir) {
+          // #2584: verified in staging. Refuse a DIFFERENT account (this signs in
+          // again AS the existing one, it never swaps it), then promote atomically
+          // into the live dir. A refusal or a failed promote leaves the live
+          // account untouched and falls through to the shared error cleanup below,
+          // which removes only the staging dir.
+          const got = identityOf(session.dir);
+          const newEmail = got && got.email ? got.email : null;
+          if (session.expectEmail && newEmail && newEmail !== session.expectEmail) {
+            session.error = 'that sign-in was for a different account, so this account was left unchanged';
+          } else {
+            const promoted = promoteReauth(session.dir, session.reauthDir);
+            if (promoted.ok) {
+              session.state = 'connected';
+              session.account = rowFor(session.reauthDir, session.reauthIsDefault);
+              freeSlotAndDir(); reapChatgptSession(session); return;
+            }
+            session.error = promoted.because;
+          }
+        } else {
+          session.state = 'connected'; session.account = fin.account; freeSlotAndDir(); reapChatgptSession(session); return;
+        }
+      } else {
+        session.error = fin.because;
+      }
     } else {
       session.error = 'the OpenAI sign-in did not complete';
     }
