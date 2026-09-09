@@ -130,11 +130,6 @@ function unhide(id) {
       if (!gear) return { noGear: true };
       const c = getComputedStyle(gear);
       const r = gear.getBoundingClientRect();
-      // #2699 glyph replaced by an inline SVG gear (the durable centring fix): measure the
-      // SVG child and its centre offset from the box centre, so the guard reads the real
-      // rendered cog rather than a glyph font size that no longer exists.
-      const svg = gear.querySelector('svg');
-      const sr = svg ? svg.getBoundingClientRect() : null;
       // #2236/0.6.42 #1 CONTROL: S4 (bash background activity) must STILL say "Login Items" --
       // that pane is correct for the bash background grant; only S3's tmux window moved to
       // Accessibility. This guards against over-removing "Login Items" from the whole file.
@@ -143,9 +138,6 @@ function unhide(id) {
       const ntc = nt ? getComputedStyle(nt) : null;
       const nbc = nb ? getComputedStyle(nb) : null;
       return { w: Math.round(r.width), h: Math.round(r.height), font: parseFloat(c.fontSize),
-        svgW: sr ? Math.round(sr.width) : null, svgH: sr ? Math.round(sr.height) : null,
-        svgDx: sr ? Math.abs((sr.left + sr.width / 2) - (r.left + r.width / 2)) : null,
-        svgDy: sr ? Math.abs((sr.top + sr.height / 2) - (r.top + r.height / 2)) : null,
         s4Text: nb ? nb.textContent : null,
         // #768-batch (Josh, said 3x; Mona third round): the title must be BOLD, not
         // LARGER, AND the whole notice is the intended SMALL body size (.6875rem/~11px).
@@ -156,21 +148,23 @@ function unhide(id) {
         nbWeight: nbc ? Number(nbc.fontWeight) : null,
         ntSize: ntc ? parseFloat(ntc.fontSize) : null,
         nbSize: nbc ? parseFloat(nbc.fontSize) : null,
-        // The cog is an inline SVG centred by flex; the centring is asserted by the
-        // measured svgDx/svgDy offset above, not by a glyph line-height proxy.
-        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent };
+        // The cog is centred by flex + line-height:1 on the glyph, not place-items on
+        // a line box that let the gear's ascent push it high. line-height is the
+        // LOAD-BEARING half: flex centres the line box, and only line-height:1
+        // collapses that box to the glyph, so it is pinned too.
+        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent,
+        gearLine: c.lineHeight, gearFont: parseFloat(c.fontSize) };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
       check(`${engine}: fr-pane-4 gear reachable`, false, JSON.stringify(s4));
     } else {
-      // 0.6.45 (Josh): the box HUGS the cog (was 76px, too big). 2026-09-08: the cog
-      // is now an inline SVG (box 48px, gear 32px SVG), so the guard reads the SVG's
-      // rendered size, NOT a glyph font size that no longer exists. Box ~48px, gear
-      // ~32px, and it must NOT be the old 76px box nor the original 38/22.
-      const gearOk = s4.w >= 44 && s4.w <= 54 && s4.h >= 44 && s4.h <= 54
-        && s4.svgW >= 30 && s4.svgW <= 34 && s4.svgH >= 30 && s4.svgH <= 34;
-      check(`${engine}: the S4 cog box HUGS the SVG gear (box ~48px, gear SVG ~32px), not the old 76px or 38/22`,
+      // 0.6.45 (Josh): the box was tightened to HUG the cog (was 76px, too big);
+      // the cog glyph stayed 44px (Josh: the cog size was right). So the box is
+      // ~52px now, the glyph still 40-48px, and it must NOT be the old 76px box
+      // nor the original 38/22.
+      const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.font >= 40 && s4.font <= 48;
+      check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px, glyph 40-48px), not the old 76px or 38/22`,
         gearOk, JSON.stringify(s4));
       check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
         /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
@@ -192,16 +186,15 @@ function unhide(id) {
         && titleSizeOk && bodySizeOk && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
       check(`${engine}: the S4 title is BOLD (weight>=700) at the SMALL body size (~11px/.6875rem), body normal weight -- bold, not larger, not 17px`,
         boldNotLarger, `ntWeight ${s4.ntWeight}, nbWeight ${s4.nbWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
-      // The old guard proxied "centred" through the glyph's line-height (a glyph's
-      // ascent pushed it high-left). The SVG has no bearings, so we measure the real
-      // thing: the SVG centre must sit within 1.5px of the box centre on BOTH axes.
-      // Stronger than the old proxy -- it reds on the exact symptom Josh kept
-      // reporting (cog high/left), whatever the cause, and a glyph-metric change
-      // cannot fool it.
-      const centred = s4.svgDx != null && s4.svgDx < 1.5 && s4.svgDy != null && s4.svgDy < 1.5;
-      check(`${engine}: the S4 cog SVG is flex-centred in its box (svg centre within 1.5px of box centre, both axes), so it sits centred not high-left`,
-        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center' && centred,
-        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}, dx ${s4.svgDx}, dy ${s4.svgDy}`);
+      // flex + centre alignment AND line-height COLLAPSED to the glyph (== font size).
+      // line-height is load-bearing: keeping flex but reverting line-height to `normal`
+      // (which computes to ~1.2x = ~53px here) reintroduces the high-glyph offset while
+      // display/align/justify still read centre, so it is asserted too.
+      const lineCollapsed = s4.gearLine != null && s4.gearFont != null
+        && Math.abs(parseFloat(s4.gearLine) - s4.gearFont) < 2;
+      check(`${engine}: the S4 cog is flex-centred (flex, items+content center) with line-height collapsed to the glyph, so it sits centred not high-left`,
+        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center' && lineCollapsed,
+        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}, line ${s4.gearLine} vs font ${s4.gearFont}`);
     }
 
     await browser.close();
