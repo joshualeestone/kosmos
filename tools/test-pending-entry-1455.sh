@@ -56,6 +56,38 @@ kosmos_versions_entry_pending_ok "0.6.41" "$T/stamped.html" \
   && bad "an ALREADY-STAMPED file was accepted as pending (that is the drift, through the new door)" \
   || ok "an already-stamped file is refused: its minute was written in advance, which is the defect"
 
+# 🛑 SHAPE, not substrings. Everything downstream needs the 4-space-indented
+# <article class="rel"> with a matching closer: insert-release-entry.js anchors on it
+# and reinsert-versions-entry.js (#2286 robust-7b) refuses without it. A fragment that
+# passes a substring check at step 1 kills the cut at 7b, after the whole build.
+printf '  <article class="rel" id="v0-6-41">\n    <p class="rel-d">TIMESTAMP</p>\n  </article>\n' > "$T/indent2.html"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/indent2.html" \
+  && bad "a 2-space-indented entry was accepted; reinsert-versions-entry.js would refuse it at 7b" \
+  || ok "a wrongly-indented entry is refused at step 1, not after the build"
+
+printf '    <article id="v0-6-41">\n      <p class="rel-d">TIMESTAMP</p>\n    </article>\n' > "$T/noclass.html"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/noclass.html" \
+  && bad "an entry without class=\"rel\" was accepted" \
+  || ok "an entry without class=\"rel\" is refused"
+
+printf '    <article class="rel" id="v0-6-41">\n      <p class="rel-d">TIMESTAMP</p>\n' > "$T/noclose.html"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/noclose.html" \
+  && bad "an entry with no closing </article> was accepted" \
+  || ok "an entry with no 4-space closing </article> is refused"
+
+# 🛑 THE MIXED CASE: a hand-written rel-d date AND a stray TIMESTAMP elsewhere. The
+# easy already-stamped arm above (no TIMESTAMP at all) does not reach this.
+printf '    <article class="rel" id="v0-6-41">\n      <p class="rel-d">September 1, 2026, 9:00 AM CDT</p>\n      <p>see TIMESTAMP notes</p>\n    </article>\n' > "$T/mixed.html"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/mixed.html" \
+  && bad "a file whose rel-d is ALREADY STAMPED was accepted because TIMESTAMP appeared elsewhere" \
+  || ok "the placeholder must be the rel-d field itself, not the word appearing somewhere"
+
+# CONTROL: the well-formed fixture the arms above are contrasted against is accepted.
+pending "v0-6-41"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/entry.html" \
+  && ok "CONTROL: the well-formed entry these four are contrasted against IS accepted" \
+  || bad "the control fixture is rejected, so the four refusals above prove nothing"
+
 # ---- kosmos_versions_entry_gate_or_pending -------------------------------------
 
 page; pending "v0-6-41"
@@ -121,12 +153,21 @@ out="$(node tools/insert-release-entry.js "$T/entry.html" --site "$T" 2>&1)"; rc
 # guard from the accident: every machine on this fleet is already Central, so without
 # TZ= the assertion passes with the timeZone option DELETED (measured).
 page; pending "v0-6-42"
-TZ=Australia/Sydney node tools/insert-release-entry.js "$T/entry.html" --site "$T" >/dev/null 2>&1
-if grep -o 'rel-d">[^<]*<' "$T/versions.html" | head -1 | grep -qE 'C[DS]T'; then
-  ok "the stamp is CENTRAL even when the cutting box is not"
+# ⚠️ ASSERT THE INSERT SUCCEEDED, AND READ **THIS ENTRY'S** STAMP. An earlier version
+# discarded the tool's status and grepped the FIRST rel-d on the page -- which is the
+# seed entry, already stamped CDT by the fixture. So a tool that failed outright still
+# printed "the stamp is CENTRAL": the arm passed on the fixture's own data.
+if TZ=Australia/Sydney node tools/insert-release-entry.js "$T/entry.html" --site "$T" >/dev/null 2>&1; then
+  ok "the tool ran under a non-Central TZ"
 else
-  bad "the stamp took the machine's timezone: $(grep -o 'rel-d">[^<]*<' "$T/versions.html" | head -1)"
+  bad "the tool failed under TZ=Australia/Sydney, so the stamp assertion below proves nothing"
 fi
+tzstamp="$(awk '/id="v0-6-42"/{f=1} f&&match($0,/rel-d">[^<]*</){print substr($0,RSTART+7,RLENGTH-8); exit}' "$T/versions.html")"
+case "$tzstamp" in
+  *CDT|*CST) ok "the stamp on THIS entry is CENTRAL even when the cutting box is not: $tzstamp" ;;
+  '')        bad "no stamp found on the entry the tool just inserted" ;;
+  *)         bad "the stamp took the machine's timezone: $tzstamp" ;;
+esac
 
 # 🛑 EVERY placeholder, not just the first. A `String.replace` with a string pattern
 # replaces once, so an entry carrying TIMESTAMP twice used to go out with a literal
@@ -140,8 +181,13 @@ if grep -q 'TIMESTAMP' "$T/versions.html"; then
 else
   ok "an entry with TWO placeholders has both stamped, so nothing literal ships"
 fi
-[ "$(grep -c 'C[DS]T' "$T/versions.html")" -ge 2 ] \
-  && ok "and both carry a real Central stamp" || bad "the second placeholder was not stamped"
+# ⚠️ COUNT INSIDE **THIS** ENTRY. Counting C[DS]T across the whole page passes on the
+# pre-fix `.replace` too, because the seed entry supplies a second match: the arm was
+# decoration wearing the guard's name. Measured before the fix.
+two_stamps="$(awk '/id="v0-6-43"/{f=1} f&&/<\/article>/{exit} f' "$T/versions.html" | grep -c 'C[DS]T')"
+[ "$two_stamps" -eq 2 ] \
+  && ok "and BOTH placeholders inside that entry carry a real Central stamp" \
+  || bad "that entry has $two_stamps stamps, expected 2: the second placeholder was not replaced"
 
 # An operator who wrote a pending file must learn it was SEEN and rejected, not just
 # that the page has no entry: the old refusal describes the page and never their file.
@@ -153,6 +199,38 @@ printf '%s' "$out" | grep -q 'is not usable for' \
   && ok "and the refusal SAYS the pending file was found and turned down" \
   || bad "the operator is not told their pending file was even looked at: $out"
 
+# ---- an UNREADABLE PAGE is not something a pending file can excuse ---------------
+
+# 🛑 THE BLOCKER ARM. A pending entry says nothing about whether the page it must be
+# inserted INTO is reachable. Accepting one at step 1 let the cut spend the suite, the
+# browser gate, the install gate and the build, then die at 7a on a raw node ENOENT.
+# ⚠️ RE-SEED THE PENDING FILE FOR **THIS** VERSION FIRST. An earlier draft reused
+# $T/entry.html as the arms above had left it, carrying a v0-6-42 id, so this arm
+# refused on the id mismatch and not on the unreadable page: it passed with the guard
+# it names DELETED. Caught by mutating the guard away, which is the only thing that
+# would have shown it.
+pending "v0-6-41"
+out="$(kosmos_versions_entry_gate_or_pending "0.6.41" "$T/no-such-page.html" "cost." "fix." 4 "$T/entry.html" 2>&1)"; rc=$?
+[ "$rc" -ne 0 ] && ok "an UNREADABLE page refuses at step 1 even with a valid pending file beside it" \
+  || bad "a pending file excused an unreadable versions page, and the cut would die at 7a"
+printf '%s' "$out" | grep -q 'cannot read' \
+  && ok "and it refuses with the gate's own unreadable-page diagnosis, not a missing-entry one" \
+  || bad "the refusal did not come from the gate's unreadable-page branch: $out"
+
+page; pending "v0-6-41"
+kosmos_versions_entry_gate_or_pending "0.6.41" "$T/versions.html" "cost." "fix." 4 "$T/entry.html" >/dev/null 2>&1 \
+  && ok "CONTROL: with the page READABLE the same pending file is accepted (the arm above refused for the page, not the file)" \
+  || bad "the readable-page control failed, so the unreadable-page arm proves nothing"
+
+# The hand-stamped flow must stay QUIET. The pending path is probed on every cut and
+# usually does not exist; without the readability short-circuit /usr/bin/grep prints
+# "No such file or directory" right after the step 7 banner, on the flow this change
+# promises to leave untouched.
+err="$(kosmos_versions_entry_gate_or_pending "0.6.41" "$T/versions.html" "cost." "fix." 4 "$T/definitely-absent.html" 2>&1 >/dev/null)"
+printf '%s' "$err" | grep -q '^grep:' \
+  && bad "a hand-stamped cut emits a stray grep diagnostic: $err" \
+  || ok "a cut with no pending file emits no stray grep diagnostic"
+
 # ---- WIRING: the cure must be CALLED, which is this card's entire subject -------
 
 grep -q 'kosmos_versions_entry_gate_or_pending "\$V"' tools/release.sh \
@@ -163,12 +241,16 @@ grep -q 'node "\$REPO/tools/insert-release-entry.js" "\$KOSMOS_ENTRY_FILE" --sit
   || bad "WIRING: nothing in release.sh invokes the tool, which is exactly kosmos#1455"
 # 🛑 Placement, not just presence: stamping at step 1 produces the aged stamp the
 # gate exists to reject, which is the tool's own header's rule.
+# 🛑 AND THE POSITION IS PINNED TO THE STEP 7 BANNERS, not merely "before the gate".
+# `ins < gate` alone is satisfied by putting the insert at step 1b, which is the exact
+# placement the comment above says it prevents: I built a synthetic release.sh with the
+# node call at step 1b and this arm PASSED. "Before something later" is not a position.
 # ⚠️ BOTH PATTERNS ARE ANCHORED TO THE CALL SHAPE, not to the bare filename. An
 # unanchored /insert-release-entry.js/ also matches the COMMENT above the call, so the
 # assertion would have been measuring whichever mention came last -- the same "a comment
 # naming the function inflates the count" failure tools/test-versions-entry-gate.sh
 # guards against by line-anchoring its own patterns.
-awk '/^ *node "\$REPO\/tools\/insert-release-entry\.js"/{ins=NR} /^kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(ins>0 && gate>0 && ins<gate)}' tools/release.sh \
+awk '/^step "== 7\. /{s7=NR} /^step "== 7b\. /{s7b=NR} /^ *node "\$REPO\/tools\/insert-release-entry\.js"/{ins=NR} /^kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(ins>s7 && s7>0 && ins<gate && gate<s7b)}' tools/release.sh \
   && ok "WIRING: the insert runs BEFORE the step 7 gate, so the gate still judges what shipped" \
   || bad "WIRING: the insert is not positioned before the deploy gate"
 

@@ -346,6 +346,10 @@ step "== 1b. the versions entry, before anything is built =="
 # #1455: where a PENDING entry file may be left instead of hand-stamping the page.
 # Overridable, and defaulted into $REPO rather than $SITE so a stray file can never
 # be picked up by the site deploy and published as a page.
+# 🛑 EXPANDED HERE, WHILE $REPO IS STILL THE MAIN CHECKOUT. $REPO is reassigned to the
+# frozen build worktree further down, so this default MUST be taken now: the operator
+# writes their entry in their own checkout, not in a worktree the cut creates. The
+# value is absolute from this point on and does not follow the reassignment.
 KOSMOS_ENTRY_FILE="${KOSMOS_ENTRY_FILE:-$REPO/.release-entry.html}"
 kosmos_versions_entry_gate_or_pending "$V" "$SITE/versions.html" "Nothing has been built yet." \
   "Stamp it for when you expect to PUBLISH, about 15 minutes out -- a stamp written now, or already minutes old, is stale by step 7. Or leave it as an entry file carrying TIMESTAMP (see docs/releasing.md) and the deploy stamps it for you." \
@@ -910,6 +914,22 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # belonging before step 6 while executing after step 7 -- the cut record is read
   # top to bottom by whoever is diagnosing a failed cut.
   step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
+  # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
+  # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
+  # at the sha being cut -- the same house pattern step 9 uses for verify-served.sh, and
+  # the right one: a cut publishes what it froze, including the code that does the
+  # publishing. $KOSMOS_ENTRY_FILE was expanded at step 1 against the main checkout,
+  # which is where the operator wrote it.
+  # ⚠️ CONSEQUENCE, STATED RATHER THAN DISCOVERED: cutting a sha OLDER than #1455 while
+  # a pending file exists would reach here with no tool to run. release.sh deliberately
+  # permits cutting a sha behind origin, so refuse with a sentence instead of letting
+  # node emit a module-not-found stack trace into the cut record.
+  if [ ! -r "$REPO/tools/insert-release-entry.js" ]; then
+    echo "   the sha being cut has no tools/insert-release-entry.js, so it cannot stamp"
+    echo "   a pending entry. Either cut a sha that carries it, or put the entry on the"
+    echo "   page by hand and stamp it yourself (docs/releasing.md)."
+    exit 1
+  fi
   node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1
 fi
 

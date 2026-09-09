@@ -427,6 +427,13 @@ if [ "$early" = "$late" ]; then fail "both call sites give the same stamp advice
 # and two calls both sitting in step 7 would still count 2. Assert the CALL shape
 # (line-anchored) and that one of them precedes the step 2 banner.
 n="$(grep -cE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh")"
+# ⚠️ AND PIN THE SPLIT, not just the total. Since #1455 the two call sites are DIFFERENT
+# functions, so a count of 2 no longer says which is which: both could drift to the
+# pending-aware wrapper, putting step 7 -- the last gate before publication -- on the
+# widened form. Exactly one of each is the invariant.
+strict="$(grep -c '^kosmos_versions_entry_gate ' "$HERE/release.sh")"
+widened="$(grep -c '^kosmos_versions_entry_gate_or_pending ' "$HERE/release.sh")"
+if [ "$strict" -eq 1 ] && [ "$widened" -eq 1 ]; then pass "one STRICT gate call and one pending-aware call, not two of either"; else fail "expected 1 strict + 1 pending-aware, got $strict + $widened"; fi
 if [ "$n" -eq 2 ]; then pass "release.sh calls the gate exactly twice"; else fail "release.sh should call the gate twice, found $n"; fi
 first_call="$(grep -nE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh" | head -1 | cut -d: -f1)"
 last_call="$(grep -nE '^kosmos_versions_entry_gate(_or_pending)? ' "$HERE/release.sh" | tail -1 | cut -d: -f1)"

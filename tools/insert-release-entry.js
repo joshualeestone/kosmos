@@ -12,8 +12,12 @@
  * never inside or over an existing one).
  *
  * ⚠️ AND THE PAGE'S OWN RULE IS NEVER TO EDIT AN EXISTING ENTRY. This only ever
- * INSERTS: it refuses if the version is already on the page rather than
+ * INSERTS: when the version is already on the page it writes NOTHING rather than
  * replacing it, so a re-run cannot quietly rewrite history.
+ * 📌 "Writes nothing", not "refuses": it exits 0, which is what lets the cut call it
+ * unconditionally. An earlier version of this sentence said "refuses", and the
+ * paragraph below said "exits 0" -- a header contradicting its own file, which this
+ * tree treats as a defect rather than a wording preference.
  *
  * The entry file carries `TIMESTAMP` where the time goes.
  *

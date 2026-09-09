@@ -449,9 +449,10 @@ kosmos_versions_entry_gate() {
 ## True when <entry-file> is a usable pending entry for <version>: readable, carrying
 ## this version's id anchor, and still carrying the TIMESTAMP placeholder.
 ##
-## 🛑 THE TIMESTAMP CHECK IS NOT A FORMALITY. A file that has already been stamped
-## would be inserted verbatim, carrying whatever minute it was written for, which is
-## the drift this whole class is about arriving through the new door.
+## 🛑 THE PLACEHOLDER CHECK IS NOT A FORMALITY. A file whose rel-d has already been
+## stamped would be inserted verbatim, carrying whatever minute it was written for,
+## which is the drift this whole class is about arriving through the new door. The
+## check is on `rel-d">TIMESTAMP<` for that reason, not on the word appearing anywhere.
 kosmos_versions_entry_pending_ok() {
   local v="$1" pending="${2:-}" id
   # 📌 KEPT THOUGH A MUTATION SWEEP SHOWS IT REDS NOTHING HERE, unlike the -r check
@@ -462,18 +463,48 @@ kosmos_versions_entry_pending_ok() {
   # cut that hangs waiting on a terminal is not. Labelled rather than left looking
   # armed.
   [ -n "$pending" ] || return 1
-  # 📌 NO `[ -r "$pending" ]` HERE, AND THAT IS MEASURED RATHER THAN AN OVERSIGHT.
-  # It was written, then removed when a mutation sweep showed deleting it reddened
-  # NOTHING. The grep below already fails on both shapes it would have caught: a
-  # missing file (rc 2, no stderr under -q) and an existing unreadable one (rc 2,
-  # no stderr), and `|| return 1` normalises both to the same 1 this line returned.
-  # It is left out rather than kept as a comment-only guard, because an unarmed
-  # line that looks like a check is the thing this tree keeps finding.
+  # 🛑 RESTORED, AND THE MEASUREMENT THAT REMOVED IT WAS TAKEN THROUGH THE WRONG
+  # INSTRUMENT. I deleted this line after "measuring" that grep on a missing file
+  # emits nothing on stderr. It does emit: `grep: <path>: No such file or directory`
+  # (and `Permission denied`, and `Is a directory`). `-q` suppresses MATCHES on
+  # stdout, never diagnostics on stderr.
+  # ⚠️ The reading came from an interactive shell whose `grep` is a FUNCTION defined
+  # in a shell snapshot, which swallows stderr; `bash tools/release.sh` runs
+  # /usr/bin/grep, which does not. Measured both:
+  #     /usr/bin/grep -qF x /no/such -> rc 2, "grep: /no/such: No such file or directory"
+  #     the shell-function grep       -> rc 2, no stderr at all
+  # ⇒ WITHOUT THIS LINE EVERY HAND-STAMPED CUT prints a stray grep diagnostic right
+  # after the step 7 banner, because the pending path is probed on every cut and
+  # usually does not exist. That is noise on the flow this change promises to leave
+  # untouched, and it lands directly above a refusal in a file that argues at length
+  # that "an unreadable file is not an absent entry".
+  # 📌 It reds no arm, and it is kept anyway: what it prevents is output, not a
+  # return value, and the empty-path line below is kept for the same class of reason.
+  [ -r "$pending" ] || return 1
   # Same id derivation as everywhere else in this file: one spelling.
   id="$(kosmos_versions_entry_id "$v")"
-  # grep -qF on both: the id is a fixed string and so is the placeholder.
-  grep -qF "id=\"$id\"" "$pending" || return 1
-  grep -qF 'TIMESTAMP' "$pending" || return 1
+  # 🛑 VALIDATE THE SHAPE, NOT TWO SUBSTRINGS, because everything downstream needs the
+  # shape and none of it runs until after the whole build.
+  #
+  # ⚠️ THE 4-SPACE INDENT IS LOAD-BEARING AND IS NOT A STYLE CHOICE. It is how
+  # insert-release-entry.js anchors its insertion point, and how
+  # reinsert-versions-entry.js (the #2286 robust-7b path) finds our entry to carry it
+  # onto a freshly fetched versions.html -- its own comment says so and it refuses
+  # without a matching 4-space `</article>` closer. A fragment at 2-space indent, or
+  # without class="rel", passes a substring check in three seconds at step 1 and then
+  # kills the cut at 7b, AFTER the build. The hand-stamped flow never had this failure
+  # because the operator was editing the page in situ and copied the surrounding shape;
+  # a standalone file removes that safeguard, so the check has to replace it.
+  grep -qE '^ {4}<article class="rel" id="'"$id"'">' "$pending" || return 1
+  grep -qE '^ {4}</article>' "$pending" || return 1
+  # 🛑 THE PLACEHOLDER MUST BE THE rel-d FIELD ITSELF, not merely present somewhere.
+  # An earlier version accepted any file containing the word TIMESTAMP, so a pending
+  # entry carrying a HAND-WRITTEN rel-d date plus a stray TIMESTAMP in the body passed
+  # step 1, was inserted at 7a with the stale date intact, and was caught only by the
+  # step 7 gate -- after the build, which is the expensive failure this whole change
+  # exists to remove. The docblock above claimed this check covered that case; it did
+  # not, and this is what makes the claim true.
+  grep -qE 'rel-d">TIMESTAMP<' "$pending" || return 1
   return 0
 }
 
@@ -487,16 +518,33 @@ kosmos_versions_entry_pending_ok() {
 ## branch is reachable only when the page does not carry the entry at all, which today
 ## is the state that refuses outright.
 ##
-## ⚠️ AND EVERY FAILURE STILL LANDS ON THE ORIGINAL GATE, deliberately: a malformed
-## version, an unreadable page, a missing pending file and a pending file that is
-## already stamped all fall through to kosmos_versions_entry_gate, so the operator gets
-## the same diagnosis and the same remediation sentence they get today. This wrapper
-## can only ever ADD an accepted state; it cannot invent a refusal or soften one.
+## ⚠️ EVERY FAILURE STILL LANDS ON THE ORIGINAL GATE: a malformed version, an
+## UNREADABLE PAGE, a missing pending file and a pending file that is already stamped
+## all fall through to kosmos_versions_entry_gate, so the operator gets the same
+## diagnosis and the same remediation sentence they get today.
+## 📌 THE UNREADABLE-PAGE CASE IS LISTED HERE BECAUSE IT WAS ONCE FALSE. This docblock
+## claimed it while the code accepted an unreadable page whenever a pending file
+## existed: the load-bearing sentence a reviewer checks the code against, certifying
+## the exact blind spot. It is now the first branch of the function, and armed.
 kosmos_versions_entry_gate_or_pending() {
   local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}" past_bound="${5:-}" pending="${6:-}"
   local id
   id="$(kosmos_versions_entry_id "$v")"
-  if [ -r "$file" ] && grep -qF "id=\"$id\"" "$file"; then
+  # 🛑 AN UNREADABLE PAGE GOES STRAIGHT TO THE GATE, BEFORE THE PENDING BRANCH IS
+  # EVEN CONSIDERED, AND AN EARLIER VERSION OF THIS FUNCTION DID NOT. Measured, both
+  # arms: a missing $SITE/versions.html WITH a valid pending file returned 0 and step 1
+  # passed; the same missing page with no pending file returned 1 with the gate's
+  # "cannot read ... That is the site checkout's versions page" refusal. So the cut
+  # spent the suite, the browser gate, the install gate and the build, and died at
+  # step 7a on a raw ENOENT from node -- the expensive-late-failure class #1463 exists
+  # to remove, arriving through this new door.
+  # ⚠️ A pending entry says nothing about whether the PAGE is reachable, and the page
+  # has to be there for anything to be inserted into.
+  if [ ! -r "$file" ]; then
+    kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
+    return $?
+  fi
+  if grep -qF "id=\"$id\"" "$file"; then
     kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
     return $?
   fi

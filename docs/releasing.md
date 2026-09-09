@@ -239,7 +239,25 @@ a different problem.
    (`.tar.gz` and `.sha256`, both gitignored) and re-cut. A 200 means it was
    served: bump the version instead, exactly as the guard says.
 3. **The site checkout's uncommitted state.** A dead attempt can leave
-   `dist/latest.json` and `setup.sha256` modified. The next successful cut makes
+   `dist/latest.json`, `setup.sha256` **and, under shape (a), the versions entry
+   itself** modified.
+
+   🛑 **The pending-entry shape has a leftover of its own, and it is the one that will
+   surprise you.** Step 7a inserts the entry into `$SITE/versions.html`. If the attempt
+   dies at 7a or later, the entry is now ON THE PAGE, stamped for the minute that
+   attempt reached 7a. The retry therefore takes the ORIGINAL gate, on the page, at the
+   4-minute past bound - so once that stamp is more than four minutes old the next
+   attempt refuses, and step 1's advice ("leave it as an entry file carrying TIMESTAMP
+   and the deploy stamps it for you") is advice you already followed and cannot
+   re-engage.
+
+   ✅ **The fix is one line and it is not obvious from the refusal:** remove the
+   inserted entry from `$SITE/versions.html` (`git -C <site> checkout -- versions.html`
+   if nothing else in it is yours), leaving your `.release-entry.html` in place. The
+   next attempt inserts and stamps it again, fresh.
+
+   ⭐ "Nothing to predict, so nothing to age" is true of an attempt that dies BEFORE
+   7a, which is most of them. It stops being true the moment the entry is on the page. The next successful cut makes
    them consistent and commits them; until then, nobody should deploy the site
    by hand (`vercel deploy` from the checkout publishes the working tree, #649).
 4. **The tree must hold still.** Every attempt freezes to the sha at its start
