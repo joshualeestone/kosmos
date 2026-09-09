@@ -38,5 +38,7 @@ fix-independent.
 
 ## Validation
 - node --test server.liveness-refused-2558.test.js: 3/3.
-- sibling suites unaffected (report-reply-loopback-1968, activewhilewaiting-2146).
+- sibling suites unaffected: server.report-reply-loopback-1968.test.js (5/5),
+  engine/status.activewhilewaiting-2146.test.js, and server.work-marker-2146.test.js (4/4),
+  plus engine/liveness.test.js.
 - full node suite + test:shell (6j); blind challenge-loop; 0 em dashes.
