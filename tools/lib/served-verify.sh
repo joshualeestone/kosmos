@@ -25,13 +25,39 @@
 #   served_verify_host_discriminates "$HOST"            || exit 1
 #   served_verify_asset_ok "$HOST/dist/foo.zip" "label" || exit 1
 
-# served_verify_host_discriminates <host-base-url>
+# served_verify_host_discriminates <host-base-url> [route-prefix]
 # 0 = the host 404s (or otherwise non-200s) a path that cannot exist, so its 200s are meaningful.
 # 1 = the host returned 200 for a nonexistent path (the #1667 SSO-200-for-everything shape): BLIND.
 # 2 = the probe could not run (transport error); the caller cannot conclude either way.
+#
+# 🛑 [route-prefix] AIMS THE CONTROL AT THE ROUTE THE CALLER IS ABOUT TO TRUST (kosmos#2565).
+# It defaults to `/dist`, preserving the original probe for every existing caller. But a control
+# proves discrimination only for the ROUTE it probed: the #1667 SSO-200-for-everything shape is
+# host-wide and any route sees it, but a route-SCOPED blindness (a rewrite rule, a catch-all, or
+# an SPA fallback under one path prefix) can discriminate under `/dist` and be blind under `/setup`.
+# A caller that trusts 200s under a different route (e.g. deploy-site.sh trusts `$HOST/setup`, the
+# site root) must PROVE discrimination THERE too, by passing that route (`/` for the site root).
+# A trailing slash is stripped so `/` probes the root (`$HOST/__...`) rather than `$HOST//__...`.
+#
+# ⚠️ RESIDUAL, BOUNDED: this proves discrimination for the route PREFIX (a nonexistent sibling under
+# it), which is the granularity real rewrites / catch-alls / SPA fallbacks operate at. It does NOT
+# catch a blindness scoped to an EXACT literal path (e.g. a rewrite of exactly `/setup` -> a 200 with
+# no wildcard and no catch-all elsewhere): a sibling probe 404s correctly and the control passes. That
+# case is unreachable by ANY negative control in principle -- no other path routes identically to an
+# exact match, so there is nothing to probe -- and it is largely covered from the other side:
+# served_verify_asset_ok rejects a 200 carrying text/html (the usual exact-route rewrite target is an
+# html page), leaving only a non-html exact-route rewrite of the one path, which is not a shape this
+# infra produces. Named rather than left to be found.
 served_verify_host_discriminates() {
   _svhd_host=$1
-  _svhd_url="${_svhd_host}/dist/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
+  _svhd_route=${2:-/dist}
+  # Normalise: ensure ONE leading slash (a caller passing `setup` must not yield the malformed
+  # `${host}setup/__...`), then strip ALL trailing slashes so `/` (and `//`) map to root
+  # (`${host}/__...`, never `${host}//__...`). Both are no-ops for the existing `/dist` and `/`
+  # callers. POSIX: the `case` glob is unquoted so it matches; the loop drops each trailing `/`.
+  case "$_svhd_route" in /*) ;; *) _svhd_route="/$_svhd_route" ;; esac
+  while [ "$_svhd_route" != "${_svhd_route%/}" ]; do _svhd_route=${_svhd_route%/}; done
+  _svhd_url="${_svhd_host}${_svhd_route}/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
   _svhd_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$_svhd_url") || {
     echo "served-verify: negative-control probe to ${_svhd_url} failed at the transport layer" >&2
     return 2
