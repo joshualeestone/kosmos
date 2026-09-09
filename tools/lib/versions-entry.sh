@@ -455,6 +455,18 @@ kosmos_versions_entry_gate() {
 ## check is on `rel-d">TIMESTAMP<` for that reason, not on the word appearing anywhere.
 kosmos_versions_entry_pending_ok() {
   local v="$1" pending="${2:-}" id
+  # 🛑 THE SAME VERSION-SHAPE REFUSAL THE GATE MAKES, BECAUSE THIS PATH NEVER REACHES
+  # IT. kosmos_versions_entry_gate refuses a $v that is not digits and dots; the
+  # pending branch returns 0 straight out of this function, so a malformed version
+  # skipped a validation the hand-stamped path enforces.
+  # ⚠️ AND IT IS NOT COSMETIC: the id is interpolated into a `grep -qE` below, so
+  # regex metacharacters that survive `tr . -` change what is searched for.
+  # MEASURED: version `0.6.9|0-6-41` derives id `v0-6-9|0-6-41`, whose ERE ALTERNATION
+  # matched a pending entry naming v0-6-41 -- a different release -- and this function
+  # returned 0, while the gate refused the same version by name.
+  case "$v" in
+    ''|*[!0-9.]*) return 1 ;;
+  esac
   # 📌 KEPT THOUGH A MUTATION SWEEP SHOWS IT REDS NOTHING HERE, unlike the -r check
   # below which was removed for exactly that reason. The difference is the failure it
   # defends against: measured on this box, `grep -qF x ''` returns 2 and the function
@@ -480,7 +492,10 @@ kosmos_versions_entry_pending_ok() {
   # that "an unreadable file is not an absent entry".
   # 📌 It reds no arm, and it is kept anyway: what it prevents is output, not a
   # return value, and the empty-path line below is kept for the same class of reason.
-  [ -r "$pending" ] || return 1
+  # `-f` as well as `-r`: a FIFO is readable and would hang grep, and so the cut, for
+  # ever. This file already refuses the empty-path case for that same reason, so
+  # leaving the richer shape open would be inconsistent rather than economical.
+  [ -f "$pending" ] && [ -r "$pending" ] || return 1
   # Same id derivation as everywhere else in this file: one spelling.
   id="$(kosmos_versions_entry_id "$v")"
   # 🛑 VALIDATE THE SHAPE, NOT TWO SUBSTRINGS, because everything downstream needs the
@@ -560,8 +575,16 @@ kosmos_versions_entry_gate_or_pending() {
   # itself is unchanged and still comes from the gate below; this only adds the line
   # that says which door was tried.
   if [ -n "$pending" ] && [ -e "$pending" ]; then
-    echo "   (a pending entry file exists at $pending but is not usable for $v:"
-    echo "    it must carry id=\"$id\" and still carry the TIMESTAMP placeholder.)"
+    # Say which of the two it is. An unreadable file diagnosed as malformed content
+    # sends the operator to edit a file they cannot open, which is the "an unreadable
+    # file is not an absent entry" confusion this lib argues against for the page.
+    if [ ! -r "$pending" ] || [ ! -f "$pending" ]; then
+      echo "   (a pending entry file exists at $pending but cannot be read as a file.)"
+    else
+      echo "   (a pending entry file exists at $pending but is not usable for $v:"
+      echo "    it needs a 4-space-indented <article class=\"rel\" id=\"$id\"> with a"
+      echo "    matching </article>, and its rel-d must still read TIMESTAMP.)"
+    fi
   fi
   kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
 }

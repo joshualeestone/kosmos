@@ -88,6 +88,36 @@ kosmos_versions_entry_pending_ok "0.6.41" "$T/entry.html" \
   && ok "CONTROL: the well-formed entry these four are contrasted against IS accepted" \
   || bad "the control fixture is rejected, so the four refusals above prove nothing"
 
+# 🛑 A VERSION THAT IS NOT DIGITS AND DOTS IS REFUSED HERE TOO, because this path
+# returns without ever reaching the gate that refuses it by name. The id is interpolated
+# into a `grep -qE`, so metacharacters surviving `tr . -` change what is searched for.
+pending "v0-6-41"
+kosmos_versions_entry_pending_ok '0.6.9|0-6-41' "$T/entry.html" \
+  && bad "an ALTERNATION in the version matched an entry naming a DIFFERENT release" \
+  || ok "a version carrying a regex metacharacter is refused, as the gate refuses it"
+kosmos_versions_entry_pending_ok '0.6.*' "$T/entry.html" \
+  && bad "a glob in the version was accepted" || ok "a version carrying a glob is refused"
+kosmos_versions_entry_pending_ok '0.6.41' "$T/entry.html" \
+  && ok "CONTROL: the same file with a well-formed version IS accepted" \
+  || bad "the well-formed control is rejected, so the two refusals above prove nothing"
+
+# A FIFO is readable and would hang grep, and the cut, for ever.
+# 🛑 THIS ARM'S MUTATION MANIFESTS AS A HANG, NOT A RED, AND THAT IS WORTH KNOWING
+# BEFORE YOU MEET IT. Measured: with the `-f` half of the guard removed, `grep -qE`
+# blocks on the named pipe indefinitely (2m15s before I killed it), so the suite does
+# not fail, it stops. In CI that is a runner timeout wearing the clothes of an
+# infrastructure problem rather than of a deleted guard.
+# ⇒ If you are here because the suite hung, look at the `-f` check in
+# kosmos_versions_entry_pending_ok first. That asymmetry is exactly why the guard is
+# cheaper than the alternative of letting grep decide.
+if mkfifo "$T/fifo.html" 2>/dev/null; then
+  kosmos_versions_entry_pending_ok "0.6.41" "$T/fifo.html" \
+    && bad "a FIFO was accepted as a pending entry; grep would block the cut" \
+    || ok "a FIFO is refused, so the cut cannot hang on a named pipe"
+else
+  ok "SKIP: mkfifo unavailable, FIFO arm not run"
+fi
+
 # ---- kosmos_versions_entry_gate_or_pending -------------------------------------
 
 page; pending "v0-6-41"
@@ -198,6 +228,15 @@ out="$(kosmos_versions_entry_gate_or_pending "0.6.41" "$T/versions.html" "cost."
 printf '%s' "$out" | grep -q 'is not usable for' \
   && ok "and the refusal SAYS the pending file was found and turned down" \
   || bad "the operator is not told their pending file was even looked at: $out"
+
+# An UNREADABLE pending file must be diagnosed as unreadable, not as malformed content:
+# telling someone to fix the markup in a file they cannot open sends them nowhere.
+page; pending "v0-6-41"; cp "$T/entry.html" "$T/locked.html"; chmod 000 "$T/locked.html"
+out="$(kosmos_versions_entry_gate_or_pending "0.6.41" "$T/versions.html" "cost." "fix." 4 "$T/locked.html" 2>&1)"
+chmod 644 "$T/locked.html"
+printf '%s' "$out" | grep -q 'cannot be read as a file' \
+  && ok "an unreadable pending file is diagnosed as unreadable, not as malformed" \
+  || bad "an unreadable pending file was misdiagnosed: $out"
 
 # ---- an UNREADABLE PAGE is not something a pending file can excuse ---------------
 
