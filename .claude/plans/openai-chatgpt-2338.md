@@ -1,5 +1,14 @@
 # Plan: #2338 - ChatGPT subscription sign-in (Codex-managed) + subscription-vs-API-key connect picker
 
+> 🛑 SCOPE CORRECTED 2026-09-09 (measure-whether-live): Phases 0-4 below are ALREADY BUILT on
+> main (driver, routes, both pickers, tests 14/14 + 6/6) - do NOT rebuild them. The card is
+> needs-release (Phase 5 = real ChatGPT sub). The ONLY real work is two focused gaps: (1) the
+> parseChatgptLoginOutput device-code regex - DONE (commit d48bb435, real 4-5 codex format);
+> (2) #2568 - the OpenAI provider-card overlap + missing "Sign in again" - see the precise fix in
+> ~/Library/Application Support/Kosmos/handoffs/icecreamkitty.md (AUTHORITATIVE). The phased notes
+> below are kept as the original analysis, not a build list.
+
+
 Owner: Ice Cream Kitty (Splinter assigned Phases 0-4, 2026-09-09; Pete off it on bc-surface-gate). Build in this worktree, PR for Kosmos review, challenge-loop first. Grounded in Pete's code map on kosmos#2338 + my measurements below.
 
 ## Goal
