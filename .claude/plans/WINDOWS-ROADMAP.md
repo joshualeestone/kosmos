@@ -1,4 +1,75 @@
-# ⚑ KOSMOS ON WINDOWS — the master plan
+# ⚑ RESUME HERE — Kosmos on Windows
+
+**If you are a new session picking this up, read this block, then §2 and §3. Nothing
+else is required to continue.**
+
+    where the work lives   branch win32-streaming-agent-570  (pushed)
+    already on main        PR #2537 -- the keep-alive slice (6964ab67)
+    this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
+    the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
+
+## The one-line state
+
+Four blockers stood between Windows and a usable Kosmos. **Two are closed** (3:
+first run now names the real installer; 4: the board comes back at logon).
+**One is guarded but not solved** (2: the updater refuses honestly instead of
+lying "Up to date"). **One is the critical path** (1: you cannot message a
+Windows agent) and its substrate is built and measured — what remains is wiring.
+
+## Do this next (slice 7c-2)
+
+Both halves of the delivery substrate exist, are tested, and are DELIBERATELY
+UNWIRED:
+
+    engine/win32launch.js      launchStreaming()      spawns the agent WITH PIPES
+    engine/win32supervisor.js  superviseStreaming()   HOLDS them, and has send()
+
+7c-2 is to make them the live path:
+
+1. `engine/win32job.js` registers a task that runs the anchored shim, which calls
+   `win32supervisor.main()` -> `supervise()`. Point that at `superviseStreaming`.
+2. `engine/create.js`'s win32 arm launches the AGENT directly (7a). It should
+   start the SUPERVISOR instead, which collapses today's two launch paths into
+   one. `installJob`'s never-overwrite guard already refuses a second launch.
+3. Then 7c-3 (a local board -> supervisor channel) and 7c-4 (`chat.js`'s win32
+   arm on it). §3 has the sizing.
+
+⚠️ DO NOT re-derive the three measurements in §3 — a streaming session stays
+alive across turns, is still listed by `claude agents --json` as
+kind:"interactive", and RESUMES under the same session id; and killing a holder
+leaves NO ORPHAN (~800ms, both clean and broken-pipe). They were run on this box
+and they are what the design rests on.
+
+## Running the tests on this box
+
+🛑 THERE IS NO node OR bun ON PATH. The only interpreter is inside an extracted
+build:
+
+    C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/win32anchor.test.js engine/win32job.test.js engine/win32supervisor.test.js engine/win32launch.test.js engine/win32roster.test.js engine/win32capture.test.js engine/win32create.test.js engine/win32live.test.js engine/win32stop.test.js engine/win32board.test.js engine/boardrestart.win32-570.test.js engine/jobexists.win32-570.test.js engine/create.win32-launch-570.test.js engine/remove.win32-job-570.test.js engine/remove.test.js engine/platform.test.js engine/platform-gate-wiring.test.js engine.reachable.test.js
+
+Expect all green. Suites with KNOWN pre-existing Windows failures, which are NOT
+regressions — check the count before blaming a change:
+
+    create.test.js 61/100   register 13/9   delete-leftover 8/1   status 187/1
+    discover 17/1   connect 51/12   machine 41/25   server.connect 38/9
+
+## The working rules this lane earned the hard way
+
+1. **Measure on the box; a green unit suite has repeatedly meant nothing here.**
+   Every defect of consequence was found by running the real thing: three
+   separate tmux gates, `createAgent` with no win32 branch, `/SC ONLOGON`
+   needing admin, a rollback killing a launcher pid, agents launched with no
+   permission flag into a hidden console.
+2. **An unsurveyed row is not a passing row.** Capability 1 sat unlooked-at and
+   was hiding two blockers.
+3. **Platform is INJECTED, never a bare `process.platform` read** — the fleet's
+   CI is a Mac, and an arm it cannot drive is an arm nothing tests.
+4. **Finish a step -> update this file -> commit.** A green step that is not
+   committed does not exist.
+
+---
+
+# KOSMOS ON WINDOWS — the master plan
 
 The one document that answers "how far are we, and what is left". Written
 2026-09-09. `win32-keepalive-570.md` is the working log for the keep-alive slice
