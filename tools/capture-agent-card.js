@@ -22,10 +22,13 @@
  * writing something empty.
  *
  * What it does, and what it deliberately does not:
- *   - RECORDS every key and type `status.snapshot()` emits. Four booleans are pinned to
- *     a constant REGARDLESS of what the producer said, and "with ONE deliberate exception"
- *     named only the first: `hasAvatar` to `true`, `context.ceilingAssumed` to `true`,
- *     `context.overCeiling` and `context.notYet` to `false`. "Nothing is invented" was the
+ *   - RECORDS every key and type `status.snapshot()` emits. FIVE booleans are pinned to
+ *     a constant REGARDLESS of what the producer said: `hasAvatar` and
+ *     `context.ceilingAssumed` to `true`, `context.overCeiling`, `context.notYet` and
+ *     `disruption.timedOut` to `false`.
+ *     ⚠️ THIS COUNT HAS NOW BEEN WRONG TWICE IN THE SAME SENTENCE: "with ONE deliberate
+ *     exception" named one of four, and the correction to "four" named four of five,
+ *     missing the boolean added in the same commit that wrote the correction. "Nothing is invented" was the
  *     top-line summary and it is the line a reader trusts, so the count belongs here.
  *     ⚠️ The narrower sentence was repeated twice more in the test file, whose own arm
  *     poisons those three context booleans with the opposite values and asserts they come
@@ -323,12 +326,30 @@ function neutralise(live) {
      ⚠️ LITERAL RIGHT-HAND SIDES, not a lookup table, because the pin extractor classifies
      by the KIND of RHS and a table reference reclassifies the field as a re-pin (that
      dropped the pin count from 22 to 20 once already). Sentences taken from status.js. */
+  /* 🛑 ALL NINE STATES, NOT FIVE. The first version of this block covered working, idle,
+     needs_you, stopped and restarting, and left `blocked`, `rate_limited` and
+     `auth_failed` carrying "we could not tell what it is doing" -- a sentence status.js
+     emits in exactly one place and only as {state: UNKNOWN, confidence: NONE}. All three
+     carry stateConfidence !== 'none', so chooseCard actively PREFERS them, which is the
+     same reachability argument already accepted for idle.
+     ⚠️ TWO PAIRINGS ALSO DEPEND ON `stateReported`, which is passed through: a reported
+     idle says "it is at rest and nothing is needed" (status.js:5747) and a reported
+     stopped says "it said it was stopping" (5522). `blocked` is ALWAYS reported.
+     ⚠️ AND `auth_failed` DEPENDS ON THE RUNNER: the codex path says OpenAI (5461).
+     Sentences are the producer's own `said(fallback)` fallbacks; the non-fallback branch
+     is the agent's free-text self-report, which the scrub above has already removed. */
   if (typeof card.because === 'string') card.because = 'we could not tell what it is doing';
   if (typeof card.because === 'string' && card.state === 'working') card.because = 'it is mid-task';
-  if (typeof card.because === 'string' && card.state === 'idle') card.because = 'it is sitting at its prompt';
+  if (typeof card.because === 'string' && card.state === 'idle' && card.stateReported !== true) card.because = 'it is sitting at its prompt';
+  if (typeof card.because === 'string' && card.state === 'idle' && card.stateReported === true) card.because = 'it is at rest and nothing is needed';
   if (typeof card.because === 'string' && card.state === 'needs_you') card.because = 'it is asking you something';
-  if (typeof card.because === 'string' && card.state === 'stopped') card.because = 'Claude is not running for this one';
+  if (typeof card.because === 'string' && card.state === 'stopped' && card.stateReported !== true) card.because = 'Claude is not running for this one';
+  if (typeof card.because === 'string' && card.state === 'stopped' && card.stateReported === true) card.because = 'it said it was stopping';
   if (typeof card.because === 'string' && card.state === 'restarting') card.because = 'we are restarting this agent, so it is briefly out of view';
+  if (typeof card.because === 'string' && card.state === 'rate_limited') card.because = 'its screen mentions a usage limit';
+  if (typeof card.because === 'string' && card.state === 'auth_failed' && card.runner !== 'codex') card.because = 'its Claude sign-in is not working';
+  if (typeof card.because === 'string' && card.state === 'auth_failed' && card.runner === 'codex') card.because = 'its OpenAI sign-in is not working';
+  if (typeof card.because === 'string' && card.state === 'blocked') card.because = 'it is waiting on something that is not you';
   if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
   /* PIN the volatile MEASUREMENTS so they do not move between captures.
      🛑 NOT "so a re-run is byte-identical unless the SHAPE moved". That sentence stood

@@ -700,7 +700,12 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
     ['.claude/plans/goldencard-2519-*.md', (() => {
       const dir = path.join(__dirname, '.claude', 'plans');
       const hits = fs.readdirSync(dir).filter((f) => /^goldencard-2519-.*\.md$/.test(f) && !/-pre-challenge\.md$/.test(f));
-      assert.equal(hits.length, 1, `expected exactly one plan file for this branch, found ${hits.length}: ${hits}`);
+      /* ⚠️ AT LEAST ONE, not exactly one. Coupling the product suite to a single process
+       artifact means a follow-up plan for the same branch makes this arm THROW rather than
+       report what it exists to report. The glob replaced a hardcoded timestamp, which was
+       right; the exact count was one notch too tight. */
+    assert.ok(hits.length >= 1, `no plan file found for this branch in ${dir}`);
+    hits.sort();
       return fs.readFileSync(path.join(dir, hits[0]), 'utf8');
     })()],
   ];
@@ -803,7 +808,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN);
-    /* ⚠️ TWO INVENTORIES, BECAUSE `context` HAS FIVE KEY SETS IN status.js AND THE TWO
+    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
        measured context. A single expected list would have been wrong for one of them, and
@@ -978,25 +983,55 @@ test('#2519: the top-level `because` follows `state`, so the recording cannot co
      mutation that removes the idle pin redded nothing until this arm existed. */
   const cap = require('./tools/capture-agent-card.js');
   const fleet = require('./test-support/fleet.js');
-  const PAIRS = [
-    ['working', 'it is mid-task'],
-    ['idle', 'it is sitting at its prompt'],
-    ['needs_you', 'it is asking you something'],
-  ];
-  for (const [state, sentence] of PAIRS) {
-    const board = fleet.install([fleet.agent('mara', { state })]);
-    try {
-      const real = board.card('mara');
-      const poisoned = Object.assign({}, real);
+  /* 🛑 EVERY STATE THE ENUM ADMITS, DRIVEN FROM THE ENUM. This arm used to drive THREE of
+     nine while its title claimed the general property, and a `blocked` re-capture landed
+     SILENTLY GREEN: the rename control only checks `state !== 'needs_you'`, the context arm
+     only checks `confidence`, and a blocked card's `stateEvidence` is null so the identity
+     arm passed too. Nothing on the branch would have noticed.
+     ⇒ The map is keyed by the producer's own vocabulary and an assertion below fails if a
+     state is added to status.js without a pairing here, so the gap cannot silently reopen.
+     Two pairings depend on `stateReported` and one on `runner`, which is why the value is
+     a function of the card rather than a constant per state. */
+  const SENTENCE = {
+    working: () => 'it is mid-task',
+    idle: (c) => (c.stateReported === true ? 'it is at rest and nothing is needed' : 'it is sitting at its prompt'),
+    needs_you: () => 'it is asking you something',
+    stopped: (c) => (c.stateReported === true ? 'it said it was stopping' : 'Claude is not running for this one'),
+    restarting: () => 'we are restarting this agent, so it is briefly out of view',
+    rate_limited: () => 'its screen mentions a usage limit',
+    auth_failed: (c) => (c.runner === 'codex' ? 'its OpenAI sign-in is not working' : 'its Claude sign-in is not working'),
+    blocked: () => 'it is waiting on something that is not you',
+    unknown: () => 'we could not tell what it is doing',
+  };
+  assert.deepEqual(Object.keys(SENTENCE).sort(), cap.ENUMS.state.slice().sort(),
+    'a state was added to the producer with no `because` pairing, so a capture of it would carry a sentence status.js does not emit');
+  const PAIRS = cap.ENUMS.state.map((st) => [st, SENTENCE[st]]);
+  const board0 = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  let template;
+  try { template = board0.card('mara'); } finally { board0.restore(); }
+  for (const [state, sentenceFor] of PAIRS) {
+    /* Both `stateReported` arms for the two states whose sentence depends on it. */
+    for (const reported of [false, true]) {
+      const poisoned = Object.assign({}, template);
       poisoned.state = state;
+      poisoned.stateReported = reported;
       poisoned.because = 'SECRET:/Users/realoperator/private.txt';
       const out = cap.neutralise(poisoned);
       assert.equal(out.state, state, `CONTROL: the card under test is not in state ${state}`);
-      assert.equal(out.because, sentence,
-        `state ${state} was recorded beside a because status.js does not pair with it`);
-    } finally {
-      board.restore();
+      assert.ok(!String(out.because).includes('/'),
+        `state ${state} kept the poisoned because verbatim`);
+      assert.equal(out.because, sentenceFor(poisoned),
+        `state ${state} (stateReported ${reported}) was recorded beside a because status.js does not pair with it`);
     }
+  }
+  /* The runner arm, which only auth_failed depends on. */
+  for (const runner of ['claude', 'codex']) {
+    const c = Object.assign({}, template);
+    c.state = 'auth_failed';
+    c.runner = runner;
+    c.because = 'SECRET:/Users/realoperator/private.txt';
+    assert.equal(cap.neutralise(c).because, SENTENCE.auth_failed(c),
+      `an auth_failed ${runner} card was given the other provider's sentence`);
   }
   /* AND stateEvidence: a "Working" line beside a non-working state is a contradiction. */
   const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
@@ -1047,7 +1082,7 @@ test('#2519: context.confidence and context.because are values the PRODUCER can 
       'an unmeasured context was recorded as structured, which status.js cannot emit beside a null tokens');
     assert.equal(unmeasured.context.because, 'we cannot find a transcript for it');
     /* 🛑 THE THIRD SHAPE, WHICH THE FIRST VERSION OF THIS ARM DID NOT KNOW EXISTED.
-       status.js has THREE context results, not two: measuredResult, NONE_BASE, and
+       status.js has FOUR context result shapes, not two and not three: an earlier version of this comment said THREE and missed neverRecordedResult: measuredResult, NONE_BASE, and
        `noCeilingResult` (status.js:4314), reached whenever limitFor(model) returns null
        for a model not yet in the limit tables. It sets a real NUMERIC tokens with
        `percent: null`, `ceiling: null`, `noCeiling: true` and CONFIDENCE.STRUCTURED.
@@ -1153,8 +1188,9 @@ test('#2519: the capture writes NULL where the producer wrote null, on the PINNE
       assert.equal(out[f], null, `${f} was invented where the producer emitted null`);
     }
     /* ⚠️ hasAvatar IS ONE OF FOUR DELIBERATE OVERRIDES (with ceilingAssumed, overCeiling
-       and notYet) AND THE ARM SAYS SO. An earlier version called it "THE deliberate
-       exception", singular, in a file whose own context arm poisons the other three. A producer `false`
+       notYet and disruption.timedOut) AND THE ARM SAYS SO. The count in this sentence has
+       been wrong twice: "THE deliberate exception", singular, named one of four; the
+       correction to four missed the fifth, added in the same commit that wrote it. A producer `false`
        becomes `true`, so this pin can DISAGREE with the captured card rather than merely
        stabilise it. That is intended: status.js emits `Boolean(safeAvatar(key))`, which
        depends on whether an avatar file happens to exist for that agent on that box, so
@@ -1390,7 +1426,7 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      MEASURED on an 18-agent board: TWO distinct `profile` shapes among our pane cards,
      17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty, because
      store.readProfile() returns {} for an agent with no profile file. `profile` is a
-     free-form operator record and `context` has five key sets in status.js depending on
+     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
      that agent's transcript and ceiling, so no two cards are guaranteed to share a
      nested shape.
      ⚠️ And WHICH card was compared was arbitrary: liveCard() takes the first pane card
