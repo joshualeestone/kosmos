@@ -856,3 +856,34 @@ any release. `claude --help` exposes no send verb for a local session (only
 the roster, the ownership join and the stop path exactly as they are, and the one
 piece it adds -- board to supervisor -- is code we own. Keep the socket finding on
 record as the fallback if the relaunch shape turns out to cost more than it looks.
+
+## 7c DE-RISKED: a streaming session RESUMES (2026-09-09)
+
+The biggest risk in the streaming design was never delivery -- it was what happens
+at the next logon. Today the supervisor ADOPTS a live agent rather than replacing
+it, and adoption is impossible for a piped child: it means holding a stdin
+somebody else already holds. So a supervisor restart, or a reboot, would have to
+RE-OPEN the conversation instead. If that did not work, a reboot would hand the
+operator a brand-new agent wearing the old one's name, and #570's central claim
+would be false under this design.
+
+Measured:
+
+    turn 1 (new session)          -> "STORED"   session c502cba1-...
+    turn 2 (NEW PROCESS, --resume) -> "PELICAN-42"
+
+    RESUME KEEPS THE CONVERSATION : YES
+    SAME SESSION ID ON RESUME     : YES
+
+🔑 THE SAME ID IS THE PART THAT MATTERS BEYOND MEMORY. The ownership record
+(`win32sessions`), the roster join (`win32live`), the state read and the stop path
+are all keyed on the session id. Because a resume keeps it, none of them change:
+a resumed agent is the SAME agent to every part of this branch, not a new one
+wearing the name. Adopt-not-replace becomes resume-not-replace, and the property
+it was protecting -- that a restart does not silently discard an agent's history
+-- is preserved rather than traded away.
+
+📌 So the keep-alive slice survives the switch intact. The supervisor still owns
+the lifetime and still answers a death by starting the agent again; the only
+change is that "again" is `--resume <id>` with a pipe, instead of a detached
+spawn it later adopts.
