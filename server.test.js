@@ -2645,8 +2645,10 @@ test('a write another website could send is refused, whatever route it names', a
       headers: { 'content-type': 'application/json', origin: new URL(base).origin },
       /* A name the engine still refuses, so the 400 proves the request
          reached the route. 'BAD NAME' stopped being one in #740 (a space
-         between words is a name now); a dot is still refused, never stripped. */
-      body: JSON.stringify({ name: 'BAD.NAME', role: 'pm' }),
+         between words is a name now) and 'BAD.NAME' stopped being one in #2605
+         (a period folds to a hyphen the way a space does); a comma still fails
+         NAME_RE, so it is the refusal that proves the route was reached. */
+      body: JSON.stringify({ name: 'BAD,NAME', role: 'pm' }),
     });
     assert.equal(ours.status, 400,
       'the board can no longer write to itself, so this guard has broken the product');

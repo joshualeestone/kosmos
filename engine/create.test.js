@@ -166,7 +166,11 @@ test('a name that cannot address an agent is refused before anything is made', (
   //     safeTarget, so the agent is created and then unreachable.
   // #740: 'has space' moved from this list to the accepted one below; a space
   // between words is a name now (shown as typed, hyphenated for the machine).
-  for (const bad of ['', '  ', 'My.Bot', '_bot', '-bot', 'a', 'has\ttab', 'emoji🙂']) {
+  // #2605: '.bot' (a LEADING period) stays here: it folds to a leading hyphen,
+  // which NAME_RE rejects, so a name that would start with punctuation is still
+  // refused rather than silently becoming 'bot'. 'My.Bot' left this list -- an
+  // INTERIOR period is a title-style name now and is accepted below.
+  for (const bad of ['', '  ', '.bot', '_bot', '-bot', 'a', 'has\ttab', 'emoji🙂']) {
     assert.ok(create.nameProblem(bad), `'${bad}' was accepted as a name`);
   }
   // ⚠️ A CAPITAL IS NO LONGER A REFUSAL, and `MyBot` moved from the list above
@@ -174,9 +178,11 @@ test('a name that cannot address an agent is refused before anything is made', (
   // name is the same everywhere it appears" — a true sentence about the
   // machinery, and the wrong thing to say to somebody naming a colleague. The
   // capital is now the DISPLAY name and `slugFor` supplies the machine one, so
-  // `Casey` is a name you can type and `My.Bot` is still refused because its
-  // slug is not a name we can build an agent out of.
-  for (const good of ['fixture-agent', 'casey-2', 'my_bot', 'a1', 'MyBot', 'Casey', 'has space', 'Kira Knightley']) {
+  // `Casey` is a name you can type. #2605: `My.Bot` and a titled name like
+  // `Dr. Maya Okafor` are accepted too now -- an interior period folds to a
+  // hyphen the way a space does (`my-bot`, `dr-maya-okafor`), so the display
+  // keeps the period and the machine name is a slug we can build an agent out of.
+  for (const good of ['fixture-agent', 'casey-2', 'my_bot', 'a1', 'MyBot', 'Casey', 'has space', 'Kira Knightley', 'My.Bot', 'Dr. Maya Okafor']) {
     assert.equal(create.nameProblem(good), null, `'${good}' was refused`);
   }
 });
@@ -186,7 +192,25 @@ test('#740: a two-word capitalised name is shown as typed and is one hyphenated 
   assert.equal(create.cleanName('Kira Knightley'), 'Kira Knightley');
   assert.equal(create.slugFor('Kira Knightley'), 'kira-knightley');
   assert.equal(create.slugFor('  Kira   Knightley '), 'kira-knightley', 'a run of spaces is one hyphen');
-  assert.equal(create.nameProblem('Kira.Knightley'), 'use letters, numbers, hyphens and underscores, starting with a letter or number', 'a dot is still refused, never stripped');
+  /* #2605: an INTERIOR period is now accepted and folds to a hyphen, the same
+     as a space -- NOT refused, and NOT stripped. 'Kira.Knightley' is shown as
+     typed and is 'kira-knightley' to the machinery. */
+  assert.equal(create.nameProblem('Kira.Knightley'), null, 'an interior period is accepted now (#2605)');
+  assert.equal(create.slugFor('Kira.Knightley'), 'kira-knightley', 'a period folds to one hyphen, like a space');
+  assert.equal(create.slugFor('Dr. Maya Okafor'), 'dr-maya-okafor', 'a title with a period and spaces is one clean slug');
+  /* #2605: a TRAILING period is accepted (folds to a trailing hyphen). The slug
+     is cosmetic there but valid (NAME_RE admits a trailing hyphen), and the plan
+     documents this as intended, so pin it rather than leave the case unguarded. */
+  assert.equal(create.nameProblem('Maya Jr.'), null, 'a trailing-title name is accepted');
+  assert.equal(create.slugFor('Maya Jr.'), 'maya-jr-', 'a trailing period folds to a trailing hyphen, valid and intended');
+  /* 🛑 REPLACE, NOT STRIP: the whole anti-collision argument. If a period were
+     STRIPPED, 'Ca.sey' would become 'casey' and land on a different agent
+     silently. Folding it to a hyphen keeps it DISTINCT. */
+  assert.equal(create.slugFor('Ca.sey'), 'ca-sey', 'a period becomes a hyphen, so Ca.sey is NOT casey');
+  assert.notEqual(create.slugFor('Ca.sey'), create.slugFor('Casey'), 'Ca.sey and Casey are different machine names, never merged');
+  /* A LEADING period folds to a leading hyphen, which NAME_RE rejects: refused,
+     not silently turned into a name. */
+  assert.ok(create.nameProblem('.Net'), 'a leading period is still refused, not dropped to make .Net into net');
   assert.equal(create.nameProblem('Kira Knightley-discord'), 'names cannot end in -discord, which the board reads as an agent running somewhere else');
   // Through the real create path: the machine name is the slug and the shown name is the record.
   create.setRunner(() => ({ ok: true }));
@@ -200,18 +224,30 @@ test('#740: a two-word capitalised name is shown as typed and is one hyphenated 
   assert.match(again.because, /already an agent called/);
 });
 
-test('the display name and the machine name differ ONLY in case, which is what makes the split safe', () => {
+test('the display name and the machine name differ only in case and folded whitespace/periods, which is what makes the split safe', () => {
   /**
    * ⚠️ THE LOAD-BEARING PROPERTY OF 6b. The display name is written into the
    * instruction file an agent boots from — the most powerful write in the
-   * product — so if it could differ from the slug by anything other than case,
+   * product — so if it could differ from the slug by an arbitrary character,
    * this feature would have opened an injection surface into that file.
    *
-   * It cannot, and the reason is that `nameProblem` validates the SLUG against
-   * `NAME_RE`, which admits only `[a-z0-9_-]`. Lower-casing is the only
-   * transform between the two, so an accepted display name is made of exactly
-   * those characters with some upper-cased. Asserted as a property over the
-   * same alphabet the shell-safety test uses, rather than trusted.
+   * It cannot, and the reason is `slugFor` + `NAME_RE`. `slugFor` folds exactly
+   * three things and nothing else: case (to lower), a run of whitespace (#740),
+   * and a run of periods (#2605), each to a hyphen. Every OTHER character
+   * survives `slugFor` unchanged and is then caught by `NAME_RE`, which admits
+   * only `[a-z0-9_-]`. So an accepted display name is made of exactly
+   * `[A-Za-z0-9 ._-]` (the alnum/underscore/hyphen NAME_RE passes, plus the
+   * space and period slugFor folds), starting with an alnum. Asserted as a
+   * property over the whole dangerous alphabet, rather than trusted.
+   *
+   * 🔑 THE PERIOD IS SAFE IN THAT FILE, WHICH IS WHY #2605 COULD WIDEN THIS.
+   * The name reaches the boot file only as literal markdown prose --
+   * `roles.instructionsFor` does `role.instructions.split('{{NAME}}').join(name)`,
+   * so it is a literal replacement into `You are **<name>**, a role.` A period
+   * cannot break the bold, open a heading/list/code-fence, or run anything. The
+   * period never reaches a shell: the plist/launchd/tmux/directory surfaces all
+   * use the period-free SLUG (`plistFor(clean, …)`), and the display name goes
+   * only to the markdown file, the profile JSON, and HTML-escaped UI.
    */
   const alphabet = ' \t\n\'"`$();|&<>*?![]{}\\/#~^%+=:,.@abzAZ09_-*';
   let accepted = 0;
@@ -227,16 +263,23 @@ test('the display name and the machine name differ ONLY in case, which is what m
          the load-bearing property was held by nothing. The raw candidate is
          the independent reference: the display name must be the typed name
          (trimmed, nothing stripped), and the machine name must be exactly
-         that lower-cased. A `cleanName` that started STRIPPING (the safeKey
-         hole: `My.Bot` silently becoming the agent `mybot`) now fails both
-         lines instead of passing both. */
+         that lower-cased with whitespace/period runs folded. A `slugFor` that
+         started STRIPPING (the safeKey hole: `My.Bot` silently becoming the
+         agent `mybot`) fails the slug line below, because folding produces
+         `my-bot`, not `mybot`. */
       assert.equal(shown, candidate.trim(),
         `'${candidate}' is shown as something other than what was typed`);
-      /* #740: and a run of whitespace becomes one hyphen; nothing else. The
-         raw candidate stays the independent reference. */
-      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/\s+/g, '-'),
-        `'${candidate}' is shown as something that is not just the machine name in another case (spaces aside)`);
-      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 _-]*$/,
+      /* #740 + #2605: a run of whitespace OR periods becomes one hyphen; nothing
+         else changes but case. The raw candidate stays the independent reference,
+         so a period that STRIPPED instead of folding would fail here. */
+      assert.equal(create.slugFor(candidate), candidate.trim().toLowerCase().replace(/[\s.]+/g, '-'),
+        `'${candidate}' is shown as something that is not just the machine name in another case (spaces and periods folded)`);
+      /* #2605: the boot-file alphabet gains the period and NOTHING else. The
+         period is inert as markdown prose (see the header); every other
+         dangerous character in `alphabet` still fails NAME_RE and never reaches
+         this assertion. The leading anchor is unchanged, so a name still starts
+         with an alnum. */
+      assert.match(shown, /^[A-Za-z0-9][A-Za-z0-9 ._-]*$/,
         `'${candidate}' would put something other than a name into the file an agent boots from`);
     }
   }
@@ -945,8 +988,10 @@ test('a length problem says it is a length problem', () => {
   // one they had.
   assert.match(create.nameProblem('a'), /two characters/);
   assert.match(create.nameProblem('x'.repeat(33)), /32 characters/);
-  // And the character rule still answers for a character problem.
-  assert.match(create.nameProblem('has.dot'), /letters, numbers/);
+  // And the character rule still answers for a character problem. #2605: a
+  // period is no longer one (it folds to a hyphen, like a space), so the
+  // example is a comma, which still survives slugFor and fails NAME_RE.
+  assert.match(create.nameProblem('has,comma'), /letters, numbers/);
   assert.match(create.nameProblem('has\ttab'), /plain spaces/, 'a tab inside a name is a character problem said in its own words');
 });
 
