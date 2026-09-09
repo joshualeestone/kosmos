@@ -150,23 +150,24 @@ function unhide(id) {
         nbWeight: nbc ? Number(nbc.fontWeight) : null,
         ntSize: ntc ? parseFloat(ntc.fontSize) : null,
         nbSize: nbc ? parseFloat(nbc.fontSize) : null,
-        // The cog is centred by flex + line-height:1 on the glyph, not place-items on
-        // a line box that let the gear's ascent push it high. line-height is the
-        // LOAD-BEARING half: flex centres the line box, and only line-height:1
-        // collapses that box to the glyph, so it is pinned too.
-        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyContent,
-        gearLine: c.lineHeight, gearFont: parseFloat(c.fontSize) };
+        // The cog is now an inline SVG path centred by its own symmetric geometry in a
+        // grid place-items:center box, NOT the U+2699 glyph (whose asymmetric font
+        // bearings read high-left -- the #768/#2460 regression that headless flex-
+        // centring could never catch). Pin: svg present, glyph text gone, grid-centred.
+        gearDisplay: c.display, gearAlign: c.alignItems, gearJustify: c.justifyItems,
+        gearHasSvg: !!gear.querySelector('svg'),
+        gearGlyph: (gear.textContent || '').trim() };
     }, unhide.toString());
 
     if (s4.noPane || s4.noGear) {
       check(`${engine}: fr-pane-4 gear reachable`, false, JSON.stringify(s4));
     } else {
-      // 0.6.45 (Josh): the box was tightened to HUG the cog (was 76px, too big);
-      // the cog glyph stayed 44px (Josh: the cog size was right). So the box is
-      // ~52px now, the glyph still 40-48px, and it must NOT be the old 76px box
-      // nor the original 38/22.
-      const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.font >= 40 && s4.font <= 48;
-      check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px, glyph 40-48px), not the old 76px or 38/22`,
+      // 0.6.45 (Josh): the box was tightened to HUG the cog (was 76px, too big), ~52px now,
+      // and it must NOT be the old 76px box nor the original 38/22. The cog itself is now an
+      // inline SVG (see the centring check below), so the box needs the right dims AND to
+      // hold the svg with no leftover glyph text.
+      const gearOk = s4.w >= 48 && s4.w <= 58 && s4.h >= 48 && s4.h <= 58 && s4.gearHasSvg && s4.gearGlyph === '';
+      check(`${engine}: the S4 notification cog box HUGS the cog (box 48-58px) and holds the SVG gear, not the U+2699 glyph`,
         gearOk, JSON.stringify(s4));
       check(`${engine}: CONTROL -- S4 (bash) still says "Login Items" (not over-removed)`,
         /login items/i.test(s4.s4Text || ''), `s4Text ${JSON.stringify((s4.s4Text || '').slice(0, 80))}`);
@@ -188,15 +189,14 @@ function unhide(id) {
         && titleSizeOk && bodySizeOk && Math.abs(s4.ntSize - s4.nbSize) < 0.5;
       check(`${engine}: the S4 title is BOLD (weight>=700) at the SMALL body size (~11px/.6875rem), body normal weight -- bold, not larger, not 17px`,
         boldNotLarger, `ntWeight ${s4.ntWeight}, nbWeight ${s4.nbWeight}, ntSize ${s4.ntSize}, nbSize ${s4.nbSize}`);
-      // flex + centre alignment AND line-height COLLAPSED to the glyph (== font size).
-      // line-height is load-bearing: keeping flex but reverting line-height to `normal`
-      // (which computes to ~1.2x = ~53px here) reintroduces the high-glyph offset while
-      // display/align/justify still read centre, so it is asserted too.
-      const lineCollapsed = s4.gearLine != null && s4.gearFont != null
-        && Math.abs(parseFloat(s4.gearLine) - s4.gearFont) < 2;
-      check(`${engine}: the S4 cog is flex-centred (flex, items+content center) with line-height collapsed to the glyph, so it sits centred not high-left`,
-        s4.gearDisplay === 'flex' && s4.gearAlign === 'center' && s4.gearJustify === 'center' && lineCollapsed,
-        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}, line ${s4.gearLine} vs font ${s4.gearFont}`);
+      // The cog is an inline SVG path that centres by its own symmetric geometry, placed in
+      // a grid place-items:center box. This replaced the U+2699 glyph, whose asymmetric font
+      // bearings read high-left and could not be fixed by any box-centring (the #768/#2460
+      // build-after-build regression, invisible to headless whose fallback glyph differs).
+      // So assert grid + place-items:center + the svg present, NOT the old flex/line-height.
+      check(`${engine}: the S4 cog is a grid place-items:center box holding the inline SVG gear, so it centres by geometry, not the high-left glyph`,
+        s4.gearDisplay === 'grid' && s4.gearAlign === 'center' && s4.gearJustify === 'center' && s4.gearHasSvg,
+        `display ${s4.gearDisplay}, align ${s4.gearAlign}, justify ${s4.gearJustify}, hasSvg ${s4.gearHasSvg}, glyph ${JSON.stringify(s4.gearGlyph)}`);
     }
 
     await browser.close();
