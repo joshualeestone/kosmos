@@ -8517,14 +8517,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* Gear sizing, latest wins: 0.6.39 was 38/22, 0.6.40 doubled it (Josh),
            then 0.6.45 (Josh) tightened the gray BOX back down -- the cog size was
            right, the 76px box was too big for it. 52x52 hugs the cog.
-           #768-batch (Josh, 0.6.45 notes, 5.44.01): the cog was reading high and
-           slightly left inside the box. `place-items:center` centres the glyph's
-           LINE BOX, but the U+2699 gear carries font ascent/descent so its visual
-           mass sat above centre. flex centring WITH line-height:1 collapses the
-           line box to the glyph, so vertical + horizontal centring is on the glyph
-           itself. Cog size unchanged (Josh: the size is right). */
-        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;line-height:1;font-size:44px;
+           #768-batch..#2460 (Josh, said 5-6 times): the cog kept reading high and
+           slightly left. ROOT CAUSE (2026-09-09, from Josh's on-device screenshot): it
+           was the U+2699 GLYPH's font bearings, not the box. A font character carries
+           its own asymmetric side/vertical bearings, so no box-centring fixes it and
+           every flex/line-height nudge regressed (and looked fine only in headless,
+           whose fallback glyph differs). FIX: draw the gear as an inline SVG PATH
+           (below), which centres by its own geometry. Do NOT revert to the glyph. */
+        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:grid;place-items:center;padding:11px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
+        .s4-gear svg{width:100%;height:100%;display:block}
         /* 🛑 #768-batch (Josh, 5.44.01, said THREE times; Mona third-round correction) --
            the reason it kept regressing: a BARE class (0,1,0) LOSES to `#firstrun
            .fr-body p` (0,1,1,1), which forces 400/1.0625rem on every first-run p
@@ -8549,7 +8551,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>This is totally normal.</p>
 
         <div class="s4-notif" aria-hidden="true">
-          <span class="s4-gear">&#9881;</span>
+          <span class="s4-gear"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true"><path fill-rule="evenodd" fill="#3a3a3c" d="M 13.43 5.30 L 12.38 2.48 L 19.62 2.48 L 18.57 5.30 L 21.75 6.62 L 23.00 3.88 L 28.12 9.00 L 25.38 10.25 L 26.70 13.43 L 29.52 12.38 L 29.52 19.62 L 26.70 18.57 L 25.38 21.75 L 28.12 23.00 L 23.00 28.12 L 21.75 25.38 L 18.57 26.70 L 19.62 29.52 L 12.38 29.52 L 13.43 26.70 L 10.25 25.38 L 9.00 28.12 L 3.88 23.00 L 6.62 21.75 L 5.30 18.57 L 2.48 19.62 L 2.48 12.38 L 5.30 13.43 L 6.62 10.25 L 3.88 9.00 L 9.00 3.88 L 10.25 6.62 Z M 21.00 16.00 A 5.00 5.00 0 1 0 11.00 16.00 A 5.00 5.00 0 1 0 21.00 16.00 Z"/></svg></span>
           <div>
             <p class="s4-nt">App Background Activity</p>
             <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
