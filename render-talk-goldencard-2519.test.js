@@ -145,6 +145,13 @@ function contextShapes(statusSrc) {
     }
     if (j >= statusSrc.length) continue;
     const body = statusSrc.slice(i + 1, j);
+    /* ⚠️ THE `< 400` CUTOFF IS LOAD-BEARING FOR TWO ARMS NOW (the key-set arm and the
+       #2553 nested-drift arm), and the margin is not large: measuredResult's body is the
+       longest context literal at ~337 chars. If a variant's body grows past 400 it drops
+       out of this scan, and both arms notice rather than pass silently -- the key-set arm's
+       `shapes.size === 4` reds, and the nested-drift arm's `shapes.has(ctxKeys)` reds once
+       the fixture's own variant is the one that fell out. Raise the cutoff (and re-derive)
+       if a legitimate context builder ever needs a longer body. */
     if (body.length >= 400 || !/\bbecause\s*:/.test(body)) continue;
     if (!/\bconfidence\s*:/.test(body) && !/\.\.\.NONE_BASE/.test(body)) continue;
     const k = objKeys(body);
