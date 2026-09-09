@@ -82,6 +82,21 @@ function openaiChatgptRow(email, dir) {
     },
   };
 }
+/* #2568/#2584: api-key rows of BOTH providers must get NEITHER reauth button (there is
+   no sign-in to redo; the answer is remove-and-re-add). Proven in rendered DOM here, not
+   only by the source-pattern test. A Claude api-key row is `a.apiKey` true; an OpenAI
+   api-key row is authMode 'apikey' (no email, a key tail is its label). */
+const CLAUDE_APIKEY_ROW = {
+  provider: 'anthropic', providerName: 'Anthropic / Claude', email: 'clkey@example.com',
+  label: 'clkey@example.com', dir: '/home/.claude-clkey', organization: null, isDefault: false,
+  keyTail: 'ab12', apiKey: true, memoryShared: true, offerable: true,
+  connection: { state: 'connected', badge: 'working', plan: null, checkedLive: true, because: 'because working', observedAt: Date.now() - 12000, observedAgeMs: 12000 },
+};
+const OPENAI_APIKEY_ROW = {
+  provider: 'openai', providerName: 'OpenAI', email: null, label: 'apikey', dir: '/home/.codex-apikey',
+  organization: null, isDefault: false, keyTail: 'cd34', authMode: 'apikey', memoryShared: true, offerable: true,
+  connection: { state: 'connected', plan: null, checkedLive: true, because: 'OpenAI confirmed this key still works', observedAt: null, observedAgeMs: null },
+};
 const ACCOUNTS = [
   row('work@example.com', 'working', 'wd'),
   row('rej@example.com', 'rejected', 'rd'),
@@ -89,6 +104,8 @@ const ACCOUNTS = [
   row('out@example.com', 'signed_out', 'od'),
   row('unk@example.com', 'unchecked', 'kd'),
   openaiChatgptRow('sub@example.com', 'sd'),
+  CLAUDE_APIKEY_ROW,
+  OPENAI_APIKEY_ROW,
 ];
 
 (async () => {
@@ -136,7 +153,7 @@ const ACCOUNTS = [
 
   const problems = [];
   if (r.error) problems.push(r.error);
-  if (r.count !== 6) problems.push('expected 6 account rows, got ' + r.count);
+  if (r.count !== 8) problems.push('expected 8 account rows, got ' + r.count);
 
   const want = [
     // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
@@ -155,11 +172,15 @@ const ACCOUNTS = [
     { email: 'sub@example.com', cls: 'acct-unknown', text: /Signed in . not checked live/,
       notText: /may or may not still work/, titleText: /may or may not still work/, honesty: true,
       claudeReauth: false, openaiReauth: true },
+    // api-key rows of both providers: NEITHER reauth button. (Keyed by the primary label
+    // paintAccounts renders -- an api-key OpenAI row has no email, so its label is its key tail.)
+    { email: 'clkey@example.com', claudeReauth: false, openaiReauth: false },
+    { email: 'API key ending cd34', claudeReauth: false, openaiReauth: false },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
     if (!got) { problems.push(`no badge rendered for ${w.email}`); continue; }
-    if (!got.cls || got.cls.indexOf(w.cls) === -1) problems.push(`${w.email}: expected class ${w.cls}, got "${got.cls}"`);
+    if (w.cls && (!got.cls || got.cls.indexOf(w.cls) === -1)) problems.push(`${w.email}: expected class ${w.cls}, got "${got.cls}"`);
     if (w.text && !w.text.test(got.text || '')) problems.push(`${w.email}: text "${got.text}" does not match ${w.text}`);
     if (w.notText && w.notText.test(got.text || '')) problems.push(`${w.email}: the long status sentence is in the VISIBLE pill (${w.notText}) - the #2568 overflow is back`);
     if (w.titleText && !w.titleText.test(got.title || '')) problems.push(`${w.email}: the full reason is missing from the title (${w.titleText}); got title "${got.title}"`);
