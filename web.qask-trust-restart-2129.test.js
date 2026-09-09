@@ -5,8 +5,8 @@
  * hit the folder-trust prompt as an undismissible box above the dialog with no
  * way to act on it; this gives him the same one-click action right there.
  *
- * Static (no browser): the live render is exercised by the browser-check
- * docs/browser-checks/render-qask-trust-restart-2129.js in CI. These assertions
+ * Static (no browser): the live render is exercised by arm 7 of the browser-check
+ * docs/browser-checks/render-trust-restart-0644.js in CI. These assertions
  * pin the WIRING that must not silently regress: the button exists, it is gated
  * on body.answerNote (the trust dialog ONLY, #1629 - never the #2456/#2575
  * reported-question false state), and it POSTs the trust-and-restart route.
