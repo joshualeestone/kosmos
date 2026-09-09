@@ -1546,6 +1546,10 @@ test('sleepGate: a desktop that sleeps -> checkable:true, prevented:false (THE s
   const got = machine.sleepGate({ pmset: DESKTOP_SLEEPS });
   assert.equal(got.checkable, true);
   assert.equal(got.prevented, false);
+  // #2587: a fixable desktop is NOT battOnly -- "Turn On" can set Sleep to Never,
+  // so the gate must NOT offer the "Continue anyway" escape here (it would let a
+  // user skip a gate they could actually satisfy).
+  assert.equal(got.battOnly, false);
 });
 
 test('sleepGate: a laptop awake on both power sources -> prevented:true', () => {
@@ -1556,6 +1560,11 @@ test('sleepGate: a laptop that sleeps on battery -> prevented:false (gates, per 
   const got = machine.sleepGate({ pmset: LAPTOP_SLEEPS_ON_BATTERY });
   assert.equal(got.checkable, true);
   assert.equal(got.prevented, false, 'a machine that can sleep somewhere gates -- no silently-broken Kosmos');
+  // #2587: THIS is the one state macOS gives no GUI switch to clear (a laptop always
+  // sleeps on battery), so it carries battOnly:true and the first-run gate offers the
+  // honest "Continue anyway" escape keyed on it. The verdict stays prevented:false
+  // (the engine never claims the Kosmos is safe); the web grants the informed override.
+  assert.equal(got.battOnly, true);
 });
 
 test('sleepGate: THE DISCRIMINATOR -- not-prevented and uncheckable are different answers', () => {

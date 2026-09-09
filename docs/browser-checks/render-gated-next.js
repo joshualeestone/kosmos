@@ -174,6 +174,57 @@ async function fresh(browser) {
     await ctx.close();
   }
 
+  /* ---------- #2587: the unsatisfiable-laptop sleep escape ("Continue anyway") ----------
+     A laptop that has AC-sleep off but sleeps on battery is prevented:false forever
+     (macOS has no never-sleep-on-battery switch), so machine.js flags it battOnly. The
+     gate replaces the useless Turn On with an honest note + "Continue anyway" that unlocks
+     Next WITHOUT greening the row. The control arm proves it never shows for a fixable
+     desktop (prevented:false, no battOnly), where Turn On can still satisfy the gate. */
+  console.log('\n#2587 -- a laptop that sleeps on battery gets an honest "Continue anyway" escape');
+  const sleepUi = (page) => page.evaluate(() => {
+    const row = document.querySelector('[data-gate="sleep"]');
+    const vis = (sel) => { const e = row.querySelector(sel); return !!(e && getComputedStyle(e).display !== 'none'); };
+    return {
+      battonly: row.hasAttribute('data-battonly'), granted: row.hasAttribute('data-granted'),
+      continued: row.hasAttribute('data-continued'), escape: vis('.s3-battonly'),
+      turnOn: vis('.s3-req'), green: vis('.s3-granted'), caveat: vis('.s3-continued-pill'),
+    };
+  });
+  {
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: true },
+    });
+    let u = await sleepUi(page);
+    ok(u.battonly, '#2587 the poll marks the laptop-battery row data-battonly');
+    ok(u.escape, 'the "Continue anyway" escape is shown');
+    ok(!u.turnOn, 'the useless "Turn On" is hidden (it cannot fix battery sleep)');
+    ok(!u.green, 'the row is NOT green/Activated before continuing (no false pass)');
+    ok(await nextDisabled(page), 'Next is still locked before the user continues');
+    await page.click('[data-gate="sleep"] .s3-continue');
+    await page.waitForTimeout(200);
+    u = await sleepUi(page);
+    ok(!(await nextDisabled(page)), 'clicking "Continue anyway" unlocks Next');
+    ok(u.continued, 'the row records the informed override (data-continued)');
+    ok(!u.granted && !u.green, 'and it STILL does not go green -- state beats a message');
+    ok(u.caveat, 'the muted "Continuing, with a caveat" is shown instead of a green pass');
+    await ctx.close();
+  }
+  {
+    // CONTROL: a fixable desktop (sleeps on AC, no battOnly). The escape must NOT show --
+    // Turn On CAN set Sleep to Never, so the gate should still gate and offer Turn On.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false }, tmux: { checkable: true, trusted: true },
+    });
+    const u = await sleepUi(page);
+    ok(!u.battonly, '#2587 CONTROL: a fixable desktop is NOT marked data-battonly');
+    ok(!u.escape, 'the escape is NOT shown for a fixable desktop (never skip a satisfiable gate)');
+    ok(u.turnOn, 'the fixable desktop still shows "Turn On"');
+    ok(await nextDisabled(page), 'and Next stays locked (the gate still gates)');
+    await ctx.close();
+  }
+
   /* ---------- S3 sleep "Turn On": a FAILED open must show a VISIBLE error ---------- */
   // 0.6.41 re-test blocker (E): the prevent-sleep Turn On button felt DEAD to Josh.
   // The front-end DID surface the 409 message, but in body ink with no red, so a

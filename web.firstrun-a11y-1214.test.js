@@ -180,3 +180,64 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
   assert.match(handler, /closest\('\.fr-recheck'\)[\s\S]*?frRecheckGates\(\)/,
     'the fr-pane-3 handler routes a .fr-recheck click to frRecheckGates()');
 });
+
+test('#2587: the sleep gate offers a laptop "Continue anyway" escape (battOnly), only there, and never false-greens', () => {
+  // A laptop with AC-sleep off but battery-sleep on is prevented:false forever (macOS has
+  // no never-sleep-on-battery switch), so machine.js flags it battOnly and the gate offers
+  // an honest escape keyed on that flag -- shown ONLY there (never for a fixable desktop),
+  // and it does NOT green the step (state beats a message; the row stays not-activated).
+
+  // 1. FR_GATES.sleep carries a battOnly predicate reading the engine's flag.
+  assert.match(PAGE, /'sleep':\s*\{[\s\S]*?battOnly:\s*\(r\)\s*=>\s*r\.battOnly === true/,
+    'FR_GATES.sleep has no battOnly predicate');
+
+  // 2. frReadGate surfaces battOnly alongside the state (bounded to its own body).
+  const frs = PAGE.indexOf('async function frReadGate(');
+  const frBody = PAGE.slice(frs, PAGE.indexOf('\n}', frs));
+  assert.match(frBody, /battOnly\s*=\s*spec\.battOnly\s*\?\s*spec\.battOnly\(r\) === true/,
+    'frReadGate does not read the battOnly flag');
+  assert.match(frBody, /return \{ state: 'blocked', battOnly \}/,
+    'frReadGate does not return battOnly with the state');
+
+  // 3. frPollGates marks the row and treats a CONTINUED battOnly row as non-blocking --
+  //    the informed override, not a grant.
+  const fps = PAGE.indexOf('async function frPollGates(');
+  const fpBody = PAGE.slice(fps, PAGE.indexOf('\n}', fps));
+  assert.match(fpBody, /reads\[i\]\.battOnly\)\s*row\.setAttribute\('data-battonly'/,
+    'frPollGates does not mark the battOnly row with data-battonly');
+  assert.match(fpBody, /st === 'blocked' && !\(reads\[i\]\.battOnly && row\.hasAttribute\('data-continued'\)\)/,
+    'a continued battOnly row is not excluded from anyBlocked (Next would stay locked, or the override is unguarded)');
+  // The ONLY data-granted the poll sets is on the 'granted' state (prevented:true), so a
+  // battOnly row (prevented:false) can never go green -- the no-false-green invariant.
+  assert.match(fpBody, /if \(st === 'granted'\) \{ row\.setAttribute\('data-granted'/,
+    'data-granted must be set only on the granted state, so a battOnly row never greens');
+
+  // 4. The sleep gate row markup: the note ABOVE the button (Mona copy), a "Continue
+  //    anyway" button, and a MUTED caveat pill (the neutral s3-pill-wait, never the green
+  //    s3-pill-ok), so continuing reads as a caveat, not a pass.
+  // Anchor on the full markup attribute (not the bare data-gate="sleep", which also
+  // appears in the pane's top comment) and bound to the tmux gate row that follows.
+  const sleepRow = S3.slice(S3.indexOf('s3-gate-row" data-gate="sleep"'), S3.indexOf('s3-gate-row" data-gate="tmux"'));
+  assert.ok(sleepRow.length > 200, 'the sleep gate row markup was not found before the tmux row');
+  assert.match(sleepRow, /class="s3-battonly-note">Your agents keep working while this computer is plugged in and open/,
+    'the escape note (Mona copy) is missing or altered');
+  assert.match(sleepRow, /<button class="s3-continue" type="button">Continue anyway<\/button>/,
+    'the "Continue anyway" button is missing');
+  assert.match(sleepRow, /class="s3-pill s3-pill-wait s3-continued-pill"/,
+    'the continued caveat is not the neutral (s3-pill-wait) pill -- it must never be the green s3-pill-ok');
+  assert.ok(sleepRow.indexOf('s3-battonly-note') < sleepRow.indexOf('s3-continue'),
+    'the tradeoff note must sit ABOVE the Continue button (read before clicking past)');
+
+  // 5. The handler routes .s3-continue to record data-continued + re-poll (bounded to its
+  //    own close). It records an override, it does not grant.
+  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
+  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));
+  assert.match(handler, /closest\('\.s3-continue'\)[\s\S]*?setAttribute\('data-continued'[\s\S]*?frRecheckGates\(\)/,
+    'the .s3-continue click does not record data-continued and re-poll');
+
+  // 6. CSS: data-battonly hides the useless Turn On and shows the escape.
+  assert.match(S3, /\.s3-gate-row\[data-battonly\] \.s3-req\{display:none\}/,
+    'the battOnly state does not hide the (useless) Turn On row');
+  assert.match(S3, /\.s3-gate-row\[data-battonly\] \.s3-battonly\{display:flex/,
+    'the battOnly escape is not shown when data-battonly is set');
+});

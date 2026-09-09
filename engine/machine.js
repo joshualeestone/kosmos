@@ -256,6 +256,12 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.ATTENTION,
+      // #2587: the ONE sleepCheck state macOS offers no GUI switch to clear -- a
+      // laptop always sleeps on battery, and the Energy pane the "Turn On" button
+      // opens has no "never sleep on battery" toggle. The first-run gate keys its
+      // "Continue anyway" escape on this flag, so it fires ONLY here and never for
+      // a fixable desktop (the acSleep>0 branch above, which Turn On can set to Never).
+      battOnly: true,
       title: 'This computer keeps working plugged in, and sleeps on battery',
       detail: `Plugged in it never sleeps. On battery it sleeps after ${batterySleep} `
         + `${batterySleep === 1 ? 'minute' : 'minutes'}, and your agents stop with it. `
@@ -292,13 +298,19 @@ function sleepCheck(text) {
  * pmset is a shell reading the engine runs itself, so -- unlike a11y and
  * file-access -- this gate needs no native writer and functions at launch.
  *
- * ⚠️ WEAKEST PREMISE (flagged for Josh, not decided here): a LAPTOP that never
- * sleeps plugged in but sleeps on battery is STATE.ATTENTION, so it GATES. That
- * is the spec's "no silently-broken Kosmos" intent (unplug it and the agents
- * stop), but it means a laptop user who will not prevent battery sleep is
- * blocked at S3 with no skip. The launch target is desktop Macs (Mac mini
- * prints AC-only and maps cleanly to OK/ATTENTION); the laptop-on-battery policy
- * is a product call to confirm, not a detection bug.
+ * ⚠️ THE LAPTOP-ON-BATTERY CASE (#2587, DECIDED): a LAPTOP that never sleeps
+ * plugged in but sleeps on battery is STATE.ATTENTION, so it GATES -- the spec's
+ * "no silently-broken Kosmos" intent (unplug it and the agents stop). macOS
+ * offers no GUI switch to prevent battery sleep, so on a laptop this gate cannot
+ * be turned green from the Energy pane the "Turn On" button opens, and the user
+ * was walled with no door (Nick, first outside tester, 2026-09-09). RESOLVED per
+ * Josh's standing "make the call yourselves" ruling, not escalated: the
+ * unsatisfiable-laptop branch of sleepCheck now sets battOnly:true, and the
+ * first-run sleep gate offers an honest "Continue anyway" escape keyed on that
+ * flag (note above the button; it does NOT green the step -- state beats a
+ * message). Desktops (Mac mini, AC-only) are unaffected and still gate normally.
+ * The verdict here stays prevented:false (honest); the WEB grants the informed
+ * override, so the engine's "no silently-broken Kosmos" gate is never loosened.
  */
 function sleepGate(opts) {
   const runner = (opts && opts.runner) || run;
@@ -310,7 +322,7 @@ function sleepGate(opts) {
   }
   const row = sleepCheck(pm.stdout);
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
-  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title };
+  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
   return { checkable: false, because: row.title };
 }
 

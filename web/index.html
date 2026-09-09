@@ -8490,6 +8490,32 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2587: the unsatisfiable-laptop escape (plugged-in-fine, sleeps on battery).
+           Shown ONLY when the poll set data-battonly; it REPLACES the default red
+           "Not activated" + Turn On (Turn On opens the Energy pane, which has no
+           never-sleep-on-battery switch, so it cannot clear this row). Full-width so
+           the note sits ABOVE the button (Mona's placement). It does not appear for a
+           granted/checking row, nor for a fixable desktop (no data-battonly). */
+        .s3-battonly{display:none}
+        .s3-gate-row[data-battonly] .s3-req{display:none}
+        .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-direction:column;gap:8px;flex-basis:100%;width:100%;margin:2px 0 0}
+        #fr-pane-3 .s3-battonly-note{margin:0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        .s3-battonly-act{display:flex}
+        /* Secondary control (gold-deep border), matching the #fr-alt / s3-recheck
+           convention and clearing WCAG 1.4.11 3:1 non-text contrast -- deliberately NOT
+           the gold Turn On primary, since this does not activate anything. */
+        .s3-continue{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
+          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
+          background:var(--k-surface,#fff);cursor:pointer}
+        .s3-continue:hover{background:var(--k-surface-2,#f4f1ea)}
+        .s3-continue:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
+        /* After Continue: a MUTED caveat (the neutral s3-pill-wait grey, never the green
+           s3-pill-ok), and the note + button are gone. The row stays honestly
+           not-activated (no data-granted); this only records the informed override. */
+        .s3-continued-pill{display:none}
+        .s3-gate-row[data-continued] .s3-battonly-note{display:none}
+        .s3-gate-row[data-continued] .s3-battonly-act{display:none}
+        .s3-gate-row[data-continued] .s3-continued-pill{display:inline-flex;align-items:center}
         </style>
 
         <p class="fc-eyebrow">Automation</p>
@@ -8506,6 +8532,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
+          <!-- #2587: the laptop-that-sleeps-on-battery escape. Shown ONLY when the
+               /api/sleep-status poll sets data-battonly on this row (the plugged-in-fine,
+               sleeps-on-battery case macOS gives no GUI switch to fix), replacing the
+               useless "Turn On". The note is ABOVE the button (read the tradeoff before
+               clicking past it, Mona Lisa's copy + placement). "Continue anyway" records
+               data-continued: it does NOT green the step (state beats a message), it reads
+               as a caveat and stops the row gating Next (an informed override). -->
+          <div class="s3-battonly">
+            <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no way to stop that on battery. For overnight work, leave it plugged in and open.</p>
+            <span class="s3-battonly-act"><button class="s3-continue" type="button">Continue anyway</button></span>
+            <span class="s3-pill s3-pill-wait s3-continued-pill" role="status">Continuing, with a caveat</span>
+          </div>
         </div>
 
         <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
@@ -38570,6 +38608,10 @@ const FR_GATES = {
     url: '/api/sleep-status',
     granted: (r) => r.checkable === true && r.prevented === true,
     blocked: (r) => r.checkable === true && r.prevented !== true,
+    // #2587: the unsatisfiable-laptop case (plugged-in-fine, sleeps on battery).
+    // machine.js sets this ONLY on that state, so the "Continue anyway" escape
+    // never shows for a fixable desktop (which "Turn On" can set to Never).
+    battOnly: (r) => r.battOnly === true,
   },
   'tmux': {
     url: '/api/a11y-status',
@@ -38587,23 +38629,28 @@ const FR_GATE_POLL_MS = 750;
 function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
-  if (!spec) return 'uncheckable';
+  if (!spec) return { state: 'uncheckable', battOnly: false };
   // A fetch failure is an empty reading, so every predicate below reads false and
   // the row is uncheckable (fail-safe) -- never blocked, never a false green.
   let r; try { r = await (await fetch(spec.url)).json(); } catch { r = {}; }
   if (!r || typeof r !== 'object') r = {};
-  if (spec.granted(r)) return 'granted';
-  if (spec.blocked(r)) return 'blocked';
-  return 'uncheckable';
+  // #2587: read the unsatisfiable-laptop flag ALONGSIDE the state, so the poll can
+  // offer the "Continue anyway" escape only on that row (see frPollGates). Absent
+  // predicate (every gate but sleep) is always false.
+  const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
+  if (spec.granted(r)) return { state: 'granted', battOnly };
+  if (spec.blocked(r)) return { state: 'blocked', battOnly };
+  return { state: 'uncheckable', battOnly };
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
   const rows = Array.from(screenEl.querySelectorAll('[data-gate]'));
   if (!rows.length) return;
-  const states = await Promise.all(rows.map(frReadGate));
+  const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
   rows.forEach((row, i) => {
+    const st = reads[i].state;
     // #2085: three visual states, exactly one attribute set (or neither = the
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
@@ -38611,10 +38658,18 @@ async function frPollGates(screenEl, gen) {
     // NOTE: data-checking is set on ANY uncheckable data-gate row, but only the
     // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
     // (that row keeps its default red state, unchanged) -- harmless, not a regression.
-    if (states[i] === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
-    else if (states[i] === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
+    if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
+    else if (st === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
-    if (states[i] === 'blocked') anyBlocked = true;
+    // #2587: mark the unsatisfiable-laptop sleep row so its "Continue anyway"
+    // escape shows (CSS keys on [data-battonly]); clear it otherwise. data-continued
+    // is set by the escape's click handler and is deliberately NOT touched here, so
+    // an informed override survives every poll.
+    if (reads[i].battOnly) row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // Only 'blocked' gates Next -- EXCEPT a battOnly row the user has explicitly
+    // continued past. That is an informed override, not a granted state: the row
+    // stays honestly not-activated (no green pill) and simply stops blocking Next.
+    if (st === 'blocked' && !(reads[i].battOnly && row.hasAttribute('data-continued'))) anyBlocked = true;
   });
   const next = document.getElementById('fr-next');
   if (!next) return;
@@ -39189,6 +39244,19 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
       if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
       recheck.disabled = false;
     }
+    return;
+  }
+  // #2587: the "Continue anyway" escape for the unsatisfiable-laptop sleep row.
+  // It records an INFORMED override on the row (data-continued) -- it does not
+  // grant anything and never sets data-granted, so the row stays honestly
+  // not-activated (state beats a message). frPollGates then stops counting this
+  // battOnly row as blocking, so re-polling at once unlocks Next without waiting
+  // for the next tick. Persists across polls (frPollGates never clears it).
+  const cont = e.target.closest('.s3-continue');
+  if (cont) {
+    const crow = cont.closest('[data-gate]');
+    if (crow) crow.setAttribute('data-continued', '');
+    await frRecheckGates();
     return;
   }
   const b = e.target.closest('.s3-on');
