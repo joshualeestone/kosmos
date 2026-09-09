@@ -218,11 +218,16 @@ esac
 # ever pass and would not have caught the same overclaim differently worded. These are the shapes
 # an overclaim takes here: any sentence asserting what the target IS, when the code only ever saw a
 # status and a URL. The note must DESCRIBE and hedge.
+_oc_hit=""
 for _oc in "That is the auth-redirect shape" "is an auth" "is a login page" "is an SSO" "definitely" "which means it is"; do
   case "$sso_msg" in
-    *"$_oc"*) fail "the note asserts what the redirect target IS ('$_oc'), which it never established: it reads a status and a URL, not the page" ;;
+    *"$_oc"*) [ -n "$_oc_hit" ] || _oc_hit="$_oc" ;;
   esac
 done
+# One FAIL per root cause: a message tripping two forbidden phrasings is still one overclaim.
+if [ -n "$_oc_hit" ]; then
+  fail "the note asserts what the redirect target IS ('$_oc_hit'), which it never established: it reads a status and a URL, not the page"
+fi
 case "$sso_msg" in
   *"Judge that target"*) pass "CONTROL: the note hands the interpretation to the operator rather than concluding it" ;;
   *) fail "the note no longer hedges; it must describe the redirect, not diagnose it. Got: $sso_msg" ;;
@@ -326,11 +331,26 @@ fi
 # 🛑 THE HEADER IS DERIVED, NOT RESTATED. Two prose counts went stale here, so this arm reads the
 # embedded server source, extracts every path it dispatches on, and fails if the header does not
 # name it. A handler added without documenting it reds this.
-hdr=$(sed -n '1,45p' "$0")
-srv_paths=$(/usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" "$0" | /usr/bin/grep -oE "/[a-z]+" | sort -u)
+# ⚠️ THE HEADER REGION IS DELIMITED, NOT COUNTED. A hardcoded `sed -n '1,45p'` is a magic number
+# that needs bumping by hand as the header grows; the failure direction was safe (a spurious FAIL)
+# but the count is exactly the kind of thing this file keeps getting wrong.
+hdr=$(sed -n '1,/^set -u$/p' "$0")
+# ⚠️ THE TRAILING SLASH IS LOAD-BEARING. Extracting `/sso` and substring-matching it against the
+# header made this guard VACUOUS for that one handler: `/sso` is a prefix of /ssologin, /ssomissing,
+# /ssoesc, /ssonoct, /ssonoctpage and /ssogone, so documenting ANY of the six satisfied it and a
+# future edit dropping the `/sso/` mention would pass silently. Keeping the slash that the dispatch
+# itself uses makes the token unambiguous.
+# ⚠️ THE `/?` IS BACK IN THE FIRST PATTERN, AND DROPPING IT SILENTLY LOST A HANDLER. Requiring a
+# trailing slash there stopped matching `p.startswith('/discriminating')`, which has none, so the
+# guard quietly stopped checking the sound host entirely and the >= 5 floor was too loose to notice.
+# Match an optional slash in the DISPATCH, and keep whatever slash it carries in the TOKEN.
+srv_paths=$(/usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" "$0" | /usr/bin/grep -oE "/[a-z]+/?" | sort -u)
 n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
-if [ "$n_paths" -lt 5 ]; then
-  fail "the handler extraction found only $n_paths paths; it is not reading the server source"
+# The floor is the COUNT OF DISPATCH BRANCHES, not a round number: nine today. A floor below the
+# truth is what let the lost /discriminating go unnoticed, which this file has now been bitten by
+# twice (a `>= 5` here, and a `>= 8` on another branch).
+if [ "$n_paths" -ne 9 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 9. If you added or removed a server behaviour, update this number in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash in the pattern did exactly that once)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   missing=""

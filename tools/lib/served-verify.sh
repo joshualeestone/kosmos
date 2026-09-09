@@ -50,8 +50,16 @@
 # transport failure yields no note rather than a second error: a diagnostic must never change a
 # verdict the caller already reached, so every path here returns 0 and prints nothing on doubt.
 # Same headers as the real probes, or it could describe a response the verdict was not based on.
+# ⚠️ RESIDUAL, NAMED: this is a SECOND request, so a flaky or adversarial host can answer it
+# differently from the one the verdict came from. It is diagnostic-only and cannot move a verdict,
+# so the cost is a possibly-misleading reason rather than a wrong result, but reusing the first
+# response is not possible without a second curl invocation shape and this is not worth that.
 #
-# 🛑 EVERY MESSAGE SITE USES printf '%s\n', NOT echo, AND THAT IS NOT STYLE. The redirect target is
+# 🛑 EVERY MESSAGE SITE USES printf '%s\n', NOT echo, AND THAT IS NOT STYLE. ⚠️ The first version
+# of this sentence was FALSE where it stood: the conversion matched only the sites ending `>&2`, so
+# the success-path message on stdout stayed an `echo` one line below a comment claiming every site
+# had been converted. That is the defect class this branch exists to remove, surviving in the one
+# sentence that claimed completeness. The redirect target is
 # the first field a REMOTE host writes into our output, and `echo` interprets backslash escapes in
 # several shells. MEASURED on this box with a Location of `http://x/a\tb\cTRUNCATED`:
 #   dash  -> tab rendered, and everything after \c DROPPED
@@ -92,7 +100,7 @@ served_verify_host_discriminates() {
     printf '%s\n' "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.$(_served_verify_redirect_note "$_svhd_url")" >&2
     return 1
   fi
-  echo "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path, so its 200s are meaningful."
+  printf '%s\n' "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path, so its 200s are meaningful."
   return 0
 }
 
