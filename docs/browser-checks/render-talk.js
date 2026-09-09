@@ -81,24 +81,31 @@ function liveCard() {
  * #2519: the same card, RECORDED from the real producer, for a box with no agents.
  *
  * 🛑 THIS IS A CAPTURE, NOT A LITERAL, AND THE DIFFERENCE IS THE WHOLE POINT.
- * `fixtures/agent-card.json` was produced by running the block above on a machine
- * with live agents and neutralising only identifying STRING CONTENT (session,
- * name, target, role, task, the evidence line, the profile ids). Every KEY and
- * every TYPE is whatever `status.snapshot()` emitted. Nothing here was written by
- * hand, which is what keeps it out of the class the comment above describes.
+ * `fixtures/agent-card.json` was produced by `tools/capture-agent-card.js` on a machine
+ * with live agents. Every KEY is the producer's and each field's TYPE is preserved.
+ * ⚠️ NOT "only identifying string content is neutralised". That sentence was wrong here,
+ * and it is the THIRD copy of it: the same claim was corrected in the capture tool, then
+ * in the plan, then in the README, and missed here each time. The tool also PINS
+ * `hasAvatar` (a boolean) and `context.tokens`/`context.percent` (numbers) so a re-capture
+ * is byte-identical unless the shape moved, and it scrubs EVERY string under `profile`,
+ * not the two ids: `profile` is free-form and the tree writes absolute paths into it.
  *
- * ⚠️ A capture rots, and there are TWO guards against that, in different places.
- *   - HERE, in the reopen arm below: on any box with a live card the full nested
- *     shape is compared, live against live, and a divergence is a FAIL.
- *   - In `yarn test` (render-talk-goldencard-2519.test.js): a BOX-INDEPENDENT
- *     top-level comparison, using test-support/fleet.js, which drives the REAL
- *     `status.snapshot()` over a fake pane source.
- * 📌 AN EARLIER VERSION OF THIS COMMENT SAID "the quiet box that needs it is the only
- * one that cannot check it". That was false of this tree and it excused a real gap:
- * before the fleet-based arm, NOTHING verified the fixture on the box this whole
- * change exists for. The nested half is still live-only, because a fleet agent has no
- * recorded usage and its `context` legitimately differs from a real agent's.
- */
+ * ⚠️ A capture rots, and ONE guard notices, not two. The TOP-LEVEL key set is compared
+ * box-independently in `yarn test` (render-talk-goldencard-2519.test.js), using
+ * test-support/fleet.js, which drives the real `status.snapshot()` over a fake pane
+ * source.
+ * 🛑 NESTED DRIFT IS CHECKED BY NOTHING, AND THAT IS A REAL GAP, NOT AN OVERSIGHT. An
+ * earlier version of this header claimed a second guard "HERE, in the reopen arm below",
+ * comparing the full nested shape live against live. That guard was REMOVED nine hundred
+ * lines below (see the block at the reopen arm) because it fired on board composition
+ * rather than drift: measured on an 18-agent board, two distinct `profile` shapes among
+ * our pane cards, one of them empty. The header kept asserting it. A file that claims a
+ * release-gating guard in one place and denies it in another is worse than either answer.
+ * ⇒ WHAT THIS MEANS IN PRACTICE: a rename inside `context` or `profile` leaves the
+ * top-level key set identical, `yarn test` green, and this recording driving a shape the
+ * page no longer consumes, on exactly the quiet boxes the fallback exists for.
+ * `openDetail` reads `context.percent`, so that is not hypothetical. Closing it needs a
+ * comparison that can tell drift from composition; nobody has built one. */
 function goldenCard(fixturePath) {
   /* `fixturePath` is a test seam, defaulted to the real fixture. Without it the shape
      floor below is unreachable from a test: with the committed fixture in place the
@@ -117,6 +124,11 @@ function goldenCard(fixturePath) {
     if (Object.keys(card).length < 20) return null;
     return { ...card, sessionName: 'april', name: 'April', state: 'needs_you' };
   } catch (err) {
+    /* Say WHY on the log the cut streams. A corrupt fixture, a missing one and an
+       unreadable one all surface downstream as the same "no usable fixture" line, so an
+       operator on a quiet box cannot tell rot from a delete without opening the file. */
+    process.stdout.write('  NOTE  render-talk: the recorded card fixture could not be read: '
+      + String((err && err.message) || err) + '\n');
     return null;
   }
 }
@@ -1032,7 +1044,7 @@ function unreachableStates() {
       if (cardSource === 'golden') {
         // #2519: covered, but say so. A quiet box and a populated box must not print
         // identical output while driving different inputs.
-        notes.push(`[${theme}] reopen: no live agent on this box, so the RECORDED card fixture drove the clear path`);
+        notes.push(`[${theme}] reopen: no PANE-based agent card of ours was available, so the RECORDED card fixture drove the clear path`);
       }
       /* 🛑 THERE IS NO LIVE-VS-FIXTURE DRIFT GUARD HERE, AND REMOVING IT WAS THE FIX.
          An earlier version of this branch compared the live card's nested key paths
@@ -1052,8 +1064,9 @@ function unreachableStates() {
          "re-capture it" would only have moved which card failed.
          ⇒ The fixture's anti-rot check lives in `yarn test` instead
          (render-talk-goldencard-2519.test.js), where it compares the TOP-LEVEL key set
-         only. That set comes from one fixed object literal in status.js, so it is the
-         same for every card, and a false red there costs a test run rather than a
+         only. That set comes from status.js's PANE card literal, so it is the same for
+         every pane card (a paneless card has its own literal and its own key set, which
+         is why liveCard prefers a pane card), and a false red there costs a test run rather than a
          release. A guard that reds a cut on board composition is worse than no guard. */
       if (!card) {
         problems.push(`[${theme}] reopen: no agent card and no usable fixture, so the clear path is UNCHECKED`);

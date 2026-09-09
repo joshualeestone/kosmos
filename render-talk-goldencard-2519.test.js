@@ -35,6 +35,9 @@ const path = require('node:path');
    ⚠️ It was raised as a WARNING on the previous review pass and I did not act on it. It
    came back as a BLOCKER, which is the argument for acting on warnings. */
 const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-2519-'));
+/* Removed at the end, as fixture-discipline.test.js does. Eight of these were left on
+   disk by earlier runs of this suite before the cleanup was added. */
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
 process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
 process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
 process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
@@ -88,7 +91,9 @@ test('#2519: this suite is SANDBOXED, so it cannot read the operator live state'
     assert.ok(val, `${v} is unset: this suite would read the operator's live state`);
     assert.ok(val.startsWith(SANDBOX), `${v} points outside the sandbox: ${val}`);
   }
-  assert.ok(!SANDBOX.startsWith(process.env.HOME + '/work'), 'the sandbox is inside the live workers tree');
+  /* ⚠️ NO "is it outside ~/work" arm here. mkdtempSync roots at os.tmpdir(), so such an
+     assertion can never return the dangerous answer, and it would read as a second guard
+     while being decoration. The startsWith(SANDBOX) checks above are the real ones. */
 });
 
 test('#2519: the recorded fixture exists and parses', () => {
@@ -335,6 +340,25 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.equal(profile.count, 7, 'a non-string was altered');
 });
 
+test('#2519: a field the producer ADDS LATER is scrubbed, not passed through', () => {
+  /* 🛑 THE GUARANTEE HAS TO BE STRUCTURAL, NOT A LIST. The top level used to be an
+     allowlist, so `runner`, `model`, a non-null `disruption` and any field status.js
+     added later would reach a COMMITTED file verbatim. The capture's own key-set refusal
+     cannot see that: a new identifying field changes no key count. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const withNew = Object.assign({}, real, { someNewProducerField: '/Users/someone/private/path' });
+    const out = cap.neutralise(withNew);
+    assert.ok(!out.someNewProducerField.includes('/'),
+      `an unknown field reached the fixture verbatim: ${out.someNewProducerField}`);
+  } finally {
+    board.restore();
+  }
+});
+
 test('#2519: the capture refuses a PANELESS card', () => {
   /* Its shape differs from a pane card's, so recording one would make the fixture a
      different shape from the card the reopen arm opens. */
@@ -372,8 +396,15 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      nested guard to the check, measure the profile shapes on a real board first. */
   assert.ok(!/has drifted from status\.snapshot/.test(SRC),
     'a live-vs-fixture drift guard is back in the check; read this arm before re-adding one');
-  assert.ok(!/const shape = \(v, prefix\)/.test(SRC),
-    'the nested shape comparison is back in the check');
+  /* ⚠️ Matched on the FAILURE TEXT and the recursion shape, not on one identifier: a
+     re-added guard written with different variable names would slip past a name pin, and
+     this tree calls that out as an anti-pattern. */
+  /* Matched on what a real guard DOES -- push a problem whose text says drift -- rather
+     than on an identifier a rewrite would change, or on prose. An earlier version matched
+     the words "drifted|re-capture" anywhere after the reopen arm and caught this file's
+     OWN explanation of the removal. */
+  const pushesDrift = /problems\.push\([^)]*drift/i.test(SRC) || /problems\.push\([^)]*re-capture/i.test(SRC);
+  assert.ok(!pushesDrift, 'a live-vs-fixture drift comparison is back in the check');
 });
 
 test('#2519: liveCard PREFERS a pane card over a paneless one', () => {

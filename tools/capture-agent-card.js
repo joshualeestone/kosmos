@@ -21,7 +21,8 @@
  *   - RECORDS every key and type `status.snapshot()` emits. Nothing is invented.
  *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
  *     `because` line, any `stateConflict` sentence, the scraped evidence line, and the
- *     two profile ids. It preserves each field's TYPE: a null stays null.
+ *     every string under `profile`, and every string anywhere else that is not re-pinned
+ *     to a known-safe producer value below. It preserves each field's TYPE: a null stays null.
  *   - PINS the volatile values so a re-run is byte-identical unless the shape moved:
  *     `hasAvatar`, `context.tokens`, `context.percent` and two profile timestamps.
  *     ⚠️ An earlier version of this paragraph said the tool "does not touch structure,
@@ -92,7 +93,29 @@ function neutralise(live) {
   /* 🛑 NEUTRALISE THE PROFILE BY DEFAULT, NOT BY LIST. It is a free-form operator record;
      the tree also writes `dir` (an ABSOLUTE PATH), `displayName`, `role` and `reportsTo`.
      A list-based scrub is clean only for the agent that happened to be captured. */
-  scrubStrings(card.profile);
+  /* 🛑 SCRUB THE WHOLE CARD, THEN RE-PIN. The top level used to be an ALLOWLIST, so
+     `runner`, `model`, `modelName`, a non-null `disruption` and ANY FIELD status.js ADDS
+     LATER passed through verbatim into a committed file. The key-set refusal below cannot
+     see that: a new identifying producer field changes no key count. Scrubbing everything
+     first makes the guarantee structural rather than a list somebody has to remember to
+     extend, and the known-safe values are put back immediately after. */
+  scrubStrings(card);
+  card.session = 'april-discord';
+  card.sessionName = 'april';
+  card.name = 'April';
+  card.target = 'april-discord:0.0';
+  card.state = live.state;
+  card.stateConfidence = live.stateConfidence;
+  card.runner = live.runner;
+  card.model = live.model;
+  card.modelName = live.modelName;
+  card.context = JSON.parse(JSON.stringify(live.context || null));
+  if (typeof card.role === 'string') card.role = 'example worker';
+  if (typeof card.task === 'string') card.task = 'an example task';
+  if (typeof card.stateEvidence === 'string') card.stateEvidence = '✽ Working… (2m 36s · ↓ 11.4k tokens)';
+  if (typeof card.stateProject === 'string') card.stateProject = 'example-project';
+  if (typeof card.because === 'string') card.because = 'it is mid-task';
+  if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
   /* PIN the volatile values so a re-run is byte-identical unless the SHAPE moved. */
   card.hasAvatar = true;
   if (card.context && typeof card.context === 'object') {
