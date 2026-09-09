@@ -43,6 +43,13 @@ const THRESHOLD = 3;
 // never make this write outside base.
 const CLEAN_ID = /^[a-z0-9_-]+$/;
 
+// The read-modify-write below is deliberately LOCK-FREE (unlike worlds.js's
+// withRegistryLock registry RMW): the atomic temp+rename prevents a partial file,
+// and a stored count can never exceed the number of recordAttempt calls, so two
+// boards racing the same base (double-start / two-Kosmos) can only LOSE an
+// increment or a clear -- which DELAYS a fallback, never causes a false abandon.
+// A lock here would add cross-process complexity to a guard whose worst race is
+// benign, so it is intentionally omitted.
 function attemptsPath(base) { return path.join(base, FILE); }
 
 function readMap(base) {
@@ -76,7 +83,7 @@ function recordAttempt(base, id) {
 /* Clear `id`'s counter -- called when the board reaches `listening`. A no-op if the
    id is absent or unsafe. Removes the whole file once empty so it never lingers. */
 function clear(base, id) {
-  if (!base || typeof id !== 'string') return;
+  if (!base || typeof id !== 'string' || !CLEAN_ID.test(id)) return;
   const map = readMap(base);
   if (!(id in map)) return;
   delete map[id];
