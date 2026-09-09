@@ -190,6 +190,9 @@ async function fresh(browser) {
       turnOn: vis('.s3-req'), green: vis('.s3-granted'), caveat: vis('.s3-continued-pill'),
     };
   });
+  const activeId = (page) => page.evaluate(() => (document.activeElement && document.activeElement.id) || '');
+  const activeIsPill = (page) => page.evaluate(() => !!(document.activeElement
+    && document.activeElement.classList && document.activeElement.classList.contains('s3-continued-pill')));
   {
     const { ctx, page } = await fresh(browser);
     await gotoGate(page, '[data-gate="sleep"]', {
@@ -208,6 +211,28 @@ async function fresh(browser) {
     ok(u.continued, 'the row records the informed override (data-continued)');
     ok(!u.granted && !u.green, 'and it STILL does not go green -- state beats a message');
     ok(u.caveat, 'the muted "Continuing, with a caveat" is shown instead of a green pass');
+    ok((await activeId(page)) === 'fr-next', 'focus moved to the now-unlocked Next, not dropped to <body>');
+    // The override persists past an AUTOMATIC poll tick (> FR_GATE_POLL_MS 750ms), not just the
+    // manual re-poll the click fires: frPollGates must never clear data-continued.
+    await page.waitForTimeout(900);
+    u = await sleepUi(page);
+    ok(u.continued && !(await nextDisabled(page)), 'data-continued and the unlock survive an automatic poll tick');
+    await ctx.close();
+  }
+  {
+    // #2587 focus, the second branch: continuing while ANOTHER gate (tmux) still blocks. Next
+    // stays disabled, and continuing hides the button, so focus must land on the caveat pill --
+    // never dropped to <body>. This is the exact case the iter-2 focus fix added.
+    const { ctx, page } = await fresh(browser);
+    await gotoGate(page, '[data-gate="sleep"]', {
+      sleep: { checkable: true, prevented: false, battOnly: true }, tmux: { checkable: true, trusted: false },
+    });
+    ok(await nextDisabled(page), 'with tmux still blocking, Next starts locked');
+    await page.click('[data-gate="sleep"] .s3-continue');
+    await page.waitForTimeout(200);
+    ok(await nextDisabled(page), 'continuing sleep does NOT unlock Next while tmux still blocks (Next gates on both)');
+    const onBody = await page.evaluate(() => document.activeElement === document.body);
+    ok((await activeIsPill(page)) && !onBody, 'focus lands on the caveat pill, not dropped to <body>, when Next stays locked');
     await ctx.close();
   }
   {

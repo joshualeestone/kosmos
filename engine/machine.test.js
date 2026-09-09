@@ -871,6 +871,15 @@ test('an unreadable AC section does not throw away a readable battery one', () =
   const bothJunk = 'Battery Power:\n sleep                y\n\nAC Power:\n sleep                x\n';
   assert.equal(machine.sleepCheck(bothJunk).state, 'unknown',
     'invented a finding out of two unreadable sections');
+
+  // #2587: this AC-unreadable branch is the DOCUMENTED exclusion (machine.js:165) -- the
+  // escape's most important NEGATIVE case. It must NOT carry battOnly, because the escape's
+  // note promises "plugged in it keeps working" and an unreadable AC cannot confirm that; the
+  // row keeps "Turn On" instead. Pin the flag's absence at both layers so a later edit that
+  // adds battOnly here (offering the escape on an unconfirmable premise) fails loudly.
+  assert.ok(!got.battOnly, 'the AC-unreadable branch must not set battOnly (its plugged-in state is unconfirmed)');
+  assert.equal(machine.sleepGate({ pmset: acJunk }).battOnly, false,
+    'sleepGate must not offer the Continue-anyway escape for the AC-unreadable branch');
 });
 
 test('when both power sources sleep, the shorter one is not left unsaid', () => {
