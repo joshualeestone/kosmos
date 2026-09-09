@@ -164,3 +164,126 @@ test('#570 THE THROTTLE bounds a crash loop instead of spinning', async () => {
   assert.ok(starts <= 2, 'a crash loop must LIMP: at most one start per throttle window, got ' + starts);
   assert.ok(events.includes('throttled'), 'and it says so rather than silently idling');
 });
+
+/* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
+
+const { EventEmitter } = require('node:events');
+
+/** A stand-in for a piped agent: records what was written, can be made to die. */
+function fakeChild() {
+  const c = new EventEmitter();
+  c.written = [];
+  c.stdin = { destroyed: false, write: (s) => c.written.push(s), end() { this.destroyed = true; } };
+  c.die = (code) => c.emit('exit', code === undefined ? 0 : code);
+  return c;
+}
+
+test('#570 7c it starts once, and every LATER start is a resume of the same id', () => {
+  /* 🔑 The property the whole design rests on. A start that minted a fresh id per
+     restart would file a second ownership row for one agent -- the duplicate-name
+     hazard win32live documents, arriving through the routine restart path. */
+  const asked = [];
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    throttleMs: 0,
+    now: () => 0,
+    setTimer: (fn) => fn(),
+    launch: (spec) => {
+      asked.push(spec.resumeSessionId || null);
+      const c = fakeChild(); kids.push(c);
+      return { ok: true, sessionId: 'session-1', resumed: Boolean(spec.resumeSessionId), child: c };
+    },
+  });
+
+  assert.deepEqual(asked, [null], 'the first start is a birth');
+  kids[0].die(1);
+  assert.deepEqual(asked, [null, 'session-1'], 'and the death brings it back as a RESUME');
+  h.stop();
+});
+
+test('#570 7c a death is known from the child, not from a poll', () => {
+  /* `supervise()` must ask `claude agents --json` because a detached agent's
+     death is invisible otherwise. This child is OURS: exit fires at once, so the
+     runner is never asked on the happy path. */
+  const events = [];
+  let launches = 0;
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e.action),
+    launch: () => { launches += 1; const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', resumed: launches > 1, child: c }; },
+  });
+  kids[0].die(0);
+  assert.deepEqual(events, ['started', 'died', 'resumed']);
+  assert.equal(launches, 2);
+  h.stop();
+});
+
+test('#570 7c exit and close cannot both count as one death', () => {
+  /* Both events arrive for one exit. Acting on both would double-count the death
+     and burn the throttle budget twice as fast as the crash is happening. */
+  let launches = 0;
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    launch: () => { launches += 1; const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].emit('exit', 1);
+  kids[0].emit('exit', 1);        // a second signal for the SAME death
+  assert.equal(launches, 2, 'one death, one restart');
+  h.stop();
+});
+
+test('#570 7c THE THROTTLE bounds a crash loop instead of spinning', () => {
+  const waits = [];
+  let t = 0;
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    throttleMs: 30000,
+    now: () => t,
+    setTimer: (fn, ms) => { waits.push(ms); t += ms; fn(); },
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].die(1);                       // dies instantly
+  assert.deepEqual(waits, [30000], 'the restart waits the throttle out rather than spinning');
+  kids[1].die(1);
+  assert.deepEqual(waits, [30000, 30000], 'and keeps limping, once per death');
+  h.stop();
+});
+
+test('#570 7c send() writes ONE json line, and refuses honestly when nothing is up', () => {
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    throttleMs: 0, now: () => 0, setTimer: () => {},   // no restart, so the death sticks
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+
+  assert.deepEqual(h.send('hello'), { ok: true });
+  assert.equal(kids[0].written.length, 1);
+  assert.deepEqual(JSON.parse(kids[0].written[0]), {
+    type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hello' }] },
+  });
+
+  kids[0].die(0);
+  const r = h.send('anyone there?');
+  assert.equal(r.ok, false, 'a delivery with nothing to deliver to must not read as sent');
+  assert.match(r.because, /not running/);
+  h.stop();
+});
+
+test('#570 7c a REFUSED launch is reported and retried, not swallowed into a started agent', () => {
+  const events = [];
+  let n = 0;
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    throttleMs: 0, now: () => 0, setTimer: (fn) => { if (n < 2) fn(); },
+    onEvent: (e) => events.push(e.action),
+    launch: () => {
+      n += 1;
+      if (n === 1) return { ok: false, because: 'we could not vouch for its folder first' };
+      const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c };
+    },
+  });
+  assert.deepEqual(events, ['refused', 'started']);
+  h.stop();
+});

@@ -248,8 +248,122 @@ function main(argv) {
    the tests drive. */
 if (require.main === module) main(process.argv.slice(2));
 
+/* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
+
+/**
+ * Supervise an agent whose PIPES WE HOLD.
+ *
+ * 🛑 THE ONE PROPERTY THIS TRADES AWAY, AND ITS EXACT SHAPE. `supervise()` above
+ * watches a DETACHED agent: it outlives its supervisor, so a supervisor restart
+ * ADOPTS it. A piped agent cannot be adopted -- adoption would mean holding a
+ * stdin somebody else holds -- so the question is what happens to the agent when
+ * its holder dies. Measured on the box rather than reasoned about:
+ *
+ *      holder closes stdin cleanly  -> agent gone in ~800ms, out of agents --json
+ *      holder KILLED, pipes broken  -> agent gone in ~800ms, out of agents --json
+ *
+ * 🔑 NO ORPHANS, IN EITHER DIRECTION, and that is what makes this design safe.
+ * A dead supervisor leaves nothing live to collide with, so the task restarts the
+ * supervisor, it finds nothing, and it comes back with `--resume` -- the SAME
+ * session id, the same conversation (measured). Adopt-not-replace becomes
+ * resume-not-replace without ever risking two agents under one name.
+ *
+ * ⚠️ SO THE EXIT EVENT IS THE SIGNAL, NOT THE POLL. `supervise()` asks
+ * `claude agents --json` every POLL_MS because a detached agent's death is
+ * invisible otherwise. Here the child IS ours: its 'exit' fires immediately and
+ * cannot be missed, so death is known in milliseconds rather than up to a poll
+ * late, and the runner is not asked anything on the happy path.
+ */
+function superviseStreaming(spec, opts) {
+  const s = spec || {};
+  const o = opts || {};
+  const throttleMs = o.throttleMs === undefined ? THROTTLE_MS : o.throttleMs;
+  const onEvent = typeof o.onEvent === 'function' ? o.onEvent : () => {};
+  const now = o.now || (() => Date.now());
+  const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const launcher = o.launch || win32launch.launchStreaming;
+
+  let running = true;
+  let child = null;
+  let lastStart = 0;
+  const handle = { sessionId: s.resumeSessionId || null };
+
+  function attach(c) {
+    child = c;
+    /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
+       acting on both would double-count a death and burn the throttle budget. */
+    let handled = false;
+    const gone = (code) => {
+      if (handled) return;
+      handled = true;
+      if (child === c) child = null;
+      onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId });
+      if (running) schedule();
+    };
+    c.on('exit', gone);
+    c.on('error', () => gone(null));
+  }
+
+  function startOnce() {
+    if (!running) return;
+    const r = launcher({
+      name: s.name, runner: s.runner, cwd: s.cwd, claudeBin: s.claudeBin,
+      configDir: s.configDir, model: s.model, platform: s.platform || 'win32',
+      /* 🔑 THE RETURN, NOT A BIRTH. Once we know the id, every later start is a
+         resume: same conversation, same id, and NOTHING new recorded. A start
+         that minted a fresh id each time would file a second ownership row per
+         restart -- the duplicate-name hazard, arriving through the routine path. */
+      resumeSessionId: handle.sessionId || undefined,
+    });
+    lastStart = now();
+    if (!r.ok) { onEvent({ action: 'refused', because: r.because }); if (running) schedule(); return; }
+    handle.sessionId = r.sessionId;
+    attach(r.child);
+    onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
+  }
+
+  /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not
+     spin: an agent that dies instantly would otherwise be relaunched as fast as
+     the event loop turns. */
+  function schedule() {
+    const since = now() - lastStart;
+    const wait = since >= throttleMs ? 0 : throttleMs - since;
+    if (wait > 0) onEvent({ action: 'throttled', waitMs: wait });
+    timer(() => { if (running) startOnce(); }, wait);
+  }
+
+  /**
+   * Deliver one message to the agent. The whole point of the design.
+   *
+   * Returns { ok:true } or { ok:false, because } and never throws -- `chat.js`'s
+   * contract is that a delivery either happened or is reported as could_not, and
+   * a throw here would become a 500 where a sentence belongs.
+   */
+  handle.send = function send(text) {
+    if (!child || !child.stdin || child.stdin.destroyed) {
+      return { ok: false, because: 'it is not running just now, so we did not type anything' };
+    }
+    try { child.stdin.write(win32launch.messageLine(text)); }
+    catch (e) { return { ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }; }
+    return { ok: true };
+  };
+
+  handle.stop = function stop() {
+    running = false;
+    /* Close stdin rather than killing: measured, the agent exits ~800ms later of
+       its own accord, which lets it finish writing anything in flight. A stop
+       that must be immediate is win32stop's job, and that is a different verb. */
+    if (child && child.stdin && !child.stdin.destroyed) { try { child.stdin.end(); } catch { /* it is going anyway */ } }
+    child = null;
+  };
+
+  handle.current = () => child;
+  startOnce();
+  return handle;
+}
+
 module.exports = {
   THROTTLE_MS, POLL_MS,
-  isAlive, ourLiveSession, ensureRunning, supervise, specFromArgv,
+  isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv,
   setLiveReader, liveSessions, main,
 };
