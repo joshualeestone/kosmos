@@ -8509,6 +8509,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-gate-row[data-checking] .s3-req{display:none}
         .s3-gate-row[data-checking] .s3-granted{display:none}
         .s3-gate-row[data-checking] .s3-checking{display:flex;align-items:center}
+        /* #2587: on the laptop-that-sleeps-on-battery row (data-battonly, set by the poll)
+           the useless "Turn On" (its Energy pane has no never-sleep-on-battery switch) is
+           replaced by an honest note. The sleep step no longer gates Next (gatesNext:false),
+           so this is purely information; it never appears on a granted/checking row nor on a
+           fixable desktop (no data-battonly), where "Turn On" can still set Sleep to Never. */
+        .s3-battonly{display:none}
+        .s3-gate-row[data-battonly] .s3-req{display:none}
+        .s3-gate-row[data-battonly] .s3-battonly{display:flex;flex-basis:100%;width:100%;margin:2px 0 0}
+        #fr-pane-3 .s3-battonly-note{margin:0;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
         </style>
 
         <p class="fc-eyebrow">Automation</p>
@@ -8525,6 +8534,14 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <span class="s3-gate-rest s3-req"><span class="s3-pill s3-pill-req">Not activated</span><button class="s3-on" type="button">Turn On</button></span>
           <span class="s3-gate-rest s3-checking"><span class="s3-pill s3-pill-wait">Checking&hellip;</span></span>
           <span class="s3-gate-rest s3-granted"><span class="s3-pill s3-pill-ok">&#10003; Activated</span></span>
+          <!-- #2587: on a laptop that sleeps on battery (data-battonly, set by the
+               /api/sleep-status poll) macOS has no switch to fix it, so the useless
+               "Turn On" is replaced by an honest note. The step no longer gates Next
+               (FR_GATES.sleep gatesNext:false), so this is purely information that stays
+               on the screen while the user moves on -- Mona Lisa's copy. -->
+          <div class="s3-battonly">
+            <p class="s3-battonly-note">Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open.</p>
+          </div>
         </div>
 
         <p class="s3-step-cap">2 &middot; when prompted, switch Kosmos to On</p>
@@ -38722,6 +38739,16 @@ const FR_GATES = {
     url: '/api/sleep-status',
     granted: (r) => r.checkable === true && r.prevented === true,
     blocked: (r) => r.checkable === true && r.prevented !== true,
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. The
+    // granted/blocked reads still drive the row's visual state (Activated / Not
+    // activated + Turn On), but frPollGates does not let a blocked sleep row disable
+    // Next. A laptop cannot satisfy it at all (no macOS switch), so gating it trapped
+    // users; the honest note stays on the screen as information.
+    gatesNext: false,
+    // #2587: the unsatisfiable-laptop case (plugged-in-fine, sleeps on battery).
+    // machine.js sets this ONLY on that state, so the honest note replaces the useless
+    // "Turn On" only there, never on a fixable desktop (where Turn On can set Never).
+    battOnly: (r) => r.battOnly === true,
   },
   'tmux': {
     url: '/api/a11y-status',
@@ -38739,23 +38766,28 @@ const FR_GATE_POLL_MS = 750;
 function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
-  if (!spec) return 'uncheckable';
+  if (!spec) return { state: 'uncheckable', battOnly: false };
   // A fetch failure is an empty reading, so every predicate below reads false and
   // the row is uncheckable (fail-safe) -- never blocked, never a false green.
   let r; try { r = await (await fetch(spec.url)).json(); } catch { r = {}; }
   if (!r || typeof r !== 'object') r = {};
-  if (spec.granted(r)) return 'granted';
-  if (spec.blocked(r)) return 'blocked';
-  return 'uncheckable';
+  // #2587: read the unsatisfiable-laptop flag ALONGSIDE the state, so the poll can show
+  // the honest note in place of the useless Turn On on that row (see frPollGates). Absent
+  // predicate (every gate but sleep) is always false.
+  const battOnly = spec.battOnly ? spec.battOnly(r) === true : false;
+  if (spec.granted(r)) return { state: 'granted', battOnly };
+  if (spec.blocked(r)) return { state: 'blocked', battOnly };
+  return { state: 'uncheckable', battOnly };
 }
 async function frPollGates(screenEl, gen) {
   if (gen !== FR_GATE_GEN) return;
   const rows = Array.from(screenEl.querySelectorAll('[data-gate]'));
   if (!rows.length) return;
-  const states = await Promise.all(rows.map(frReadGate));
+  const reads = await Promise.all(rows.map(frReadGate));
   if (gen !== FR_GATE_GEN) return;
   let anyBlocked = false;
   rows.forEach((row, i) => {
+    const st = reads[i].state;
     // #2085: three visual states, exactly one attribute set (or neither = the
     // red "Not activated" + Turn On default for 'blocked'). granted -> green
     // "Activated"; uncheckable -> neutral "Checking..." (Mona's 3rd state); the
@@ -38763,10 +38795,20 @@ async function frPollGates(screenEl, gen) {
     // NOTE: data-checking is set on ANY uncheckable data-gate row, but only the
     // S3 rows carry [data-checking] CSS; on the S2 file-access row it is inert
     // (that row keeps its default red state, unchanged) -- harmless, not a regression.
-    if (states[i] === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
-    else if (states[i] === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
+    if (st === 'granted') { row.setAttribute('data-granted', ''); row.removeAttribute('data-checking'); }
+    else if (st === 'uncheckable') { row.setAttribute('data-checking', ''); row.removeAttribute('data-granted'); }
     else { row.removeAttribute('data-granted'); row.removeAttribute('data-checking'); }
-    if (states[i] === 'blocked') anyBlocked = true;
+    // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
+    // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
+    if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
+    // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
+    // anyone who simply has not set it, can still move on; the honest note stays as
+    // information rather than walling them in. Only genuinely-satisfiable permissions
+    // (Accessibility/tmux, file access) gate Next -- gating those is correct, because
+    // letting a user past an ungranted Accessibility grant lands them in broken agents.
+    const spec = FR_GATES[row.getAttribute('data-gate')];
+    if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
   const next = document.getElementById('fr-next');
   if (!next) return;
@@ -39343,6 +39385,9 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
     }
     return;
   }
+  // #2587: no "Continue anyway" button any more. Josh's ruling made the sleep step
+  // ADVISORY (FR_GATES.sleep gatesNext:false), so Next is never gated on it and there is
+  // nothing to click past -- the honest note simply stays on the screen as information.
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');
