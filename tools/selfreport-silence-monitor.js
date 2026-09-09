@@ -60,14 +60,32 @@ const MARK = '[selfreport-silence-monitor]';
 const STALE_MIN = Number(process.env.SELFREPORT_STALE_MINUTES || 45);
 const HEARTBEAT_DAYS = Number(process.env.SELFREPORT_HEARTBEAT_DAYS || 7);
 const HEARTBEAT_STATE = process.env.MONITOR_HEARTBEAT_STATE
-  || `${process.env.HOME}/.cache/kosmos-selfreport-silence-heartbeat.txt`;
+  || path.join(process.env.HOME || os.homedir(), '.cache', 'kosmos-selfreport-silence-heartbeat.txt');
+
+/* Is this process command name a running Claude agent? THE CANONICAL RULE, applied
+ * inline (issue #252, `~/.claude/scripts/lib/claude-process-classify.sh`, mirrored by
+ * status.js `isUnambiguousClaude`): a legacy name (`claude`/`claude.exe`) OR a
+ * 3-segment semver SHAPE. The native installer (2.1.x+) runs a versioned executable,
+ * so the process name is the VERSION STRING (e.g. `2.1.212`), NOT `claude` -- a bare
+ * `claude` match reads 0 on the native fleet and would suppress this alarm forever,
+ * the exact class the canonical rule exists to close. NOT bare `node` (the board and
+ * tooling are node; counting them would make the gate always-satisfied). The lib
+ * sanctions "source THIS or APPLY ITS RULE"; applied here + pinned by a test so a
+ * drift is caught. `pane_current_command`/`ps comm` both report the basename. */
+function isAgentCommand(comm) {
+  if (typeof comm !== 'string') return false;
+  const c = comm.trim().replace(/^.*\//, ''); // basename, in case a path leaks through
+  return c === 'claude' || c === 'claude.exe' || /^[0-9]+\.[0-9]+\.[0-9]+$/.test(c);
+}
 
 /* Running-agent count: the false-alarm gate's input. A proxy for "agents that
  * SHOULD be reporting" -- the generous threshold absorbs a legitimately-quiet
  * running agent (see the plan's named weakest premise). Resolved, in order:
- * an injected MONITOR_AGENT_COUNT (tests), a MONITOR_AGENT_COUNT_CMD, else a
- * pgrep of claude processes. Any failure yields 0, which CANNOT alarm -- the
- * safe direction (a broken count silences the monitor rather than false-firing). */
+ * an injected MONITOR_AGENT_COUNT (tests), a MONITOR_AGENT_COUNT_CMD, else the
+ * process table filtered by isAgentCommand. Any failure yields 0, which CANNOT
+ * alarm -- the safe direction (a broken count silences the monitor rather than
+ * false-firing). `ps`/`sh` via PATH (launchd sets a controlled PATH), matching
+ * sibling monitors. */
 function resolveAgentsRunning() {
   if (process.env.MONITOR_AGENT_COUNT !== undefined) {
     const n = Number(process.env.MONITOR_AGENT_COUNT);
@@ -76,14 +94,15 @@ function resolveAgentsRunning() {
   const cmd = process.env.MONITOR_AGENT_COUNT_CMD;
   try {
     if (cmd) {
-      const out = execFileSync('/bin/sh', ['-c', cmd], { encoding: 'utf8' });
+      const out = execFileSync('sh', ['-c', cmd], { encoding: 'utf8' });
       const n = Number(out.trim());
       return Number.isFinite(n) ? n : 0;
     }
-    // Default: count running `claude` processes (the agents are claude sessions).
-    // pgrep exits 1 when there are no matches, which throws here -> caught -> 0.
-    const out = execFileSync('/usr/bin/pgrep', ['-x', 'claude'], { encoding: 'utf8' });
-    return out.split('\n').filter((l) => l.trim()).length;
+    // Enumerate the process table and count Claude agent commands (legacy names
+    // AND native version-string names). `ps -axo comm=` prints one command basename
+    // per line, no header.
+    const out = execFileSync('ps', ['-axo', 'comm='], { encoding: 'utf8' });
+    return out.split('\n').filter(isAgentCommand).length;
   } catch {
     return 0;
   }
@@ -184,4 +203,4 @@ if (require.main === module) {
   process.exit(run(process.argv.slice(2)));
 }
 
-module.exports = { run, computeVerdict, alertBody, resolveAgentsRunning };
+module.exports = { run, computeVerdict, alertBody, resolveAgentsRunning, isAgentCommand };

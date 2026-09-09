@@ -19,19 +19,41 @@
 const fs = require('fs');
 const path = require('path');
 
+/* Read only the LAST slice of a report file, matching the 64KB window
+ * selfreport.js's own reader (TAIL_BYTES) uses on these same files -- a working
+ * agent heartbeats, so the .jsonl grows for days (#2509 ran ~5), and this monitor
+ * polls every 15 min; an unbounded readFileSync would re-read and re-parse every
+ * agent's entire growing file each tick. 64KB holds hundreds of transitions, far
+ * more than the newest-line answer needs. (Not imported from selfreport.js: that
+ * module's load triggers the store migration -- see the monitor's defaultStoreDir
+ * note -- so the constant is redeclared here with this citation.) */
+const TAIL_BYTES = 64 * 1024;
+
 /* The newest `at` (ms since epoch) in one .jsonl self-report file, or null.
  * Reads from the END so a partial final line (a write in flight) does not
  * decide the answer: we scan upward for the last line that parses AND carries
  * a usable `at`. A file that is empty, all-blank, or all-unparseable yields
- * null rather than throwing -- a broken file is "no reading", not a crash. */
+ * null rather than throwing -- a broken file is "no reading", not a crash. The
+ * tail window's own first line may be cut mid-record, but it is the OLDEST line
+ * in the window and is only examined if every newer line failed to parse, where
+ * a torn line failing JSON.parse and yielding null is the safe direction. */
 function newestAtInFile(file) {
-  let text;
+  let buf;
   try {
-    text = fs.readFileSync(file, 'utf8');
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = size > TAIL_BYTES ? size - TAIL_BYTES : 0;
+      const len = size - start;
+      buf = Buffer.alloc(len);
+      if (len > 0) fs.readSync(fd, buf, 0, len, start);
+    } finally {
+      fs.closeSync(fd);
+    }
   } catch {
-    return null; // unreadable file: contributes nothing, never throws
+    return null; // unreadable/absent file: contributes nothing, never throws
   }
-  const lines = text.split('\n');
+  const lines = buf.toString('utf8').split('\n');
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i].trim();
     if (!line) continue;

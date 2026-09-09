@@ -46,9 +46,12 @@ false alarms are near-impossible while a real outage (like #2509's 5 days) canno
 15-minute sample. Env-overridable (`SELFREPORT_STALE_MINUTES`).
 
 ### The loud half
-- `tools/selfreport-silence-monitor.js` - resolves `dir` via `selfreport.DIR`, resolves
-  `agentsRunning` via a pluggable command (default: pgrep of claude processes; seam
-  `MONITOR_AGENT_COUNT` / `MONITOR_AGENT_COUNT_CMD`), calls `freshnessVerdict`, and on `stale` posts
+- `tools/selfreport-silence-monitor.js` - resolves `dir` via the pure `store.dataRootFor`, resolves
+  `agentsRunning` by filtering the process table (`ps -axo comm=`) through `isAgentCommand` - the
+  CANONICAL rule (legacy `claude`/`claude.exe` OR a native version-string semver shape, issue #252;
+  NOT bare `node`), because a bare `pgrep claude` reads 0 on the native-installer fleet and would
+  suppress the alarm forever; seams `MONITOR_AGENT_COUNT` / `MONITOR_AGENT_COUNT_CMD`. Calls
+  `freshnessVerdict`, and on `stale` posts
   to the tracking issue via `MONITOR_GH_CMD` (default `gh`); heartbeat every N days so a dead
   channel's own silence is a signal; healthy path silent; NEVER acts. A `--check` mode prints the
   verdict JSON and exits 0/1 without posting - manual/CI/test use.

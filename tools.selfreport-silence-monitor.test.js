@@ -114,3 +114,60 @@ test('--check prints the verdict JSON and exits by staleness WITHOUT posting', (
     assert.equal(ghCalls(record).length, 0, '--check never posts');
   });
 });
+
+// ---- isAgentCommand: the agent-count matcher (the #2509-blind-spot BLOCKER) ----
+// The native installer (2.1.x+) names the process by the VERSION STRING, not
+// `claude`, so a bare `claude` match reads 0 on the native fleet and suppresses
+// the alarm forever. This pins the canonical rule (legacy names OR semver shape).
+test('isAgentCommand: accepts legacy names AND native version-string names, rejects node/other', () => {
+  const { isAgentCommand } = require('./tools/selfreport-silence-monitor');
+  assert.equal(isAgentCommand('claude'), true);
+  assert.equal(isAgentCommand('claude.exe'), true);
+  assert.equal(isAgentCommand('2.1.212'), true, 'native version-string name MUST count (the #2509 blind spot)');
+  assert.equal(isAgentCommand('2.1.263'), true);
+  assert.equal(isAgentCommand('/Users/x/.local/share/claude/versions/2.1.5'), true, 'a path leaking through is matched by basename');
+  assert.equal(isAgentCommand('node'), false, 'bare node is the board/tooling, not an agent -> must not inflate the gate');
+  assert.equal(isAgentCommand('bash'), false);
+  assert.equal(isAgentCommand('2.1'), false, 'not a 3-segment semver');
+  assert.equal(isAgentCommand(''), false);
+  assert.equal(isAgentCommand(undefined), false);
+});
+
+// ---- the monitor must NOT trigger the store migration (report-never-act) ----
+// A future edit to `require('../engine/selfreport').DIR` would reintroduce the
+// migration-on-read hazard (that module's load reads store.ROOT -> root() ->
+// maybeMigrateLegacyStore). This proves the monitor leaves a legacy store put,
+// EVEN WITH migration enabled (run-tests sets KOSMOS_NO_LEGACY_MIGRATION=1, which
+// would otherwise mask it -- so we delete it for this child).
+test('the monitor does NOT migrate the legacy store (dataRootFor is pure)', () => {
+  const store = require('./engine/store');
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'sr-home-'));
+  try {
+    const legacyRoot = store.dataRootFor(process.platform, home, {}, store.LEGACY_APP);
+    const newRoot = store.dataRootFor(process.platform, home, {}, store.APP);
+    // seed a legacy store with a report; do NOT create the new root
+    fs.mkdirSync(path.join(legacyRoot, 'selfreports'), { recursive: true });
+    fs.writeFileSync(path.join(legacyRoot, 'selfreports', 'angel.jsonl'),
+      JSON.stringify({ at: new Date(NOW - 2 * MIN).toISOString() }) + '\n');
+
+    const env = { ...process.env };
+    delete env.KOSMOS_NO_LEGACY_MIGRATION;   // ALLOW migration, so a trigger would actually fire
+    delete env.MONITOR_STORE_DIR;            // exercise the REAL defaultStoreDir path derivation
+    env.AGENT_WORKFORCE_HOME = home;
+    env.MONITOR_AGENT_COUNT = '0';           // not stale -> no post attempt
+    const hb = path.join(home, 'hb.txt'); fs.writeFileSync(hb, String(NOW)); // heartbeat not due
+    env.MONITOR_HEARTBEAT_STATE = hb;
+    env.MONITOR_NOW_MS = String(NOW);
+    env.MONITOR_GH_CMD = path.join(home, 'gh-stub.sh');
+    fs.writeFileSync(env.MONITOR_GH_CMD, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+
+    try { execFileSync('node', [MONITOR], { env, encoding: 'utf8' }); } catch { /* exit code irrelevant here */ }
+
+    assert.ok(fs.existsSync(path.join(legacyRoot, 'selfreports', 'angel.jsonl')),
+      'the legacy store must be UNTOUCHED -- the monitor read via dataRootFor and did not migrate');
+    assert.equal(fs.existsSync(newRoot), false,
+      'the monitor must not have created (migrated into) the new root');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
