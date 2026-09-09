@@ -1,3 +1,4 @@
+// Browser-check-surface: plus-active plus-stars plus-mark
 'use strict';
 
 /**
