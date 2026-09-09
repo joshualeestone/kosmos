@@ -59,3 +59,22 @@ test('#2129: the chat-box receipt is cleared on agent switch, like its Terminal-
     'the chat-box receipt is cleared on switch',
   );
 });
+
+test('#2129: the chat-box handler stays behaviorally identical to its Terminal-tab twin', () => {
+  // The two handlers are a deliberate self-contained COPY (a shared helper would
+  // break the qask isolation tests that lift the region). Nothing structural keeps
+  // them identical, so pin the user-visible strings/precedence they share: each must
+  // appear exactly twice, once per handler. A future edit that changes one copy's
+  // message without the other drops a count and reds this test. (Iteration-1 review
+  // caught the label already diverging; this guards the rest.)
+  const twice = (needle, label) => {
+    const n = PAGE.split(needle).length - 1;
+    assert.equal(n, 2, `"${label}" must appear in BOTH trust-restart handlers, found ${n}`);
+  };
+  twice('Trusting and restarting…', 'interim text');
+  twice('We could not trust and restart this agent.', 'non-ok / bad-response message');
+  twice('We could not reach Kosmos to trust and restart this agent.', 'network-failure fallback');
+  // NOTE: `r.because || r.error` is shared by other handlers (Open Terminal etc.), so it
+  // is not a trust-restart parity pin. Pin the success-receipt precedence, which is.
+  twice("(res.ok ? 'Restarting.'", 'success receipt precedence');
+});
