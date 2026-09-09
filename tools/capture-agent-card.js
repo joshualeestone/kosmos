@@ -58,7 +58,17 @@ function chooseCard(agents) {
 }
 
 /* Every STRING anywhere under an object is replaced; non-strings keep their type and
-   value. Nothing identifying can survive by being unlisted. */
+   value. Nothing identifying can survive by being unlisted.
+   🛑 AND NO PROPERTY OF THE RAW VALUE MAY SURVIVE EITHER, LENGTH INCLUDED. `id` was
+   scrubbed as `'0'.repeat(val.length)`, which re-emits the producer's value length.
+   Today's profile ids are twelve characters, so the output looked like a constant and
+   the guarantee held by coincidence of format rather than by construction: the day an
+   `id` key carries something variable-length, the recording states how long the real
+   one was. That is the same shape as the model re-pin -- a scrub whose output depends
+   on what the producer supplied -- which is the defect this file has now corrected
+   four times.
+   ⇒ A CONSTANT. For the twelve-character ids the producer emits today it is the same
+   twelve zeros already in the committed fixture, so the recording does not change. */
 function scrubStrings(v) {
   if (v === null || typeof v !== 'object') return;
   for (const k of Object.keys(v)) {
@@ -66,7 +76,7 @@ function scrubStrings(v) {
     if (typeof val === 'string') {
       v[k] = k === 'idInstall' ? '00000000-0000-4000-8000-000000000000'
         : /^\d{4}-\d{2}-\d{2}T/.test(val) ? '2026-09-03T00:00:00.000Z'
-        : k === 'id' ? '0'.repeat(val.length)
+        : k === 'id' ? '000000000000'
         : 'example-' + k.toLowerCase();
     } else if (val && typeof val === 'object') {
       scrubStrings(val);

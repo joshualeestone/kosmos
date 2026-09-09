@@ -127,8 +127,13 @@ function goldenCard(fixturePath) {
     /* Say WHY on the log the cut streams. A corrupt fixture, a missing one and an
        unreadable one all surface downstream as the same "no usable fixture" line, so an
        operator on a quiet box cannot tell rot from a delete without opening the file. */
+    /* Say the CONSEQUENCE too. This returns null, and on the only path that reaches
+       here at runtime (no live pane card of ours) that makes realCard report `none`,
+       which pushes a problem and FAILS the arm. A bare NOTE reads as benign for
+       something that is about to red the cut. */
     process.stdout.write('  NOTE  render-talk: the recorded card fixture could not be read: '
-      + String((err && err.message) || err) + '\n');
+      + String((err && err.message) || err)
+      + ' -- with no live agent card this FAILS the reopen arm below\n');
     return null;
   }
 }

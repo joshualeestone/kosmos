@@ -342,6 +342,28 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.equal(profile.count, 7, 'a non-string was altered');
 });
 
+test('#2519: an id is scrubbed to a CONSTANT, so not even its length survives', () => {
+  /* 🛑 THE FIXTURE ARM ABOVE CANNOT SEE THIS AND I PROVED IT BY MUTATION. It asserts
+     `/^0+$/` against the COMMITTED FILE, which is already scrubbed, so making
+     scrubStrings pass `id` through raw left the whole suite green -- an arm that reads
+     the artifact cannot test the producer that wrote it.
+     ⚠️ AND THE ORIGINAL DEFECT WAS NOT THE RAW VALUE. `id` was scrubbed as
+     `'0'.repeat(val.length)`: the value was gone but its LENGTH was re-emitted, and for
+     today's twelve-character profile ids that output is indistinguishable from a
+     constant, which is why reading it never raised the question. So this arm feeds an id
+     of a DIFFERENT length: a length-preserving scrub gives back that length and fails
+     here, and only a constant passes. */
+  const cap = require('./tools/capture-agent-card.js');
+  const long = 'operator-private-identifier-9f3c2a';
+  const profile = { id: long, idInstall: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee' };
+  cap.scrubStrings(profile);
+  assert.ok(!profile.id.includes('operator'), `a raw id survived: ${profile.id}`);
+  assert.match(profile.id, /^0+$/, `id is not the zero placeholder: ${profile.id}`);
+  assert.notEqual(profile.id.length, long.length,
+    'the id placeholder is as long as the real id, so the scrub re-emits the value length');
+  assert.match(profile.idInstall, /^0{8}-0{4}-4000-8000-0{12}$/);
+});
+
 test('#2519: nothing under CONTEXT survives neutralisation either', () => {
   /* 🛑 THE SAME GUARANTEE, ON THE SUBTREE THAT ESCAPED IT. The whole-card scrub was
      immediately undone for `context` by a line that cloned the RAW producer object back
