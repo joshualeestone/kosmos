@@ -87,7 +87,7 @@ _served_verify_redirect_note() {
       # the header (an ESC colour sequence, say) still reach the terminal verbatim. Deploy log and
       # operator terminal only, and stripping them would fight the "report what was observed"
       # contract, so it is named rather than filtered.
-      printf ' MECHANISM: un-followed, this URL answers %s and redirects to %s. Judge that target: an auth/login page answers 200 to every path (the #1667 shape), and a catch-all route or SPA rewrite produces the same blindness for a different reason. Either way the status carries no information about your asset.' "$_svrn_code" "$_svrn_target"
+      printf ' | MECHANISM: un-followed, this URL answers %s and redirects to %s. Judge that target: an auth/login page answers 200 to every path (the #1667 shape), and a catch-all route or SPA rewrite produces the same blindness for a different reason. Either way the status carries no information about your asset.' "$_svrn_code" "$_svrn_target"
       ;;
     *) : ;;
   esac

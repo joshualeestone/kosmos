@@ -218,9 +218,14 @@ esac
 # ever pass and would not have caught the same overclaim differently worded. These are the shapes
 # an overclaim takes here: any sentence asserting what the target IS, when the code only ever saw a
 # status and a URL. The note must DESCRIBE and hedge.
+# ⚠️ LOWERCASED ON BOTH SIDES. `case` is case-sensitive, so this loop claimed to match a CLASS of
+# overclaim while a re-introduction differing only in capitalisation walked past it: appending
+# "Note: it IS An Auth page most likely." passed the suite silently. Same tr idiom the lib already
+# uses for content-type, and for the same reason.
 _oc_hit=""
-for _oc in "That is the auth-redirect shape" "is an auth" "is a login page" "is an SSO" "definitely" "which means it is"; do
-  case "$sso_msg" in
+_sso_msg_lc=$(printf '%s' "$sso_msg" | tr '[:upper:]' '[:lower:]')
+for _oc in "that is the auth-redirect shape" "is an auth" "is a login page" "is an sso" "definitely" "which means it is"; do
+  case "$_sso_msg_lc" in
     *"$_oc"*) [ -n "$_oc_hit" ] || _oc_hit="$_oc" ;;
   esac
 done
@@ -354,7 +359,9 @@ fi
 # to stop at, $hdr becomes the WHOLE FILE and every handler token is trivially "named", because they
 # all appear in the server source below. MEASURED: undocumenting /ssogone correctly reds, and then
 # adding a single TRAILING SPACE to `set -u` (behaviourally identical, as would `set -eu`) turns it
-# green again.
+# green again. ⚠️ THAT IS NOW PAST TENSE AND THE COMMENT SAID IT IN THE PRESENT: with the two
+# assertions below in place, a trailing space is CAUGHT (two failures). Left as history because the
+# guard exists for it, but a reader was being sent to chase a residual that is closed.
 /usr/bin/grep -qx 'set -u' "$0" || fail "the header delimiter line is gone; the slice below would run to EOF and pass trivially"
 hdr=$(sed -n '1,/^set -u$/p' "$0")
 if [ "$(printf '%s\n' "$hdr" | wc -l)" -ge "$(wc -l < "$0")" ]; then
@@ -376,10 +383,18 @@ fi
 # guard was added to catch, and it was blind to it for that one handler.
 srv_src=$(sed -n '/srv\.py" <</,/^PY$/p' "$0")
 srv_paths=$(printf '%s\n' "$srv_src" | /usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" | /usr/bin/grep -oE "/[a-z]+/?" | sort -u)
-# CONTROL: the slice must BE a slice. If the address never matched, sed prints to EOF and this arm
-# silently degrades to grepping the whole file again.
-if [ "$(printf '%s\n' "$srv_src" | wc -l)" -ge "$(wc -l < "$0")" ]; then
-  fail "the server-source slice is as long as the whole file; the heredoc delimiters moved and this arm is grepping prose again"
+# 🛑 CONTROL: THE SLICE MUST END AT THE TERMINATOR. ⚠️ The first version of this control checked
+# only that the slice was shorter than the file, and its comment said "if the address never matched,
+# sed prints to EOF". Both were wrong, in opposite directions, and MEASURED:
+#   opening address unmatched -> sed emits NOTHING (not EOF-to-end)
+#   closing address unmatched -> sed prints from the opening anchor TO EOF
+# So renaming the heredoc terminator consistently (PY -> ENDPY) while this pattern still looks for
+# /^PY$/ produced a slice hundreds of lines too long but still SHORTER than the file, and the
+# length check never fired. Asserting the last line IS the terminator catches that directly, and
+# the empty case is caught by the same assertion.
+_srv_last=$(printf '%s\n' "$srv_src" | tail -1)
+if [ "$_srv_last" != "PY" ]; then
+  fail "the server-source slice does not end at the heredoc terminator (last line: '$_srv_last'). The delimiters moved, so this arm is reading unrelated lines, not the server."
 fi
 n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # The floor is the COUNT OF DISPATCH BRANCHES, not a round number: nine today. A floor below the
