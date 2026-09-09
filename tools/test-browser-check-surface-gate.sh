@@ -1,0 +1,93 @@
+#!/bin/bash
+# kosmos#2518: prove the surface-specific browser-check gate fires PRECISELY -- it
+# refuses a web/index.html change that touches a MAPPED check's surface token without
+# updating that check, and only that. Uses the real docs/browser-checks annotations
+# (so it also validates the seeded ones parse) with synthesized diff/files/msgs seams.
+set -u
+HERE="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck source=tools/lib/browser-check-surface-gate.sh
+. "$HERE/lib/browser-check-surface-gate.sh"
+
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+fails=0
+pass() { echo "PASS  $1"; }
+fail() { echo "FAIL  $1"; fails=$((fails + 1)); }
+
+# Run the gate with controlled seams; returns its exit code.
+run_gate() {
+  local webdiff="$1" files="$2" msgs="$3"
+  ( KOSMOS_BCSG_WEBDIFF="$webdiff" KOSMOS_BCG_FILES="$files" KOSMOS_BCG_MSGS="$msgs" \
+      kosmos_browser_check_surface_gate ) >/dev/null 2>&1
+}
+
+# A web diff that CHANGES a line carrying render-subprojects-1994.js's mapped token pj-parent.
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
+  '@@ -100,1 +100,1 @@' '-      <span class="pj-parent">under App</span>' \
+  '+      <span class="pj-parent">Kosmos › App</span>' > "$TMP/webdiff-parent"
+# A web diff touching only an UNMAPPED token (no check annotates it).
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
+  '@@ -1,1 +1,1 @@' '-  <div class="zzz-unmapped-nonexistent-token">a</div>' \
+  '+  <div class="zzz-unmapped-nonexistent-token">b</div>' > "$TMP/webdiff-unmapped"
+# A web diff with only context (no +/- body lines) -> nothing changed.
+printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.html' '+++ b/web/index.html' \
+  '@@ -1,1 +1,1 @@' '   <div class="pj-parent">unchanged context</div>' > "$TMP/webdiff-context"
+
+: > "$TMP/files-none"                                                        # no check updated
+printf 'M\tdocs/browser-checks/render-subprojects-1994.js\n' > "$TMP/files-updated"   # the check IS updated
+: > "$TMP/msgs-none"
+printf 'fix subprojects layout\n\nBrowser-check-surface: render-subprojects-1994.js the ancestry line is copy-only here\n' > "$TMP/msgs-override"
+printf 'fix subprojects layout\n\nBrowser-check: deferring the check to the cut\n' > "$TMP/msgs-blanket"
+
+# 1. RED: a mapped token changed, the check not updated, no override -> REFUSE (exit 1).
+if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-none"; then
+  fail "a pj-parent change with render-subprojects-1994 NOT updated should be refused"
+else
+  pass "refused: mapped surface token changed without updating its check (the #2487 shape)"
+fi
+
+# 2. PASS: same change but the mapped check IS updated -> allowed.
+if run_gate "$TMP/webdiff-parent" "$TMP/files-updated" "$TMP/msgs-none"; then
+  pass "allowed: the mapped check was updated alongside the surface change"
+else
+  fail "updating render-subprojects-1994 should satisfy the gate"
+fi
+
+# 3. PASS: a PER-CHECK named override excuses it.
+if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-override"; then
+  pass "allowed: a per-check 'Browser-check-surface: <check> <reason>' override"
+else
+  fail "a per-check named override should satisfy the gate"
+fi
+
+# 4. 🛑 RED-still: the BLANKET 'Browser-check:' trailer does NOT excuse a surface staleness
+#    (this is the precision that catches #2498, which deferred with exactly this shape).
+if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-blanket"; then
+  fail "the blanket Browser-check: trailer must NOT excuse a surface-mapped staleness"
+else
+  pass "still refused under a blanket Browser-check: trailer (the #2498 precision)"
+fi
+
+# 5. PASS: a web change touching an UNMAPPED token -> allowed (no over-fire beyond the map).
+if run_gate "$TMP/webdiff-unmapped" "$TMP/files-none" "$TMP/msgs-none"; then
+  pass "allowed: an unmapped surface token change does not fire the surface gate"
+else
+  fail "an unmapped token change must not be refused by the surface gate"
+fi
+
+# 6. PASS: only context lines changed (no +/- body) -> nothing to guard.
+if run_gate "$TMP/webdiff-context" "$TMP/files-none" "$TMP/msgs-none"; then
+  pass "allowed: a diff with only context lines has no changed surface"
+else
+  fail "context-only lines must not be treated as a surface change"
+fi
+
+# 7. Fail-soft: an unreadable web diff seam -> return 0 (repo-local, never breaks a run).
+if run_gate "$TMP/does-not-exist" "$TMP/files-none" "$TMP/msgs-none"; then
+  pass "fail-soft: an empty/unreadable web diff returns 0"
+else
+  fail "an unreadable web diff must fail soft (return 0)"
+fi
+
+echo "browser-check surface gate: $fails FAILED"
+[ "$fails" -eq 0 ]
