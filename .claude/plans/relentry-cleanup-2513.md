@@ -27,6 +27,11 @@ The card names three options and instructs deciding one, not building all three.
   release.sh change, zero cut blast radius. Distinct from the EXISTING dead-attempt leftover note
   (releasing.md ~245-257), which covers a FAILED attempt leaving the entry on the PAGE
   (versions.html) - a different leftover from this successful-cut SOURCE-FILE one.
+- Incidental: the mechanical em-dash strip (`perl -CSD -i -pe 's/\x{2014}/-/g'`) run over the whole
+  file before commit also converted four PRE-EXISTING em dashes elsewhere in releasing.md (the org
+  no-em-dash rule makes that always-correct, never scope-creep in the harmful sense; reverting them
+  would REINTRODUCE em dashes). Named here so the diff touching those lines is expected, not a
+  surprise.
 
 ## Weakest premise
 #2513's own: no cut has run the pending (#1455) shape for real, so the described behavior comes from

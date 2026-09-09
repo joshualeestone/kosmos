@@ -129,9 +129,12 @@ a different problem.
    ⚠️ **After a SUCCESSFUL cut the file is NOT removed (#2513).** It stays at
    `$REPO/.release-entry.html` holding the version you just shipped and the minute
    step 7a stamped into it. Nothing incorrect can ship through it: the NEXT cut's
-   step 1 refuses a pending file whose id names the wrong version, by name and with
-   the reason, before anything is built. But that refusal is an extra, surprising
-   paragraph on an otherwise-clean start. **Overwrite the file with the next
+   step 1 refuses the leftover file - its id still names the shipped version, not the
+   one now being cut - naming the file and stating why, before anything is built.
+   (Version mismatch is the reason THIS leftover trips; step 1 also refuses a pending
+   file for missing/duplicate `article` blocks or a missing `TIMESTAMP`, each named
+   the same way.) But that refusal is an extra, surprising paragraph on an
+   otherwise-clean start. **Overwrite the file with the next
    release's entry, or delete it, when you begin the next cut** and the refusal
    never appears. Having the cut remove it for you was rejected deliberately (#2513):
    the cut path is the highest-blast-radius file in the tree, and a cut that deletes
