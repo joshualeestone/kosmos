@@ -1702,7 +1702,8 @@ test('#2553: the recorded fixture context matches a legitimate status.js variant
      ⚠️ CONTEXT ONLY, NOT profile, AND THAT IS DELIBERATE. Measured in web/index.html: every
      card-context read is GUARDED (pctOf uses `ctx && Number.isFinite(ctx.percent)`;
      memPrint/memUnknown/assumedCeilingNote use `ctx && ctx.KEY`/`typeof ctx.because ===
-     'string'`; overCeiling/neverRecorded/noCeiling/notYet use `ctx && ctx.KEY === true`).
+     'string'`; overCeiling/neverRecorded/noCeiling use `ctx && ctx.KEY === true` and notYet
+     uses `!!(ctx && ctx.notYet)` -- all null-safe on the `ctx &&` half either way).
      There are ZERO unguarded context reads, so a missing key never BREAKS the page -- what a
      stale recording costs is COVERAGE (the reopen render silently takes the empty-context
      branch). profile is free-form (the tree writes dir/displayName/role/reportsTo per
