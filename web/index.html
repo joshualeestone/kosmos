@@ -12806,7 +12806,7 @@ function memUnknown(ctx) {
 function memWhy(ctx) {
   const why = ctx && typeof ctx.because === 'string' ? ctx.because.trim() : '';
   if (!why) return '';
-  return why.charAt(0).toUpperCase() + why.slice(1) + '. ';
+  return why.charAt(0).toUpperCase() + why.slice(1) + (/[.!?]$/.test(why) ? ' ' : '. ');
 }
 
 /**
@@ -26596,7 +26596,7 @@ async function paintPlus() {
   const because = plusWords(stat.because || '');
   st.textContent = stat.state === 'up'
     ? ('Connected. Your address: ' + (stat.address || 'is on its way.'))
-    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + '.' : '');
+    : (because ? because.charAt(0).toUpperCase() + because.slice(1) + (/[.!?]$/.test(because) ? '' : '.') : '');
   /* #1014: only a real address earns an instruction. While the tunnel is
      still coming up there is nothing to tell somebody to open, and telling
      them to open "is on its way." would be worse than saying nothing. */
@@ -36132,7 +36132,7 @@ function pjWhen(at) {
 function placedWords(d) {
   const note = (d && d.paneNote) || '';
   if (!note || d.paneState === 'idle') return '';
-  return note.charAt(0).toUpperCase() + note.slice(1) + '.';
+  return note.charAt(0).toUpperCase() + note.slice(1) + (/[.!?]$/.test(note) ? '' : '.');
 }
 function pjVerdict(m, name) {
   const d = (m && m.delivery) || {};
