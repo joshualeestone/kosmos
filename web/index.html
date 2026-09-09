@@ -8310,7 +8310,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            app icon and default button do. */
         .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
         /* Josh, 2026-09-08: people click the mock "Allow" (they read it as the real
-           macOS button), so it is a live mouse affordance -- cursor signals that. */
+           macOS button), so it is a live mouse affordance -- cursor signals that.
+           Deliberately interactive inside the aria-hidden preview: it is mouse-only,
+           and the real focusable "Allow Access" button is the keyboard/AT path, so
+           this adds no non-focusable-only control (not a bug, for the next reader). */
         .s2-mockallow{cursor:pointer}
         .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
