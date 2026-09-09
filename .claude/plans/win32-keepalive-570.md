@@ -241,7 +241,7 @@ session to a bare prompt. Use:
 | 4 | `remove.js` win32 branches: stop/delete/restore -> disable/end/enable/start | DONE, 6/6 green |
 | 5 | retire the two stale comments (`create.js`, `platform.js`) | DONE |
 | 6 | merge origin/main (74 behind; #2439 store rename) | DONE -- 89/89 win32 green |
-| 7 | PHASE 3 dress rehearsal R1-R8 | R1 and R8 PASS; R6 partial; R2-R5/R7 not run |
+| 7 | PHASE 3 dress rehearsal R1-R8 | R1,R2,R4,R5,R6,R7,R8 PASS. **R3 FAILS** -- see 7c |
 | 7a | port createAgentInner's launch block to win32 | DONE -- R1 PASSES on the box |
 | 7b | port remove.js's process-ending half off tmux | DONE, 121/121 green -- R4-R7 now runnable |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
@@ -574,3 +574,118 @@ fixture. Nothing was killed: this was `resolve`, not `end`.
 📌 R4-R7 ARE NOW RUNNABLE AND HAVE NOT BEEN RUN. The kill path has unit tests and
 a live read, but no live KILL has happened yet. That is the rehearsal, and it is
 the last thing owed before the PR.
+
+## THE REHEARSAL, RUN (2026-09-08, 20:18-20:25). Seven of eight pass.
+
+Run through the REAL path -- board up on 127.0.0.1:16180, board token, the same
+HTTP routes the buttons call -- not by driving the engine directly. Every result
+below was then checked against Windows rather than against a return value.
+
+| # | Step | Result |
+|---|---|---|
+| R1 | create 3 agents | PASS -- winreh-3, winreh-4 created, 4 steps ok each |
+| R2 | board roster | PASS -- all three under their RECORDED names |
+| R3 | each reports | **FAIL** -- a Windows agent cannot be typed to at all |
+| R4 | stop one | PASS -- task Disabled, agent process gone |
+| R5 | restart it | PASS -- old pid gone, new session, task Running |
+| R6 | remove one | PASS -- all 5 steps, Restore offered |
+| R7 | restore it | PASS -- task Enabled + Running, agent back |
+| R8 | reboot | PASS -- earlier today, unattended |
+
+### 7b confirmed on the real path
+
+`closed its window` -- the step that FAILED the last time R6 was attempted --
+passed in both callers, which is the whole of 7b:
+
+    R5 restart   closed its window                ok
+                 asked it to start again now      ok
+    R6 remove    stopped it starting again        ok
+                 stopped it now                   ok
+                 closed its window                ok
+                 took back the folder trust       ok
+                 took it off the board            ok
+
+THE REMOVED LIST CARRIES ITS OWN BEFORE-AND-AFTER, which is better evidence than
+either run alone:
+
+    winreh-1  removed 22:57 (pre-7b)   stopped: FALSE
+    winreh-4  removed 01:23 (post-7b)  stopped: TRUE
+
+Same operation, same box, and the difference is this slice.
+
+### Three design decisions confirmed live, not argued
+
+**`/T` was right, and it was not theoretical.** The respawn probe's kill reported:
+
+    SUCCESS: process 6216 (child process of PID 12164) has been terminated
+    SUCCESS: process 12164 (child process of PID 19584) has been terminated
+
+The agent had a live child. Without `/T` every removal would have orphaned one.
+
+**Defect 5's fix works.** The restart killed session `ab6c422a`, and that entry is
+gone from the ownership record while the new one (`14660e80`) is present -- so the
+claim did not outlive the process. Note the record still holds ONE stale
+`winreh-2` entry (`8c6473fc`) from a session that died at the reboot: a death is
+not a deliberate stop, so nothing forgets it. That is the documented, harmless
+growth `win32sessions.forget` already describes -- nothing live ever matches a
+dead id -- and NOT the duplicate-name hazard, which needs two entries of one name
+both LIVE. The roster showed three rows for three agents throughout.
+
+**KeepAlive respawns after a DEATH, which R8 could not show.** R8 proved the
+at-logon path; nothing had yet proved the loop. Killed winreh-4's agent directly:
+
+    died 20:24:44  ->  back at t+5s, pid 11696, new session
+
+THE THROTTLE IS STILL UNIT-TESTED ONLY. One death is not a crash loop, so the
+30s `ThrottleInterval` was not exercised. Provoking a real loop means an agent
+that cannot start, which is a different fixture.
+
+"IT STAYS GONE" IS PROVEN ONLY TO THE LIMIT OF THIS SESSION. R4 checks that a
+stopped agent stays stopped ACROSS A LOGIN; the task is Disabled, which is the
+mechanism, but only another reboot re-proves it.
+
+## R3 FAILED, AND IT IS A BIGGER GAP THAN 7b WAS -- this is 7c
+
+Measured, through `POST /api/agent/winreh-3/thread`:
+
+    "we could not check its window just before sending, so we did not type
+     anything (we could not reach the agents on this computer)"
+
+`engine/chat.js` HAS NO win32 ARM. Delivery is `tmux send-keys` end to end: a
+literal-text send, then a separate `Enter`, addressed at
+`<session>:<window>.<pane>`. Windows has no pane to type into.
+
+SO THE BOARD CAN MAKE A WINDOWS AGENT, SHOW IT, STOP IT, RESTART IT, REMOVE IT
+AND RESTORE IT -- AND CANNOT SAY A WORD TO IT. Every lifecycle verb works; the
+thing the lifecycle exists FOR does not. That is the honest state of the port.
+
+IT REFUSES HONESTLY, which is why this is a gap and not a defect. The delivery
+returns `could_not` with a sentence, records the message, and types nothing --
+the same posture `platform.js` takes toward downloads. Nobody is told a message
+landed that did not.
+
+WHAT 7c HAS TO ANSWER, and it is not "port send-keys". There is no pty in the
+bundle and no native modules, so the substrate for delivering keystrokes to a
+hidden console does not exist the way tmux's does. The shape worth investigating
+first is whether the agent can be given its input through a channel it already
+has -- the same self-report/hook path it uses to talk back -- rather than by
+simulating typing. That is a design question, not a port.
+
+## Where this leaves the PR
+
+The keep-alive slice (#570's actual subject) is DONE and rehearsed: create,
+roster, stop, restart, remove, restore, and survive a reboot, all measured on a
+real box. R3 is a pre-existing gap in a DIFFERENT module that this branch neither
+created nor touched -- `chat.js` has never had a win32 arm.
+
+THE PR SHOULD SAY SO PLAINLY rather than claim Phase 3 green. Phase 4 already
+flipped `SUPPORTED` to include win32 on the strength of the substrate existing;
+R3 is the strongest argument yet that the flip was early, and the PR is where
+that gets said out loud with the evidence attached.
+
+## Box state at the end of the rehearsal
+
+Left as it was found: `winreh-2` running under its supervisor, its task enabled;
+the board process stopped (it was not running before). `winreh-3`/`winreh-4` were
+created for the rehearsal and removed again -- tasks Disabled, folders kept,
+Restore offered for both.
