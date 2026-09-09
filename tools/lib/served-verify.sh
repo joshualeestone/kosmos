@@ -25,6 +25,27 @@
 #   served_verify_host_discriminates "$HOST"            || exit 1
 #   served_verify_asset_ok "$HOST/dist/foo.zip" "label" || exit 1
 
+# _served_verify_redirect_note <url>: the card's SECOND tell, as a DIAGNOSTIC.
+#
+# 🛑 BOTH PROBES BELOW USE `curl -L`, AND THE CARD SAYS "DROP -L SO THE 302 IS VISIBLE". Following
+# the redirect does NOT make the guard miss: the SSO page's 200 still trips the negative control and
+# its text/html still trips the asset tell, which is why the verdicts above are correct as written.
+# What -L costs is the REASON. An operator reading "returned 200 for a path that cannot exist" is
+# told the symptom and not the mechanism, and the mechanism is the whole point of #1667: the host
+# 302s to vercel.com/sso-api, and that login page answers 200 to every path.
+#
+# So the un-followed status is fetched ONLY on the failure path, where one extra request is free,
+# and appended to the message when it is a redirect. A transport failure here yields no note rather
+# than a second error: this is a diagnostic, and it must never change a verdict the caller already
+# reached. Empty output on any doubt.
+_served_verify_redirect_note() {
+  _svrn_first=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null) || return 0
+  case "$_svrn_first" in
+    3??) printf ' MECHANISM: it reached that 200 by REDIRECT (%s before -L). That is the auth-redirect shape from the card: the login page it lands on answers 200 to every path, so the status carries no information about your asset.' "$_svrn_first" ;;
+    *) : ;;
+  esac
+}
+
 # served_verify_host_discriminates <host-base-url>
 # 0 = the host 404s (or otherwise non-200s) a path that cannot exist, so its 200s are meaningful.
 # 1 = the host returned 200 for a nonexistent path (the #1667 SSO-200-for-everything shape): BLIND.
@@ -37,7 +58,7 @@ served_verify_host_discriminates() {
     return 2
   }
   if [ "$_svhd_code" = "200" ]; then
-    echo "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists." >&2
+    echo "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.$(_served_verify_redirect_note "$_svhd_url")" >&2
     return 1
   fi
   echo "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path, so its 200s are meaningful."
@@ -74,7 +95,7 @@ served_verify_asset_ok() {
       return 1
       ;;
     *text/html*)
-      echo "served-verify: ${_svao_label} returned 200 but its content-type is '${_svao_ct}' (expected a non-html asset) -- an html page wearing a success code (#1667) -- ${_svao_url}" >&2
+      echo "served-verify: ${_svao_label} returned 200 but its content-type is '${_svao_ct}' (expected a non-html asset) -- an html page wearing a success code (#1667) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
       return 1
       ;;
   esac
