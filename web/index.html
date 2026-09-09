@@ -8309,6 +8309,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            lighter #3f92f0 folder icon above intentionally differs, as the real dialog's
            app icon and default button do. */
         .s2-db.s2-hl{background:#0a64fa;border-color:#0a64fa;color:#fff;position:relative}
+        /* Josh, 2026-09-08: people click the mock "Allow" (they read it as the real
+           macOS button), so it is a live mouse affordance -- cursor signals that. */
+        .s2-mockallow{cursor:pointer}
         .s2-db.s2-hl::after{content:"";position:absolute;inset:-4px;border-radius:11px;border:2px solid var(--gold-bright,#e3b341);box-shadow:0 0 0 2px rgba(227,179,65,.35)}
         /* the gate row: red "Approval Required" + Allow, until Renet sets data-granted -> green */
         .s2-gate-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;
@@ -8336,7 +8339,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
               <div class="s2-fold"><span class="s2-hand">&#9995;</span></div>
               <p class="s2-say">"Terminal" would like to access files in your folders.</p>
             </div>
-            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl">Allow</span></div>
+            <div class="s2-btns"><span class="s2-db">Don't Allow</span><span class="s2-db s2-hl s2-mockallow">Allow</span></div>
           </div>
         </div>
 
@@ -38949,7 +38952,15 @@ async function frFirePermission(triggerUrl, fallbackUrl, msg) {
 }
 
 document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
-  const b = e.target.closest('.s2-allow');
+  // Josh, 2026-09-08: the mock dialog's blue "Allow" is what people actually click
+  // (they read it as the real macOS button), so it fires the SAME file-access flow
+  // as the real "Allow Access" button. The mock sits in an aria-hidden preview, so
+  // it stays a mouse-only affordance; the keyboard-reachable control is the real
+  // "Allow Access" button, which this handler also serves. A click on the mock
+  // routes through that real button, so the disabled state and message line stay on
+  // one control rather than a decorative span.
+  const onMock = e.target.closest('.s2-mockallow');
+  const b = onMock ? document.querySelector('#fr-pane-2 .s2-allow') : e.target.closest('.s2-allow');
   if (!b) return;
   const msg = document.getElementById('fr-s2-msg');
   b.disabled = true;
