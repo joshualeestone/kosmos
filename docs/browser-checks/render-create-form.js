@@ -1,3 +1,4 @@
+// Browser-check-surface: create-account-row
 /**
  * Step two of Create an agent, as Josh reshaped it on 2026-08-22.
  *
