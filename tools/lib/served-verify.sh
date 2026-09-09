@@ -25,6 +25,59 @@
 #   served_verify_host_discriminates "$HOST"            || exit 1
 #   served_verify_asset_ok "$HOST/dist/foo.zip" "label" || exit 1
 
+# _served_verify_redact_userinfo <url-head>: print the head with any USERINFO replaced.
+#
+# 🛑 EXTRACTED SO IT CAN BE DRIVEN DIRECTLY. Inline in the note, the only way to exercise it was
+# an end-to-end redirect, and the adversarial shapes cannot be driven that way: a Location whose
+# userinfo carries a raw `/` makes `curl -L` fail to connect, so the caller takes the transport
+# branch and never reaches the note at all. A function the test can call with a table of inputs is
+# the difference between a guard that is checked and one that is merely present.
+#
+# 🛑 USERINFO ENDS AT THE **LAST** `@`, NOT THE FIRST, and the first version of this got both
+# halves wrong. It asked "does the text before the FIRST `@` contain a `/`" as a proxy for "is the
+# `@` before the path", which is a different question. MEASURED, both defects, with real curl:
+#   http://user:pa/ss@host.example/path   -> NOT redacted at all; the password printed WHOLE
+#   http://user@host@evil.example/path    -> only `user` hidden, and the displayed host was wrong
+# The second is the classic domain-confusion shape: a real URL parser reads `user@host` as the
+# userinfo and `evil.example` as the host, so hiding only `user` both leaks and misleads.
+#
+# ⚠️ RESIDUAL, NAMED AND MEASURED: a target with BOTH an explicit port AND an `@` in its path
+# (`http://host:8080/a/@b`) over-redacts to `http://<redacted>@b`, losing the host, which is the
+# primary tell. It fails in the SAFE direction (nothing leaks) and it is not a shape this infra
+# produces. A path `@` with no port (`http://host/users/@handle`) is left alone, which is the
+# common case and is what the `:` test protects.
+_served_verify_redact_userinfo() {
+  _svru_h=$1
+  case "$_svru_h" in
+    *://*@*)
+      _svru_scheme=${_svru_h%%://*}
+      _svru_after=${_svru_h#*://}
+      # The AUTHORITY is everything up to the first `/`, per RFC 3986. Two cases, and the second
+      # exists only because a malformed target can put a raw `/` inside the userinfo.
+      _svru_auth=${_svru_after%%/*}
+      case "$_svru_auth" in
+        *@*)
+          # Well-formed: userinfo is everything before the LAST `@` IN THE AUTHORITY, which is what
+          # a real URL parser does. Taking the FIRST `@` is the domain-confusion bug:
+          # `http://user@host@evil.example/p` has host `evil.example`, not `host`.
+          _svru_h="${_svru_scheme}://<redacted>@${_svru_auth##*@}${_svru_after#"$_svru_auth"}"
+          ;;
+        *:*)
+          # No `@` in the authority, yet the head has one: the `/` that ended the authority is
+          # INSIDE the credential (`http://user:pa/ss@host/p`). A `:` in the authority is a
+          # credential separator, so redact to the last `@` in the whole head rather than leak.
+          _svru_h="${_svru_scheme}://<redacted>@${_svru_after##*@}"
+          ;;
+        *)
+          # No `@` and no `:` in the authority: the `@` is in the PATH (`/users/@handle`), which is
+          # legal and carries tell, so it is left alone.
+          : ;;
+      esac
+      ;;
+  esac
+  printf '%s' "$_svru_h"
+}
+
 # _served_verify_redirect_note <url>: the card's SECOND tell, as a DIAGNOSTIC.
 #
 # 🛑 BOTH PROBES BELOW USE `curl -L`, AND THE CARD SAYS "DROP -L SO THE 302 IS VISIBLE". Following
@@ -137,18 +190,8 @@ _served_verify_redirect_note() {
           ;;
         *) _svrn_head=$_svrn_target; _svrn_tail='' ;;
       esac
-      # USERINFO, on the head only, so a `@` inside a query or fragment is never touched. The `@`
-      # must precede the first `/` of the path, or it is part of the path and not userinfo.
-      case "$_svrn_head" in
-        *://*@*)
-          _svrn_scheme=${_svrn_head%%://*}
-          _svrn_hostpart=${_svrn_head#*://}
-          case "${_svrn_hostpart%%@*}" in
-            */*) : ;;
-            *) _svrn_head="${_svrn_scheme}://<redacted>@${_svrn_hostpart#*@}" ;;
-          esac
-          ;;
-      esac
+      # USERINFO, on the head only, so a `@` inside a query or fragment is never touched.
+      _svrn_head=$(_served_verify_redact_userinfo "$_svrn_head")
       _svrn_target="${_svrn_head}${_svrn_tail}"
       # ⚠️ RESIDUAL: printf stops the SHELL interpreting escapes, but raw control bytes already in
       # the header (an ESC colour sequence, say) still reach the terminal verbatim. Deploy log and

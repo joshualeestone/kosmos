@@ -584,6 +584,35 @@ case "$blind_msg" in
   *"MECHANISM: un-followed"*) fail "the redirect note fired on a host that did NOT redirect, so the note carries no information" ;;
   *) pass "CONTROL: no redirect claimed for a host that 200s directly" ;;
 esac
+# 🛑 THE ADVERSARIAL USERINFO SHAPES, DRIVEN DIRECTLY. They cannot be driven end-to-end: a
+# Location whose userinfo carries a raw `/` makes `curl -L` fail to connect, so the caller takes
+# the TRANSPORT branch and never reaches the note. That is exactly why the redaction was extracted
+# into a function. Each row is <input> <expected>; a row whose expectation is the input itself
+# asserts the redaction does NOT fire.
+_ui_fail=0
+_ui_check() {
+  _got=$(_served_verify_redact_userinfo "$1")
+  if [ "$_got" = "$2" ]; then return 0; fi
+  fail "userinfo redaction: for [$1] expected [$2] got [$_got]"
+  _ui_fail=1
+}
+_ui_check 'http://alice:SECRET@h.example/p'        'http://<redacted>@h.example/p'
+_ui_check 'http://user:pa/ss@h.example/p'          'http://<redacted>@h.example/p'
+_ui_check 'http://user@host@evil.example/p'        'http://<redacted>@evil.example/p'
+_ui_check 'http://user:pw@[2001:db8::1]:8080/p'    'http://<redacted>@[2001:db8::1]:8080/p'
+_ui_check 'http://h.example/users/@handle'         'http://h.example/users/@handle'
+_ui_check 'http://h.example/plain/path'            'http://h.example/plain/path'
+# an `@` in the AUTHORITY and another in the PATH: the authority's is the userinfo delimiter, so
+# the host survives and the path's `@` is untouched. This row is what distinguishes reading the
+# authority from scanning the whole head, and an earlier version got it wrong in silence.
+_ui_check 'http://a@b.example/c@d/e'               'http://<redacted>@b.example/c@d/e'
+_ui_check 'http://[2001:db8::1]:8080/p'            'http://[2001:db8::1]:8080/p'
+# the NAMED residual, asserted as it actually behaves rather than as I would like it to: a target
+# with BOTH a port AND an `@` in its path over-redacts and loses the host. Safe direction, and
+# pinned here so it cannot change silently in either direction.
+_ui_check 'http://h.example:8080/a/@b'             'http://<redacted>@b'
+[ "$_ui_fail" -eq 1 ] || pass "userinfo redaction handles a raw slash in userinfo, a doubled @, an IPv6 host, a path @, and the named over-redaction residual"
+
 u_msg=$(served_verify_asset_ok "$SSOUSER/dist/real.bin" "an asset behind a redirect carrying userinfo" 2>&1 >/dev/null)
 case "$u_msg" in
   *SECRETPASSWORD*)
@@ -1178,8 +1207,8 @@ if [ "$(printf '%s\n' "$_arm_code" | wc -l)" -ge "$(wc -l < "$0")" ]; then
   fail "the comment strip removed no lines from this file, so a comment mentioning the || fail idiom would be counted as an arm"
 fi
 _armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "')
-if [ "$_armsites" -ne 91 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 91. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+if [ "$_armsites" -ne 92 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 92. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi
