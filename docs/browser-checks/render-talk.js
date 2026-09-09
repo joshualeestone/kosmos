@@ -52,11 +52,8 @@ const { chromium } = require('playwright');
  * here is exactly the fixture that made six rounds of review pass against a
  * world that does not exist. This asks `status.snapshot()` for a card off this
  * machine and renames it, so the shape is whatever the board really serves.
- *
- * If the machine is running no agents there is no card, and the reopen check
- * SAYS SO rather than quietly not running.
  */
-function realCard() {
+function liveCard() {
   try {
     const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
     const board = status.snapshot();
@@ -65,6 +62,48 @@ function realCard() {
   } catch (err) {
     return null;
   }
+}
+
+/**
+ * #2519: the same card, RECORDED from the real producer, for a box with no agents.
+ *
+ * 🛑 THIS IS A CAPTURE, NOT A LITERAL, AND THE DIFFERENCE IS THE WHOLE POINT.
+ * `fixtures/agent-card.json` was produced by running the block above on a machine
+ * with live agents and neutralising only identifying STRING CONTENT (session,
+ * name, target, role, task, the evidence line, the profile ids). Every KEY and
+ * every TYPE is whatever `status.snapshot()` emitted. Nothing here was written by
+ * hand, which is what keeps it out of the class the comment above describes.
+ *
+ * ⚠️ A capture rots, and the guard against that is below in the reopen arm: on any
+ * box that HAS a live card, the two key sets are compared and a divergence is a
+ * FAIL. So the fixture is re-verified by every cut on a populated box, and the
+ * quiet box that needs it is the only one that cannot check it.
+ */
+function goldenCard() {
+  try {
+    const raw = fs.readFileSync(path.join(__dirname, 'fixtures', 'agent-card.json'), 'utf8');
+    const card = JSON.parse(raw);
+    if (!card || typeof card !== 'object' || Array.isArray(card)) return null;
+    return { ...card, sessionName: 'april', name: 'April', state: 'needs_you' };
+  } catch (err) {
+    return null;
+  }
+}
+
+/**
+ * The card the reopen arm drives, and WHERE IT CAME FROM.
+ *
+ * Returns `{ card, source }` rather than a bare card, deliberately: the caller has
+ * to be able to say which it used. A silent fallback would make a quiet box and a
+ * populated box print identical output while exercising different inputs, and this
+ * file has corrected that class three times already.
+ */
+function realCard() {
+  const live = liveCard();
+  if (live) return { card: live, source: 'live' };
+  const golden = goldenCard();
+  if (golden) return { card: golden, source: 'golden' };
+  return { card: null, source: 'none' };
 }
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
@@ -358,6 +397,9 @@ function unreachableStates() {
     ignoreDefaultArgs: ['--hide-scrollbars'],
   });
   const problems = unreachableStates();
+  /* #2519: findings that are NOT failures. Kept separate from `problems` so they
+     cannot reach the exit code or the gate's FAIL anchor. */
+  const notes = [];
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({
       viewport: { width: 1100, height: 900 },
@@ -943,9 +985,30 @@ function unreachableStates() {
       // opens an agent again, and its clear is where a cache can be left
       // speaking for markup that no longer exists. Clearing by hand here would
       // be testing this script's idea of the clear.
-      const card = realCard();
+      const { card, source: cardSource } = realCard();
+      if (cardSource === 'golden') {
+        // #2519: covered, but say so. A quiet box and a populated box must not print
+        // identical output while driving different inputs.
+        notes.push(`[${theme}] reopen: no live agent on this box, so the RECORDED card fixture drove the clear path`);
+      }
+      if (cardSource === 'live') {
+        /* 🛑 THE FIXTURE'S ANTI-ROT GUARD, and it can only run HERE. A recorded card
+           goes stale the moment status.snapshot() grows or drops a field, and the box
+           that NEEDS the fixture is precisely the one that cannot notice. So every box
+           that has a live card re-verifies the capture: same key set, or FAIL. */
+        const golden = goldenCard();
+        if (!golden) {
+          problems.push(`[${theme}] reopen: fixtures/agent-card.json is missing or unreadable, so a quiet box has no card at all`);
+        } else {
+          const liveKeys = Object.keys(card).sort().join(',');
+          const goldKeys = Object.keys(golden).sort().join(',');
+          if (liveKeys !== goldKeys) {
+            problems.push(`[${theme}] reopen: the recorded card fixture has drifted from status.snapshot(); re-capture it (live=${liveKeys}) (fixture=${goldKeys})`);
+          }
+        }
+      }
       if (!card) {
-        problems.push(`[${theme}] reopen: no real agent card on this machine, so the clear path is UNCHECKED`);
+        problems.push(`[${theme}] reopen: no agent card and no usable fixture, so the clear path is UNCHECKED`);
       } else {
         const reopened = await page.evaluate((c) => {
           try { window.__card = c; LAST = [c]; openDetail(c.sessionName); return true; }
@@ -982,7 +1045,7 @@ function unreachableStates() {
         return { before, after: document.getElementById('d-dmthread').textContent.slice(0, 40) };
       }, STATES['2-answered-placed']) : null;
       if (!threadAfterReopen) {
-        problems.push(`[${theme}] reopen: no real agent card on this machine, so the STRANDED-BOX path is UNCHECKED`);
+        problems.push(`[${theme}] reopen: no agent card and no usable fixture, so the STRANDED-BOX path is UNCHECKED`);
       } else if (threadAfterReopen.after !== threadAfterReopen.before) {
         problems.push(`[${theme}] reopen: the thread box is stranded after a reopen `
           + `(${JSON.stringify(threadAfterReopen.before)} -> ${JSON.stringify(threadAfterReopen.after)})`);
@@ -1730,6 +1793,14 @@ function unreachableStates() {
     await page.close();
   }
   await browser.close();
+  /* #2519: NOTES are not failures and must never read as one. The release gate
+     anchors on `^\s*(FAIL|✖)`, so these are printed on their own lines with a NOTE
+     prefix and take no part in the exit code. They exist so a reader can tell a run
+     that exercised the recorded fixture from one that had a live agent. */
+  if (notes.length) {
+    console.log('\n=== notes ===');
+    console.log(notes.map((n) => `  NOTE  ${n}`).join('\n'));
+  }
   console.log('\n=== problems ===');
   // Prefix each finding with FAIL at the PRINT site so the release gate's
   // anchored `grep -E '^\s*(FAIL|✖)|...'` can quote the reason (kosmos#1836).
