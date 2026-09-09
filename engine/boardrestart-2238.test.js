@@ -56,49 +56,62 @@ function printStub(pid, { keepalive = true } = {}) {
 // `kosmos restart` arm -- installedCli null means "not an installed board", so
 // these tests exercise ONLY the dev launchd path (no real install can leak in and
 // turn a fail-safe FALSE into a TRUE). The kosmos-path tests set it explicitly.
-test.beforeEach(() => { rmPlist(); board.setRunner(printStub(process.pid)); board.setInstalledCli(() => null); });
+/* #570: the darwin arm is now asked for BY NAME (`canSelfRestart('darwin')`),
+   and `setUid` stands in for `process.getuid`. Both are here because this suite
+   also runs on the fleet's WINDOWS box, where `process.getuid` does not exist --
+   so `loadedJob()` could never succeed and four assertions about a Mac-only
+   decision were red for a reason that had nothing to do with the decision.
+   Measured 2026-09-09: 4 failing before, 0 after, with no change to what any of
+   them asserts. Naming the platform is also this branch's own rule (a platform is
+   a parameter, never a bare `process.platform` read) applied to the reader. */
+test.beforeEach(() => {
+  rmPlist();
+  board.setRunner(printStub(process.pid));
+  board.setInstalledCli(() => null);
+  board.setUid(() => 501);
+});
 
 // ── the ONE happy path ──────────────────────────────────────────────────────
 test('canRestart TRUE only when: plist + unconditional KeepAlive + launchd runs THIS pid', () => {
   writePlist(KEEPALIVE_TRUE);
   board.setRunner(printStub(process.pid));
-  const r = board.canSelfRestart();
+  const r = board.canSelfRestart('darwin');
   assert.equal(r.canRestart, true, r.because);
 });
 
 // ── every fail-safe branch: each must be FALSE ──────────────────────────────
 test('FALSE: no plist (from-source / unmanaged board)', () => {
   rmPlist(); // no com.kosmos.board.plist at all
-  assert.equal(board.canSelfRestart().canRestart, false);
+  assert.equal(board.canSelfRestart('darwin').canRestart, false);
 });
 
 test('FALSE: plist present but no KeepAlive', () => {
   writePlist(NO_KEEPALIVE);
-  assert.equal(board.canSelfRestart().canRestart, false);
+  assert.equal(board.canSelfRestart('darwin').canRestart, false);
 });
 
 test('FALSE: CONDITIONAL KeepAlive (a dict) is not trusted to relaunch', () => {
   writePlist(KEEPALIVE_DICT);
-  assert.equal(board.canSelfRestart().canRestart, false);
+  assert.equal(board.canSelfRestart('darwin').canRestart, false);
 });
 
 test('FALSE: launchctl print fails (cannot confirm the job is loaded)', () => {
   writePlist(KEEPALIVE_TRUE);
   board.setRunner(() => ({ ok: false, because: 'no such service' }));
-  assert.equal(board.canSelfRestart().canRestart, false);
+  assert.equal(board.canSelfRestart('darwin').canRestart, false);
 });
 
 test('FALSE: launchctl print has no pid line (job not running / shape unknown)', () => {
   writePlist(KEEPALIVE_TRUE);
   board.setRunner((cmd, args) => (cmd === 'launchctl' && args[0] === 'print')
     ? { ok: true, stdout: 'com.kosmos.board = {\n\tstate = not running\n}' } : { ok: true, stdout: '' });
-  assert.equal(board.canSelfRestart().canRestart, false);
+  assert.equal(board.canSelfRestart('darwin').canRestart, false);
 });
 
 test('FALSE: the running pid is NOT this process (stopping it would not restart us)', () => {
   writePlist(KEEPALIVE_TRUE);
   board.setRunner(printStub(process.pid + 1)); // some other board process
-  assert.equal(board.canSelfRestart().canRestart, false);
+  assert.equal(board.canSelfRestart('darwin').canRestart, false);
 });
 
 test('FALSE: the LOADED job has no keepalive (disabled / reloaded away) even though the disk plist still says KeepAlive', () => {
@@ -107,7 +120,7 @@ test('FALSE: the LOADED job has no keepalive (disabled / reloaded away) even tho
   // -- a stop would not relaunch, so we must refuse (would otherwise brick).
   writePlist(KEEPALIVE_TRUE);
   board.setRunner(printStub(process.pid, { keepalive: false }));
-  assert.equal(board.canSelfRestart().canRestart, false, 'the loaded config, not the disk plist, decides whether a stop relaunches');
+  assert.equal(board.canSelfRestart('darwin').canRestart, false, 'the loaded config, not the disk plist, decides whether a stop relaunches');
 });
 
 // ── selfRestart obeys the guard ─────────────────────────────────────────────
@@ -115,7 +128,7 @@ test('selfRestart REFUSES (no stop issued) when canSelfRestart is false', () => 
   rmPlist();
   let stopped = false;
   board.setRunner((cmd, args) => { if (args && args[0] === 'stop') stopped = true; return { ok: true, stdout: '' }; });
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, false);
   assert.equal(stopped, false, 'a refused restart must never issue launchctl stop');
 });
@@ -128,7 +141,7 @@ test('selfRestart issues launchctl stop on the happy path', () => {
     if (args[0] === 'print') return { ok: true, stdout: `pid = ${process.pid}\n\tproperties = keepalive | runatload` };
     return { ok: true, stdout: '' };
   });
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, true, r.because);
   assert.ok(calls.some((c) => c.startsWith('stop ')), 'issued a launchctl stop');
 });
@@ -144,7 +157,7 @@ test('selfRestart falls back to the bare-label stop when the gui-domain form fai
     }
     return { ok: true, stdout: '' };
   });
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, true, r.because);
   assert.equal(stops.length, 2, 'tried gui-domain then bare label');
   assert.equal(stops[1], 'com.kosmos.board');
@@ -159,7 +172,7 @@ test('selfRestart falls back to the bare-label stop when the gui-domain form fai
 test('kosmos path: canRestart TRUE via kosmos when installed, even with NO KeepAlive', () => {
   writePlist(NO_KEEPALIVE);           // the installed board's real plist shape
   board.setInstalledCli(() => '/home/bin/kosmos');
-  const r = board.canSelfRestart();
+  const r = board.canSelfRestart('darwin');
   assert.equal(r.canRestart, true, r.because);
   assert.equal(r.via, 'kosmos');
   assert.equal(r.cli, '/home/bin/kosmos');
@@ -168,7 +181,7 @@ test('kosmos path: canRestart TRUE via kosmos when installed, even with NO KeepA
 test('kosmos path: canRestart TRUE via kosmos even with NO plist at all', () => {
   rmPlist();
   board.setInstalledCli(() => '/home/bin/kosmos');
-  const r = board.canSelfRestart();
+  const r = board.canSelfRestart('darwin');
   assert.equal(r.canRestart, true, r.because);
   assert.equal(r.via, 'kosmos');
 });
@@ -178,7 +191,7 @@ test('launchctl WINS over kosmos when the dev KeepAlive job is viable', () => {
   writePlist(KEEPALIVE_TRUE);
   board.setRunner(printStub(process.pid));
   board.setInstalledCli(() => '/home/bin/kosmos');
-  const r = board.canSelfRestart();
+  const r = board.canSelfRestart('darwin');
   assert.equal(r.canRestart, true, r.because);
   assert.equal(r.via, 'launchctl');
 });
@@ -186,7 +199,7 @@ test('launchctl WINS over kosmos when the dev KeepAlive job is viable', () => {
 test('FALSE: not installed AND not a KeepAlive job (from-source node server.js) -> manual', () => {
   rmPlist();
   board.setInstalledCli(() => null);  // clipath returns null for a from-source board
-  const r = board.canSelfRestart();
+  const r = board.canSelfRestart('darwin');
   assert.equal(r.canRestart, false);
   assert.match(r.because, /from-source|by hand/i);
 });
@@ -199,7 +212,7 @@ test('selfRestart via kosmos spawns a DETACHED `kosmos restart`, unref\'d, and N
   let spawned = null;
   let unrefd = false;
   board.setSpawner((cmd, args, opts) => { spawned = { cmd, args, opts }; return { unref() { unrefd = true; } }; });
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, true, r.because);
   assert.equal(stopped, false, 'the kosmos path must never issue launchctl stop (would target an exited login job)');
   assert.ok(spawned, 'spawned a child');
@@ -219,7 +232,7 @@ test('selfRestart via kosmos STRIPS the world-override env (a switch to default 
   process.env.KOSMOS_HOME = '/keep/me';   // a non-world var must survive
   let spawned = null;
   board.setSpawner((cmd, args, opts) => { spawned = { cmd, args, opts }; return { unref() {} }; });
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, true, r.because);
   assert.equal(spawned.opts.env.AGENT_WORKFORCE_DATA, undefined, 'stripped -> fresh board re-derives from the registry');
   assert.equal(spawned.opts.env.AGENT_WORKFORCE_PROJECTS, undefined);
@@ -233,7 +246,7 @@ test('selfRestart via kosmos reports a SYNCHRONOUS spawn throw instead of throwi
   writePlist(NO_KEEPALIVE);
   board.setInstalledCli(() => '/home/bin/kosmos');
   board.setSpawner(() => { throw new Error('EAGAIN'); });
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, false);
   assert.match(r.because, /EAGAIN|could not start/i);
 });
@@ -248,7 +261,7 @@ test('selfRestart via kosmos attaches an ASYNC error handler -- a real spawn err
   const handlers = {};
   const child = { on(ev, fn) { handlers[ev] = fn; }, unref() {} };
   board.setSpawner(() => child);
-  const r = board.selfRestart();
+  const r = board.selfRestart('darwin');
   assert.equal(r.ok, true, r.because);   // the spawn was issued; async outcome is observed by the client reconnect
   assert.equal(typeof handlers.error, 'function', 'an \'error\' listener must be attached the moment the child exists');
   // Firing the async spawn failure must NOT throw (it would be an uncaught exception -> board crash).

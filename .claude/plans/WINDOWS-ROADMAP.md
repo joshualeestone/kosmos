@@ -198,11 +198,15 @@ manifest), and `win32anchor` already provides the updater's most important tool 
 a durable `node.exe` OUTSIDE the extract tree, so the swapper never runs on the
 interpreter it is replacing.
 
-What is genuinely hard: there is nothing to restart the board with (no `bin\kosmos`,
-no board-level task — see BLOCKER 4, and the two are really one problem); a running
-image cannot be overwritten, though it CAN be renamed, which is the whole trick;
-and there is no canonical install location, because the bundle is a portable zip
-extracted into a versioned folder wherever the person chose.
+What is genuinely hard: ~~there is nothing to restart the board with~~ — **that
+half landed 2026-09-09 with BLOCKER 4.** `engine/win32board.js` gives the updater
+the stop-and-start it needs (`restart()`, end → wait → run, driven from a detached
+helper), and the anchor's shared `engine-path` pointer means a swap moves the
+board and every agent onto the new app with ONE write rather than N
+re-registrations. What remains: a running image cannot be overwritten, though it
+CAN be renamed, which is the whole trick; and there is no canonical install
+location, because the bundle is a portable zip extracted into a versioned folder
+wherever the person chose.
 
     A  refuse honestly                         DONE. Windows updates by hand, forever
     B  sidecar swap driven from the anchor      ~3-4 slices  <- recommended next
@@ -245,10 +249,12 @@ and a screen calling it broken.
 
 ### Also degraded, lower priority
 
-- `engine/boardrestart.js` — no win32 arm anywhere; switching a world always
-  falls back to "restart it by hand". Fails honestly. Needs a Windows
-  equivalent of the launchctl/CLI restart, and there may not be a `bin\kosmos`
-  wrapper to build one on — that is an open question.
+- ~~`engine/boardrestart.js` — no win32 arm anywhere~~ **DONE 2026-09-09.** It has
+  one, built on the board's own logon task rather than on a CLI. The open
+  question is answered and the answer is no: the Windows bundle ships no
+  `bin\kosmos` of any spelling, so `installedKosmosCli()` is null there BY
+  CONSTRUCTION — a true negative, now documented in `clipath.js`, that routes to
+  a real mechanism instead of a dead end. See §3c.
 - `engine/terminal.js` — "open the agent's terminal" shells `osascript`. Fails
   honestly with a raw ENOENT sentence. Consistent with 7c: there is no pty to
   attach to, so this may simply not exist on Windows.
@@ -315,6 +321,64 @@ window kills the board. Together: the board is easy to lose and does not come
 back on its own.
 
 FAILS SILENTLY, which is what makes it a blocker rather than an annoyance.
+
+#### CLOSED 2026-09-09 — `engine/win32board.js`, and it closes half of BLOCKER 2
+
+The board now has the thing the agents already had: an at-logon Scheduled Task,
+`Kosmos\board`, registered from XML naming the current user. Same folder as the
+agent tasks so one place in Task Scheduler shows everything Kosmos registered;
+a different prefix, so nothing that lists `Kosmos\agent-` can mistake the board
+for a nineteenth agent. Registered by the board's own first run (`server.js`'s
+run-directly block) because a portable zip has no install step — the Mac gets
+this from `setup.sh`, which Windows does not have.
+
+🔑 THE THREE THINGS THAT WERE MEASURED, because two of them were surprises.
+
+    module.runMain shim   process.argv[1] rewritten, runMain() called; the target
+                          sees require.main === module, its own __filename and the
+                          argv tail. So server.js boots as ITSELF, in ONE process
+    StopExisting          🛑 REFUTED. The obvious one-call restart policy left NO
+                          BOARD AT ALL: the new instance starts while the old one
+                          still holds the port, dies on EADDRINUSE, and the old one
+                          is stopped anyway. Two boards was the expected hazard;
+                          zero boards is what it actually produced
+    IgnoreNew             correct, and `/Run` against a running task starts nothing
+                          — while still reporting SUCCESS, so no caller may read
+                          that exit code as proof a board started
+
+⚠️ SO THE RESTART IS END → WAIT → RUN, AND THE WAIT IS LOAD-BEARING. After
+`/End` the port stayed bound about a second. The sequence cannot run in the board
+(its first step kills it), so `win32board.restart()` spawns a detached helper —
+the shape `boardrestart.kosmosRestart` already uses for #2454's installed Mac
+board. Proven end to end on this box against the real scheduler with a stand-in
+payload: register, run, board up with the marker stamped, restart at 2.15s, new
+pid, exactly one listener, task deleted. The single-instance guarantee is
+server.js's own port bind, which this respects rather than duplicates.
+
+🔑 AND THE BOARD KNOWS WHETHER IT IS THE TASK'S BOARD. The shim stamps
+`KOSMOS_WIN32_BOARD_TASK`; that is the win32 analog of the Mac asking launchd
+whether the running pid IS `com.kosmos.board`. Without it, `/End` would stop
+nothing and `/Run` would start a second board that dies on the port — a restart
+that reported success and did nothing. `engine/boardrestart.js` now has a win32
+arm gated on exactly that, and `canSelfRestart(platform)` / `selfRestart(platform)`
+take the platform as a parameter.
+
+📌 IT REFRESHES, IT DOES NOT RE-IMPOSE. Five states, two of which write. A task
+the person switched off or deleted is LEFT that way and reported — the posture
+`machine.js` already takes toward a disabled login item. A claim file records
+that Kosmos registered once, so a deletion is respected rather than undone at the
+next boot. A from-source checkout registers nothing at all.
+
+📌 AND SETTINGS NOW RAISES THE SUBJECT. `machine.boardAutostartCheck` returned
+null off-darwin, so `check()` filtered the row away and no Windows board ever
+mentioned that it would not come back. It has a win32 arm: missing / switched off
+/ in place, each naming the task and how to remove it.
+
+STILL OWED HERE: the console window. A task-launched board has no visible window
+(measured: `MainWindowHandle` 0), which is right for a logon — but it also means
+the board's stdout goes nowhere, so the registration sentence printed at boot is
+seen only by somebody who started Kosmos from a console. And `KosmosLauncher.cs`
+is unchanged, so a hand-started board still dies with its window.
 
 ### Also found (DEGRADED), and it is waiting under BLOCKER 1
 
