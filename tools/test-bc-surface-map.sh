@@ -43,16 +43,30 @@ else
   fail "covering did not name render-subprojects-1994.js for a pj-parent change"
 fi
 
-# 3. AGREEMENT with the gate: the same pj-parent change that covering names is exactly what the
-#    gate REFUSES (no check updated). Cross-checks the two share the map + match (no drift).
+# 3. AGREEMENT with the gate (no-update case): the same pj-parent change covering names is the
+#    check the gate REFUSES when NO check was updated. Cross-checks the shared map + match (no drift).
 gate_rc=0
 ( . "$HERE/lib/browser-check-surface-gate.sh" \
     && KOSMOS_BCSG_WEBDIFF="$TMP/wd-parent" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
        kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc=$?
 if [ "$gate_rc" -ne 0 ] && printf '%s\n' "$cov" | grep -qx "render-subprojects-1994.js"; then
-  pass "covering agrees with the gate: the gate refuses (rc=$gate_rc) exactly the check covering names"
+  pass "no-update case: covering names render-subprojects-1994.js and the gate refuses it (rc=$gate_rc)"
 else
-  fail "covering/gate disagree on the pj-parent change (gate rc=$gate_rc)"
+  fail "covering/gate disagree on the pj-parent change with no update (gate rc=$gate_rc)"
+fi
+
+# 3b. SUPERSET semantics (the WARNING lock): covering is COVERAGE, not a staleness verdict. When
+#     the covering check IS updated on the branch, the gate passes (rc=0, not stale) but covering
+#     STILL names the check -- so a consumer must not read covering as "will red at the cut".
+gate_rc2=0
+printf 'M\tdocs/browser-checks/render-subprojects-1994.js\n' > "$TMP/files-updated"
+( . "$HERE/lib/browser-check-surface-gate.sh" \
+    && KOSMOS_BCSG_WEBDIFF="$TMP/wd-parent" KOSMOS_BCG_FILES="$TMP/files-updated" KOSMOS_BCG_MSGS="/dev/null" \
+       kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc2=$?
+if [ "$gate_rc2" -eq 0 ] && printf '%s\n' "$cov" | grep -qx "render-subprojects-1994.js"; then
+  pass "superset: with the check UPDATED the gate passes (rc=0) yet covering still names it (coverage, not verdict)"
+else
+  fail "superset semantics broken (gate rc=$gate_rc2; covering should still name the covered check)"
 fi
 
 # 4. boundary: pj-parenthetical (substring superset) is NOT covered.

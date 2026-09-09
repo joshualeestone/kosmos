@@ -34,8 +34,14 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
 ## Output contract (frozen, for Baron)
 
 - `map`: `<check-basename>\t<tokens>` per line. tokens space-separated.
-- `covering`: `<check-basename>` per line, one per covering check, sorted-unique. Empty = nothing covered.
-- Both read `docs/browser-checks/*.js` `// Browser-check-surface:` annotations as the source of truth.
+- `covering`: `<check-basename>` per line, one per COVERING check, sorted-unique. Empty = nothing covered.
+  🛑 COVERAGE, not a staleness verdict: covering is a SUPERSET of what the gate flags stale -- it names
+  every check that EXERCISES a changed surface, by token presence only; the gate additionally skips a
+  check that was updated on the branch or per-check-overridden. A consumer must not read covering as
+  "these WILL red at the cut"; read it as "these cover what you changed, ensure each is updated/overridden."
+- Both read `docs/browser-checks/*.js` `// Browser-check-surface:` annotations as the source of truth,
+  with the SAME whole-token boundary match, so covering never disagrees with the gate about WHICH checks
+  cover a surface (only about the gate's extra updated/override filtering).
 
 ## Acceptance
 

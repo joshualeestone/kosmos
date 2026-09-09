@@ -12,8 +12,18 @@
 #       -> `<check-basename><TAB><space-separated tokens>` for every annotated check.
 #   tools/bc-surface-map.sh covering [dir]   (reads stdin)
 #       stdin = a web/index.html unified diff, OR a newline/space-separated list of changed
-#       DOM ids/tokens. Prints the covering cut-checks (one basename per line, sorted-unique)
-#       whose declared tokens appear (whole-token) in the changed content. Empty = none.
+#       DOM ids/tokens. Prints the cut-checks that COVER the changed surfaces (one basename per
+#       line, sorted-unique) -- i.e. whose declared tokens appear (whole-token) in the changed
+#       content. Empty = nothing covered.
+#
+# 🛑 COVERAGE, NOT A STALENESS VERDICT. `covering` answers "which checks EXERCISE these changed
+# surfaces", by token presence only. It is a SUPERSET of "checks the gate would flag stale":
+# the gate ADDITIONALLY skips a check that was updated on the branch OR carries a per-check
+# `Browser-check-surface: <check> <reason>` override. So do NOT read `covering` output as "these
+# WILL red at the cut" -- read it as "these checks cover what you changed; make sure each is
+# updated or consciously overridden." The map + the whole-token match are shared byte-for-byte
+# with the gate, so `covering` and the gate never disagree about WHICH checks cover a surface;
+# they differ only in the gate's extra updated/override filtering.
 #
 # Contract for the consumer: exit 0 always on a readable map (a query is not a failure); the
 # covering list is the payload. Fail-soft: a missing checks dir yields an empty map.
