@@ -28,20 +28,37 @@
 # _served_verify_redirect_note <url>: the card's SECOND tell, as a DIAGNOSTIC.
 #
 # 🛑 BOTH PROBES BELOW USE `curl -L`, AND THE CARD SAYS "DROP -L SO THE 302 IS VISIBLE". Following
-# the redirect does NOT make the guard miss: the SSO page's 200 still trips the negative control and
-# its text/html still trips the asset tell, which is why the verdicts above are correct as written.
-# What -L costs is the REASON. An operator reading "returned 200 for a path that cannot exist" is
-# told the symptom and not the mechanism, and the mechanism is the whole point of #1667: the host
-# 302s to vercel.com/sso-api, and that login page answers 200 to every path.
+# the redirect does not make the PAIR of checks miss the #1667 shape, because the SSO landing page
+# answers 200 with text/html and both tells fire on that. ⚠️ SCOPE, because the sentence was
+# broader than the code once already: that holds for a landing page carrying text/html, and it
+# holds for the two functions used TOGETHER as tools/deploy-site.sh uses them. On its own,
+# served_verify_asset_ok is still fooled by a redirect to a 200 carrying a NON-html type, which is
+# reachable for /setup (it legitimately expects text/plain).
+# What -L costs even where the verdict is right is the REASON: an operator reads "returned 200 for
+# a path that cannot exist" and is told the symptom, never the mechanism, which is the whole point
+# of #1667.
 #
-# So the un-followed status is fetched ONLY on the failure path, where one extra request is free,
-# and appended to the message when it is a redirect. A transport failure here yields no note rather
-# than a second error: this is a diagnostic, and it must never change a verdict the caller already
-# reached. Empty output on any doubt.
+# 🛑 REPORT WHAT WAS OBSERVED, NOT WHAT IT PROBABLY MEANS. An earlier version of this note fired on
+# ANY 3xx and then asserted "that is the auth-redirect shape from the card: the login page it lands
+# on answers 200 to every path". The code never read Location, never looked at the target, and never
+# saw a login page. An http-to-https upgrade, an apex-to-www redirect and an SPA rewrite all produce
+# that byte-identical claim, so at a deploy refusal the operator was told SSO when the cause might
+# be routing. The discriminating datum is free in the same request, so the note now PRINTS THE
+# TARGET and leaves the interpretation open.
+#
+# It runs ONLY on a failure path, where one extra request is free and something is already wrong. A
+# transport failure yields no note rather than a second error: a diagnostic must never change a
+# verdict the caller already reached, so every path here returns 0 and prints nothing on doubt.
+# Same headers as the real probes, or it could describe a response the verdict was not based on.
 _served_verify_redirect_note() {
-  _svrn_first=$(curl -sS --connect-timeout 10 --max-time 30 -o /dev/null -w '%{http_code}' "$1" 2>/dev/null) || return 0
-  case "$_svrn_first" in
-    3??) printf ' MECHANISM: it reached that 200 by REDIRECT (%s before -L). That is the auth-redirect shape from the card: the login page it lands on answers 200 to every path, so the status carries no information about your asset.' "$_svrn_first" ;;
+  _svrn_out=$(curl -sS --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$1" 2>/dev/null) || return 0
+  _svrn_code=${_svrn_out%% *}
+  _svrn_target=${_svrn_out#* }
+  case "$_svrn_code" in
+    3??)
+      [ -n "$_svrn_target" ] || _svrn_target='(no Location reported)'
+      printf ' MECHANISM: un-followed, this URL answers %s and redirects to %s. Judge that target: an auth/login page answers 200 to every path (the #1667 shape), and a catch-all route or SPA rewrite produces the same blindness for a different reason. Either way the status carries no information about your asset.' "$_svrn_code" "$_svrn_target"
+      ;;
     *) : ;;
   esac
 }
@@ -80,7 +97,7 @@ served_verify_asset_ok() {
   _svao_code=${_svao_hdr%% *}
   _svao_ct=${_svao_hdr#* }
   if [ "$_svao_code" != "200" ]; then
-    echo "served-verify: ${_svao_label} is NOT served (${_svao_code}) -- ${_svao_url}" >&2
+    echo "served-verify: ${_svao_label} is NOT served (${_svao_code}) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
     return 1
   fi
   # #1667 tell: a real asset carries a content-type, and it is never an html page. Media types are
@@ -91,7 +108,7 @@ served_verify_asset_ok() {
   _svao_ct_lc=$(printf '%s' "$_svao_ct" | tr '[:upper:]' '[:lower:]')
   case "$_svao_ct_lc" in
     '')
-      echo "served-verify: ${_svao_label} returned 200 but with NO content-type -- cannot confirm it is a real asset, not a page (#1667) -- ${_svao_url}" >&2
+      echo "served-verify: ${_svao_label} returned 200 but with NO content-type -- cannot confirm it is a real asset, not a page (#1667) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
       return 1
       ;;
     *text/html*)

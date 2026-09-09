@@ -4,13 +4,24 @@
 # reddened is worthless.
 #
 # It sources the SAME lib deploy-site.sh sources (not a copy) and drives it against a local server
-# with three behaviours:
+# with FOUR behaviours:
 #   /discriminating/...  a sound host: /dist/real.bin -> 200 octet-stream, /setup -> 200 text/plain,
 #                        /dist/htmlpage.bin -> 200 text/html, anything else -> 404.
-#   /blind/...           the #1667 SSO shape: EVERY path -> 200 text/html (April's measured failure).
+#   /blind/...           the CONSEQUENCE, flattened: EVERY path -> 200 text/html, no redirect.
+#   /sso/... + /ssologin the MECHANISM April measured: every /sso/ path 302s to /ssologin, which
+#                        then answers 200 text/html to anything reaching it.
 #
-# Positive arms confirm the sound host passes; the two RED-CAPABLE arms confirm the blind host and an
-# html-200 asset are caught. If either red arm passed, the guard would be an unarmed one.
+# 🛑 /blind/ AND /sso/ ARE NOT REDUNDANT, and an earlier version of this header said /blind/ WAS
+# "the #1667 SSO shape (April's measured failure)", which contradicted the comment fifty lines below
+# and would tell a reader the /sso/ arms add nothing. They differ in the thing that matters: /blind/
+# skips the transport, so it cannot catch a guard that mishandles the redirect itself, and /sso/ is
+# flip-sensitive to -L where /blind/ is not (measured: dropping -L turns the /sso/ host arm from
+# rc=1 into rc=0, declaring a blind host sound).
+#
+# Positive arms confirm the sound host passes. The RED-CAPABLE arms confirm the blind host, the SSO
+# host, an html-200 asset, a mixed-case Text/HTML, a 200 with no content-type, a 404 asset, and an
+# asset behind the redirect are all caught. Several arms assert the MESSAGE rather than the return
+# code, because rc alone cannot see which route produced it.
 #
 #   bash tools/test-served-verify.sh
 set -u
@@ -142,14 +153,26 @@ check_rc "$rc" 1 "SSO-REDIRECT host: negative control CATCHES a 302-to-a-login-p
 # the 302 has to be visible. Without it an operator reads "200 for a path that cannot exist" and
 # cannot tell an auth redirect from a catch-all route.
 sso_msg=$(served_verify_host_discriminates "$SSO" 2>&1 >/dev/null)
+# Match the STATUS and the TARGET too, not just the prefix: a note printing "(999 before -L)" or
+# naming no target would have passed a prefix-only match while telling the operator nothing.
 case "$sso_msg" in
-  *"MECHANISM: it reached that 200 by REDIRECT"*) pass "the refusal NAMES the redirect mechanism, not just the 200" ;;
-  *) fail "the refusal does not name the redirect mechanism; the operator is told the symptom only. Got: $sso_msg" ;;
+  *"MECHANISM: un-followed, this URL answers 302 and redirects to"*"/ssologin"*)
+    pass "the refusal names the redirect, its STATUS and its TARGET" ;;
+  *) fail "the refusal does not name the redirect status and target; the operator is told the symptom only. Got: $sso_msg" ;;
+esac
+# 🛑 AND IT MUST NOT DIAGNOSE WHAT IT DID NOT OBSERVE. The first version asserted the target was an
+# auth/login page for ANY 3xx, without ever reading Location: an http-to-https upgrade or an
+# apex-to-www redirect produced the same claim. The note may describe the target; it may not
+# conclude what the target IS.
+case "$sso_msg" in
+  *"That is the auth-redirect shape"*)
+    fail "the note asserts an auth-redirect diagnosis it never established (it does not read the target)" ;;
+  *) pass "CONTROL: the note reports the redirect without concluding it is an auth page" ;;
 esac
 # CONTROL: the flattened blind host reaches its 200 WITHOUT a redirect, so it must NOT claim one.
 blind_msg=$(served_verify_host_discriminates "$BLIND" 2>&1 >/dev/null)
 case "$blind_msg" in
-  *"MECHANISM: it reached that 200 by REDIRECT"*) fail "the redirect note fired on a host that did NOT redirect, so the note carries no information" ;;
+  *"MECHANISM: un-followed"*) fail "the redirect note fired on a host that did NOT redirect, so the note carries no information" ;;
   *) pass "CONTROL: no redirect claimed for a host that 200s directly" ;;
 esac
 
@@ -177,8 +200,23 @@ check_rc "$rc" 1 "a 404 asset is caught (not served)"
 
 # RED-CAPABLE: an asset fetched THROUGH the redirect. curl -L lands on the login page, which is a
 # 200 carrying text/html, so the content-type tell must catch it on the real mechanism too.
-served_verify_asset_ok "$SSO/dist/real.bin" "an asset behind an SSO redirect" >/dev/null 2>&1; rc=$?
+# 🛑 ASSERT THE MESSAGE, NOT THE RC. `rc=1` here is reachable by TWO different routes: with -L the
+# landing page's text/html trips the content-type tell, and WITHOUT -L the bare 302 trips the
+# not-a-200 branch. Measured both ways, both rc=1. So an rc-only arm cannot see the transport
+# property its own label names, and would have passed on a guard that never reached the landing
+# page at all. The message is what discriminates.
+sso_asset_msg=$(served_verify_asset_ok "$SSO/dist/real.bin" "an asset behind an SSO redirect" 2>&1 >/dev/null); rc=$?
 check_rc "$rc" 1 "CATCHES an asset URL that 302s to a login page 200ing text/html (the measured mechanism)"
+case "$sso_asset_msg" in
+  *"content-type is 'text/html"*) pass "the asset refusal reached the LANDING PAGE and judged its content-type (not the bare 302)" ;;
+  *) fail "the asset refusal did not judge the landing page's content-type, so the arm cannot tell -L from no -L. Got: $sso_asset_msg" ;;
+esac
+# The note's SECOND call site: without this, deleting it from served_verify_asset_ok leaves the
+# whole suite green. Measured: it did.
+case "$sso_asset_msg" in
+  *"MECHANISM: un-followed"*) pass "served_verify_asset_ok's refusal also names the mechanism" ;;
+  *) fail "served_verify_asset_ok's refusal does not name the mechanism; that call site is uncovered. Got: $sso_asset_msg" ;;
+esac
 
 echo ""
 if [ "$fails" -eq 0 ]; then
