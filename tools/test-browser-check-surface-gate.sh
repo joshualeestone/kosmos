@@ -42,6 +42,8 @@ printf '%s\n' 'diff --git a/web/index.html b/web/index.html' '--- a/web/index.ht
 printf 'M\tdocs/browser-checks/render-subprojects-1994.js\n' > "$TMP/files-updated"   # the check IS updated
 : > "$TMP/msgs-none"
 printf 'fix subprojects layout\n\nBrowser-check-surface: render-subprojects-1994.js the ancestry line is copy-only here\n' > "$TMP/msgs-override"
+# Mixed-case key: the override must be recognized case-insensitively (sibling convention).
+printf 'fix subprojects layout\n\nbrowser-check-Surface: render-subprojects-1994.js copy only\n' > "$TMP/msgs-override-mixedcase"
 printf 'fix subprojects layout\n\nBrowser-check: deferring the check to the cut\n' > "$TMP/msgs-blanket"
 
 # 1. RED: a mapped token changed, the check not updated, no override -> REFUSE (exit 1).
@@ -73,6 +75,13 @@ else
   pass "still refused under a blanket Browser-check: trailer (the #2498 precision)"
 fi
 
+# 3b. PASS: the per-check override key is case-insensitive (matching the sibling gate).
+if run_gate "$TMP/webdiff-parent" "$TMP/files-none" "$TMP/msgs-override-mixedcase"; then
+  pass "allowed: a mixed-case 'browser-check-Surface:' override is recognized (case-insensitive)"
+else
+  fail "the override key must be case-insensitive, like the sibling coarse gate"
+fi
+
 # 4b. PASS: a compound identifier merely CONTAINING a mapped token as a substring must
 #     NOT fire (whole-token boundary match), or the gate nags every unrelated edit.
 if run_gate "$TMP/webdiff-substr" "$TMP/files-none" "$TMP/msgs-none"; then
@@ -100,6 +109,37 @@ if run_gate "$TMP/does-not-exist" "$TMP/files-none" "$TMP/msgs-none"; then
   pass "fail-soft: an empty/unreadable web diff returns 0"
 else
   fail "an unreadable web diff must fail soft (return 0)"
+fi
+
+# 8. REAL fail-soft: with NO seams, in a non-git dir, the git diff of web/index.html FAILS
+#    -> the gate must return 0 AND emit its "could not diff" diagnostic (a silent skip is
+#    indistinguishable from a clean pass -- the hazard the gate exists to avoid). Arm 7
+#    only reaches the empty-content return; this reaches the git-failure branch + its stderr.
+mkdir -p "$TMP/nongit"
+serr="$( ( cd "$TMP/nongit" && unset KOSMOS_BCSG_WEBDIFF KOSMOS_BCG_FILES KOSMOS_BCG_MSGS KOSMOS_BCSG_DIR; kosmos_browser_check_surface_gate ) 2>&1 )"
+rc=$?
+if [ "$rc" -eq 0 ] && printf '%s' "$serr" | grep -q "could not diff"; then
+  pass "fail-soft (real git-diff failure): returns 0 AND says so, not a silent skip"
+else
+  fail "the git-diff-failure fail-soft must return 0 and emit its diagnostic (rc=$rc)"
+fi
+
+# 9. SELF-DEFENDING zsh arm: source the lib into zsh and reproduce the refuse path on a
+#    MULTI-token check (alltasks-count is render-alltasks's 3rd declared token). If either
+#    zsh fix (find+while-read for the check glob, tr+while-read for the token split) were
+#    reverted, this would ALLOW under zsh and red here -- the bash-only suite cannot see that.
+if command -v zsh >/dev/null 2>&1; then
+  printf '%s\n' '--- a/web/index.html' '+++ b/web/index.html' '@@ -1 +1 @@' \
+    '-  <b id="alltasks-count">3</b>' '+  <b id="alltasks-count">4</b>' > "$TMP/wd-zsh"
+  : > "$TMP/f-zsh"; : > "$TMP/m-zsh"
+  BCDIR_ABS="$(cd "$HERE/.." && pwd)/docs/browser-checks"
+  if zsh -c ". \"$HERE/lib/browser-check-surface-gate.sh\" && KOSMOS_BCSG_WEBDIFF=\"$TMP/wd-zsh\" KOSMOS_BCG_FILES=\"$TMP/f-zsh\" KOSMOS_BCG_MSGS=\"$TMP/m-zsh\" KOSMOS_BCSG_DIR=\"$BCDIR_ABS\" kosmos_browser_check_surface_gate" >/dev/null 2>&1; then
+    fail "zsh: a multi-token surface change was ALLOWED (a zsh word-split/glob regression)"
+  else
+    pass "zsh: multi-token refuse reproduces under zsh (self-defends the zsh-safety fixes)"
+  fi
+else
+  echo "SKIP  zsh not available for the self-defending zsh arm"
 fi
 
 echo "browser-check surface gate: $fails FAILED"

@@ -40,7 +40,7 @@ kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
   local base bcdir files msgs webdiff changed tab
-  local ann ann_list toks tok esc_tok basename_chk viol reason
+  local ann ann_list toks tok esc_tok basename_chk esc_base viol reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
   tab="$(printf '\t')"
@@ -83,7 +83,9 @@ kosmos_browser_check_surface_gate() {
   ann_list="$(find "$bcdir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
   while IFS= read -r ann; do
     [ -n "$ann" ] || continue
-    toks="$(sed -n 's|^[[:space:]]*//[[:space:]]*[Bb]rowser-check-surface:[[:space:]]*\(.*\)$|\1|p' "$ann" | head -1)"
+    # The key is case-insensitive, matching the sibling coarse gate's convention. macOS
+    # sed has no portable /I flag, so spell the class out (as browser-check-gate.sh does).
+    toks="$(sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$ann" | head -1)"
     [ -n "$toks" ] || continue                     # unannotated: coarse gate handles it
     basename_chk="${ann##*/}"                       # e.g. render-subprojects-1994.js
 
@@ -91,8 +93,11 @@ kosmos_browser_check_surface_gate() {
     if printf '%s\n' "$files" | grep -qE "^[AM][^${tab}]*${tab}${bcdir}/${basename_chk}$" 2>/dev/null; then
       continue
     fi
-    # A per-check named override with a non-empty reason excuses THIS check only.
-    reason="$(printf '%s\n' "$msgs" | sed -n "s|^[Bb]rowser-check-surface:[[:space:]]*${basename_chk}[[:space:]]\{1,\}\(.*[^[:space:]].*\)$|\1|p" | head -1)"
+    # A per-check named override with a non-empty reason excuses THIS check only. The key
+    # is case-insensitive (sibling convention); the basename is escaped so its literal `.`
+    # is not a BRE any-char (never restrictive, but hygiene, matching the token escaping).
+    esc_base="$(printf '%s' "$basename_chk" | sed 's/[][\\.^$*]/\\&/g')"
+    reason="$(printf '%s\n' "$msgs" | sed -n "s|^[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*${esc_base}[[:space:]]\{1,\}\(.*[^[:space:]].*\)\$|\1|p" | head -1)"
     if [ -n "$reason" ]; then
       echo "browser-check surface gate: ${basename_chk} surface change overridden -- $reason"
       continue
