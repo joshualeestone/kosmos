@@ -120,7 +120,7 @@ main() {
     map)      _bcm_map "$dir" ;;
     covering) _bcm_covering "$dir" ;;
     *)
-      echo "usage: bc-surface-map.sh map [dir]                     # <check>\\t<tokens> lines" >&2
+      echo "usage: bc-surface-map.sh map [dir]                     # <check><TAB><tokens> lines" >&2
       echo "       bc-surface-map.sh covering [dir]  < web-diff     # covering checks for changed surfaces" >&2
       return 2 ;;
   esac
