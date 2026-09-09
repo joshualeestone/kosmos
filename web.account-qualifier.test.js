@@ -97,12 +97,13 @@ test('control: the extracted function discriminates in both directions', () => {
    email land in the same group and BOTH used to take 'main'. #2584 gave the
    OpenAI default a reauth button, so the two controls then answered to one
    accessible name ("Sign in again as <email> (main)") -- the exact 3b browser
-   check that red'd. This is the on-this-box fixture: josh@book.io on ~/.claude
-   (Claude default) and ~/.codex (OpenAI default). The qualifier must keep them
-   distinct. Reds on the pre-fix page (both get 'main'). */
+   check that red'd. This mirrors the real condition that produced it: one email
+   with a Claude default in ~/.claude and an OpenAI ChatGPT default in ~/.codex.
+   The qualifier must keep them distinct. Reds on the pre-fix page (both get
+   'main'). */
 test('two defaults sharing a login are named distinctly (cross-provider default collision)', () => {
-  const claudeDefault = { provider: 'anthropic', email: 'josh@book.io', dir: '/Users/x/.claude', label: null, isDefault: true };
-  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'josh@book.io', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
   const q = qualifiers([claudeDefault, openaiDefault]);
   const a = q.get(claudeDefault.dir);
   const b = q.get(openaiDefault.dir);

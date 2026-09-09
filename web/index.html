@@ -15864,8 +15864,8 @@ function accountQualifiers(list) {
      `dir` on any collision. `main` is reserved for the FIRST default row.
      🛑 #2584 (deferred finding 9, now live): there can be MORE THAN ONE default
      in a key-group. Each provider has its own default, so a Claude default and an
-     OpenAI ChatGPT default sharing one email (e.g. josh@book.io on ~/.claude and
-     ~/.codex) both reached this loop and both took `qual = 'main'`, so the two
+     OpenAI ChatGPT default sharing one email (one account in ~/.claude and the
+     other in ~/.codex) both reached this loop and both took `qual = 'main'`, so the two
      reauth controls #2584 added answered to one accessible name again. The
      original comment predicted exactly this: "moot only while there is exactly
      one default ... if you widen what a row can be further, re-check finding 9."
