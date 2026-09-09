@@ -20,7 +20,9 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
    `kosmos_bc_surface_map`/`token_hits` function used by BOTH is a clean, lower-risk follow-up for a
    fresh session; the drift-test makes the copies safe until then.
 
-2. New `tools/bc-surface-map.sh` (the CLI Baron invokes), sourcing the lib:
+2. New `tools/bc-surface-map.sh` (the CLI Baron invokes). It does NOT source the gate lib -- it carries
+   its own `_bcm_map`/`_bcm_token_hits`, byte-copied from the gate (see Step 1's revised decision), so the
+   helper stands alone. Subcommands:
    - `map`      -> the raw map (`<check><TAB><tokens>` lines).
    - `covering` -> reads a `web/index.html` unified diff OR a newline/space-separated changed-id list on
      stdin, and prints the covering cut-checks (one per line) whose tokens appear (whole-token boundary
@@ -52,5 +54,10 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
 
 ## Acceptance
 
-`bc-surface-map.sh covering` answers the changed-web -> covering-checks query for Baron's CI step; the
-gate consumes the same `kosmos_bc_surface_map` (no drift, gate's 12 arms still green); validation green.
+`bc-surface-map.sh covering` answers the changed-web -> covering-checks query for Baron's CI step. No
+shared function is extracted (Step 1): the helper's parse/match are byte-copied from the gate and kept
+honest by the drift-detector arms in `tools/test-bc-surface-map.sh`, which assert the helper and the gate
+agree BEHAVIOURALLY on the seeded checks (so an unmirrored regex edit reds). Acceptance = that suite green
+(`bash tools/test-bc-surface-map.sh`, wired into test:shell) + repo validation green. (The sibling gate's
+own suite `tools/test-browser-check-surface-gate.sh` is unrelated to this branch, which touches neither the
+gate lib nor its test; do not gate this PR on it.)

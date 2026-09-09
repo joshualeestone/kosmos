@@ -127,6 +127,17 @@ else
   fail "covering did not handle a plain id list"
 fi
 
+# 6b. ID-LIST ROBUSTNESS (WARNING #1 lock, red-capable): a plain id-list whose FIRST line happens to
+#     start with a diff-marker prefix (`--- `) must STILL resolve its real ids -- it is NOT a diff.
+#     With the old `^(@@ |+++ |--- )` shape detector this whole list was misread as a headerless hunk
+#     and every id silently dropped. alltasks-count is render-alltasks's token.
+printf '%s\n' '--- some-banner-line' 'alltasks-count' > "$TMP/idlist-marker"
+if bash "$BCM" covering < "$TMP/idlist-marker" | grep -qx "render-alltasks.js"; then
+  pass "id-list: a list with a leading '--- ' line still resolves its ids (not misread as a diff)"
+else
+  fail "id-list misclassified as a diff by a leading marker-shaped line -- ids silently dropped"
+fi
+
 # 7. zsh arm: the helper runs correctly under zsh (find/tr while-reads, no tied vars).
 if command -v zsh >/dev/null 2>&1; then
   if zsh "$BCM" covering < "$TMP/wd-parent" | grep -qx "render-subprojects-1994.js"; then

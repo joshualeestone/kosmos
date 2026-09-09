@@ -80,13 +80,18 @@ _bcm_covering() {
   #  3. A plain changed-id/token list (no diff markers at all) -> verbatim, each non-empty line a
   #     caller-asserted changed token. 🛑 Do NOT feed diff CONTEXT lines stripped of headers here:
   #     with no +/- prefix and no header they read as tokens and would match UNCHANGED surface.
+  # Shape detection order matters: `diff --git` first (a git diff), THEN a REAL unified-diff hunk
+  # header `^@@ -<digit>` for a headerless `diff -u` (shape 2), ELSE an id-list. The hunk-header key
+  # is deliberately the anchored numeric form, NOT a bare `@@ `/`+++ `/`--- ` prefix: an id-list line
+  # that merely starts with `--- ` / `+++ ` / `@@ text` must NOT be misread as a diff and silently
+  # dropped (a real hunk header is always `@@ -N`), which was a silent false-negative in id-list mode.
   if printf '%s\n' "$changed" | grep -qE '^diff --git ' 2>/dev/null; then
     changed="$(printf '%s\n' "$changed" | awk '
       /^diff --git / { insec = ($0 ~ /[ ]b\/web\/index\.html$/) ? 1 : 0; next }
       insec && /^(\+\+\+|---)/ { next }
       insec && /^[+-]/         { print }
     ')"
-  elif printf '%s\n' "$changed" | grep -qE '^(@@ |\+\+\+ |--- )' 2>/dev/null; then
+  elif printf '%s\n' "$changed" | grep -qE '^@@ -[0-9]' 2>/dev/null; then
     changed="$(printf '%s\n' "$changed" | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' 2>/dev/null || true)"
   fi
   [ -n "$changed" ] || return 0
