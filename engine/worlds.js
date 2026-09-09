@@ -274,6 +274,11 @@ function setActiveWorld(base, id) {
     }
     reg.activeWorldId = id;
     writeRegistry(base, reg);
+    // #2528: a deliberate switch to a world gives it a FRESH set of boot attempts.
+    // Clear any residual failed-boot count so a retry (after fixing what was wrong, or a
+    // switch-back following an auto-fallback) is judged on new tries, never stale ones.
+    // Inline require avoids any load-order coupling; worldbootguard pulls in only fs/path.
+    try { require('./worldbootguard').clear(base, id); } catch (_) { /* fail-open */ }
     return activeWorld(base);
   });
 }
