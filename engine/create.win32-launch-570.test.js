@@ -92,10 +92,25 @@ test('#570 createAgent does not require tmux on win32 -- the third instance of #
      launchd-only, so a win32 create gets past this gate and then fails at
      "started it" -- that port is the next slice. What must never come back is a
      refusal naming tmux. */
+  /* 🛑 THE FIXTURE WAS NAMED `winreh-tmuxgate`, AND THE ASSERTION FORBIDS "tmux".
+     Every sentence this create returns names the agent, so the guard matched its
+     own fixture's name and went red on the fleet's Macs -- where the create gets
+     far enough to say "<name> is set up and starting". On Windows it happened to
+     take a path whose sentence did not carry the name, so it passed. A test whose
+     subject appears inside the pattern it forbids is not testing the pattern.
+     Renamed; the assertion is unchanged and now means what it says.
+
+     ⚠️ AND BOTH SEAMS ARE STUBBED, for the reason the file header already gives.
+     Unstubbed, this drove a REAL `cmd /c start` and a real schtasks: on a Mac
+     that is `spawn cmd.exe ENOENT`, thrown asynchronously AFTER the test ended,
+     which node reports as an uncaught exception rather than a failure anyone can
+     read. The gate under test is reached long before either seam. */
+  recordingSpawn();
+  stubJob();
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
   const r = create.createAgent({
-    name: 'winreh-tmuxgate', role: 'qa', instructions: 'A probe agent used to pin the tmux preflight gate for #570.',
+    name: 'winreh-gate', role: 'qa', instructions: 'A probe agent used to pin the tmux preflight gate for #570.',
     platform: 'win32', claudeBin: REAL_BIN, tmuxBin: '/nonexistent/tmux',
   });
   assert.doesNotMatch(String(r.because || ''), /tmux/,

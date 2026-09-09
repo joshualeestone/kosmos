@@ -59,7 +59,15 @@ function recording(reply) {
  * it exactly as well.
  */
 function sandbox() {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-anchor-'));
+  /* ⚠️ realpathSync, and it is the fleet's Macs that need it. macOS's tmpdir is a
+     symlink (`/var/...` -> `/private/var/...`), so the raw mkdtemp path and the
+     path the anchor reports back are different STRINGS for one directory -- and
+     the anchor assertions below are `cmd.includes(sb.dir)`, which then fails on a
+     Mac while passing on Windows. That is this branch's own recurring shape: a
+     win32 arm asserted from a Mac, defeated by a platform difference in the test
+     rather than in the code. `create.win32-launch-570.test.js` already resolves
+     its sandbox for the same reason; this one did not. */
+  const dir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-anchor-')));
   const srcNode = path.join(dir, 'node.exe');
   fs.writeFileSync(srcNode, 'not really node, but a file with a size', 'utf8');
   return {
