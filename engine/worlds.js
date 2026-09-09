@@ -278,6 +278,11 @@ function setActiveWorld(base, id) {
     // Clear any residual failed-boot count so a retry (after fixing what was wrong, or a
     // switch-back following an auto-fallback) is judged on new tries, never stale ones.
     // Inline require avoids any load-order coupling; worldbootguard pulls in only fs/path.
+    // #2528 fast-follow note: the abandon-on-first-failed-boot fast path keys on whether the
+    // world has EVER served (the guard's `confirmed` marker, set by server.js onListening),
+    // NOT on this switch -- so setActiveWorld deliberately does NO pending bookkeeping here.
+    // That avoids the pointer-vs-booted divergence a switch-time marker would have (a no-op
+    // or unmanaged-board switch-back must never re-arm the fast path on a healthy world).
     try { require('./worldbootguard').clear(base, id); } catch (_) { /* fail-open */ }
     return activeWorld(base);
   });

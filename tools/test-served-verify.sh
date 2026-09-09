@@ -75,8 +75,8 @@
 #   /ssoq/                  302 whose Location carries a QUERY with a secret-shaped value
 #   /ssoesc2/               like /ssoesc/, but its escaped Location LANDS on 200 text/html
 #   /esclanding             the 200 text/html that /ssoesc2/'s escaped Location resolves to
-#   /routeblind/            200 text/html for everything at this prefix...
-#   /routeblind/dist/       ...but 404 under /dist, so it is blind ONLY off the /dist route
+#   /routeblind             a ROUTE-SCOPED blindness: 404 under its /dist, 200 at its root
+#   /dist/                  the sub-dispatch inside /routeblind that makes /dist discriminate
 # --- MANIFEST END ---
 #
 # WHY SEVERAL OF THOSE EXIST, which is the part that does not belong in a manifest:
@@ -109,10 +109,16 @@
 #     nothing to do with redaction. The escape hazard is identical in a path.
 #   /ssoq/ proves that redaction actually happens: a Location whose query carries a secret-shaped
 #     value must reach the note as `key=<redacted>`, with the value absent.
-#   /routeblind/ is kosmos#2565 made drivable: it DISCRIMINATES under /dist and is BLIND at the
+#   /routeblind is kosmos#2565 made drivable: it DISCRIMINATES under /dist and is BLIND at the
 #     root, which is the shape a rewrite rule or an SPA fallback produces. The default probe passes
 #     on it and the root-route probe catches it, which is the whole reason the route is a
-#     parameter now.
+#     parameter. 🛑 THIS FIXTURE AND THE ROUTE PARAMETER CAME FROM MAIN, NOT FROM THIS BRANCH.
+#     kosmos#2565 was filed FROM this loop, someone else implemented it, and PR #2572 merged first
+#     with a better interface than the one I had written here: callers pass `/` for the root and the
+#     route is normalised, where mine required an explicitly EMPTY string. Mine was dropped at the
+#     merge. Its handler is `startswith('/routeblind')` with NO trailing slash on purpose, which is
+#     what makes their leading-slash-normalisation arm non-vacuous; my two-handler version would
+#     have shadowed it into dead code and quietly made that arm prove nothing.
 #
 # 🛑 /blind/ AND /sso/ ARE NOT REDUNDANT, and an earlier version of this header said /blind/ WAS
 # "the #1667 SSO shape (April's measured failure)", which contradicted the comment fifty lines below
@@ -254,16 +260,6 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
-        if p.startswith('/routeblind/dist/'):
-            # DISCRIMINATES under /dist ...
-            self._send(404, 'text/html; charset=utf-8', b'not found under dist')
-            return
-        if p.startswith('/routeblind/'):
-            # ... and is BLIND everywhere else at this prefix. A host-wide negative control probed
-            # under /dist calls this host sound, and a 200 at the ROOT is then trusted on the
-            # strength of it. That is kosmos#2565, and this fixture is what makes it drivable.
-            self._send(200, 'text/html; charset=utf-8', b'<html><body>rewrite fallback</body></html>')
-            return
         if p.startswith('/sso308/'):
             # a THIRD distinct 3xx. With only 301 and 302 driven, narrowing the note's `3??` arm to
             # `30[12]` was invisible; the arm's comment names cases whose real statuses span
@@ -331,6 +327,22 @@ class H(http.server.BaseHTTPRequestHandler):
             else:
                 self._send(404, 'text/html; charset=utf-8', b'not found')
             return
+        if p.startswith('/routeblind'):
+            # #2565: a ROUTE-SCOPED blindness. Discriminates under /dist (a nonexistent /dist path
+            # 404s, so the default control passes), but the site ROOT is a catch-all that 200s every
+            # path -- including a nonexistent one -- so a 200 at /setup there is meaningless. This is
+            # the rewrite/catch-all/SPA-fallback case the card names, distinct from the host-wide
+            # /blind/ SSO shape above.
+            rest = p[len('/routeblind'):]
+            if rest.startswith('/dist/'):
+                if rest == '/dist/real.bin':
+                    self._send(200, 'application/octet-stream', b'REALBYTES')
+                else:
+                    self._send(404, 'text/html; charset=utf-8', b'not found')
+            else:
+                # root route: blind -- 200 for EVERYTHING, including a path that cannot exist.
+                self._send(200, 'text/plain; charset=utf-8', b'catch-all root body')
+            return
         self._send(404, 'text/html; charset=utf-8', b'not found')
 
     def log_message(self, *a):
@@ -370,7 +382,7 @@ SSO301="http://127.0.0.1:$PORT/sso301"
 SSO308="http://127.0.0.1:$PORT/sso308"
 SSOQ="http://127.0.0.1:$PORT/ssoq"
 SSOESC2="http://127.0.0.1:$PORT/ssoesc2"
-ROUTEBLIND="http://127.0.0.1:$PORT/routeblind"
+ROUTEBLIND="http://127.0.0.1:$PORT/routeblind"   # #2565: discriminates under /dist, blind at root
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -483,13 +495,6 @@ case "$q_msg" in
   *) fail "the note lost the query keys or the path. Keys plus host plus path are what separate an auth redirect from a catch-all route; redacting them would blind the diagnostic it exists to give. Got: $q_msg" ;;
 esac
 
-echo "-- kosmos#2565: the negative control proves a ROUTE, not a host --"
-served_verify_host_discriminates "$ROUTEBLIND" >/dev/null 2>&1; rc=$?
-check_rc "$rc" 0 "a host blind only OFF /dist passes the default (/dist) control, which is exactly the gap"
-served_verify_host_discriminates "$ROUTEBLIND" "" >/dev/null 2>&1; rc=$?
-check_rc "$rc" 1 "CATCHES it when the control is aimed at the ROOT route, so the parameter is load-bearing and not decoration"
-served_verify_host_discriminates "$SOUND" "" >/dev/null 2>&1; rc=$?
-check_rc "$rc" 0 "CONTROL: a genuinely sound host still passes at the root, so the arm above is not just 'the root always fails'"
 
 m308=$(served_verify_asset_ok "$SSO308/dist/real.bin" "an asset behind a 308" 2>&1 >/dev/null); rc308=$?
 check_rc "$rc308" 1 "an asset behind a 308 is caught (the landing page's text/html)"
@@ -543,6 +548,26 @@ case "$blind_msg" in
   *"MECHANISM: un-followed"*) fail "the redirect note fired on a host that did NOT redirect, so the note carries no information" ;;
   *) pass "CONTROL: no redirect claimed for a host that 200s directly" ;;
 esac
+echo "-- #2565: route-aimed control (the route param proves discrimination WHERE the caller trusts) --"
+# The sound host also discriminates at the ROOT route (a nonexistent root path 404s), so aiming the
+# control at "/" does not false-red a sound host -- the root probe is a real control, not always-red.
+served_verify_host_discriminates "$SOUND" "/" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "sound host: the ROOT-route control also passes (a nonexistent root path 404s)"
+# THE GAP #2565 CLOSES: the route-blind host discriminates under /dist, so the DEFAULT (/dist) control
+# passes -- exactly what let deploy-site trust its /setup 200. A control aimed only at /dist cannot see
+# a blindness one route over.
+served_verify_host_discriminates "$ROUTEBLIND" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "#2565: the DEFAULT /dist control PASSES the route-blind host (the gap: /dist is not the route /setup is on)"
+# RED-CAPABLE: aiming the control at the ROOT route (where /setup lives) CATCHES the blindness the
+# /dist control missed. If this returns 0 the route parameter buys nothing.
+served_verify_host_discriminates "$ROUTEBLIND" "/" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 1 "#2565: the ROOT-route control CATCHES the route-scoped blindness the /dist control missed"
+# RED-CAPABLE: a route passed WITHOUT a leading slash is normalised to one. `dist` must behave as
+# `/dist` -> probes /routeblind/dist/<nonexistent> -> 404 -> rc 0. WITHOUT normalisation the malformed
+# `${host}dist/...` (i.e. /routeblinddist/...) falls to the blind root branch -> 200 -> rc 1, so this
+# arm fails; it is not vacuous.
+served_verify_host_discriminates "$ROUTEBLIND" "dist" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "#2565: a leading-slash-less route ('dist') is normalised to '/dist' (not a malformed probe)"
 
 echo "-- asset content-type tell --"
 served_verify_asset_ok "$SOUND/dist/real.bin" "the real asset" >/dev/null 2>&1; rc=$?
@@ -772,7 +797,7 @@ if [ -f "$DS" ]; then
     # this script probed /dist, and /setup is at the root, so a host blind only off /dist passed
     # them all and had its /setup 200 believed. The /routeblind/ fixture above drives exactly that
     # shape against the library; this arm checks the CALLER actually asks the question.
-    _ctl_root=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST" ""' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
+    _ctl_root=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST" "/"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
     _setup_ln=$(/usr/bin/grep -n 'served_verify_asset_ok "\$HOST/setup"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
     if [ -z "$_ctl_root" ] || [ -z "$_setup_ln" ]; then
       fail "could not locate both the ROOT-route control and the /setup check in deploy-site.sh (root control '$_ctl_root', /setup '$_setup_ln'); this arm must not pass on a search that found nothing"
@@ -1104,8 +1129,8 @@ if [ "$(printf '%s\n' "$_arm_code" | wc -l)" -ge "$(wc -l < "$0")" ]; then
   fail "the comment strip removed no lines from this file, so a comment mentioning the || fail idiom would be counted as an arm"
 fi
 _armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "')
-if [ "$_armsites" -ne 86 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 86. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+if [ "$_armsites" -ne 87 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 87. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi

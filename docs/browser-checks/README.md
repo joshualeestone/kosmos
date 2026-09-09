@@ -223,24 +223,28 @@ So the constraint below is a REQUEST backed by partial enforcement, not a gate. 
 working and has a readable transcript**, and if you meant to change the recording's shape,
 update those arms deliberately rather than reading their red as a bug.
 
-🛑 **THE NESTED-DRIFT GAP IS A LIVE RISK, NOT ONLY A NOTE FOR THE NEXT CONTRIBUTOR.** A
-reviewer raised it as an open regression rather than as documentation, and that reading is
-correct: a rename inside `context` or `profile` on a populated box leaves the top-level
-key-set comparison in `yarn test` GREEN while the committed recording drives `openDetail`
-with a shape the page no longer consumes, on exactly the quiet boxes the fallback exists
-for. `openDetail` reads `context.percent`, so it is not hypothetical.
-**Tracked as kosmos#2553**, which carries the measurement that killed the first
-attempt and three candidate shapes for a replacement.
-**What would close it:** a comparison that can tell drift from board COMPOSITION. The one
-built here could not, and was removed for firing on an 18-agent board where two `profile`
-shapes were legitimately present. The arm pinning its absence carries a
-`COMPOSITION-AWARE DRIFT GUARD` escape hatch precisely so this fix is not locked out.
+🛑 **NESTED `context` DRIFT IS NOW CLOSED (kosmos#2553); `profile` DRIFT IS DELIBERATELY
+NOT.** The gap was real: a rename inside `context` leaves the top-level key-set comparison
+in `yarn test` GREEN while the committed recording drives `openDetail` with a shape the
+producer no longer emits, on exactly the quiet boxes the fallback exists for. `openDetail`
+reads `context.percent`, so it was not hypothetical.
+**What closes it:** the `COMPOSITION-AWARE DRIFT GUARD` arm in
+`render-talk-goldencard-2519.test.js` derives the SET of `context` key-sets `engine/status.js` can
+emit and asserts the recording matches one of them. It reads no board, so composition
+cannot fire it (that is what killed the first attempt, removed for firing on an 18-agent
+board where two `profile` shapes were legitimately present); it derives from the producer,
+so an un-re-captured `engine/status.js` rename matches none and reds; and it lives in the unit
+test, not the release-cut check, so a false red costs a test run and never a cut.
+**`profile` is left out on purpose, and that is not the same gap.** It is free-form (the
+tree writes `dir`/`displayName`/`role`/`reportsTo` per operator), scrubbed wholesale by the
+capture, and every page read of it is guarded (`a.profile && a.profile.role`), so a missing
+`profile` key is COMPOSITION, never drift.
 
-⚠️ **An earlier version of this paragraph said the moment you would be tempted to
-hand-edit is "the drift guard's red".** There is no drift guard: it was built on this
-branch and deliberately REMOVED because it fired on board composition, and its absence is
-pinned by an arm carrying a `COMPOSITION-AWARE DRIFT GUARD` escape hatch. Nested drift is
-an unguarded gap, stated rather than closed.
+⚠️ **The LIVE-vs-fixture drift guard (this recording compared key path by key path against
+one live card) is still absent, and must stay absent** -- it was the removed attempt, and
+its absence is pinned by an arm carrying the `COMPOSITION-AWARE DRIFT GUARD` escape hatch.
+kosmos#2553 closed the `context` gap a different way (against the producer's variant SET,
+not against one live card), which is why re-adding it is not re-adding the bug.
 
 The capture refuses to write if neutralisation changed the key set.
 
@@ -342,7 +346,7 @@ one invented by somebody who did not write them.
 | `render-head-row.js` | Settings stays on the project header row, beside the title and the search (#1043) |
 | `render-fields.js` | The field and control invariants, measured in a real browser, in BOTH schemes |
 | `render-first-run.js` | Render every first-run state in a real browser and look at it |
-| `render-gated-next.js` | The S2/S3 permission-gated Next, driven for real: file-access (S2) and sleep+tmux (S3) disable Next ONLY on a measured not-granted reading and unlock on the grant; uncheckable (a browser) and any fetch failure fail SAFE (never block, never false-green); the 1.5s poll re-checks so a grant unlocks with no manual re-check. Subsumes the retired render-a11y-gate-2125 (tmux gate) + render-sleep-button (sleep gate). |
+| `render-gated-next.js` | The S2/S3 permission-gated Next, driven for real: file-access (S2) and sleep+tmux (S3) disable Next ONLY on a measured not-granted reading and unlock on the grant; uncheckable (a browser) and any fetch failure fail SAFE (never block, never false-green); the poll (FR_GATE_POLL_MS, 750ms) re-checks so a grant unlocks on its own, and a "Check again" button (#2451/#2559) lets the user force it now. Subsumes the retired render-a11y-gate-2125 (tmux gate) + render-sleep-button (sleep gate). |
 | `render-boot-no-flash.js` | The launch covers itself until the first-run gate resolves, so the agents view never flashes and then vanishes (#1553) |
 | `render-conn-url.js` | The sign-in fallback button does not overlap the line above it (#1209) |
 | `render-openai-step.js` | The OpenAI install step at parity with Claude's, with an honest indicator (#1205) |

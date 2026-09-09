@@ -147,18 +147,23 @@ function liveCard() {
  * box-independently in `yarn test` (render-talk-goldencard-2519.test.js), using
  * test-support/fleet.js, which drives the real `status.snapshot()` over a fake pane
  * source.
- * 🛑 NESTED DRIFT IS CHECKED BY NOTHING, AND THAT IS A REAL GAP, NOT AN OVERSIGHT. An
- * earlier version of this header claimed a second guard "HERE, in the reopen arm below",
- * comparing the full nested shape live against live. That guard was REMOVED nine hundred
- * lines below (see the block at the reopen arm) because it fired on board composition
- * rather than drift: measured on an 18-agent board, two distinct `profile` shapes among
- * our pane cards, one of them empty. The header kept asserting it. A file that claims a
- * release-gating guard in one place and denies it in another is worse than either answer.
- * ⇒ WHAT THIS MEANS IN PRACTICE: a rename inside `context` or `profile` leaves the
- * top-level key set identical, `yarn test` green, and this recording driving a shape the
- * page no longer consumes, on exactly the quiet boxes the fallback exists for.
- * `openDetail` reads `context.percent`, so that is not hypothetical. Closing it needs a
- * comparison that can tell drift from composition; nobody has built one. */
+ * 🛑 NESTED CONTEXT DRIFT IS NOW CHECKED TOO (#2553), box-independently and in `yarn test`,
+ * NOT here in the cut. An earlier version of this header claimed a second guard "HERE, in
+ * the reopen arm below", comparing the full nested shape live against live. That guard was
+ * REMOVED nine hundred lines below (see the block at the reopen arm) because it fired on
+ * board composition rather than drift: measured on an 18-agent board, two distinct
+ * `profile` shapes among our pane cards, one of them empty.
+ * ⇒ THE GAP IT LEFT: a rename inside `context` leaves the top-level key set identical,
+ * the top-level anti-rot arm green, and this recording driving a shape the producer no
+ * longer emits, on exactly the quiet boxes the fallback exists for. `openDetail` reads
+ * `context.percent` (through the guarded `pctOf`), so that is not hypothetical.
+ * ⇒ HOW #2553 CLOSES IT WITHOUT RE-ADDING THE REMOVED BUG: the COMPOSITION-AWARE DRIFT
+ * GUARD arm in render-talk-goldencard-2519.test.js derives the SET of context key-sets
+ * `status.js` can emit and asserts the recording matches one of them. It reads no board,
+ * so composition cannot fire it; only a producer change that was not re-captured reds. It
+ * lives in the unit test, not this check, so a false red costs a test run and never a cut.
+ * `profile` is deliberately NOT guarded that way: it is free-form and every page read of it
+ * is guarded, so a missing profile key is composition, never drift. */
 function goldenCard(fixturePath) {
   /* `fixturePath` is a test seam, defaulted to the real fixture. Without it the shape
      floor below is unreachable from a test: with the committed fixture in place the

@@ -4569,6 +4569,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    because-sentence still wraps under rather than squeezing the name. */
 .pj-member { display: flex; align-items: center; gap: var(--space-4); flex-wrap: nowrap;
   padding: var(--space-4); border: 0.5px solid var(--separator); border-radius: var(--radius-control); }
+/* #2574: a project member row opens that agent's page on click. Only the project
+   view (#pj-one-agents) wires the nav, so only it shows the clickable affordance. */
+#pj-one-agents .pj-member[data-agent] { cursor: pointer; }
+#pj-one-agents .pj-member[data-agent]:hover { background: var(--k-sunk); }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
@@ -5382,6 +5386,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    No effect on #d-provider, which had no competing rule; the class is only ever added to a select. */
 .pcombo-src { position: absolute !important; width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; clip-path: inset(50%) !important; border: 0 !important; }
 .pcombo { position: relative; }
+/* #1040 2b: #create-provider is the one enhanced select that lives in a FIXED-WIDTH
+   (18rem) stepped flex row (`#cstep-name .msteps .frow`, elbow-aligned with
+   #create-account / #create-model, a layout Josh tuned for row-to-row alignment).
+   enhanceProviderSelect clips the native select (.pcombo-src, 1px) and inserts a
+   .pcombo sibling with no width of its own, so the trigger (width:100%) would size to
+   its content and the provider row would not line up with the rows beneath it. Give
+   the inserted widget the same 18rem flex basis the select it replaced carried.
+   #d-provider (switch dialog) and #acct-provider-pick (Add screen, width:100% context)
+   are not in a fixed-width flex row, so this is scoped to #cstep-name. */
+#cstep-name .msteps .frow > .pcombo { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
 .pcombo-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 12px; text-align: left; font: inherit; color: var(--k-ink); background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; cursor: pointer; }
 .pcombo-trigger:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 1px; }
 .pcombo-mark { width: 18px; height: 18px; flex: 0 0 auto; }
@@ -8430,6 +8444,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-pill-wait{color:var(--k-ink-3,#8a857c);border-color:var(--k-rule,#c9c6c0)}
         .s3-on{border:0;border-radius:8px;padding:7px 14px;font:650 .8125rem var(--font-ui,-apple-system,sans-serif);
           color:#231b06;background:linear-gradient(150deg,var(--gold-bright,#e3b341),var(--gold-deep,#b88920))}
+        /* #2451/#2559: the manual "Check again" affordance. A quiet SECONDARY control
+           (not the gold Turn On primary): it does not grant anything, it just re-polls.
+           Left-aligned per Josh. */
+        #fr-pane-3 .s3-recheck-row{margin:2px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+        #fr-pane-3 .s3-recheck-note{margin:0 0 6px;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        #fr-pane-3 .s3-recheck-hint{font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
+        /* Border is gold-deep (not the --k-rule content-divider token): matches the
+           file's secondary-button convention (#fr-alt) and clears WCAG 1.4.11's 3:1
+           non-text contrast on the near-white card, where --k-rule (~1.5:1) does not. */
+        .s3-recheck{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
+          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
+          background:var(--k-surface,#fff);cursor:pointer}
+        .s3-recheck:hover{background:var(--k-surface-2,#f4f1ea)}
+        .s3-recheck:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
+        .s3-recheck[disabled]{opacity:.55;cursor:default}
         .s3-granted{display:none}
         .s3-gate-row[data-granted] .s3-req{display:none}
         .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
@@ -8486,6 +8515,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              window itself is the feedback (same rule as the retired sleep/a11y
              buttons this reuses). The gate poll re-checks and flips the pill on
              its own once granted. -->
+        <!-- #2451/#2559 (Josh 0.6.50, 7.58.24): a manual re-check. The poll already
+             re-checks on its own, but after granting in System Settings the user wants a
+             way to force it NOW rather than wait for the next tick, so the screen does not
+             feel stuck. Left-aligned under the rows, per Josh. Reassurance + hint copy is
+             Mona Lisa's (she owns the wording; Josh left it to us). -->
+        <p class="s3-recheck-note">This can take a few seconds after you flip the switch.</p>
+        <div class="s3-recheck-row">
+          <button class="s3-recheck fr-recheck" type="button">Check again</button>
+          <span class="s3-recheck-hint">Turned it on already? Tap to check now.</span>
+        </div>
         <p class="fr-msg" id="fr-s3-msg" role="status" aria-live="polite"></p>
       </div>
 
@@ -8507,14 +8546,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* Gear sizing, latest wins: 0.6.39 was 38/22, 0.6.40 doubled it (Josh),
            then 0.6.45 (Josh) tightened the gray BOX back down -- the cog size was
            right, the 76px box was too big for it. 52x52 hugs the cog.
-           #768-batch (Josh, 0.6.45 notes, 5.44.01): the cog was reading high and
-           slightly left inside the box. `place-items:center` centres the glyph's
-           LINE BOX, but the U+2699 gear carries font ascent/descent so its visual
-           mass sat above centre. flex centring WITH line-height:1 collapses the
-           line box to the glyph, so vertical + horizontal centring is on the glyph
-           itself. Cog size unchanged (Josh: the size is right). */
-        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:flex;align-items:center;justify-content:center;line-height:1;font-size:44px;
+           #768-batch..#2460 (Josh, said 5-6 times): the cog kept reading high and
+           slightly left. ROOT CAUSE (2026-09-09, from Josh's on-device screenshot): it
+           was the U+2699 GLYPH's font bearings, not the box. A font character carries
+           its own asymmetric side/vertical bearings, so no box-centring fixes it and
+           every flex/line-height nudge regressed (and looked fine only in headless,
+           whose fallback glyph differs). FIX: draw the gear as an inline SVG PATH
+           (below), which centres by its own geometry. Do NOT revert to the glyph. */
+        .s4-gear{width:52px;height:52px;border-radius:11px;flex:none;display:grid;place-items:center;padding:11px;
           background:linear-gradient(160deg,#d7d7d5,#a9a9a6)}
+        .s4-gear svg{width:100%;height:100%;display:block}
         /* 🛑 #768-batch (Josh, 5.44.01, said THREE times; Mona third-round correction) --
            the reason it kept regressing: a BARE class (0,1,0) LOSES to `#firstrun
            .fr-body p` (0,1,1,1), which forces 400/1.0625rem on every first-run p
@@ -8539,7 +8580,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>This is totally normal.</p>
 
         <div class="s4-notif" aria-hidden="true">
-          <span class="s4-gear">&#9881;</span>
+          <span class="s4-gear"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" aria-hidden="true"><path fill-rule="evenodd" fill="#3a3a3c" d="M 13.43 5.30 L 12.38 2.48 L 19.62 2.48 L 18.57 5.30 L 21.75 6.62 L 23.00 3.88 L 28.12 9.00 L 25.38 10.25 L 26.70 13.43 L 29.52 12.38 L 29.52 19.62 L 26.70 18.57 L 25.38 21.75 L 28.12 23.00 L 23.00 28.12 L 21.75 25.38 L 18.57 26.70 L 19.62 29.52 L 12.38 29.52 L 13.43 26.70 L 10.25 25.38 L 9.00 28.12 L 3.88 23.00 L 6.62 21.75 L 5.30 18.57 L 2.48 19.62 L 2.48 12.38 L 5.30 13.43 L 6.62 10.25 L 3.88 9.00 L 9.00 3.88 L 10.25 6.62 Z M 21.00 16.00 A 5.00 5.00 0 1 0 11.00 16.00 A 5.00 5.00 0 1 0 21.00 16.00 Z"/></svg></span>
           <div>
             <p class="s4-nt">App Background Activity</p>
             <p class="s4-nb">"bash" can run in the background. You can manage background activity in Login Items &amp; Extensions.</p>
@@ -19557,6 +19598,10 @@ function boardEmpty() {
 // projects reads: two in-flight looks must not paint out of order.
 let PJ_BROWSE_GEN = 0;
 let CURRENT = null;
+/* #2574: the project a detail view was opened FROM (a project-member click), so
+   detail-back returns to that project instead of All agents. null for every
+   other opener. */
+let DETAIL_FROM_PROJECT = null;
 
 /**
  * Just the picture.
@@ -21443,9 +21488,13 @@ async function sendTalk(text, chose, attachment) {
   }
 }
 
-function openDetail(sessionName, section) {
+function openDetail(sessionName, section, fromProject) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
+     detail-back returns to the project; every existing caller passes no 3rd
+     arg -> null -> the unchanged All-agents back. */
+  DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   URL_TAB = 'detail';
@@ -23696,7 +23745,14 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('detail-back').addEventListener('click', () => showTab('agents'));
+document.getElementById('detail-back').addEventListener('click', () => {
+  /* #2574: a detail opened from a project member returns to that project; every
+     other opener returns to All agents (unchanged). */
+  const pid = DETAIL_FROM_PROJECT;
+  DETAIL_FROM_PROJECT = null;
+  if (pid) { showTab('projects'); openProject(pid); }
+  else showTab('agents');
+});
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
@@ -28239,6 +28295,7 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
 });
 enhanceProviderSelect('d-provider');   // #1040 2b: the switch dialog's provider combobox (shipped first)
 enhanceProviderSelect('acct-provider-pick');   // #1040 2b: the Add-a-provider screen's combobox. Its <select> (~7912) and change listener (~16953) are defined earlier; called HERE, beside the d-provider site, so the function and its consts (PROVIDER_MARK_KEY) are initialized before the call rather than relying on hoisting into a temporal dead zone. Labelled via <label for>, which enhanceProviderSelect falls back to when there is no aria-label.
+enhanceProviderSelect('create-provider');   // #1040 2b (final select): the Create Agent form's provider combobox. Same proven helper as the two above; #create-provider (~9233) carries the identical roster (anthropic/openai + six coming-soon) and its own change listener (applyCreateProviderUI) keeps working unchanged, because the helper commits via select.value + a dispatched `change`. 2b-logos now covers all three provider selects; 2b-roster (GLM/MiniMax/DeepSeek) stays deferred to Josh's #770 roster pass.
 /* The ONLY thing that makes a pick a pick.
    ⚠️ Null-checked like its sibling in fillSwitchAccounts: if this id ever moves the
    page must degrade to the previous behaviour rather than die at load, because that
@@ -31277,7 +31334,7 @@ function pjMember(m, suppressTold, withMinus) {
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
-  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '">'
+  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '" data-agent="' + esc(m.sessionName) + '">'
     + face
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
@@ -38024,10 +38081,18 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
   if (!btn || !PJ_CURRENT) return;
   openMemModal(btn, document.getElementById('pjs-members-msg'));
 });
+/* The project members list opens an agent's detail page on click (#2574). The
+   remove (minus) button is INSIDE the member row, so it is checked FIRST and
+   returns -- mirroring the board grid's inner-control-first rule -- or a member
+   click would also open the agent. */
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   const btn = e.target.closest('.pj-minus[data-drop]');
-  if (!btn || !PJ_CURRENT) return;
-  openMemModal(btn, document.getElementById('pj-one-msg'));
+  if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
+  // #2574: a member click opens that agent's detail page, id-keyed via data-agent
+  // (sessionName) -- the SAME open-agent path the agents grid uses (openDetail) --
+  // passing PJ_CURRENT so detail-back returns to this project.
+  const member = e.target.closest('.pj-member[data-agent]');
+  if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
 });
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
@@ -38364,7 +38429,9 @@ let FR_YOU_GEN = 0;
    browser, no native reading yet) and any fetch failure NEVER block and NEVER show
    a false green, so the gate can never strand a browser tester or an unreadable
    machine; it blocks only when we KNOW a required grant is off. The user grants it
-   in System Settings and the next poll (1.5s) unlocks Next -- no manual re-check.
+   in System Settings and the next poll (FR_GATE_POLL_MS, 750ms) unlocks Next on its
+   own; the "Check again" button (#2451/#2559) only front-runs that next tick for an
+   impatient user, it is not required.
    Generation-guarded: a poll captured on one screen does NOTHING once the step
    moves. Harness-proven 10/10 (see .claude/plans/install-flow-9screen.md).
 
@@ -38400,8 +38467,14 @@ const FR_GATES = {
     blocked: (r) => r.checkable === true && r.trusted !== true,
   },
 };
-let FR_GATE_GEN = 0, FR_GATE_TIMER = null;
-function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } }
+let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
+// #2451/#2559 (Josh 0.6.50, 7.58.24): the gate poll used to run every 1500ms, so after a
+// user granted the permission the pill/Next could sit unchanged for over a second and the
+// screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
+// (750ms) so a grant reflects within about a second, and pair it with a manual "Check
+// again" button (see the fr-recheck handler) so the user can force an immediate re-check.
+const FR_GATE_POLL_MS = 750;
+function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
   const spec = FR_GATES[row.getAttribute('data-gate')];
   if (!spec) return 'uncheckable';
@@ -38441,9 +38514,17 @@ async function frPollGates(screenEl, gen) {
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
+  FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
-  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), 1500);
+  FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), FR_GATE_POLL_MS);
   return gen;
+}
+// #2451/#2559: fire an immediate gate re-check (the manual "Check again" affordance).
+// Polls the currently-gated screen at the current generation, so it is a no-op when no
+// gated screen is active and cannot outrace a screen change. Returns the poll promise.
+function frRecheckGates() {
+  if (!FR_GATE_SCREEN) return Promise.resolve();
+  return frPollGates(FR_GATE_SCREEN, FR_GATE_GEN);
 }
 let FR = null;            // what /api/first-run said
 let FR_STEP = 1;
@@ -38977,6 +39058,29 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
+  // instead of waiting for the next poll tick, so a just-granted permission reflects at
+  // once. The poll keeps running regardless; this only front-runs the next tick.
+  const recheck = e.target.closest('.fr-recheck');
+  if (recheck) {
+    const m = document.getElementById('fr-s3-msg');
+    // Do NOT clobber a real error on the shared status line (a "Turn On" failure the user
+    // may not have read yet): only show/clear our own transient "Checking..." when the line
+    // is not currently an error. The re-poll happens either way.
+    const hadErr = !!(m && m.classList.contains('fr-msg-err'));
+    recheck.disabled = true;
+    if (m && !hadErr) m.textContent = 'Checking…';
+    try {
+      await frRecheckGates();
+    } finally {
+      // Re-read the error state: a "Turn On" failure can arrive DURING the await (both
+      // buttons are live), so clear only if the line is still not an error -- never wipe a
+      // freshly-set (or pre-existing) error the user has not read.
+      if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
+      recheck.disabled = false;
+    }
+    return;
+  }
   const b = e.target.closest('.s3-on');
   if (!b) return;
   const row = b.closest('[data-gate]');

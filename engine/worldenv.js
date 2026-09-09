@@ -88,20 +88,24 @@ function bootstrapWorldEnv(env = process.env) {
     // itself reads activeWorld(base) to build the overrides, so this is consistent.
     const activeId = worlds.activeWorld(base).id;
 
-    // #2528: if a non-default world has failed to serve on THRESHOLD consecutive
-    // boots, abandon it and boot the DEFAULT world instead, so a dead world can
-    // never lock the user out permanently. Reset the pointer to default so the
-    // switcher and the board agree, and clear the counter so a later retry of that
-    // world starts fresh (a transient failure should not brand it dead forever).
-    if (activeId !== worlds.DEFAULT_ID && worldbootguard.isAbandoned(base, activeId)) {
-      console.error('#2528: world "' + activeId + '" failed to serve '
-        + worldbootguard.THRESHOLD + ' times in a row; falling back to the default world.');
+    // #2528: if a non-default world is not coming up -- shouldAbandon: it has failed
+    // THRESHOLD consecutive boots (a confirmed world gone bad) OR it has never served
+    // and just failed a boot (#2528 fast-follow: the never-served fast path) -- abandon
+    // it and boot the DEFAULT world instead, so a dead world can never lock the user out
+    // permanently. Reset the pointer to default so the switcher and the board agree, and
+    // clear the counter so a later retry of that world starts fresh (a transient failure
+    // should not brand it dead forever).
+    if (activeId !== worlds.DEFAULT_ID && worldbootguard.shouldAbandon(base, activeId)) {
+      console.error('#2528: world "' + activeId + '" is not coming up (never served, or a '
+        + 'confirmed world that failed repeatedly); falling back to the default world.');
       let didReset = false;
       try { worlds.setActiveWorld(base, worlds.DEFAULT_ID); didReset = true; }
       catch (_) { /* fail-open: the default-env return below still lands on default THIS boot */ }
-      // Clear the counter ONLY if the pointer actually reset. If the registry is
-      // unwritable, keep the counter >= THRESHOLD so EVERY subsequent boot falls back,
-      // rather than re-accruing THRESHOLD failures each cycle before recovering (#2528 iter-1).
+      // Clear the failed-boot counter ONLY if the pointer actually reset. If the registry
+      // is unwritable, keep it >= its abandon level so EVERY subsequent boot falls back,
+      // rather than re-accruing before recovering (#2528 iter-1). The `confirmed` marker is
+      // set-once and intentionally NOT cleared: a world that once served stays known-good,
+      // so a deliberate re-switch to it gets THRESHOLD tries again (on a fresh count).
       if (didReset) worldbootguard.clear(base, activeId);
       bootedWorldId = worlds.DEFAULT_ID;
       return base; // default world: no override applied

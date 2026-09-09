@@ -352,7 +352,7 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     await advanceToAnchor(page, '.s3-gate-row');       // S2 file-access is granted, so we can reach S3
     await page.waitForTimeout(400);
     ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is disabled while sleep + tmux are measured-not-granted');
-    // Grant both -> the 1.5s poll re-enables Next.
+    // Grant both -> the gate poll (FR_GATE_POLL_MS, 750ms) re-enables Next.
     await page.unroute('**/api/sleep-status');
     await page.unroute('**/api/a11y-status');
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
