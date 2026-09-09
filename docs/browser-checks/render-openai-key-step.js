@@ -1,3 +1,4 @@
+// Browser-check-surface: fr-openai-go fr-openai-key
 /**
  * The OpenAI key step, rebuilt to its approved design (#1207).
  *
