@@ -198,6 +198,11 @@ test('#740: a two-word capitalised name is shown as typed and is one hyphenated 
   assert.equal(create.nameProblem('Kira.Knightley'), null, 'an interior period is accepted now (#2605)');
   assert.equal(create.slugFor('Kira.Knightley'), 'kira-knightley', 'a period folds to one hyphen, like a space');
   assert.equal(create.slugFor('Dr. Maya Okafor'), 'dr-maya-okafor', 'a title with a period and spaces is one clean slug');
+  /* #2605: a TRAILING period is accepted (folds to a trailing hyphen). The slug
+     is cosmetic there but valid (NAME_RE admits a trailing hyphen), and the plan
+     documents this as intended, so pin it rather than leave the case unguarded. */
+  assert.equal(create.nameProblem('Maya Jr.'), null, 'a trailing-title name is accepted');
+  assert.equal(create.slugFor('Maya Jr.'), 'maya-jr-', 'a trailing period folds to a trailing hyphen, valid and intended');
   /* 🛑 REPLACE, NOT STRIP: the whole anti-collision argument. If a period were
      STRIPPED, 'Ca.sey' would become 'casey' and land on a different agent
      silently. Folding it to a hyphen keeps it DISTINCT. */

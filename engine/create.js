@@ -3965,9 +3965,10 @@ module.exports = {
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
 
-  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
-     is a converter, not a gate — so anything asking "is this a name we can
-     act on" has to reach this, or it grows a weaker second copy. */
+  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
+     whitespace and periods to hyphens — it is a converter, not a gate — so
+     anything asking "is this a name we can act on" has to reach this, or it
+     grows a weaker second copy. */
   NAME_RE,
   /* The disk roots themselves, for #500's stray walk: the walk must read
      these directly, because workerDir() consults recorded folders and
