@@ -1335,16 +1335,28 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .onode .face > * { opacity: .5; transition: opacity .12s ease; }
 .onode:hover .face > *, .onode:focus-visible .face > * { opacity: 1; }
 .onode:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 4px; border-radius: 50%; }
-/* the state ring, drawn around the face */
-.onode::after {
-  content: ""; position: absolute; inset: -5px; border-radius: 50%;
-  border: 3px solid transparent; pointer-events: none;
+/* #2576/#2577: the outer ring is now the CONTEXT gauge, drawn on EVERY node by
+   orgRing() -- the same .gt/.gf reading the grid, list and detail views draw. It
+   sits just outside the face, exactly where the old partial-arc STATE ring used
+   to. State no longer draws a ring here: needs-you moves to the corner badge
+   below (a different visual channel, so both context and attention show at once),
+   and working/unknown/resting states carry no ring at all. Idle always had none.
+   .gt/.gf carry their own dark-theme overrides, so the ring themes for free. */
+.onode .oring {
+  /* Explicit 54px (the 44px face + the 5px the ring sits outside it on each
+     side), paired with inset like .dring/.lring/.agauge svg rather than left to
+     inset alone, so a viewBox-only SVG is never a zero-size node. */
+  position: absolute; inset: -5px; width: 54px; height: 54px; pointer-events: none; display: block;
 }
-.onode.attn::after { border-color: #b3261e; border-bottom-color: transparent; }
-.onode.work::after { border-color: transparent; border-top-color: #1f7a4d; }
-.onode.unk::after  { border: 3px dashed var(--k-ink-2); opacity: .7; }
-/* ⚠️ idle has no rule at all, on purpose. It is the resting state, and a
-   colour here would put colour on nearly every node nearly always. */
+/* #2577: needs-you as a corner badge (the list row's exact warning glyph, reused
+   verbatim as ONODE_WARN), top-right and overlapping the avatar edge so it never
+   sits where the old ring was and reads alongside the context gauge. ~43% of the
+   44px face. The glyph carries its own ground-colour halo (stroke var(--k-bg)),
+   so the red triangle holds over a light or dark photo in either theme. */
+.onode .owarn {
+  position: absolute; top: -3px; right: -3px;
+  width: 19px; height: 17px; pointer-events: none;
+}
 /* ⚠️ THERE IS NO PERSISTENT SELECTED STATE, and Josh's two notes together are
    why. Faces dim until moused over, AND clicking one opens that agent's page.
    So a click LEAVES: nothing stays selected because nothing stays. The solid
@@ -1381,8 +1393,6 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 }
 .onode:hover .callout, .onode:focus-visible .callout { opacity: 1; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .onode.attn::after { border-color: #ff8c82; border-bottom-color: transparent; }
-  :root:not([data-theme="light"]) .onode.work::after { border-color: transparent; border-top-color: #6fd3a0; }
   :root:not([data-theme="light"]) .onode .face { background: #3a3d42; }
 }
 .viewtoggle { display: inline-flex; border: 0.5px solid var(--separator);
@@ -6418,8 +6428,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .apphead .tab.on { background: rgba(245,245,244,.08); }
 }
 
-:root[data-theme="dark"] .onode.attn::after { border-color: #ff8c82; border-bottom-color: transparent; }
-:root[data-theme="dark"] .onode.work::after { border-color: transparent; border-top-color: #6fd3a0; }
 :root[data-theme="dark"] .onode .face { background: #3a3d42; }
 
 :root[data-theme="dark"] .chk.ok .chk-m { color: var(--gold-deep); }
@@ -13257,6 +13265,13 @@ function card(a) {
    stopped agent, and reading a field the route does not emit is the defect
    the roster fixture exists to throw on. */
 const LROW_WARN = '<svg class="lwarn" viewBox="0 0 22 20" role="img" aria-label="Needs you"><path d="M11 1.5 20.5 18h-19z" fill="#b3261e" stroke="var(--k-bg)" stroke-width="1.5" stroke-linejoin="round"/><rect x="10" y="6.5" width="2" height="6" rx="1" fill="#fff"/><circle cx="11" cy="15" r="1.2" fill="#fff"/></svg>';
+/* #2577: the org-chart node's needs-you corner badge is the SAME glyph as the
+   list row, DERIVED from it by a class swap so the triangle, the exclamation and
+   the built-in ground halo (stroke var(--k-bg)) can never drift apart -- only the
+   class differs, so CSS places it top-right on a node instead of centred on a
+   row. One mark means "needs you" on a tile, a pill, a row and a node (Mona Lisa,
+   #2577). web.org-view.test.js pins that the two carry the identical path. */
+const ONODE_WARN = LROW_WARN.replace('class="lwarn"', 'class="owarn"');
 function lrowRing(a) {
   const pct = pctOf(a.context);
   if (pct === null) return '';
@@ -13277,6 +13292,22 @@ function detailRing(a) {
   const R = 47, C = 2 * Math.PI * R;
   const band = memBand(pct);
   return `<svg viewBox="0 0 100 100" aria-hidden="true">
+    <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
+    <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
+  </svg>`;
+}
+/* #2576: the SAME context gauge for the org-chart node, scaled by CSS to sit
+   just outside the 44px node face (.onode .oring, inset -5px) where the state arc
+   used to. Same reading (pctOf) and band (memBand) as lrowRing, detailRing, the
+   cards and the MEMORY panel, so every surface agrees; unknown context (pct null)
+   draws nothing, matching them. Geometry mirrors detailRing (viewBox 100, r47,
+   sw4); the .oring CSS box does the scaling down to node size. */
+function orgRing(a) {
+  const pct = pctOf(a.context);
+  if (pct === null) return '';
+  const R = 47, C = 2 * Math.PI * R;
+  const band = memBand(pct);
+  return `<svg class="oring" viewBox="0 0 100 100" aria-hidden="true">
     <circle class="gt" cx="50" cy="50" r="${R}" fill="none" stroke-width="4"/>
     <circle class="gf ${band}" cx="50" cy="50" r="${R}" fill="none" stroke-width="4" stroke-dasharray="${(pct / 100) * C} ${C}" transform="rotate(-90 50 50)"/>
   </svg>`;
@@ -18933,7 +18964,7 @@ function paintOrg() {
    * ⚠️ THE HUB IS INCLUDED IN THE BOX, because it is part of the drawing: a
    * fleet that all reports upward would otherwise centre the agents and push
    * the hub off the edge. Its own 52px radius counts, as does a node's 22px
-   * plus the 5px its state ring sits outside that.
+   * plus the 5px its context ring sits outside that.
    *
    * 📌 Same nodes, same scale, translated. Nothing here changes who is where
    * relative to anything else.
@@ -18972,15 +19003,16 @@ function paintOrg() {
     wires.push('<line data-for="' + esc(name) + '" x1="' + px.toFixed(1) + '" y1="' + py.toFixed(1) + '" x2="'
       + x.toFixed(1) + '" y2="' + y.toFixed(1) + '" class="edge"/>');
     const a = spot.node.agent;
-    /* The state vocabulary is the CARD's, read through the same table the grid
-       and the list read, so the three views cannot disagree about an agent.
-       Three states draw a ring (attn / working / unknown); the resting states
-       (idle, paused, stopped) carry none. #2019: 'restarting' DELIBERATELY joins
-       the no-ring resting group here -- this compact constellation is not the
-       place for the animated K (the card / row / detail carry that), and no ring
-       still reads as present-and-quiet, never as "gone". */
-    const st = cardStOf(a).st;
-    const ring = st === 'attn' ? ' attn' : st === 'working' ? ' work' : st === 'unknown' ? ' unk' : '';
+    /* #2576/#2577: the state vocabulary is still the CARD's, read through the
+       same table the grid and the list read, so the three views cannot disagree
+       about an agent -- but state no longer draws the outer ring here. That ring
+       is now the CONTEXT gauge (orgRing, #2576), on every node. Only needs-you
+       gets a mark, and it is a corner BADGE (ONODE_WARN, #2577), a different
+       visual channel, so a needs-you agent shows BOTH its attention badge and its
+       context ring where the old red arc crowded the ring out. Working, unknown
+       and the resting states (idle, paused, stopped, #2019 restarting) carry no
+       badge: present-and-quiet with their context ring, matching the list row. */
+    const needsYou = cardStOf(a).st === 'attn';
     const shown = a.name || a.sessionName;
     const face = a.hasAvatar
       ? '<img src="/api/agent/' + encodeURIComponent(a.sessionName) + '/avatar" alt="" draggable="false">'
@@ -18989,10 +19021,17 @@ function paintOrg() {
          transparency Josh asked us to remove. */
       : '<span class="oinit">' + esc(initials(shown)) + '</span>';
     const tint = a.hasAvatar ? '' : ' style="background:' + discTint(shown) + ';color:' + discInk(shown) + '"';
-    nodes.push('<button class="onode' + ring + '" type="button" data-agent="' + esc(a.sessionName) + '"'
+    nodes.push('<button class="onode" type="button" data-agent="' + esc(a.sessionName) + '"'
       + ' style="left:' + x.toFixed(1) + 'px;top:' + y.toFixed(1) + 'px"'
-      + ' aria-label="Open ' + esc(shown) + '">'
+      /* #2577: the badge's own aria-label is inert inside a button that has its
+         own aria-label (the accessible name comes from the attribute alone, not
+         from descendant content), so needs-you would be visual-only here. Fold it
+         into the button's accessible name, the way the list row conveys it through
+         LROW_WARN sitting OUTSIDE any button. */
+      + ' aria-label="Open ' + esc(shown) + (needsYou ? ', needs you' : '') + '">'
+      + orgRing(a)
       + '<span class="face"' + tint + '>' + face + '</span>'
+      + (needsYou ? ONODE_WARN : '')
       + (nameAtRest ? '<span class="oname">' + esc(shown) + '</span>' : '')
       /* A name alone is a label; "Open Anna" is a control, and the node IS one
          (#284: "say what it does"). The gold is the app's action treatment, so

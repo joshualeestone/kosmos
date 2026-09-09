@@ -386,3 +386,89 @@ test('the flat-fleet hint stays removed (Josh, 2026-08-31): a deletion needs an 
     'the flat-fleet case renders an empty note, with no re-added hint arm');
   assert.match(paint, /could not be placed/, 'control: the unplaced branch the removal kept is still present');
 });
+
+/* ---- #2576/#2577: context ring on every node + needs-you corner badge ------ */
+
+/* orgRing executed in isolation (the harness web.detail-ring-1915.test.js uses):
+   its real deps are spliced out of the page, so what runs here is what ships, and
+   the arc geometry is the page's own arithmetic rather than a transcribed copy. */
+const orgRing = (() => {
+  const constLine = (name) => {
+    const m = SCRIPT.match(new RegExp('const ' + name + ' = \\d+;'));
+    assert.ok(m, name + ' is not in the page');
+    return m[0];
+  };
+  const slice = (name) => {
+    const at = SCRIPT.indexOf('function ' + name + '(');
+    assert.ok(at > -1, name + ' is not in the page');
+    let depth = 0; let i = SCRIPT.indexOf('{', at);
+    for (; i < SCRIPT.length; i += 1) {
+      if (SCRIPT[i] === '{') depth += 1;
+      else if (SCRIPT[i] === '}') { depth -= 1; if (depth === 0) break; }
+    }
+    return SCRIPT.slice(at, i + 1);
+  };
+  // eslint-disable-next-line no-new-func
+  return new Function([constLine('NEARLY_FULL'), constLine('WARM'),
+    slice('pctOf'), slice('memBand'), slice('orgRing'), 'return orgRing;'].join('\n'))();
+})();
+
+const RING_R = 47;
+const RING_C = 2 * Math.PI * RING_R;
+const dashOf = (svg) => { const m = svg.match(/stroke-dasharray="([\d.]+) [\d.]+"/); return m ? Number(m[1]) : null; };
+
+test('#2576: the node context gauge draws an arc that tracks the reading', () => {
+  for (const pct of [8, 30, 55, 72, 96]) {
+    const svg = orgRing({ context: { percent: pct } });
+    assert.match(svg, /class="oring"/, pct + '%: no context ring drawn');
+    const dash = dashOf(svg);
+    assert.ok(dash !== null && Math.abs(dash - (pct / 100) * RING_C) < 0.5,
+      pct + '%: arc ' + dash + ' does not track the reading (' + ((pct / 100) * RING_C).toFixed(2) + ')');
+  }
+});
+
+test('#2576: a fuller reading draws a longer arc (control: the arc is not a constant)', () => {
+  const low = dashOf(orgRing({ context: { percent: 20 } }));
+  const high = dashOf(orgRing({ context: { percent: 80 } }));
+  assert.ok(high > low, 'a fuller reading must draw a longer arc (' + low + ' -> ' + high + ')');
+});
+
+test('#2576: the band comes off the shared memBand thresholds (so the org ring agrees with every other surface)', () => {
+  assert.match(orgRing({ context: { percent: 30 } }), /class="gf ok"/);   // below WARM
+  assert.match(orgRing({ context: { percent: 65 } }), /class="gf warn"/);  // WARM..NEARLY_FULL
+  assert.match(orgRing({ context: { percent: 85 } }), /class="gf high"/);  // at/over NEARLY_FULL
+});
+
+test('#2576: unknown context draws no ring, matching the list row, detail and MEMORY panel', () => {
+  for (const ctx of [null, undefined, {}, { percent: null }, { percent: 'x' }]) {
+    assert.equal(orgRing({ context: ctx }), '', JSON.stringify(ctx) + ' drew a ring');
+  }
+});
+
+test('#2576/#2577: the node render puts the ring on every node and gates the badge on needs-you', () => {
+  const at = SCRIPT.indexOf('nodes.push(\'<button class="onode"');
+  assert.ok(at > -1, 'the org node button markup moved');
+  /* Bound to the push's OWN close, not a fixed offset: a comment added inside the
+     node render (as the #2577 aria fold was) otherwise pushes the assertions out
+     of a fixed window and silently reds (the eval-slice trap). */
+  const end = SCRIPT.indexOf("</button>');", at);
+  assert.ok(end > at, 'the org node push no longer closes with </button>\');');
+  const node = SCRIPT.slice(at, end);
+  assert.match(node, /\+ orgRing\(a\)/, 'the context ring is not rendered on every node');
+  assert.match(node, /\+ \(needsYou \? ONODE_WARN : ''\)/, 'the needs-you badge is not gated on the needs-you state');
+  assert.doesNotMatch(node, /class="onode' \+ ring/, 'a state-arc class is still appended to the node');
+});
+
+test('#2577: needs-you is read through the shared card-state table, and the old state-arc classes are gone', () => {
+  const paint = SCRIPT.slice(SCRIPT.indexOf('function paintOrg'), SCRIPT.indexOf('function orgLiveStart'));
+  assert.match(paint, /const needsYou = cardStOf\(a\)\.st === 'attn';/,
+    'needs-you is not derived from the shared cardStOf table');
+  /* The old red partial-arc ring appended ` attn` / ` work` / ` unk` classes to
+     the node. Their absence is the durable signal the arc did not creep back. */
+  assert.doesNotMatch(paint, /' (attn|work|unk)'/, 'a state-arc class literal survived in the node render');
+});
+
+test('#2577: the node badge is the list-row glyph reused verbatim, so the two cannot drift apart', () => {
+  assert.match(SCRIPT, /const ONODE_WARN = LROW_WARN\.replace\('class="lwarn"', 'class="owarn"'\);/,
+    'ONODE_WARN is not derived from LROW_WARN by a class swap; the two needs-you glyphs can now drift');
+});
