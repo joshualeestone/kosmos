@@ -20,6 +20,27 @@ const path = require('node:path');
 const anchor = require('./win32anchor');
 const store = require('./store');
 
+/* #2603: run this file from an ISOLATED temp cwd. `ensureAnchored({platform:'win32'})`
+   does a real `fs.mkdirSync` of a `path.win32.join(...)` (backslash) path, and on macOS
+   that lands as a single cwd-relative backslash-named dir (`\private\var\...\runtime`).
+   Left in the worktree it reads as untracked garbage, so run-tests.sh still exits 0 but
+   the challenge-loop validation helper's post-run cleanliness check records the tree
+   dirty -- turning the local validation gate permanently red on every macOS worktree,
+   for every agent, independent of the change under review. Isolating cwd here PREVENTS
+   the leak reaching the worktree (it lands in the temp dir, removed below) rather than
+   cleaning it up after -- so the worktree stays clean even if an arm throws. The
+   `existsSync` assertions still pass: they resolve r.node/r.boot against the SAME cwd
+   the mkdir used. `anchorDir` is pure and the other arms use absolute temp paths, so
+   neither depends on cwd being the worktree. Node runs each test file in its own
+   process (--test-isolation=process), so this cannot affect a sibling file. */
+const _win32OrigCwd = process.cwd();
+const _win32LeakCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win32-cwd-'));
+process.chdir(_win32LeakCwd);
+test.after(() => {
+  try { process.chdir(_win32OrigCwd); } catch { /* the process is ending anyway */ }
+  try { fs.rmSync(_win32LeakCwd, { recursive: true, force: true }); } catch { /* best effort */ }
+});
+
 test('#570 the anchor FOLLOWS store.js for the app directory name', () => {
   /* 🛑 #2439 renamed the store dir AgentWorkforce -> Kosmos while this branch was
      in flight. A hardcoded copy here would survive that merge silently and leave

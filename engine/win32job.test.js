@@ -19,7 +19,25 @@ const job = require('./win32job');
 const sup = require('./win32supervisor');
 const anchor = require('./win32anchor');
 
+/* #2603: run this file from an ISOLATED temp cwd. Arms here reach
+   anchor.ensureAnchored({platform:'win32'}), which does a real `fs.mkdirSync` of a
+   `path.win32.join(...)` (backslash) path; on macOS that lands as a cwd-relative
+   backslash-named dir (`\private\var\...\runtime`) that dirties the worktree. The
+   tests still pass and run-tests.sh exits 0, but the challenge-loop validation
+   helper then reads the dirty tree as failed -- turning the local validation gate
+   permanently red on every macOS worktree. Isolating cwd here PREVENTS the leak
+   reaching the worktree (it lands in the temp dir, removed below) even if an arm
+   throws. Assertions resolve against the same cwd the mkdir used, so they are
+   unaffected; each test file runs in its own process (--test-isolation=process). */
+const _win32OrigCwd = process.cwd();
+const _win32LeakCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-win32-cwd-'));
+process.chdir(_win32LeakCwd);
+
 test.after(() => job.setRunner(null));
+test.after(() => {
+  try { process.chdir(_win32OrigCwd); } catch { /* the process is ending anyway */ }
+  try { fs.rmSync(_win32LeakCwd, { recursive: true, force: true }); } catch { /* best effort */ }
+});
 
 /**
  * Record schtasks invocations instead of running them.
