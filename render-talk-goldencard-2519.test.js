@@ -602,6 +602,69 @@ test('#2519: no NOTE the check emits can be quoted by the release gate as a fail
   }
 });
 
+test('#2519: the context key-set claim is DERIVED from status.js, not restated', () => {
+  /* 🛑 THIS CLAIM IS LOAD-BEARING AND HAS BEEN WRONG THREE TIMES. It is the justification
+     for deleting the nested drift guard ("no two cards are guaranteed to share a nested
+     shape"), and it sits OUTSIDE the PIN-LIST and CATEGORY-LIST regions the other arms
+     check, so none of them could see it. Wrong version 1: "five key sets" in three copies.
+     Wrong version 2: my correction said "THREE context results" and missed
+     neverRecordedResult. Wrong version 3: the correction to FOUR said noCeilingResult
+     "adds ceilingSource, noCeiling" when it also adds `ceiling`.
+     ⚠️ AND THE INSTRUMENT I FIRST WROTE TO CHECK IT WAS ALSO WRONG: a `(\w+)\s*:` match
+     misses SHORTHAND properties, so it reported measuredResult adding two keys when it
+     adds three. The extraction below splits the return object at depth zero and accepts
+     `name:` and bare `name` alike. */
+  const statusSrc = fs.readFileSync(path.join(__dirname, 'engine', 'status.js'), 'utf8');
+  const keysOf = (fn) => {
+    const i = statusSrc.indexOf('function ' + fn + '(');
+    assert.ok(i !== -1, `CONTROL: ${fn} is gone from status.js, so this arm is measuring nothing`);
+    const r = statusSrc.indexOf('return {', i);
+    let depth = 0; let j = statusSrc.indexOf('{', r); const start = j;
+    for (; j < statusSrc.length; j++) {
+      if (statusSrc[j] === '{') depth++;
+      else if (statusSrc[j] === '}') { depth--; if (!depth) break; }
+    }
+    const body = statusSrc.slice(start + 1, j).replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const keys = new Set();
+    let d = 0; let tok = '';
+    for (let k = 0; k < body.length; k++) {
+      const ch = body[k];
+      if ('{(['.includes(ch)) d++;
+      else if ('})]'.includes(ch)) d--;
+      if (d === 0 && (ch === ',' || k === body.length - 1)) {
+        const m = (tok + (k === body.length - 1 ? ch : '')).trim().match(/^([A-Za-z_]\w*)\s*(?::|$)/);
+        if (m) keys.add(m[1]);
+        tok = '';
+      } else tok += ch;
+    }
+    return [...keys];
+  };
+  const FAMILY = ['tokens', 'percent', 'confidence', 'notYet', 'because'];
+  const adds = (fn) => keysOf(fn).filter((k) => !FAMILY.includes(k)).sort();
+  assert.deepEqual(adds('notYetResult'), [],
+    'notYetResult no longer shares the NONE_BASE family key set, so the count of key sets has changed');
+  assert.deepEqual(adds('neverRecordedResult'), ['neverRecorded']);
+  assert.deepEqual(adds('measuredResult'), ['ceiling', 'ceilingAssumed', 'overCeiling']);
+  assert.deepEqual(adds('noCeilingResult'), ['ceiling', 'ceilingSource', 'noCeiling']);
+  /* CONTROL: the extractor must see SHORTHAND properties, which is what the first version
+     missed. `ceiling` is shorthand in measuredResult and a literal in noCeilingResult. */
+  assert.ok(keysOf('measuredResult').includes('ceiling'),
+    'CONTROL: the extractor cannot see shorthand properties, so every ADDS set above is understated');
+  assert.ok(keysOf('measuredResult').includes('tokens'),
+    'CONTROL: the extractor missed the first shorthand key');
+  /* AND THE DOCUMENTS MUST SAY WHAT THE CODE DOES. */
+  for (const [where, text] of [
+    ['docs/browser-checks/render-talk.js', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js'), 'utf8')],
+    ['render-talk-goldencard-2519.test.js', fs.readFileSync(__filename, 'utf8')],
+  ]) {
+    const claim = text.match(/noCeilingResult \(adds ([^)]*)\)/);
+    assert.ok(claim, `${where} no longer states what noCeilingResult adds`);
+    const named = [...claim[1].matchAll(/`(\w+)`/g)].map((m) => m[1]).sort();
+    assert.deepEqual(named, adds('noCeilingResult'),
+      `${where} states noCeilingResult adds ${named}, and it adds ${adds('noCeilingResult')}`);
+  }
+});
+
 test('#2519: the CATEGORY list is ascending, gap-free, and the same in both documents', () => {
   /* 🛑 THE SENTENCE COUNTING THESE CATEGORIES HAS NOW BEEN WRONG SIX TIMES, each version
      written one iteration after the previous was corrected: "nothing identifying can
@@ -808,7 +871,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN);
-    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
+    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
        measured context. A single expected list would have been wrong for one of them, and
@@ -1426,7 +1489,7 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      MEASURED on an 18-agent board: TWO distinct `profile` shapes among our pane cards,
      17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty, because
      store.readProfile() returns {} for an agent with no profile file. `profile` is a
-     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
      that agent's transcript and ceiling, so no two cards are guaranteed to share a
      nested shape.
      ⚠️ And WHICH card was compared was arbitrary: liveCard() takes the first pane card

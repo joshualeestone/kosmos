@@ -1173,7 +1173,7 @@ function unreachableStates() {
          of ours -- 17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty,
          because store.readProfile() returns {} for an agent with no profile file. So
          one card in eighteen made the guard fire. `profile` is a free-form operator
-         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
          whether that agent has a readable transcript and a known ceiling, so no two
          cards are guaranteed to share a nested shape at all.
          ⚠️ AND WHICH CARD IS COMPARED WAS ARBITRARY: liveCard() takes the first pane
