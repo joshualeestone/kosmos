@@ -3,16 +3,15 @@
 # half (@barondraxum). The map is the co-located `// Browser-check-surface: <tokens>`
 # annotations in docs/browser-checks/*.js (added by #2518) -- the FROZEN contract this and
 # tools/lib/browser-check-surface-gate.sh both read; the annotation FORMAT is the single
-# source of truth. The annotation-parse sed and the whole-token boundary match here are
-# COPIED byte-for-byte from the gate (not yet a shared function -- extracting one is a clean
-# follow-up). They agree today because they are identical. DRIFT-DETECTOR arms in
-# test-bc-surface-map.sh assert the helper and the gate agree BEHAVIOURALLY on: plain-token presence
-# (arms 3/3c), the whole-token BOUNDARY via a substring-superset gate cross-check (arm 4b, red-capable
-# in BOTH directions), and a '.'-metachar token + a mixed-case annotation KEY (arm 3d) -- so an
-# unmirrored edit to the boundary match, the metachar ESCAPE, or the case-insensitive KEY reds the
-# suite. This is a STRONG check, not a proof: it does not exercise every path (e.g. head -1
-# multi-annotation). 🛑 If you edit the parse/match here, MIRROR it in the gate (and vice versa)
-# until they share one function.
+# source of truth. The annotation-parse sed and the whole-token boundary match are the SHARED
+# primitives in tools/lib/browser-check-surface-lib.sh (bc_surface_tokens_of / bc_surface_token_hits),
+# which this helper AND the gate source -- so they cannot byte-drift; there is one definition.
+# The DRIFT-DETECTOR arms in test-bc-surface-map.sh (3/3c/3d/4b) survive the extraction as a
+# WIRING check: they assert the helper and the gate still agree BEHAVIOURALLY on plain-token
+# presence (3/3c), the whole-token BOUNDARY via a substring-superset gate cross-check (4b,
+# red-capable in BOTH directions), and a '.'-metachar token + a mixed-case annotation KEY (3d),
+# so re-pointing EITHER consumer at a local reimplementation reds the suite. This is a STRONG
+# check, not a proof: it does not exercise every path (e.g. head -1 multi-annotation).
 #
 # USAGE
 #   tools/bc-surface-map.sh map [dir]
@@ -41,6 +40,11 @@
 # no `path`/`status` locals) because it may be invoked from any shell.
 set -u
 
+# Shared parse+match primitives (single source of truth; see browser-check-surface-lib.sh).
+# `${BASH_SOURCE[0]:-$0}` resolves this script's own dir in bash (BASH_SOURCE) and zsh ($0);
+# the lib is under lib/ beside this file. Sourced before first use, safe under `set -u`.
+. "$(dirname "${BASH_SOURCE[0]:-$0}")/lib/browser-check-surface-lib.sh"
+
 BCSG_DIR_DEFAULT="docs/browser-checks"
 
 # Emit `<basename>\t<tokens>` for every annotated top-level check. Same parse + case-insensitive
@@ -53,19 +57,11 @@ _bcm_map() {
   local list; list="$(find "$dir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
   while IFS= read -r ann; do
     [ -n "$ann" ] || continue
-    toks="$(sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$ann" | head -1)"
+    toks="$(bc_surface_tokens_of "$ann")"          # shared parse (case-insensitive key)
     [ -n "$toks" ] || continue
     base="${ann##*/}"
     printf '%s%s%s\n' "$base" "$tab" "$toks"
   done <<< "$list"
-}
-
-# 0 if $1 (a token) appears WHOLE (bounded by non-identifier chars) in $2 (changed text). The
-# SAME match the gate uses, so covering() agrees with what the gate would flag.
-_bcm_token_hits() {
-  local esc
-  esc="$(printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
-  printf '%s\n' "$2" | grep -qE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" 2>/dev/null
 }
 
 _bcm_covering() {
@@ -104,7 +100,7 @@ _bcm_covering() {
     [ -n "$base" ] || continue
     while IFS= read -r tok; do
       [ -n "$tok" ] || continue
-      if _bcm_token_hits "$tok" "$changed"; then
+      if bc_surface_token_hits "$tok" "$changed"; then   # shared whole-token match (== the gate)
         printf '%s\n' "$base"
         break
       fi

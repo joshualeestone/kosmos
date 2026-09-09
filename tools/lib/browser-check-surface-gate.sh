@@ -36,11 +36,17 @@
 # FAIL-SOFT, like #1720: if it cannot read the web diff, it returns 0 (repo-local; a
 # gate that reds a checkout it could not read is worse than the gap).
 
+# The annotation parse + whole-token match are the SHARED primitives in
+# browser-check-surface-lib.sh (a sibling), so this gate and tools/bc-surface-map.sh cannot
+# byte-drift. `${BASH_SOURCE[0]:-$0}` resolves this file's own dir in BOTH bash (BASH_SOURCE)
+# and zsh (a sourced file's $0), which is the shell mix this lib is sourced into.
+. "$(dirname "${BASH_SOURCE[0]:-$0}")/browser-check-surface-lib.sh"
+
 kosmos_browser_check_surface_gate() {
   # dstat/dpath NOT status/path: zsh ties `path`->PATH and `status`->$?, and this lib
   # is sourced, sometimes into zsh.
   local base bcdir files msgs webdiff changed tab
-  local ann ann_list toks tok esc_tok basename_chk esc_base esc_bcdir viol reason
+  local ann ann_list toks tok basename_chk esc_base esc_bcdir viol reason
   base="${KOSMOS_BCG_BASE:-origin/main}"
   bcdir="${KOSMOS_BCSG_DIR:-docs/browser-checks}"
   tab="$(printf '\t')"
@@ -83,9 +89,8 @@ kosmos_browser_check_surface_gate() {
   ann_list="$(find "$bcdir" -maxdepth 1 -type f -name '*.js' 2>/dev/null || true)"
   while IFS= read -r ann; do
     [ -n "$ann" ] || continue
-    # The key is case-insensitive, matching the sibling coarse gate's convention. macOS
-    # sed has no portable /I flag, so spell the class out (as browser-check-gate.sh does).
-    toks="$(sed -n 's|^[[:space:]]*//[[:space:]]*[Bb][Rr][Oo][Ww][Ss][Ee][Rr]-[Cc][Hh][Ee][Cc][Kk]-[Ss][Uu][Rr][Ff][Aa][Cc][Ee]:[[:space:]]*\(.*\)$|\1|p' "$ann" | head -1)"
+    # The annotation parse (case-insensitive key) is the shared primitive.
+    toks="$(bc_surface_tokens_of "$ann")"
     [ -n "$toks" ] || continue                     # unannotated: coarse gate handles it
     basename_chk="${ann##*/}"                       # e.g. render-subprojects-1994.js
     # Escape the dir + basename for the regex matches below, so a literal `.` (in `.js`, or
@@ -115,11 +120,10 @@ kosmos_browser_check_surface_gate() {
     # multi-token check. tr turns the space/tab-separated list into one token per line.
     while IFS= read -r tok; do
       [ -n "$tok" ] || continue
-      # WHOLE-token match, bounded by non-identifier chars, so token `pj-parent` does
-      # NOT over-fire on an unrelated `pj-parenthetical`. Escape ERE metachars first
-      # (tokens are DOM-id-like, but a stray `.` in an annotation must stay literal).
-      esc_tok="$(printf '%s' "$tok" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
-      if printf '%s\n' "$changed" | grep -qE "(^|[^A-Za-z0-9_-])${esc_tok}([^A-Za-z0-9_-]|\$)" 2>/dev/null; then
+      # WHOLE-token match (bounded by non-identifier chars, metachars escaped), the shared
+      # primitive -- so token `pj-parent` does NOT over-fire on `pj-parenthetical`, and the
+      # gate matches EXACTLY what tools/bc-surface-map.sh's `covering` reports.
+      if bc_surface_token_hits "$tok" "$changed"; then
         viol="${viol}  ${basename_chk}  (surface token '${tok}' changed in web/index.html)
 "
         break
