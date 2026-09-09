@@ -122,6 +122,11 @@ const ACCOUNTS = [
         cls: badge ? badge.className : null,
         text: badge ? (badge.textContent || '').trim() : null,
         title: badge ? (badge.getAttribute('title') || '') : null,
+        // #2568/#2584: the reauth affordance in this row's actions -- a Claude row carries
+        // the browser-OAuth reauth (data-reauth), an OpenAI chatgpt row the subscription
+        // reauth (data-openai-reauth); they must never both appear on one row.
+        claudeReauth: !!b.querySelector('[data-reauth]'),
+        openaiReauth: !!b.querySelector('[data-openai-reauth]'),
       };
     }
     return { count: boxes.length, byEmail };
@@ -134,7 +139,9 @@ const ACCOUNTS = [
   if (r.count !== 6) problems.push('expected 6 account rows, got ' + r.count);
 
   const want = [
-    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/ },
+    // A Claude subscription row carries the browser-OAuth reauth (data-reauth), never the
+    // OpenAI subscription reauth. #2568/#2584: the two reauth affordances never cross.
+    { email: 'work@example.com', cls: 'acct-connected', text: /Signed in.*active/, claudeReauth: true, openaiReauth: false },
     { email: 'rej@example.com', cls: 'acct-none', text: /Not connected/ },
     { email: 'unver@example.com', cls: 'acct-unknown', text: /not recently checked/, honesty: true },
     { email: 'out@example.com', cls: 'acct-none' },
@@ -143,8 +150,11 @@ const ACCOUNTS = [
     // label; the long because sentence must live in the TITLE, never the visible span
     // (that overflow was the bug). notText pins that the long sentence is NOT rendered
     // visibly, so a revert to the legacy fallback (which put it in the span) reds here.
+    // #2584: it also now carries the OpenAI subscription reauth (data-openai-reauth), and
+    // NOT the Claude data-reauth -- the affordance #2568 deferred, now that the driver exists.
     { email: 'sub@example.com', cls: 'acct-unknown', text: /Signed in . not checked live/,
-      notText: /may or may not still work/, titleText: /may or may not still work/, honesty: true },
+      notText: /may or may not still work/, titleText: /may or may not still work/, honesty: true,
+      claudeReauth: false, openaiReauth: true },
   ];
   for (const w of want) {
     const got = (r.byEmail || {})[w.email];
@@ -155,6 +165,12 @@ const ACCOUNTS = [
     if (w.titleText && !w.titleText.test(got.title || '')) problems.push(`${w.email}: the full reason is missing from the title (${w.titleText}); got title "${got.title}"`);
     if (w.honesty && got.cls && got.cls.indexOf('acct-connected') !== -1) {
       problems.push(`${w.email}: a merely-existing credential rendered GREEN (acct-connected) - the #874 false-green is back`);
+    }
+    if (typeof w.claudeReauth === 'boolean' && got.claudeReauth !== w.claudeReauth) {
+      problems.push(`${w.email}: Claude reauth button ${got.claudeReauth ? 'present' : 'absent'}, expected ${w.claudeReauth ? 'present' : 'absent'}`);
+    }
+    if (typeof w.openaiReauth === 'boolean' && got.openaiReauth !== w.openaiReauth) {
+      problems.push(`${w.email}: OpenAI reauth button ${got.openaiReauth ? 'present' : 'absent'}, expected ${w.openaiReauth ? 'present' : 'absent'}`);
     }
   }
 
