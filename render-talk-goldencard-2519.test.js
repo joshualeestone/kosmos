@@ -1546,6 +1546,8 @@ test('#2519: the capture refuses a PANELESS card', () => {
   }
 });
 
+/* The gap this arm records is tracked as kosmos#2553; the escape hatch below exists so
+   that fix is not locked out by this pin. */
 test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => {
   /* 🛑 THIS ARM PINS A REMOVAL, and the reason matters more than the code. An earlier
      version of this branch compared the live card's nested key paths against the

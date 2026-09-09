@@ -174,7 +174,7 @@ function goldenCard(fixturePath) {
          the catch block enumerates, and it produced no diagnostic at all. */
       process.stdout.write('  NOTE  render-talk: the recorded card fixture parsed but is '
         + (Array.isArray(card) ? 'an array' : card === null ? 'null' : 'a ' + typeof card)
-        + ', not a card object, so it is being ignored'
+        + ', which is not a card object, so it is being ignored'
         + ' -- with no live agent card this FAILS the reopen arm below\n');
       return null;
     }
@@ -1171,6 +1171,7 @@ function unreachableStates() {
         notes.push(`[${theme}] reopen: no PANE-based agent card of ours was available, so the RECORDED card fixture drove the clear path`);
       }
       /* 🛑 THERE IS NO LIVE-VS-FIXTURE DRIFT GUARD HERE, AND REMOVING IT WAS THE FIX.
+         TRACKED AS kosmos#2553, so this gap is open work rather than only a comment.
          An earlier version of this branch compared the live card's nested key paths
          against the recording and pushed a PROBLEM on any difference. It was unsound,
          and it would have redded release cuts on ordinary board composition.

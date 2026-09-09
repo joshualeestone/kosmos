@@ -225,7 +225,7 @@ correct: a rename inside `context` or `profile` on a populated box leaves the to
 key-set comparison in `yarn test` GREEN while the committed recording drives `openDetail`
 with a shape the page no longer consumes, on exactly the quiet boxes the fallback exists
 for. `openDetail` reads `context.percent`, so it is not hypothetical.
-**What would close it:** a comparison that can tell drift from board COMPOSITION. The one
+**Tracked as kosmos#2553**, which carries the measurement that killed the first attempt and three candidate shapes for a replacement. **What would close it:** a comparison that can tell drift from board COMPOSITION. Tracked as kosmos#2553. The one
 built here could not, and was removed for firing on an 18-agent board where two `profile`
 shapes were legitimately present. The arm pinning its absence carries a
 `COMPOSITION-AWARE DRIFT GUARD` escape hatch precisely so this fix is not locked out.
