@@ -4676,9 +4676,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .pj-question .pj-screen { max-height: 240px; }
 /* #2575: the dismiss control on the "Talk to one of them" header, and the safety
    breadcrumb that restores the area while an agent is waiting on an answer. */
-.pj-thread-hide { float: right; margin-left: var(--space-3); background: none;
-  border: 0; padding: 0; font: inherit; font-size: .8125rem; color: var(--label-2);
-  text-decoration: underline; cursor: pointer; }
+.pj-thread-head { display: flex; justify-content: space-between; align-items: baseline; }
+.pj-thread-hide { background: none; border: 0; padding: 0; margin-left: var(--space-3);
+  font: inherit; font-size: .8125rem; color: var(--label-2);
+  text-decoration: underline; cursor: pointer; white-space: nowrap; }
 .pj-thread-show { display: block; width: 100%; text-align: left; background: none;
   border: 0.5px solid var(--separator); border-radius: var(--radius-control);
   padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font: inherit;
@@ -9963,17 +9964,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          one of them" area but an agent is still waiting on an answer, this compact
          line keeps the waiting signal visible (never a false calm) and restores
          the full area on click. Sibling of #pj-thread so it shows while that box
-         is hidden; its label is set by pjApplyEngMode from the live waiting count. -->
+         is hidden; its text is set by pjApplyEngMode when an agent is waiting. -->
     <button class="pj-thread-show" id="pj-thread-show" type="button" hidden></button>
     <div class="field" id="pj-thread">
       <!-- No id: nothing read the one it carried (round 25), the same
            unread-surface rule as the thread payload's agents copy. -->
-      <span class="flabel">Talk to one of them</span>
-      <!-- #2575: dismiss/collapse. A "not now" for the current session (reset on
-           reload), so the per-agent question + second composer stop cluttering the
-           Projects page; the breadcrumb above restores it if an agent is waiting. -->
-      <button class="pj-thread-hide" id="pj-thread-hide" type="button"
-              aria-label="Hide the talk-to-one-agent area">Hide</button>
+      <div class="pj-thread-head">
+        <span class="flabel">Talk to one of them</span>
+        <!-- #2575: dismiss/collapse. A "not now" for the current session (reset on
+             reload), so the per-agent question + second composer stop cluttering the
+             Projects page; the breadcrumb above restores it if an agent is waiting. -->
+        <button class="pj-thread-hide" id="pj-thread-hide" type="button"
+                aria-label="Hide the talk-to-one-agent area">Hide</button>
+      </div>
       <p class="fhint">Every message goes to the one agent you pick. The others
          are on the project and are not in this conversation.</p>
       <div class="frow">
