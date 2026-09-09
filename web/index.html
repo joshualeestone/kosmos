@@ -4695,6 +4695,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font: inherit;
   font-size: .8125rem; color: var(--label); cursor: pointer; }
 .pj-thread-show:hover { background: var(--k-sunk); }
+/* #2575: the state-clear control inside the question block. A quiet underlined
+   text button (like Hide), plus a status line for a failure it must not swallow. */
+.pj-question-clearrow { display: flex; align-items: baseline; gap: var(--space-3);
+  flex-wrap: wrap; margin: var(--space-3) 0 0; }
+.pj-question-clear { background: none; border: 0; padding: 0; font: inherit;
+  font-size: .8125rem; color: var(--label-2); text-decoration: underline;
+  cursor: pointer; white-space: nowrap; }
+.pj-question-clear:disabled { opacity: .5; cursor: default; }
+.pj-question-clear-msg { margin: 0; }
 /* 🔑 THE AGENT PAGE'S WINDOW FILLS THE PAGE'S HEIGHT (#2012). It is fed 60 lines
    (`chat.viewport`); the old fixed 560px cap (Josh took 800 -> 560 on
    2026-08-22, ~42 of the 60 visible) was tuned for the NARROW pre-#2012 layout.
@@ -7035,6 +7044,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              inherits a claim written for the other container. The plan
              specified `.delivery.failed` here and the plan was wrong. -->
         <p class="qout" id="d-qask-fail" hidden></p>
+        <!-- #2129 recovery: the one-click Trust & Restart, surfaced HERE for the
+             folder-trust prompt so a person stuck on it acts in one click
+             instead of the Terminal arrow-key path. Same route and behaviour as
+             the Terminal tab's #d-trust-restart; kept SELF-CONTAINED (no shared
+             helper) so it cannot break the qask isolation tests. The render
+             unhides it ONLY when body.answerNote is set (the trust dialog is the
+             only state that carries it, #1629), so it never shows on the
+             #2456/#2575 reported-question false state. -->
+        <button class="btn" id="d-qask-trust-restart" type="button" hidden>Trust &amp; Restart</button>
+        <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
       </div>
     </div>
     <!-- Search above the thread (#403), the room's control on the agent's own
@@ -10018,6 +10037,22 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              prompt with more than two options makes the trailing numbers
              wrong; some day the range comes from the pane. -->
         <p class="fhint" id="pj-answer-how" hidden style="margin:8px 0 0;">Answer by sending the number: 1 or 2.</p>
+        <!-- #2575: clear a STALE waiting state, and it is NOT the same control as
+             Hide. Hide (in the head above) collapses the area for this session and
+             keeps the breadcrumb, because the agent IS waiting and the answer is
+             still owed. This asserts the opposite: the agent is NOT actually
+             waiting -- it resumed work and never self-cleared the needs_you -- so
+             it clears the record via Pete's engine route and the flag stops
+             surfacing at all, on reload included. Lives inside the question block,
+             so it only appears when there is a waiting claim to clear. -->
+        <div class="pj-question-clearrow">
+          <button class="pj-question-clear" id="pj-question-clear" type="button"
+                  aria-label="Clear this waiting flag because the agent is not actually waiting">Not waiting? Clear it</button>
+          <!-- Not a live region: an identical repeat failure would not re-fire it
+               (the round-33 pjAnnounce lesson). The visible line is plain; the
+               announce goes through pjAnnounce beside the write, like #pj-thread-msg. -->
+          <span class="fhint pj-question-clear-msg" id="pj-question-clear-msg"></span>
+        </div>
       </div>
 
       <!-- What we have sent, and how each one went. Ours to keep, because we
@@ -16442,7 +16477,7 @@ async function paintAccounts() {
     const targetDir = btn.dataset.forget || btn.dataset.remove;
     /* Delete says "for good" (it IS irreversible); Disconnect deliberately does
        not, because a rename survives and its success sentence says so. */
-    const CONFIRM = isRemove ? 'Delete for good?' : 'Remove it?';
+    const CONFIRM = isRemove ? 'Delete for good?' : 'Disconnect?';
     /* #1683: ASK FIRST. Josh asked for exactly this in #770: "a
        Disconnect link at the bottom that asks first". It shipped without
        the asking half, so one click removed an account with no confirm.
@@ -16590,7 +16625,7 @@ async function paintAccounts() {
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
         /* Restore the resting label, or a refused remove leaves the button
-           reading "Remove it?" and the NEXT single click acts. */
+           reading "Disconnect?" and the NEXT single click acts. */
         armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
         /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
            THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
@@ -20965,6 +21000,7 @@ async function paintTalk(sessionName, agentName) {
   const qtext = document.getElementById('d-qask-text');
   const qopts = document.getElementById('d-qopts');
   const qout = document.getElementById('d-qout');
+  const qTrust = document.getElementById('d-qask-trust-restart');
   const live = body.presence === 'on';
   const nowHidden = !body.asking || stillTheSame;
   /**
@@ -21028,6 +21064,9 @@ async function paintTalk(sessionName, agentName) {
     if (!closing) say.focus();
     else document.getElementById('d-talk-box').focus();
   }
+  /* #2129: default the recovery button hidden every paint, so it only shows
+     where the branch below explicitly turns it on. */
+  if (qTrust) qTrust.hidden = true;
   if (body.asking && body.question) {
     /* #1629: for Claude Code's trust dialog the ROUTE sends `answerNote`, the
        same sentence its send refusal uses, because the composer below invites
@@ -21044,6 +21083,10 @@ async function paintTalk(sessionName, agentName) {
     // The agent's screen, or its reported words, in the treatment the room uses.
     pjSetScreen(qtext, body.question.text);
     qtext.hidden = false;
+    /* #2129: surface the one-click Trust & Restart ONLY for the folder-trust
+       prompt, which is the only state carrying body.answerNote (#1629). Never on
+       the #2456/#2575 reported-question false state (answerNote null there). */
+    if (qTrust && body.answerNote) qTrust.hidden = false;
   } else if (!body.asking) {
     /* ⚠️ CLEARED WHEN NOTHING IS ASKING. They sit behind `hidden`, so nothing
        was shown — but the render check reads them directly and found the last
@@ -21975,12 +22018,20 @@ function openDetail(sessionName, section, fromProject) {
      an in-flight POST; a receipt that already landed for A persists until cleared here. */
   document.getElementById('d-trust-restart-msg').textContent = '';
   document.getElementById('d-open-terminal-msg').textContent = '';
+  /* #2129: the chat-box twin of #d-trust-restart-msg. Same reason: the qask box
+     elements are reused, not rebuilt per agent, so a landed receipt would stand
+     under the next agent unless cleared on switch. */
+  { const m = document.getElementById('d-qask-trust-restart-msg'); if (m) m.textContent = ''; }
   /* The buttons are shared across agents, so an in-flight POST for the agent we are leaving
      left them disabled; re-enable for the agent we are opening. The leaving agent's own
      `finally` re-enable is then a harmless no-op, and its late receipt is dropped by the
      capture-and-recheck above, so re-enabling here cannot cross agents. */
   document.getElementById('d-trust-restart').disabled = false;
   document.getElementById('d-open-terminal').disabled = false;
+  /* #2129: re-enable the chat-box Trust & Restart for the agent we are opening,
+     same as the two above (an in-flight POST for the leaving agent left it
+     disabled; the leaving agent's own finally re-enable is a harmless no-op). */
+  { const b = document.getElementById('d-qask-trust-restart'); if (b) b.disabled = false; }
 
   /* ⚠️ The UI half, which the plan claimed and the code did not do.
      Every write route now refuses an agent whose pane cannot be tied to its
@@ -25725,6 +25776,35 @@ document.getElementById('d-trust-restart').addEventListener('click', async () =>
   const forAgent = CURRENT.sessionName;
   const btn = document.getElementById('d-trust-restart');
   const msg = document.getElementById('d-trust-restart-msg');
+  btn.disabled = true;
+  msg.textContent = 'Trusting and restarting…';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/trust-and-restart',
+      { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    const r = await res.json().catch(() => ({}));
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = r.because || r.error
+        || (res.ok ? 'Restarting.' : 'We could not trust and restart this agent.');
+    }
+  } catch {
+    if (CURRENT && CURRENT.sessionName === forAgent) {
+      msg.textContent = 'We could not reach Kosmos to trust and restart this agent.';
+    }
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+/* #2129: the chat-box twin of the Trust & Restart handler above. Deliberately a
+   SELF-CONTAINED copy, not a shared helper, so the qask isolation tests that
+   lift this region do not throw on a delegate defined elsewhere. Same route,
+   same capture-and-recheck (CURRENT.sessionName === forAgent) so a receipt
+   cannot land under a different agent if the person switches mid-POST. */
+document.getElementById('d-qask-trust-restart').addEventListener('click', async () => {
+  if (!CURRENT) return;
+  const forAgent = CURRENT.sessionName;
+  const btn = document.getElementById('d-qask-trust-restart');
+  const msg = document.getElementById('d-qask-trust-restart-msg');
   btn.disabled = true;
   msg.textContent = 'Trusting and restarting…';
   try {
@@ -31267,6 +31347,11 @@ let PJ_CURRENT = null;      // the project id being looked at, or null
    (reset on reload). pjApplyEngMode keeps the box hidden while set, and shows the
    safety breadcrumb instead when an agent is genuinely waiting. */
 let PJ_THREAD_HIDDEN = false;
+/* #2575: the sessionName of the agent the open question is about, captured by
+   paintThread whenever it paints an asking state and nulled when it does not.
+   The state-clear button reads THIS (not the picker) so it always targets the
+   exact agent whose waiting flag is on screen. */
+let PJ_QUESTION_AGENT = null;
 let PJ_PICKED = null;       // the folder CHOSEN in the add flow, deliberately
 let PJ_HERE = null;        // the folder being LOOKED AT, which is not the same
 let PJ_ADD_AGENTS = [];     // the agents ticked in the add flow
@@ -34819,6 +34904,7 @@ function openProject(id) {
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
     pjApplyEngMode();
+    PJ_QUESTION_AGENT = null;  // #2575: question hidden here (not via paintThread), so drop the clear target too
     // The heading too (round 22): it is written in exactly one place
     // (paintThread), so without this reset a project with no agents kept
     // "What Mara's screen shows right now" from the LAST thread over an
@@ -36512,6 +36598,15 @@ function paintThread(body) {
   const p = pjById(PJ_CURRENT);
   if (!p || !body) return;
   const name = pjNameOf(p, body.agent && body.agent.sessionName);
+  /* #2575: the state-clear button's target follows the painted question exactly.
+     Set from body.asking (either asking arm below), nulled when not asking, so a
+     click can never clear a flag that is no longer on screen. */
+  PJ_QUESTION_AGENT = body.asking ? ((body.agent && body.agent.sessionName) || null) : null;
+  /* #2575: a clear-failure line is transient, not sticky. Cleared on every repaint
+     so a stale "could not clear" cannot sit next to a question the poll has since
+     refreshed (a new prompt, or the pane scrolled). The failure also spoke through
+     pjAnnounce, so blanking the visible text loses no announcement. */
+  { const cm = document.getElementById('pj-question-clear-msg'); if (cm) cm.textContent = ''; }
 
   /* The question, when the board says this agent is asking one. */
   const qWrap = document.getElementById('pj-question');
@@ -36727,6 +36822,7 @@ async function loadThread() {
     document.getElementById('pj-screen').hidden = true;
     document.getElementById('pj-screen-hint').textContent = '';
     pjApplyEngMode();
+    PJ_QUESTION_AGENT = null;  // #2575: question hidden here (not via paintThread), so drop the clear target too
     // Same heading reset as openProject's clear (round 22): the poll takes
     // this branch within a tick of the last agent leaving the project, and
     // the heading otherwise keeps naming the departed agent.
@@ -38204,6 +38300,62 @@ document.getElementById('pj-thread-show').addEventListener('click', () => {
   PJ_THREAD_HIDDEN = false;
   pjApplyEngMode();
 });
+/* #2575: clear a STALE waiting flag through Pete's engine route. This is the
+   STATE half, the opposite of Hide's DISPLAY half: it POSTs to
+   /api/agent/<name>/clear-selfreport, which records `idle` over a
+   waiting-on-a-person self-report so the flag stops surfacing (reload included),
+   and then re-reads the thread so the question comes off the screen at once.
+   Named (not an inline listener) so the test lifts and runs the real thing. */
+async function pjClearState() {
+  const target = PJ_QUESTION_AGENT;
+  const btn = document.getElementById('pj-question-clear');
+  const emsg = document.getElementById('pj-question-clear-msg');
+  /* One string, so the two failure paths are byte-identical -- which is what lets
+     pjAnnounce's round-33 blank-and-reset re-speak a repeated failure (a live
+     region only fires on change; a second identical failure would say nothing). */
+  const FAIL = 'We could not clear that just now. Try again.';
+  const sayFail = () => {
+    /* Visible line (non-live) plus the announce beside it, the #pj-thread-msg
+       pattern: a failed clear must not be swallowed -- leaving the question up
+       with no word is the false-progress this page is built against. */
+    if (emsg) emsg.textContent = FAIL;
+    pjAnnounce(FAIL);
+  };
+  /* No target means no asking state is painted, so there is nothing to clear.
+     The button only shows inside the question block, but the guard keeps a
+     stray click (or a click landing just as the question cleared) a no-op. */
+  if (!target) return;
+  btn.disabled = true;
+  if (emsg) emsg.textContent = '';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(target) + '/clear-selfreport', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ reason: 'operator-dismissed' }),
+    });
+    let body = {};
+    try { body = await res.json(); } catch { body = {}; }
+    if (!res.ok || !body || body.ok !== true) {
+      sayFail();
+      return;
+    }
+    /* Keyed on `cleared`, not `by` (Pete's contract): `cleared:true` means a real
+       waiting flag was superseded; `cleared:false` is the route's documented
+       idempotent no-op (already idle, or the agent self-cleared in a race). Both
+       are success and both mean the agent is not-waiting now, so re-read the
+       thread either way -- the next paint sees asking:false and hides the
+       question. `by` is provenance and is deliberately not consulted. */
+    await loadThread();
+  } catch {
+    sayFail();
+  } finally {
+    /* Re-enabled unconditionally: on success the question (and this button with
+       it) is gone on the repaint; if the agent is still asking a fresh question
+       the button is live again for the next attempt. */
+    btn.disabled = false;
+  }
+}
+document.getElementById('pj-question-clear').addEventListener('click', pjClearState);
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
 /* #1316: Escape, matching the backdrop click above. */

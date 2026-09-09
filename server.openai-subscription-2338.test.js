@@ -59,6 +59,18 @@ test('POST subscription/start returns ONLY the session + mode (authUrl/userCode 
   assert.equal(lastStartArgs.codexBin, '/mock/codex', 'the route hands the resolved codex bin to the driver');
 });
 
+test('#2584: subscription/start threads reauthDir to the driver (present -> passed; absent/empty -> undefined)', async () => {
+  await post('/api/accounts/openai/subscription/start', { mode: 'browser', reauthDir: '/Users/x/.codex-acct' });
+  assert.equal(lastStartArgs.reauthDir, '/Users/x/.codex-acct', 'a reauth start hands the target dir to the driver');
+  // A normal add must never be accidentally a reauth.
+  await post('/api/accounts/openai/subscription/start', { mode: 'browser' });
+  assert.equal(lastStartArgs.reauthDir, undefined, 'a normal add passes no reauthDir');
+  // An empty string is not a target; it must not be forwarded (the driver would
+  // treat any truthy dir as a reauth).
+  await post('/api/accounts/openai/subscription/start', { mode: 'browser', reauthDir: '' });
+  assert.equal(lastStartArgs.reauthDir, undefined, 'an empty reauthDir is not forwarded as a reauth');
+});
+
 test('GET subscription/status returns the state + account AND the auth prompt (authUrl/userCode)', async () => {
   const r = await get('/api/accounts/openai/subscription/status?sessionId=sess-1');
   assert.equal(r.status, 200);

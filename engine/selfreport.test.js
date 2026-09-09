@@ -408,3 +408,46 @@ test('#1949 refuses automatic idle AND working, but the hook\'s one-time and wai
     assert.equal(selfreport.read('inert-control').state, 'needs_you');
   }
 });
+
+/* -------------------------------------------------------------------------
+ * #2575: an OPERATOR clear of a stale self-reported needs_you.
+ *
+ * The intended clear is the agent reporting a non-auto state itself, but an
+ * agent that raised needs_you, resumed work, and never self-cleared leaves a
+ * sticky red. `by:'operator'` is the third written provenance -- a person
+ * clearing on the agent's behalf. Its `auto` is falsey, so the #900 guard does
+ * NOT refuse it: an operator idle LANDS over a standing needs_you, where an
+ * AUTOMATIC idle is refused. The two arms below are red-capable in opposite
+ * directions, which is what makes the pass mean anything.
+ * ------------------------------------------------------------------------- */
+
+test('#2575: an OPERATOR idle LANDS over a standing needs_you and is stored as by:operator', () => {
+  selfreport.record('op-cleared', { state: 'needs_you', because: 'permission to run Bash' });
+  const cleared = selfreport.record('op-cleared', { state: 'idle', because: 'operator dismissed a stale needs_you', by: 'operator' });
+  assert.equal(cleared.recorded, true, 'an operator clear (auto falsey) must not be refused over a standing needs_you');
+  const back = selfreport.read('op-cleared');
+  assert.equal(back.state, 'idle', 'the operator idle superseded the needs_you');
+  assert.equal(back.by, 'operator', 'the writer is recorded as operator, the third provenance value');
+});
+
+test('#2575 CONTROL: an AUTOMATIC idle is STILL refused over a standing needs_you (the operator path did not weaken #900)', () => {
+  selfreport.record('op-control', { state: 'needs_you', because: 'permission to run Bash' });
+  const refused = selfreport.record('op-control', { state: 'idle', because: 'end of turn', auto: true });
+  assert.equal(refused.recorded, false, 'THE CONTROL: an automatic idle must remain refused -- the by:operator branch must not have opened the #900 guard');
+  assert.equal(refused.skipped, 'waiting');
+  assert.equal(selfreport.read('op-control').state, 'needs_you');
+});
+
+test('#2575: `operator` is the ONLY value a caller may ASSERT via entry.by; any other by is ignored and re-derived from auto', () => {
+  /* A caller cannot forge `agent` or `auto` through the `by` field -- only the
+     literal `operator` is honoured, and everything else falls back to the
+     auto-vs-agent derivation, so the field cannot be used to relabel an
+     automatic write as an agent-typed one (which would reintroduce #1453's
+     miscount from the write side). */
+  selfreport.record('by-forge', { state: 'working', because: 'x', by: 'auto' });
+  assert.equal(selfreport.read('by-forge').by, 'agent', 'by:auto on a non-auto entry is not honoured; it is the agent typing');
+  selfreport.record('by-forge', { state: 'working', because: 'x', by: 'auto', auto: true });
+  assert.equal(selfreport.read('by-forge').by, 'auto', 'an actual auto write still reads auto, regardless of a bogus by');
+  selfreport.record('by-forge', { state: 'working', because: 'x', by: 'agent', auto: true });
+  assert.equal(selfreport.read('by-forge').by, 'auto', 'by:agent cannot mask a genuine auto write');
+});

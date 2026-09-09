@@ -481,7 +481,7 @@ let failed = 0;
     return Object.assign({}, seen, { clicked: false });
   }, doClick);
   /* 🔑 THE BEFORE ARM. Without it this asserts a STATE, not a TRANSITION: a
-     regression rendering the button as "Remove it?" AT REST would pass for the
+     regression rendering the button as "Disconnect?" AT REST would pass for the
      wrong reason. The `offers a live Remove` assertion is two full navigations
      earlier against a destroyed page, so it is not an arm for this one. */
   const beforePress = await walkStep(false);
@@ -501,7 +501,7 @@ let failed = 0;
   await p.waitForTimeout(300);
   const firstPress = await walkStep(false);
   say('the FIRST press only ARMS, it does not remove (#1683, #1702)',
-    firstPress.label === 'Remove it?' && firstPress.listed === true
+    firstPress.label === 'Disconnect?' && firstPress.listed === true
       && firstPress.disabled === false && firstPress.visible === true,
     JSON.stringify({ before: beforePress, after: firstPress }));
   /* #1710: the armed Disconnect must PAINT the danger treatment, not just change
@@ -542,7 +542,7 @@ let failed = 0;
      and it did not remove" from "we never pressed at all". */
   const pressTwo = await walkStep(true);
   say('the second press lands on the armed button',
-    pressTwo.clicked === true && pressTwo.label === 'Remove it?',
+    pressTwo.clicked === true && pressTwo.label === 'Disconnect?',
     JSON.stringify({ afterFirst: firstPress, atSecondPress: pressTwo }));
   await p.waitForTimeout(1500);
   const after = await p.evaluate(() => ({
