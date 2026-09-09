@@ -114,6 +114,13 @@ _served_verify_redirect_note() {
       #      SECRET, `?SECRET` keeps it), because it is indistinguishable from a KEY and keys are
       #      the discriminating signal. This follows correctly from "keep the keys" and it is a
       #      shape the first version of this list did not mention.
+      # 🛑 AND THE LIST CLAIMED COMPLETENESS WHILE OMITTING THE ONE COMPONENT THAT IS ALWAYS A
+      # CREDENTIAL: USERINFO. MEASURED against a fixture whose Location was
+      # `http://alice:SECRETPASSWORD@host/landing?tok=QVAL#frag=FVAL`, the query and fragment were
+      # redacted correctly and the PASSWORD printed whole into the deploy log and the retained
+      # transcript, which is the exact surface kosmos#2566 was filed about. Unlike a path segment,
+      # userinfo carries NO diagnostic signal at all: an auth redirect is told by the host, the
+      # path and the query keys, never by who is authenticating. So it is redacted, not named.
       # 🛑 SPLIT AT THE FIRST `?` OR `#`, AND REDACT ONLY AFTER IT. The path is never touched,
       # because the path is half the tell. The FRAGMENT is redacted like the query: an implicit-flow
       # `#access_token=...` is exactly the shape this exists to keep out of a retained transcript,
@@ -128,7 +135,21 @@ _served_verify_redirect_note() {
           _svrn_tail=$(printf '%s' "$_svrn_tail" | sed 's/=[^&#]*/=<redacted>/g')
           _svrn_target="${_svrn_head}${_svrn_tail}"
           ;;
+        *) _svrn_head=$_svrn_target; _svrn_tail='' ;;
       esac
+      # USERINFO, on the head only, so a `@` inside a query or fragment is never touched. The `@`
+      # must precede the first `/` of the path, or it is part of the path and not userinfo.
+      case "$_svrn_head" in
+        *://*@*)
+          _svrn_scheme=${_svrn_head%%://*}
+          _svrn_hostpart=${_svrn_head#*://}
+          case "${_svrn_hostpart%%@*}" in
+            */*) : ;;
+            *) _svrn_head="${_svrn_scheme}://<redacted>@${_svrn_hostpart#*@}" ;;
+          esac
+          ;;
+      esac
+      _svrn_target="${_svrn_head}${_svrn_tail}"
       # ⚠️ RESIDUAL: printf stops the SHELL interpreting escapes, but raw control bytes already in
       # the header (an ESC colour sequence, say) still reach the terminal verbatim. Deploy log and
       # operator terminal only, and stripping them would fight the "report what was observed"

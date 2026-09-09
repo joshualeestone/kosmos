@@ -138,30 +138,49 @@ manifest arm now made bidirectional (an entry for a handler that no longer exist
 green). What I retired: a six-phrase overclaim denylist that the whole-refusal-line equality had
 already subsumed, which emitted no `ok` line and had no control proving it could match anything.
 
-## kosmos#2565: filed, then CLOSED HERE after two reviewers raised it independently
+## kosmos#2565: filed here, then IMPLEMENTED BY SOMEONE ELSE ON MAIN, and mine was dropped
 
-`served_verify_host_discriminates` builds its negative control under `/dist/`, while
-`tools/deploy-site.sh` also asserts `$HOST/setup`, a different route. A host that discriminates
-under `/dist/` and is blind under `/setup` would pass the control and then be trusted for `/setup`.
-It is equivalent for the deployment-wide SSO shape the card measured, and not equivalent for a
-route-scoped blindness: a rewrite rule, a catch-all route or an SPA fallback scoped to one prefix
-produces exactly a host that discriminates under `/dist` and answers 200 to everything at the root.
+`served_verify_host_discriminates` built its negative control under one route (`/dist`) while
+`tools/deploy-site.sh` went on to trust a 200 at the site root (`/setup`). That is sound for the
+deployment-wide SSO shape #1667 measured, where every route goes blind together, and not sound for
+a route-scoped blindness: a rewrite rule, a catch-all, or an SPA fallback under one prefix produces
+exactly a host that discriminates under `/dist` and answers 200 to everything at the root.
 
-**I first filed it rather than fixing it**, reasoning that changing a verdict-bearing function would
-move verdicts for the other slices of #1667 without their arms seeing it. **Two independent
-reviewers then raised it**, and re-checking the premise changed my answer: `grep` finds exactly two
-production callers of `served_verify_host_discriminates`, both in `tools/deploy-site.sh`. There is
-no third slice to break.
+🛑 **THE HONEST HISTORY, because an earlier version of this section said "Closed here, additively"
+and that is FALSE.** I filed it rather than fixing it. Two reviewers then raised it, so I
+implemented it in-branch. **I never re-checked whether anyone had taken the card, and someone had:**
+PR #2572 landed kosmos#2565 on main first. When I merged main, my version was dropped for theirs.
 
-**Closed here, additively.** The function takes an optional route prefix, `${2-/dist}`, so every
-existing call is byte-identical in behaviour. `deploy-site.sh` now proves the ROOT route
-discriminates immediately before it trusts the 200 at `/setup`. The `/routeblind/` fixture drives
-the exact shape: it 404s under `/dist` and 200s text/html everywhere else, so the default control
-passes on it (which is the gap, asserted as such) and the root-route control catches it.
+⭐ **THE RULE THAT COST ME: if you file a card and later decide to do it yourself, check whether it
+is still yours before you build it.**
 
-📌 **`${2-/dist}` and not `${2:-/dist}`, and that is load-bearing rather than pedantry**: an
-explicitly empty prefix means the site root, and the colon form would silently replace it with the
-default. A mutation swapping one for the other reds the arm.
+**Theirs is better, on the axis that matters.** Main takes `${2:-/dist}` and NORMALISES the route
+(one leading slash added, all trailing slashes stripped), so a caller passes `/` for the root.
+Mine used `${2-/dist}` and required an explicitly EMPTY string, and I had written both an arm and a
+mutation to defend that fragility. Main also names a residual I had missed: a blindness scoped to an
+EXACT literal path is unreachable by ANY negative control in principle, because no other path routes
+identically to an exact match, so there is nothing to probe.
+
+⚠️ **AN EARLIER VERSION OF THIS SECTION ALSO CLAIMED "a mutation swapping `${2-...}` for
+`${2:-...}` reds the arm". A reviewer ran exactly that mutation after the merge: the suite exits 0.**
+No arm passes an empty prefix any more, so none can red on it. That sentence was true of code that
+no longer exists, which is the same defect class this branch has been removing all day, committed
+in the file that records the removals.
+
+**What this branch still contributes to #2565's area**, verified by mutation after the merge:
+- an arm for the TRAILING-SLASH half of main's normalisation, which had none. `deploy-site.sh`
+  passes `/`, so the strip is what makes the production root probe `${HOST}/__...` rather than
+  `${HOST}//__...`. Measured before adding it: neutralising the `while` loop left the suite green
+  while neutralising the leading-slash `case` red one arm. The refusal already prints the
+  constructed URL, so asserting the URL is what makes the strip observable.
+- an arm fetching main's `/routeblind` `/dist/real.bin` branch, which no arm reached, so it was
+  dead fixture code. It is also the honest control for the route arms: the route-blind host is
+  blind at the ROOT, not broken everywhere.
+- 📌 the fixture is `/routeblind`, with NO trailing slash, and its root branch serves **text/plain**,
+  not text/html. Both are deliberate and an earlier version of this section got both wrong: a
+  no-trailing-slash handler is what makes the leading-slash-normalisation arm non-vacuous, and
+  text/html at the root would be caught by `served_verify_asset_ok`, which would hide the fact that
+  only the ROUTE control catches this shape.
 
 ## kosmos#2566: I was wrong, and Mona Lisa's third option is the right one
 

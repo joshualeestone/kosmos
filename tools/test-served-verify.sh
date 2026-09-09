@@ -73,6 +73,7 @@
 #   /sso301/                301, not 302, so the note's `3??` arm is more than a 302 arm
 #   /sso308/                308, so that arm is more than a 301-or-302 arm either
 #   /ssoq/                  302 whose Location carries a QUERY with a secret-shaped value
+#   /ssouser/               302 whose Location carries USERINFO (user:password@host)
 #   /ssoesc2/               like /ssoesc/, but its escaped Location LANDS on 200 text/html
 #   /esclanding             the 200 text/html that /ssoesc2/'s escaped Location resolves to
 #   /routeblind             a ROUTE-SCOPED blindness: 404 under its /dist, 200 at its root
@@ -107,6 +108,10 @@
 #     🛑 ITS MARKER MOVED FROM THE QUERY INTO THE PATH when kosmos#2566's redaction landed:
 #     the note now redacts query VALUES, which would have eaten the marker and red an arm that has
 #     nothing to do with redaction. The escape hazard is identical in a path.
+# 📌 NOT COVERAGE FOR TELL #1: tools/test-deploy-site-promote.sh's curl stub prints only a
+#   status for `-w`, never a content type, so served_verify_asset_ok sees the literal string "200"
+#   as its content-type there and the content-type tell is UNEXERCISED in that suite. Its win-alias
+#   arms assert existence only. Correct for what that suite tests; do not cite it as tell coverage.
 #   /ssoq/ proves that redaction actually happens: a Location whose query carries a secret-shaped
 #     value must reach the note as `key=<redacted>`, with the value absent.
 #   /routeblind is kosmos#2565 made drivable: it DISCRIMINATES under /dist and is BLIND at the
@@ -248,6 +253,17 @@ class H(http.server.BaseHTTPRequestHandler):
             # startswith, not ==, because the escaped suffix is part of the resolved path.
             self._send(200, 'text/html; charset=utf-8', b'<html><body>escaped landing</body></html>')
             return
+        if p.startswith('/ssouser/'):
+            # 🛑 USERINFO IN THE Location. MEASURED: curl reports it VERBATIM in
+            # %{redirect_url}, so without redaction the password lands in the deploy log and in the
+            # retained agent transcript. Unlike a path segment, userinfo carries NO diagnostic
+            # signal: an auth redirect is told by host, path and query KEYS, never by who is
+            # authenticating, so this one is redacted rather than merely named as a residual.
+            self.send_response(302)
+            self.send_header('Location', 'http://alice:SECRETPASSWORD@127.0.0.1:%d/esclanding?tok=QVAL' % self.server.server_address[1])
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if p.startswith('/ssoq/'):
             # a Location carrying a QUERY whose values look like credentials. The note must print
             # the KEYS and redact the VALUES (kosmos#2566): keys are the discriminating tell, values
@@ -381,6 +397,7 @@ SSONOLOC="http://127.0.0.1:$PORT/ssonoloc"
 SSO301="http://127.0.0.1:$PORT/sso301"
 SSO308="http://127.0.0.1:$PORT/sso308"
 SSOQ="http://127.0.0.1:$PORT/ssoq"
+SSOUSER="http://127.0.0.1:$PORT/ssouser"
 SSOESC2="http://127.0.0.1:$PORT/ssoesc2"
 ROUTEBLIND="http://127.0.0.1:$PORT/routeblind"   # #2565: discriminates under /dist, blind at root
 
@@ -522,6 +539,25 @@ case "$noloc_msg" in
   *) fail "the note did not report a missing Location. Got: $noloc_msg" ;;
 esac
 
+# 🛑 THE TRAILING-SLASH STRIP IS THE HALF OF THE MERGED NORMALISATION PRODUCTION USES, AND IT
+# HAD NO ARM. deploy-site.sh passes "/", so the strip is what makes the root probe `${HOST}/__...`
+# instead of `${HOST}//__...`, and whether a host answers those identically is host-dependent.
+# MEASURED before adding this: neutralising the `while` loop left the suite exit 0, 0 FAIL, while
+# neutralising the leading-slash `case` red one arm. The four route arms cannot see it because both
+# `//__...` and `/__...` fall to the same fixture branches. The refusal already prints the
+# constructed URL, so asserting the URL is what makes the strip observable.
+slash_msg=$(served_verify_host_discriminates "$BLIND" "/" 2>&1 >/dev/null)
+case "$slash_msg" in
+  *"${BLIND}/__served-verify-negative-control-"*)
+    pass "a '/' route builds ONE slash into the probe URL (the trailing-slash strip is live)" ;;
+  *) fail "the probe URL is malformed for a '/' route: expected ${BLIND}/__served-verify..., got: $slash_msg. Without the trailing-slash strip this is \${host}//__..., and whether a host answers that identically to the single-slash form is host-dependent." ;;
+esac
+# main's /routeblind handler serves a REAL asset under its /dist, and no arm fetched it, so that
+# branch was dead fixture code. It is also the honest control for the arms above: the route-blind
+# host is blind at the ROOT, not broken everywhere.
+served_verify_asset_ok "$ROUTEBLIND/dist/real.bin" "a real asset on the route-blind host" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "CONTROL: the route-blind host still serves a REAL asset under /dist, so its root blindness is route-scoped and not total"
+
 echo "-- the note's OWN request fails, the caller's did not --"
 # CONTROL FIRST, on its own path so it cannot disturb the arm below: the fixture must really refuse
 # a second request, or the silence proved below is the silence of a note that had nothing to fail on.
@@ -548,6 +584,19 @@ case "$blind_msg" in
   *"MECHANISM: un-followed"*) fail "the redirect note fired on a host that did NOT redirect, so the note carries no information" ;;
   *) pass "CONTROL: no redirect claimed for a host that 200s directly" ;;
 esac
+u_msg=$(served_verify_asset_ok "$SSOUSER/dist/real.bin" "an asset behind a redirect carrying userinfo" 2>&1 >/dev/null)
+case "$u_msg" in
+  *SECRETPASSWORD*)
+    fail "the note printed a PASSWORD from the Location's userinfo. curl reports userinfo verbatim in %{redirect_url}, and a refusal lands in the deploy log and a retained transcript. Got: $u_msg" ;;
+  *"<redacted>@127.0.0.1"*)
+    pass "userinfo is redacted while the host survives, so a credential in the Location cannot reach the log" ;;
+  *) fail "the note neither leaked the password nor shows a redacted userinfo, so this arm cannot tell redaction from a lost target. Got: $u_msg" ;;
+esac
+case "$u_msg" in
+  *"/esclanding?tok=<redacted>"*) pass "CONTROL: the path and the query KEY survive userinfo redaction, so the tell is intact" ;;
+  *) fail "userinfo redaction damaged the path or the query keys, which are the discriminating half of the target. Got: $u_msg" ;;
+esac
+
 echo "-- #2565: route-aimed control (the route param proves discrimination WHERE the caller trusts) --"
 # The sound host also discriminates at the ROOT route (a nonexistent root path 404s), so aiming the
 # control at "/" does not false-red a sound host -- the root probe is a real control, not always-red.
@@ -1062,8 +1111,8 @@ n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # in prose or here. An earlier version said "ten top-level and five sub-dispatch"; nothing read
 # those two numbers, so adding one sub-path and bumping the total would have left both stale -- the
 # exact failure this file's opening paragraph disclaims.
-if [ "$n_paths" -ne 23 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 23: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
+if [ "$n_paths" -ne 24 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 24: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   # 🛑 MATCH INSIDE THE DELIMITED MANIFEST ONLY, AND ONLY AT THE START OF AN ENTRY. Asking
@@ -1129,8 +1178,8 @@ if [ "$(printf '%s\n' "$_arm_code" | wc -l)" -ge "$(wc -l < "$0")" ]; then
   fail "the comment strip removed no lines from this file, so a comment mentioning the || fail idiom would be counted as an arm"
 fi
 _armsites=$(printf '%s\n' "$_arm_code" | /usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "')
-if [ "$_armsites" -ne 87 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 87. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+if [ "$_armsites" -ne 91 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 91. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi
