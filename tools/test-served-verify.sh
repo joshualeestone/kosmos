@@ -4,12 +4,18 @@
 # reddened is worthless.
 #
 # It sources the SAME lib deploy-site.sh sources (not a copy) and drives it against a local server
-# with FOUR behaviours:
+# with these behaviours (four handlers plus the two landing pages the redirects reach):
 #   /discriminating/...  a sound host: /dist/real.bin -> 200 octet-stream, /setup -> 200 text/plain,
 #                        /dist/htmlpage.bin -> 200 text/html, anything else -> 404.
 #   /blind/...           the CONSEQUENCE, flattened: EVERY path -> 200 text/html, no redirect.
 #   /sso/... + /ssologin the MECHANISM April measured: every /sso/ path 302s to /ssologin, which
 #                        then answers 200 text/html to anything reaching it.
+#   /ssomissing/ -> /ssogone      a redirect landing on a 404, so the NOT-SERVED branch is reached
+#                                 WITH a redirect in front of it.
+#   /ssonoct/ -> /ssonoctpage     a redirect landing on a 200 with no content-type, for the third
+#                                 refusal branch. Both exist because those two call sites of the
+#                                 diagnostic were asserted by return code only, and rc cannot see
+#                                 whether a reason was printed.
 #
 # 🛑 /blind/ AND /sso/ ARE NOT REDUNDANT, and an earlier version of this header said /blind/ WAS
 # "the #1667 SSO shape (April's measured failure)", which contradicted the comment fifty lines below
@@ -78,6 +84,28 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
+        if p.startswith('/ssomissing/'):
+            # a redirect that lands on a 404: reaches served_verify_asset_ok's NOT-SERVED branch
+            # WITH a redirect in front of it, which is the only way to cover the note there.
+            self.send_response(302)
+            self.send_header('Location', '/ssogone')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if p == '/ssogone':
+            self._send(404, 'text/html; charset=utf-8', b'not found behind the redirect')
+            return
+        if p.startswith('/ssonoct/'):
+            # a redirect that lands on a 200 with NO content-type: covers the note on the
+            # empty-content-type branch, which rc alone cannot distinguish from the html one.
+            self.send_response(302)
+            self.send_header('Location', '/ssonoctpage')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if p == '/ssonoctpage':
+            self._send_noct(200, b'bytes behind a redirect, with no content-type at all')
+            return
         if p == '/ssologin':
             # the login page the redirect lands on: 200 text/html for anything that reaches it.
             self._send(200, 'text/html; charset=utf-8', b'<html><body>SSO login page</body></html>')
@@ -128,6 +156,8 @@ pass "local server listening on $PORT"
 SOUND="http://127.0.0.1:$PORT/discriminating"
 BLIND="http://127.0.0.1:$PORT/blind"
 SSO="http://127.0.0.1:$PORT/sso"
+SSOMISSING="http://127.0.0.1:$PORT/ssomissing"
+SSONOCT="http://127.0.0.1:$PORT/ssonoct"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -164,10 +194,19 @@ esac
 # auth/login page for ANY 3xx, without ever reading Location: an http-to-https upgrade or an
 # apex-to-www redirect produced the same claim. The note may describe the target; it may not
 # conclude what the target IS.
+# ⚠️ MATCHED AS A CLASS, NOT ONE DEAD PHRASE. The first version of this control looked for the
+# exact string "That is the auth-redirect shape", which never reached a commit, so it could only
+# ever pass and would not have caught the same overclaim differently worded. These are the shapes
+# an overclaim takes here: any sentence asserting what the target IS, when the code only ever saw a
+# status and a URL. The note must DESCRIBE and hedge.
+for _oc in "That is the auth-redirect shape" "is an auth" "is a login page" "is an SSO" "definitely" "which means it is"; do
+  case "$sso_msg" in
+    *"$_oc"*) fail "the note asserts what the redirect target IS ('$_oc'), which it never established: it reads a status and a URL, not the page" ;;
+  esac
+done
 case "$sso_msg" in
-  *"That is the auth-redirect shape"*)
-    fail "the note asserts an auth-redirect diagnosis it never established (it does not read the target)" ;;
-  *) pass "CONTROL: the note reports the redirect without concluding it is an auth page" ;;
+  *"Judge that target"*) pass "CONTROL: the note hands the interpretation to the operator rather than concluding it" ;;
+  *) fail "the note no longer hedges; it must describe the redirect, not diagnose it. Got: $sso_msg" ;;
 esac
 # CONTROL: the flattened blind host reaches its 200 WITHOUT a redirect, so it must NOT claim one.
 blind_msg=$(served_verify_host_discriminates "$BLIND" 2>&1 >/dev/null)
@@ -211,11 +250,31 @@ case "$sso_asset_msg" in
   *"content-type is 'text/html"*) pass "the asset refusal reached the LANDING PAGE and judged its content-type (not the bare 302)" ;;
   *) fail "the asset refusal did not judge the landing page's content-type, so the arm cannot tell -L from no -L. Got: $sso_asset_msg" ;;
 esac
-# The note's SECOND call site: without this, deleting it from served_verify_asset_ok leaves the
-# whole suite green. Measured: it did.
+# The note's call site on the TEXT/HTML branch. ⚠️ An earlier version of this comment said
+# "the note's SECOND call site ... Measured: it did", which was true of THIS branch and silently
+# generalised to all of served_verify_asset_ok. There are FOUR call sites, and the other two are
+# covered below; the generalisation was the same overclaim this branch is a record of.
 case "$sso_asset_msg" in
   *"MECHANISM: un-followed"*) pass "served_verify_asset_ok's refusal also names the mechanism" ;;
   *) fail "served_verify_asset_ok's refusal does not name the mechanism; that call site is uncovered. Got: $sso_asset_msg" ;;
+esac
+
+# 🛑 THE REMAINING TWO CALL SITES. Deleting the note from either of these branches left the whole
+# suite green, because both were asserted by return code only and rc cannot see whether a reason was
+# printed. Each needs a redirect IN FRONT of it, or the note correctly prints nothing and the arm
+# would pass for the wrong reason.
+notserved_msg=$(served_verify_asset_ok "$SSOMISSING/dist/real.bin" "an asset whose redirect 404s" 2>&1 >/dev/null); rc=$?
+check_rc "$rc" 1 "a redirect landing on a 404 is caught (not served)"
+case "$notserved_msg" in
+  *"MECHANISM: un-followed"*"/ssogone"*) pass "the NOT-SERVED branch also names the redirect and its target" ;;
+  *) fail "the NOT-SERVED branch printed no mechanism; that call site is uncovered. Got: $notserved_msg" ;;
+esac
+
+noct_msg=$(served_verify_asset_ok "$SSONOCT/dist/real.bin" "an asset whose redirect 200s with no content-type" 2>&1 >/dev/null); rc=$?
+check_rc "$rc" 1 "a redirect landing on a 200 with NO content-type is caught"
+case "$noct_msg" in
+  *"MECHANISM: un-followed"*"/ssonoctpage"*) pass "the NO-CONTENT-TYPE branch also names the redirect and its target" ;;
+  *) fail "the NO-CONTENT-TYPE branch printed no mechanism; that call site is uncovered. Got: $noct_msg" ;;
 esac
 
 echo ""
