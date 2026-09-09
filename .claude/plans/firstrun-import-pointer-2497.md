@@ -1,4 +1,4 @@
-# Plan: #2497 follow-on — manual-import pointer on the first-run Giddy Up welcome
+# Plan: #2497 follow-on, manual-import pointer on the first-run Giddy Up welcome
 
 ## Context
 #2497 (Angel, PR #2507, merged as d01abdff) changed onboarding so every first run lands on the
@@ -8,7 +8,7 @@ has. Real agents now come in only via the manual Import Agent (#1652) on the Cre
 ## Problem this branch solves
 A user who already runs agents in Claude Code or Codex now lands on that bare create welcome with no
 signal that (a) Kosmos is deliberately choosing not to import them, and (b) they can still bring one
-in by hand. Without a word, that user asks "where are my agents?" one screen later — the exact
+in by hand. Without a word, that user asks "where are my agents?" one screen later, the exact
 confusion #2497 removes, reappearing.
 
 ## The change (copy only, no behavior)
@@ -23,7 +23,7 @@ lists nothing and finds nothing, so it does not reintroduce the auto-import garb
 The Giddy Up action and the title are unchanged.
 
 ### Decision recorded (reversible)
-Providers are NAMED ("Claude Code or Codex") over a generic "agents already on this Mac" line — it
+Providers are NAMED ("Claude Code or Codex") over a generic "agents already on this Mac" line. It
 tells a non-technical person exactly what counts as importable. This is my recorded recommendation on
 the card; trivially reversible to generic if Josh prefers it. Per Josh's ruling (make the call,
 implement, he can undo), no operator block.
