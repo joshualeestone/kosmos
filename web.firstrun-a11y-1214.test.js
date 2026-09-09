@@ -187,8 +187,11 @@ test('#2587: the sleep gate offers a laptop "Continue anyway" escape (battOnly),
   // an honest escape keyed on that flag -- shown ONLY there (never for a fixable desktop),
   // and it does NOT green the step (state beats a message; the row stays not-activated).
 
-  // 1. FR_GATES.sleep carries a battOnly predicate reading the engine's flag.
-  assert.match(PAGE, /'sleep':\s*\{[\s\S]*?battOnly:\s*\(r\)\s*=>\s*r\.battOnly === true/,
+  // 1. FR_GATES.sleep carries a battOnly predicate reading the engine's flag. Bounded to
+  //    the sleep block (up to the next gate key) so the match cannot wander past it.
+  const frSleep = PAGE.slice(PAGE.indexOf("'sleep': {"), PAGE.indexOf("'tmux': {"));
+  assert.ok(frSleep.length > 0 && frSleep.length < 800, 'the FR_GATES.sleep block was not bounded (markers moved)');
+  assert.match(frSleep, /battOnly:\s*\(r\)\s*=>\s*r\.battOnly === true/,
     'FR_GATES.sleep has no battOnly predicate');
 
   // 2. frReadGate surfaces battOnly alongside the state (bounded to its own body).
@@ -217,8 +220,12 @@ test('#2587: the sleep gate offers a laptop "Continue anyway" escape (battOnly),
   //    s3-pill-ok), so continuing reads as a caveat, not a pass.
   // Anchor on the full markup attribute (not the bare data-gate="sleep", which also
   // appears in the pane's top comment) and bound to the tmux gate row that follows.
-  const sleepRow = S3.slice(S3.indexOf('s3-gate-row" data-gate="sleep"'), S3.indexOf('s3-gate-row" data-gate="tmux"'));
-  assert.ok(sleepRow.length > 200, 'the sleep gate row markup was not found before the tmux row');
+  // Assert BOTH markers are found in order first: a missing end marker returns -1, which
+  // slice() would silently read as "near end of string" rather than erroring.
+  const sleepStart = S3.indexOf('s3-gate-row" data-gate="sleep"');
+  const tmuxStart = S3.indexOf('s3-gate-row" data-gate="tmux"');
+  assert.ok(sleepStart > -1 && tmuxStart > sleepStart, 'the sleep/tmux gate row markup markers were not found in order');
+  const sleepRow = S3.slice(sleepStart, tmuxStart);
   assert.match(sleepRow, /class="s3-battonly-note">Your agents keep working while this computer is plugged in and open/,
     'the escape note (Mona copy) is missing or altered');
   assert.match(sleepRow, /<button class="s3-continue" type="button">Continue anyway<\/button>/,

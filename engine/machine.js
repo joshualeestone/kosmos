@@ -163,6 +163,14 @@ function sleepCheck(text) {
      * mirrored, in the same function.
      */
     if (battFirst !== null && battFirst > 0) {
+      // #2587: DELIBERATELY no battOnly here (a documented exclusion, not an oversight).
+      // The "Continue anyway" escape's note promises "plugged in it keeps working", which
+      // needs a CONFIRMED acSleep===0. This branch could not read the AC section at all, so
+      // we cannot make that promise honestly -- and unlike the battery-only case, the row
+      // keeps its "Turn On" (the Energy pane may still hold a real AC fix). A user here
+      // resolves the unreadable-AC first; if a battery-only sleep then remains, the
+      // acSleep===0 branch below offers the escape. Rare in practice (pmset almost always
+      // prints a readable AC section); an escape on an unconfirmable premise would be worse.
       return {
         key: 'sleep',
         state: STATE.ATTENTION,

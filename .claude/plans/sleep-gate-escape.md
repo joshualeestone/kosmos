@@ -8,11 +8,25 @@ NOT a detection bug. `engine/machine.js sleepCheck()` parses `pmset -g custom` a
 ## What finished looks like
 On the first-run sleep step, when (and ONLY when) the sleep gate is in the unsatisfiable-laptop state (plugged-in-fine, sleeps-on-battery), the user gets an honest note + a "Continue anyway" control that unlocks Next. It does NOT flip the step to green/ACTIVATED (state beats a message - it is honestly still not-activated; show "continued, with a caveat"). A fixable desktop (goes to sleep on AC, `acSleep > 0`) is UNAFFECTED: no escape, Turn On still fixes it, gate still gates. Verified by node test + browser-check + challenge-loop.
 
-## Mona's final copy (authoritative, use verbatim; she owns/refines)
+## Mona's final copy (she owns wording; refinements below approved by her)
 - Button label: **Continue anyway**
 - Note (shown ABOVE the button, ONLY in the plugged-in-fine / sleeps-on-battery case):
-  "Your agents keep working while this Mac is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no way to stop that on battery. For overnight work, leave it plugged in and open."
+  "Your agents keep working while this computer is plugged in and open. They pause when it sleeps or you close the lid, and on a laptop macOS gives no built-in switch to stop that on battery. For overnight work, leave it plugged in and open."
+- Two refinements from Mona's first draft, both APPROVED by her (not drift): "this Mac" -> "this computer"
+  (the product voice, enforced by engine/machine.test.js's "no live sentence says this Mac" guard, and matching
+  the sibling sleep strings); and "no way to stop that on battery" -> "no built-in switch to stop that on
+  battery" (honest: there IS a Terminal command, `sudo pmset -a sleep 0`, which is Pete's agent-side Nick
+  unstick, but no switch a non-technical person finds, and we deliberately do not send them to Terminal).
 - Placement rules from Mona: (1) note ABOVE the button (read the tradeoff before clicking past); (2) do NOT turn the step green/ACTIVATED on Continue - show it as "continued, with a caveat", not a false pass (state-beats-a-message).
+
+## Documented exclusion (iter1 review): the AC-UNREADABLE branch gets no escape, deliberately
+machine.js sleepCheck has a second STATE.ATTENTION branch (acSleep===null i.e. the AC/power-adapter section
+could not be parsed, with battery sleeping). It is NOT given battOnly. Reason: the escape's note promises
+"plugged in it keeps working", which needs a CONFIRMED acSleep===0; an unreadable AC section cannot confirm
+it, and unlike the battery-only case that branch still shows "Turn On" (the Energy pane may hold a real AC
+fix). A user there resolves the unreadable AC first; if a battery-only sleep then remains, the confirmed
+branch offers the escape. Rare in practice (pmset almost always prints a readable AC section). Commented at
+the branch in engine/machine.js.
 
 ## Key design constraints
 - The escape must appear ONLY for the UNSATISFIABLE state, never for a fixable desktop (where Turn On works and the gate should still gate). Distinguishing the two `state:'attention'` sub-states must NOT be a title string-match (fragile). Likely add a minimal ADDITIVE field to machine.js sleepCheck's unsatisfiable-laptop branch (e.g. `fixable:false` / `battOnly:true`) - machine.js is Renet's module, so coordinate/flag Renet (additive, low-risk). Confirm via the Explore map whether the web already has a clean signal.

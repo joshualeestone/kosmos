@@ -39257,6 +39257,11 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
     const crow = cont.closest('[data-gate]');
     if (crow) crow.setAttribute('data-continued', '');
     await frRecheckGates();
+    // data-continued hides this button, so move focus to the now-unlocked Next (the
+    // natural next action) rather than dropping keyboard focus to <body>. The muted
+    // caveat pill (role="status") still announces the outcome to a screen reader.
+    const nx = document.getElementById('fr-next');
+    if (nx && !nx.disabled) nx.focus();
     return;
   }
   const b = e.target.closest('.s3-on');
