@@ -10,21 +10,29 @@ It seeded 2 checks (render-alltasks, render-subprojects). My half (release/brows
 agreed with Splinter): grow the map + validate its correctness.
 
 ## Change
-- **Map growth (+8 checks)**: added `// Browser-check-surface: <tokens>` to 8 checks, each token
+- **Map growth (+6 checks)**: added `// Browser-check-surface: <tokens>` to 6 checks, each token
   a DOM id the check asserts, VERIFIED whole-token-present in web/index.html (gate's exact
-  boundary regex) and distinctive (low occurrence, feature-specific): render-build-marker-2066
-  (buildmark), render-bubblepop-2407 (pjs-sound-toggle), render-emoji-mute-2357 (pj-emoji-btn),
-  render-detail-ring-1915 (d-ring), render-busy-line (d-busy), render-conn-url (fr-conn-url),
-  render-adopt-1531 (fr-fleet-title), render-createnav-2190 (create-msg).
+  boundary regex) and distinctive (low occurrence, feature-specific), and whose web occurrences
+  are ALL functional (HTML id=, CSS selector, getElementById/closest) rather than prose comments:
+  render-build-marker-2066 (buildmark), render-bubblepop-2407 (pjs-sound-toggle),
+  render-emoji-mute-2357 (pj-emoji-btn), render-detail-ring-1915 (d-ring), render-busy-line
+  (d-busy), render-conn-url (fr-conn-url).
   - Deliberately chose feature-specific low-count tokens and SKIPPED shared chrome
     (firstrun/grid/settings/panel-detail), which would over-fire and false-block unrelated PRs.
+  - Also left coarse for now (their best distinctive tokens each have a PROSE-COMMENT occurrence
+    in web/index.html, so a wording edit to that comment would over-fire the gate): render-adopt-1531
+    (fr-fleet-title, comment at web/index.html:38517), render-createnav-2190 (create-msg, :30192),
+    render-detail-openai-model-2140 (d-model-row, :9256/27558/27561). This codebase documents DOM
+    ids in comments widely, so a clean functional-only token is not always available; those checks
+    keep Pete's coarse gate until a comment-free token (or an accepted override) is chosen.
   - Incremental by design: unannotated checks keep Pete's coarse gate, so the map is never
-    falsely complete. This is a first batch; the remaining ~121 are follow-on.
+    falsely complete. This is a first batch; the remaining ~125 are follow-on.
 - **Validation guard** (`tools/test-browser-check-surface-map.sh`, wired into test:shell):
   every declared token must be present whole-token in web/index.html, or it is a DEAD annotation
   the gate can never fire on (a silent miss). Red-capable (planted absent token caught),
-  non-vacuous (asserts the map is non-empty). This guard caught render-detail-openai-model's
-  d-model-row/-msg as not-present, so they were left unannotated rather than added dead.
+  non-vacuous (asserts the map is non-empty). It escapes ERE metacharacters in the token before
+  matching, exactly as the gate's esc_tok does, so "present here" means precisely "the gate can
+  fire on it" (no parity gap on a future token that contains a `.` or similar).
 
 ## Validation
 - New test passes standalone (10 annotated checks validated incl the 2 seeds; red-capable control).

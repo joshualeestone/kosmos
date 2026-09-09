@@ -17,9 +17,16 @@ FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 [ -f "$WEB" ] || { echo "FAIL  no web/index.html at $WEB"; exit 1; }
 [ -d "$BCDIR" ] || { echo "FAIL  no $BCDIR"; exit 1; }
 
-# Whole-token presence, the SAME boundary regex tools/lib/browser-check-surface-gate.sh
-# matches with, so "present here" means exactly "the gate can fire on it".
-present_in_web() { grep -qE "(^|[^A-Za-z0-9_-])$1([^A-Za-z0-9_-]|\$)" "$WEB"; }
+# Whole-token presence, the SAME match tools/lib/browser-check-surface-gate.sh uses, so
+# "present here" means exactly "the gate can fire on it". That parity requires escaping ERE
+# metachars in the token FIRST, exactly as the gate does (its esc_tok) -- otherwise a token
+# with a literal `.` would be a regex here but a literal there, and this guard could certify
+# a token the gate can never actually match (or miss one it can), the dead-annotation class
+# this test exists to catch.
+present_in_web() {
+  local esc; esc="$(printf '%s' "$1" | sed 's/[][\\.^$*+?(){}|]/\\&/g')"
+  grep -qE "(^|[^A-Za-z0-9_-])${esc}([^A-Za-z0-9_-]|\$)" "$WEB"
+}
 
 annotated=0
 while IFS= read -r f; do
