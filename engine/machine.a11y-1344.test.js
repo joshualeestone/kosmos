@@ -162,11 +162,12 @@ test('9screen SECURITY: openFileAccessSettings derives its URL, so a caller cann
    real defect (a blind review caught it). Assert both the markup and the handler. */
 test('9screen: the S2 Allow Access button is present and wired to open-file-access-settings', () => {
   assert.match(PAGE, /class="s2-allow"[^>]*>Allow Access</, 'the S2 Allow Access button is gone');
-  // Window widened 900 -> 1400 as the handler grew (#2451 mock-Allow forward +
-  // guards); the assertions below need the full handler body, and 1400 stays clear
-  // of the next handler (fr-pane-3, ~offset 1585) so it cannot read across into it.
-  const handler = PAGE.slice(PAGE.indexOf("getElementById('fr-pane-2').addEventListener"),
-    PAGE.indexOf("getElementById('fr-pane-2').addEventListener") + 1400);
+  // Bound the slice to the handler's OWN closing `});` rather than a fixed offset:
+  // the handler has no nested `});`, so this captures exactly its body and can never
+  // read the removal-guard assertions below into the next handler's code (a fixed
+  // window both guessed the size and risked exactly that).
+  const start = PAGE.indexOf("getElementById('fr-pane-2').addEventListener");
+  const handler = PAGE.slice(start, PAGE.indexOf('});', start) + 3);
   assert.match(handler, /closest\('\.s2-allow'\)/, 'nothing keys on the .s2-allow button');
   assert.match(handler, /\/api\/open-file-access-settings/, 'the Allow Access click does not POST the file-access opener');
   // #2451: the mock dialog's blue Allow forwards a click through the real .s2-allow
