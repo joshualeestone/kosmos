@@ -38,8 +38,10 @@ if [ "$FAKE_CODEX_FAIL" = "1" ]; then echo "sign-in failed" >&2; exit 1; fi
 if [ "$FAKE_CODEX_IGNORE_TERM" = "1" ]; then trap '' TERM; echo "waiting..."; sleep 60; exit 0; fi
 if [ "$FAKE_CODEX_TRICKY" = "1" ]; then
   # a URL with trailing punctuation, and an 8-char alnum token INSIDE the URL that
-  # must NOT be mistaken for the real hyphenated device code that follows it.
-  echo "Go to https://auth.openai.com/AB12CD34. Then enter FGHJ-6789"
+  # must NOT be mistaken for the real hyphenated device code that follows it. The
+  # code is the REAL 4-5 shape measured 2026-09-09 (3PI3-2LM3M), which the old
+  # fixed {4}-{4} regex missed -- this fixture would return userCode:null pre-fix.
+  echo "Go to https://auth.openai.com/AB12CD34. Then enter 3PI3-2LM3M"
 else
   echo "Sign in at https://auth.openai.com/device and enter code WXYZ-1234"
 fi
@@ -205,7 +207,7 @@ test('the auth prompt is parsed cleanly: no trailing URL punctuation, and a URL 
   // stdout flush is parsed, which would read authUrl/userCode as undefined.
   const s = await waitFor(r.sessionId, (x) => !!x.userCode || x.state === 'error');
   assert.equal(s.authUrl, 'https://auth.openai.com/AB12CD34', 'the trailing period is trimmed from the URL');
-  assert.equal(s.userCode, 'FGHJ-6789', 'the real hyphenated code, not the AB12CD34 token inside the URL');
+  assert.equal(s.userCode, '3PI3-2LM3M', 'the real 4-5 hyphenated code (measured 2026-09-09), not the AB12CD34 token inside the URL');
   delete process.env.FAKE_CODEX_TRICKY;
 });
 
