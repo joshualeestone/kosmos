@@ -286,6 +286,12 @@ done
 # means the committed win-zip name no longer matches the hardcoded $WINZIP after a version bump
 # (#2008), NOT a genuine carry failure.
 [ -f "$EXPORT/dist/$WINZIP" ]    || { echo "deploy-site: the export has no $WINZIP -- refusing. If the Windows build was bumped, the committed zip name changed and the hardcoded default is stale (#2008); set KOSMOS_WIN_ZIP to the current name or land the unversioned alias."; rm -rf "$EXPORT"; exit 1; }
+# ...and its sidecar, which had no PRE-deploy check while all four gitignored pairs above did. The
+# post-deploy served-verify catches a missing one, but only AFTER `vercel deploy --prod` has run,
+# which is the same "reports rather than prevents" shape #1667 is about. MEASURED before adding
+# this, so it cannot refuse on a file the export never carries: dist/$WINZIP.sha256 is TRACKED in
+# the site checkout (`git ls-files 'dist/*win*'`), so git archive carries it exactly like the zip.
+[ -f "$EXPORT/dist/$WINZIP.sha256" ] || { echo "deploy-site: the export has no $WINZIP.sha256 -- refusing (the installer verifies the zip against it). Same cause as the line above if the Windows build was bumped: set KOSMOS_WIN_ZIP to the current name."; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------

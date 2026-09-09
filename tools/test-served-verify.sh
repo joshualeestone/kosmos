@@ -582,8 +582,21 @@ echo "-- deploy-site.sh's WIRING: the control must run before the first 200 is t
 # because every other arm drives the LIBRARY rather than its caller.
 DS="$DIR/deploy-site.sh"
 if [ -f "$DS" ]; then
-  _ds_ctl=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST"' "$DS" | sed -n '1s/:.*//p')
-  _ds_curl=$(/usr/bin/grep -n 'curl' "$DS" | /usr/bin/grep '\$HOST' | sed -n '1s/:.*//p')
+  # 🛑 COMMENT LINES ARE EXCLUDED, THE SAME RULE THE FIXTURE EXTRACTION ABOVE USES AND FOR THE
+  # SAME REASON: a comment that happens to quote a call is not a call. These arms grepped raw text
+  # while the extraction thirty lines up deliberately strips comments first, which is inconsistent
+  # rigor inside one file. It fails NOISY rather than silently green (a comment can only add a
+  # spurious hit, not hide a real one), so it was a latent spurious-FAIL rather than a blind spot,
+  # and deploy-site.sh has no such comment today: MEASURED, both patterns return nothing when
+  # restricted to comment lines. Fixed anyway, because "no such comment today" is a fact with an
+  # expiry date and this file's whole subject is guards that quietly stop seeing.
+  # The line numbers stay the FILE's, so the ordering comparison below is still about the real file.
+  _ds_code=$(/usr/bin/grep -v '^[[:space:]]*#' "$DS")
+  if [ "$(printf '%s\n' "$_ds_code" | wc -l)" -ge "$(wc -l < "$DS")" ]; then
+    fail "the comment strip removed no lines from deploy-site.sh, so it is a no-op and a comment quoting a call would count as the call"
+  fi
+  _ds_ctl=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
+  _ds_curl=$(/usr/bin/grep -n 'curl' "$DS" | /usr/bin/grep '\$HOST' | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
   if [ -z "$_ds_ctl" ] || [ -z "$_ds_curl" ]; then
     fail "could not locate both the negative-control call and the first curl on \$HOST in deploy-site.sh (control line '$_ds_ctl', first curl line '$_ds_curl'); this arm cannot answer the ordering question and must not pass on a search that found nothing"
   elif [ "$_ds_ctl" -lt "$_ds_curl" ]; then
@@ -593,16 +606,53 @@ if [ -f "$DS" ]; then
     # and the Windows zip was checked ALONE for as long as that sentence had been there. A rationale
     # in a comment is not a check, which is this branch's recurring lesson.
     _pairs_missing=""
-    for _a in $(/usr/bin/grep -oE 'served_verify_asset_ok "\$HOST/dist/[^"]+"' "$DS" | sed 's/.*dist\///; s/"$//'); do
+    for _a in $(printf '%s\n' "$_ds_code" | /usr/bin/grep -oE 'served_verify_asset_ok "\$HOST/dist/[^"]+"' | sed 's/.*dist\///; s/"$//'); do
       case "$_a" in *.sha256) continue ;; esac
-      /usr/bin/grep -qF "served_verify_asset_ok \"\$HOST/dist/$_a.sha256\"" "$DS" || _pairs_missing="$_pairs_missing $_a"
+      printf '%s\n' "$_ds_code" | /usr/bin/grep -qF "served_verify_asset_ok \"\$HOST/dist/$_a.sha256\"" || _pairs_missing="$_pairs_missing $_a"
     done
     # deploy-site.sh checks its GITIGNORED artifacts by a different mechanism (served_matches, by
     # sha against the local verified copy) inside a loop over $f. The pair rule applies there too,
     # and the arm above could not see it: MEASURED, deleting the `.sha256` line from that loop left
     # the suite green. One mechanism guarded and the other not is the same half-covered shape.
-    if /usr/bin/grep -qF 'served_matches "$f"' "$DS" && ! /usr/bin/grep -qF 'served_matches "$f.sha256"' "$DS"; then
+    if ! printf '%s\n' "$_ds_code" | /usr/bin/grep -qF 'served_matches "$f"'; then
+      fail "deploy-site.sh no longer has a served_matches loop over \$f, so this arm is checking a mechanism that is gone; it must not pass by finding nothing"
+    elif printf '%s\n' "$_ds_code" | /usr/bin/grep -qF 'served_matches "$f.sha256"'; then
+      pass "deploy-site.sh's served_matches loop checks the .sha256 sidecar as well as the artifact (the same pair rule, its other mechanism)"
+    else
       fail "deploy-site.sh's served_matches loop checks the artifact but not its .sha256 sidecar. Same pair rule as above, other mechanism: a sidecar-only drop breaks new-install verification while the artifact still serves."
+    fi
+    # 🛑 AND THE SAME PAIR RULE BEFORE THE DEPLOY, NOT ONLY AFTER IT. The win zip's sidecar was
+    # checked only post-deploy while all four gitignored pairs were checked in the export first, so
+    # a missing one was caught AFTER `vercel deploy --prod` had already run. That is the
+    # reports-rather-than-prevents shape this whole card is about, one artifact over.
+    # ⚠️ THE FIRST VERSION OF THIS ARM RED ON THE UNMUTATED FILE, and both mutations I aimed at
+    # it then "reddened" for that wrong reason, which is exactly how a broken guard reads as a
+    # working one. The cause: deploy-site.sh checks its four gitignored sidecars through
+    # `for s in <list>; do [ -f "$EXPORT/dist/$s" ]`, so the extraction picked up the LOOP VARIABLE
+    # `$s` as if it were an artifact name. A loop variable is not a name; the loop LIST is. Both
+    # forms are gathered now, and a control fails if the list form disappears rather than letting
+    # four names quietly leave the set.
+    _pre_names=$(printf '%s\n' "$_ds_code" | /usr/bin/grep -oE '\[ -f "\$EXPORT/dist/[^"]+"' | sed 's/.*dist\///; s/"$//')
+    _pre_loop=$(printf '%s\n' "$_ds_code" | sed -n 's/^for s in \(.*\); do$/\1/p' | tr -d '"')
+    if [ -z "$_pre_loop" ]; then
+      fail "deploy-site.sh no longer has a 'for s in ...; do' sidecar list in its pre-deploy checks, so four artifact sidecars have left the set this arm can see; it must not pass by finding fewer names"
+    fi
+    # ⚠️ AND THE SECOND VERSION SEARCHED A HAYSTACK WIDER THAN ITS QUESTION. It asked "does
+    # <name>.sha256 appear anywhere in deploy-site.sh", which the POST-deploy served-verify call
+    # answers, so removing the PRE-deploy check stayed green: the arm was satisfied by the very
+    # check whose lateness it exists to detect. It is pure SET MEMBERSHIP now -- a name is paired
+    # only if its sidecar is itself one of the pre-deploy checked names -- so no line outside the
+    # region can answer for it.
+    _pre_all=$(printf '%s\n%s\n' "$_pre_names" "$_pre_loop" | tr ' ' '\n' | /usr/bin/grep -v '^$' | /usr/bin/grep -vx '\$s' | sort -u)
+    _export_missing=""
+    for _e in $_pre_all; do
+      case "$_e" in *.sha256) continue ;; esac
+      printf '%s\n' "$_pre_all" | /usr/bin/grep -qxF "$_e.sha256" || _export_missing="$_export_missing $_e"
+    done
+    if [ -n "$_export_missing" ]; then
+      fail "deploy-site.sh honest-marker-checks these artifacts in the export with no .sha256 counterpart anywhere in the pre-deploy checks:$_export_missing. A missing sidecar is then caught only AFTER vercel deploy --prod has run."
+    else
+      pass "every artifact deploy-site.sh checks in the export has its .sha256 checked before the deploy too"
     fi
     if [ -n "$_pairs_missing" ]; then
       fail "deploy-site.sh checks these served /dist assets with no .sha256 companion:$_pairs_missing. Its own comment says a sidecar-only drop breaks new-install verification while the artifact still serves, so check the pair."
