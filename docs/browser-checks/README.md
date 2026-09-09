@@ -126,8 +126,9 @@ field's TYPE is preserved (a null stays null).
 ⚠️ **Not "only identifying string content is neutralised".** That sentence was wrong here
 and the same wrong sentence was corrected twice elsewhere in this change before anyone
 noticed it a third time in this file. The tool also PINS volatile values so a re-capture
-is byte-identical unless the shape moved: `hasAvatar` (a boolean), `context.tokens` and
-`context.percent` (numbers), and two profile timestamps. And it scrubs EVERY string under
+is byte-identical unless the shape moved: `hasAvatar`, `model`/`modelName`, `disruption.startedAt`, the whole of `context` (tokens, percent, ceiling, ceilingAssumed, overCeiling, notYet, confidence, because) and two profile timestamps. That list
+has gone stale twice, in all four copies at once each time, so if you add a pin, grep for
+one of these field names before you finish. And it scrubs EVERY string under
 `profile`, not a listed subset, because `profile` is free-form and the tree writes
 absolute paths into it.
 

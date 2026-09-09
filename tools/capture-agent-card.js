@@ -33,7 +33,13 @@
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
  *   - PINS the volatile values so a re-run is byte-identical unless the shape moved:
- *     `hasAvatar`, `context.tokens`, `context.percent` and two profile timestamps.
+ *     `hasAvatar`, `model`, `modelName`, `disruption.startedAt`, the whole of `context`
+ *     (`tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`,
+ *     `confidence`, `because`) and two profile timestamps.
+ *     ⚠️ KEEP THIS LIST IN STEP WITH THE CODE. It has gone stale twice, in four places
+ *     at once each time (here, render-talk.js's header, the README, and the plan),
+ *     because a commit that adds a pin updates the pin block's own comment and not the
+ *     enumerations that describe it.
  *     ⚠️ An earlier version of this paragraph said the tool "does not touch structure,
  *     numbers or booleans" while the code below set a boolean and two numbers. A false
  *     claim inside the tool built to prevent fixture drift is worth naming rather than
@@ -48,8 +54,12 @@ const OUT = path.join(__dirname, '..', 'docs', 'browser-checks', 'fixtures', 'ag
 /**
  * The pure half: choose a card and neutralise it. Exported so a test can DRIVE it.
  *
- * 🛑 SPLIT OUT BECAUSE NOTHING DROVE THIS TOOL. Both refusals below (no pane card, key
- * set changed) were guards nothing ran, and mutating the neutralisation redded no arm.
+ * 🛑 SPLIT OUT BECAUSE NOTHING DROVE THIS TOOL. Both refusals (no pane card, key set
+ * changed) were guards nothing ran, and mutating the neutralisation redded no arm.
+ * ⚠️ AND THE SPLIT ONLY REACHED THE FIRST OF THEM. The paneless refusal became drivable
+ * here; the key-set comparison stayed inside the `require.main` block, unreachable from
+ * any test, while this sentence read as though both were fixed. `keySet` is exported
+ * below for that reason.
  * A capture tool whose own correctness is unchecked is a poor guardian of a fixture.
  */
 function chooseCard(agents) {
@@ -61,7 +71,11 @@ function chooseCard(agents) {
   /* 🛑 PREFER A CARD WITH REAL EVIDENCE, not simply the first match. Measured by running
      this tool twice minutes apart: the first capture recorded a live scraped card and the
      second an idle one (state=unknown, stateConfidence=none). */
-  return { chosen: paneOurs.find((a) => a.stateConfidence && a.stateConfidence !== 'none') || paneOurs[0] || null, ours };
+  return {
+    chosen: paneOurs.find((a) => a.stateConfidence && a.stateConfidence !== 'none') || paneOurs[0] || null,
+    ours,
+    paneOurs,
+  };
 }
 
 /* Every STRING anywhere under an object is replaced; non-strings keep their type and
@@ -69,11 +83,17 @@ function chooseCard(agents) {
    🛑 THE GUARANTEE IS STRING-ONLY, AND SAYING SO IS THE POINT. An earlier version of
    this sentence read "nothing identifying can survive", which is broader than the code:
    numbers and booleans reach the recording verbatim, and an array's LENGTH survives
-   even though its elements are scrubbed. Nothing identifying is numeric in today's card
-   (`context.ceiling` is the only unpinned producer number in the committed fixture), so
-   this is the next field's exposure rather than a live leak -- but it is the same shape
-   this file has corrected four times, sitting on the non-string axis, and a sentence
-   that overstates the guarantee is how it stays unexamined.
+   even though its elements are scrubbed.
+   🛑 AND THE REASSURING VERSION OF THIS SENTENCE WAS ALREADY WRONG WHEN IT WAS WRITTEN.
+   It said "nothing identifying is numeric in today's card", and `disruption.startedAt`
+   is an epoch-ms MACHINE TIMESTAMP the producer emits (status.js:5431) that no pin
+   covered: `cause` scrubbed to `example-cause` while `startedAt` came out verbatim. It
+   is reachable, not theoretical -- a restarting card carries CONFIDENCE.STRUCTURED, so
+   `chooseCard` will prefer it. It is pinned below now.
+   ⇒ THE LESSON IS THE SENTENCE, NOT THE FIELD. A comment that concludes "the non-string
+   axis is clear today" is what stops the next person looking, and it was written in the
+   same commit that left a timestamp unpinned. Every non-string the producer supplies is
+   either pinned below or is a documented exposure; there is no third category.
    🛑 AND NO PROPERTY OF THE RAW VALUE MAY SURVIVE EITHER, LENGTH INCLUDED. `id` was
    scrubbed as `'0'.repeat(val.length)`, which re-emits the producer's value length.
    Today's profile ids are twelve characters, so the output looked like a constant and
@@ -144,7 +164,21 @@ function neutralise(live) {
   if (typeof card.because === 'string') card.because = 'it is mid-task';
   if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
   /* PIN the volatile values so a re-run is byte-identical unless the SHAPE moved. */
-  card.hasAvatar = true;
+  /* ⚠️ THE ONE PIN THAT DELIBERATELY DISAGREES WITH THE CAPTURED CARD. A producer `false`
+     becomes `true`, and that is intended rather than an oversight: status.js emits
+     `Boolean(safeAvatar(key))`, which depends on whether an avatar file happens to exist
+     for that agent on that box, so recording it faithfully would make the fixture differ
+     between machines and leave openDetail's avatar path unexercised. `true` is a value
+     the producer emits, so the recording stays possible. The guard is a TYPE guard only:
+     it stops a non-boolean being invented into one, it does not preserve `false`. */
+  if (typeof card.hasAvatar === 'boolean') card.hasAvatar = true;
+  /* 🛑 AN EPOCH-MS MACHINE TIMESTAMP, AND THE ONLY REASON IT IS NOT A LIVE LEAK IS THAT
+     `disruption` is null in today's recording. status.js:5431 emits
+     {cause, startedAt, timedOut}; scrubStrings took `cause` and left `startedAt`. */
+  if (card.disruption && typeof card.disruption === 'object'
+      && typeof card.disruption.startedAt === 'number') {
+    card.disruption.startedAt = 1757000000000;
+  }
   if (card.context && typeof card.context === 'object') {
     if (typeof card.context.tokens === 'number') card.context.tokens = 82646;
     if (typeof card.context.percent === 'number') card.context.percent = 8;
@@ -163,11 +197,41 @@ function neutralise(live) {
     if (typeof card.context.ceilingAssumed === 'boolean') card.context.ceilingAssumed = true;
     if (typeof card.context.overCeiling === 'boolean') card.context.overCeiling = false;
     if (typeof card.context.notYet === 'boolean') card.context.notYet = false;
+    /* 🛑 THE TWO STRINGS IN context TOO, AND FOR THE SAME REASON THE NUMBERS ARE PINNED.
+       scrubStrings left them as `example-confidence` and `example-because`, which are
+       values the producer CANNOT EMIT: status.js bounds confidence to
+       structured|scraped|none (CONFIDENCE, status.js:239-243) and draws because from a
+       fixed set of sentences. So the recording carried an impossible card in exactly the
+       subtree whose numbers we had just made coherent.
+       ⇒ Pinned to the pair status.js produces FOR THESE PINNED NUMBERS.
+       `measuredResult(tokens, ceiling, assumed)` (status.js:4299) returns
+       confidence STRUCTURED and, when `assumed` is true, "measured, against a limit we
+       have assumed rather than watched". 82646 of an assumed 1000000 is exactly that
+       call, so the whole context block is now one coherent producer output rather than
+       six pinned numbers beside two invented strings.
+       ⚠️ CONSTANTS, NOT A RE-PIN FROM `live`. `because` interpolates nothing today but
+       is not enum-bounded, and this file has been burned four times by re-pinning a
+       field the producer does not bound. */
+    if (typeof card.context.confidence === 'string') card.context.confidence = 'structured';
+    if (typeof card.context.because === 'string') {
+      card.context.because = 'measured, against a limit we have assumed rather than watched';
+    }
   }
   return card;
 }
 
-module.exports = { chooseCard, neutralise, scrubStrings };
+/**
+ * The key set the neutralisation must not change, as a comparable string.
+ *
+ * 🛑 EXPORTED BECAUSE THE REFUSAL THAT USES IT WAS A GUARD NOTHING RAN. The comparison
+ * lived inside the `require.main` block, so no test could reach it, and it is the tool's
+ * only structural check that the recording still matches the producer's shape. It is
+ * load-bearing rather than decorative: several pins below ADD a key on a producer that
+ * lacks one, which is precisely what it exists to catch.
+ */
+function keySet(card) { return Object.keys(card).sort().join(','); }
+
+module.exports = { chooseCard, neutralise, scrubStrings, keySet };
 
 /* ⚠️ THE I/O ONLY WHEN RUN DIRECTLY. Without this guard, a test that required this file
    to exercise the functions above would overwrite the committed fixture as a side effect
@@ -175,7 +239,7 @@ module.exports = { chooseCard, neutralise, scrubStrings };
 if (require.main === module) {
   const status = require(path.join(__dirname, '..', 'engine', 'status.js'));
   const board = status.snapshot();
-  const { chosen, ours } = chooseCard(board.agents);
+  const { chosen, ours, paneOurs } = chooseCard(board.agents);
   if (!chosen) {
     console.error('no PANE-based agent card of ours on this box, so there is nothing to record.');
     console.error('run this where agents are actually running in panes.');
@@ -183,8 +247,8 @@ if (require.main === module) {
   }
   const card = neutralise(chosen);
   /* 🛑 REFUSE RATHER THAN WRITE A DIFFERENT SHAPE. */
-  const before = Object.keys(chosen).sort().join(',');
-  const after = Object.keys(card).sort().join(',');
+  const before = keySet(chosen);
+  const after = keySet(card);
   if (before !== after) {
     console.error('neutralisation changed the key set; refusing to write.');
     console.error('  producer: ' + before);
@@ -194,7 +258,14 @@ if (require.main === module) {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, JSON.stringify(card, null, 2) + '\n');
   console.log('recorded ' + Object.keys(card).length + ' keys from status.snapshot() -> ' + OUT);
-  console.log('identifying content neutralised; every key and type is the producer\'s.');
+  /* ⚠️ THE QUALIFIED SENTENCE, because this is the one surface a human actually reads.
+     The unqualified version ("identifying content neutralised") was corrected in the
+     header, the README and render-talk's header, and survived here longest. */
+  console.log('identifying STRING content neutralised; non-strings are pinned or passed '
+    + 'through (see the header); every key and type is the producer\'s.');
   console.log('state=' + card.state + ' stateConfidence=' + card.stateConfidence
-    + (ours.length > 1 ? '  (chose 1 of ' + ours.length + ' cards, preferring real evidence)' : ''));
+    /* ⚠️ paneOurs, NOT ours. The choice is made over the PANE cards; counting `ours`
+       described a set the tool did not choose from whenever the board had paneless
+       cards, which is most boards. */
+    + (paneOurs.length > 1 ? '  (chose 1 of ' + paneOurs.length + ' pane cards, preferring real evidence)' : ''));
 }

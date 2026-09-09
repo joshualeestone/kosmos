@@ -95,9 +95,12 @@ function liveCard() {
  * with live agents. Every KEY is the producer's and each field's TYPE is preserved.
  * ⚠️ NOT "only identifying string content is neutralised". That sentence was wrong here,
  * and it is the THIRD copy of it: the same claim was corrected in the capture tool, then
- * in the plan, then in the README, and missed here each time. The tool also PINS
- * `hasAvatar` (a boolean) and `context.tokens`/`context.percent` (numbers) so a re-capture
- * is byte-identical unless the shape moved, and it scrubs EVERY string under `profile`,
+ * in the plan, then in the README, and missed here each time. The tool also PINS the
+ * volatile values so a re-capture is byte-identical unless the shape moved: `hasAvatar`, `model`/`modelName`, `disruption.startedAt`, the whole of `context` (tokens, percent, ceiling, ceilingAssumed, overCeiling, notYet, confidence, because) and two profile timestamps.
+ * ⚠️ THAT LIST HAS GONE STALE TWICE, in all four copies at once each time (here, the
+ * tool's header, the README and the plan), because a commit that adds a pin updates the
+ * pin block's own comment and not the four enumerations describing it. If you add a pin,
+ * grep for one of these field names before you finish. It scrubs EVERY string under `profile`,
  * not the two ids: `profile` is free-form and the tree writes absolute paths into it.
  *
  * ⚠️ A capture rots, and ONE guard notices, not two. The TOP-LEVEL key set is compared

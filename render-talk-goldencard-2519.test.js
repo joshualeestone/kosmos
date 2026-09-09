@@ -370,6 +370,75 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.equal(profile.count, 7, 'a non-string was altered');
 });
 
+test('#2519: a disruption timestamp does not reach the recording, and the key set is checked', () => {
+  /* 🛑 AN EPOCH-MS MACHINE TIMESTAMP ON THE NON-STRING AXIS. scrubStrings only touches
+     strings, so `disruption.cause` was neutralised while `disruption.startedAt` came out
+     verbatim (status.js:5431 emits {cause, startedAt, timedOut}). It is reachable rather
+     than theoretical: a restarting card carries CONFIDENCE.STRUCTURED, so chooseCard
+     PREFERS it. `disruption` is null in today's fixture, which is the only reason this
+     was an exposure rather than a leak, and a comment concluding "nothing identifying is
+     numeric today" is exactly what would have stopped the next person looking.
+     ⚠️ AND THE KEY-SET REFUSAL IS DRIVEN HERE. It lived inside the tool's `require.main`
+     block, unreachable from any test, while a comment read as though the export had
+     fixed both refusals. It is load-bearing: several pins would ADD a key on a producer
+     that lacks one, which is what it exists to catch. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const poisoned = Object.assign({}, real);
+    poisoned.disruption = { cause: 'restart', startedAt: 1757000123456, timedOut: false };
+    const out = cap.neutralise(poisoned);
+    assert.notEqual(out.disruption.startedAt, 1757000123456,
+      'the producer disruption timestamp reached the recording verbatim');
+    assert.equal(typeof out.disruption.startedAt, 'number', 'startedAt lost its type');
+    assert.ok(!String(out.disruption.cause).includes('restart'), 'the cause was not scrubbed');
+    assert.equal(out.disruption.timedOut, false, 'a non-string sibling was altered');
+    /* THE KEY SET, both arms. A neutralisation that ADDS or DROPS a top-level key must be
+       visible to the refusal, or the tool writes a shape the producer never made. */
+    assert.equal(cap.keySet(out), cap.keySet(poisoned), 'neutralise changed the top-level key set');
+    const extra = Object.assign({}, poisoned);
+    extra.somethingNew = 1;
+    assert.notEqual(cap.keySet(extra), cap.keySet(poisoned),
+      'CONTROL: keySet cannot tell two different key sets apart, so the refusal is blind');
+  } finally {
+    board.restore();
+  }
+});
+
+test('#2519: context.confidence and context.because are values the PRODUCER can emit', () => {
+  /* 🛑 THE FIXTURE CARRIED AN IMPOSSIBLE CARD in the subtree whose numbers had just been
+     made coherent. scrubStrings left `example-confidence` and `example-because`, and
+     status.js bounds confidence to structured|scraped|none (CONFIDENCE, status.js:239)
+     while because comes from a fixed set of sentences. The pinned numbers are exactly
+     measuredResult(82646, 1000000, assumed=true) (status.js:4299), whose siblings are
+     STRUCTURED and "measured, against a limit we have assumed rather than watched", so
+     the block is now one coherent producer output rather than six pinned numbers beside
+     two invented strings.
+     ⚠️ Constants, NOT a re-pin from the raw card: `because` is not enum-bounded. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const poisoned = Object.assign({}, real);
+    poisoned.context = Object.assign({}, real.context);
+    poisoned.context.confidence = 'SECRET:/Users/realoperator/private.txt';
+    poisoned.context.because = 'SECRET:/Users/realoperator/private.txt';
+    const out = cap.neutralise(poisoned);
+    assert.equal(out.context.confidence, 'structured', 'context.confidence is not a producer value');
+    assert.equal(out.context.because, 'measured, against a limit we have assumed rather than watched');
+    /* AND THE COMMITTED RECORDING MUST AGREE, or the tool was corrected and the fixture
+       left behind, which is this branch's most repeated shape. */
+    const committed = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+    assert.equal(committed.context.confidence, 'structured');
+    assert.equal(committed.context.because, out.context.because);
+  } finally {
+    board.restore();
+  }
+});
+
 test('#2519: the WHOLE context block is pinned, so the recording cannot contradict itself', () => {
   /* 🛑 `ceiling` WAS THE LAST PRODUCER VALUE IN context AND NOTHING ASSERTED IT. tokens
      and percent were pinned and covered; ceiling and the three booleans derived from it
@@ -436,6 +505,20 @@ test('#2519: the capture writes NULL where the producer wrote null, on the PINNE
     for (const f of UNCONDITIONAL) {
       assert.equal(out[f], null, `${f} was invented where the producer emitted null`);
     }
+    /* ⚠️ hasAvatar IS THE DELIBERATE EXCEPTION AND THE ARM SAYS SO. A producer `false`
+       becomes `true`, so this pin can DISAGREE with the captured card rather than merely
+       stabilise it. That is intended: status.js emits `Boolean(safeAvatar(key))`, which
+       depends on whether an avatar file happens to exist for that agent on that box, so
+       recording it faithfully would make the fixture differ between machines and would
+       leave the avatar path in openDetail unexercised. `true` is a value the producer
+       emits, so the recording stays possible; it is a volatility pin like tokens and
+       ceiling, not a type violation. The first version of this assertion demanded
+       `false` survive and FAILED, which is how the distinction got written down. */
+    const noAvatar = Object.assign({}, real);
+    noAvatar.hasAvatar = false;
+    assert.equal(cap.neutralise(noAvatar).hasAvatar, true,
+      'hasAvatar is no longer pinned, so a re-capture differs by whether an avatar file exists');
+    assert.equal(typeof cap.neutralise(noAvatar).hasAvatar, 'boolean', 'hasAvatar lost its type');
     /* CONTROL: the pins must still fire on a string, or "preserves null" is just a
        neutralisation that stopped working. */
     const poisoned = Object.assign({}, real);
@@ -463,11 +546,23 @@ test('#2519: the capture tool does its I/O ONLY when run directly', () => {
      been moved below the write. The mtime arm is the one that measures the behaviour. */
   const src = fs.readFileSync(path.join(__dirname, 'tools', 'capture-agent-card.js'), 'utf8');
   assert.match(src, /if \(require\.main === module\)/, 'the I/O guard is gone from the capture tool');
+  /* 🛑 THE BYTES ARE HELD BEFORE THE REQUIRE, AND THAT IS NOT BELT-AND-BRACES. In the
+     exact failure this arm exists to catch -- a guard MOVED BELOW the write, which the
+     source match above passes -- the `require` on the next line executes the I/O against
+     the operator's real tmux board and overwrites the committed, release-gating fixture
+     with live identity. An mtime assertion reports that afterwards, on a file already
+     destroyed. Holding the bytes turns the detection into a detection AND a repair, so
+     the arm can no longer be the thing that does the damage. */
+    const beforeBytes = fs.readFileSync(FIXTURE);
   const before = fs.statSync(FIXTURE).mtimeMs;
   delete require.cache[require.resolve('./tools/capture-agent-card.js')];
   require('./tools/capture-agent-card.js');
+  const afterBytes = fs.readFileSync(FIXTURE);
+  if (!afterBytes.equals(beforeBytes)) fs.writeFileSync(FIXTURE, beforeBytes);
+  assert.ok(afterBytes.equals(beforeBytes),
+    'requiring the capture tool rewrote the committed fixture (restored, but the I/O guard is broken)');
   assert.equal(fs.statSync(FIXTURE).mtimeMs, before,
-    'requiring the capture tool rewrote the committed fixture');
+    'requiring the capture tool touched the committed fixture');
 });
 
 test('#2519: an id is scrubbed to a CONSTANT, so not even its length survives', () => {
@@ -582,6 +677,22 @@ test('#2519: the capture refuses a PANELESS card', () => {
     const pane = Object.assign({}, real, { paneless: false, session: 'pane-one', stateConfidence: 'scraped' });
     assert.equal(cap.chooseCard([paneless, pane]).chosen.session, 'pane-one');
     assert.equal(cap.chooseCard([paneless]).chosen, null, 'a paneless-only board should yield nothing to record');
+    /* 🛑 THE OTHER TWO FILTERS WERE MUTATION-SURVIVABLE and one of them is the security
+       one. With a single pane card in the list, `find(evidence) || paneOurs[0]` returns
+       the same card either way, so replacing the whole expression with `paneOurs[0]` left
+       every arm green; and `isNamedOurs === true` was never exercised with a card that is
+       NOT ours, which is the filter that stops this tool recording a stranger's pane.
+       Both need a list that can discriminate. */
+    const noEvidence = Object.assign({}, real, { paneless: false, session: 'pane-none', stateConfidence: 'none' });
+    const withEvidence = Object.assign({}, real, { paneless: false, session: 'pane-structured', stateConfidence: 'structured' });
+    assert.equal(cap.chooseCard([noEvidence, withEvidence]).chosen.session, 'pane-structured',
+      'the first pane card won over the one with real evidence');
+    assert.equal(cap.chooseCard([noEvidence]).chosen.session, 'pane-none',
+      'a board with only evidence-free cards should still yield one, not nothing');
+    const stranger = Object.assign({}, real, { paneless: false, session: 'not-ours', isNamedOurs: false });
+    assert.equal(cap.chooseCard([stranger]).chosen, null,
+      'the tool selected a pane card that is NOT ours, which would record a stranger');
+    assert.equal(cap.chooseCard([stranger, pane]).chosen.session, 'pane-one');
   } finally {
     board.restore();
   }
