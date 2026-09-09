@@ -19,9 +19,15 @@
  *
  * What it does, and what it deliberately does not:
  *   - RECORDS every key and type `status.snapshot()` emits. Nothing is invented.
- *   - NEUTRALISES only identifying string CONTENT: the session, name and target, the
- *     role and task, the scraped evidence line, and the two profile ids. It does not
- *     touch structure, numbers or booleans.
+ *   - NEUTRALISES identifying string CONTENT: session, name, target, role, task, the
+ *     `because` line, any `stateConflict` sentence, the scraped evidence line, and the
+ *     two profile ids. It preserves each field's TYPE: a null stays null.
+ *   - PINS the volatile values so a re-run is byte-identical unless the shape moved:
+ *     `hasAvatar`, `context.tokens`, `context.percent` and two profile timestamps.
+ *     ⚠️ An earlier version of this paragraph said the tool "does not touch structure,
+ *     numbers or booleans" while the code below set a boolean and two numbers. A false
+ *     claim inside the tool built to prevent fixture drift is worth naming rather than
+ *     quietly correcting.
  *   - ASSERTS the key set survived neutralisation, and refuses to write if it did not.
  */
 const fs = require('node:fs');
@@ -39,10 +45,16 @@ const board = status.snapshot();
    card with something in it. `.find()` alone makes the fixture's quality depend on
    which agent happened to be first in the list at capture time. */
 const ours = (board.agents || []).filter((a) => a && a.isNamedOurs === true);
-const live = ours.find((a) => a.stateConfidence && a.stateConfidence !== 'none') || ours[0];
+/* 🛑 A PANE CARD, NOT A PANELESS ONE. status.js emits both, and both carry
+   `isNamedOurs: true`, but their shapes legitimately differ: a paneless card's `context`
+   has fewer keys and its session/target/runner/model are null. Recording one would make
+   the fixture a different SHAPE from the card the reopen arm opens, and the drift guard
+   would then report board composition as drift. */
+const paneOurs = ours.filter((a) => a.paneless !== true);
+const live = paneOurs.find((a) => a.stateConfidence && a.stateConfidence !== 'none') || paneOurs[0];
 if (!live) {
-  console.error('no agent card of ours on this box, so there is nothing to record.');
-  console.error('run this where agents are actually running.');
+  console.error('no PANE-based agent card of ours on this box, so there is nothing to record.');
+  console.error('run this where agents are actually running in panes.');
   process.exit(1);
 }
 
@@ -56,8 +68,16 @@ card.name = 'April';
 card.target = 'april-discord:0.0';
 card.role = 'example worker';
 card.task = 'an example task';
-card.because = 'it is mid-task';
-card.stateConflict = '';
+/* 🛑 PRESERVE THE TYPE. NEVER INVENT A VALUE THE PRODUCER CANNOT EMIT.
+   An earlier version forced `stateConflict = ''`. status.js emits
+   `status.conflict || null`, so it is a non-empty sentence or null and NEVER an empty
+   string: `''` was invented, which is the exact defect this whole fixture exists to
+   avoid, arriving inside the tool built to prevent it. Measured on this box at the
+   time: 10 of 18 cards carried a string and 8 carried null, so a fixture typed
+   `string` would have spuriously failed the drift guard on roughly half of all
+   populated boxes. Neutralise the CONTENT of a string; leave a null alone. */
+if (typeof card.because === 'string') card.because = 'it is mid-task';
+if (typeof card.stateConflict === 'string') card.stateConflict = 'an example conflict';
 card.stateEvidence = '✽ Working… (2m 36s · ↓ 11.4k tokens)';
 /* 🛑 PIN THE VOLATILE VALUES, so a re-capture is byte-identical unless the SHAPE moved.
    Measured: two captures minutes apart differed in context.tokens, context.percent,

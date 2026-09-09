@@ -99,7 +99,11 @@ test('#2519: the fixture carries the PLACEHOLDER identity, asserted positively',
   assert.equal(card.target, 'april-discord:0.0');
   assert.equal(card.role, 'example worker');
   assert.equal(card.task, 'an example task');
-  assert.equal(card.stateConflict, '');
+  /* ⚠️ NOT `''`. The capture preserves the TYPE and neutralises only string CONTENT,
+     because status.js emits `status.conflict || null` and an empty string is a value it
+     can never produce. So: null, or a neutral sentence. */
+  assert.ok(card.stateConflict === null || card.stateConflict === 'an example conflict',
+    `stateConflict is ${JSON.stringify(card.stateConflict)}, which is neither null nor the neutral sentence`);
   assert.match(card.stateEvidence, /^✽ Working…/);
   assert.match(card.profile.idInstall, /^0{8}-0{4}-4000-8000-0{12}$/);
   assert.match(card.profile.id, /^0+$/);
@@ -214,6 +218,85 @@ test('#2519: a THROWING producer is an error, NOT an empty board', () => {
   assert.equal(r.source, 'error', 'a broken producer was reported as an empty board');
   assert.equal(r.card, null);
   assert.match(r.error, /status\.js is broken/);
+});
+
+/* The drift comparison itself, lifted out of the check so it can be DRIVEN rather than
+   grepped for. An earlier version of the arm below only regex-matched the source for two
+   literal strings, so it could not fail if the comparison logic were replaced with
+   something wrong -- and that is exactly what happened: two blockers shipped past it. */
+function shapeFn() {
+  const at = SRC.indexOf('const shape = (v, prefix) => {');
+  assert.notEqual(at, -1, 'could not find the drift comparison; the test is stale, not the code');
+  const end = SRC.indexOf('};', SRC.indexOf('return out;', at));
+  assert.notEqual(end, -1, 'could not find the end of the drift comparison');
+  return new Function(SRC.slice(at, end + 2) + '; return shape;')();
+}
+
+test('#2519: the drift guard does NOT fire on ordinary value variation', () => {
+  /* 🛑 THE BLOCKER THIS ARM EXISTS FOR. status.js emits
+     `stateConflict: status.conflict || null`, so it is a sentence or null depending on
+     whether that agent has a conflict. Measured on this box: 10 of 18 cards string, 8
+     null. The first version of the guard compared TYPES, so it would have failed a
+     populated box roughly half the time on a difference that means nothing -- and the
+     first version of the fixture made it worse by recording `stateConflict: ''`, a value
+     the producer can never emit. */
+  const shape = shapeFn();
+  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  const nullConflict = JSON.parse(JSON.stringify(golden));
+  nullConflict.stateConflict = null;
+  assert.deepEqual(shape(golden, ''), shape(nullConflict, ''),
+    'a live card with no conflict reads as drift, so the guard fails populated boxes for nothing');
+});
+
+test('#2519: the drift guard DOES fire when a field disappears', () => {
+  /* The discriminating half. Without it the arm above is satisfied by a guard that
+     compares nothing at all. context.percent is the field this file's header names as
+     the original trap, and it lives below the top level. */
+  const shape = shapeFn();
+  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  const dropped = JSON.parse(JSON.stringify(golden));
+  delete dropped.context.percent;
+  assert.notDeepEqual(shape(golden, ''), shape(dropped, ''),
+    'a NESTED field vanished and the guard did not notice');
+  const added = JSON.parse(JSON.stringify(golden));
+  added.somethingNew = 1;
+  assert.notDeepEqual(shape(golden, ''), shape(added, ''), 'a new top-level field did not register');
+});
+
+test('#2519: the fixture records values the PRODUCER can actually emit', () => {
+  /* `stateConflict: ''` was invented: status.js emits `status.conflict || null`, never
+     an empty string. A fixture carrying a value the producer cannot produce is the
+     invented-fixture class arriving inside the recording. */
+  const golden = JSON.parse(fs.readFileSync(FIXTURE, 'utf8'));
+  assert.notEqual(golden.stateConflict, '', 'stateConflict is an empty string, which status.js never emits');
+  assert.ok(golden.stateConflict === null || (typeof golden.stateConflict === 'string' && golden.stateConflict.length > 0));
+  assert.equal(golden.paneless, false,
+    'the fixture must be a PANE card: a paneless one has a different shape and would make the guard report board composition as drift');
+});
+
+test('#2519: liveCard PREFERS a pane card over a paneless one', () => {
+  /* status.js emits both and both carry isNamedOurs. Their shapes legitimately differ, so
+     taking whichever came first made the drift guard report board COMPOSITION as drift.
+     ⚠️ The paneless variant here is a REAL fleet card with its flag flipped, not a
+     literal: fixture-discipline's lint is right that hand-built cards are the defect, and
+     this arm needs a real shape to be worth anything. */
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const paneless = Object.assign({}, real, { paneless: true, session: 'paneless-one' });
+    const pane = Object.assign({}, real, { paneless: false, session: 'pane-one' });
+    const stub = (id) => (String(id).includes('status')
+      ? { snapshot: () => ({ agents: [paneless, pane] }) }
+      : require(id));
+    const { liveCard } = resolvers()(stub);
+    const got = liveCard();
+    assert.ok(got, 'no card came back at all');
+    assert.equal(got.session, 'pane-one',
+      'liveCard took the PANELESS card, whose shape differs from the recorded fixture');
+  } finally {
+    board.restore();
+  }
 });
 
 test('#2519: the check GUARDS the fixture against drift on any box that has a live card', () => {

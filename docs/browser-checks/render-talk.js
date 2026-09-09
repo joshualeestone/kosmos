@@ -63,7 +63,12 @@ function liveCard() {
      re-thrown for the caller to turn into a failure. */
   const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
   const board = status.snapshot();
-  const card = (board.agents || []).find((a) => a && a.isNamedOurs === true);
+  /* 🛑 A PANE CARD, matching what the fixture records. status.js emits PANELESS cards
+     too and they also carry `isNamedOurs: true`, but their shape legitimately differs
+     (a smaller `context`, null session/target/runner/model). Taking whichever came
+     first made the drift guard report board COMPOSITION as drift. */
+  const ourCards = (board.agents || []).filter((a) => a && a.isNamedOurs === true);
+  const card = ourCards.find((a) => a.paneless !== true) || null;
   return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;
 }
 
@@ -1039,13 +1044,24 @@ function unreachableStates() {
              That is not theoretical -- status.js emits a PANELESS card whose `context`
              carries fewer keys than a pane card's, and `context.percent`, the field
              this file's own header names as the original trap, lives down there. */
+          /* 🛑 KEY PATHS, NOT TYPES, and an earlier version compared types. What this
+             guard is for is snapshot() GAINING OR DROPPING a field; a type comparison
+             also fires on ordinary value variation, which is not drift.
+             MEASURED: status.js emits `stateConflict: status.conflict || null`, so it
+             is a sentence or null depending on whether that agent has a conflict right
+             now. On this box at the time: 10 of 18 cards string, 8 null. A typed
+             comparison would therefore have FAILED a populated box roughly half the
+             time, on a difference that means nothing. Names still catch the real thing,
+             including `context.percent` disappearing, which this file's header names as
+             the original trap. */
           const shape = (v, prefix) => {
             const out = [];
             for (const k of Object.keys(v).sort()) {
               const val = v[k];
-              const t = val === null ? 'null' : Array.isArray(val) ? 'array' : typeof val;
-              out.push(`${prefix}${k}:${t}`);
-              if (t === 'object') out.push(...shape(val, `${prefix}${k}.`));
+              out.push(`${prefix}${k}`);
+              if (val && typeof val === 'object' && !Array.isArray(val)) {
+                out.push(...shape(val, `${prefix}${k}.`));
+              }
             }
             return out;
           };
