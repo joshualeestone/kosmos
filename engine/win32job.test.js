@@ -139,8 +139,20 @@ test('#570 A REGISTERED TASK NAMES NOTHING UNDER THE APP -- an update must not s
   assert.equal(r.ok, true, r.because || '');
 
   const cmd = calls[0].xml;
-  assert.ok(!cmd.includes(sb.spec.engineDir), 'the ephemeral engine dir must not reach a durable task: ' + cmd);
-  assert.ok(cmd.includes(sb.dir), 'both paths come from the anchor: ' + cmd);
+  /* ⚠️ COMPARED SEPARATOR-INSENSITIVELY, and only because the SANDBOX is a POSIX
+     path on a Mac. This drives the win32 arm, so the anchor joins with
+     `path.win32` and the result comes back separator-normalized: the temp dir
+     `/private/var/.../kosmos-anchor-x` appears in the XML as
+     `\private\var\...\kosmos-anchor-x`. Same directory, different spelling, so a
+     raw `includes` failed on the fleet's Macs and passed on Windows.
+
+     🔑 The claim here is WHICH DIRECTORY the two paths come from, not how its
+     separators are drawn -- so the comparison is made on that, and normalising
+     both sides makes the negative assertion strictly stronger rather than weaker.
+     Production never sees this: a real Windows anchor is a Windows path already. */
+  const norm = (s) => String(s).replace(/[\\/]+/g, '/');
+  assert.ok(!norm(cmd).includes(norm(sb.spec.engineDir)), 'the ephemeral engine dir must not reach a durable task: ' + cmd);
+  assert.ok(norm(cmd).includes(norm(sb.dir)), 'both paths come from the anchor: ' + cmd);
 });
 
 test('#570 the anchor is what a stale task follows, and it is refreshed on install', () => {
