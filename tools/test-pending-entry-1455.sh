@@ -270,6 +270,43 @@ printf '%s' "$err" | grep -q '^grep:' \
   && bad "a hand-stamped cut emits a stray grep diagnostic: $err" \
   || ok "a cut with no pending file emits no stray grep diagnostic"
 
+# 🛑 ONE BLOCK, not three sightings. A file with TWO article blocks would have every
+# required piece present: insert-release-entry.js inserts both, and at 7b
+# reinsert-versions-entry.js extracts only through the FIRST 4-space closer, so the
+# served page carries one entry and the working tree two.
+printf '    <article class="rel" id="v0-6-41">\n      <p class="rel-d">TIMESTAMP</p>\n    </article>\n    <article class="rel" id="v0-6-40">\n      <p class="rel-d">TIMESTAMP</p>\n    </article>\n' > "$T/twoblocks.html"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/twoblocks.html" \
+  && bad "a pending file holding TWO entries was accepted; 7b would serve one and leave two" \
+  || ok "a pending file must hold exactly ONE entry block"
+
+# ⚠️ AND THE OPEN COUNT NEEDS ITS OWN FIXTURE. The two-block file above has two CLOSERS
+# too, so the closer count alone refuses it and the open count reds nothing: measured,
+# the arm above passed with the open check deleted. Two opens and ONE closer is the
+# shape that separates them.
+printf '    <article class="rel" id="v0-6-41">\n      <p class="rel-d">TIMESTAMP</p>\n    <article class="rel" id="v0-6-40">\n      <p class="rel-d">x</p>\n    </article>\n' > "$T/twoopens.html"
+kosmos_versions_entry_pending_ok "0.6.41" "$T/twoopens.html" \
+  && bad "a file with TWO opening article tags and one closer was accepted" \
+  || ok "two opening tags with a single closer is refused too, so the open count earns its place"
+
+# The leftover a cut that died at or after 7a leaves behind: the entry is on the page
+# AND the pending file is still there. The refusal is the gate's, but the operator has
+# to be told which thing to remove, because step 1's advice is what they already did.
+cat > "$T/versions.html" <<'HTML'
+<main>
+    <article class="rel" id="v0-6-41">
+      <p class="rel-d">January 1, 2020, 9:00 AM CST</p>
+    </article>
+</main>
+HTML
+pending "v0-6-41"
+out="$(kosmos_versions_entry_gate_or_pending "0.6.41" "$T/versions.html" "cost." "fix." 4 "$T/entry.html" 2>&1)"
+printf '%s' "$out" | grep -q 'BOTH on the page and pending as a file' \
+  && ok "a 7a leftover is NAMED, so the operator learns which copy to remove" \
+  || bad "the leftover case gives only the stale-stamp refusal, whose advice cannot re-engage: $out"
+printf '%s' "$out" | grep -q 'minutes in the past' \
+  && ok "and the refusal itself is still the ORIGINAL gate's, unchanged" \
+  || bad "the leftover note replaced the gate's refusal instead of adding to it"
+
 # ---- WIRING: the cure must be CALLED, which is this card's entire subject -------
 
 grep -q 'kosmos_versions_entry_gate_or_pending "\$V"' tools/release.sh \
@@ -292,5 +329,16 @@ grep -q 'node "\$REPO/tools/insert-release-entry.js" "\$KOSMOS_ENTRY_FILE" --sit
 awk '/^step "== 7\. /{s7=NR} /^step "== 7b\. /{s7b=NR} /^ *node "\$REPO\/tools\/insert-release-entry\.js"/{ins=NR} /^kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(ins>s7 && s7>0 && ins<gate && gate<s7b)}' tools/release.sh \
   && ok "WIRING: the insert runs BEFORE the step 7 gate, so the gate still judges what shipped" \
   || bad "WIRING: the insert is not positioned before the deploy gate"
+
+# 🛑 THE STEP LABEL IS PUT BACK AFTER 7a. `step` overwrites $_STEP and the EXIT trap
+# records the LAST value, so without the restore a step 7 GATE refusal is filed in
+# cut-suite-runs.log under 7a -- corrupting the one bucket that counted versions-entry
+# deaths, which is also where this change's own effect would be read from.
+grep -q '_step_before_7a="\$_STEP"' tools/release.sh \
+  && ok "WIRING: release.sh saves the step label before the 7a banner" \
+  || bad "WIRING: nothing saves \$_STEP before step 7a"
+awk '/_step_before_7a="\$_STEP"/{save=NR} /^ *_STEP="\$_step_before_7a"/{restore=NR} /^kosmos_versions_entry_gate "\$V"/{gate=NR} END{exit !(save>0 && restore>save && gate>restore)}' tools/release.sh \
+  && ok "WIRING: and restores it BEFORE the step 7 gate can refuse" \
+  || bad "WIRING: the label is not restored before the gate, so a refusal files under 7a"
 
 [ "$FAILS" -eq 0 ] && echo "pending entry (#1455): all arms passed" || { echo "pending entry (#1455): $FAILS failed"; exit 1; }

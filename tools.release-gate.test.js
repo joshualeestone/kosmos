@@ -306,7 +306,10 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
      the-repo comment above documents for the versions fixture.
      ⭐ It is also a real coupling worth having in a fixture: the new flow asks the
      operator to leave a file in their checkout, so the .gitignore entry is load-bearing
-     and not housekeeping. Delete it in the real repo and every cut refuses at step 1. */
+     and not housekeeping: delete it in the real repo and a cut BY AN OPERATOR WHO WROTE
+     A PENDING FILE refuses at step 1 on "main is dirty". A hand-stamped cut leaves no
+     such file and is unaffected -- an earlier version of this comment said "every cut",
+     which is broader than true. */
   spawnSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' });
   fs.writeFileSync(path.join(dir, '.gitignore'), '.release-entry.html\n');
   git('config', 'user.email', 'gate@example.invalid');
@@ -401,6 +404,11 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending 
          documented escape hatch makes the cut die red at step 3, after the
          freeze, on a failure unrelated to the tree. Measured: exporting
          KOSMOS_STEP1_PAST_BOUND=30 turned the 12-minute arm red. */
+      /* #1455: KOSMOS_ENTRY_FILE joins the documented-overridable set, so it belongs in
+         this strip for the same reason as the bounds. An operator or CI job with it
+         exported would redirect the pending arms away from the sandbox fixture and they
+         would go red as if the guard were broken rather than the harness. */
+      KOSMOS_ENTRY_FILE: undefined,
       KOSMOS_STEP1_PAST_BOUND: undefined,
       KOSMOS_LATE_PAST_BOUND: undefined,
       KOSMOS_FUTURE_BOUND: undefined,

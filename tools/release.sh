@@ -913,6 +913,13 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # earlier draft numbered it 6b, which would have printed a step that reads as
   # belonging before step 6 while executing after step 7 -- the cut record is read
   # top to bottom by whoever is diagnosing a failed cut.
+  # 🛑 SAVE THE STEP LABEL AND PUT IT BACK. `step` overwrites $_STEP, and the EXIT
+  # trap records the LAST value into cut-suite-runs.log. Without the restore below, a
+  # step 7 GATE refusal on the pending flow is filed under `step=_7a._stamp_...`, and
+  # that log is the only instrument that counted versions-entry deaths -- the four rows
+  # that justified #1463, and the same bucket #1455's effect would be read from. A fix
+  # that corrupts the measurement of the thing it fixes is worse than no fix.
+  _step_before_7a="$_STEP"
   step "== 7a. stamp the pending release entry with the minute it goes out (#1455) =="
   # 🛑 THE TOOL COMES FROM THE FROZEN TREE, THE ENTRY FILE FROM THE MAIN CHECKOUT, AND
   # THAT SPLIT IS DELIBERATE. $REPO is $BUILD by now, so this runs the tool as it exists
@@ -920,17 +927,35 @@ if kosmos_versions_entry_pending_ok "$V" "$KOSMOS_ENTRY_FILE"; then
   # the right one: a cut publishes what it froze, including the code that does the
   # publishing. $KOSMOS_ENTRY_FILE was expanded at step 1 against the main checkout,
   # which is where the operator wrote it.
-  # ⚠️ CONSEQUENCE, STATED RATHER THAN DISCOVERED: cutting a sha OLDER than #1455 while
-  # a pending file exists would reach here with no tool to run. release.sh deliberately
-  # permits cutting a sha behind origin, so refuse with a sentence instead of letting
-  # node emit a module-not-found stack trace into the cut record.
+  # ⚠️ CONSEQUENCE, STATED RATHER THAN DISCOVERED: a sha whose tree has no readable
+  # copy of the tool reaches here with nothing to run, and release.sh deliberately
+  # permits cutting a sha behind origin. Refuse with a sentence rather than let node
+  # emit a module-not-found stack into the cut record.
+  # 📌 NOT "older than #1455", which an earlier version of this comment claimed and
+  # which is false: `git log --follow` puts the tool in the tree from 2026-08-21, well
+  # before this branch. The existence check is still the right check -- it is keyed on
+  # what is actually there rather than on a date -- but a sha in that window DOES have
+  # a tool, one without this branch's every-occurrence stamp fix.
   if [ ! -r "$REPO/tools/insert-release-entry.js" ]; then
-    echo "   the sha being cut has no tools/insert-release-entry.js, so it cannot stamp"
-    echo "   a pending entry. Either cut a sha that carries it, or put the entry on the"
-    echo "   page by hand and stamp it yourself (docs/releasing.md)."
+    echo "   the sha being cut has no readable tools/insert-release-entry.js, so it"
+    echo "   cannot stamp a pending entry. Either cut a sha that carries it, or put the"
+    echo "   entry on the page by hand and stamp it yourself (docs/releasing.md)."
+    exit 1
+  fi
+  # 🛑 AND THE PAGE, NOT ONLY THE TOOL. The site checkout can change under a cut that
+  # takes fifteen minutes, which is the whole reason step 7 re-gates at all. If
+  # versions.html has gone by now, node's readFileSync throws and the cut record gets a
+  # raw ENOENT stack instead of the gate's "cannot read ... That is the site checkout's
+  # versions page" sentence. That is the same shape as the step 1 blocker this branch
+  # already fixed in the wrapper, one step later.
+  if [ ! -r "$SITE/versions.html" ]; then
+    echo "   cannot read $SITE/versions.html, so there is nothing to insert the entry"
+    echo "   into. That is the site checkout's versions page. Check the path, not the copy."
     exit 1
   fi
   node "$REPO/tools/insert-release-entry.js" "$KOSMOS_ENTRY_FILE" --site "$SITE" || exit 1
+  # Back to step 7's label, so the gate below reports under the step it belongs to.
+  _STEP="$_step_before_7a"
 fi
 
 kosmos_versions_entry_gate "$V" "$SITE/versions.html" "The build is done; only the deploy is unspent." \

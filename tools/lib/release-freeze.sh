@@ -291,8 +291,18 @@ EOS
 # would publish a latest.json pointing at a version that does not exist.
 #   release_site_restore <site> <version> <pair-existed: 0|1> [ptr-existed: 0|1] [backup-root]
 # puts the two tracked files back to their committed bytes and removes the
-# versioned pair when this cut created it. versions.html is NOT touched: its
-# entry is hand-written and the re-cut needs it. Prints what it did. 0 always
+# versioned pair when this cut created it. versions.html is NOT touched.
+# ⚠️ #1455 MADE THAT SENTENCE'S OLD REASON HALF-FALSE, so it is restated rather than
+# left to mislead. It used to read "its entry is hand-written and the re-cut needs it".
+# Under the hand-stamped flow that is still exactly right. Under the pending-file flow
+# the entry is MACHINE-inserted at step 7a, and a re-cut is BLOCKED by it rather than
+# needing it: the stamp ages, and the next attempt refuses on the past bound.
+# 🔑 STILL NOT TOUCHED, DELIBERATELY. This runs from a trap and cannot tell which flow
+# the operator used, and versions.html can also carry edits that are nobody's business
+# of this cut's. Removing an entry it did not certainly insert is the destructive
+# direction. docs/releasing.md's failed-cut checklist names the leftover and the one
+# line that clears it, and the step 1 gate now says so too when it sees both.
+# Prints what it did. 0 always
 # (it runs from a trap; a failure here must not mask the cut's own reason).
 release_site_restore() {
   # had_ptr defaults to 1 and bak_root to empty, so a 3-arg caller (before #1548) is a

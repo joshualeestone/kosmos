@@ -257,9 +257,11 @@ a different problem.
    next attempt inserts and stamps it again, fresh.
 
    ⭐ "Nothing to predict, so nothing to age" is true of an attempt that dies BEFORE
-   7a, which is most of them. It stops being true the moment the entry is on the page. The next successful cut makes
-   them consistent and commits them; until then, nobody should deploy the site
-   by hand (`vercel deploy` from the checkout publishes the working tree, #649).
+   7a, which is most of them. It stops being true the moment the entry is on the page.
+
+   As for `dist/latest.json` and `setup.sha256`: the next successful cut makes them
+   consistent and commits them; until then, nobody should deploy the site by hand
+   (`vercel deploy` from the checkout publishes the working tree, #649).
 4. **The tree must hold still.** Every attempt freezes to the sha at its start
    and takes ~25 minutes; a merge that lands mid-cut cannot be in it, and a page
    check that reads the live checkout can go red on it. Attempt six died on a

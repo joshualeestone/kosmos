@@ -282,6 +282,18 @@ KOSMOS_STEP1_PAST_BOUND="${KOSMOS_STEP1_PAST_BOUND:-4}"
 KOSMOS_LATE_PAST_BOUND="${KOSMOS_LATE_PAST_BOUND:-20}"
 KOSMOS_FUTURE_BOUND="${KOSMOS_FUTURE_BOUND:-20}"
 
+## kosmos_versions_entry_on_page <version> <page>
+##
+## True when <page> carries an entry for <version>. ONE spelling, because the gate and
+## the #1455 wrapper both need to ask it and a second copy is how they come to disagree
+## -- this file rejects that pattern by name elsewhere and then grew an instance of it.
+## grep -qF: the id is a fixed string, never a pattern.
+kosmos_versions_entry_on_page() {
+  local id
+  id="$(kosmos_versions_entry_id "$1")"
+  grep -qF "id=\"$id\"" "$2"
+}
+
 kosmos_versions_entry_gate() {
   local v="$1" file="$2" cost="${3:-}" stamp_fix="${4:-}"
   # ⚠️ DEFAULT FROM THE CONSTANT, NOT A LITERAL. A bare `${5:-20}` is a fourth
@@ -315,8 +327,7 @@ kosmos_versions_entry_gate() {
   fi
 
   id="$(kosmos_versions_entry_id "$v")"
-  # grep -F: the id is a fixed string, never a pattern.
-  if ! grep -qF "id=\"$id\"" "$file"; then
+  if ! kosmos_versions_entry_on_page "$v" "$file"; then
     echo "   $v has no entry in $file."
     echo "   Write it (ruled copy, real timestamp) and re-run. $cost"
     return 1
@@ -510,8 +521,14 @@ kosmos_versions_entry_pending_ok() {
   # kills the cut at 7b, AFTER the build. The hand-stamped flow never had this failure
   # because the operator was editing the page in situ and copied the surrounding shape;
   # a standalone file removes that safeguard, so the check has to replace it.
+  # 🛑 ONE BLOCK, NOT THREE SIGHTINGS. Requiring each piece to appear SOMEWHERE accepts
+  # a file holding two <article> blocks: insert-release-entry.js would insert both,
+  # while reinsert-versions-entry.js at 7b extracts only from the id line through the
+  # FIRST following 4-space </article>, so the served page would carry one entry and the
+  # site working tree two. Count the opens and require exactly one.
+  [ "$(grep -cE '^ {4}<article class="rel" id="v[0-9-]+">' "$pending")" -eq 1 ] || return 1
   grep -qE '^ {4}<article class="rel" id="'"$id"'">' "$pending" || return 1
-  grep -qE '^ {4}</article>' "$pending" || return 1
+  [ "$(grep -cE '^ {4}</article>' "$pending")" -eq 1 ] || return 1
   # 🛑 THE PLACEHOLDER MUST BE THE rel-d FIELD ITSELF, not merely present somewhere.
   # An earlier version accepted any file containing the word TIMESTAMP, so a pending
   # entry carrying a HAND-WRITTEN rel-d date plus a stray TIMESTAMP in the body passed
@@ -559,7 +576,19 @@ kosmos_versions_entry_gate_or_pending() {
     kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
     return $?
   fi
-  if grep -qF "id=\"$id\"" "$file"; then
+  if kosmos_versions_entry_on_page "$v" "$file"; then
+    # 🛑 THE LEFTOVER CASE, NAMED. If the page carries the entry AND a well-formed
+    # pending file for the same version is sitting there, this is almost always a cut
+    # that died at or after 7a: the entry was inserted and stamped for that attempt and
+    # is now aging on the page. The gate below will refuse it on the past bound, and its
+    # advice ("leave it as an entry file and the deploy stamps it for you") is advice
+    # the operator already took and cannot re-engage. Say what actually has to happen.
+    if kosmos_versions_entry_pending_ok "$v" "$pending"; then
+      echo "   (note: $v is BOTH on the page and pending as a file at $pending."
+      echo "    A previous attempt reached step 7a and inserted it. If the refusal below"
+      echo "    is about a stale stamp, remove the entry from the page and re-run: the"
+      echo "    pending file is stamped fresh at each deploy.)"
+    fi
     kosmos_versions_entry_gate "$v" "$file" "$cost" "$stamp_fix" "$past_bound"
     return $?
   fi
