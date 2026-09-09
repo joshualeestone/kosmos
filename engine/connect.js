@@ -559,7 +559,11 @@ async function willInstall() {
   }
 }
 
-function publicView(s) {
+/* `platform` is a PARAMETER (default process.platform), the same seam
+   `platformGate.describe`, `download` and `runners.install` already carry: the
+   win32 arm of the two fields below cannot be asserted from a Mac otherwise,
+   and a Mac is where this suite mostly runs. */
+function publicView(s, platform = process.platform) {
   return {
     configDir: s.configDir || null,
     phase: s.phase,
@@ -576,6 +580,36 @@ function publicView(s) {
        phase (the only writer and the only reader); false everywhere else is
        correct. Same class as `tail` (#1585) and the #1556 missing-field bug. */
     canRunClaude: s.canRunClaude || false,
+    /* 🛑 #570: THE STUCK SCREEN COULD SAY WHY, AND HAD NOTHING TO SAY NEXT.
+     * `download()` refuses on any platform Kosmos publishes no runner build for,
+     * and the refusal sentence reaches the card verbatim -- so a Windows user is
+     * told, correctly, that the binary is a macOS build. What the product then
+     * offered was "Try again" (the same doomed download) and "Continue anyway"
+     * (a board that cannot make a working agent). Nowhere in the engine, the web
+     * assets, the README or docs was anybody told HOW to get Claude Code.
+     * `engine/platform.js`'s own note assumes "a Windows user installs Claude
+     * Code themselves"; this pair is what lets a screen say so.
+     *
+     * ⚠️ TWO FIELDS, TWO QUESTIONS, which is this codebase's own rule (see the
+     * three-gates block in engine/platform.js). `canInstallClaude` decides
+     * WHETHER the screen has to hand the job to the person at all; `platform`
+     * decides WHICH instruction is true when it does, because "install it
+     * yourself" has a different answer on every OS. Keying the copy on the
+     * platform alone would go on naming a Windows command the day Kosmos starts
+     * publishing a Windows runner build; keying it on the gate alone cannot name
+     * a command at all.
+     *
+     * 📌 MACHINE FACTS, NO COPY, the same split `platform.js` keeps: the
+     * sentence a person reads lives with the screen that shows it
+     * (web/index.html), exactly as `download()`'s refusal sentence lives here
+     * rather than in the gate.
+     *
+     * 📌 DERIVED, NEVER READ OFF `s`. Unlike `canRunClaude` -- a disk fact one
+     * writer records at one moment -- this is true of the machine for as long as
+     * the process lives, so there is nothing to record and no stale record to
+     * serve. That also means it is right on every phase, not just STUCK. */
+    platform,
+    canInstallClaude: platformGate.canDownloadRunner(platform),
   };
 }
 

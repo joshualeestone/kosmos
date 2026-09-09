@@ -106,6 +106,19 @@ sentence scraped off a terminal. A screen the driver does not recognise is
 reported as "we could not finish", with what the terminal actually said shown,
 and the manual path (open Terminal, type `claude`) always offered.
 
+**On Windows it hands that job over instead, and says so (#570).** The binary
+that click fetches is a `darwin-${arch}` build, so `engine/platform.js`'s
+`RUNNER_DOWNLOADS` gate makes `connect.download()` refuse before any bytes
+move — Kosmos never puts a macOS binary on a Windows box. The connect card
+carries the refusal AND the one route that works: install Claude Code yourself
+with `irm https://claude.ai/install.ps1 | iex` in Windows PowerShell, then press
+Try again. That installer lands `claude.exe` under `%USERPROFILE%\.local\bin\`,
+which is the rung `runners.resolveBin('claude')` already resolves through
+PATHEXT — so the moment it is there the same screen carries on, and an
+already-signed-in machine short-circuits straight to connected. The command is
+named beside `code.claude.com/docs/en/quickstart` rather than instead of it,
+because a command in shipped source ages and a vendor page does not.
+
 ⚠️ **What that flow has NOT proven yet:** the final hop — pasting a real code
 and watching credentials land — has only run against a scripted fake, because
 completing it for real means signing an agent's machine into a live account.
