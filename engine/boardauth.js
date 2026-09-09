@@ -45,6 +45,7 @@
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
+const os = require('node:os');
 const sandbox = require('./sandbox');
 const store = require('./store');
 
@@ -140,13 +141,83 @@ function generateToken() {
 }
 
 /** Read the token file, or null if it is absent or empty. */
-function readToken() {
+/* #2509: the board.token path on the LEGACY store leaf (AgentWorkforce), or null
+   when there is no distinct legacy leaf. #2439 renamed the store leaf
+   AgentWorkforce -> Kosmos and `fs.rename`d the whole dir, so a `kosmos` CLI whose
+   bundle PRE-dates #2439 resolves the OLD leaf and reads board.token from a path
+   the migration emptied -- it then presents no token and #1976's enforcing report
+   route refuses it (self-report + liveness froze fleet-wide, kosmos#2509). Resolving
+   the token across BOTH leaves lets a caller on either version find the same token.
+   Computed the same way `store.root()` does (AGENT_WORKFORCE_HOME || homedir), but
+   with the LEGACY leaf. */
+function legacyTokenPath() {
   try {
-    const t = fs.readFileSync(tokenPath(), 'utf8').trim();
-    return t || null;
+    const home = process.env.AGENT_WORKFORCE_HOME || os.homedir();
+    const legacyRoot = store.dataRootFor(process.platform, home, process.env, store.LEGACY_APP);
+    if (!legacyRoot || legacyRoot === store.ROOT) return null;   // no distinct legacy leaf
+    return path.join(legacyRoot, TOKEN_FILE);
   } catch {
     return null;
   }
+}
+
+/* #2509: mirror the (already-established) board token to the legacy leaf so a
+   pre-#2439 CLI bundle, which reads that leaf, presents the SAME token. Written
+   0o600 in a 0o700 dir, exactly like the primary, so the mode-600 same-account
+   boundary #1968 leans on is preserved on the copy too -- a second account still
+   cannot read either file.
+   🛑 TEMPORARY COMPAT SHIM: it writes a live credential back into the leaf #2439
+   deprecated. The durable fix is updating the installed CLI bundle to the post-#2439
+   store path (carded); once the fleet's bundles resolve Kosmos natively this mirror
+   can be removed. Only mirrors where the legacy dir ALREADY EXISTS (a box that needs
+   the shim); it NEVER creates the dir, so a clean install does not resurrect what
+   #2439 removed. Best-effort: the primary token at store.ROOT is the source of truth. */
+function mirrorTokenToLegacy(token) {
+  const lp = legacyTokenPath();
+  if (!lp || !token) return;
+  const dir = path.dirname(lp);
+  let legacyDirExists = false;
+  try { legacyDirExists = fs.statSync(dir).isDirectory(); } catch { legacyDirExists = false; }
+  if (!legacyDirExists) return;   // never recreate the deprecated leaf on a clean install
+  try {
+    let current = null;
+    try { current = fs.readFileSync(lp, 'utf8').trim(); } catch { /* absent */ }
+    if (current === token) {
+      // Already mirrored; just re-tighten the mode in case a restore loosened it.
+      try { fs.chmodSync(lp, 0o600); } catch { /* best-effort */ }
+      return;
+    }
+    try { fs.chmodSync(dir, 0o700); } catch { /* best-effort: match the primary dir mode */ }
+    const tmp = path.join(dir, `.${TOKEN_FILE}.${process.pid}.legacy.tmp`);
+    fs.writeFileSync(tmp, token, { mode: 0o600 });
+    try { fs.chmodSync(tmp, 0o600); } catch { /* writeFileSync mode already applied on most platforms */ }
+    fs.renameSync(tmp, lp);   // publish the mirror atomically; it tracks the primary, so clobber is correct
+  } catch {
+    /* Best-effort. A board that cannot mirror is no worse off than before this
+       shim: the primary token still works for a CLI that resolves the new leaf. */
+  }
+}
+
+function readToken() {
+  try {
+    const t = fs.readFileSync(tokenPath(), 'utf8').trim();
+    if (t) return t;
+  } catch {
+    /* fall through to the legacy leaf */
+  }
+  // #2509: a board/CLI resolving the legacy leaf may hold the token there (the
+  // migration window, or a pre-#2439 bundle). Read it rather than 403 a caller
+  // whose only copy is on the old leaf.
+  const lp = legacyTokenPath();
+  if (lp) {
+    try {
+      const t = fs.readFileSync(lp, 'utf8').trim();
+      if (t) return t;
+    } catch {
+      /* no legacy copy either */
+    }
+  }
+  return null;
 }
 
 /**
@@ -226,6 +297,17 @@ function ownerOnlyModeIsEnforced(platform = process.platform) {
  * is accepted as a bounded recovery rather than guarded with a lock.
  */
 function ensureToken() {
+  const token = ensureTokenPrimary();
+  // #2509: after the authoritative token at store.ROOT is established, keep the
+  // legacy-leaf mirror in sync with it, so a `kosmos` CLI bundle that predates the
+  // #2439 store rename (and so reads the OLD leaf) presents the SAME token. One
+  // call here covers every return path of ensureTokenPrimary(); best-effort and a
+  // no-op unless the legacy dir already exists (see mirrorTokenToLegacy).
+  mirrorTokenToLegacy(token);
+  return token;
+}
+
+function ensureTokenPrimary() {
   const existing = readToken();
   if (existing) {
     // Self-heal: re-tighten the mode in case a prior process (or a restore, or a
