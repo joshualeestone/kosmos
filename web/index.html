@@ -4674,6 +4674,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .pj-question { margin: var(--space-5) 0; padding-left: var(--space-4);
   border-left: 2px solid var(--warn-ink); }
 .pj-question .pj-screen { max-height: 240px; }
+/* #2575: the dismiss control on the "Talk to one of them" header, and the safety
+   breadcrumb that restores the area while an agent is waiting on an answer. */
+.pj-thread-hide { float: right; margin-left: var(--space-3); background: none;
+  border: 0; padding: 0; font: inherit; font-size: .8125rem; color: var(--label-2);
+  text-decoration: underline; cursor: pointer; }
+.pj-thread-show { display: block; width: 100%; text-align: left; background: none;
+  border: 0.5px solid var(--separator); border-radius: var(--radius-control);
+  padding: var(--space-3) var(--space-4); margin: var(--space-4) 0; font: inherit;
+  font-size: .8125rem; color: var(--label); cursor: pointer; }
+.pj-thread-show:hover { background: var(--k-sunk); }
 /* 🔑 THE AGENT PAGE'S WINDOW FILLS THE PAGE'S HEIGHT (#2012). It is fed 60 lines
    (`chat.viewport`); the old fixed 560px cap (Josh took 800 -> 560 on
    2026-08-22, ~42 of the 60 visible) was tuned for the NARROW pre-#2012 layout.
@@ -9949,10 +9959,21 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          the room was waiting on exactly this question: when five agents are on a
          project, who answers. The answer is ONE of them, chosen here. Everything
          answering at once and nothing answering are the same bug. -->
+    <!-- #2575: the safety breadcrumb. When the person has dismissed the "Talk to
+         one of them" area but an agent is still waiting on an answer, this compact
+         line keeps the waiting signal visible (never a false calm) and restores
+         the full area on click. Sibling of #pj-thread so it shows while that box
+         is hidden; its label is set by pjApplyEngMode from the live waiting count. -->
+    <button class="pj-thread-show" id="pj-thread-show" type="button" hidden></button>
     <div class="field" id="pj-thread">
       <!-- No id: nothing read the one it carried (round 25), the same
            unread-surface rule as the thread payload's agents copy. -->
       <span class="flabel">Talk to one of them</span>
+      <!-- #2575: dismiss/collapse. A "not now" for the current session (reset on
+           reload), so the per-agent question + second composer stop cluttering the
+           Projects page; the breadcrumb above restores it if an agent is waiting. -->
+      <button class="pj-thread-hide" id="pj-thread-hide" type="button"
+              aria-label="Hide the talk-to-one-agent area">Hide</button>
       <p class="fhint">Every message goes to the one agent you pick. The others
          are on the project and are not in this conversation.</p>
       <div class="frow">
@@ -18485,7 +18506,21 @@ function pjApplyEngMode() {
   if (box) {
     const q = document.getElementById('pj-question');
     const asking = Boolean(q) && !q.hidden;
-    box.hidden = !ENG_ON && !asking;
+    /* #2575: a DISMISSED area stays hidden even while an agent is asking, so the
+       per-agent question + second composer stop cluttering the Projects page
+       (Josh: it "shows very often" and "can't be dismissed"). The dismiss is a
+       "not now" for the session (PJ_THREAD_HIDDEN, reset on reload). */
+    box.hidden = !ENG_ON && (!asking || PJ_THREAD_HIDDEN);
+    /* SAFETY, and it is load-bearing: dismissing must never become the false-calm
+       #370/#2146 exists to prevent. When the box is hidden BY the dismiss while an
+       agent is genuinely asking (Off mode only; ENG mode always shows the box),
+       the breadcrumb keeps the waiting signal visible and restores the full area. */
+    const crumb = document.getElementById('pj-thread-show');
+    if (crumb) {
+      const show = !ENG_ON && asking && PJ_THREAD_HIDDEN;
+      crumb.hidden = !show;
+      if (show) crumb.textContent = 'An agent is waiting on an answer. Show it.';
+    }
   }
 }
 
@@ -31168,6 +31203,10 @@ const PJ_DRAFTS = {};
 // the Back button on purpose (round 36).
 let PJ_LAST_OPENED = null;
 let PJ_CURRENT = null;      // the project id being looked at, or null
+/* #2575: the person dismissed the "Talk to one of them" area for this session
+   (reset on reload). pjApplyEngMode keeps the box hidden while set, and shows the
+   safety breadcrumb instead when an agent is genuinely waiting. */
+let PJ_THREAD_HIDDEN = false;
 let PJ_PICKED = null;       // the folder CHOSEN in the add flow, deliberately
 let PJ_HERE = null;        // the folder being LOOKED AT, which is not the same
 let PJ_ADD_AGENTS = [];     // the agents ticked in the add flow
@@ -38093,6 +38132,17 @@ document.getElementById('pj-one-agents').addEventListener('click', (e) => {
   // passing PJ_CURRENT so detail-back returns to this project.
   const member = e.target.closest('.pj-member[data-agent]');
   if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
+});
+/* #2575: dismiss/restore the "Talk to one of them" area. Dismiss is a per-session
+   "not now"; pjApplyEngMode then hides the box and shows the safety breadcrumb
+   while an agent is waiting, and the breadcrumb restores the full area. */
+document.getElementById('pj-thread-hide').addEventListener('click', () => {
+  PJ_THREAD_HIDDEN = true;
+  pjApplyEngMode();
+});
+document.getElementById('pj-thread-show').addEventListener('click', () => {
+  PJ_THREAD_HIDDEN = false;
+  pjApplyEngMode();
 });
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
