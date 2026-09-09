@@ -1,3 +1,4 @@
+// Browser-check-surface: acct-connected acct-none acct-unknown
 'use strict';
 
 /**
