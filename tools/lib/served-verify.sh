@@ -50,6 +50,17 @@
 # transport failure yields no note rather than a second error: a diagnostic must never change a
 # verdict the caller already reached, so every path here returns 0 and prints nothing on doubt.
 # Same headers as the real probes, or it could describe a response the verdict was not based on.
+#
+# 🛑 EVERY MESSAGE SITE USES printf '%s\n', NOT echo, AND THAT IS NOT STYLE. The redirect target is
+# the first field a REMOTE host writes into our output, and `echo` interprets backslash escapes in
+# several shells. MEASURED on this box with a Location of `http://x/a\tb\cTRUNCATED`:
+#   dash  -> tab rendered, and everything after \c DROPPED
+#   zsh   -> same
+#   bash  -> printed literally
+# This file is #!/bin/sh and tools/deploy-site.sh is too, so on a dash /bin/sh a hostile or merely
+# odd Location could truncate the very diagnostic that explains a refusal. It cannot reach a verdict
+# (the verdict text precedes the substitution and the return is unconditional), but a note whose
+# stated contract is REPORT WHAT WAS OBSERVED must not be the one thing that reports something else.
 _served_verify_redirect_note() {
   _svrn_out=$(curl -sS --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{redirect_url}' "$1" 2>/dev/null) || return 0
   _svrn_code=${_svrn_out%% *}
@@ -61,6 +72,9 @@ _served_verify_redirect_note() {
       ;;
     *) : ;;
   esac
+  # Explicit, so "every path returns 0" is true BY CONSTRUCTION rather than by the exit status of
+  # whichever command happened to run last (printf, or the `:` above).
+  return 0
 }
 
 # served_verify_host_discriminates <host-base-url>
@@ -71,11 +85,11 @@ served_verify_host_discriminates() {
   _svhd_host=$1
   _svhd_url="${_svhd_host}/dist/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
   _svhd_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$_svhd_url") || {
-    echo "served-verify: negative-control probe to ${_svhd_url} failed at the transport layer" >&2
+    printf '%s\n' "served-verify: negative-control probe to ${_svhd_url} failed at the transport layer" >&2
     return 2
   }
   if [ "$_svhd_code" = "200" ]; then
-    echo "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.$(_served_verify_redirect_note "$_svhd_url")" >&2
+    printf '%s\n' "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.$(_served_verify_redirect_note "$_svhd_url")" >&2
     return 1
   fi
   echo "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path, so its 200s are meaningful."
@@ -91,13 +105,13 @@ served_verify_asset_ok() {
   _svao_url=$1
   _svao_label=$2
   _svao_hdr=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code} %{content_type}' "$_svao_url") || {
-    echo "served-verify: could not reach ${_svao_url} (${_svao_label}) -- transport error" >&2
+    printf '%s\n' "served-verify: could not reach ${_svao_url} (${_svao_label}) -- transport error" >&2
     return 2
   }
   _svao_code=${_svao_hdr%% *}
   _svao_ct=${_svao_hdr#* }
   if [ "$_svao_code" != "200" ]; then
-    echo "served-verify: ${_svao_label} is NOT served (${_svao_code}) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
+    printf '%s\n' "served-verify: ${_svao_label} is NOT served (${_svao_code}) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
     return 1
   fi
   # #1667 tell: a real asset carries a content-type, and it is never an html page. Media types are
@@ -108,11 +122,11 @@ served_verify_asset_ok() {
   _svao_ct_lc=$(printf '%s' "$_svao_ct" | tr '[:upper:]' '[:lower:]')
   case "$_svao_ct_lc" in
     '')
-      echo "served-verify: ${_svao_label} returned 200 but with NO content-type -- cannot confirm it is a real asset, not a page (#1667) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
+      printf '%s\n' "served-verify: ${_svao_label} returned 200 but with NO content-type -- cannot confirm it is a real asset, not a page (#1667) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
       return 1
       ;;
     *text/html*)
-      echo "served-verify: ${_svao_label} returned 200 but its content-type is '${_svao_ct}' (expected a non-html asset) -- an html page wearing a success code (#1667) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
+      printf '%s\n' "served-verify: ${_svao_label} returned 200 but its content-type is '${_svao_ct}' (expected a non-html asset) -- an html page wearing a success code (#1667) -- ${_svao_url}$(_served_verify_redirect_note "$_svao_url")" >&2
       return 1
       ;;
   esac

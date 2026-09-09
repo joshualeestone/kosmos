@@ -4,7 +4,11 @@
 # reddened is worthless.
 #
 # It sources the SAME lib deploy-site.sh sources (not a copy) and drives it against a local server
-# with these behaviours (four handlers plus the two landing pages the redirects reach):
+# with the behaviours listed below. ⚠️ NO COUNT IS STATED HERE ON PURPOSE. This sentence has been
+# wrong twice ("three behaviours" over four, then "four handlers plus two landing pages" over five
+# and three), each time in the sentence that had just been corrected for the same class. An arm at
+# the end of this file DERIVES the handler list from the server source and fails if one is not
+# named below, which is the only version of this that has not gone stale:
 #   /discriminating/...  a sound host: /dist/real.bin -> 200 octet-stream, /setup -> 200 text/plain,
 #                        /dist/htmlpage.bin -> 200 text/html, anything else -> 404.
 #   /blind/...           the CONSEQUENCE, flattened: EVERY path -> 200 text/html, no redirect.
@@ -12,6 +16,8 @@
 #                        then answers 200 text/html to anything reaching it.
 #   /ssomissing/ -> /ssogone      a redirect landing on a 404, so the NOT-SERVED branch is reached
 #                                 WITH a redirect in front of it.
+#   /ssoesc/ -> /ssologin?...     a redirect whose Location carries BACKSLASH ESCAPES, so the
+#                                 echo-vs-printf difference is observable under a dash /bin/sh.
 #   /ssonoct/ -> /ssonoctpage     a redirect landing on a 200 with no content-type, for the third
 #                                 refusal branch. Both exist because those two call sites of the
 #                                 diagnostic were asserted by return code only, and rc cannot see
@@ -24,10 +30,10 @@
 # flip-sensitive to -L where /blind/ is not (measured: dropping -L turns the /sso/ host arm from
 # rc=1 into rc=0, declaring a blind host sound).
 #
-# Positive arms confirm the sound host passes. The RED-CAPABLE arms confirm the blind host, the SSO
-# host, an html-200 asset, a mixed-case Text/HTML, a 200 with no content-type, a 404 asset, and an
-# asset behind the redirect are all caught. Several arms assert the MESSAGE rather than the return
-# code, because rc alone cannot see which route produced it.
+# Positive arms confirm the sound host passes. The RED-CAPABLE arms confirm every refusal path is
+# reachable and reddens. Several arms assert the MESSAGE rather than the return code, because rc
+# alone cannot see which route produced it: an asset behind a redirect is rc=1 both with -L (the
+# landing page's content-type) and without it (the bare 302), and only the message separates them.
 #
 #   bash tools/test-served-verify.sh
 set -u
@@ -43,7 +49,9 @@ fails=0
 pass() { echo "  ok   $1"; }
 fail() { echo "  FAIL $1"; fails=$((fails + 1)); }
 
-# expect <expected-rc> <label> ; command already run, $? captured by caller into $rc
+# check_rc <actual-rc> <expected-rc> <label> -- the command has already run and the caller captured
+# $? into $rc. (This comment used to describe an `expect` helper with a different name and argument
+# order; no such function exists, and it heads the helper every arm calls.)
 check_rc() { # <got-rc> <expected-rc> <label>
   if [ "$1" = "$2" ]; then pass "$3 (rc=$1)"; else fail "$3 (got rc=$1, expected $2)"; fi
 }
@@ -94,6 +102,16 @@ class H(http.server.BaseHTTPRequestHandler):
             return
         if p == '/ssogone':
             self._send(404, 'text/html; charset=utf-8', b'not found behind the redirect')
+            return
+        if p.startswith('/ssoesc/'):
+            # A Location carrying BACKSLASH ESCAPES: legal bytes in a header, and the first field a
+            # REMOTE host writes into our diagnostic. Under a dash /bin/sh, `echo` renders the \t
+            # and TRUNCATES at the \c; printf '%s' does not. Without this fixture the suite, which
+            # runs under bash, could not see the difference.
+            self.send_response(302)
+            self.send_header('Location', '/ssologin?a=\\tb\\cTRUNCATEDMARKER')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
             return
         if p.startswith('/ssonoct/'):
             # a redirect that lands on a 200 with NO content-type: covers the note on the
@@ -158,6 +176,7 @@ BLIND="http://127.0.0.1:$PORT/blind"
 SSO="http://127.0.0.1:$PORT/sso"
 SSOMISSING="http://127.0.0.1:$PORT/ssomissing"
 SSONOCT="http://127.0.0.1:$PORT/ssonoct"
+SSOESC="http://127.0.0.1:$PORT/ssoesc"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -234,8 +253,14 @@ check_rc "$rc" 1 "CATCHES a 200 wearing MIXED-CASE Text/HTML (case-insensitive, 
 served_verify_asset_ok "$SOUND/dist/nocontenttype.bin" "a 200 with no content-type" >/dev/null 2>&1; rc=$?
 check_rc "$rc" 1 "CATCHES a 200 with NO content-type (cannot confirm it is an asset, not a page)"
 
-served_verify_asset_ok "$SOUND/dist/does-not-exist.bin" "a missing asset" >/dev/null 2>&1; rc=$?
+missing_msg=$(served_verify_asset_ok "$SOUND/dist/does-not-exist.bin" "a missing asset" 2>&1 >/dev/null); rc=$?
 check_rc "$rc" 1 "a 404 asset is caught (not served)"
+# The SILENCE half, on the asset path. The equivalent control existed only for the host function, so
+# nothing proved the note stays quiet when served_verify_asset_ok refuses with no redirect involved.
+case "$missing_msg" in
+  *"MECHANISM"*) fail "the note claimed a redirect on a plain 404 with none in front of it. Got: $missing_msg" ;;
+  *) pass "CONTROL: no mechanism claimed when an asset 404s without a redirect" ;;
+esac
 
 # RED-CAPABLE: an asset fetched THROUGH the redirect. curl -L lands on the login page, which is a
 # 200 carrying text/html, so the content-type tell must catch it on the real mechanism too.
@@ -276,6 +301,44 @@ case "$noct_msg" in
   *"MECHANISM: un-followed"*"/ssonoctpage"*) pass "the NO-CONTENT-TYPE branch also names the redirect and its target" ;;
   *) fail "the NO-CONTENT-TYPE branch printed no mechanism; that call site is uncovered. Got: $noct_msg" ;;
 esac
+
+# 🛑 THE DIAGNOSTIC MUST SURVIVE A HOSTILE Location, UNDER THE SHELL THE LIB DECLARES. This suite
+# runs under bash, where `echo` prints backslashes literally, so nothing else here can see the
+# difference between echo and printf. The lib is #!/bin/sh and tools/deploy-site.sh is too, and on
+# Debian-family hosts /bin/sh IS dash. MEASURED on this box with a Location of
+# `http://x/a\tb\cTRUNCATED`: dash and zsh render the tab and DROP everything after \c; bash does
+# not. So drive the real lib under dash and assert the tail survives.
+if command -v dash >/dev/null 2>&1; then
+  esc_out=$(dash -c '. "$1"/lib/served-verify.sh; served_verify_asset_ok "$2/dist/real.bin" "an asset behind an escaped Location" 2>&1 >/dev/null' _ "$DIR" "$SSOESC" 2>/dev/null)
+  case "$esc_out" in
+    *TRUNCATEDMARKER*) pass "under dash, a Location carrying backslash escapes prints whole (printf, not echo)" ;;
+    *) fail "under dash the diagnostic was TRUNCATED or mangled by a server-controlled Location; use printf '%s' not echo. Got: $esc_out" ;;
+  esac
+  loc=$(curl -sS -o /dev/null -w '%{redirect_url}' "$SSOESC/dist/real.bin" 2>/dev/null)
+  case "$loc" in
+    *TRUNCATEDMARKER*) pass "CONTROL: the fixture really serves a Location carrying the marker" ;;
+    *) fail "CONTROL: the fixture's Location lacks the marker ($loc); the dash arm is vacuous" ;;
+  esac
+else
+  echo "  skip dash not installed; the echo-vs-printf arm cannot run here"
+fi
+
+# 🛑 THE HEADER IS DERIVED, NOT RESTATED. Two prose counts went stale here, so this arm reads the
+# embedded server source, extracts every path it dispatches on, and fails if the header does not
+# name it. A handler added without documenting it reds this.
+hdr=$(sed -n '1,45p' "$0")
+srv_paths=$(/usr/bin/grep -oE "p\.startswith\('/[a-z]+/?'\)|p == '/[a-z]+'" "$0" | /usr/bin/grep -oE "/[a-z]+" | sort -u)
+n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
+if [ "$n_paths" -lt 5 ]; then
+  fail "the handler extraction found only $n_paths paths; it is not reading the server source"
+else
+  pass "handler extraction found $n_paths dispatch paths"
+  missing=""
+  for _p in $srv_paths; do
+    case "$hdr" in *"$_p"*) : ;; *) missing="$missing $_p" ;; esac
+  done
+  if [ -n "$missing" ]; then fail "the header does not name these server handlers:$missing"; else pass "every server handler is named in the header (derived, not counted in prose)"; fi
+fi
 
 echo ""
 if [ "$fails" -eq 0 ]; then
