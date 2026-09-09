@@ -68,13 +68,14 @@ set -eu
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 REPO="${KOSMOS_REPO:-$HOME/work/agent-workforce}"
 HOST="${KOSMOS_SITE_URL:-https://installkosmos.com}"
-# 🛑 THIS COMMENT SAID "The Windows zip has no latest-win.json yet" AND THAT IS NO LONGER TRUE:
-# dist/latest-win.json is tracked in the site checkout and served (200 application/json, measured
-# 2026-09-09), and tools/publish-kosmos-windows.sh writes it precisely to remove this hardcode. The
-# default below is still a hardcode and it is STALE (0.6.24, while latest-win.json says 0.6.37), so
-# every check keyed to $WINZIP guards an artifact thirteen versions old. Learning the name from
-# latest-win.json is the real fix and is carded; what this branch does instead is also check the
-# UNVERSIONED alias below, which is the name users actually download and does not go stale.
+# The Windows zip name. #2571: dist/latest-win.json NOW EXISTS (tracked + served), written by
+# tools/publish-kosmos-windows.sh, so the current versioned name is DERIVED from it below (after
+# $H and the ptr_* helpers), the same way the tarball name is learned from latest.json. This line
+# is now the FALLBACK: an explicit KOSMOS_WIN_ZIP overrides the derivation, and this hardcoded
+# default is used only when latest-win.json cannot be read (an older checkout). It is left at the
+# old 0.6.24 name on purpose, so an ancient checkout REFUSES loudly at the carry check rather than
+# guessing a name that happens to match. (#2580 also honest-marker-checks the UNVERSIONED alias
+# kosmos-win-x64.zip separately, which never goes stale; that stays, alongside this derivation.)
 WINZIP="${KOSMOS_WIN_ZIP:-kosmos-0.6.24-win-x64.zip}"
 
 PUBLISH=0
@@ -167,9 +168,54 @@ LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo
 CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""
 # Pull artifact/sha out of a pointer JSON. Tolerant of an optional space after the colon in case
 # latest.json is ever pretty-printed; an empty result still refuses at the guards below (fail-safe).
-ptr_artifact() { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
-ptr_sha()      { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
-ptr_version()  { printf '%s' "$1" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_artifact()  { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_sha()       { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_version()   { printf '%s' "$1" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+
+# #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
+# learned from latest.json above -- replacing the stale hardcoded $WINZIP (kosmos-0.6.24, while
+# latest-win.json names the current version). latest-win.json is TRACKED, so git archive ships the
+# COMMITTED copy; read that one ($H), matching what the deploy actually serves.
+#
+# 🔑 AND IT IS AN INSTRUMENT, not just a name lookup. The derived name is trusted ONLY when the
+# committed latest-win.json's sha256 EQUALS the hash of the ACTUAL committed versioned-zip BYTES
+# (git show | shasum, below) -- a pointer-vs-committed-BYTES AGREEMENT check. A drifted pointer (a
+# partial publish-kosmos-windows.sh run, or a hand-edited manifest/blob) REFUSES here rather than
+# silently deriving a name whose bytes do not match.
+#
+# ⚠️ SCOPE, stated precisely so the guarantee is not over-read: this closes INTERNAL
+# pointer-vs-bytes drift WITHIN the committed checkout. It does NOT compare the committed
+# latest-win.json against LIVE the way the tarball's CJ-vs-LJ guard does, and that is deliberate:
+# there is no --promote-style intentional-move flag for the Windows pointer, so a committed-vs-live
+# win check would FALSE-REFUSE a legitimate win-publish deploy (publish-kosmos-windows.sh commits a
+# new win pointer that differs from live BEFORE it is deployed). Checkout FRESHNESS (is $SITE at
+# origin/main?) is the deploy's own site-freshness precondition, not this block's job. The residual
+# is therefore: a checkout current for the mac pointer but stale specifically for the win side
+# derives an internally-consistent but stale win name -- bounded by keeping $SITE fresh before a
+# deploy, not by this check. An explicit KOSMOS_WIN_ZIP overrides everything (operator escape hatch).
+if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
+  CJW=$(git -C "$SITE" show "$H:dist/latest-win.json" 2>/dev/null) || CJW=""
+  if [ -n "$CJW" ]; then
+    WV=$(ptr_versioned "$CJW"); WPS=$(ptr_sha "$CJW")
+    [ -n "$WV" ] && [ -n "$WPS" ] || { echo "deploy-site: committed dist/latest-win.json names no versioned/sha256 -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest is complete."; exit 1; }
+    # The committed versioned zip must EXIST as a tracked blob at $H (git archive ships it).
+    git -C "$SITE" cat-file -e "$H:dist/$WV" 2>/dev/null || { echo "deploy-site: latest-win.json names $WV, which is not committed in the site checkout at $H -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest and the zip agree."; exit 1; }
+    # Hash the ACTUAL committed zip BYTES (git show streams the blob), not just the string recorded
+    # in the .sha256 sidecar -- so a zip whose bytes were altered without touching the manifest OR
+    # the sidecar (a bad rebase / hand-edit of the tracked blob) is still caught. This is the TRUE
+    # pointer-vs-committed-bytes agreement; comparing to the sidecar alone would only prove
+    # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is awk's (the last stage,
+    # always 0), so a git-show failure does not abort under set -e -- but cat-file -e above has
+    # already proven the blob exists.
+    WSC=$(git -C "$SITE" show "$H:dist/$WV" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+    [ "$WPS" = "$WSC" ] || { echo "deploy-site: latest-win.json (sha $WPS) DISAGREES with the committed bytes of $WV (got ${WSC:-none}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so latest-win.json and the zip agree."; exit 1; }
+    WINZIP="$WV"
+    echo "deploy-site: derived the Windows zip $WINZIP from dist/latest-win.json (sha-verified against the committed zip's bytes)." >&2
+  else
+    echo "deploy-site: no committed dist/latest-win.json -- using the fallback \$WINZIP=$WINZIP, which may be stale (#2008/#2571). Land latest-win.json (tools/publish-kosmos-windows.sh) so the current name is derived." >&2
+  fi
+fi
 
 if [ "$PROMOTE" = 1 ]; then
   # 🛑 A PROMOTE MOVES THE POINTER ON PURPOSE (#2195), so the committed-vs-live guard must NOT fire,
