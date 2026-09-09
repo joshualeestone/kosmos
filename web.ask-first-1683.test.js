@@ -215,7 +215,7 @@ test('#1683: arming changes the ACCESSIBLE NAME, not only the visible label', ()
 /* 🛑 AN UNMARKED BUTTON MUST NOT ARM. The plan recorded this decision and the code
    did not implement it: the provider guard sat INSIDE the try, after the arming,
    so a wiring fault armed on the first press and only refused on the second. The
-   person saw a control reading "Disconnect?" that could never remove anything, so
+   person saw a control reading "Remove it?" that could never remove anything, so
    the confirm promised a pending action that did not exist. Safe, and not honest.
    Guarded here because a decision recorded only in a plan is a stale comment with
    extra steps. */

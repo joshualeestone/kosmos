@@ -16459,7 +16459,7 @@ async function paintAccounts() {
     const REST = btn.textContent;
     /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
        SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
-       in accessible-name computation, so relabelling `textContent` to "Disconnect?"
+       in accessible-name computation, so relabelling `textContent` to "Remove it?"
        changed what a sighted person sees and NOTHING a screen reader announces: the
        name was identical before and after arming, both presses. So the whole "ask
        first" promise of #1683 was sighted-only on a control whose cost is an OAuth
@@ -16590,7 +16590,7 @@ async function paintAccounts() {
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
         /* Restore the resting label, or a refused remove leaves the button
-           reading "Remove it?" and the NEXT single click acts. */
+           reading "Disconnect?" and the NEXT single click acts. */
         armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
         /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
            THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
