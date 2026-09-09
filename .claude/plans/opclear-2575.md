@@ -59,8 +59,13 @@ self-report here.
 ## Contract given to Renet (do not change without telling her)
 
 POST /api/agent/<sessionName>/clear-selfreport ; board-token auth ; body
-optional {reason:"operator-dismissed"} ; 200 {ok:true,cleared:<bool>,state:<fresh>,
-by:'operator'} ; 4xx {ok:false,because} ; idempotent (already-clear -> cleared:false 200).
+optional {reason:"operator-dismissed"} ; 200 {ok:true,cleared:<bool>,state:<fresh>,by:<prov>}
+; 4xx {ok:false,because} ; idempotent (already-clear -> cleared:false 200).
+
+`by` is the provenance of the RESULTING state, not always 'operator': on a clear
+(cleared:true) it is 'operator'; on a no-op (cleared:false -- the agent was not
+waiting) it is the current state's own provenance ('agent'/'auto', or null for a
+never-reported agent). Key the dismiss button on `cleared`, not on `by`.
 
 ## Product note for the PR (not a blocker)
 

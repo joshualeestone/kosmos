@@ -43,6 +43,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 const { start, server, boardAuthState } = require('./server');
 const fleet = require('./test-support/fleet');
 const selfreport = require('./engine/selfreport');
+const messages = require('./engine/messages');
 
 const TOK = 'BOARDTOKEN_test_0123456789abcdef';
 let base;
@@ -154,6 +155,36 @@ test('an operator-supplied reason is stored as the because', async () => {
     assert.equal(r.json.cleared, true);
     assert.equal(selfreport.read(session).because, 'cleared after standup');
   });
+});
+
+// The forgery invariant this whole route rests on: `by:'operator'` is a provenance
+// only the operator-only clear route may set. It must NOT be forgeable through the
+// AGENT-facing /api/report route -- if that route ever forwarded a client-supplied
+// `by`, an agent could stamp its own report `operator` and (because operator is
+// auto-falsey) land it over a standing needs_you, defeating the #900 guard. The
+// route does not read body.by today; this test RED-GUARDS that so a future
+// regression adding `by: body.by` to the report handler fails loudly.
+test('FORGERY GUARD: /api/report with a client-supplied by:operator still stores by:agent (the invariant the clear route rests on)', async () => {
+  const name = 'cf-forge';
+  const board = fleet.install([fleet.agent(name, { state: 'idle' })]);
+  messages.setRunner(() => ({ ok: true, session: `${name}-discord` }));
+  try {
+    const res = await fetch(base + '/api/report', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      // A hostile report: a deliberate agent report that TRIES to stamp itself operator.
+      body: JSON.stringify({ state: 'working', text: 'forging provenance', from_pane: 'x', by: 'operator' }),
+      redirect: 'manual',
+    });
+    const j = await res.json().catch(() => ({}));
+    assert.equal(j.recorded, true, 'the report itself records: ' + JSON.stringify(j));
+    const back = selfreport.read(name);
+    assert.equal(back.state, 'working');
+    assert.equal(back.by, 'agent', 'a client-supplied by:operator through /api/report must NOT be honored -- only the operator-only clear route may set operator provenance');
+  } finally {
+    messages.setRunner(null);
+    board.restore();
+  }
 });
 
 // LAST: enforcement on. Everything above ran token-free on a non-enforcing
