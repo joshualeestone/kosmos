@@ -34,10 +34,10 @@ That is the bar. Not "the tests pass".
 | 1 | install + first run | **UNSURVEYED** — see §5 |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED (state: partial, see §4) |
-| 4 | **talk to it** | ❌ **THE BLOCKER** |
+| 4 | **talk to it** | ❌ **BLOCKER 1** — §3 |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
 | 6 | survive a reboot | ✅ MEASURED |
-| 7 | update without stranding | ✅ designed + unit-tested; NOT yet exercised by a real update |
+| 7 | **update the app** | ❌ **BLOCKER 2** — §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
 
 Measured 2026-09-08/09 through the real product path (board up, real HTTP routes,
 every result checked against Windows rather than against a return value):
@@ -126,6 +126,82 @@ three separate tmux gates, `createAgent` having no win32 branch at all,
 `/SC ONLOGON` requiring administrator, an empty `<UserId>`, the ownership record
 outliving its session, and a rollback killing a launcher pid — every one of them
 found by running the real thing, none by the unit suite.
+
+---
+
+## 3a. BLOCKER 2 — the in-app updater cannot run on Windows
+
+Found by survey 2026-09-09, then confirmed directly. `engine/update.js` contains
+**zero** references to `win32` or `process.platform`, and `beginInstall()` does:
+
+    engine/update.js:662
+    spawn('/bin/sh', ['-c', 'curl -fsSL "$1" | sh; ...'], ...)
+
+There is no `/bin/sh` on Windows. So "Install update" spawns nothing, the ENOENT
+is caught by the child error handler, and the board keeps running the old version.
+
+⚠️ `platform.js`'s `RUNNER_DOWNLOADS` GATE DOES NOT COVER THIS. That gate was
+split out in `e3870c49` so win32 refuses a RUNNER-binary download while still
+being allowed to run agents. The SELF-updater is a different path and is not
+gated by it at all — so this is genuinely unguarded rather than deliberately
+refused.
+
+📌 OPEN QUESTION, and it decides how bad this is: whether `lastAttempt.because`
+("the installer could not be started: spawn /bin/sh ENOENT") actually reaches the
+Settings update card. If it does, this fails HONESTLY and a Windows user is told
+to update by hand. If it does not, the button does nothing and says nothing —
+which is the silent failure this codebase exists to refuse. **Settle this before
+sizing the fix.**
+
+A Windows updater also has to answer what the Mac's `curl | sh` answers: fetch,
+verify, replace a RUNNING install, and restart the board. The anchor already
+solves the hard half (a task must not be stranded by a moved app); what is
+missing is the act of updating itself.
+
+---
+
+## 3b. The pattern the survey actually found
+
+🛑 SEVERAL MODULES ASK "DOES THIS AGENT HAVE A STARTUP JOB?" BY LOOKING FOR A
+`.plist`. Windows never writes one — it registers a Scheduled Task — so these do
+not refuse, they answer **false, confidently, and wrongly**. This is the same
+shape as the three tmux gates: one question, asked in several places, each one
+needing to be found separately.
+
+| Where | What it gets wrong on Windows |
+|---|---|
+| `engine/register.js:245` | `job: fs.existsSync(create.plistPath(name))` — feeds the very screen that exists to answer "will this agent be here after I restart?", and tells a Windows user NO for every agent. R8 measured the opposite. |
+| `engine/delete-leftover.js:184` | cannot see a leftover Scheduled Task, so "free the name" can free a name while a task stays registered |
+| `engine/status.js:4166` | a fresh Windows agent gets "made before Kosmos recorded this" — false, Kosmos just made it |
+
+🔑 AND `create.js` ALREADY KNOWS BETTER. `disabledJobs()`/`runningJobs()` fail
+soft to an EMPTY SET, on the stated grounds that "could not look" is not a claim.
+`register.js` makes the claim anyway. The fix is the one `remove.js` already
+took: ask `jobOps`/`win32job.status`, not the filesystem.
+
+⚠️ REGISTER.JS IS THE ONE TO FIX FIRST, and not because it is the biggest. It is
+the screen whose whole purpose is the property #570 exists to prove, and it
+currently tells Windows users that property is absent. We would ship the feature
+and a screen calling it broken.
+
+### Also degraded, lower priority
+
+- `engine/boardrestart.js` — no win32 arm anywhere; switching a world always
+  falls back to "restart it by hand". Fails honestly. Needs a Windows
+  equivalent of the launchctl/CLI restart, and there may not be a `bin\kosmos`
+  wrapper to build one on — that is an open question.
+- `engine/terminal.js` — "open the agent's terminal" shells `osascript`. Fails
+  honestly with a raw ENOENT sentence. Consistent with 7c: there is no pty to
+  attach to, so this may simply not exist on Windows.
+- `engine/github.js`, `engine/vercel.js` — resolve `gh`/`vercel` only from
+  hardcoded POSIX paths, no PATH lookup, no `.exe`. A Windows user with them
+  installed is told they are not. `runners.js` already does PATHEXT properly, so
+  the technique exists in-repo.
+- `engine/delete-leftover.js` — no `~/.Trash`, so every Windows delete is
+  permanent-with-confirmation. Degrades SAFELY and honestly; noted, not a defect.
+
+📌 NOTHING IN THE SURVEY CAUSES DATA LOSS. The worst outcomes are a dead update
+button and a screen that is backwards about reboot survival.
 
 ---
 
