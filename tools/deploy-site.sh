@@ -92,6 +92,12 @@ git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "deploy-site: $
 [ -f "$REPO/tools/lib/site-deploy.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/site-deploy.sh"; exit 1; }
 [ -f "$REPO/tools/lib/pkg-inputs.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pkg-inputs.sh (defines pkg_upload_filter_excludes)"; exit 1; }
 [ -f "$REPO/tools/verify-served.sh" ]  || { echo "deploy-site: cannot find $REPO/tools/verify-served.sh"; exit 1; }
+# #1667: served-verify helpers (negative control + content-type tell). Sourced HERE, in the
+# preconditions, and not just before the post-deploy checks, because the negative control now runs
+# BEFORE the first 200 from $HOST is trusted. See the call site above the latest.json read.
+[ -f "$REPO/tools/lib/served-verify.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/served-verify.sh (the #1667 negative control and content-type tell)"; exit 1; }
+# shellcheck source=/dev/null
+. "$REPO/tools/lib/served-verify.sh"
 # sha256-name.sh is sourced ONLY on the --promote path (it derives the alias sidecar). Check it here,
 # guarded on PROMOTE, so the failure is a clear up-front precondition rather than a cryptic set-e
 # abort mid-run when the source fails -- matching the checks above for the other sourced libs.
@@ -130,6 +136,17 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # the trap the guard below closes. Tracked artifacts are NEVER fetched into the shared checkout
 # (that would leave dirty tracked files a later `git commit -a` could sweep up); only the gitignored
 # set is fetched, and every fetched byte is sha-verified.
+# 🛑 #1667: PROVE THE HOST DISCRIMINATES BEFORE THE FIRST 200 IS TRUSTED, NOT ONLY AFTER THE DEPLOY.
+# This control used to run ONLY at the end of the script, which made it unreachable in the exact
+# shape the card measured. On a host-wide-blind $HOST (302 to an SSO page answering 200 text/html
+# for EVERY path) the read below returns that page with a 200, `curl -f` does not fire, ptr_artifact
+# finds no "artifact" field, and the script refuses with "latest.json names no artifact" -- a
+# symptom, and precisely the wrong diagnosis this card exists to eliminate. Running it here costs
+# one request, names the mechanism, and refuses BEFORE `vercel deploy --prod` rather than after, so
+# it PREVENTS rather than reports.
+# 📌 The post-deploy call stays and is not redundant: it asks a different question (is the host
+# still sound now that we have published), and a host can go blind between the two.
+served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control failed against $HOST (see the reason above). Nothing has been deployed."; exit 1; }
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
@@ -248,9 +265,8 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # "command not found" that the release path never hits because it sources pkg-inputs.sh first.
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/pkg-inputs.sh"
-# #1667: served-verify helpers (negative control + content-type tell) for the post-deploy checks.
-[ -f "$REPO/tools/lib/served-verify.sh" ] || { echo "deploy-site: $REPO/tools/lib/served-verify.sh is missing -- refusing (the post-deploy served-verify cannot run)"; exit 1; }
-. "$REPO/tools/lib/served-verify.sh"
+# (served-verify.sh is sourced up in the preconditions, because the negative control runs before
+# the first read of $HOST as well as after the deploy.)
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }
 
@@ -327,6 +343,13 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # text/html. (tools/lib/served-verify.sh, sourced above.)
 served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo "deploy-site: the Windows zip $WINZIP failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+# 🛑 THE SIDECAR, BECAUSE THE LOOP ABOVE SAYS "CHECK THE PAIR" AND THIS ONE PAIR WAS UNCHECKED. The
+# rationale twenty lines up is that a sidecar-only serve drop breaks new-install verification while
+# the artifact still serves; the win zip was the only served pair with no sidecar check.
+# MEASURED against production before adding this, so it cannot be a refusal on an asset that was
+# never served: installkosmos.com/dist/$WINZIP -> 200 application/zip, and its .sha256 -> 200
+# application/octet-stream (not text/html, so the content-type tell passes it).
+served_verify_asset_ok "$HOST/dist/$WINZIP.sha256" "the Windows zip checksum $WINZIP.sha256" || { echo "deploy-site: the Windows zip checksum $WINZIP.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate. A sidecar-only drop breaks new-install verification while the zip still serves."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."

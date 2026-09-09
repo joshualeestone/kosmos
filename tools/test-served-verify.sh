@@ -11,10 +11,15 @@
 # below, which is the only version of this that has not gone stale.
 #
 # 📌 ITS SCOPE, NAMED BY WHAT THE REGEX ACTUALLY MATCHES RATHER THAN BY WHAT IT IS FOR: a line
-# whose first token is `if` or `elif`, whose subject is the bare name `p` or `rest`, and whose test
-# is `.startswith(` or `==` against ONE quoted literal, in either quote style, with any spacing
-# around `==`. That is a restriction on the METHOD, and the earlier wording ("if/elif on p or rest")
-# implied it was a restriction on the SUBJECT. MEASURED, three handlers each answering 200 text/html
+# whose first token is `if` or `elif` FOLLOWED BY EXACTLY ONE SPACE, whose subject is the bare name
+# `p` or `rest`, and whose test is `.startswith(` or `==` against ONE quoted literal BEGINNING WITH
+# `/`, in either quote style, with any spacing around `==`. That is a restriction on the METHOD, and
+# the earlier wording ("if/elif on p or rest") implied it was a restriction on the SUBJECT.
+# ⚠️ THE TWO CLAUSES IN CAPITALS WERE MISSING FROM THIS SENTENCE AND ARE IN THE REGEX. MEASURED:
+# `if  p == '/twospaceafterif':` (two spaces after `if`) is NOT matched, and `if p == 'noslash':`
+# is NOT matched. The leading-slash restriction is harmless in practice, because `p` is always
+# `self.path.split('?')[0]` and a literal without a slash is dead code, but the whole point of the
+# decision below was to trade closure for a TRUE scope sentence, so the sentence has to be true. MEASURED, three handlers each answering 200 text/html
 # to every path, each leaving this arm green at its expected count:
 #   if self.path.startswith('/evilself/'):     <- `self.path` is literally what `p` is derived from
 #   if p.endswith('/evilend'):
@@ -26,6 +31,12 @@
 # of `==`, prose standing in for documentation), and what it defends is the accuracy of a COMMENT
 # ABOUT A FIXTURE INSIDE A TEST. No product behaviour depends on it. Closing the next hole costs
 # more than the hole does, so the honest move is to state the scope truthfully and stop.
+# 💰 AND NAME THE COST, BECAUSE A FUTURE EDITOR WILL HIT IT WITH NO WARNING: the fixture's
+# Python is now FORMATTING-FROZEN in two places on purpose. `if p=='/ssonoctpage':` must stay
+# spaceless and `if p == "/ssologin":` must stay double-quoted, because each is the only thing
+# exercising one half of the extraction pattern, and a tidy-up that normalises either reds the
+# suite. That is a real cost of keeping this apparatus, paid so that a widening cannot be silently
+# lost; it is stated here rather than discovered by whoever reformats the heredoc.
 # 🔑 THE WEAKEST PREMISE IN THAT CALL, named because it is what would make the race worth
 # resuming: an undocumented fixture handler can only cause a stale comment SO LONG AS no arm selects
 # a fixture path dynamically. If one ever does, an undocumented handler could make an arm pass for
@@ -560,7 +571,49 @@ else
   # it, so the branch's headline fix was likely uncovered exactly where it mattered. A red here is
   # not something an engineer can fix in the code; it means this machine cannot observe the fix, and
   # the suite should say so out loud rather than report green for a claim it never tested.
-  fail "no shell here truncates at backslash-c, so the printf-vs-echo arm could not run. It is the only arm covering that fix; do not read this suite as green for it."
+  fail "no shell here truncates at backslash-c, so the printf-vs-echo arm could not run. It is the only arm covering that fix; do not read this suite as green for it. NOTE FOR WHOEVER SEES THIS RED: it is a statement about THIS MACHINE's shells, not a defect in served-verify.sh, and there is nothing to fix in the code. Install a shell whose echo truncates (dash), or accept that this box cannot observe that fix."
+fi
+
+echo "-- deploy-site.sh's WIRING: the control must run before the first 200 is trusted --"
+# 🛑 THE CONTROL USED TO RUN ONLY AT THE END OF deploy-site.sh, WHICH MADE IT UNREACHABLE IN THE
+# SHAPE THE CARD MEASURED. On a host-wide-blind $HOST the script died far earlier, at
+# "latest.json names no artifact" -- a symptom, and the wrong diagnosis. A guard placed after every
+# check it would have explained is not a guard, and nothing in the suite could see the ordering,
+# because every other arm drives the LIBRARY rather than its caller.
+DS="$DIR/deploy-site.sh"
+if [ -f "$DS" ]; then
+  _ds_ctl=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST"' "$DS" | sed -n '1s/:.*//p')
+  _ds_curl=$(/usr/bin/grep -n 'curl' "$DS" | /usr/bin/grep '\$HOST' | sed -n '1s/:.*//p')
+  if [ -z "$_ds_ctl" ] || [ -z "$_ds_curl" ]; then
+    fail "could not locate both the negative-control call and the first curl on \$HOST in deploy-site.sh (control line '$_ds_ctl', first curl line '$_ds_curl'); this arm cannot answer the ordering question and must not pass on a search that found nothing"
+  elif [ "$_ds_ctl" -lt "$_ds_curl" ]; then
+    pass "deploy-site.sh proves the host discriminates (line $_ds_ctl) BEFORE its first curl on \$HOST (line $_ds_curl)"
+    # 🛑 ITS OWN PAIR RULE, TURNED INTO A CHECK. deploy-site.sh states that a sidecar-only serve
+    # drop breaks new-install verification while the artifact still serves, so "check the pair" --
+    # and the Windows zip was checked ALONE for as long as that sentence had been there. A rationale
+    # in a comment is not a check, which is this branch's recurring lesson.
+    _pairs_missing=""
+    for _a in $(/usr/bin/grep -oE 'served_verify_asset_ok "\$HOST/dist/[^"]+"' "$DS" | sed 's/.*dist\///; s/"$//'); do
+      case "$_a" in *.sha256) continue ;; esac
+      /usr/bin/grep -qF "served_verify_asset_ok \"\$HOST/dist/$_a.sha256\"" "$DS" || _pairs_missing="$_pairs_missing $_a"
+    done
+    # deploy-site.sh checks its GITIGNORED artifacts by a different mechanism (served_matches, by
+    # sha against the local verified copy) inside a loop over $f. The pair rule applies there too,
+    # and the arm above could not see it: MEASURED, deleting the `.sha256` line from that loop left
+    # the suite green. One mechanism guarded and the other not is the same half-covered shape.
+    if /usr/bin/grep -qF 'served_matches "$f"' "$DS" && ! /usr/bin/grep -qF 'served_matches "$f.sha256"' "$DS"; then
+      fail "deploy-site.sh's served_matches loop checks the artifact but not its .sha256 sidecar. Same pair rule as above, other mechanism: a sidecar-only drop breaks new-install verification while the artifact still serves."
+    fi
+    if [ -n "$_pairs_missing" ]; then
+      fail "deploy-site.sh checks these served /dist assets with no .sha256 companion:$_pairs_missing. Its own comment says a sidecar-only drop breaks new-install verification while the artifact still serves, so check the pair."
+    else
+      pass "every served /dist asset deploy-site.sh checks has its .sha256 checked too (the pair rule it states, asserted rather than described)"
+    fi
+  else
+    fail "deploy-site.sh reads \$HOST at line $_ds_curl but does not prove it discriminates until line $_ds_ctl. On a host-wide-blind host the earlier read returns the login page with a 200 and the script refuses with a symptom instead of the mechanism, which is the #1667 failure itself."
+  fi
+else
+  pass "deploy-site.sh is not beside this test (a copy of the suite, not the repo), so the wiring arm did not run. STATED, not silently skipped: every other arm drives the library and is unaffected."
 fi
 
 echo "-- the lib is #!/bin/sh, and package.json lints it with sh -n --"

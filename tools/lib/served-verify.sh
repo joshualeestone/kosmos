@@ -127,7 +127,13 @@ served_verify_host_discriminates() {
     printf '%s\n' "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.$(_served_verify_redirect_note "$_svhd_url")" >&2
     return 1
   fi
-  printf '%s\n' "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path, so its 200s are meaningful."
+  # ⚠️ SCOPED, NOT HOST-WIDE, AND THE SENTENCE USED TO CLAIM OTHERWISE. The probe is always under
+  # /dist, so what it establishes is that /dist discriminates. tools/deploy-site.sh then trusts a
+  # 200 at the site ROOT (/setup) on the strength of it. That is sound for the deployment-wide SSO
+  # shape #1667 measured, where every route goes blind together, and NOT sound for a route-scoped
+  # blindness (a rewrite rule or an SPA fallback under one prefix). Carded as kosmos#2565; the
+  # sentence says what it proved in the meantime.
+  printf '%s\n' "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path UNDER /dist, so its 200s under /dist are meaningful."
   return 0
 }
 
