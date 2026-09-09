@@ -164,12 +164,18 @@ if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
   if [ -n "$CJW" ]; then
     WV=$(ptr_versioned "$CJW"); WPS=$(ptr_sha "$CJW")
     [ -n "$WV" ] && [ -n "$WPS" ] || { echo "deploy-site: committed dist/latest-win.json names no versioned/sha256 -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest is complete."; exit 1; }
-    # The sidecar read is piped through awk, so a missing sidecar yields an empty WSC (awk exits 0)
-    # rather than aborting under set -e; the mismatch branch then refuses on the empty value.
-    WSC=$(git -C "$SITE" show "$H:dist/$WV.sha256" 2>/dev/null | awk '{print $1}')
-    [ "$WPS" = "$WSC" ] || { echo "deploy-site: latest-win.json (sha $WPS) DISAGREES with the committed $WV.sha256 (${WSC:-absent}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so latest-win.json and the zip agree."; exit 1; }
+    # The committed versioned zip must EXIST as a tracked blob at $H (git archive ships it).
+    git -C "$SITE" cat-file -e "$H:dist/$WV" 2>/dev/null || { echo "deploy-site: latest-win.json names $WV, which is not committed in the site checkout at $H -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest and the zip agree."; exit 1; }
+    # Hash the ACTUAL committed zip BYTES (git show streams the blob), not just the string recorded
+    # in the .sha256 sidecar -- so a zip whose bytes were altered without touching the manifest OR
+    # the sidecar (a bad rebase / hand-edit of the tracked blob) is still caught. This is the TRUE
+    # pointer-vs-committed-bytes agreement; comparing to the sidecar alone would only prove
+    # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is shasum's, so a git-show
+    # failure does not abort under set -e -- but cat-file -e above has already proven the blob exists.
+    WSC=$(git -C "$SITE" show "$H:dist/$WV" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+    [ "$WPS" = "$WSC" ] || { echo "deploy-site: latest-win.json (sha $WPS) DISAGREES with the committed bytes of $WV (got ${WSC:-none}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so latest-win.json and the zip agree."; exit 1; }
     WINZIP="$WV"
-    echo "deploy-site: derived the Windows zip $WINZIP from dist/latest-win.json (sha-verified against the committed $WV.sha256)." >&2
+    echo "deploy-site: derived the Windows zip $WINZIP from dist/latest-win.json (sha-verified against the committed zip's bytes)." >&2
   else
     echo "deploy-site: no committed dist/latest-win.json -- using the fallback \$WINZIP=$WINZIP, which may be stale (#2008/#2571). Land latest-win.json (tools/publish-kosmos-windows.sh) so the current name is derived." >&2
   fi

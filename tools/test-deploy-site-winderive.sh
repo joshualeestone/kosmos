@@ -60,7 +60,12 @@ CURL
 chmod +x "$BIN/curl"
 
 # ---- a site checkout committed with latest.json + latest-win.json + the versioned win zip -------
-# $1: agree | drift | absent  -- the shape of latest-win.json's sha256 relative to the committed zip.
+# $1 mode:
+#   agree    - latest-win.json's sha256 == the committed zip's real bytes-hash (the happy path)
+#   drift    - latest-win.json's sha256 != the committed zip's bytes-hash (a hand-edit / partial publish)
+#   absent   - no latest-win.json at all (an older checkout)
+#   nofields - latest-win.json present but missing the "versioned"/"sha256" fields (a malformed manifest)
+#   nozip    - latest-win.json names a versioned zip that is NOT committed in the checkout
 make_site() {
   local s live mode="$1"
   s="$(mktemp -d "$T/site.XXXXXX")"; live="$(mktemp -d "$T/live.XXXXXX")"
@@ -75,19 +80,20 @@ make_site() {
   # which stops the dry run just past the win block).
   printf '{"version":"%s","sha256":"macsha","artifact":"%s","manifest":"kosmos-%s-arm64.manifest.json"}\n' "$V" "$ART" "$V" > "$s/dist/latest.json"
   cp "$s/dist/latest.json" "$live/dist/latest.json"
-  # the tracked versioned win zip and its REAL sha sidecar
-  printf 'WINZIP-BYTES-%s\n' "$V" > "$s/dist/$WINV"
-  ( cd "$s/dist" && shasum -a 256 "$WINV" > "$WINV.sha256" )
-  local realsha; realsha="$(awk '{print $1}' "$s/dist/$WINV.sha256")"
-  local winsha=""
+  # the tracked versioned win zip and its REAL sha sidecar (omit the committed zip for the nozip mode)
+  local realsha=""
+  if [ "$mode" != nozip ]; then
+    printf 'WINZIP-BYTES-%s\n' "$V" > "$s/dist/$WINV"
+    ( cd "$s/dist" && shasum -a 256 "$WINV" > "$WINV.sha256" )
+    realsha="$(awk '{print $1}' "$s/dist/$WINV.sha256")"
+  fi
   case "$mode" in
-    agree) winsha="$realsha" ;;
-    drift) winsha="deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" ;;
+    agree) printf '{"version":"%s","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$realsha" "$WINV" > "$s/dist/latest-win.json" ;;
+    drift) printf '{"version":"%s","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef" "$WINV" > "$s/dist/latest-win.json" ;;
+    nofields) printf '{"version":"%s","artifact":"kosmos-win-x64.zip","arch":"x64"}\n' "$V" > "$s/dist/latest-win.json" ;;
+    nozip) printf '{"version":"%s","sha256":"aaaa","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$WINV" > "$s/dist/latest-win.json" ;;
     absent) : ;;
   esac
-  if [ "$mode" != absent ]; then
-    printf '{"version":"%s","sha256":"%s","artifact":"kosmos-win-x64.zip","versioned":"%s","arch":"x64"}\n' "$V" "$winsha" "$WINV" > "$s/dist/latest-win.json"
-  fi
   git -C "$s" add -A && git -C "$s" commit -q -m "site"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
   printf '%s %s' "$s" "$live"
@@ -115,7 +121,7 @@ has "$out" "0.6.24" \
 read -r S L <<<"$(make_site drift)"
 run "$S" "$L"
 if [ "$RC" != 0 ] && has "$out" "DISAGREES" && has "$out" "#2571"; then
-  pass "agreement: refuses when latest-win.json's sha != the committed zip's sidecar (the instrument)"
+  pass "agreement: refuses when latest-win.json's sha != the committed zip's actual bytes (the instrument)"
 else
   bad "did not refuse a drifted win pointer (rc=$RC); out=$out"
 fi
@@ -139,5 +145,23 @@ run "$S" "$L" KOSMOS_WIN_ZIP="kosmos-1.2.3-win-x64.zip"
 has "$out" "derived the Windows zip" \
   && bad "override still ran the derivation" \
   || pass "override: an explicit KOSMOS_WIN_ZIP skips the derivation"
+
+# 5) MALFORMED MANIFEST (red): latest-win.json present but with no "versioned"/"sha256" -> REFUSE.
+read -r S L <<<"$(make_site nofields)"
+run "$S" "$L"
+if [ "$RC" != 0 ] && has "$out" "names no versioned/sha256" && has "$out" "#2571"; then
+  pass "malformed: a latest-win.json missing versioned/sha256 refuses (does not derive an empty name)"
+else
+  bad "did not refuse a fieldless manifest (rc=$RC); out=$out"
+fi
+
+# 6) POINTER NAMES AN UNCOMMITTED ZIP (red): latest-win.json's versioned zip is not committed -> REFUSE.
+read -r S L <<<"$(make_site nozip)"
+run "$S" "$L"
+if [ "$RC" != 0 ] && has "$out" "not committed in the site checkout" && has "$out" "#2571"; then
+  pass "missing-zip: a pointer naming a versioned zip absent from the checkout refuses (bytes-agreement precondition)"
+else
+  bad "did not refuse a pointer whose versioned zip is uncommitted (rc=$RC); out=$out"
+fi
 
 [ "$fail" = 0 ] && echo "test-deploy-site-winderive: ALL PASS" || { echo "test-deploy-site-winderive: FAIL"; exit 1; }
