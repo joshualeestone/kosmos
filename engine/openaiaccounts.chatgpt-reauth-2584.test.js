@@ -212,6 +212,26 @@ test('a promote FAILURE (live dir not writable) is refused and the live account 
   assert.equal(workSlots().length, 0, 'the staging dir was cleaned up even when the promote failed');
 });
 
+test('forgetAccount and removeAccount refuse while a reauth of that account is in flight', async () => {
+  const dir = writeChatgptAccount('.codex-busy', 'busy@example.com');
+  process.env.FAKE_CODEX_SLEEP = '1'; // hold the reauth in-flight (dir stays reserved)
+  process.env.FAKE_ID_TOKEN = idToken('busy@example.com');
+  const r = openai.startChatgptLogin({ codexBin: MOCK, mode: 'browser', reauthDir: dir });
+  assert.equal(r.ok, true, r.because);
+  await waitFor(r.sessionId, (x) => x.state === 'awaiting-browser' || x.state === 'awaiting-code' || x.state === 'starting');
+  const f = openai.forgetAccount(dir, []);
+  assert.equal(f.ok, false);
+  assert.match(f.because, /in progress/i);
+  const rm = openai.removeAccount(dir, []);
+  assert.equal(rm.ok, false);
+  assert.match(rm.because, /in progress/i);
+  // Neither renamed nor deleted the live account.
+  assert.equal(fs.existsSync(nodePath.join(dir, 'auth.json')), true);
+  openai.cancelChatgptLogin(r.sessionId);
+  delete process.env.FAKE_CODEX_SLEEP;
+  await waitFor(r.sessionId, (x) => x.state === 'cancelled' || x.state === 'error' || x.state === 'connected');
+});
+
 test('a bogus reauth target is refused up front (not an account / an api-key account)', () => {
   // not a codex home at all
   const bad = openai.startChatgptLogin({ codexBin: MOCK, reauthDir: nodePath.join(SANDBOX, 'not-an-account') });

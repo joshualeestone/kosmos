@@ -259,6 +259,16 @@ function forgetAccount(dir, usedBy) {
     };
   }
 
+  // #2584: refuse while a reauth of this account is in flight (its dir is reserved in
+  // activeChatgptDirs). A rename now would pull the live dir out from under the pending
+  // promote, so this refusal keeps the reservation whole, mirroring the agents-on-it
+  // refusal above. Without it the reauth still fails safely (renameSync throws once the
+  // dir is gone, the account is left unchanged), but with a confusing error rather than
+  // this upfront one.
+  if (activeChatgptDirs.has(clean)) {
+    return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
+  }
+
   if (!fs.existsSync(clean)) {
     return { ok: true, forgotten: false, because: 'that account is already gone from this computer' };
   }
@@ -394,6 +404,12 @@ function removeAccount(dir, usedBy) {
           + 'Move them to another account or remove them first.',
     };
   }
+  // #2584: refuse while a reauth of this account is in flight (its dir is reserved), so
+  // a delete cannot pull the live dir out from under the pending promote.
+  if (activeChatgptDirs.has(clean)) {
+    return { ok: false, removed: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
+  }
+
   if (!fs.existsSync(clean)) {
     return { ok: true, removed: false, because: 'that account is already gone from this computer' };
   }
@@ -773,12 +789,13 @@ function reauthTarget(dir) {
 }
 
 /* #2584: promote a completed reauth's auth.json from the throwaway STAGING dir
- * into the LIVE account dir, atomically. Copied to a temp beside the live
- * auth.json then renamed, so the live account is never left half-written even if
- * the process dies mid-promote: the rename is atomic within the one filesystem
- * (both are under this computer's home). The live dir is touched ONLY here, and
- * ONLY after the sign-in verified AND the identity matched -- so no failure of
- * the sign-in itself can reach it. */
+ * into the LIVE account dir, atomically. A single renameSync MOVES the staging
+ * auth.json onto the live one -- the staging file itself is the source, there is no
+ * temp copy -- so the live account is never left half-written (rename is atomic
+ * within the one filesystem, both dirs being under this computer's home) AND the
+ * staging copy is gone in the same syscall (no #1492 duplicate window). The live dir
+ * is touched ONLY here, and ONLY after the sign-in verified AND the identity matched,
+ * so no failure of the sign-in itself can reach it. */
 function promoteReauth(stagingDir, liveDir) {
   const src = authFile(stagingDir);
   const dst = authFile(liveDir);
@@ -934,12 +951,21 @@ function startChatgptLogin({ label, mode, codexBin, reauthDir } = {}) {
               : 'we could not confirm that sign-in is the same account, so this account was left unchanged';
           } else {
             const promoted = promoteReauth(session.dir, session.reauthDir);
-            if (promoted.ok) {
-              session.state = 'connected';
-              session.account = rowFor(session.reauthDir, session.reauthIsDefault);
-              freeSlotAndDir(); reapChatgptSession(session); return;
+            if (!promoted.ok) {
+              session.error = promoted.because;
+            } else {
+              const row = rowFor(session.reauthDir, session.reauthIsDefault);
+              if (row) {
+                session.state = 'connected';
+                session.account = row;
+                freeSlotAndDir(); reapChatgptSession(session); return;
+              }
+              // Defensive parity with finishChatgptLogin's `if (!row)` guard: never
+              // report connected with a null account. Unreachable in practice (identityOf
+              // just read these bytes and rename does not alter content), but a
+              // vanished/again-unreadable auth.json settles as error, not a false connect.
+              session.error = 'the sign-in could not be read back after updating this account';
             }
-            session.error = promoted.because;
           }
         } else {
           session.state = 'connected'; session.account = fin.account; freeSlotAndDir(); reapChatgptSession(session); return;
