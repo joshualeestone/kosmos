@@ -370,6 +370,64 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.equal(profile.count, 7, 'a non-string was altered');
 });
 
+test('#2519: NOTHING under profile survives, on the non-string axis either', () => {
+  /* 🛑 THE THIRD CATEGORY THE TOOL'S OWN INVARIANT SAID COULD NOT EXIST. That sentence
+     read "every non-string the producer supplies is either pinned or is a documented
+     exposure", and `profile` is FREE-FORM: store.readProfile returns whatever JSON is in
+     the file, so the tree writes numbers into it that no pin names.
+     `profile.doctrineVersion` is a producer NUMBER (create.js:3651 from
+     defaults.DOCTRINE_VERSION, again at doctrine.js:209) and `doctrineDeclined` sits
+     beside it. Not identity-bearing, but unpinned and undocumented, so a re-capture on
+     almost any real agent was not byte-identical, which four places claim it is.
+     ⚠️ AND THE FIX HAD TO BE STRUCTURAL, NOT TWO MORE PINS. An allowlist over a
+     free-form subtree is a guarantee resting on what the tree happens to write today,
+     which is the exact failure this file is a record of. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    const poisoned = Object.assign({}, real);
+    poisoned.profile = {
+      doctrineVersion: 9,
+      doctrineDeclined: 9,
+      port: 16180,
+      onCall: true,
+      dir: '/Users/realoperator/work/secret-repo',
+      nested: { pid: 48213, since: 1757000123456, note: 'private' },
+    };
+    const out = cap.neutralise(poisoned);
+    const found = [];
+    (function walk(v, at) {
+      if (!v || typeof v !== 'object') return;
+      for (const k of Object.keys(v)) {
+        const val = v[k];
+        if (typeof val === 'object' && val !== null) walk(val, at + k + '.');
+        else found.push([at + k, val]);
+      }
+    })(out.profile, '');
+    for (const [where, val] of found) {
+      if (typeof val === 'number') {
+        assert.equal(val, 0, `profile.${where} kept a producer number: ${val}`);
+      } else if (typeof val === 'boolean') {
+        assert.equal(val, false, `profile.${where} kept a producer boolean`);
+      } else if (typeof val === 'string') {
+        assert.ok(!val.includes('/'), `profile.${where} carries a path: ${val}`);
+      }
+    }
+    /* TYPES SURVIVE, VALUES DO NOT. A number that became a string would be a different
+       defect wearing this fix's clothes. */
+    assert.equal(typeof out.profile.doctrineVersion, 'number');
+    assert.equal(typeof out.profile.onCall, 'boolean');
+    assert.equal(typeof out.profile.nested.pid, 'number');
+    /* CONTROL: the poisoned values must actually differ from the scrubbed ones, or this
+       arm would pass on a producer that happened to emit zeros. */
+    assert.notEqual(poisoned.profile.nested.pid, 0, 'CONTROL: the input pid was already 0');
+  } finally {
+    board.restore();
+  }
+});
+
 test('#2519: a disruption timestamp does not reach the recording, and the key set is checked', () => {
   /* 🛑 AN EPOCH-MS MACHINE TIMESTAMP ON THE NON-STRING AXIS. scrubStrings only touches
      strings, so `disruption.cause` was neutralised while `disruption.startedAt` came out

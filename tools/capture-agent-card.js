@@ -92,8 +92,28 @@ function chooseCard(agents) {
    `chooseCard` will prefer it. It is pinned below now.
    ⇒ THE LESSON IS THE SENTENCE, NOT THE FIELD. A comment that concludes "the non-string
    axis is clear today" is what stops the next person looking, and it was written in the
-   same commit that left a timestamp unpinned. Every non-string the producer supplies is
-   either pinned below or is a documented exposure; there is no third category.
+   same commit that left a timestamp unpinned.
+   🛑 AND THE REPLACEMENT SENTENCE WAS WRONG TOO, ONE ITERATION LATER. It said "every
+   non-string the producer supplies is either pinned below or is a documented exposure;
+   there is no third category", and there WAS a third category: `profile` is FREE-FORM
+   (store.readProfile returns whatever JSON is in the file), so the tree writes numbers
+   into it that no pin names. `profile.doctrineVersion` is a producer NUMBER, written at
+   birth by create.js:3651 from defaults.DOCTRINE_VERSION and again by doctrine.js:209,
+   and `doctrineDeclined` beside it. Neither is identity-bearing, but neither was pinned
+   nor documented, so a re-capture on almost any real agent was not byte-identical, which
+   four places claim it is.
+   ⇒ SO THE CATEGORIES ARE THREE, NAMED HONESTLY:
+     1. PINNED below (the list in the header).
+     2. STRUCTURAL BOOLEANS passed through by design -- nameDerived, isAgentPane,
+        isAgentSession, isFleetSession, isNamedOurs, paneless, stateProjectInferred,
+        activeWhileWaiting, stateReported, stateBackgroundWait, neverRecorded. Each has
+        two possible values, carries nothing identifying, and MUST survive or the
+        recording stops being a real card shape (`paneless: false` is load-bearing).
+     3. THE `profile` SUBTREE, which gets the STRICTEST treatment of anything here:
+        scrubNonStrings below neutralises every number and boolean under it, at any
+        depth. It is free-form, so an allowlist there is a guarantee held by coincidence
+        of what the tree happens to write today, which is the failure this whole file
+        is a record of.
    🛑 AND NO PROPERTY OF THE RAW VALUE MAY SURVIVE EITHER, LENGTH INCLUDED. `id` was
    scrubbed as `'0'.repeat(val.length)`, which re-emits the producer's value length.
    Today's profile ids are twelve characters, so the output looked like a constant and
@@ -119,6 +139,23 @@ function scrubStrings(v) {
   }
 }
 
+/* Every NON-string under an object becomes a constant of the same type; strings are left
+   for scrubStrings, and shape is preserved at any depth.
+   🛑 APPLIED TO `profile` ONLY, AND THAT SCOPE IS THE POINT. Everywhere else the card's
+   numbers and booleans are meaningful (a pinned token count, `paneless: false`) and
+   flattening them would make the recording stop being a real card. `profile` is the one
+   free-form subtree: the tree writes whatever it likes into it, so nothing there can be
+   allowlisted without the guarantee resting on today's contents. */
+function scrubNonStrings(v) {
+  if (v === null || typeof v !== 'object') return;
+  for (const k of Object.keys(v)) {
+    const val = v[k];
+    if (typeof val === 'number') v[k] = 0;
+    else if (typeof val === 'boolean') v[k] = false;
+    else if (val && typeof val === 'object') scrubNonStrings(val);
+  }
+}
+
 function neutralise(live) {
   const card = JSON.parse(JSON.stringify(live));
   /* 🛑 SCRUB THE WHOLE CARD, THEN RE-PIN. The top level used to be an ALLOWLIST, so
@@ -128,6 +165,10 @@ function neutralise(live) {
      first makes the guarantee structural rather than a list somebody has to remember to
      extend, and the known-safe values are put back immediately after. */
   scrubStrings(card);
+  /* 🛑 THE FREE-FORM SUBTREE GETS BOTH PASSES. scrubStrings took its strings; this takes
+     its numbers and booleans, at any depth. `profile.doctrineVersion` (a producer number
+     from create.js:3651) reached the committed file before this line existed. */
+  if (card.profile && typeof card.profile === 'object') scrubNonStrings(card.profile);
   /* ⚠️ CONDITIONAL, LIKE EVERY OTHER RE-PIN. An unconditional assignment writes a string
      where the producer emitted null, which breaks the type guarantee stated above. */
   if (typeof card.session === 'string') card.session = 'april-discord';
@@ -231,7 +272,7 @@ function neutralise(live) {
  */
 function keySet(card) { return Object.keys(card).sort().join(','); }
 
-module.exports = { chooseCard, neutralise, scrubStrings, keySet };
+module.exports = { chooseCard, neutralise, scrubStrings, scrubNonStrings, keySet };
 
 /* ⚠️ THE I/O ONLY WHEN RUN DIRECTLY. Without this guard, a test that required this file
    to exercise the functions above would overwrite the committed fixture as a side effect

@@ -100,8 +100,8 @@ function liveCard() {
  * ⚠️ THAT LIST HAS GONE STALE TWICE, in all four copies at once each time (here, the
  * tool's header, the README and the plan), because a commit that adds a pin updates the
  * pin block's own comment and not the four enumerations describing it. If you add a pin,
- * grep for one of these field names before you finish. It scrubs EVERY string under `profile`,
- * not the two ids: `profile` is free-form and the tree writes absolute paths into it.
+ * grep for one of these field names before you finish. It scrubs EVERY value under `profile`, strings AND numbers AND booleans at any depth, because it is free-form and an allowlist there rests on what the tree happens to write today (`profile.doctrineVersion` is a producer number that reached the recording before this was structural),
+ * not the two ids: the tree also writes absolute paths into it.
  *
  * ⚠️ A capture rots, and ONE guard notices, not two. The TOP-LEVEL key set is compared
  * box-independently in `yarn test` (render-talk-goldencard-2519.test.js), using

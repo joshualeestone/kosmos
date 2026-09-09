@@ -125,23 +125,53 @@ field's TYPE is preserved (a null stays null).
 
 ⚠️ **Not "only identifying string content is neutralised".** That sentence was wrong here
 and the same wrong sentence was corrected twice elsewhere in this change before anyone
-noticed it a third time in this file. The tool also PINS volatile values so a re-capture
-is byte-identical unless the shape moved: `hasAvatar`, `model`/`modelName`, `disruption.startedAt`, the whole of `context` (tokens, percent, ceiling, ceilingAssumed, overCeiling, notYet, confidence, because) and two profile timestamps. That list
-has gone stale twice, in all four copies at once each time, so if you add a pin, grep for
-one of these field names before you finish. And it scrubs EVERY string under
-`profile`, not a listed subset, because `profile` is free-form and the tree writes
-absolute paths into it.
+noticed it a third time in this file.
+
+**What the tool actually does, in three categories.** Everything the producer supplies is
+in exactly one of them, and an earlier version of this list claimed there were only two:
+
+1. **PINNED**, so a re-capture is byte-identical unless the shape moved: `hasAvatar`,
+   `model`, `modelName`, `disruption.startedAt`, the whole of `context` (`tokens`,
+   `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`,
+   `because`) and two profile timestamps.
+2. **STRUCTURAL BOOLEANS passed through**, because each has two possible values, carries
+   nothing identifying, and must survive or the recording stops being a real card shape:
+   `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
+   `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
+   `stateBackgroundWait`, `neverRecorded`.
+3. **The `profile` subtree**, which gets the strictest treatment: EVERY value under it is
+   neutralised, strings and numbers and booleans, at any depth. It is free-form
+   (`store.readProfile` returns whatever JSON is in the file), so an allowlist there is a
+   guarantee resting on what the tree happens to write today. `profile.doctrineVersion`
+   is a producer number that reached the recording before this was structural.
+
+🛑 **That list has gone stale twice, in all four copies at once each time** (this file,
+the tool's header, `render-talk.js`'s header, the plan). If you add a pin, grep for one of
+these field names before you finish.
 
 🛑 **Do not hand-edit it.** That is the invented-fixture defect `render-talk.js`'s own
-header describes, arriving by another door, and the drift guard's red is exactly the
-moment somebody would be tempted to. Re-record it instead:
+header describes, arriving by another door. Re-record it instead:
 
 ```
 node tools/capture-agent-card.js     # run on a box that HAS live agents
 ```
 
-The capture refuses to write if neutralisation changed the key set, and pins the volatile
-values (token counts, timestamps) so a re-run is byte-identical unless the SHAPE moved.
+⚠️ **An earlier version of this paragraph said the moment you would be tempted to
+hand-edit is "the drift guard's red".** There is no drift guard: it was built on this
+branch and deliberately REMOVED because it fired on board composition, and its absence is
+pinned by an arm carrying a `COMPOSITION-AWARE DRIFT GUARD` escape hatch. Nested drift is
+an unguarded gap, stated rather than closed.
+
+The capture refuses to write if neutralisation changed the key set.
+
+⚠️ **`render-talk.js` does not behave identically to before this change on every populated
+box, and that is deliberate.** Its `liveCard()` now prefers a PANE card over a paneless
+one, where the old code took whichever `isNamedOurs` card came first. Two consequences
+worth knowing before a cut: on a multi-agent board the arm's input no longer depends on
+pane ordering, and on a board where EVERY card of ours is paneless the RECORDING drives
+the arm instead of a paneless live card. The second is the better outcome (`openDetail`
+gets the shape it is written for rather than null session/target) and it is not silent:
+`realCard` reports `golden` and the run prints the fallback NOTE.
 
 ⚠️ `browser-checks-indexed.test.js` indexes `.js` scripts only, so nothing fails if this
 section goes stale. It is here because a committed input to a release-gating check should
