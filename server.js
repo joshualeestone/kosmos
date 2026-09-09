@@ -6201,6 +6201,18 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/update' && req.method === 'POST') {
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
+    /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
+       The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
+       the engine refuses it (update.selfInstallRefusal) and this is where that
+       refusal becomes something a person READS -- the confirm dialog renders this
+       route's `error` verbatim (web/index.html, uc-go's handler).
+       ⚠️ BEFORE the installedRoot arm, because on Windows that arm answers FIRST
+       and answers WRONG: the shipped Windows bundle is `runtime/node.exe`, not
+       `runtime/bin/node`, so installedRoot() reads null and a portable-zip install
+       is told "this Kosmos runs from its source code" -- a sentence that is false
+       and points at git. Two true things beat one, and the truer one goes first. */
+    const platRefusal = updates.selfInstallRefusal();
+    if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
