@@ -65,7 +65,12 @@ common_env=(KOSMOS_HARNESS_IGNORE_CUT=1 KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_R
 #        immutable path -- not from the source $0 a mid-run edit could corrupt.
 # ---------------------------------------------------------------------------
 if git -C "$REPO" worktree add -q -b "$TESTBR" "$TESTWT" HEAD 2>"$T/wt.err"; then
-  out="$(cd "$TESTWT" && env "${common_env[@]}" bash "$TESTWT/tools/browser-checks.sh" 2>&1)"; rc=$?
+  # #2594: `-u KOSMOS_BC_FROZEN_RUNNER` -- this arm STRUCTURALLY needs it UNSET (it
+  # tests that a symbolic-HEAD run freezes and RE-EXECS; the freeze block only fires
+  # when FROZEN_RUNNER is absent, browser-checks.sh:131). A cut-inherited value would
+  # silently skip the re-exec and false-red the "Frozen at"/"frozen runner copy"
+  # assertions below. Same env-hygiene as the ARM-3 control's `-u`, kept consistent.
+  out="$(cd "$TESTWT" && env -u KOSMOS_BC_FROZEN_RUNNER "${common_env[@]}" bash "$TESTWT/tools/browser-checks.sh" 2>&1)"; rc=$?
 
   [ "$rc" -eq 0 ] \
     && pass "a symbolic-HEAD run exits 0 on the clean no-Playwright skip" \
@@ -162,7 +167,12 @@ out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT -u KOSMOS_BC_FROZEN_RUNNER
   KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
   KOSMOS_PW_NODE_PATH= KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
-if [ "$rc" -ne 0 ] && has "$out" "browser-checks.sh"; then
+# Assert the refuse REASON (the live-run guard fired), not merely that some
+# browser-checks message printed with rc!=0: "browser-checks.sh" appears in other
+# log lines too (e.g. the frozen-runner line), so it would pass for a wrong-cause
+# non-zero exit. "already live" is the live-run guard's own wording (cut-guard.sh),
+# and it is the exact token the SUBJECT below asserts is ABSENT -- symmetric.
+if [ "$rc" -ne 0 ] && has "$out" "already live"; then
   pass "CONTROL: a live page layer refuses the run (the probe can return the dangerous answer)"
 else
   fail "CONTROL did not refuse on a live probe (rc=$rc): $out"
@@ -170,9 +180,12 @@ fi
 
 # SUBJECT: same live probe, but FROZEN_RUNNER=1 -> guard skipped, run proceeds.
 # `-u KOSMOS_HARNESS_IGNORE_CUT` so the skip is attributable to FROZEN_RUNNER=1
-# (which this arm sets), not to a cut-inherited IGNORE_CUT.
+# (which this arm sets), not to a cut-inherited IGNORE_CUT. `KOSMOS_PW_NODE_PATH=`
+# for the same reason the control and common_env set it (#2594): a stray ambient
+# value would make resolve_pw find a real Playwright, skip the clean
+# KOSMOS_SKIP_BROWSER_CHECKS exit, and either false-red or launch a real browser.
 out="$(cd "$REPO" && env -u KOSMOS_HARNESS_IGNORE_CUT \
-  KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" \
+  KOSMOS_SKIP_BROWSER_CHECKS=1 KOSMOS_PW_RUNTIME_DIR="$NOPW" KOSMOS_PW_NODE_PATH= \
   KOSMOS_BC_FROZEN_RUNNER=1 KOSMOS_BC_PROBE="$probe" \
   bash "$REPO/tools/browser-checks.sh" 2>&1)"; rc=$?
 if [ "$rc" -eq 0 ] && ! has "$out" "already live"; then
