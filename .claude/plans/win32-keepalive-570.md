@@ -244,7 +244,7 @@ session to a bare prompt. Use:
 | 7 | PHASE 3 dress rehearsal R1-R8 | R1,R2,R4,R5,R6,R7,R8 PASS. **R3 FAILS** -- see 7c |
 | 7a | port createAgentInner's launch block to win32 | DONE -- R1 PASSES on the box |
 | 7b | port remove.js's process-ending half off tmux | DONE, 121/121 green -- R4-R7 now runnable |
-| 7c | deliver a message to a Windows agent | SPIKED -- substrate proven, API open |
+| 7c | deliver a message to a Windows agent | SPIKED -- documented path found, ready to build |
 | 7d | rollback killed the launcher pid, not the agent | DONE, 127/127 green |
 | 8 | follow-up: refresh the pointer at server start on win32 | NOT THIS SLICE |
 | 9 | follow-up: port remove.test.js fixtures off launchd/tmux | NOT THIS SLICE |
@@ -777,3 +777,82 @@ defect.
 
     win32 surface (13 files) ......... 127/127 green
     create.test.js / remove.test.js .. identical to HEAD (61/100 and 12/49)
+
+## 7c HAS A DOCUMENTED ANSWER (2026-09-09). Measured, not read.
+
+The spike's open question was the API, not the substrate. It is answered, and the
+answer is a SUPPORTED one rather than the undocumented socket.
+
+### `claude -p` with stream-json input is a live, long-running session
+
+    claude -p --input-format stream-json --output-format stream-json --verbose
+
+Measured on this box:
+
+    turn 1 -> "FIRST"     same process, same session_id
+    turn 2 -> "SECOND"    answered after turn 1 completed
+
+So a `-p` session with streaming input does NOT run one turn and exit. It stays
+open and answers messages as they arrive on stdin -- which is exactly what
+`chat.deliver` needs, and it is documented (`--input-format stream-json`,
+"realtime streaming input"). A message is one JSON line:
+
+    {"type":"user","message":{"role":"user","content":[{"type":"text","text":"..."}]}}
+
+### 🔑 AND IT IS STILL VISIBLE TO `claude agents --json`
+
+This is the finding that decides how much of #570 survives, and it went the good
+way. While the streaming session was alive:
+
+    {"pid":15576, "kind":"interactive", "sessionId":"e6569836-...",
+     "cwd":"...\spike7c", "name":"spike7c-65"}
+
+`kind: "interactive"`, with a pid and a sessionId. So every module this branch
+built keeps working UNCHANGED:
+
+    win32roster ... emits its row (kind and ownership are what it filters on)
+    win32live .... joins on the sessionId, reads the pid
+    win32stop .... kills that pid
+    win32job ..... unaffected; the task still starts the supervisor
+    win32anchor .. unaffected
+
+⚠️ ONE THING DEGRADES, AND IT IS WORTH SAYING BEFORE SOMEBODY DISCOVERS IT LATE:
+the listed entry carried NO `status` field. `win32capture` reads exactly that to
+report working/idle, so it would answer null -> UNKNOWN for every agent. That is
+the SAFE direction (it refuses rather than inventing a state), and the primary
+state reader is unaffected: `selfreport` + `reconcileReport` is what the design
+already calls primary, with the scrape as fallback. So the board would show state
+from what agents SAY, and nothing from the list. Acceptable, but it is a real
+loss of the coarse fallback and should be a card, not a surprise.
+
+### ⚠️ THE COST IS OWNERSHIP OF THE PROCESS, AND IT IS NOT SMALL
+
+Today `win32launch` spawns through `cmd /c start` with `stdio: 'ignore'` -- fully
+detached, precisely so the agent outlives whatever started it. Streaming input
+requires the opposite: somebody must HOLD the pipe. So the shape becomes
+
+    Scheduled Task -> supervisor -> spawns the agent WITH PIPES, holds stdin
+    board -> (a local hop) -> supervisor -> agent's stdin
+
+The supervisor already exists and already owns the agent's lifetime, so it is the
+right holder. What is new is the hop from the board to the supervisor -- a small
+local channel of Kosmos's own, which is ordinary work and, unlike the socket
+below, entirely ours to keep working.
+
+### The undocumented alternative, and why it is second choice
+
+Claude Code's own session messaging DOES reach a Kosmos agent -- proven yesterday,
+a message delivered and acted on in ~5s against an agent whose messaging env was
+stripped. It needs no relaunch and no new plumbing, so it is much less work.
+
+🛑 BUT IT IS NOT A CONTRACT. `claude agents --json` is documented as being "for
+scripting"; the `CLAUDE_CODE_MESSAGING_SOCKET` pipe and its token are not
+documented at all, and the board is not a Claude session so it holds neither. It
+would mean shipping a product feature on an internal channel that can change in
+any release. `claude --help` exposes no send verb for a local session (only
+`--cloud <id> -p`, which queues into a CLOUD session and exits).
+
+📌 RECOMMENDATION: build 7c on the streaming session. It is documented, it keeps
+the roster, the ownership join and the stop path exactly as they are, and the one
+piece it adds -- board to supervisor -- is code we own. Keep the socket finding on
+record as the fallback if the relaunch shape turns out to cost more than it looks.
