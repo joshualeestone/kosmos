@@ -128,6 +128,8 @@ function isBlue(rgb) {
         sayPx: sayCs ? parseFloat(sayCs.fontSize) : null,
         sayWeight: sayCs ? String(sayCs.fontWeight) : null,
         allowSized, allowBg, ring,
+        allowMock: allow ? allow.classList.contains('s2-mockallow') : false,
+        allowCursor: allow ? getComputedStyle(allow).cursor : null,
       };
     }, VERBATIM);
 
@@ -147,6 +149,16 @@ function isBlue(rgb) {
     check(`${engine}: both Don't Allow and Allow buttons render`,
       state.hasDeny && state.hasAllow && state.allowSized,
       `deny ${state.hasDeny}, allow ${state.hasAllow}, sized ${state.allowSized}`);
+
+    // #2451: people click the mock "Allow" (they read it as the real macOS button),
+    // so it is a live mouse affordance -- it carries the .s2-mockallow hook and a
+    // pointer cursor. The click BEHAVIOUR (it routes through the real Allow Access
+    // button and is guarded against re-firing) is pinned in engine/machine.a11y-1344
+    // .test.js; this arm verifies the RENDERED affordance. Reds if the class or the
+    // cursor is dropped (the mock going back to inert art).
+    check(`${engine}: the mock Allow is a live clickable affordance (.s2-mockallow + cursor:pointer)`,
+      state.allowMock && state.allowCursor === 'pointer',
+      `mock ${state.allowMock}, cursor ${state.allowCursor}`);
 
     // Non-vacuous first: the ring pseudo must actually exist, then be a gold solid ring.
     const ringPresent = state.ring && state.ring.content && state.ring.content !== 'none' && parseFloat(state.ring.bw) >= 1;
