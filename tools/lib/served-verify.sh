@@ -92,6 +92,26 @@ _served_verify_redirect_note() {
   case "$_svrn_code" in
     3??)
       [ -n "$_svrn_target" ] || _svrn_target='(no Location reported)'
+      # 🛑 REDACT QUERY VALUES, KEEP QUERY KEYS (kosmos#2566, Mona Lisa's call, accepted).
+      # This note used to print the target WHOLE, and a live Vercel SSO redirect is shaped
+      # `.../sso-api?url=<deployment>&nonce=<...>`, so every refusal copied a short-lived nonce into
+      # the deploy log AND into the agent-session transcript, which is retained on disk. I had
+      # rejected redaction on the grounds that truncating at `?` hides the half of the target that
+      # discriminates an auth redirect from a catch-all route. That objection was right about
+      # TRUNCATION and wrong about the option space: the discriminating signal is the host, the
+      # path, and WHICH KEYS ARE PRESENT. The values are payload and carry no diagnostic signal, so
+      # redacting them costs the note nothing and leaks nothing.
+      # ⚠️ RESIDUAL, NAMED NOT FIXED: a credential in a PATH SEGMENT is still printed whole.
+      # Redacting path segments would destroy the tell, which is the same objection that killed
+      # truncation. If a host ever puts a secret in a path, that is a different question.
+      case "$_svrn_target" in
+        *\?*)
+          _svrn_base=${_svrn_target%%\?*}
+          _svrn_q=${_svrn_target#*\?}
+          _svrn_q=$(printf '%s' "$_svrn_q" | sed 's/=[^&]*/=<redacted>/g')
+          _svrn_target="${_svrn_base}?${_svrn_q}"
+          ;;
+      esac
       # ⚠️ RESIDUAL: printf stops the SHELL interpreting escapes, but raw control bytes already in
       # the header (an ESC colour sequence, say) still reach the terminal verbatim. Deploy log and
       # operator terminal only, and stripping them would fight the "report what was observed"
@@ -112,13 +132,24 @@ _served_verify_redirect_note() {
   return 0
 }
 
-# served_verify_host_discriminates <host-base-url>
+# served_verify_host_discriminates <host-base-url> [route-prefix]
+#
+# 🛑 THE ROUTE IS A PARAMETER BECAUSE DISCRIMINATION IS PER-ROUTE, NOT PER-HOST (kosmos#2565).
+# This probed `/dist` and always did, while tools/deploy-site.sh went on to trust a 200 at the site
+# ROOT (/setup) on the strength of it. That is sound for the deployment-wide SSO shape #1667
+# measured, where every route goes blind together, and NOT sound for a route-scoped blindness: a
+# rewrite rule or an SPA fallback under one prefix produces exactly a host that discriminates under
+# /dist and answers 200 to everything at the root. Two reviewers raised it independently.
+# The parameter is ADDITIVE and defaults to the old behaviour, so no existing caller changes: it
+# uses ${2-/dist}, not ${2:-/dist}, so an explicitly EMPTY prefix means the root and is honoured
+# rather than silently replaced by the default.
 # 0 = the host 404s (or otherwise non-200s) a path that cannot exist, so its 200s are meaningful.
 # 1 = the host returned 200 for a nonexistent path (the #1667 SSO-200-for-everything shape): BLIND.
 # 2 = the probe could not run (transport error); the caller cannot conclude either way.
 served_verify_host_discriminates() {
   _svhd_host=$1
-  _svhd_url="${_svhd_host}/dist/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
+  _svhd_route=${2-/dist}
+  _svhd_url="${_svhd_host}${_svhd_route}/__served-verify-negative-control-$$-$(date +%s)-must-404.bin"
   _svhd_code=$(curl -sSL --connect-timeout 10 --max-time 30 -H 'Cache-Control: no-cache' -o /dev/null -w '%{http_code}' "$_svhd_url") || {
     printf '%s\n' "served-verify: negative-control probe to ${_svhd_url} failed at the transport layer" >&2
     return 2
@@ -127,13 +158,11 @@ served_verify_host_discriminates() {
     printf '%s\n' "served-verify: NEGATIVE CONTROL FAILED -- ${_svhd_host} returned 200 for a path that cannot exist (${_svhd_url}). Every 200-based served check is BLIND on this host right now (the #1667 SSO-200-for-everything shape); a 200 no longer means the asset exists.$(_served_verify_redirect_note "$_svhd_url")" >&2
     return 1
   fi
-  # ⚠️ SCOPED, NOT HOST-WIDE, AND THE SENTENCE USED TO CLAIM OTHERWISE. The probe is always under
-  # /dist, so what it establishes is that /dist discriminates. tools/deploy-site.sh then trusts a
-  # 200 at the site ROOT (/setup) on the strength of it. That is sound for the deployment-wide SSO
-  # shape #1667 measured, where every route goes blind together, and NOT sound for a route-scoped
-  # blindness (a rewrite rule or an SPA fallback under one prefix). Carded as kosmos#2565; the
-  # sentence says what it proved in the meantime.
-  printf '%s\n' "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path UNDER /dist, so its 200s under /dist are meaningful."
+  # ⚠️ THE SENTENCE NAMES THE ROUTE IT ACTUALLY PROVED. It used to say "for a nonexistent path",
+  # host-wide, over a probe that was always under /dist. Now the route is a parameter and the
+  # message reports whichever one was proved, so a caller that proves /dist cannot read the result
+  # as a statement about the root.
+  printf '%s\n' "served-verify: negative control OK -- ${_svhd_host} returns ${_svhd_code} (not 200) for a nonexistent path under '${_svhd_route:-/ (the site root)}', so its 200s under that route are meaningful."
   return 0
 }
 

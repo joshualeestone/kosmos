@@ -376,6 +376,12 @@ served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo 
 served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip" "the unversioned Windows alias" || { echo "deploy-site: the unversioned Windows alias kosmos-win-x64.zip failed served-verify (see the reason above); the deploy already ran -- investigate. This is the download latest-win.json names, and it does not go stale on a version bump the way \$WINZIP does."; exit 1; }
 served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip.sha256" "the unversioned Windows alias checksum" || { echo "deploy-site: kosmos-win-x64.zip.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP.sha256" "the Windows zip checksum $WINZIP.sha256" || { echo "deploy-site: the Windows zip checksum $WINZIP.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate. A sidecar-only drop breaks new-install verification while the zip still serves."; exit 1; }
+# 🛑 /setup IS AT THE SITE ROOT, AND THE CONTROLS ABOVE ONLY PROVED /dist (kosmos#2565). A host
+# that discriminates under /dist and answers 200 to everything at the root -- a rewrite rule, an SPA
+# fallback, a catch-all route -- passes every control above and then has its /setup 200 trusted. The
+# control takes the route as a parameter now, so prove the route this line is about to trust. The
+# empty second argument means the ROOT, and the function honours an explicitly empty prefix.
+served_verify_host_discriminates "$HOST" "" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed at the SITE ROOT, so the /setup check below would be meaningless even though /dist discriminates (see the reason above); the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."

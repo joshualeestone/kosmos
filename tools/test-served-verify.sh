@@ -68,6 +68,9 @@
 #   /ssonoloc/              302 with NO Location header at all
 #   /sso301/                301, not 302, so the note's `3??` arm is more than a 302 arm
 #   /sso308/                308, so that arm is more than a 301-or-302 arm either
+#   /ssoq/                  302 whose Location carries a QUERY with a secret-shaped value
+#   /routeblind/            200 text/html for everything at this prefix...
+#   /routeblind/dist/       ...but 404 under /dist, so it is blind ONLY off the /dist route
 # --- MANIFEST END ---
 #
 # WHY SEVERAL OF THOSE EXIST, which is the part that does not belong in a manifest:
@@ -90,6 +93,15 @@
 #     upgrade and an apex-to-www redirect, both commonly 301, as cases it covers; nothing tested
 #     that claim until this fixture.
 #   /ssoesc/ makes the echo-vs-printf difference observable under a shell whose echo truncates.
+#     🛑 ITS MARKER MOVED FROM THE QUERY INTO THE PATH when kosmos#2566's redaction landed:
+#     the note now redacts query VALUES, which would have eaten the marker and red an arm that has
+#     nothing to do with redaction. The escape hazard is identical in a path.
+#   /ssoq/ proves that redaction actually happens: a Location whose query carries a secret-shaped
+#     value must reach the note as `key=<redacted>`, with the value absent.
+#   /routeblind/ is kosmos#2565 made drivable: it DISCRIMINATES under /dist and is BLIND at the
+#     root, which is the shape a rewrite rule or an SPA fallback produces. The default probe passes
+#     on it and the root-route probe catches it, which is the whole reason the route is a
+#     parameter now.
 #
 # 🛑 /blind/ AND /sso/ ARE NOT REDUNDANT, and an earlier version of this header said /blind/ WAS
 # "the #1667 SSO shape (April's measured failure)", which contradicted the comment fifty lines below
@@ -197,9 +209,32 @@ class H(http.server.BaseHTTPRequestHandler):
             # and TRUNCATES at the \c; printf '%s' does not. Without this fixture the suite, which
             # runs under bash, could not see the difference.
             self.send_response(302)
-            self.send_header('Location', '/ssologin?a=\\tb\\cTRUNCATEDMARKER')
+            # \U0001f6d1 THE ESCAPES ARE IN THE PATH, NOT A QUERY VALUE. They lived in `?a=...` until the
+            # note began redacting query values (kosmos#2566), which would have removed the marker
+            # and red the printf-vs-echo arm for a reason unrelated to escapes. A backslash is just
+            # as legal, and just as hostile, in a path.
+            self.send_header('Location', '/ssologin\\tb\\cTRUNCATEDMARKER')
             self.send_header('Content-Length', '0')
             self.end_headers()
+            return
+        if p.startswith('/ssoq/'):
+            # a Location carrying a QUERY whose values look like credentials. The note must print
+            # the KEYS and redact the VALUES (kosmos#2566): keys are the discriminating tell, values
+            # are payload. SECRETNONCEVALUE must never appear in the note.
+            self.send_response(302)
+            self.send_header('Location', '/ssologin?url=https%3A%2F%2Fdeploy.example&nonce=SECRETNONCEVALUE')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
+        if p.startswith('/routeblind/dist/'):
+            # DISCRIMINATES under /dist ...
+            self._send(404, 'text/html; charset=utf-8', b'not found under dist')
+            return
+        if p.startswith('/routeblind/'):
+            # ... and is BLIND everywhere else at this prefix. A host-wide negative control probed
+            # under /dist calls this host sound, and a 200 at the ROOT is then trusted on the
+            # strength of it. That is kosmos#2565, and this fixture is what makes it drivable.
+            self._send(200, 'text/html; charset=utf-8', b'<html><body>rewrite fallback</body></html>')
             return
         if p.startswith('/sso308/'):
             # a THIRD distinct 3xx. With only 301 and 302 driven, narrowing the note's `3??` arm to
@@ -305,6 +340,8 @@ SSOFLAP="http://127.0.0.1:$PORT/ssoflap"
 SSONOLOC="http://127.0.0.1:$PORT/ssonoloc"
 SSO301="http://127.0.0.1:$PORT/sso301"
 SSO308="http://127.0.0.1:$PORT/sso308"
+SSOQ="http://127.0.0.1:$PORT/ssoq"
+ROUTEBLIND="http://127.0.0.1:$PORT/routeblind"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -399,6 +436,26 @@ if [ "$_vok" -eq 1 ]; then
 else
   fail "the refusal line is not the shipped text, so something was added or reworded somewhere in it (verdict, URL or note). If you changed the wording on purpose, update these literals in the SAME commit. Expected head: [$_verdict_head] Expected tail: [$_verdict_tail] Got: [$sso_msg] Note portion seen: [$_note_actual]"
 fi
+
+echo "-- kosmos#2566: query VALUES are redacted, query KEYS are kept --"
+q_msg=$(served_verify_asset_ok "$SSOQ/dist/real.bin" "an asset behind a redirect carrying a query" 2>&1 >/dev/null)
+case "$q_msg" in
+  *SECRETNONCEVALUE*) fail "the note printed a secret-shaped query VALUE verbatim. A refusal lands in the deploy log and in a retained agent transcript, so a live nonce would too. Got: $q_msg" ;;
+  *) pass "the note does not print the query value (a live SSO nonce cannot reach the log)" ;;
+esac
+case "$q_msg" in
+  *"redirects to"*"/ssologin?url=<redacted>&nonce=<redacted>"*)
+    pass "the note keeps the query KEYS and the path, which is the whole discriminating tell, and redacts only the values" ;;
+  *) fail "the note lost the query keys or the path. Keys plus host plus path are what separate an auth redirect from a catch-all route; redacting them would blind the diagnostic it exists to give. Got: $q_msg" ;;
+esac
+
+echo "-- kosmos#2565: the negative control proves a ROUTE, not a host --"
+served_verify_host_discriminates "$ROUTEBLIND" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "a host blind only OFF /dist passes the default (/dist) control, which is exactly the gap"
+served_verify_host_discriminates "$ROUTEBLIND" "" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 1 "CATCHES it when the control is aimed at the ROOT route, so the parameter is load-bearing and not decoration"
+served_verify_host_discriminates "$SOUND" "" >/dev/null 2>&1; rc=$?
+check_rc "$rc" 0 "CONTROL: a genuinely sound host still passes at the root, so the arm above is not just 'the root always fails'"
 
 m308=$(served_verify_asset_ok "$SSO308/dist/real.bin" "an asset behind a 308" 2>&1 >/dev/null); rc308=$?
 check_rc "$rc308" 1 "an asset behind a 308 is caught (the landing page's text/html)"
@@ -636,14 +693,27 @@ if [ -f "$DS" ]; then
     _ctl_n=$(printf '%s\n' "$_ds_code" | /usr/bin/grep -c 'served_verify_host_discriminates "\$HOST"')
     _ctl2=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '2s/:.*//p')
     _sm1=$(/usr/bin/grep -n 'served_matches "\$f"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
-    if [ "$_ctl_n" -ne 2 ]; then
-      fail "deploy-site.sh calls served_verify_host_discriminates $_ctl_n times, expected 2 (once before the first read of \$HOST, once after the deploy). If you added or removed a call, update this number in the same commit."
+    if [ "$_ctl_n" -ne 3 ]; then
+      fail "deploy-site.sh calls served_verify_host_discriminates $_ctl_n times, expected 3 (pre-flight on /dist, post-deploy on /dist, and post-deploy on the ROOT before /setup is trusted). If you added or removed a call, update this number in the same commit."
     elif [ -z "$_ctl2" ] || [ -z "$_sm1" ]; then
       fail "could not locate the second negative-control call or the first served_matches in deploy-site.sh (control2 '$_ctl2', served_matches '$_sm1'); this arm must not pass on a search that found nothing"
     elif [ "$_ctl2" -lt "$_sm1" ]; then
       pass "the post-deploy negative control (line $_ctl2) runs BEFORE the post-deploy byte comparison (line $_sm1), so a host that went blind after the deploy is diagnosed rather than reported as wrong bytes"
     else
       fail "deploy-site.sh compares served bytes at line $_sm1 but does not re-prove the host discriminates until line $_ctl2. A host that went blind after the deploy refuses with 'wrong bytes on the live site' instead of the mechanism."
+    fi
+    # 🛑 THE ROOT ROUTE MUST BE PROVED BEFORE /setup IS TRUSTED (kosmos#2565). Every control in
+    # this script probed /dist, and /setup is at the root, so a host blind only off /dist passed
+    # them all and had its /setup 200 believed. The /routeblind/ fixture above drives exactly that
+    # shape against the library; this arm checks the CALLER actually asks the question.
+    _ctl_root=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST" ""' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
+    _setup_ln=$(/usr/bin/grep -n 'served_verify_asset_ok "\$HOST/setup"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
+    if [ -z "$_ctl_root" ] || [ -z "$_setup_ln" ]; then
+      fail "could not locate both the ROOT-route control and the /setup check in deploy-site.sh (root control '$_ctl_root', /setup '$_setup_ln'); this arm must not pass on a search that found nothing"
+    elif [ "$_ctl_root" -lt "$_setup_ln" ]; then
+      pass "deploy-site.sh proves the ROOT route discriminates (line $_ctl_root) before trusting the 200 at /setup (line $_setup_ln)"
+    else
+      fail "deploy-site.sh trusts a 200 at /setup (line $_setup_ln) before proving the root route discriminates (line $_ctl_root). A host blind only off /dist passes every /dist control and is then believed at the root."
     fi
     # 🛑 AND THE SAME PAIR RULE BEFORE THE DEPLOY, NOT ONLY AFTER IT. The win zip's sidecar was
     # checked only post-deploy while all four gitignored pairs were checked in the export first, so
@@ -890,8 +960,8 @@ n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # in prose or here. An earlier version said "ten top-level and five sub-dispatch"; nothing read
 # those two numbers, so adding one sub-path and bumping the total would have left both stale -- the
 # exact failure this file's opening paragraph disclaims.
-if [ "$n_paths" -ne 18 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 18: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
+if [ "$n_paths" -ne 21 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 21: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   # 🛑 MATCH INSIDE THE DELIMITED MANIFEST ONLY, AND ONLY AT THE START OF AN ENTRY. Asking
@@ -947,8 +1017,8 @@ fi
 # `set -u` delimiter guard, a real arm, again left the count unchanged. Three forms now, and the
 # lesson is the one this whole file is about: a counter counts the shape you pictured, not the arms.
 _armsites=$(/usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "' "$0")
-if [ "$_armsites" -ne 75 ]; then
-  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 75. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+if [ "$_armsites" -ne 82 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 82. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
 else
   pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi

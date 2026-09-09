@@ -138,17 +138,32 @@ manifest arm now made bidirectional (an entry for a handler that no longer exist
 green). What I retired: a six-phrase overclaim denylist that the whole-refusal-line equality had
 already subsumed, which emitted no `ok` line and had no control proving it could match anything.
 
-## Known gap I did NOT close here: filed as kosmos#2565
+## kosmos#2565: filed, then CLOSED HERE after two reviewers raised it independently
 
 `served_verify_host_discriminates` builds its negative control under `/dist/`, while
 `tools/deploy-site.sh` also asserts `$HOST/setup`, a different route. A host that discriminates
 under `/dist/` and is blind under `/setup` would pass the control and then be trusted for `/setup`.
 It is equivalent for the deployment-wide SSO shape the card measured, and not equivalent for a
-route-scoped blindness. It is pre-existing (the function arrived with kosmos#2268, not with this
-branch), and changing the probe shape changes a verdict-bearing function that two other slices of
-#1667 already depend on. **Filed as kosmos#2565** rather than changed here.
+route-scoped blindness: a rewrite rule, a catch-all route or an SPA fallback scoped to one prefix
+produces exactly a host that discriminates under `/dist` and answers 200 to everything at the root.
 
-## Disclosure: a refusal can print a credential-shaped value into the deploy log (kosmos#2566)
+**I first filed it rather than fixing it**, reasoning that changing a verdict-bearing function would
+move verdicts for the other slices of #1667 without their arms seeing it. **Two independent
+reviewers then raised it**, and re-checking the premise changed my answer: `grep` finds exactly two
+production callers of `served_verify_host_discriminates`, both in `tools/deploy-site.sh`. There is
+no third slice to break.
+
+**Closed here, additively.** The function takes an optional route prefix, `${2-/dist}`, so every
+existing call is byte-identical in behaviour. `deploy-site.sh` now proves the ROOT route
+discriminates immediately before it trusts the 200 at `/setup`. The `/routeblind/` fixture drives
+the exact shape: it 404s under `/dist` and 200s text/html everywhere else, so the default control
+passes on it (which is the gap, asserted as such) and the root-route control catches it.
+
+📌 **`${2-/dist}` and not `${2:-/dist}`, and that is load-bearing rather than pedantry**: an
+explicitly empty prefix means the site root, and the colon form would silently replace it with the
+default. A mutation swapping one for the other reds the arm.
+
+## kosmos#2566: I was wrong, and Mona Lisa's third option is the right one
 
 The note prints the redirect target WHOLE, query string included, and `tools/deploy-site.sh` puts
 that into the deploy log and the operator's terminal on every served-verify refusal. A live Vercel
@@ -166,9 +181,46 @@ goes.
 ⚠️ **And naming it in two documents was still not enough, which is the correction worth keeping.**
 A later reviewer pointed out that a disclosure with no tracked card relies on someone reading this
 file, and the person who needs it (whoever owns deploy-log retention) has no reason to open it.
-**Filed as kosmos#2566.** The same reviewer made the same point about the gap above, which is now
-kosmos#2565. Where a decision needs an audience outside the branch, the card IS the delivery
-mechanism and a plan section is not.
+**Filed as kosmos#2566.** Where a decision needs an audience outside the branch, the card IS the
+delivery mechanism and a plan section is not.
+
+🛑 **AND THEN THE CARD DID ITS JOB ON ME.** Mona Lisa picked it up, measured two things I had not,
+and returned a call I accepted:
+
+- **My framing was the error.** I had treated it as redact-or-keep and kept, because truncating at
+  `?` loses the discriminating half. **Redacting query VALUES while keeping query KEYS is a third
+  option**, and it is strictly better: the tell is the host, the path, and which keys are present.
+  The values are payload. `.../sso-api?url=<redacted>&nonce=<redacted>` is as diagnostic as the
+  whole target and leaks nothing.
+- **The measurement that settles it is one I never made.** A deploy on this fleet runs inside an
+  agent session, and those transcripts are RETAINED on disk. My own card said the call was right
+  for "a single operator's terminal" and not obviously right for a retained surface. The retained
+  surface is the actual one.
+
+**Implemented here** (her POSIX-sh form, run through this branch's loop and mutation-verified: with
+the redaction removed the secret appears and the arm reds; with it over-applied the keys vanish and
+a different arm reds).
+
+⚠️ **An interaction only visible from inside the branch, recorded because it would otherwise be
+blamed on the wrong change:** the printf-vs-echo arm, this branch's headline fix, drove a fixture
+whose `Location` was `/ssologin?a=\tb\cTRUNCATEDMARKER` and asserted the marker survived into the
+note. That marker sat in a query VALUE, so the redaction removed it and that arm went red. The
+escape marker moved into the PATH, where redaction does not reach and a backslash is just as legal
+and just as hostile.
+
+⚠️ **RESIDUAL, named not fixed:** a credential in a PATH SEGMENT is still printed whole. Redacting
+path segments would destroy the tell, which is the same objection that killed truncation.
+
+## A bare-status surface this slice did NOT convert, and why
+
+`deploy-site.sh`'s pre-deploy `fetch` / `verify_sha` sequence still uses `curl -fsSL` on `$HOST` and
+is not routed through `served_verify_asset_ok`. Named rather than changed, for two reasons. It is
+pre-existing and outside this slice, and more importantly it is **not actually blind**: `verify_sha`
+compares the sha256 of the fetched bytes against a fetched sidecar, which is a CONTENT check and
+strictly stronger than a status check. On a blind host both fetches return the login page, the
+sha of the page will not match whatever `awk` scrapes out of the other copy of the page, and it
+fails closed. What it gets wrong is the REASON, not the verdict, and the pre-flight negative control
+now runs before any of it and names the mechanism first.
 
 ## Weakest premise
 
