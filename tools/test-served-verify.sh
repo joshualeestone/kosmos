@@ -39,6 +39,7 @@
 #   /ssonoct/               302s to /ssonoctpage
 #   /ssonoctpage            200 with no content-type at all, behind a redirect
 #   /ssonoloc/              302 with NO Location header at all
+#   /sso301/                301, not 302, so the note's `3??` arm is more than a 302 arm
 # --- MANIFEST END ---
 #
 # WHY SEVERAL OF THOSE EXIST, which is the part that does not belong in a manifest:
@@ -51,6 +52,10 @@
 #   /ssomissing/ and /ssonoct/ exist because those two call sites of the diagnostic were asserted by
 #     RETURN CODE ONLY, and rc cannot see whether a reason was printed.
 #   /ssonoloc/ is the note's `(no Location reported)` branch, the last uncovered path in it.
+#   /sso301/ exists because every other redirect fixture sent 302, so narrowing the note's `3??`
+#     arm to a literal `302` left the suite GREEN. The comment on that arm names an http-to-https
+#     upgrade and an apex-to-www redirect, both commonly 301, as cases it covers; nothing tested
+#     that claim until this fixture.
 #   /ssoesc/ makes the echo-vs-printf difference observable under a shell whose echo truncates.
 #
 # 🛑 /blind/ AND /sso/ ARE NOT REDUNDANT, and an earlier version of this header said /blind/ WAS
@@ -163,6 +168,17 @@ class H(http.server.BaseHTTPRequestHandler):
             self.send_header('Content-Length', '0')
             self.end_headers()
             return
+        if p.startswith('/sso301/'):
+            # 🛑 301, NOT 302, ON PURPOSE. The note fires on `3??`, and every other redirect
+            # fixture here sends 302, so a regression narrowing that arm to a literal `302` was
+            # invisible: MEASURED, the suite stayed green. The arm's own comment names an
+            # http-to-https upgrade and an apex-to-www redirect as cases it covers, and those are
+            # commonly 301, so the claim was untested exactly where it was broadest.
+            self.send_response(301)
+            self.send_header('Location', '/ssologin')
+            self.send_header('Content-Length', '0')
+            self.end_headers()
+            return
         if p.startswith('/ssonoloc/'):
             # a 302 with NO Location header at all: curl reports an empty %{redirect_url}, which is
             # the note's `(no Location reported)` branch and the last path in it with no fixture.
@@ -245,6 +261,7 @@ SSONOCT="http://127.0.0.1:$PORT/ssonoct"
 SSOESC="http://127.0.0.1:$PORT/ssoesc"
 SSOFLAP="http://127.0.0.1:$PORT/ssoflap"
 SSONOLOC="http://127.0.0.1:$PORT/ssonoloc"
+SSO301="http://127.0.0.1:$PORT/sso301"
 
 # --- the instrument reads something (a floor, like the repo's other meta-guards) ---
 # If curl itself were broken every arm below would pass or fail for the wrong reason.
@@ -342,6 +359,14 @@ if [ "$_vok" -eq 1 ]; then
 else
   fail "the refusal line is not the shipped text, so something was added or reworded somewhere in it (verdict, URL or note). If you changed the wording on purpose, update these literals in the SAME commit. Expected head: [$_verdict_head] Expected tail: [$_verdict_tail] Got: [$sso_msg] Note portion seen: [$_note_actual]"
 fi
+
+m301=$(served_verify_asset_ok "$SSO301/dist/real.bin" "an asset behind a 301" 2>&1 >/dev/null); rc301=$?
+check_rc "$rc301" 1 "an asset behind a 301 is caught (the landing page's text/html)"
+case "$m301" in
+  *"MECHANISM: un-followed, this URL answers 301 and redirects to"*"/ssologin"*)
+    pass "the note fires on a 301 and names it, so its arm really is 3xx and not 302-only" ;;
+  *) fail "the note did not name a 301. Its case arm is written 3?? and its comment claims to cover an http-to-https upgrade and an apex-to-www redirect, both commonly 301. Got: $m301" ;;
+esac
 
 noloc_msg=$(served_verify_asset_ok "$SSONOLOC/dist/real.bin" "an asset behind a 302 with no Location" 2>&1 >/dev/null); noloc_rc=$?
 check_rc "$noloc_rc" 1 "a 302 carrying NO Location header is caught (not served)"
@@ -463,9 +488,15 @@ esac
 # macos-latest, where dash is not guaranteed, so the one arm covering printf-vs-echo was likely
 # skipping exactly where it mattered, with no arm-count assertion to notice.
 # MEASURED here: dash, zsh AND /bin/sh all truncate `echo "A\cB"` to `A`; bash does not.
+# Candidates are deduplicated by RESOLVED PATH, because `sh` and `/bin/sh` are usually the same
+# binary under two names and trying it twice reads as two probes.
 ESC_SH=""
+_esc_seen=""
 for _c in dash zsh sh /bin/sh; do
   command -v "$_c" >/dev/null 2>&1 || continue
+  _rp=$(command -v "$_c")
+  case " $_esc_seen " in *" $_rp "*) continue ;; esac
+  _esc_seen="$_esc_seen $_rp"
   [ "$("$_c" -c 'echo "A\cB"' 2>/dev/null)" = "A" ] || continue
   ESC_SH="$_c"; break
 done
@@ -518,8 +549,12 @@ fi
 # PART 2 needs a strict POSIX parser. PROBE for one rather than naming dash, the same trick as
 # ESC_SH above: a candidate qualifies only if its own -n REJECTS the bashism file.
 STRICT_SH=""
+_strict_seen=""
 for _c in dash /bin/dash ash /bin/ash; do
   command -v "$_c" >/dev/null 2>&1 || continue
+  _rp=$(command -v "$_c")
+  case " $_strict_seen " in *" $_rp "*) continue ;; esac
+  _strict_seen="$_strict_seen $_rp"
   "$_c" -n "$T/bashism.sh" >/dev/null 2>&1 && continue
   STRICT_SH="$_c"; break
 done
@@ -616,6 +651,13 @@ srv_paths=$(printf '%s\n' "$srv_code" \
 # CONTROL, AND IT IS WHY ONE DISPATCH IN THE FIXTURE IS WRITTEN `p=='/ssonoctpage'`: without a
 # spaceless dispatch, nothing exercises the half of the pattern just widened, and a future reformat
 # would silently restore the blindness with every arm green. Same shape as the double-quote control.
+# CONTROL: a NON-302 3xx fixture must remain, or the note's `3??` arm is only ever driven with a
+# 302 and narrowing it to `302` goes unnoticed. MEASURED before /sso301/ existed: that narrowing
+# left the suite green.
+_non302=$(printf '%s\n' "$srv_code" | /usr/bin/grep -oE 'send_response\(3[0-9][0-9]\)' | /usr/bin/grep -v '302' | /usr/bin/grep -c .)
+if [ "$_non302" -eq 0 ]; then
+  fail "every redirect fixture now sends 302, so nothing drives the note's 3?? arm with another 3xx; narrowing that arm to a literal 302 would be invisible again"
+fi
 if ! printf '%s\n' "$srv_code" | /usr/bin/grep -qE "^[[:space:]]*(el)?if (p|rest)==['\"]/"; then
   fail "no SPACELESS == dispatch is left in the fixture server, so nothing proves the extraction tolerates missing spaces around ==; an undocumented 'if p==\"/x\":' would be invisible to it again"
 fi
@@ -650,8 +692,8 @@ n_paths=$(printf '%s\n' "$srv_paths" | /usr/bin/grep -c .)
 # in prose or here. An earlier version said "ten top-level and five sub-dispatch"; nothing read
 # those two numbers, so adding one sub-path and bumping the total would have left both stale -- the
 # exact failure this file's opening paragraph disclaims.
-if [ "$n_paths" -ne 16 ]; then
-  fail "the handler extraction found $n_paths dispatch paths, expected 16: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
+if [ "$n_paths" -ne 17 ]; then
+  fail "the handler extraction found $n_paths dispatch paths, expected 17: [$(printf '%s' "$srv_paths" | tr '\n' ' ')]. If you added or removed a server behaviour, update the number and add a MANIFEST entry in the same commit; if you did not, the extraction has stopped seeing one (a missing trailing slash did exactly that once, and so did a character class that could not see a digit)"
 else
   pass "handler extraction found $n_paths dispatch paths"
   # 🛑 MATCH INSIDE THE DELIMITED MANIFEST ONLY, AND ONLY AT THE START OF AN ENTRY. Asking

@@ -69,6 +69,21 @@ by two different routes (with `-L`, the landing page's content-type; without it,
 an rc-only arm could not see the transport property its own label named. They assert the message
 now, which is what made the `-L`-drop mutation visible.
 
+## Disclosure: a refusal can now print a credential-shaped value into the deploy log
+
+The note prints the redirect target WHOLE, query string included, and `tools/deploy-site.sh` puts
+that into the deploy log and the operator's terminal on every served-verify refusal. A live Vercel
+SSO redirect lands on something shaped `.../sso-api?url=<deployment>&nonce=<...>`, so a failing
+check copies a short-lived nonce, and whatever else a host chooses to put in a query, into that
+output. It is not filtered, deliberately: truncating at `?` would hide the half of the target that
+discriminates an auth redirect from a catch-all route, which is the whole point of the note.
+
+That is the right call for a single operator's terminal and it is NOT obviously the right call if
+this output ever reaches a shared or retained log. Whoever owns retention for the deploy log should
+know a refusal can emit that value. Named here rather than only in the code comment, because the
+code comment reaches the next person editing the file and not the person choosing where the log
+goes.
+
 ## Weakest premise
 
 I have not reproduced this against a real Vercel preview URL on this branch, and I will not: the
