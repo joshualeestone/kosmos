@@ -213,9 +213,13 @@ enforces WORKING is a fourth, the placeholder-identity arm, whose `stateEvidence
 accepts only null or a line starting `✽ Working…`. It reds on a re-capture of any
 non-working card carrying a `stateEvidence` string, and its message named neither
 re-capture nor the constraint, which is exactly the failure this paragraph exists to
-prevent, happening inside the paragraph. A re-capture that picks an idle card, or one
-whose transcript could not be read, reds those three, and two of the three messages would
-not have named re-capture as the cause. So: **capture while an agent of yours is actually
+prevent, happening inside the paragraph. ⚠️ **And the sentence that first stated this overstated the enforcement, in both halves.**
+Measured against the arms: an idle card WITH a readable transcript reds NONE of the four
+(the rename control only tests `!== 'needs_you'`; the context arm and the inventory arm
+both pass on a measured context; the placeholder-identity arm passes because an idle card's
+`stateEvidence` is null, since status.js sets no evidence on that path). An
+unreadable-transcript card reds TWO, not three: the rename control is indifferent to it.
+So the constraint below is a REQUEST backed by partial enforcement, not a gate. So: **capture while an agent of yours is actually
 working and has a readable transcript**, and if you meant to change the recording's shape,
 update those arms deliberately rather than reading their red as a bug.
 
@@ -225,7 +229,9 @@ correct: a rename inside `context` or `profile` on a populated box leaves the to
 key-set comparison in `yarn test` GREEN while the committed recording drives `openDetail`
 with a shape the page no longer consumes, on exactly the quiet boxes the fallback exists
 for. `openDetail` reads `context.percent`, so it is not hypothetical.
-**Tracked as kosmos#2553**, which carries the measurement that killed the first attempt and three candidate shapes for a replacement. **What would close it:** a comparison that can tell drift from board COMPOSITION. Tracked as kosmos#2553. The one
+**Tracked as kosmos#2553**, which carries the measurement that killed the first
+attempt and three candidate shapes for a replacement.
+**What would close it:** a comparison that can tell drift from board COMPOSITION. The one
 built here could not, and was removed for firing on an 18-agent board where two `profile`
 shapes were legitimately present. The arm pinning its absence carries a
 `COMPOSITION-AWARE DRIFT GUARD` escape hatch precisely so this fix is not locked out.

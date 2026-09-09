@@ -335,14 +335,24 @@ function neutralise(live) {
      emits in exactly one place and only as {state: UNKNOWN, confidence: NONE}. All three
      carry stateConfidence !== 'none', so chooseCard actively PREFERS them, which is the
      same reachability argument already accepted for idle.
-     ⚠️ TWO PAIRINGS ALSO DEPEND ON `stateReported`, which is passed through: a reported
-     idle says "it is at rest and nothing is needed" (status.js:5747) and a reported
-     stopped says "it said it was stopping" (5522). `blocked` is ALWAYS reported.
+     ⚠️ FOUR PAIRINGS DEPEND ON `stateReported`, which is passed through, and an earlier
+     version of this comment said TWO. The two it omitted were the two the code then got
+     wrong, which is this file's dominant defect appearing in the comment that enumerates
+     the pairings. A reported idle says "it is at rest and nothing is needed"
+     (status.js:5747), a reported stopped "it said it was stopping" (5522), a reported
+     WORKING "it says it is working" (5604, and that card is STRUCTURED, so chooseCard
+     PREFERS it: the likeliest capture on a healthy box), and a reported UNKNOWN "it said
+     it was working and has not said anything since; we could not check" (5670).
+     `blocked` is ALWAYS reported.
      ⚠️ AND `auth_failed` DEPENDS ON THE RUNNER: the codex path says OpenAI (5461).
      Sentences are the producer's own `said(fallback)` fallbacks; the non-fallback branch
      is the agent's free-text self-report, which the scrub above has already removed. */
   if (typeof card.because === 'string') card.because = 'we could not tell what it is doing';
-  if (typeof card.because === 'string' && card.state === 'working') card.because = 'it is mid-task';
+  if (typeof card.because === 'string' && card.state === 'unknown' && card.stateReported === true) {
+    card.because = 'it said it was working and has not said anything since; we could not check';
+  }
+  if (typeof card.because === 'string' && card.state === 'working' && card.stateReported !== true) card.because = 'it is mid-task';
+  if (typeof card.because === 'string' && card.state === 'working' && card.stateReported === true) card.because = 'it says it is working';
   if (typeof card.because === 'string' && card.state === 'idle' && card.stateReported !== true) card.because = 'it is sitting at its prompt';
   if (typeof card.because === 'string' && card.state === 'idle' && card.stateReported === true) card.because = 'it is at rest and nothing is needed';
   if (typeof card.because === 'string' && card.state === 'needs_you') card.because = 'it is asking you something';
@@ -452,6 +462,16 @@ function neutralise(live) {
     if (typeof card.context.confidence === 'string' && !measured) card.context.confidence = 'none';
     if (typeof card.context.because === 'string' && !measured) {
       card.context.because = 'we cannot find a transcript for it';
+    }
+    /* ⚠️ AND THE never-recorded SHAPE HAS ITS OWN SENTENCE. `neverRecordedResult`
+       (status.js:4295) pairs `context.neverRecorded: true` with "made before Kosmos
+       recorded this, so there is no record to read", and `neverRecorded` is passed
+       through unpinned, so writing the NO_TRANSCRIPT sentence over it produced a pairing
+       status.js never emits. Measured on the real producer through fleet.install.
+       (`notYetResult` needs no arm of its own: pinning `notYet: false` turns it into the
+       valid no-transcript shape.) */
+    if (typeof card.context.because === 'string' && !measured && card.context.neverRecorded === true) {
+      card.context.because = 'made before Kosmos recorded this, so there is no record to read';
     }
     if (typeof card.context.because === 'string' && scaled) {
       card.context.because = 'measured, against a limit we have assumed rather than watched';

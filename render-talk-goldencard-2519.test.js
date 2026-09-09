@@ -718,11 +718,18 @@ test('#2519: the context key-set claim is DERIVED from status.js, not restated',
     + 'That count is the stated justification for the top-level-only anti-rot comparison, so it has to be re-argued, not just re-typed.');
   /* CONTROL: the scan must have found the family shape many times over, or a regex that
      matched almost nothing would report a plausible small number. */
-  assert.ok(Math.max(...shapes.values()) >= 8,
-    `the most common context shape was found only ${Math.max(...shapes.values())} times; the scan is not seeing the inline returns`);
+  /* 🛑 THE EXACT COUNT, BECAUSE THREE DOCUMENTS SAY "ELEVEN" AND CALL IT DERIVED. A
+     `>= 8` floor left that number unpinned while the prose presented it as arm-backed,
+     which is the exact shape this branch is a record of. If status.js legitimately grows
+     a twelfth object with the family shape, this reds and the three copies get updated in
+     the same commit, which is the point. */
+  const family = Math.max(...shapes.values());
+  assert.equal(family, 11,
+    `the NONE_BASE family shape occurs ${family} times in status.js, not the ELEVEN three documents state. `
+    + 'Update those three copies in this commit rather than relaxing this assertion.');
 });
 
-test('#2519: the CATEGORY list is ascending, gap-free, and the same in both documents', () => {
+test('#2519: the CATEGORY list is ascending, gap-free, and the same categories in both documents', () => {
   /* 🛑 THE SENTENCE COUNTING THESE CATEGORIES HAS NOW BEEN WRONG SIX TIMES, each version
      written one iteration after the previous was corrected: "nothing identifying can
      survive", "nothing identifying is numeric", "there is no third category", "everything
@@ -755,6 +762,20 @@ test('#2519: the CATEGORY list is ascending, gap-free, and the same in both docu
   }
   assert.equal(counts[0][1], counts[1][1],
     `the two documents enumerate different numbers of categories: ${JSON.stringify(counts)}`);
+  /* 🛑 AND THE ITEMS, NOT ONLY HOW MANY. This compared counts alone while the title said
+     "the same in both documents", so two documents could have enumerated six ENTIRELY
+     DIFFERENT categories and passed. Compared on the leading label word, case-folded,
+     because the two documents legitimately word the rest differently. */
+  const labels = (text, re) => {
+    const b = text.indexOf('CATEGORY-LIST-BEGIN');
+    const e = text.indexOf('CATEGORY-LIST-END');
+    return [...text.slice(b, e).matchAll(re)].map((m) => m[2].replace(/[`*]/g, '').trim().split(/\s+/)[0].toUpperCase());
+  };
+  const readmeLabels = labels(DOCS[0][1], /^(\d+)\. \*\*(.+)$/gm);
+  const toolLabels = labels(DOCS[1][1], /^ {5}(\d+)\. (.+)$/gm);
+  assert.ok(readmeLabels.length >= 5, `CONTROL: only ${readmeLabels.length} README labels extracted`);
+  assert.deepEqual(readmeLabels, toolLabels,
+    `the two documents enumerate different categories in the same positions: ${JSON.stringify(readmeLabels)} vs ${JSON.stringify(toolLabels)}`);
   /* AND THE PROSE COUNT MUST MATCH THE ITEMS, which is the specific act every wrong
      version got backwards. */
   const readme = DOCS[0][1];
@@ -1121,7 +1142,14 @@ test('#2519: the top-level `because` follows `state`, so the recording cannot co
      Two pairings depend on `stateReported` and one on `runner`, which is why the value is
      a function of the card rather than a constant per state. */
   const SENTENCE = {
-    working: () => 'it is mid-task',
+    /* ⚠️ FOUR OF THESE ARE FUNCTIONS OF THE CARD, NOT TWO. An earlier version made `idle`
+       and `stopped` card-dependent and left `working` and `unknown` as constants, so this
+       arm POSITIVELY CERTIFIED two contradictions and was a BARRIER to fixing them: the
+       tool's correction redded this file first. That is the standard this suite states
+       elsewhere, "a test that pins a defect in place is worse than no test", failing here.
+       The reported-working card is the likeliest capture on a healthy box, because it is
+       STRUCTURED and chooseCard prefers that. */
+    working: (c) => (c.stateReported === true ? 'it says it is working' : 'it is mid-task'),
     idle: (c) => (c.stateReported === true ? 'it is at rest and nothing is needed' : 'it is sitting at its prompt'),
     needs_you: () => 'it is asking you something',
     stopped: (c) => (c.stateReported === true ? 'it said it was stopping' : 'Claude is not running for this one'),
@@ -1129,7 +1157,9 @@ test('#2519: the top-level `because` follows `state`, so the recording cannot co
     rate_limited: () => 'its screen mentions a usage limit',
     auth_failed: (c) => (c.runner === 'codex' ? 'its OpenAI sign-in is not working' : 'its Claude sign-in is not working'),
     blocked: () => 'it is waiting on something that is not you',
-    unknown: () => 'we could not tell what it is doing',
+    unknown: (c) => (c.stateReported === true
+      ? 'it said it was working and has not said anything since; we could not check'
+      : 'we could not tell what it is doing'),
   };
   assert.deepEqual(Object.keys(SENTENCE).sort(), cap.ENUMS.state.slice().sort(),
     'a state was added to the producer with no `because` pairing, so a capture of it would carry a sentence status.js does not emit');
@@ -1208,7 +1238,24 @@ test('#2519: context.confidence and context.because are values the PRODUCER can 
     const unmeasured = cap.neutralise(poisoned);
     assert.equal(unmeasured.context.confidence, 'none',
       'an unmeasured context was recorded as structured, which status.js cannot emit beside a null tokens');
-    assert.equal(unmeasured.context.because, 'we cannot find a transcript for it');
+    /* 🛑 THE UNMEASURED SHAPE SPLITS ON `neverRecorded`, and the first version of this
+       assertion demanded the NO_TRANSCRIPT sentence on a card the fleet produces with
+       `neverRecorded: true`, whose producer sentence is different. The arm is titled
+       "values the PRODUCER can emit" and was asserting one it cannot. */
+    const expectUnmeasured = unmeasured.context.neverRecorded === true
+      ? 'made before Kosmos recorded this, so there is no record to read'
+      : 'we cannot find a transcript for it';
+    assert.equal(unmeasured.context.because, expectUnmeasured);
+    /* BOTH ARMS, so neither sentence rests on which shape the fleet happens to make. */
+    for (const never of [true, false]) {
+      const c = Object.assign({}, poisoned);
+      c.context = Object.assign({}, poisoned.context, { tokens: null, percent: null, neverRecorded: never });
+      const out2 = cap.neutralise(c);
+      assert.equal(out2.context.because, never
+        ? 'made before Kosmos recorded this, so there is no record to read'
+        : 'we cannot find a transcript for it',
+        `an unmeasured context with neverRecorded ${never} got the other shape's sentence`);
+    }
     /* 🛑 THE THIRD SHAPE, WHICH THE FIRST VERSION OF THIS ARM DID NOT KNOW EXISTED.
        status.js has FOUR context result shapes, not two and not three: an earlier version of this comment said THREE and missed neverRecordedResult: measuredResult, NONE_BASE, and
        `noCeilingResult` (status.js:4314), reached whenever limitFor(model) returns null
