@@ -4569,6 +4569,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    because-sentence still wraps under rather than squeezing the name. */
 .pj-member { display: flex; align-items: center; gap: var(--space-4); flex-wrap: nowrap;
   padding: var(--space-4); border: 0.5px solid var(--separator); border-radius: var(--radius-control); }
+/* #2574: a project member row opens that agent's page on click. Only the project
+   view (#pj-one-agents) wires the nav, so only it shows the clickable affordance. */
+#pj-one-agents .pj-member[data-agent] { cursor: pointer; }
+#pj-one-agents .pj-member[data-agent]:hover { background: var(--k-sunk); }
 /* The text half: everything that was directly in the row before the face
    arrived. Column, because the name, the state and the told line were three
    siblings of a wrapping flex row and are now one block beside the disc. */
@@ -19569,6 +19573,10 @@ function boardEmpty() {
 // projects reads: two in-flight looks must not paint out of order.
 let PJ_BROWSE_GEN = 0;
 let CURRENT = null;
+/* #2574: the project a detail view was opened FROM (a project-member click), so
+   detail-back returns to that project instead of All agents. null for every
+   other opener. */
+let DETAIL_FROM_PROJECT = null;
 
 /**
  * Just the picture.
@@ -21455,9 +21463,13 @@ async function sendTalk(text, chose, attachment) {
   }
 }
 
-function openDetail(sessionName, section) {
+function openDetail(sessionName, section, fromProject) {
   const a = LAST.find((x) => x.sessionName === sessionName);
   if (!a) return;
+  /* #2574: remember a project origin (a member click passes PJ_CURRENT) so
+     detail-back returns to the project; every existing caller passes no 3rd
+     arg -> null -> the unchanged All-agents back. */
+  DETAIL_FROM_PROJECT = fromProject || null;
   const cameFrom = CURRENT && CURRENT.sessionName;
   CURRENT = a;
   URL_TAB = 'detail';
@@ -23708,7 +23720,14 @@ document.getElementById('d-instr-save').addEventListener('click', async () => {
   }
 });
 
-document.getElementById('detail-back').addEventListener('click', () => showTab('agents'));
+document.getElementById('detail-back').addEventListener('click', () => {
+  /* #2574: a detail opened from a project member returns to that project; every
+     other opener returns to All agents (unchanged). */
+  const pid = DETAIL_FROM_PROJECT;
+  DETAIL_FROM_PROJECT = null;
+  if (pid) { showTab('projects'); openProject(pid); }
+  else showTab('agents');
+});
 
 document.getElementById('d-file').addEventListener('change', async (e) => {
   const f = e.target.files && e.target.files[0];
@@ -31290,7 +31309,7 @@ function pjMember(m, suppressTold, withMinus) {
      "slot waiting / cannot see this" border the restarting state refuses on every
      other surface (the card pill is deliberately SOLID). Suppress it for
      restarting, matching the present-branch caption below and pres='on' elsewhere. */
-  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '">'
+  return '<div class="pj-member' + ((m.present || m.state === 'restarting') ? '' : ' unseen') + '" data-agent="' + esc(m.sessionName) + '">'
     + face
     + '<span class="pj-member-b">'
     + '<b>' + esc(m.name) + '</b>'
@@ -38038,9 +38057,16 @@ document.getElementById('pjs-members').addEventListener('click', (e) => {
   openMemModal(btn, document.getElementById('pjs-members-msg'));
 });
 document.getElementById('pj-one-agents').addEventListener('click', (e) => {
+  /* The remove (minus) button is INSIDE the member row, so it is checked FIRST
+     and returns -- mirroring the board grid's inner-control-first rule -- or a
+     member click would also open the agent. */
   const btn = e.target.closest('.pj-minus[data-drop]');
-  if (!btn || !PJ_CURRENT) return;
-  openMemModal(btn, document.getElementById('pj-one-msg'));
+  if (btn) { if (PJ_CURRENT) openMemModal(btn, document.getElementById('pj-one-msg')); return; }
+  /* #2574: clicking a member opens that agent's detail page, id-keyed via
+     data-agent (sessionName) -- the SAME open-agent path the agents grid uses
+     (openDetail) -- and passes PJ_CURRENT so detail-back returns to this project. */
+  const member = e.target.closest('.pj-member[data-agent]');
+  if (member && member.dataset.agent) openDetail(member.dataset.agent, undefined, PJ_CURRENT);
 });
 document.getElementById('mem-keep').addEventListener('click', memConfirmClose);
 document.getElementById('mem-modal').addEventListener('click', (e) => { if (e.target.id === 'mem-modal') memConfirmClose(); });
