@@ -726,14 +726,17 @@ function parseChatgptLoginOutput(text) {
   if (url) out.authUrl = url[0].replace(/[.,;:!?)\]}'"]+$/, '');
   // Search for the device code in text with URLs REMOVED: a verification URL often
   // contains an alnum token (a path segment or ?code=...), which would otherwise be
-  // extracted as the user code in preference to the real one. The code is an
-  // uppercase hyphenated token with VARIABLE group lengths -- measured 2026-09-09
-  // against real codex output: `3PI3-2LM3M` (a 4-5 form the old fixed {4}-{4} regex
-  // missed, returning code:null and leaving the device-auth UI with no code). Match
-  // the general hyphenated shape the comment above intends, then an unhyphenated
-  // fallback (in case a codex build ever prints the code without the hyphen).
+  // extracted as the user code in preference to the real one. The code is an uppercase
+  // hyphenated token with VARIABLE group lengths -- measured 2026-09-09 against real
+  // codex 0.149.1: `3PI3-2LM3M` (a 4-5 form the old fixed {4}-{4} regex missed,
+  // returning code:null and leaving the device-auth UI with no code). Match ONLY that
+  // hyphenated shape. An earlier unhyphenated `{6,12}` fallback guarded a no-hyphen
+  // codex build we have never observed, and it broadened the match to ANY 6-12 char
+  // all-caps run, so a stray uppercase word in codex output could be misread as the
+  // code -- removed. If a codex build is ever MEASURED printing an unhyphenated code,
+  // add that shape then, with a fixture that feeds it.
   const withoutUrls = s.replace(/https?:\/\/[^\s'"<>]+/g, ' ');
-  const code = withoutUrls.match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/) || withoutUrls.match(/\b[A-Z0-9]{6,12}\b/);
+  const code = withoutUrls.match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/);
   if (code) out.userCode = code[0];
   return out;
 }
