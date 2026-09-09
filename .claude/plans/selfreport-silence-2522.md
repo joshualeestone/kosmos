@@ -79,6 +79,18 @@ jobs. #2522 stays OPEN until it is wired and observed alarming (mechanism built 
   that legitimately has nothing to report for 45 min is possible but fleet-wide-implausible given the
   historical rate; the generous threshold absorbs it. If it ever false-alarms, raise the threshold,
   do not remove the gate (removing the gate re-introduces empty-fleet false alarms).
+- **The count is CLAUDE-only, and that is CORRECT because only Claude agents self-report today.**
+  `isAgentCommand` counts `claude`/`claude.exe`/native-semver, not `codex`. status.js treats codex as
+  a first-class agent, so this looks like an under-count - but the self-report hook is a CLAUDE CODE
+  hook (`engine/reporthook.js`/#561: Claude Code fires it on seven events and runs `kosmos report`),
+  wired into a Claude account's settings.json. Codex agents do NOT fire it and have never written to
+  this store (verified: 55k records, all the Claude-fleet roster, no codex agent). So counting codex
+  processes would be WRONG in the DANGEROUS direction differently than it first appears: it would open
+  the `agentsRunning > 0` gate for agents that never report, FALSE-alarming a codex fleet whose silence
+  is expected. Excluding codex keeps the gate honest: it counts only agents known to write here. If
+  codex ever gains a self-report path INTO THIS STORE, the report wiring AND this count must be
+  extended together (adding `codex`/`codex.exe` to isAgentCommand) - one without the other is a bug in
+  either direction. Named so the coupling is not lost.
 - **The count EXCLUDES bare `node`, which is a suppression path if the install method changes.**
   `isAgentCommand` counts `claude`/`claude.exe`/native-version-string, NOT bare `node`. This is
   REQUIRED today (the ever-present board is a `node` process; counting it would make the empty-fleet
