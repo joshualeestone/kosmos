@@ -145,6 +145,9 @@ in exactly one of them, and an earlier version of this list claimed there were o
    guarantee resting on what the tree happens to write today. `profile.doctrineVersion`
    is a producer number that reached the recording before this was structural.
 
+**The full set, which `render-talk-goldencard-2519.test.js` extracts from the code and
+checks against this file:** `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt` (under `disruption`), and `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because` (under `context`). Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`, `stateConfidence`, `runner`.
+
 🛑 **That list has gone stale twice, in all four copies at once each time** (this file,
 the tool's header, `render-talk.js`'s header, the plan). If you add a pin, grep for one of
 these field names before you finish.
@@ -167,8 +170,10 @@ The capture refuses to write if neutralisation changed the key set.
 ⚠️ **`render-talk.js` does not behave identically to before this change on every populated
 box, and that is deliberate.** Its `liveCard()` now prefers a PANE card over a paneless
 one, where the old code took whichever `isNamedOurs` card came first. Two consequences
-worth knowing before a cut: on a multi-agent board the arm's input no longer depends on
-pane ordering, and on a board where EVERY card of ours is paneless the RECORDING drives
+worth knowing before a cut: on a multi-agent board a paneless card can no longer win the
+selection (though `find` still takes the FIRST pane card, so the input is still
+pane-ordered, and an earlier version of this line wrongly said the ordering dependence was
+gone), and on a board where EVERY card of ours is paneless the RECORDING drives
 the arm instead of a paneless live card. The second is the better outcome (`openDetail`
 gets the shape it is written for rather than null session/target) and it is not silent:
 `realCard` reports `golden` and the run prints the fallback NOTE.

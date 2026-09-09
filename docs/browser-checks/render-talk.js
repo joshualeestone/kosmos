@@ -73,9 +73,15 @@ function liveCard() {
      this card and the recording is pane-shaped, so a paneless card would exercise the
      reopen path with null session/target that the fallback never produces.
      ⚠️ THIS IS A BEHAVIOUR CHANGE ON A POPULATED BOX and it is deliberate. The old code
-     was a bare find over `isNamedOurs`, taking whichever card status.js listed first, so
-     on a multi-agent board the arm's input depended on pane ordering. It now depends on
-     shape.
+     was a bare find over `isNamedOurs`, taking whichever card status.js listed first.
+     🛑 IT NARROWS THE ORDERING DEPENDENCE, IT DOES NOT REMOVE IT, and an earlier version
+     of this sentence said "it now depends on shape" full stop. `find` still takes the
+     FIRST pane card the board lists, so on a board with several pane cards the input is
+     still pane-ordered; what changed is that a paneless card can no longer win. The
+     capture tool has an evidence preference for exactly this reason (`chooseCard` prefers
+     a card whose stateConfidence is not 'none'); `liveCard` has none, and adding one here
+     would be a second, differently-ordered selection over the same board. Left as is and
+     stated, rather than half-fixed.
      ⚠️ AND THE EDGE CASE THAT FOLLOWS FROM IT: on a board where EVERY card of ours is
      paneless (agents configured, none running in a pane), this returns null and the
      RECORDING drives the arm, where the old code drove it with a paneless card. That is
@@ -97,6 +103,7 @@ function liveCard() {
  * and it is the THIRD copy of it: the same claim was corrected in the capture tool, then
  * in the plan, then in the README, and missed here each time. The tool also PINS the
  * volatile values so a re-capture is byte-identical unless the shape moved: `hasAvatar`, `model`/`modelName`, `disruption.startedAt`, the whole of `context` (tokens, percent, ceiling, ceilingAssumed, overCeiling, notYet, confidence, because) and two profile timestamps.
+ * THE FULL SET, WHICH AN ARM CHECKS AGAINST THE CODE: `session`, `sessionName`, `name`, `target`, `role`, `task`, `stateEvidence`, `stateProject`, `because`, `stateConflict`, `hasAvatar`, `model`, `modelName`, `startedAt` (under `disruption`), and `tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because` (under `context`). Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`, `stateConfidence`, `runner`.
  * ⚠️ THAT LIST HAS GONE STALE TWICE, in all four copies at once each time (here, the
  * tool's header, the README and the plan), because a commit that adds a pin updates the
  * pin block's own comment and not the four enumerations describing it. If you add a pin,

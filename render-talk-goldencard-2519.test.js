@@ -145,9 +145,11 @@ test('#2519: realCard() REPORTS ITS SOURCE, so a quiet run cannot look like a li
   assert.ok(r && typeof r === 'object' && 'card' in r && 'source' in r,
     'realCard must return {card, source}');
   assert.equal(r.source, 'live', 'a faked live board was present and realCard did not use it');
-  /* 'error' belongs here: on a box where status.js legitimately throws, omitting it made
-     the unit suite red with "unexpected source" instead of the check reporting the
-     condition it was built to report. */
+  /* ⚠️ THIS COMMENT DESCRIBED A MEMBERSHIP CHECK THAT NO LONGER EXISTS. It said "'error'
+     belongs here", from a version where the assertion accepted a SET of sources. The line
+     above is now a strict equality on 'live', which is stronger and correct inside
+     fleet.install: the board is faked, so a live card is the only right answer and an
+     'error' here would be a real failure rather than a tolerated one. */
   assert.ok(r.card, 'neither a live card nor the fixture resolved');
 });
 
@@ -313,7 +315,10 @@ test('#2519: with an EMPTY board it falls back and labels the fallback', () => {
   const { realCard } = resolvers()(stub);
   const r = realCard();
   assert.equal(r.source, 'golden');
-  assert.ok(r.card && Object.keys(r.card).length > 20, 'the fallback did not produce a real-shaped card');
+  /* >= 20, matching the arm above and the shipped `< 20`. This was the THIRD spelling of
+     one threshold in a file that names that hazard, and it passed only because the
+     fixture carries 30 keys. */
+  assert.ok(r.card && Object.keys(r.card).length >= 20, 'the fallback did not produce a real-shaped card');
 });
 
 test('#2519: a THROWING producer is an error, NOT an empty board', () => {
@@ -368,6 +373,91 @@ test('#2519: the capture scrubs EVERY string under profile, including unlisted o
   assert.notEqual(profile.displayName, 'Real Person');
   assert.notEqual(profile.nested.note, 'private', 'a nested string survived');
   assert.equal(profile.count, 7, 'a non-string was altered');
+});
+
+test('#2519: the three RE-PINNED fields are enum-bounded, and nothing else may join them', () => {
+  /* 🛑 THE SHAPE THIS FILE WAS BURNED BY FOUR TIMES, LEFT UNTESTED ON THE THREE THAT ARE
+     SAFE. `state`, `stateConfidence` and `runner` are restored from the RAW producer, and
+     that is only sound because status.js bounds them: state and confidence come from the
+     STATE and CONFIDENCE constants, runner from a ternary that can yield nothing but
+     'codex' or 'claude'. `model` and `modelName` got an arm the day they turned out NOT
+     to be bounded; these three carried the same reliance with nothing holding it.
+     ⚠️ MEASURED BEFORE THIS ARM: neutralise({state: '/Users/realoperator/leaked'}) put
+     that string in the output verbatim. It is not a live leak, because the producer
+     cannot emit it, but the whole point of this file's history is that "the producer
+     cannot emit it" is a claim somebody has to keep true. */
+  const cap = require('./tools/capture-agent-card.js');
+  const fleet = require('./test-support/fleet.js');
+  const board = fleet.install([fleet.agent('mara', { state: 'idle' })]);
+  try {
+    const real = board.card('mara');
+    /* The enum vocabularies, read from the producer rather than restated here. */
+    const status = require('./engine/status.js');
+    const snap = status.snapshot();
+    assert.ok(snap && Array.isArray(snap.agents), 'CONTROL: the producer did not answer');
+    const out = cap.neutralise(Object.assign({}, real));
+    assert.ok(['working', 'needs_you', 'idle', 'unknown', 'stopped', 'rate_limited', 'blocked', 'restarting']
+      .includes(out.state), `state left the enum: ${out.state}`);
+    assert.ok(['structured', 'scraped', 'none'].includes(out.stateConfidence),
+      `stateConfidence left the enum: ${out.stateConfidence}`);
+    assert.ok(['codex', 'claude'].includes(out.runner), `runner left the enum: ${out.runner}`);
+    /* CONTROL, and the one that matters: a value the producer cannot emit must be
+       recognisable as such, or the three assertions above are just restating today's
+       board back to itself. */
+    const poisoned = Object.assign({}, real);
+    poisoned.state = '/Users/realoperator/leaked-state';
+    assert.ok(!['working', 'needs_you', 'idle', 'unknown', 'stopped', 'rate_limited', 'blocked', 'restarting']
+      .includes(cap.neutralise(poisoned).state),
+      'CONTROL: a poisoned state was accepted as an enum value, so the check above cannot fail');
+  } finally {
+    board.restore();
+  }
+});
+
+test('#2519: every PINNED field name appears in all four documents that enumerate them', () => {
+  /* 🛑 THE MOST REPEATED DEFECT ON THIS BRANCH IS A SENTENCE, NOT A LINE OF CODE. The pin
+     enumeration has gone stale TWICE, in four copies at once each time (the tool header,
+     render-talk.js's header, the README and the plan), and three successive attempts to
+     state the neutralisation guarantee were each wrong, the newest written one iteration
+     after the previous was corrected. Prose discipline has now failed enough times to
+     stop being the remedy.
+     ⇒ So the list is EXTRACTED FROM THE CODE and checked against the documents. A pin
+     added without updating a document reds this arm, which is the only mechanism that
+     has not already failed here. */
+  const src = fs.readFileSync(path.join(__dirname, 'tools', 'capture-agent-card.js'), 'utf8');
+  /* Split every `card.<f> = <rhs>` by what the RHS is: a constant is a PIN, and
+     `= live.<f>` is the separate enum-bounded RE-PIN category the documents name apart.
+     ⚠️ THE RHS IS CAPTURED AND TESTED, not excluded by a lookahead. The first version
+     used `=\s*(?!live\.)`, and the engine simply backtracked the `\s*` to zero so the
+     lookahead ran against " live.state" and passed: every re-pin was misfiled as a pin.
+     A second version matched `===` comparisons as assignments. Both produced a confident
+     wrong list, which is what this arm exists to stop happening to prose. */
+  const pinned = new Set();
+  const repinned = new Set();
+  for (const m of src.matchAll(/card(?:\.\w+)?\.(\w+)\s*(?<![=!<>])=(?![=>])\s*(\S+)/g)) {
+    (/^(live|card)\./.test(m[2]) ? repinned : pinned).add(m[1]);
+  }
+  /* 🛑 ASSERT THE EXTRACTION FOUND SOMETHING. A regex matching nothing makes every loop
+     below vacuous and this arm would pass on an empty set. */
+  assert.ok(pinned.size >= 15, `the pin extraction found only ${pinned.size}: ${[...pinned]}`);
+  assert.deepEqual([...repinned].sort(), ['runner', 'state', 'stateConfidence'],
+    'the set of fields re-pinned FROM the raw card changed; that is the enum-bounded category and it needs an arm of its own');
+
+  const DOCS = [
+    ['tools/capture-agent-card.js', src],
+    ['docs/browser-checks/render-talk.js', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js'), 'utf8')],
+    ['docs/browser-checks/README.md', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'README.md'), 'utf8')],
+    ['.claude/plans/goldencard-2519-20260908T2205.md', fs.readFileSync(path.join(__dirname, '.claude', 'plans', 'goldencard-2519-20260908T2205.md'), 'utf8')],
+  ];
+  const missing = [];
+  for (const [where, text] of DOCS) {
+    for (const f of pinned) if (!text.includes(f)) missing.push(`${where} omits ${f}`);
+  }
+  assert.deepEqual(missing, [], `the pin enumeration has gone stale again:\n  ${missing.join('\n  ')}`);
+  /* CONTROL: the check must be able to report a miss, or an empty `missing` proves
+     nothing about the documents. */
+  assert.ok(!DOCS[0][1].includes('zzzNeverPinnedName'),
+    'CONTROL: the doc text matches an invented name, so includes() proves nothing');
 });
 
 test('#2519: NOTHING under profile survives, on the non-string axis either', () => {
@@ -611,16 +701,29 @@ test('#2519: the capture tool does its I/O ONLY when run directly', () => {
      with live identity. An mtime assertion reports that afterwards, on a file already
      destroyed. Holding the bytes turns the detection into a detection AND a repair, so
      the arm can no longer be the thing that does the damage. */
-    const beforeBytes = fs.readFileSync(FIXTURE);
+  const beforeBytes = fs.readFileSync(FIXTURE);
   const before = fs.statSync(FIXTURE).mtimeMs;
-  delete require.cache[require.resolve('./tools/capture-agent-card.js')];
-  require('./tools/capture-agent-card.js');
+  /* 🛑 IN A CHILD PROCESS, AND THE REASON IS NOT TIDINESS. Requiring the tool HERE runs
+     its I/O half in this process if the guard is broken, and that half calls
+     `process.exit(1)` when the box has no pane card of ours: the suite would die mid-arm,
+     before the restore below, reporting a plausible tally with the fixture already
+     overwritten. Two failure modes, one of which destroys the evidence of the other.
+     ⇒ The child absorbs both. Its exit code is data, not our fate, and the bytes are held
+     here so a broken guard is detected AND repaired rather than merely reported on a file
+     that is already gone. */
+  const child = require('node:child_process').spawnSync(
+    process.execPath, ['-e', 'require(process.argv[1])', path.join(__dirname, 'tools', 'capture-agent-card.js')],
+    { cwd: __dirname, encoding: 'utf8', timeout: 30000 },
+  );
   const afterBytes = fs.readFileSync(FIXTURE);
   if (!afterBytes.equals(beforeBytes)) fs.writeFileSync(FIXTURE, beforeBytes);
   assert.ok(afterBytes.equals(beforeBytes),
-    'requiring the capture tool rewrote the committed fixture (restored, but the I/O guard is broken)');
+    `requiring the capture tool rewrote the committed fixture (restored here, but the I/O guard is broken); child said: ${(child.stdout || '') + (child.stderr || '')}`);
   assert.equal(fs.statSync(FIXTURE).mtimeMs, before,
     'requiring the capture tool touched the committed fixture');
+  /* CONTROL: the child must actually have run, or "the fixture is unchanged" is what you
+     get from a spawn that never started. */
+  assert.equal(child.status, 0, `the child did not run cleanly: ${child.error || child.stderr}`);
 });
 
 test('#2519: an id is scrubbed to a CONSTANT, so not even its length survives', () => {
@@ -704,7 +807,11 @@ test('#2519: model and modelName are PINNED, because the producer does not bound
   }
 });
 
-test('#2519: a field the producer ADDS LATER is scrubbed, not passed through', () => {
+test('#2519: a STRING field the producer adds later is scrubbed, not passed through', () => {
+  /* ⚠️ THE NAME SAID "a field", AND THE ARM COVERS THE STRING AXIS ONLY. A later-added
+     number reaches the output verbatim outside `profile`, which is category (2) in the
+     tool's header: documented, deliberate, and not what this arm measures. A test name
+     broader than its assertion reads as coverage of the gap it leaves. */
   /* 🛑 THE GUARANTEE HAS TO BE STRUCTURAL, NOT A LIST. The top level used to be an
      allowlist, so `runner`, `model`, a non-null `disruption` and any field status.js
      added later would reach a COMMITTED file verbatim. The capture's own key-set refusal
@@ -795,10 +902,23 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      So the escape hatch is explicit: a guard that declares it handles composition passes.
      If you are adding one, put the marker on it and this arm gets out of your way. */
   const src = SRC;
-  const pushesDrift = /problems\.push\([^)]*drift/i.test(src) || /problems\.push\([^)]*re-capture/i.test(src);
+  /* ⚠️ THE MESSAGE USED TO CLAIM MORE THAN THE REGEX MATCHES. It said it detects "a
+     live-vs-fixture drift comparison back in the check", while the pattern only catches a
+     `problems.push` whose text contains drift or re-capture: a guard worded "the recorded
+     card no longer matches the live one" walked straight past it. The vocabulary is
+     widened here to the phrasings a re-added guard would plausibly use, and the message
+     is narrowed to say what is actually matched, because a pin that overstates its reach
+     is how the next one gets past it. This cannot be made complete; it is a tripwire on
+     the likely wordings, not a proof. */
+  const DRIFT_WORDS = /problems\.push\([^)]*(drift|re-capture|no longer matches|does not match|differs from)/i;
+  const pushesDrift = DRIFT_WORDS.test(src);
   const declaresCompositionAware = /COMPOSITION-AWARE DRIFT GUARD/.test(src);
   assert.ok(!pushesDrift || declaresCompositionAware,
-    'a live-vs-fixture drift comparison is back in the check without declaring itself composition-aware');
+    'the check pushes a problem worded like a live-vs-fixture comparison (drift / re-capture / no longer matches / does not match / differs from) without declaring itself composition-aware');
+  /* CONTROL: the tripwire must be able to fire, or "no drift guard" is being certified by
+     a pattern that matches nothing. */
+  assert.ok(DRIFT_WORDS.test("problems.push(`[x] reopen: the recorded card no longer matches the live one`)"),
+    'CONTROL: the drift vocabulary does not match a plausible re-added guard');
 });
 
 test('#2519: liveCard PREFERS a pane card over a paneless one', () => {

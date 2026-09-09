@@ -32,14 +32,21 @@
  *     (status.js:4628, 4630, 4658 -- no transcript, empty tail, no non-synthetic match),
  *     so a tied agent with an unreadable transcript produced a card this recording could
  *     not represent, while four separate copies of this sentence claimed otherwise.
- *   - PINS the volatile values so a re-run is byte-identical unless the shape moved:
- *     `hasAvatar`, `model`, `modelName`, `disruption.startedAt`, the whole of `context`
- *     (`tokens`, `percent`, `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`,
- *     `confidence`, `because`) and two profile timestamps.
+ *   - PINS these fields to constants: `hasAvatar`, `model`, `modelName`,
+ *     `disruption.startedAt`, and the whole of `context` (`tokens`, `percent`,
+ *     `ceiling`, `ceilingAssumed`, `overCeiling`, `notYet`, `confidence`, `because`).
+ *     🛑 "SO A RE-RUN IS BYTE-IDENTICAL UNLESS THE SHAPE MOVED" WAS THE CLAIM HERE AND IT
+ *     IS FALSE. A re-capture minutes later on the same box differs without any shape
+ *     moving: `state`, `stateConfidence` and `runner` are restored from the RAW card
+ *     (they are enum-bounded, see below), the structural booleans pass through as
+ *     captured, and role/task/stateEvidence/stateProject/stateConflict/disruption each
+ *     vary between null and a value. The committed recording holds `state: "working"`
+ *     and `stateConfidence: "scraped"`, which are facts about one capture. What the pins
+ *     buy is that the VOLATILE MEASUREMENTS do not move; they never bought byte equality.
  *     ⚠️ KEEP THIS LIST IN STEP WITH THE CODE. It has gone stale twice, in four places
- *     at once each time (here, render-talk.js's header, the README, and the plan),
- *     because a commit that adds a pin updates the pin block's own comment and not the
- *     enumerations that describe it.
+ *     at once each time (here, render-talk.js's header, the README, and the plan). It is
+ *     no longer only a rule: `render-talk-goldencard-2519.test.js` extracts the pinned
+ *     names from the code below and fails if any of the four documents omits one.
  *     ⚠️ An earlier version of this paragraph said the tool "does not touch structure,
  *     numbers or booleans" while the code below set a boolean and two numbers. A false
  *     claim inside the tool built to prevent fixture drift is worth naming rather than
@@ -103,12 +110,23 @@ function chooseCard(agents) {
    nor documented, so a re-capture on almost any real agent was not byte-identical, which
    four places claim it is.
    ⇒ SO THE CATEGORIES ARE THREE, NAMED HONESTLY:
-     1. PINNED below (the list in the header).
+     1. PINNED below to constants (the list in the header).
+     1b. RE-PINNED FROM THE RAW CARD because status.js ENUM-BOUNDS them: `state` and
+        `stateConfidence` come from the STATE and CONFIDENCE constants, `runner` from a
+        ternary that can only yield 'codex' or 'claude'. This is a REAL fourth category
+        and calling it a sub-case of (1) is what let three successive versions of this
+        paragraph say "exactly one of them" while these three sat outside all of it.
+        ⚠️ It is also the shape this file was burned by four times, so the reliance is
+        pinned by an arm rather than trusted: poison `state` with a path and it must not
+        survive.
      2. STRUCTURAL BOOLEANS passed through by design -- nameDerived, isAgentPane,
         isAgentSession, isFleetSession, isNamedOurs, paneless, stateProjectInferred,
         activeWhileWaiting, stateReported, stateBackgroundWait, neverRecorded. Each has
         two possible values, carries nothing identifying, and MUST survive or the
         recording stops being a real card shape (`paneless: false` is load-bearing).
+        ⚠️ TOP-LEVEL ONLY. A boolean nested outside `profile` (a future `context` flag,
+        say) is in this category too and is not enumerated, because the enumeration is of
+        the ones that exist today.
      3. THE `profile` SUBTREE, which gets the STRICTEST treatment of anything here:
         scrubNonStrings below neutralises every number and boolean under it, at any
         depth. It is free-form, so an allowlist there is a guarantee held by coincidence
