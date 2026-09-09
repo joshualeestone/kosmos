@@ -68,9 +68,13 @@ set -eu
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 REPO="${KOSMOS_REPO:-$HOME/work/agent-workforce}"
 HOST="${KOSMOS_SITE_URL:-https://installkosmos.com}"
-# The Windows zip has no latest-win.json yet, so its name is a parameter with the current
-# default. Baron: a latest-win.json manifest (like latest.json) would remove this hardcode
-# and let the script learn the current Windows artifact the same way it learns the tarball.
+# 🛑 THIS COMMENT SAID "The Windows zip has no latest-win.json yet" AND THAT IS NO LONGER TRUE:
+# dist/latest-win.json is tracked in the site checkout and served (200 application/json, measured
+# 2026-09-09), and tools/publish-kosmos-windows.sh writes it precisely to remove this hardcode. The
+# default below is still a hardcode and it is STALE (0.6.24, while latest-win.json says 0.6.37), so
+# every check keyed to $WINZIP guards an artifact thirteen versions old. Learning the name from
+# latest-win.json is the real fix and is carded; what this branch does instead is also check the
+# UNVERSIONED alias below, which is the name users actually download and does not go stale.
 WINZIP="${KOSMOS_WIN_ZIP:-kosmos-0.6.24-win-x64.zip}"
 
 PUBLISH=0
@@ -291,6 +295,14 @@ done
 # which is the same "reports rather than prevents" shape #1667 is about. MEASURED before adding
 # this, so it cannot refuse on a file the export never carries: dist/$WINZIP.sha256 is TRACKED in
 # the site checkout (`git ls-files 'dist/*win*'`), so git archive carries it exactly like the zip.
+# 🛑 THE UNVERSIONED WINDOWS ALIAS, which is what latest-win.json names as the download and what
+# does NOT go stale on a version bump, unlike $WINZIP above. It was checked by nothing: this branch
+# was about to ship a "check the pair" guard for a zip thirteen versions old while the artifact
+# users actually fetch had no check at all. MEASURED before adding it, so it cannot refuse on
+# something absent: dist/kosmos-win-x64.zip and its .sha256 are both TRACKED in the site checkout
+# and both serve 200 (application/zip and application/octet-stream) from production.
+[ -f "$EXPORT/dist/kosmos-win-x64.zip" ] || { echo "deploy-site: the export has no kosmos-win-x64.zip -- refusing (the unversioned Windows alias is the download latest-win.json names)"; rm -rf "$EXPORT"; exit 1; }
+[ -f "$EXPORT/dist/kosmos-win-x64.zip.sha256" ] || { echo "deploy-site: the export has no kosmos-win-x64.zip.sha256 -- refusing (the installer verifies the alias against it)"; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/dist/$WINZIP.sha256" ] || { echo "deploy-site: the export has no $WINZIP.sha256 -- refusing (the installer verifies the zip against it). Same cause as the line above if the Windows build was bumped: set KOSMOS_WIN_ZIP to the current name."; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
@@ -326,6 +338,13 @@ served_matches() {  # <path-under-dist> <local-verified-file>
   ll=$(shasum -a 256 < "$2" | awk '{print $1}')
   [ "$ss" = "$ll" ] || { echo "deploy-site: SERVED dist/$1 does not match what was deployed (served '$ss' local '$ll') -- wrong bytes on the live site. Investigate."; exit 1; }
 }
+# 🛑 #1667, POST-DEPLOY, AND THE SAME ORDERING MISTAKE AS BEFORE: this control used to sit at the
+# BOTTOM of this block, after served_matches and the pointer check. If the host goes blind BETWEEN
+# the pre-flight control and here (which is the only reason the second call exists), `curl -fsSL`
+# succeeds with a 200 on the SSO page and the first refusal is "SERVED dist/$ART does not match what
+# was deployed -- wrong bytes on the live site". A symptom, and the wrong diagnosis, exactly as the
+# pre-deploy case was. A guard placed after the checks it would explain is not a guard.
+served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
 # each gitignored installer artifact AND its .sha256 sidecar: the installer fetches both and verifies
 # one against the other, so a sidecar-only serve drop would break new-install verification while the
 # tarball still serves. Check the pair.
@@ -347,7 +366,6 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # trusting any 200 here rather than assuming the alias is still sound. served_verify_host_discriminates
 # refuses if a path that cannot exist returns 200; served_verify_asset_ok also rejects a 200 carrying
 # text/html. (tools/lib/served-verify.sh, sourced above.)
-served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo "deploy-site: the Windows zip $WINZIP failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 # 🛑 THE SIDECAR, BECAUSE THE LOOP ABOVE SAYS "CHECK THE PAIR" AND THIS ONE PAIR WAS UNCHECKED. The
 # rationale twenty lines up is that a sidecar-only serve drop breaks new-install verification while
@@ -355,6 +373,8 @@ served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo 
 # MEASURED against production before adding this, so it cannot be a refusal on an asset that was
 # never served: installkosmos.com/dist/$WINZIP -> 200 application/zip, and its .sha256 -> 200
 # application/octet-stream (not text/html, so the content-type tell passes it).
+served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip" "the unversioned Windows alias" || { echo "deploy-site: the unversioned Windows alias kosmos-win-x64.zip failed served-verify (see the reason above); the deploy already ran -- investigate. This is the download latest-win.json names, and it does not go stale on a version bump the way \$WINZIP does."; exit 1; }
+served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip.sha256" "the unversioned Windows alias checksum" || { echo "deploy-site: kosmos-win-x64.zip.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP.sha256" "the Windows zip checksum $WINZIP.sha256" || { echo "deploy-site: the Windows zip checksum $WINZIP.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate. A sidecar-only drop breaks new-install verification while the zip still serves."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 

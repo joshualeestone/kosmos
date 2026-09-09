@@ -591,6 +591,12 @@ if [ -f "$DS" ]; then
   # restricted to comment lines. Fixed anyway, because "no such comment today" is a fact with an
   # expiry date and this file's whole subject is guards that quietly stop seeing.
   # The line numbers stay the FILE's, so the ordering comparison below is still about the real file.
+  # 📌 AND THE LIMITATION, STATED: `_ds_curl` is a TEXTUAL proxy for execution order. It finds the
+  # first non-comment line carrying both `curl` and `$HOST`, so a curl on $HOST reached through a
+  # helper whose `curl` and `$HOST` are on different lines (deploy-site.sh's own `fetch()` is
+  # exactly that shape) is invisible to it. It is correct today because the first read is inline,
+  # and a refactor moving that read into a helper would flip it to a FALSE FAIL rather than a false
+  # pass. Named so the next person reads the failure as "the proxy broke", not "the order broke".
   _ds_code=$(/usr/bin/grep -v '^[[:space:]]*#' "$DS")
   if [ "$(printf '%s\n' "$_ds_code" | wc -l)" -ge "$(wc -l < "$DS")" ]; then
     fail "the comment strip removed no lines from deploy-site.sh, so it is a no-op and a comment quoting a call would count as the call"
@@ -621,6 +627,24 @@ if [ -f "$DS" ]; then
     else
       fail "deploy-site.sh's served_matches loop checks the artifact but not its .sha256 sidecar. Same pair rule as above, other mechanism: a sidecar-only drop breaks new-install verification while the artifact still serves."
     fi
+    # 🛑 THE SECOND CONTROL MUST ALSO PRECEDE WHAT IT WOULD EXPLAIN. Moving the pre-deploy one
+    # forward fixed half of this: the POST-deploy call still sat at the BOTTOM of the post-deploy
+    # block, after served_matches had already compared bytes. If the host goes blind between the two
+    # calls (the only reason the second exists), the first refusal was "wrong bytes on the live
+    # site" -- a symptom, and the wrong diagnosis, one block over from the bug this branch fixed.
+    # The arm above cannot see it: it only compares the FIRST control against the FIRST curl.
+    _ctl_n=$(printf '%s\n' "$_ds_code" | /usr/bin/grep -c 'served_verify_host_discriminates "\$HOST"')
+    _ctl2=$(/usr/bin/grep -n 'served_verify_host_discriminates "\$HOST"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '2s/:.*//p')
+    _sm1=$(/usr/bin/grep -n 'served_matches "\$f"' "$DS" | /usr/bin/grep -v '^[0-9]*:[[:space:]]*#' | sed -n '1s/:.*//p')
+    if [ "$_ctl_n" -ne 2 ]; then
+      fail "deploy-site.sh calls served_verify_host_discriminates $_ctl_n times, expected 2 (once before the first read of \$HOST, once after the deploy). If you added or removed a call, update this number in the same commit."
+    elif [ -z "$_ctl2" ] || [ -z "$_sm1" ]; then
+      fail "could not locate the second negative-control call or the first served_matches in deploy-site.sh (control2 '$_ctl2', served_matches '$_sm1'); this arm must not pass on a search that found nothing"
+    elif [ "$_ctl2" -lt "$_sm1" ]; then
+      pass "the post-deploy negative control (line $_ctl2) runs BEFORE the post-deploy byte comparison (line $_sm1), so a host that went blind after the deploy is diagnosed rather than reported as wrong bytes"
+    else
+      fail "deploy-site.sh compares served bytes at line $_sm1 but does not re-prove the host discriminates until line $_ctl2. A host that went blind after the deploy refuses with 'wrong bytes on the live site' instead of the mechanism."
+    fi
     # 🛑 AND THE SAME PAIR RULE BEFORE THE DEPLOY, NOT ONLY AFTER IT. The win zip's sidecar was
     # checked only post-deploy while all four gitignored pairs were checked in the export first, so
     # a missing one was caught AFTER `vercel deploy --prod` had already run. That is the
@@ -644,13 +668,25 @@ if [ -f "$DS" ]; then
     # only if its sidecar is itself one of the pre-deploy checked names -- so no line outside the
     # region can answer for it.
     _pre_all=$(printf '%s\n%s\n' "$_pre_names" "$_pre_loop" | tr ' ' '\n' | /usr/bin/grep -v '^$' | /usr/bin/grep -vx '\$s' | sort -u)
+    # 🛑 SOME ARTIFACTS HAVE NO SIDECAR AND NEVER WILL, so a bare "every artifact must be paired"
+    # rule FALSE-REDS on a legitimate hardening with advice about a file that does not exist.
+    # MEASURED: adding an honest-marker check for latest.json (tracked, served, sidecar-less) red
+    # this arm with "no .sha256 counterpart", sending the next engineer at a nonexistent problem.
+    # An exemption list is the mechanism, and it is stated rather than implicit: pointer JSON and
+    # the pkg input manifest are content the installer reads, not bytes it verifies by checksum.
+    # 📌 AND IT IS INERT TODAY, WHICH IS WORTH SAYING RATHER THAN IMPLYING: deploy-site.sh does not
+    # currently honest-marker-check any of these three, so emptying the list changes nothing and a
+    # mutation that empties it stays GREEN. It is an escape hatch for the next hardening, not a
+    # guard, and it should not be counted as one.
+    _sidecarless="latest.json latest-win.json Kosmos.pkg.inputs"
     _export_missing=""
     for _e in $_pre_all; do
       case "$_e" in *.sha256) continue ;; esac
+      case " $_sidecarless " in *" $_e "*) continue ;; esac
       printf '%s\n' "$_pre_all" | /usr/bin/grep -qxF "$_e.sha256" || _export_missing="$_export_missing $_e"
     done
     if [ -n "$_export_missing" ]; then
-      fail "deploy-site.sh honest-marker-checks these artifacts in the export with no .sha256 counterpart anywhere in the pre-deploy checks:$_export_missing. A missing sidecar is then caught only AFTER vercel deploy --prod has run."
+      fail "deploy-site.sh honest-marker-checks these artifacts in the export with no .sha256 counterpart among the pre-deploy checks:$_export_missing. A missing sidecar is then caught only AFTER vercel deploy --prod has run. If one of these legitimately has no sidecar (a pointer JSON, an input manifest), add it to _sidecarless in this file rather than weakening the rule."
     else
       pass "every artifact deploy-site.sh checks in the export has its .sha256 checked before the deploy too"
     fi
@@ -672,16 +708,28 @@ echo "-- the lib is #!/bin/sh, and package.json lints it with sh -n --"
 # `local`, an array literal and `[[ ]]`, where `dash -n` exits 2. Changing package.json from
 # `bash -n` to `sh -n` is still right (it matches the shebang, and it IS a POSIX gate wherever
 # /bin/sh is dash), but it is UNARMED on this runner, so the arming lives here, in two parts.
-printf '%s\n' 'f() { local x=1; }' 'arr=(a b c)' '[[ 1 == 1 ]]' > "$T/bashism.sh"
-_bashism_re='(^|[[:space:]])local[[:space:]]|\[\[|[A-Za-z_][A-Za-z0-9_]*=\('
+# 🛑 THE FIRST MATCHER FALSE-POSITIVED TWO WAYS AND I FOUND IT BY POINTING IT AT A SECOND FILE.
+# `\[\[` matched `[[:space:]]`, a POSIX bracket expression that is perfectly valid sh, and
+# `(^|space)local(space)` matched the WORD "local" inside an echo string. Both fire on
+# tools/deploy-site.sh, which is clean. A matcher that reds on correct POSIX code is the
+# "so tight it reds on a legitimate edit" defect, in the guard written to prevent it. Anchored to
+# a statement position now: `local` and an array assignment must START a line, and `[[` must be a
+# command (followed by whitespace), which `[[:space:]]` never is.
+printf '%s\n' 'f() {' 'local x=1' '}' 'arr=(a b c)' '[[ 1 == 1 ]]' > "$T/bashism.sh"
+_bashism_re='^[[:space:]]*local[[:space:]]|^[[:space:]]*[A-Za-z_][A-Za-z0-9_]*=\(|(^|[[:space:]])\[\[[[:space:]]'
 # PART 1 is machine-independent, so it runs everywhere CI does. Its control comes first: a matcher
 # that matches nothing would report a clean lib the same way a real pass does.
 if /usr/bin/grep -qE "$_bashism_re" "$T/bashism.sh"; then
   pass "CONTROL: the bashism matcher really matches local, [[ ]] and an array literal"
-  if /usr/bin/grep -qE "$_bashism_re" "$DIR/lib/served-verify.sh"; then
-    fail "served-verify.sh declares #!/bin/sh and contains a bashism token; sh -n on macOS is bash and would not have caught it"
+  _bashy=""
+  for _f in "$DIR/lib/served-verify.sh" "$DIR/deploy-site.sh"; do
+    [ -f "$_f" ] || continue
+    /usr/bin/grep -qE "$_bashism_re" "$_f" && _bashy="$_bashy $(basename "$_f")"
+  done
+  if [ -n "$_bashy" ]; then
+    fail "these #!/bin/sh files contain a bashism token:$_bashy. sh -n on macOS is bash and would not have caught it, which is why package.json's sh -n needs this arm beside it."
   else
-    pass "no bashism token in served-verify.sh (matcher proven able to match one)"
+    pass "no bashism token in served-verify.sh or deploy-site.sh, both #!/bin/sh and both linted with sh -n (matcher proven able to match one)"
   fi
 else
   fail "CONTROL: the bashism matcher matches nothing even in a file built to contain three bashisms, so the arm it guards is vacuous"
@@ -883,6 +931,26 @@ MANIFEST
       pass "every server handler has its own manifest entry (derived from the dispatch, anchored to the start of an entry line)"
     fi
   fi
+fi
+
+# 🛑 A STATIC COUNT OF THE ARMS THEMSELVES, in a file whose entire subject is guards that quietly
+# stop seeing. Deleting a whole section of this suite reports PASS: nothing here counted its own
+# assertions. This counts pass/fail CALL SITES in the source (machine-independent, unlike a runtime
+# tally, because several arms are conditional on which shells exist and on whether deploy-site.sh
+# sits beside this file). It cannot tell you an arm became vacuous; it can only tell you one left.
+# The number includes this arm's own two call sites. Bump it in the same commit as any arm you add.
+# ⚠️ AND IT COUNTED THE WRONG THING TWICE, BOTH FOUND BY MUTATING IT RATHER THAN BY READING IT.
+# First it counted only `pass`/`fail` at the start of a line, missing every arm written as
+# `check_rc`, which reaches them through a helper: deleting a whole check_rc arm left the count
+# unchanged and the suite green, precisely the "a deleted section reports PASS" hole this exists to
+# close. Then, with check_rc added, it still missed the trailing `|| fail "..."` form: deleting the
+# `set -u` delimiter guard, a real arm, again left the count unchanged. Three forms now, and the
+# lesson is the one this whole file is about: a counter counts the shape you pictured, not the arms.
+_armsites=$(/usr/bin/grep -cE '^[[:space:]]*(pass|fail) "|^[[:space:]]*check_rc |\|\| fail "' "$0")
+if [ "$_armsites" -ne 75 ]; then
+  fail "this suite has $_armsites arm call sites (pass/fail/check_rc), expected 75. If you added or removed an arm, update the number in the same commit; if you did not, a section of this file has gone missing and the suite would still have reported PASS."
+else
+  pass "the suite still has all $_armsites of its arms (a deleted section cannot report PASS)"
 fi
 
 echo ""

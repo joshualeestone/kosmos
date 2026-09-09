@@ -16,9 +16,16 @@ The card was routed in three slices. Two are closed by other people:
 
 ## What I found, and what I did NOT find
 
-**The library is sound and I am not changing any verdict.** Both tells are implemented, media
-types are lowercased before matching (so `Text/HTML` cannot slip through), an empty content-type
-is refused, and `tools/deploy-site.sh` calls both before trusting a 200. I also suspected the test
+🛑 **THE SENTENCE THAT USED TO OPEN THIS SECTION WAS WRONG, AND THE BRANCH LATER DISPROVED IT.**
+It read: *"The library is sound and I am not changing any verdict. Both tells are implemented ...
+and `tools/deploy-site.sh` calls both before trusting a 200."* The first half holds. **The last
+clause was false**, and it was the most important thing on the card: `deploy-site.sh` called the
+negative control LAST, after every check it would have explained, so on a host-wide-blind host it
+never ran at all. Left here as the record, because a plan that quietly edits away its own wrong
+premise teaches nobody.
+
+**What is true:** both tells are implemented in the library, media types are lowercased before
+matching (so `Text/HTML` cannot slip through), and an empty content-type is refused. I also suspected the test
 was unwired and checked before saying so: `package.json`'s `test:shell` runs it. My first grep was
 against `tools/run-tests.sh`, which is simply the wrong instrument.
 
@@ -68,6 +75,40 @@ Two arms also asserted only the return code. `rc=1` for an asset behind the redi
 by two different routes (with `-L`, the landing page's content-type; without it, the bare 302), so
 an rc-only arm could not see the transport property its own label named. They assert the message
 now, which is what made the `-L`-drop mutation visible.
+
+## What this branch changed in the PRODUCT (`tools/deploy-site.sh`)
+
+Recorded here because it is the highest-blast-radius part of the branch: this file runs on every
+production deploy of installkosmos.com, and for ten commits this plan did not mention it at all.
+
+1. **The negative control now runs BEFORE the first read of `$HOST`**, not only after the deploy.
+   On a host-wide-blind `$HOST` the first read returns the SSO page with a 200, `curl -f` does not
+   fire, the pointer parse finds no `"artifact"`, and the old script refused with `latest.json
+   names no artifact`: a symptom, and the wrong diagnosis. It now refuses before
+   `vercel deploy --prod` rather than after, so it prevents rather than reports.
+2. **The post-deploy control moved to the FRONT of the post-deploy block**, for the same reason one
+   block over: it sat after `served_matches`, so a host that went blind between the two calls
+   refused with "wrong bytes on the live site" instead of naming the mechanism.
+3. **The Windows zip's `.sha256` is checked**, before the deploy in the export and after it on the
+   served host. It was checked by nothing, twenty lines under a comment saying to check the pair.
+4. **The UNVERSIONED Windows alias `kosmos-win-x64.zip` and its sidecar are checked.** `$WINZIP`
+   defaults to a name thirteen versions stale (0.6.24 against latest-win.json's 0.6.37), so every
+   check keyed to it guarded an obsolete artifact while the download users actually fetch had no
+   check at all. The alias does not go stale on a version bump. Deriving the name from
+   `latest-win.json` is the real fix and is **carded as kosmos#2571**.
+5. **`package.json` lints both `#!/bin/sh` files with `sh -n`, not `bash -n`.** That is right but
+   unarmed on macos-latest, where `/bin/sh` IS bash 3.2.57, so the arming lives in the test as a
+   machine-independent bashism-token matcher plus a probed strict parser.
+
+**Measured against production before shipping any of it**, so none can refuse on something that was
+never served: installkosmos.com 404s a path that cannot exist; `/dist/$WINZIP`, the alias, both
+sidecars, `latest-win.json` and `/setup` all serve with non-html content types.
+
+**Weakest premise of the deploy changes:** the pre-flight control adds one request to every deploy
+and refuses on rc 2 (transport error) as well as rc 1. On a flaky network that turns a transient
+failure into a refusal BEFORE anything is deployed, which I judge to be the safe direction. If
+deploys start refusing spuriously, that is the line to look at, and the fix is to distinguish rc 2
+from rc 1 there rather than to remove the check.
 
 ## The decision I made against my own work: the extraction guard stops widening
 
