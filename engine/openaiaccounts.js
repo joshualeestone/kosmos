@@ -709,12 +709,14 @@ function resolveFreshChatgptDir(label) {
   return { dir: spot.dir, label: spot.label, madeDir };
 }
 
-/* PROVISIONAL codex-login output parser (#2338). Extracts the auth URL and, in
-   device mode, the user code, from codex login's stdout/stderr. The EXACT lines
-   codex prints are the ONE part of this driver not yet pinned to real output --
-   verified at the release gate under a real ChatGPT subscription. Kept isolated so
-   the gate touches only this function: it recognises the general shapes (an https
-   URL; a short, often-hyphenated device code) rather than a fixed line format. */
+/* codex-login output parser (#2338). Extracts the auth URL and, in device mode, the
+   user code, from codex login's stdout/stderr. DEVICE-AUTH output was MEASURED
+   2026-09-09 against real codex 0.149.1 (URL https://auth.openai.com/codex/device
+   plus a hyphenated uppercase code, e.g. 3PI3-2LM3M, a 4-5 form); BROWSER-mode
+   output stays gate-verified under a real subscription. Kept isolated so the gate
+   touches only this function: it recognises the general shapes (an https URL; a
+   short hyphenated device code of variable group length) rather than a fixed line
+   format. */
 function parseChatgptLoginOutput(text) {
   const out = {};
   const s = String(text);
@@ -723,11 +725,15 @@ function parseChatgptLoginOutput(text) {
   // or a parenthesised URL), so the client never opens a URL with a stray `.`/`)`.
   if (url) out.authUrl = url[0].replace(/[.,;:!?)\]}'"]+$/, '');
   // Search for the device code in text with URLs REMOVED: a verification URL often
-  // contains an 8-char alnum token (a path segment or ?code=...), which would
-  // otherwise be extracted as the user code in preference to the real one. Prefer
-  // the hyphenated XXXX-XXXX form, falling back to the optional-hyphen shape.
+  // contains an alnum token (a path segment or ?code=...), which would otherwise be
+  // extracted as the user code in preference to the real one. The code is an
+  // uppercase hyphenated token with VARIABLE group lengths -- measured 2026-09-09
+  // against real codex output: `3PI3-2LM3M` (a 4-5 form the old fixed {4}-{4} regex
+  // missed, returning code:null and leaving the device-auth UI with no code). Match
+  // the general hyphenated shape the comment above intends, then an unhyphenated
+  // fallback (in case a codex build ever prints the code without the hyphen).
   const withoutUrls = s.replace(/https?:\/\/[^\s'"<>]+/g, ' ');
-  const code = withoutUrls.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4}\b/) || withoutUrls.match(/\b[A-Z0-9]{4}-?[A-Z0-9]{4}\b/);
+  const code = withoutUrls.match(/\b[A-Z0-9]{3,8}-[A-Z0-9]{3,8}\b/) || withoutUrls.match(/\b[A-Z0-9]{6,12}\b/);
   if (code) out.userCode = code[0];
   return out;
 }
