@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-llm-connect fr-claude-confirm
+// Browser-check-surface: fr-llm-connect fr-pane-5
 /**
  * The first-run "Connect Claude" button (#fr-llm-connect) must actually FIRE the
  * connect flow when clicked (Josh 0.6.39 test, item #3: "Connect Claude is dead --

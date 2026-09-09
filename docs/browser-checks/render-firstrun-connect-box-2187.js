@@ -1,4 +1,4 @@
-// Browser-check-surface: fr-ctitle
+// Browser-check-surface: fr-sub fr-ctitle
 /**
  * The Claude connect output on first-run step 3 sits in a light-gold box (#2187).
  *

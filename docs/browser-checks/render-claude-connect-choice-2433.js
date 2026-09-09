@@ -1,4 +1,4 @@
-// Browser-check-surface: acct-claude-go acct-claude-key-step
+// Browser-check-surface: acct-claude-go acct-claude-key-step acct-remove acct-disconnect
 'use strict';
 /**
  * kosmos#2433 (the UI slice of #2420; Josh's #2338 "follow suit on Claude too"):
