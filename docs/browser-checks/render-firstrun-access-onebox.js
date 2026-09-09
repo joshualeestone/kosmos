@@ -30,6 +30,13 @@
  *     and Allow is the blue macOS default button. The three-card page had no
  *     ::after ring, so this arm reds there.
  *
+ * Later arms (not part of the pre-#8 comparison):
+ *  - COMPACT COPY (#768): the box copy renders at the compact dialog size
+ *    (~13px/600), not the 17px/400 first-run body.
+ *  - MOCK AFFORDANCE (Josh 2026-09-08): the mock "Allow" is a live clickable
+ *    affordance (`.s2-mockallow` + `cursor:pointer`), the render half of the
+ *    mock-forward behaviour whose click logic lives in machine.a11y-1344.test.js.
+ *
  * HERMETIC: loads web/index.html over file://, boots no server. Everything it
  * reads is static markup + computed style, so it sits in the browser-checks.sh
  * `for n in` loop with no URL and no board.
