@@ -10,24 +10,19 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
 
 ## The build (no-browser)
 
-1. The helper's annotation parse + whole-token match are COPIED byte-for-byte from the gate
-   `tools/lib/browser-check-surface-gate.sh` (same sed, same escape + boundary grep, same
-   case-insensitive key). 🛑 DECISION (revised from the original "extract into one shared function"):
-   at high context I did NOT refactor the merged, working gate to consume a shared function -- that
-   would risk leaving the gate half-refactored. Instead the copies are DRIFT-GUARDED by behavioural
-   arms that cross-check the helper against the gate: plain-token agreement (arms 3/3c), the whole-token
-   BOUNDARY via a substring-superset gate cross-check (arm 4b, mutation-verified red-capable in BOTH
-   directions -- breaking the boundary regex on EITHER side reds it), and a metachar-escape +
-   mixed-case-key arm (arm 3d, a '.'-token matching a literal and NOT a lookalike under a
-   'Browser-check-Surface:' key). So an unmirrored edit to the boundary match, the metachar ESCAPE, or
-   the case-insensitive KEY reds the suite. It is a STRONG check, not a proof (it does not exercise
-   every path, e.g. head -1 multi-annotation). Extracting one shared
-   `kosmos_bc_surface_map`/`token_hits` function used by BOTH is a clean, lower-risk follow-up for a
-   fresh session; the drift-test makes the copies safe until then.
+1. The helper's annotation parse + whole-token match. 🛑 DECISION HISTORY: originally these were
+   COPIED byte-for-byte from the gate `tools/lib/browser-check-surface-gate.sh` (the merged gate was
+   not refactored at high context, to avoid leaving it half-refactored), kept honest by behavioural
+   drift arms that cross-check the helper against the gate: plain-token agreement (arms 3/3c), the
+   whole-token BOUNDARY via a substring-superset gate cross-check (arm 4b, red-capable BOTH
+   directions), and a metachar-escape + mixed-case-key arm (arm 3d). ✅ COMPLETED (the follow-up this
+   step named): both primitives are now the SHARED functions `bc_surface_tokens_of` /
+   `bc_surface_token_hits` in `tools/lib/browser-check-surface-lib.sh`, which the helper AND the gate
+   source -- there is no copy left to drift. The drift arms survive as a WIRING check (re-pointing
+   either consumer at a local reimplementation reds the suite). Still a STRONG check, not a proof.
 
-2. New `tools/bc-surface-map.sh` (the CLI Baron invokes). It does NOT source the gate lib -- it carries
-   its own `_bcm_map`/`_bcm_token_hits`, byte-copied from the gate (see Step 1's revised decision), so the
-   helper stands alone. Subcommands:
+2. `tools/bc-surface-map.sh` (the CLI Baron invokes). It sources the shared surface lib (see Step 1)
+   for the parse + match, keeping its own `_bcm_map`/`_bcm_covering` orchestration. Subcommands:
    - `map`      -> the raw map (`<check><TAB><tokens>` lines).
    - `covering` -> reads a `web/index.html` unified diff OR a newline/space-separated changed-id list on
      stdin, and prints the covering cut-checks (one per line) whose tokens appear (whole-token boundary
@@ -39,7 +34,7 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
    `covering` on a pj-parent diff names render-subprojects-1994.js and on an unmapped token names nothing;
    WEB-SCOPING (arm 2b, a mapped token in a NON-web file is not reported); the boundary non-match
    (pj-parenthetical); a plain id-list, and an id-list led by a diff-marker line (arm 6b); a zsh arm; and
-   the HELPER-vs-GATE drift arms that keep the byte-copied parse/match honest -- plain-token agreement
+   the HELPER-vs-GATE drift arms that now verify both consumers wire the SHARED parse/match -- plain-token agreement
    (arms 3/3c), the superset/update-agnostic contrast (arm 3b), the metachar-escape + mixed-case-key
    agreement (arm 3d), and the whole-token BOUNDARY agreement, red-capable BOTH directions (arm 4b). No
    gate refactor was done (Step 1), so the gate lib and its own test are untouched by this branch.
