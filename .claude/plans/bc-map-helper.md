@@ -35,10 +35,14 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
      covering checks" query. Exit 0 with output = covering checks; exit 0 empty = none covered.
    Fail-soft + zsh-safe (find/tr while-reads, no tied vars), matching the gate.
 
-3. `tools/test-bc-surface-map.sh`: assert `map` emits the seeded checks' tokens; assert `covering` on a
-   pj-parent diff prints render-subprojects-1994.js and on an unmapped token prints nothing; assert the
-   boundary match (pj-parenthetical does not match); a zsh arm. Wired into test:shell. The existing
-   `tools/test-browser-check-surface-gate.sh` must still pass after the gate refactor (no-drift proof).
+3. `tools/test-bc-surface-map.sh` (13 arms, wired into test:shell): `map` emits the seeded checks' tokens;
+   `covering` on a pj-parent diff names render-subprojects-1994.js and on an unmapped token names nothing;
+   WEB-SCOPING (arm 2b, a mapped token in a NON-web file is not reported); the boundary non-match
+   (pj-parenthetical); a plain id-list, and an id-list led by a diff-marker line (arm 6b); a zsh arm; and
+   the HELPER-vs-GATE drift arms that keep the byte-copied parse/match honest -- plain-token agreement
+   (arms 3/3c), the superset/update-agnostic contrast (arm 3b), the metachar-escape + mixed-case-key
+   agreement (arm 3d), and the whole-token BOUNDARY agreement, red-capable BOTH directions (arm 4b). No
+   gate refactor was done (Step 1), so the gate lib and its own test are untouched by this branch.
 
 ## Output contract (frozen, for Baron)
 
@@ -56,6 +60,12 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
   lines -- so a full-repo `git diff | covering` agrees with the gate rather than over-reporting a mapped
   token that changed in a NON-web file. (An id-list input is caller-asserted changed web tokens; a
   headerless hunk cannot be file-scoped and is taken as the web diff.)
+- INHERITED LIMITATION (shared with the gate, so it is NOT a disagreement): a changed web line whose own
+  CONTENT begins with `++` or `--` renders as `+++`/`---` after the diff prefix and is dropped as if it
+  were a file-header line, by both the helper and the gate. So `covering` can silently MISS such a surface
+  change -- but the gate misses it identically, so they still agree. Real-world unlikely (markup/JS lines
+  rarely start with two literal +/- chars). Fixing it belongs in the gate, not this helper (parity is the
+  goal). Same for the theoretical case of an id-list token that is literally the substring `diff --git `.
 
 ## Acceptance
 
