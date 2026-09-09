@@ -205,10 +205,15 @@ node tools/capture-agent-card.js     # run on a box that HAS live agents
 ```
 
 🛑 **The suite constrains WHICH card, and the recipe used to say only "a box that has live
-agents".** Three arms require the committed recording to be a **working** capture whose
-**context was measured**: the rename control asserts the file does not already hold
-`needs_you`, the context arm asserts `confidence: "structured"`, and the non-string
-inventory pins the measured `context` key set. A re-capture that picks an idle card, or one
+agents".** FOUR arms constrain the committed recording, and the paragraph that first said "three"
+named three that do NOT enforce the working half: the rename control only asserts the file
+does not already hold `needs_you`, the context arm asserts `confidence: "structured"`, and
+the non-string inventory pins the measured `context` key set. The one that actually
+enforces WORKING is a fourth, the placeholder-identity arm, whose `stateEvidence` check
+accepts only null or a line starting `✽ Working…`. It reds on a re-capture of any
+non-working card carrying a `stateEvidence` string, and its message named neither
+re-capture nor the constraint, which is exactly the failure this paragraph exists to
+prevent, happening inside the paragraph. A re-capture that picks an idle card, or one
 whose transcript could not be read, reds those three, and two of the three messages would
 not have named re-capture as the cause. So: **capture while an agent of yours is actually
 working and has a readable transcript**, and if you meant to change the recording's shape,

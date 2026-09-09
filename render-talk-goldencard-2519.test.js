@@ -653,16 +653,73 @@ test('#2519: the context key-set claim is DERIVED from status.js, not restated',
   assert.ok(keysOf('measuredResult').includes('tokens'),
     'CONTROL: the extractor missed the first shorthand key');
   /* AND THE DOCUMENTS MUST SAY WHAT THE CODE DOES. */
+  /* ⚠️ EVERY OCCURRENCE, NOT THE FIRST. This used `match`, which pins one copy per
+     document, and the claim appears TWICE in this very file: the second copy was checked
+     by nothing while the arm's header said "the documents must say what the code does".
+     Same shape as the document-checking arm whose first document was the file it extracted
+     from, one layer in. */
+  let claimsChecked = 0;
   for (const [where, text] of [
     ['docs/browser-checks/render-talk.js', fs.readFileSync(path.join(__dirname, 'docs', 'browser-checks', 'render-talk.js'), 'utf8')],
     ['render-talk-goldencard-2519.test.js', fs.readFileSync(__filename, 'utf8')],
   ]) {
-    const claim = text.match(/noCeilingResult \(adds ([^)]*)\)/);
-    assert.ok(claim, `${where} no longer states what noCeilingResult adds`);
-    const named = [...claim[1].matchAll(/`(\w+)`/g)].map((m) => m[1]).sort();
-    assert.deepEqual(named, adds('noCeilingResult'),
-      `${where} states noCeilingResult adds ${named}, and it adds ${adds('noCeilingResult')}`);
+    const claims = [...text.matchAll(/noCeilingResult \(adds ([^)]*)\)/g)];
+    assert.ok(claims.length >= 1, `${where} no longer states what noCeilingResult adds`);
+    for (const claim of claims) {
+      const named = [...claim[1].matchAll(/`(\w+)`/g)].map((m) => m[1]).sort();
+      assert.deepEqual(named, adds('noCeilingResult'),
+        `${where} states noCeilingResult adds ${named}, and it adds ${adds('noCeilingResult')}`);
+      claimsChecked++;
+    }
   }
+  assert.ok(claimsChecked >= 3, `only ${claimsChecked} copies of the claim were checked; there were three`);
+
+  /* 🛑 AND THE WORD "FOUR" IS THE LOAD-BEARING HALF, which nothing derived. The arm above
+     derives what four NAMED builders add; a fifth key set appearing in any of the inline
+     context returns would leave every assertion green while the count in the docs went
+     stale. The count is derived here by scanning every context-shaped object literal in
+     status.js and expanding the `...NONE_BASE` spread, which the named-function walk
+     cannot see. */
+  const NONE_BASE_KEYS = ['tokens', 'percent', 'confidence'];
+  const objKeys = (body) => {
+    const clean = body.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    const keys = new Set();
+    let d = 0; let tok = '';
+    for (let k = 0; k < clean.length; k++) {
+      const ch = clean[k];
+      if ('{(['.includes(ch)) d++;
+      else if ('})]'.includes(ch)) d--;
+      if (d === 0 && (ch === ',' || k === clean.length - 1)) {
+        const t = (tok + (k === clean.length - 1 ? ch : '')).trim();
+        if (/^\.\.\.NONE_BASE\b/.test(t)) NONE_BASE_KEYS.forEach((x) => keys.add(x));
+        else { const m = t.match(/^([A-Za-z_]\w*)\s*(?::|$)/); if (m) keys.add(m[1]); }
+        tok = '';
+      } else tok += ch;
+    }
+    return [...keys].sort();
+  };
+  const shapes = new Map();
+  for (let i = 0; (i = statusSrc.indexOf('{', i)) !== -1; i++) {
+    let d = 0; let j = i;
+    for (; j < statusSrc.length; j++) {
+      if (statusSrc[j] === '{') d++;
+      else if (statusSrc[j] === '}') { d--; if (!d) break; }
+    }
+    if (j >= statusSrc.length) continue;
+    const body = statusSrc.slice(i + 1, j);
+    if (body.length >= 400 || !/\bbecause\s*:/.test(body)) continue;
+    if (!/\bconfidence\s*:/.test(body) && !/\.\.\.NONE_BASE/.test(body)) continue;
+    const k = objKeys(body);
+    if (!k.includes('tokens') || !k.includes('because')) continue;
+    shapes.set(k.join(','), (shapes.get(k.join(',')) || 0) + 1);
+  }
+  assert.equal(shapes.size, 4,
+    `status.js now emits ${shapes.size} distinct context key sets, not four: ${[...shapes.keys()].join(' | ')}. `
+    + 'That count is the stated justification for the top-level-only anti-rot comparison, so it has to be re-argued, not just re-typed.');
+  /* CONTROL: the scan must have found the family shape many times over, or a regex that
+     matched almost nothing would report a plausible small number. */
+  assert.ok(Math.max(...shapes.values()) >= 8,
+    `the most common context shape was found only ${Math.max(...shapes.values())} times; the scan is not seeing the inline returns`);
 });
 
 test('#2519: the CATEGORY list is ascending, gap-free, and the same in both documents', () => {
@@ -762,13 +819,21 @@ test('#2519: every PINNED field name appears in all four documents that enumerat
        rename is not reporting, it is crashing. */
     ['.claude/plans/goldencard-2519-*.md', (() => {
       const dir = path.join(__dirname, '.claude', 'plans');
-      const hits = fs.readdirSync(dir).filter((f) => /^goldencard-2519-.*\.md$/.test(f) && !/-pre-challenge\.md$/.test(f));
+      let hits = fs.readdirSync(dir).filter((f) => /^goldencard-2519-.*\.md$/.test(f) && !/-pre-challenge\.md$/.test(f));
       /* ⚠️ AT LEAST ONE, not exactly one. Coupling the product suite to a single process
        artifact means a follow-up plan for the same branch makes this arm THROW rather than
        report what it exists to report. The glob replaced a hardcoded timestamp, which was
        right; the exact count was one notch too tight. */
     assert.ok(hits.length >= 1, `no plan file found for this branch in ${dir}`);
+    /* ⚠️ CHOSEN BY CONTENT, NOT BY SORT ORDER. `hits.sort()[0]` couples a product test to
+       a process artifact's FILENAME ordering: `-` sorts before a digit, so a follow-up
+       plan named goldencard-2519-2026-09-... would become hits[0] and red the suite with
+       "has no PIN-LIST-BEGIN sentinel", which is a true statement about the wrong file. */
     hits.sort();
+    const withList = hits.filter((f) => fs.readFileSync(path.join(dir, f), 'utf8').includes('PIN-LIST-BEGIN'));
+    assert.equal(withList.length, 1,
+      `expected exactly one plan file carrying the PIN-LIST sentinels, found ${withList.length} of ${hits.length}: ${hits}`);
+    hits = withList;
       return fs.readFileSync(path.join(dir, hits[0]), 'utf8');
     })()],
   ];
@@ -871,7 +936,7 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN);
-    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
+    /* ⚠️ TWO INVENTORIES, BECAUSE `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) AND THE TWO
        CARDS HERE ARE DIFFERENT ONES. The fleet agent has no transcript, so its context is
        the no-reading shape; the committed recording was captured from an agent with a
        measured context. A single expected list would have been wrong for one of them, and
@@ -1489,7 +1554,7 @@ test('#2519: the check has NO live-vs-fixture drift guard, deliberately', () => 
      MEASURED on an 18-agent board: TWO distinct `profile` shapes among our pane cards,
      17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty, because
      store.readProfile() returns {} for an agent with no profile file. `profile` is a
-     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+     free-form operator record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
      that agent's transcript and ceiling, so no two cards are guaranteed to share a
      nested shape.
      ⚠️ And WHICH card was compared was arbitrary: liveCard() takes the first pane card

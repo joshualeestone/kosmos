@@ -244,8 +244,11 @@ function neutralise(live) {
      first makes the guarantee structural rather than a list somebody has to remember to
      extend, and the known-safe values are put back immediately after. */
   scrubStrings(card);
-  /* 🛑 `disruption.cause` IS BOUNDED AND THE SCRUB LEFT AN IMPOSSIBLE VALUE. The vocabulary
-     is model|provider|instructions|account (web/index.html's restartingLabel branches on
+  /* 🛑 `disruption.cause` IS BOUNDED AND THE SCRUB LEFT AN IMPOSSIBLE VALUE. The PRODUCER's vocabulary is FIVE
+     (engine/disruption.js CAUSES: restart, model, provider, account, instructions); the
+     four that web/index.html's restartingLabel branches on are
+     model|provider|instructions|account, everything else falling to a generic label. An
+     earlier version called those four "the vocabulary" and was one short of the producer's (web/index.html's restartingLabel branches on
      exactly those, with a default), so `example-cause` renders as the generic "Restarting
      agent" and is a value the producer cannot emit. It matters here more than elsewhere:
      the tool's own header notes chooseCard PREFERS a restarting card, because it carries

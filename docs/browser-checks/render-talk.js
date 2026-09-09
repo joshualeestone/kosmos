@@ -231,7 +231,12 @@ function goldenCard(fixturePath) {
        yields "ENOENT: no such file or directory, open '/tmp/x-Timeout-y.json'".
        ⇒ A hyphen is inserted into each trigger word. The diagnostic stays readable and
        the line cannot be quoted as the cause of a red. Note `refus` matches as a
-       SUBSTRING, so "refused" triggers it too and a bracketing scheme would not help. */
+       SUBSTRING, so "refused" triggers it too and a bracketing scheme would not help.
+       ⚠️ RESIDUAL, NAMED RATHER THAN LEFT OFF THIS LIST: the four WORDS are covered, the
+       gate's other alternative `^\s*(FAIL|✖)` is not. A thrown message containing a
+       newline followed by FAIL would still be quotable. Not reachable with today's
+       throwers (readFileSync and JSON.parse messages are single-line) and the runtime arm
+       drives only single-line messages, so this is stated, not fixed. */
     const neutralise = (t) => String(t)
       .replace(/Error/g, 'Err-or').replace(/Timeout/g, 'Time-out')
       .replace(/REFUS/g, 'REF-US').replace(/refus/g, 'ref-us');
@@ -1173,7 +1178,7 @@ function unreachableStates() {
          of ours -- 17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty,
          because store.readProfile() returns {} for an agent with no profile file. So
          one card in eighteen made the guard fire. `profile` is a free-form operator
-         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (notYetResult and six inline no-reading returns all share one set), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
          whether that agent has a readable transcript and a known ceiling, so no two
          cards are guaranteed to share a nested shape at all.
          ⚠️ AND WHICH CARD IS COMPARED WAS ARBITRARY: liveCard() takes the first pane
@@ -1184,9 +1189,17 @@ function unreachableStates() {
          ⇒ The fixture's anti-rot check lives in `yarn test` instead
          (render-talk-goldencard-2519.test.js), where it compares the TOP-LEVEL key set
          only. That set comes from status.js's PANE card literal, so it is the same for
-         every pane card (a paneless card has its own literal and its own key set, which
-         is why liveCard prefers a pane card), and a false red there costs a test run rather than a
-         release. A guard that reds a cut on board composition is worse than no guard. */
+         every pane card. ⚠️ AN EARLIER VERSION ADDED "a paneless card has its own literal
+         and its own KEY SET, which is why liveCard prefers a pane card". Measured: the
+         paneless literal emits the SAME 30 top-level keys, and status.js:5883 keeps it
+         that way ON PURPOSE, calling it SHAPE PARITY "so a consumer sees one card shape
+         rather than two". That sentence asserted a top-level difference the producer
+         designed away, while doing duty as the justification for this top-level-only
+         comparison. The comparison is still the right one (a false red on nested
+         composition costs a release), and liveCard's pane preference is still right, but
+         the reason is the NESTED difference this file states correctly at its head: null
+         session/target/runner/model and a smaller context. A false red here costs a test
+         run rather than a release. A guard that reds a cut on board composition is worse than no guard. */
       if (!card) {
         /* Worded from the SOURCE: on `error` the fixture was never consulted at all
            (realCard returns before goldenCard runs), so claiming "no usable fixture"
