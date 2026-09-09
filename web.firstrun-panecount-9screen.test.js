@@ -114,9 +114,9 @@ test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER su
   // The copy is split across a string concat in the source, so each phrase below is chosen to sit
   // entirely within one fragment and never crosses the ' + ' break (a phrase spanning the break
   // could never match). Together they pin the whole pointer: the question and the Import pointer.
-  assert.match(body, /Already have agents in Claude Code or Codex on this Mac\?/,
+  assert.match(body, /Already have agents in Claude Code or Codex on this computer\?/,
     'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
-  assert.match(body, /On the next screen you can import an agent you already have\./,
+  assert.match(body, /On the next screen you can import an existing agent\./,
     'the #2497 pointer no longer names the manual Import path on the next screen');
   // It must be a POINTER, not a scan: it renders as a static hint paragraph, not a discovery call.
   assert.match(body, /class="dhint"[^>]*>Already have agents/,

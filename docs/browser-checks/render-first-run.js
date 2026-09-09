@@ -128,7 +128,7 @@ const SHOTS = [
   // #2497 follow-on (Mona Lisa): the create welcome carries a quiet manual-import POINTER sub-line
   // for the user who already runs agents onboarding no longer scoops up. expectBody asserts it
   // actually RENDERS in the #fr-fleet box (the source-match guard is web.firstrun-panecount-9screen).
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i, expectBody: /On the next screen you can import an agent you already have\./ },
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i, expectBody: /On the next screen you can import an existing agent\./ },
   { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
   // #2497: even when the disk scan DID find an agent (SCAN_SOME), first run must NOT show the
   // "we found an agent" offer -- it lands on the create heading, proving the offer is suppressed.

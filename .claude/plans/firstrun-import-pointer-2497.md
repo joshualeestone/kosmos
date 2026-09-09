@@ -15,8 +15,13 @@ confusion #2497 removes, reappearing.
 Add one quiet sub-line under "Let's get started." in `frPaintFleet` (web/index.html), styled as the
 muted `.dhint` hint:
 
-> Already have agents in Claude Code or Codex on this Mac? On the next screen you can import an
-> agent you already have.
+> Already have agents in Claude Code or Codex on this computer? On the next screen you can import
+> an existing agent.
+
+(Wording notes: the app says "this computer", never "this Mac", per Josh's #1004 ruling enforced by
+engine/machine.test.js OTHER_SPEAKING_FILES; and the second clause avoids the literal string "already
+have", which the adopt-path fleet guard server.test.js:5557 forbids in the fr-fleet box to catch old
+fleet-counting copy.)
 
 It is the design/copy spec drafted on the #2497 card (Mona Lisa). It is a POINTER, not a scan: it
 lists nothing and finds nothing, so it does not reintroduce the auto-import garbage the card removed.
