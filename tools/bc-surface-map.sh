@@ -6,9 +6,10 @@
 # source of truth. The annotation-parse sed and the whole-token boundary match here are
 # COPIED byte-for-byte from the gate (not yet a shared function -- extracting one is a clean
 # follow-up). They agree today because they are identical. DRIFT-DETECTOR arms in
-# test-bc-surface-map.sh assert the helper and the gate agree BEHAVIOURALLY on: plain tokens
-# (arms 3/3c), a '.'-metachar token AND a mixed-case annotation key (arm 3d) -- so an unmirrored
-# edit to the whole-token boundary match, the metachar ESCAPE, or the case-insensitive KEY reds the
+# test-bc-surface-map.sh assert the helper and the gate agree BEHAVIOURALLY on: plain-token presence
+# (arms 3/3c), the whole-token BOUNDARY via a substring-superset gate cross-check (arm 4b, red-capable
+# in BOTH directions), and a '.'-metachar token + a mixed-case annotation KEY (arm 3d) -- so an
+# unmirrored edit to the boundary match, the metachar ESCAPE, or the case-insensitive KEY reds the
 # suite. This is a STRONG check, not a proof: it does not exercise every path (e.g. head -1
 # multi-annotation). 🛑 If you edit the parse/match here, MIRROR it in the gate (and vice versa)
 # until they share one function.

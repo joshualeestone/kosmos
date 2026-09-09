@@ -141,6 +141,21 @@ else
   fail "covering over-fired on a substring superset"
 fi
 
+# 4b. BOUNDARY DRIFT ARM (iter-6 BLOCKER lock, red-capable BOTH directions): arms 3/3c/3d feed only
+#     whole-word tokens, so a boundary->substring drift on EITHER the helper or the gate agrees with them
+#     and slips past. Cross-check the GATE on the pj-parenthetical (substring-superset) diff: the helper
+#     covering must be EMPTY and the gate must NOT flag it (rc=0). If either side's boundary match drifts
+#     to a substring match, that side fires on pj-parenthetical -> the two disagree and this reds.
+gate_rc_sub=0
+( . "$HERE/lib/browser-check-surface-gate.sh" \
+    && KOSMOS_BCSG_WEBDIFF="$TMP/wd-substr" KOSMOS_BCG_FILES="/dev/null" KOSMOS_BCG_MSGS="/dev/null" \
+       kosmos_browser_check_surface_gate ) >/dev/null 2>&1 || gate_rc_sub=$?
+if [ -z "$(bash "$BCM" covering < "$TMP/wd-substr")" ] && [ "$gate_rc_sub" -eq 0 ]; then
+  pass "boundary drift: helper+gate agree pj-parenthetical (substring of pj-parent) is NOT covered (rc=$gate_rc_sub)"
+else
+  fail "boundary drift: helper/gate disagree on the substring superset (cov nonempty or gate rc=$gate_rc_sub)"
+fi
+
 # 5. unmapped token -> nothing covered.
 if [ -z "$(bash "$BCM" covering < "$TMP/wd-unmapped")" ]; then
   pass "covering: an unmapped token covers nothing"

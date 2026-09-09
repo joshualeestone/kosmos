@@ -15,11 +15,13 @@ I own the helper (extract from the gate, no drift); Baron owns the CI-integratio
    case-insensitive key). 🛑 DECISION (revised from the original "extract into one shared function"):
    at high context I did NOT refactor the merged, working gate to consume a shared function -- that
    would risk leaving the gate half-refactored. Instead the copies are DRIFT-GUARDED by behavioural
-   arms: plain-token agreement (helper covering names check A AND the gate refuses A; a second check;
-   a substring non-match), PLUS a metachar-escape + mixed-case-key arm (a '.'-token that must match a
-   literal and NOT a lookalike, under a 'Browser-check-Surface:' key). So an unmirrored edit to the
-   boundary match, the metachar ESCAPE, or the case-insensitive KEY reds the suite. It is a STRONG
-   check, not a proof (it does not exercise every path, e.g. head -1 multi-annotation). Extracting one shared
+   arms that cross-check the helper against the gate: plain-token agreement (arms 3/3c), the whole-token
+   BOUNDARY via a substring-superset gate cross-check (arm 4b, mutation-verified red-capable in BOTH
+   directions -- breaking the boundary regex on EITHER side reds it), and a metachar-escape +
+   mixed-case-key arm (arm 3d, a '.'-token matching a literal and NOT a lookalike under a
+   'Browser-check-Surface:' key). So an unmirrored edit to the boundary match, the metachar ESCAPE, or
+   the case-insensitive KEY reds the suite. It is a STRONG check, not a proof (it does not exercise
+   every path, e.g. head -1 multi-annotation). Extracting one shared
    `kosmos_bc_surface_map`/`token_hits` function used by BOTH is a clean, lower-risk follow-up for a
    fresh session; the drift-test makes the copies safe until then.
 
