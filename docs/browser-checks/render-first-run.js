@@ -125,7 +125,10 @@ const SHOTS = [
   // "could not see", and scan-offer endings that used to render here now all show the create
   // heading. Real agents come in later via the manual Import Agent (#1652) on Create Agent.
   { name: 'firstrun-fleet-adopt', at: '#fr-fleet', first: FLEET_ADOPT, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
-  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
+  // #2497 follow-on (Mona Lisa): the create welcome carries a quiet manual-import POINTER sub-line
+  // for the user who already runs agents onboarding no longer scoops up. expectBody asserts it
+  // actually RENDERS in the #fr-fleet box (the source-match guard is web.firstrun-panecount-9screen).
+  { name: 'firstrun-fleet-create', at: '#fr-fleet', first: FLEET_CREATE, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i, expectBody: /bring one into Kosmos from the next screen, under Import\./ },
   { name: 'firstrun-fleet-cannot-see', at: '#fr-fleet', first: FLEET_BLIND, found: FOUND_NONE, scan: SCAN_NONE, expect: /create your first agent/i },
   // #2497: even when the disk scan DID find an agent (SCAN_SOME), first run must NOT show the
   // "we found an agent" offer -- it lands on the create heading, proving the offer is suppressed.
@@ -351,6 +354,17 @@ async function look(page, name) {
         if (!shot.expect.test(headline)) {
           problems.push(`${shot.name} [${scheme}]: fleet ending headline `
             + `"${headline}" does not match ${shot.expect}`);
+        }
+      }
+      // #2497 follow-on: assert the manual-import pointer sub-line RENDERS in the create welcome
+      // box (#fr-fleet), not merely that the headline is right. Reads the box the same way the
+      // headline check reads the title above -- a dropped or broken pointer reddens here.
+      if (shot.expectBody) {
+        const fleetBody = await page.evaluate(() =>
+          (document.getElementById('fr-fleet') || {}).textContent || '');
+        if (!shot.expectBody.test(fleetBody)) {
+          problems.push(`${shot.name} [${scheme}]: fleet body `
+            + `"${fleetBody}" does not contain ${shot.expectBody}`);
         }
       }
       // install-flow-9screen: the standalone machine-check screen (firstrun-4-checks-*,

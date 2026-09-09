@@ -98,6 +98,31 @@ test('#2497: first-run frPaintFleet forces the no-agent Giddy Up screen and fire
     'the forced Giddy Up return comes after a path branch; a non-empty roster would miss it');
 });
 
+test('#2497 follow-on: the Giddy Up welcome carries the manual-import POINTER sub-line', () => {
+  // Everyone now lands on the create / Giddy Up welcome, including a user who already runs agents
+  // in Claude Code or Codex that onboarding deliberately no longer scoops up. One quiet sub-line
+  // under "Let's get started." points that user at the manual Import path on the next screen, so
+  // "where are my agents?" does not reappear one screen later. A silent deletion of the pointer
+  // reintroduces exactly the confusion #2497 removes, so guard it here (source match, the same
+  // shape this file already uses for the welcome copy above).
+  const open = PAGE.indexOf('function frPaintFleet() {');
+  assert.ok(open !== -1, 'frPaintFleet is gone; this guard is measuring nothing');
+  const end = PAGE.indexOf('\n}', open);
+  assert.ok(end !== -1, 'could not find the end of frPaintFleet');
+  const body = PAGE.slice(open, end);
+
+  // The copy is split across a string concat in the source, so each phrase below is chosen to sit
+  // entirely within one fragment and never crosses the ' + ' break (a phrase spanning the break
+  // could never match). Together they pin the whole pointer: the question and the Import pointer.
+  assert.match(body, /Already have agents in Claude Code or Codex on this Mac\?/,
+    'the #2497 manual-import pointer sub-line is gone from the Giddy Up welcome');
+  assert.match(body, /bring one into Kosmos from the next screen, under Import\./,
+    'the #2497 pointer no longer names the manual Import path on the next screen');
+  // It must be a POINTER, not a scan: it renders as a static hint paragraph, not a discovery call.
+  assert.match(body, /class="dhint"[^>]*>Already have agents/,
+    'the pointer sub-line is not the muted .dhint hint paragraph it should be');
+});
+
 test('every fr-pane-N carries its own <h2> (frFocusActiveHead focuses it; a null head breaks focus/aria)', () => {
   // frGo -> frFocusActiveHead(pane) does paneEl.querySelector('h2'); a pane with
   // no <h2> would leave FR_ACTIVE_H2 null and the dialog with no accessible name.

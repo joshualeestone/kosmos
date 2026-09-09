@@ -41293,7 +41293,14 @@ function frPaintFleet() {
      stop invoking it automatically during onboarding"); they are re-enabled by removing this
      block. The grant-flip poll never arms (frArmRescanOnGrant is reached only from those arms). */
   title.textContent = 'Create your first agent.';
-  box.innerHTML = '<p>Let\u2019s get started.</p>';
+  // #2497 follow-on (Mona Lisa, spec on the card): everyone now lands here, including a user who
+  // already runs agents in Claude Code or Codex that onboarding deliberately no longer scoops up.
+  // One quiet POINTER (not a scan: it lists nothing, finds nothing) tells that user Kosmos is
+  // choosing not to import them and that manual Import lives on the next screen, so "where are my
+  // agents?" does not reappear one screen later. Copy only; the Giddy Up action is unchanged.
+  box.innerHTML = '<p>Let\u2019s get started.</p>'
+    + '<p class="dhint" style="margin:6px 0 0;">Already have agents in Claude Code or Codex on this Mac? '
+    + 'You can bring one into Kosmos from the next screen, under Import.</p>';
   frActions({ label: 'Giddy Up', go: () => frFinish(openCreate) });
   return;
 
