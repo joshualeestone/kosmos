@@ -5382,6 +5382,16 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    No effect on #d-provider, which had no competing rule; the class is only ever added to a select. */
 .pcombo-src { position: absolute !important; width: 1px !important; height: 1px !important; margin: -1px !important; padding: 0 !important; overflow: hidden !important; clip: rect(0 0 0 0) !important; clip-path: inset(50%) !important; border: 0 !important; }
 .pcombo { position: relative; }
+/* #1040 2b: #create-provider is the one enhanced select that lives in a FIXED-WIDTH
+   (18rem) stepped flex row (`#cstep-name .msteps .frow`, elbow-aligned with
+   #create-account / #create-model, a layout Josh tuned for row-to-row alignment).
+   enhanceProviderSelect clips the native select (.pcombo-src, 1px) and inserts a
+   .pcombo sibling with no width of its own, so the trigger (width:100%) would size to
+   its content and the provider row would not line up with the rows beneath it. Give
+   the inserted widget the same 18rem flex basis the select it replaced carried.
+   #d-provider (switch dialog) and #acct-provider-pick (Add screen, width:100% context)
+   are not in a fixed-width flex row, so this is scoped to #cstep-name. */
+#cstep-name .msteps .frow > .pcombo { flex: 0 1 18rem; width: 18rem; min-width: 0; max-width: 100%; }
 .pcombo-trigger { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 8px 12px; text-align: left; font: inherit; color: var(--k-ink); background: var(--k-surface); border: 1px solid var(--k-rule); border-radius: 8px; cursor: pointer; }
 .pcombo-trigger:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 1px; }
 .pcombo-mark { width: 18px; height: 18px; flex: 0 0 auto; }
@@ -28239,6 +28249,7 @@ document.getElementById('d-provider').addEventListener('change', (e) => {
 });
 enhanceProviderSelect('d-provider');   // #1040 2b: the switch dialog's provider combobox (shipped first)
 enhanceProviderSelect('acct-provider-pick');   // #1040 2b: the Add-a-provider screen's combobox. Its <select> (~7912) and change listener (~16953) are defined earlier; called HERE, beside the d-provider site, so the function and its consts (PROVIDER_MARK_KEY) are initialized before the call rather than relying on hoisting into a temporal dead zone. Labelled via <label for>, which enhanceProviderSelect falls back to when there is no aria-label.
+enhanceProviderSelect('create-provider');   // #1040 2b (final select): the Create Agent form's provider combobox. Same proven helper as the two above; #create-provider (~9233) carries the identical roster (anthropic/openai + six coming-soon) and its own change listener (applyCreateProviderUI) keeps working unchanged, because the helper commits via select.value + a dispatched `change`. 2b-logos now covers all three provider selects; 2b-roster (GLM/MiniMax/DeepSeek) stays deferred to Josh's #770 roster pass.
 /* The ONLY thing that makes a pick a pick.
    ⚠️ Null-checked like its sibling in fillSwitchAccounts: if this id ever moves the
    page must degrade to the previous behaviour rather than die at load, because that
