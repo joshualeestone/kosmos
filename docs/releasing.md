@@ -127,8 +127,10 @@ a different problem.
    placement are mechanical.
 
    ⚠️ **After a SUCCESSFUL cut the file is NOT removed (#2513).** It stays at
-   `$REPO/.release-entry.html` holding the version you just shipped and the minute
-   step 7a stamped into it. Nothing incorrect can ship through it: the NEXT cut's
+   `$REPO/.release-entry.html` still holding the id of the version you just shipped
+   and the literal `TIMESTAMP` placeholder, unreplaced: step 7a's stamp is written
+   onto the page (`$SITE/versions.html`), never back into this file. Nothing
+   incorrect can ship through it: the NEXT cut's
    step 1 refuses the leftover file - its id still names the shipped version, not the
    one now being cut - naming the file and stating why, before anything is built.
    (Version mismatch is the reason THIS leftover trips; step 1 also refuses a pending

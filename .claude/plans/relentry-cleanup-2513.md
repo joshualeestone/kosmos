@@ -2,7 +2,8 @@
 
 ## Card
 kosmos#2513 (follow-up to #1455): a SUCCESSFUL cut leaves `.release-entry.html` behind, holding
-the shipped version's id + the stamped timestamp. Nothing removes it. The NEXT cut's step 1
+the shipped version's id and the literal `TIMESTAMP` placeholder unreplaced (step 7a writes the
+stamped minute onto the page, not back into this file). Nothing removes it. The NEXT cut's step 1
 refuses it (correctly, by name, with the reason) until the operator overwrites it - a confusing
 extra paragraph on an otherwise-clean start. Nothing incorrect can ship through it.
 
