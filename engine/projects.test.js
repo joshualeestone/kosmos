@@ -696,7 +696,7 @@ test('the block teaches the room command per project, with the id it actually ta
     'an existing agent is never taught the room exists (this block is the surface that re-splices)');
   // #2662: the block also teaches the per-project tasks feature, with the id it takes,
   // so agents catalog work with the real board instead of a hand-rolled task-board file.
-  assert.match(body, /kosmos task list hendersonlease/, 'the block does not teach how to list this project’s tasks');
+  assert.match(body, /kosmos task list hendersonlease/, 'the block does not teach how to list this project\'s tasks');
   assert.match(body, /kosmos task add hendersonlease "what needs doing"/, 'the block does not teach how to add a task to this project');
   // An id-less row (a caller predating ids, or a fixture) must not teach a
   // broken command -- neither the room command nor the tasks command.

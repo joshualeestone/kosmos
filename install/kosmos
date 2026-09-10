@@ -1369,7 +1369,7 @@ cmd_feedback() {
   esac
 }
 
-# ---- kosmos task <add|list|close> — the per-project tasks feature, surfaced (#2662) --------
+# ---- kosmos task <add|list|close> - the per-project tasks feature, surfaced (#2662) --------
 # The board already exposes GET /api/tasks?project=<id>, POST /api/project/<id>/tasks, and
 # POST /api/project/<id>/task/<n>/close|reopen; it just was not reachable from the terminal, so
 # agents improvised a shared task-board.md and collided. This surfaces it. Board-token handling

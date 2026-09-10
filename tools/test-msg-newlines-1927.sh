@@ -116,14 +116,16 @@ let d="";process.stdin.on("data",c=>d+=c).on("end",()=>{
   && ok "CONTROL: a raw newline in the JSON is rejected, so the OK above is meaningful" \
   || bad "the JSON check accepts a raw newline (control did not discriminate)"
 
-# --- all four esc_text sites carry the fix ---------------------------------
+# --- every multi-line JSON-escape site carries the fix ----------------------
 # Count by the distinguishing fragment of the FIXED pipeline: the `$!`-guarded
 # slurp `-e '$!{N;ba' -e '}'`. grep -F so the shell/ERE metacharacters in the
-# fragment are matched literally.
+# fragment are matched literally. #2662 added two more sites (cmd_task's
+# esc_sentence + esc_detail), both using this same guarded pipeline, taking the
+# whitelist count from 4 to 6; the broken-form guard below still enforces zero.
 n_new="$(grep -cF "sed -e ':a' -e '\$!{N;ba' -e '}' -e 's/" install/kosmos)"
-[ "$n_new" -eq 4 ] \
-  && ok "all 4 esc_text sites use the paragraph-preserving, single-line-safe (\$!-guarded) pipeline" \
-  || bad "expected 4 fixed esc_text sites, found $n_new"
+[ "$n_new" -eq 6 ] \
+  && ok "all 6 multi-line JSON-escape sites use the paragraph-preserving, single-line-safe (\$!-guarded) pipeline" \
+  || bad "expected 6 fixed multi-line JSON-escape sites, found $n_new"
 
 # --- regression guard: BOTH broken forms must NOT return --------------------
 # (1) the GNU-only one-liner that dies on BSD sed, and (2) the UNGUARDED `N`
