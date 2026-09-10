@@ -122,7 +122,7 @@ test('#2612: a second cross-provider default is qualified by PROVIDER, not by it
   const q = qualifiers([claudeDefault, openaiDefault]);
   assert.equal(q.get(claudeDefault.dir), 'main', 'the FIRST default still keeps the reserved qualifier');
   assert.equal(q.get(openaiDefault.dir), 'OpenAI',
-    'the second default is still qualified by its raw directory path, which is what #2612 is about');
+    'the second default is not qualified by its provider; the path case is covered separately below');
   /* The negative half, stated separately: whatever it is, it must not be a path.
      An assertion that only checks the happy string cannot see a regression to a
      DIFFERENT path-shaped value. */
@@ -155,19 +155,48 @@ test('#2612 CONTROL: a provider the map does not know falls back to the path, no
     'an unknown provider was given a friendly name it has not earned');
 });
 
-/* 🛑 AND THE PROVIDER QUALIFIER IS STILL SUBJECT TO THE USED-SET. If another row
-   in the group already took "OpenAI" as its LABEL, handing the same string to the
-   default would put two controls back under one accessible name, which is the
-   defect this whole function exists to prevent. */
-test('#2612: a label that already took the provider name pushes the default to its path', () => {
+/* 🛑 THE PROVIDER QUALIFIER IS SUBJECT TO THE USED-SET, AND THE COMPARISON MUST
+   BE CASE-INSENSITIVE. #2612 introduced the first mixed-case value this namespace
+   has ever held. Every label is LOWERCASE by construction (`dirForLabel` and
+   `cleanLabel` both `.toLowerCase()` and strip to `[a-z0-9-]`), so a label can
+   never be "OpenAI" and can easily be "openai". An exact `Set.has` waves that
+   through while a screen reader announces the two identically, which is the
+   defect this function exists to prevent, and it would have been a REGRESSION:
+   the same rows previously produced a path, which is ugly and audibly distinct.
+
+   ⚠️ MY FIRST VERSION OF THIS ARM USED `label: 'OpenAI'`, A SHAPE `list()` CANNOT
+   PRODUCE. It pinned a guard that can never fire in production while the
+   reachable lowercase variant went untested, which is exactly why the defect was
+   invisible. It also ordered the decoy BEFORE the default, the opposite of the
+   real payload. Both orderings are now armed, because fixing only the provider
+   lookup leaves the real one broken: the default is emitted first, takes
+   "OpenAI", and the labelled row then reaches the LABEL branch where an exact
+   `used.has('openai')` misses. */
+test('#2612: a lowercase label cannot collide audibly with the provider name, real payload order', () => {
+  // `[...claude, ...openai]`, and within OpenAI the default comes first
+  // (`openaiaccounts.list()` adds `defaultDir()` then the sorted `.codex-*`).
   const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
-  const decoy = { provider: 'openai', email: 'agent@example.com', dir: '/Users/x/.codex-openai', label: 'OpenAI', isDefault: false };
   const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
-  const q = qualifiers([claudeDefault, decoy, openaiDefault]);
-  assert.equal(q.get(claudeDefault.dir), 'main');
-  assert.equal(q.get(decoy.dir), 'OpenAI', 'the labelled row keeps its own label');
+  const labelled = { provider: 'openai', email: 'agent@example.com', dir: '/Users/x/.codex-openai', label: 'openai', isDefault: false };
+  const q = qualifiers([claudeDefault, openaiDefault, labelled]);
+  const vals = [claudeDefault, openaiDefault, labelled].map((r) => q.get(r.dir));
+  const heard = new Set(vals.map((v) => String(v).toLowerCase()));
+  assert.equal(heard.size, vals.length,
+    'two qualifiers differ only by CASE, so two controls answer to one spoken name: ' + JSON.stringify(vals));
+});
+
+test('#2612: and in the other ordering, where the labelled row is seen first', () => {
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const labelled = { provider: 'openai', email: 'agent@example.com', dir: '/Users/x/.codex-openai', label: 'openai', isDefault: false };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const q = qualifiers([claudeDefault, labelled, openaiDefault]);
+  const vals = [claudeDefault, labelled, openaiDefault].map((r) => q.get(r.dir));
+  const heard = new Set(vals.map((v) => String(v).toLowerCase()));
+  assert.equal(heard.size, vals.length,
+    'the other ordering collides: ' + JSON.stringify(vals));
+  assert.equal(q.get(labelled.dir), 'openai', 'a row seen first keeps its own label');
   assert.equal(q.get(openaiDefault.dir), '/Users/x/.codex',
-    'the default took a qualifier another row already owns, so two controls share one name again');
+    'the default must yield the path once its provider name is audibly taken');
 });
 
 /* The screen half. The control's accessible name is what named-controls reads and

@@ -25,9 +25,15 @@
  * Claude subscription default in ~/.claude and an OpenAI ChatGPT default in ~/.codex,
  * neither carrying a label. Before the fix both take qual="main" and the two reauth
  * controls read "Sign in again as agent@example.com (main)". After the fix the first
- * default keeps "main" and the second falls back to its unique dir, so the accessible
- * names differ. This check REDS on origin/main (both labels identical) and passes on
- * the fix.
+ * default keeps "main" and the second is qualified by its PROVIDER, so the accessible
+ * names differ AND neither announces a filesystem path. This check REDS on origin/main
+ * (both labels identical) and passes on the fix.
+ *
+ * 📌 #2612 CHANGED THE SECOND HALF OF THAT SENTENCE, and the old wording is worth
+ * recording rather than just overwriting: the second default used to fall back to its
+ * unique `dir`, which was distinct but announced "/Users/x/.codex" to a screen reader.
+ * The arms below now REFUSE a path, so a header still describing the dir fallback would
+ * tell a reader to expect exactly what this check forbids.
  *
  * Run:
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-account-dup-reauth-2584.js
