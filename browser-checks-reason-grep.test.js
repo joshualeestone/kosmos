@@ -526,12 +526,12 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 81;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 83;   // +2: render-permission-slider-2620.js (#2620) -- its two LITERAL-`FAIL ` emit lines: the could-not-start-a-browser launch catch and the final .catch() throw. (The ok() helper's `FAIL` is interpolated -> empty literal prefix, not counted; the summary line carries no marker.) Same two lines the catch matcher counts below. +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
   //                              +1: render-worldsw-abandon-2628.js (its `for (const p of problems)
   //                              console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site,
   //                              confirmed quotable; same shape as render-worldswitch-2238's. Its
   //                              launch-failure catch is counted once by the catch/launch scan below
-  //                              (as the 50th), not here. #2633). 80 + 1 = 81.
+  //                              (as the 50th), not here. #2633). 80 + 1 (#2633) + 2 (#2620) = 83.
   //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
   //                              line (a quotable failure), net +1 across the suppression rewrites.
   //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
@@ -707,7 +707,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `console.error('FAIL  render-sound-master-2436: could not start a browser' ...)`
      is one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
      Its per-problem finding-emit loop is counted once by the finding-emit scan above (72). */
-  const EXPECTED_CATCH_SITES = 50;   // +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
+  const EXPECTED_CATCH_SITES = 52;   // +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
   //                                   +1: render-worldsw-abandon-2628.js (its `console.error('FAIL
   //                                   render-worldsw-abandon-2628: could not start a browser' ...)` launch catch
   //                                   is one catch/launch emit site, confirmed quotable; same shape as

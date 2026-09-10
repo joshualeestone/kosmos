@@ -1112,6 +1112,10 @@ if boot_board "$sb7" "$P8"; then
   # retired render-a11y-gate-2125 tmux gate + render-sleep-button sleep gate). Mocks
   # only the status endpoints, so a non-native board is fine.
   run_one "render-gated-next"   env KOSMOS_URL="$B8" node docs/browser-checks/render-gated-next.js
+  # #2620: the S3 mock permission switch mirrors the real gate (gray+hint when not
+  # granted, blue when granted) and carries a real focusable overlay button that opens
+  # the macOS pane. Same first-run board + mocked status endpoints as render-gated-next.
+  run_one "render-permission-slider-2620" env KOSMOS_URL="$B8" node docs/browser-checks/render-permission-slider-2620.js
   # #1553: the launch must not flash the agents view before the first-run gate
   # resolves. Proven green + fails-without-the-cover before wiring (the #812 rule).
   run_one "render-boot-no-flash" env KOSMOS_URL="$B8" node docs/browser-checks/render-boot-no-flash.js
@@ -1125,7 +1129,7 @@ if boot_board "$sb7" "$P8"; then
   run_one "render-full-width"   env KOSMOS_URL="$B8" node docs/browser-checks/render-full-width.js "$sb7/shots-fullwidth"
   run_one "render-offline-note"  env KOSMOS_URL="$B8" node docs/browser-checks/render-offline-note.js "$sb7/shots-offline" "$B8_PID"
 else
-  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
+  for n in contrast named-controls render-create-form render-found-undo render-scan-board render-adopt-1531 render-made-endings render-rename-say render-role-limit render-role-order render-reload-toast render-updates-stale render-switch-states render-optout-403-2020 render-settings-403-2047 render-first-run render-gated-next render-permission-slider-2620 render-boot-no-flash render-theme-toggle render-full-width render-offline-note; do FAILED+=("$n (server did not boot)"); done
 fi
 # #812 batch 2 (retried after the first attempt found four checks that
 # assumed compatibility with B8's fixture instead of verifying it -- those

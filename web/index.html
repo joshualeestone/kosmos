@@ -8435,12 +8435,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              Kosmos Accessibility permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
              ============================================================ -->
         <style>
-        /* The window is an ILLUSTRATION of the macOS pane, not a control: its
-           switch (.s3-sw) is decorative and rendered On. pointer-events:none
-           makes the whole mock inert, so a click on the decoy switch cannot be
-           mistaken for activating anything (0.6.41 re-test: a blue/On decoy
-           toggle sat right above the real "Turn On" button). The real action is
-           the .s3-on button below the mock, which stays clickable. */
+        /* The window is an ILLUSTRATION of the macOS pane. The switch (.s3-sw) is
+           decorative and MIRRORS the real gate (#2620): gray with a swipe hint until
+           the permission is granted, then blue. pointer-events:none keeps the whole
+           mock inert, so the 0.6.41 concern still holds -- a blue/On decoy must never
+           sit above the real Turn On looking activatable; here the switch reads the
+           real state, so it is never a false On. The CLICK is honest: a real focusable
+           button (.s3-sw-open), lifted OUT of this aria-hidden mock into the .s3-mock
+           wrapper and positioned over the switch, opens the exact macOS pane. So
+           .s3-win stays pointer-events:none while the switch is still clickable, via
+           that overlay, not via the inert decoy. The .s3-on "Turn On" button below
+           the mock stays clickable too. */
         .s3-win{background:#f7f7f5;border:1px solid #d8d6d2;border-radius:12px;overflow:hidden;
           box-shadow:0 8px 22px rgba(0,0,0,.14);color:#1c1b19;margin:0 0 10px;pointer-events:none}
         .s3-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#eceae7;border-bottom:1px solid #d8d6d2}
@@ -8451,8 +8456,42 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
         .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
         .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.625rem}
-        .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
-        .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+        /* #2620: the decoy switch now MIRRORS the real gate instead of a hardcoded On.
+           Gray (#e2e2e5, knob left) until the paired gate row is granted, then blue
+           (#2f7bf6, knob right). The state (data-granted / data-checking / data-battonly)
+           is copied onto this switch from its gate row by frPollGates, because CSS cannot
+           select a preceding sibling and the mock sits ABOVE its row. The switch stays
+           decorative inside the aria-hidden .s3-win; a real overlay button (.s3-sw-open,
+           lifted out of the aria-hidden subtree) carries the click + a11y (Mona, #2620). */
+        .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#e2e2e5;transition:background .2s ease}
+        .s3-sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transform:translateX(0);transition:transform .2s ease}
+        .s3-sw[data-granted]{background:#2f7bf6}
+        .s3-sw[data-granted]::after{transform:translateX(16px)}
+        /* The "go flip this" hint: a gentle swipe, ONLY while the gate is not granted and
+           is actually satisfiable (never on battonly, where there is nothing to flip).
+           Two animations on the same 2.6s ease-in-out timeline keep the background and the
+           knob in step, since one @keyframes cannot drive both an element and its ::after.
+           Timeline (Mona): 0-8% hold OFF, 8-32% flip ON, 32-55% hold ON, 55-79% flip OFF,
+           79-100% hold OFF. */
+        .s3-sw:not([data-granted]):not([data-battonly]){animation:s3-sw-hint-bg 2.6s ease-in-out infinite}
+        .s3-sw:not([data-granted]):not([data-battonly])::after{animation:s3-sw-hint-knob 2.6s ease-in-out infinite}
+        @keyframes s3-sw-hint-bg{0%,8%{background:#e2e2e5}32%,55%{background:#2f7bf6}79%,100%{background:#e2e2e5}}
+        @keyframes s3-sw-hint-knob{0%,8%{transform:translateX(0)}32%,55%{transform:translateX(16px)}79%,100%{transform:translateX(0)}}
+        /* MANDATORY: no motion for a person who asked for none. The switch still shows its
+           honest static position (gray/off or blue/on), just without the swipe. */
+        @media (prefers-reduced-motion: reduce){
+          .s3-sw, .s3-sw::after{animation:none !important;transition:none}
+        }
+        /* The real, focusable click target. It sits OUTSIDE the aria-hidden .s3-win (in the
+           .s3-mock wrapper) and is absolutely positioned over the visible switch, so the
+           mock stays purely decorative (the 0.6.41 decoy fix) while a click on the switch
+           does something honest: it opens the exact macOS pane. It is a SIBLING of .s3-win
+           (not a descendant), so .s3-win's pointer-events:none never reached it; the
+           pointer-events:auto here is defensive, keeping it clickable regardless. Sized to
+           the switch, not the row, so a stray click near the text does not open Settings. */
+        .s3-mock{position:relative}
+        .s3-sw-open{position:absolute;padding:0;margin:0;border:0;background:transparent;cursor:pointer;border-radius:99px;pointer-events:auto}
+        .s3-sw-open:focus-visible{outline:2px solid #2f7bf6;outline-offset:2px}
         /* #9 (0.6.40): the two numbered step captions read gigantic + stretched
            because a bare .s3-step-cap (0,1,0) loses its font to the id-scoped
            first-run paragraph rule (1,1,1, 400/1.0625rem) -- so they rendered
@@ -8527,9 +8566,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>To get the most out of your agents we need to ensure they can stay awake and access the things they need to work for you.</p>
 
         <p class="s3-step-cap">1 &middot; keep this computer awake</p>
-        <div class="s3-win" aria-hidden="true">
-          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw"></span></div></div>
+        <!-- #2620: the mock stays decorative (aria-hidden, pointer-events:none) so a click
+             on the decoy switch cannot be mistaken for the real action (0.6.41). The real,
+             focusable .s3-sw-open button is a SIBLING of the mock (lifted OUT of the
+             aria-hidden subtree), positioned over the switch by frSyncSwitchOverlays(), and
+             opens the exact macOS pane. The switch VISUAL (gray -> blue + swipe hint) is
+             mirrored from the gate row's state by frPollGates. -->
+        <div class="s3-mock">
+          <div class="s3-win" aria-hidden="true">
+            <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
+            <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw" data-sw-gate="sleep"></span></div></div>
+          </div>
+          <button class="s3-sw-open" type="button" data-sw-gate="sleep" aria-label="Open Energy settings"></button>
         </div>
         <div class="s3-gate-row" data-gate="sleep">
           <span class="s3-gate-lbl">Prevent sleep</span>
@@ -8556,9 +8604,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              onboarding registers), not tmux -- so this mock and the gate row below read
              "Kosmos". The internal data-gate key stays "tmux" (it is the FR_GATES /
              handler / browser-check selector; the subject is Kosmos.app). -->
-        <div class="s3-win" aria-hidden="true">
-          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
+        <div class="s3-mock">
+          <div class="s3-win" aria-hidden="true">
+            <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
+            <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux"></span></div></div>
+          </div>
+          <button class="s3-sw-open" type="button" data-sw-gate="tmux" aria-label="Open Accessibility settings for Kosmos"></button>
         </div>
         <div class="s3-gate-row" data-gate="tmux">
           <span class="s3-gate-lbl">Kosmos</span>
@@ -38864,6 +38915,16 @@ async function frPollGates(screenEl, gen) {
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // #2620: mirror the gate state onto the paired mock switch. The switch sits ABOVE its
+    // row, so CSS cannot reach it from the row; copy the three state attrs so the decorative
+    // .s3-sw shows gray/off, blue/granted, or the swipe hint, matching the real gate. Null-safe
+    // (the S2 file-access gate has no mock switch).
+    const swMirror = document.querySelector('.s3-sw[data-sw-gate="' + row.getAttribute('data-gate') + '"]');
+    if (swMirror) {
+      ['data-granted', 'data-checking', 'data-battonly'].forEach((a) => {
+        if (row.hasAttribute(a)) swMirror.setAttribute(a, ''); else swMirror.removeAttribute(a);
+      });
+    }
     // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
     // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
     // anyone who simply has not set it, can still move on; the honest note stays as
@@ -38873,17 +38934,50 @@ async function frPollGates(screenEl, gen) {
     const spec = FR_GATES[row.getAttribute('data-gate')];
     if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
+  // #2620: re-position the switch overlays every poll, not just on show/resize -- so a
+  // switch that measured zero (pane not laid out yet, or a late web-font reflow moved it)
+  // is corrected within a poll tick rather than waiting for a resize. Cheap + idempotent;
+  // typeof-guarded for eval-sliced unit tests.
+  if (typeof frSyncSwitchOverlays === 'function') frSyncSwitchOverlays();
   const next = document.getElementById('fr-next');
   if (!next) return;
   next.disabled = anyBlocked;
   if (anyBlocked) next.setAttribute('aria-disabled', 'true'); else next.removeAttribute('aria-disabled');
 }
+// #2620: keep each real .s3-sw-open overlay button sitting exactly over its decorative
+// switch. The two mocks differ in height (Energy is one label line, Accessibility is two:
+// "Kosmos" + "Control your computer"), so the switch's vertical position differs per mock --
+// MEASURE rather than hardcode an offset. Idempotent and cheap; runs when S3 paints and on
+// resize. Skips a switch that has not been laid out yet (pane hidden -> zero rect).
+function frSyncSwitchOverlays() {
+  document.querySelectorAll('.s3-sw-open').forEach((btn) => {
+    const gate = btn.getAttribute('data-sw-gate');
+    const mock = btn.closest('.s3-mock');
+    const sw = mock && mock.querySelector('.s3-sw[data-sw-gate="' + gate + '"]');
+    if (!mock || !sw) return;
+    const mr = mock.getBoundingClientRect();
+    const sr = sw.getBoundingClientRect();
+    if (!sr.width || !sr.height) return;
+    btn.style.top = (sr.top - mr.top) + 'px';
+    btn.style.left = (sr.left - mr.left) + 'px';
+    btn.style.width = sr.width + 'px';
+    btn.style.height = sr.height + 'px';
+  });
+}
+if (typeof window !== 'undefined') window.addEventListener('resize', frSyncSwitchOverlays);
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
   FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
   FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), FR_GATE_POLL_MS);
+  // #2620: place the switch overlays now that the gated screen is showing (rAF so the pane
+  // has laid out). typeof-guarded so a unit test that eval-slices frGateStart in isolation
+  // never throws on the helper being out of scope.
+  if (typeof frSyncSwitchOverlays === 'function') {
+    frSyncSwitchOverlays();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(frSyncSwitchOverlays);
+  }
   return gen;
 }
 // #2451/#2559: fire an immediate gate re-check (the manual "Check again" affordance).
@@ -39427,6 +39521,39 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  /* The S3 gate -> (native trigger, open-settings fallback) map, in ONE place so the
+     "Turn On" button (.s3-on) and the #2620 mock-switch overlay (.s3-sw-open) -- both
+     handled in this one listener -- cannot drift apart (they opened the same panes by
+     two copies before this was extracted). Kept INSIDE the listener so it travels with
+     the handler the web.firstrun-a11y-1214 test slices.
+     #1/#2451: the Accessibility row fires the native PROMPT (Kitty's /api/a11y-prompt),
+     which registers the CALLING BINARY (the kosmos-app = Kosmos) in the Accessibility
+     list so it appears and is grantable -- the grant is keyed on the calling binary, not
+     tmux (tmux disclaims responsibility for its children and never holds it; #2125). The
+     internal gate key stays "tmux" for back-compat, but the subject is Kosmos.app. sleep
+     is programmatic (pmset), not a prompt category, so it opens Settings and passes no
+     trigger. Both fall back to opening Settings when the native trigger is unavailable. */
+  const s3PermissionTargets = (gate) => ({
+    trigger: gate === 'tmux' ? '/api/a11y-prompt' : null,
+    fallback: gate === 'sleep' ? '/api/open-sleep-settings'
+      : gate === 'tmux' ? '/api/open-accessibility-settings' : null,
+  });
+  // #2620: a click on the mock switch (its real overlay button, .s3-sw-open) opens the
+  // same macOS pane as that row's "Turn On" -- Josh's point is people try to click the
+  // switch itself. Same trigger/fallback map as the .s3-on handler below; keyed on the
+  // overlay's data-sw-gate rather than a data-gate row (the overlay is a mock sibling).
+  const swOpen = e.target.closest('.s3-sw-open');
+  if (swOpen) {
+    if (swOpen.disabled) return;
+    const g = swOpen.getAttribute('data-sw-gate');
+    const { trigger: swTrigger, fallback: swFallback } = s3PermissionTargets(g);
+    if (!swFallback) return;
+    const swMsg = document.getElementById('fr-s3-msg');
+    swOpen.disabled = true;
+    try { await frFirePermission(swTrigger, swFallback, swMsg); }
+    finally { swOpen.disabled = false; }
+    return;
+  }
   // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
   // instead of waiting for the next poll tick, so a just-granted permission reflects at
   // once. The poll keeps running regardless; this only front-runs the next tick.
@@ -39457,16 +39584,9 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  /* #1/#2451: the Accessibility row fires the native PROMPT (Kitty's /api/a11y-prompt),
-     which registers the CALLING BINARY (the kosmos-app = Kosmos) in the Accessibility
-     list so it appears and is grantable - the grant is keyed on the calling binary, not
-     tmux (tmux disclaims responsibility for its children and never holds it; #2125). The
-     internal data-gate key stays "tmux" for back-compat, but the subject is Kosmos.app.
-     sleep is programmatic (pmset), not a prompt category, so it opens Settings and passes
-     no trigger. Both fall back to opening Settings when the native trigger is unavailable. */
-  const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
-  const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
-    : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
+  // The gate -> (trigger, fallback) map lives in s3PermissionTargets (see it for the
+  // #1/#2451/#2125 rationale); shared with the .s3-sw-open overlay so they cannot drift.
+  const { trigger, fallback } = s3PermissionTargets(gate);
   if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;
