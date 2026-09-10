@@ -573,6 +573,20 @@ test('#2651: force is INERT on a refusal that is not the untied case (it can nev
   assert.deepEqual(calls, [], 'force ran commands on a non-untied refusal');
 });
 
+test('#2651: force is INERT on a NOT-THERE refusal (nothing to clear -> nothing recorded, nothing run)', () => {
+  // A name that was never an agent: exists() is false, so plan() refuses with
+  // "cannot find an agent". intent.ok is false and intent.untied is unset, so
+  // force has nothing to clear -- it must record no removal and run no command.
+  const calls = world();
+  remove.setDryRun(false);
+
+  const r = mac.remove('ghost-forced', { force: true });
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, 'force cleared a card for a name that was never an agent');
+  assert.match(r.because, /cannot find an agent/);
+  assert.equal(remove.isRemoved('ghost-forced'), false, 'force filed a removal record for a non-existent agent');
+  assert.deepEqual(calls, [], 'force ran commands on a not-there refusal');
+});
+
 test('#2651: force NEVER stops a session -- on a now-TIED agent (an untied->tied race between offer and click) it still clears the card and leaves the session running', () => {
   // The override is offered on a GET plan() and acted on later on the DELETE. If
   // the session becomes TIED in that window, plan() now returns ok:true -- and

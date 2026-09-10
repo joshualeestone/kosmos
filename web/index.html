@@ -25300,9 +25300,11 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
     /* ⚠️ REPAINT NOW, don't wait for the 5s poll. Same as the normal-remove
        handler (rm-go): a person who just cleared a card should see it leave the
        Agents roster and appear on the Removed list immediately, not sit there
-       for up to five seconds looking as if the click did nothing. */
-    await tick();
-    await paintRemoved();
+       for up to five seconds looking as if the click did nothing.
+       In its OWN try: the server already returned REMOVED, so a repaint fault
+       must not fall to the outer catch and overwrite the success message with
+       "could not reach the board" (the poll will repaint within 5s anyway). */
+    try { await tick(); await paintRemoved(); } catch { /* the 5s poll will catch up */ }
   } catch {
     msg.textContent = 'We could not reach the board just now. Try again in a moment.';
     btn.disabled = false;

@@ -996,8 +996,17 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
      agent on a shared Mac, a bare-named session with no `-discord` suffix),
      where the safety gate rightly will not STOP a process it cannot prove is
      this agent, so the card cannot be cleared the ordinary way. The override
-     records the removal (hides the card via `leftRunningByChoice`, revokes any
-     token) and touches NOTHING on the machine.
+     records the removal (which hides the card via `leftRunningByChoice`) and
+     runs no tmux/launchd command -- the engine test pins this by asserting the
+     recorded command list is empty.
+
+     ⚠️ ONE SIDE EFFECT, and it is deliberate rather than a contradiction of the
+     button: `recordRemoval` revokes the agent's sender token (#2323, every
+     removal-commit path does), so a cleared card stops reporting as a sender.
+     For the in-scope case -- a local, pane-bearing residual -- this is invisible
+     (reports authenticate via the pane arm, not the token) and a restore re-mints
+     on relaunch. The SESSION itself keeps running untouched; "left running" is a
+     statement about the process, which no command here stops.
 
      🛑 IT MUST NEVER STOP A SESSION -- that is the promise on the button ("this
      leaves the terminal session running"). So `force` is handled HERE, ABOVE the
