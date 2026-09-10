@@ -1986,7 +1986,7 @@ driverTest('#1937 END-TO-END: a re-auth waits for login-done, not the stale file
 /**
  * #1937: the SECOND file-outranks-screen arm -- the unknown-escalation path --
  * carries the identical stale-file hazard and its own gate. This arm covers it
- * so a future refactor that drops the `(!owner.reauth || owner.sawLoginDone)`
+ * so a future refactor that drops the `(!owner.needsLogin || owner.sawLoginDone)`
  * condition there reds instead of silently re-opening the blocker. Without the
  * gate, a re-auth that sits on an UNRECOGNISED screen past the unknown grace
  * finishes off the stale-CONNECTED file; with it, and no login-done evidence, it
