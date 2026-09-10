@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: frnav-2647
-diff_hash: 2af34d4aa473c7f57a8907ccef3d3d0eea32a8a369ba1674d2ad49607e668a40
+diff_hash: 8e67c3f88910a8ffb0d60d606dc7c802f8463d7dd891041001917967ffa6e152
 timestamp: 2026-09-10T16:47:37Z
 iterations: 5
 converged: true
@@ -46,7 +46,14 @@ the instruments and the prose around it.
 
 ## Verification at convergence
 
-- `bash tools/run-tests.sh`: **exit 0, 5730 tests, 5730 pass, 0 fail, 0 skipped**,
+- `bash tools/run-tests.sh`: **exit 0, 5763 tests, 5763 pass, 0 fail, 0 skipped**, re-measured
+  AFTER a rebase onto `origin/main` (which had moved 21 commits and added 33 tests). The
+  pre-rebase run is orphaned and deliberately not cited: a rebase rewrites the shas every
+  recorded run was measured against, and a results table does not change appearance when that
+  happens. Both conflicts were the browser-check wiring again; the runner loop was resolved as a
+  union computed token-wise (86 from main, including this author's own check from the merged
+  #2615, plus this one) and the two counters by applying this card's CONTRIBUTION (+2 each) to
+  main's new baseline, confirmed by RUNNING that test rather than by arithmetic.
   carried through to the SHELL gates rather than stopped at the node tally.
   Browser-check surface gate and bc-surface-map both **0 FAILED**.
 - `render-frnav-2647.js` under real Playwright: **exit 0.**
@@ -139,4 +146,4 @@ No issues found.
 
 ### Final Ledger
 
-5 iterations, converged. 1 BLOCKER, 5 WARNING, 3 CONVENTION, 5 NIT, 2 STRENGTH. All addressed or explicitly accepted with reasons above. The FEATURE was correct from the first commit; every round after found defects in the instruments and the prose around it. Six claims about neighbouring code did not survive being re-opened, five caught by reviewers and one by reading a sentence back. Suite at convergence: exit 0, 5730 tests, 5730 pass, 0 fail, 0 skipped, both shell gates 0 FAILED. Browser check exit 0 under real Playwright with nine measured mutation controls.
+5 iterations, converged. 1 BLOCKER, 5 WARNING, 3 CONVENTION, 5 NIT, 2 STRENGTH. All addressed or explicitly accepted with reasons above. The FEATURE was correct from the first commit; every round after found defects in the instruments and the prose around it. Six claims about neighbouring code did not survive being re-opened, five caught by reviewers and one by reading a sentence back. Suite at convergence, re-measured after the rebase: exit 0, 5763 tests, 5763 pass, 0 fail, 0 skipped, both shell gates 0 FAILED. Browser check exit 0 under real Playwright with nine measured mutation controls.
