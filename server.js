@@ -2779,7 +2779,7 @@ const server = http.createServer((req, res) => {
         let imported = null;
         if (Array.isArray(body.importAgentsFrom) && body.importAgentsFrom.length > 0) {
           try { imported = worlds.importAgents(base, world, body.importAgentsFrom); }
-          catch (_e) { imported = { copied: 0, skipped: 0, unknownSources: 0, error: true }; }
+          catch (_e) { imported = { copied: 0, skipped: 0, failed: 0, unknownSources: 0, error: true }; }
         }
         sendJson(res, 200, imported ? { ok: true, world, imported } : { ok: true, world });
       })

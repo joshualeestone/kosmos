@@ -52,7 +52,7 @@ test('#2563 import copies profiles into the target and leaves the SOURCE untouch
   const before = { alice: profileBytes(base, src, 'alice'), bob: profileBytes(base, src, 'bob') };
 
   const r = worlds.importAgents(base, dst, [src.id]);
-  assert.deepEqual(r, { copied: 2, skipped: 0, unknownSources: 0 });
+  assert.deepEqual(r, { copied: 2, skipped: 0, failed: 0, unknownSources: 0 });
 
   // target now holds both, same CONTENT (the copy re-serializes and re-mints identity,
   // so it is not byte-identical, but the source had no id fields so content is equal)
@@ -76,7 +76,7 @@ test('#2563 collision is FIRST-WINS: an earlier source and a pre-existing target
 
   // s1 listed first, so its alice wins; s2's alice is skipped; s2's bob is new.
   const r = worlds.importAgents(base, dst, [s1.id, s2.id]);
-  assert.deepEqual(r, { copied: 2, skipped: 1, unknownSources: 0 });
+  assert.deepEqual(r, { copied: 2, skipped: 1, failed: 0, unknownSources: 0 });
   assert.equal(JSON.parse(profileBytes(base, dst, 'alice')).from, 'S1',
     'first source wins the collision -- s2 did NOT overwrite it');
   assert.equal(JSON.parse(profileBytes(base, dst, 'bob')).from, 'S2', 'the non-colliding agent copied');
@@ -85,9 +85,25 @@ test('#2563 collision is FIRST-WINS: an earlier source and a pre-existing target
   const dst2 = worlds.createWorld(base, 'D2');
   seedAgent(base, dst2, 'alice', { name: 'alice', from: 'D2-original' });
   const r2 = worlds.importAgents(base, dst2, [s1.id]);
-  assert.deepEqual(r2, { copied: 0, skipped: 1, unknownSources: 0 });
+  assert.deepEqual(r2, { copied: 0, skipped: 1, failed: 0, unknownSources: 0 });
   assert.equal(JSON.parse(profileBytes(base, dst2, 'alice')).from, 'D2-original',
     'a pre-existing target agent is not clobbered by an import');
+});
+
+test('#2563 an unparseable source profile is counted as FAILED (distinct from a collision skip), not fatal', () => {
+  const base = sandbox();
+  const src = worlds.createWorld(base, 'Source');
+  const dst = worlds.createWorld(base, 'Dest');
+  // one good agent + one corrupt profile file (invalid JSON)
+  seedAgent(base, src, 'good', { name: 'good' });
+  fs.mkdirSync(worlds.worldProfilesDir(base, src), { recursive: true });
+  fs.writeFileSync(path.join(worlds.worldProfilesDir(base, src), 'broken.json'), '{ this is not json');
+
+  const r = worlds.importAgents(base, dst, [src.id]);
+  assert.equal(r.copied, 1, 'the good agent still imports');
+  assert.equal(r.failed, 1, 'the corrupt profile is counted as FAILED');
+  assert.equal(r.skipped, 0, 'and NOT conflated with an intentional collision skip');
+  assert.equal(worlds.agentCount(base, dst), 1, 'a corrupt source profile does not orphan or block the world');
 });
 
 test('#2563 a duplicate source id is deduped, not counted twice as skipped', () => {
@@ -97,7 +113,7 @@ test('#2563 a duplicate source id is deduped, not counted twice as skipped', () 
   seedAgent(base, src, 'alice', { name: 'alice' });
   // the same source listed twice must not re-scan and count its own copy as skipped
   const r = worlds.importAgents(base, dst, [src.id, src.id]);
-  assert.deepEqual(r, { copied: 1, skipped: 0, unknownSources: 0 });
+  assert.deepEqual(r, { copied: 1, skipped: 0, failed: 0, unknownSources: 0 });
 });
 
 test('#2563 an unknown or traversing source id is skipped, not fatal', () => {
@@ -136,7 +152,7 @@ test('#2563 importing from the DEFAULT Kosmos (the common first-Kosmos case) wor
   seedAgent(base, worlds.defaultWorld(), 'dave', { name: 'dave', role: 'ops' });
   const dst = worlds.createWorld(base, 'Dest');
   const r = worlds.importAgents(base, dst, [worlds.DEFAULT_ID]);
-  assert.deepEqual(r, { copied: 1, skipped: 0, unknownSources: 0 });
+  assert.deepEqual(r, { copied: 1, skipped: 0, failed: 0, unknownSources: 0 });
   assert.equal(worlds.agentCount(base, dst), 1, 'the default Kosmos agent copied into the new one');
   assert.equal(worlds.agentCount(base, worlds.defaultWorld()), 1, 'the default Kosmos is unchanged');
 });
@@ -149,7 +165,7 @@ test('#2563 a source Kosmos with no agents (no profiles dir) contributes nothing
   assert.ok(!fs.existsSync(worlds.worldProfilesDir(base, empty)), 'a fresh Kosmos has no profiles dir');
   const dst = worlds.createWorld(base, 'Dest');
   const r = worlds.importAgents(base, dst, [empty.id]);
-  assert.deepEqual(r, { copied: 0, skipped: 0, unknownSources: 0 },
+  assert.deepEqual(r, { copied: 0, skipped: 0, failed: 0, unknownSources: 0 },
     'a source with no profiles dir is honored (a real world) and simply contributes nothing');
   assert.equal(worlds.agentCount(base, dst), 0);
 });
@@ -159,7 +175,7 @@ test('#2563 empty or absent importAgentsFrom copies nothing (backward compatible
   const src = worlds.createWorld(base, 'Source');
   const dst = worlds.createWorld(base, 'Dest');
   seedAgent(base, src, 'alice', { name: 'alice' });
-  assert.deepEqual(worlds.importAgents(base, dst, []), { copied: 0, skipped: 0, unknownSources: 0 });
-  assert.deepEqual(worlds.importAgents(base, dst, undefined), { copied: 0, skipped: 0, unknownSources: 0 });
+  assert.deepEqual(worlds.importAgents(base, dst, []), { copied: 0, skipped: 0, failed: 0, unknownSources: 0 });
+  assert.deepEqual(worlds.importAgents(base, dst, undefined), { copied: 0, skipped: 0, failed: 0, unknownSources: 0 });
   assert.equal(worlds.agentCount(base, dst), 0, 'nothing was copied');
 });

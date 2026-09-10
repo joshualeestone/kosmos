@@ -37,7 +37,7 @@ builds the ENGINE half to that contract. A "Kosmos" is internally a "world" (eng
   JSONs into the new world's `profiles/` dir. Sources untouched (copy, never move). Each copy
   re-mints identity: the source `id`/`idInstall` are stripped so the imported agent gets a fresh id
   on its first `store.writeProfile` (the decided restore convention, store.js:404). Response gains an
-  `imported` object `{ copied, skipped, unknownSources }` so the web slice can confirm.
+  `imported` object `{ copied, skipped, failed, unknownSources }` so the web slice can confirm.
 - Collision (the same profile filename from two sources, or already present in the target):
   FIRST-WINS (skip), deterministic, documented. Rationale: never silently overwrite an
   already-copied agent; the source order is the tiebreak.
@@ -67,7 +67,7 @@ builds the ENGINE half to that contract. A "Kosmos" is internally a "world" (eng
 - `importAgents(base, targetWorld, sourceWorldIds)`: for each valid source world (validated against
   the registry), copy each profile JSON that is not already present in the target (first-wins) into
   the target's profiles dir, via a temp-file+rename so a concurrent reader never sees a partial.
-  Returns `{ copied, skipped, unknownSources }`. Never touches a source file.
+  Returns `{ copied, skipped, failed, unknownSources }`. Never touches a source file.
 
 `server.js`:
 - New `GET /api/worlds/list` route -> `{ worlds: listWorlds(base).map(w => ({ id, name,

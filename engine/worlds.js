@@ -360,18 +360,23 @@ function worldProfilesDir(base, world) {
   return path.join(worldStoreRoot(base, world), 'profiles');
 }
 
+/* What counts as a profile file, named ONCE so agentCount (which reports the number)
+   and importAgents (which copies them) can never disagree about it. A profile is
+   `<safeKey(name)>.json`; the store writes a `<name>.json.tmp` mid-write, which
+   `.endsWith('.json')` correctly excludes (it ends with .tmp). */
+function isProfileFile(f) { return f.endsWith('.json'); }
+
 /*
- * How many agents a world holds: the count of profile JSONs under its store. A
- * profile is <safeKey(name)>.json; the store writes a `<name>.json.tmp` mid-write,
- * which `.endsWith('.json')` correctly excludes (it ends with .tmp). Read-only and
- * total: a missing or unreadable profiles dir is 0 agents, never a throw -- a world
- * that has never held an agent has no profiles dir, and that is zero, not an error.
+ * How many agents a world holds: the count of profile JSONs under its store.
+ * Read-only and total: a missing or unreadable profiles dir is 0 agents, never a
+ * throw -- a world that has never held an agent has no profiles dir, and that is
+ * zero, not an error.
  */
 function agentCount(base, world) {
   let entries;
   try { entries = fs.readdirSync(worldProfilesDir(base, world)); }
   catch { return 0; }
-  return entries.filter((f) => f.endsWith('.json')).length;
+  return entries.filter(isProfileFile).length;
 }
 
 /*
@@ -384,14 +389,18 @@ function agentCount(base, world) {
  *   - FIRST-WINS on collision: a profile whose filename already exists in the target
  *     (because the target already holds it, or an earlier source in the list supplied
  *     it) is left untouched and counted in `skipped`. Source order is the tiebreak.
+ *   - A profile that could not be copied (unparseable JSON, a read/write/rename error)
+ *     is counted in `failed`, kept DISTINCT from `skipped` so a caller can tell an
+ *     intentional collision-skip ("already there, by design") from a real failure and
+ *     surface them differently.
  *   - Each copy is temp-file + rename, so a concurrent reader of the target never
  *     sees a half-written profile.
- * Returns { copied, skipped, unknownSources }. Does NOT make the imported agents run
- * (named-world agents are out of v1 launch scope, worlds.js SCOPE note) -- it brings
- * the roster/config across; running follows the world-scoped-launch slice.
+ * Returns { copied, skipped, failed, unknownSources }. Does NOT make the imported
+ * agents run (named-world agents are out of v1 launch scope, worlds.js SCOPE note) --
+ * it brings the roster/config across; running follows the world-scoped-launch slice.
  */
 function importAgents(base, targetWorld, sourceWorldIds) {
-  const result = { copied: 0, skipped: 0, unknownSources: 0 };
+  const result = { copied: 0, skipped: 0, failed: 0, unknownSources: 0 };
   if (!targetWorld || !Array.isArray(sourceWorldIds) || sourceWorldIds.length === 0) return result;
   const reg = readRegistry(base);
   const targetDir = worldProfilesDir(base, targetWorld);
@@ -408,7 +417,7 @@ function importAgents(base, targetWorld, sourceWorldIds) {
     }
     const srcDir = worldProfilesDir(base, src);
     let files;
-    try { files = fs.readdirSync(srcDir).filter((f) => f.endsWith('.json')); }
+    try { files = fs.readdirSync(srcDir).filter(isProfileFile); }
     catch { files = []; } // a source with no profiles dir contributes nothing, not an error
     for (const file of files) {
       const dst = path.join(targetDir, file);
@@ -431,8 +440,9 @@ function importAgents(base, targetWorld, sourceWorldIds) {
       } catch (_e) {
         try { fs.unlinkSync(tmp); } catch (_u) { /* best effort */ }
         // A single unreadable/corrupt/unwritable profile must not abort the whole
-        // import or orphan the created world; skip it and keep going.
-        result.skipped += 1;
+        // import or orphan the created world; count it as FAILED (distinct from an
+        // intentional collision `skipped`) and keep going.
+        result.failed += 1;
       }
     }
   }
