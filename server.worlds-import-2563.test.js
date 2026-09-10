@@ -27,6 +27,13 @@ async function withBoard(fn) {
   // fresh module instances so the env above is the one they resolve from
   delete require.cache[require.resolve('./server.js')];
   delete require.cache[require.resolve('./engine/worlds.js')];
+  // Install a fixture PANE SOURCE before starting the server: pointing the tmux var
+  // at /bin/echo without one lets the board's pane reads fall through to the LIVE
+  // fleet (a real hazard the shipped meta-guard enforces). fleet.install sets the
+  // status pane-source seam to a fixture, so this board reads the fixture, never the
+  // machine's real agents. The fixture agent is unrelated to the worlds we assert on.
+  const fleet = require('./test-support/fleet');
+  fleet.install([fleet.agent('probe', { state: 'idle', displayName: 'Probe' })]);
   const srv = require('./server.js');
   const worlds = require('./engine/worlds.js');
   const server = await srv.start(0);
@@ -34,6 +41,7 @@ async function withBoard(fn) {
   try { await fn({ base, worlds, dataRoot: SANDBOX }); }
   finally {
     await new Promise((r) => server.close(r));
+    try { fleet.restore(); } catch { /* best effort: clear the pane-source seam */ }
     for (const k of Object.keys(process.env)) if (!(k in saved)) delete process.env[k];
     Object.assign(process.env, saved);
   }

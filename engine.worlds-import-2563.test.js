@@ -101,6 +101,19 @@ test('#2563 an unknown or traversing source id is skipped, not fatal', () => {
   assert.equal(worlds.agentCount(base, dst), 1);
 });
 
+test('#2563 a source Kosmos with no agents (no profiles dir) contributes nothing, not an error', () => {
+  const base = sandbox();
+  // createWorld makes the world's store leaf but NOT a profiles dir -- that appears
+  // only when the first agent is written, so a brand-new Kosmos has none.
+  const empty = worlds.createWorld(base, 'Empty');
+  assert.ok(!fs.existsSync(worlds.worldProfilesDir(base, empty)), 'a fresh Kosmos has no profiles dir');
+  const dst = worlds.createWorld(base, 'Dest');
+  const r = worlds.importAgents(base, dst, [empty.id]);
+  assert.deepEqual(r, { copied: 0, skipped: 0, unknownSources: 0 },
+    'a source with no profiles dir is honored (a real world) and simply contributes nothing');
+  assert.equal(worlds.agentCount(base, dst), 0);
+});
+
 test('#2563 empty or absent importAgentsFrom copies nothing (backward compatible create)', () => {
   const base = sandbox();
   const src = worlds.createWorld(base, 'Source');
