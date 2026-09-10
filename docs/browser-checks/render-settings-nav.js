@@ -114,13 +114,13 @@ function chk(ok, label, extra) {
       }
 
       // The switches resolved and are measurable from inside their sections.
-      /* 📌 tell-toggle and notify-toggle are BACK (#2020, Josh 2026-09-03: the
-         opt-out controls he removed 08-26, restored so telemetry "can be turned
-         off"). They live in the updates section beside auto-toggle. */
+      /* #2623: tell-toggle and notify-toggle (the telemetry opt-outs) were
+         DELETED (Josh, 2026-09-09, "invasion of privacy"), so 'updates' now
+         carries only auto-toggle. */
       /* #2054: lim-toggle moved into 'automation' (the Agents Talking tab was
          deleted). ah-toggle and hb-toggle are the Auto-save/Prompter sliders now
          living there too, so they get the same on-screen-with-a-position check. */
-      const WHERE = { 'lim-toggle': 'automation', 'ah-toggle': 'automation', 'hb-toggle': 'automation', 'tell-toggle': 'updates', 'notify-toggle': 'updates', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
+      const WHERE = { 'lim-toggle': 'automation', 'ah-toggle': 'automation', 'hb-toggle': 'automation', 'auto-toggle': 'updates', 'eng-toggle': 'advanced' };
       for (const id of Object.keys(WHERE)) {
         await page.click('#s-nav button[data-go="' + WHERE[id] + '"]');
         await page.waitForTimeout(150);
