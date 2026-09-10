@@ -2,13 +2,23 @@
 pre_challenge: true
 method: challenge-loop
 branch: openai-firstrun-sub-2621
-diff_hash: 68a6d3c78c797bc75f771885e06281e0d3d1b7c5fa036a6480891518d242512f
+diff_hash: e5cb045520abf8b7f7236991b2d7609e9c53528e92840277e9f96e097a424f3f
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-10T12:41:04Z
 iterations: 5
 converged: true
 ---
+
+> **Re-hashed after a MECHANICAL merge of origin/main (2026-09-10 ~07:45).** main had
+> advanced past this branch's base; the merge conflicts were only reconciliations of
+> shared-file bookkeeping — `browser-checks-reason-grep.test.js` emit-site counts
+> (80/49 + main's additions -> 88/56, verified by the test), the `tools/browser-checks.sh`
+> runner list (both sides' new checks kept), and `web.provider-collapse.test.js` /
+> README (auto-merged). `web/index.html` auto-merged with the feature code UNCHANGED
+> (frOpenaiSubAbort / frOpenaiShowPick / the picker+sub-step all intact, no markers).
+> The 5-iteration blind review below therefore still describes the delivered feature
+> code as-shipped; only the diff_hash is updated to match the merged diff.
 
 ## [CHALLENGE-LOOP] Summary
 
