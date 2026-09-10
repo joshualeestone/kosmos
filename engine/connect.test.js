@@ -1707,6 +1707,41 @@ driverTest('a persistently failing capture earns "window closed"; a blip does no
     'persistent capture failure went stuck for the wrong reason: ' + connect.state().because);
 });
 
+// #1922 + #2645 END-TO-END: `claude auth login` writes the credential and then EXITS,
+// which closes the pane. If the "Login successful" screen fell between ticks, the driver
+// used to report "the sign-in window closed" over a login that actually completed (Josh's
+// reauth-completes-but-not-seen). The capture-fail path must re-check LIVE and report
+// CONNECTED when the login landed. Start from a present-but-dead credential so #2645
+// launches the real login, then the login lands (live -> signed-in) and the pane closes.
+driverTest('#1922: a capture failure AFTER the login landed reports connected, not "window closed"', async () => {
+  const term = fakeTerminal();
+  let failCaptures = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    if (args[0] === 'capture-pane' && failCaptures) {
+      return { ok: false, stdout: '', stderr: "can't find pane: =kosmos-connect:" };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  // Present-but-dead at start (file CONNECTED, live signed-out) so #2645 launches the
+  // real login; `loggedIn` flips to true when the login lands mid-flow.
+  writeClaudeConfig(CONNECTED_CONFIG);
+  let loggedIn = false;
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn }), err: null }));
+  try {
+    await connect.start();
+    await until(() => String(connect.state().phase).startsWith('signin'), 5000);
+    // The login lands (claude wrote the token) and its process exits, closing the pane.
+    loggedIn = true;
+    failCaptures = true;
+    await until(() => connect.state().phase === connect.PHASE.CONNECTED, 15000);
+    assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+      'a session that closed AFTER the login landed must report connected, not "window closed": '
+      + connect.state().because);
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('a code is refused while nothing is asking for one', async () => {
   const refusedCold = connect.submitCode('abCD1234#efGH5678');
   assert.equal(refusedCold.ok, false);

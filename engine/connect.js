@@ -2142,6 +2142,26 @@ async function tickBody(owner) {
      */
     owner.captureFails = (owner.captureFails || 0) + 1;
     if (owner.captureFails > Math.max(3, Math.ceil(3000 / TICK_MS))) {
+      /* #1922: A SESSION THAT CLOSED AFTER THE LOGIN LANDED IS A SUCCESS, NOT A
+         FAILURE. `claude auth login` writes the credential and THEN EXITS, which
+         closes the pane -- so if the brief "Login successful" screen fell between
+         ticks, the on-screen evidence is gone while the login is real, and this
+         path used to report "the sign-in window closed" over a login that
+         actually completed (Josh's reauth-completes-but-not-seen symptom). Before
+         declaring the window closed, confirm LIVE (the authoritative "did Anthropic
+         accept it"): a Kosmos-driven login wrote its token under THIS process, so
+         this process's checkLive can read it. This mirrors the "config outranks the
+         screen" check on the unknown-screen path below -- but keyed on the LIVE
+         check, not the file, so a stale present-but-dead credential (checkLive NONE)
+         is never mistaken for success, and a token written by another responsible
+         process (a hand-run Terminal login) that this process cannot read stays
+         honestly "not finished" rather than a false connected. */
+      const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
+      if (driver !== owner) return;
+      if (live.state === subscription.STATE.CONNECTED) {
+        finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
+        return;
+      }
       becomeStuck(owner, 'the sign-in window closed before Claude finished',
         tailOf(cap.stderr || '') || 'it is no longer there');
     }
