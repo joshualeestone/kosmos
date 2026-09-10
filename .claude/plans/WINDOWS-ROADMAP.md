@@ -16,7 +16,39 @@ first run now names the real installer; 4: the board comes back at logon).
 lying "Up to date"). **One is the critical path** (1: you cannot message a
 Windows agent) and its substrate is built and measured — what remains is wiring.
 
-## ✅ 7c-2 IS DONE (2026-09-10). The streaming agent is the LIVE path.
+## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
+
+    createAgent('winstream-1') ......... created, 849ms, all four steps ok
+    task ............................... Kosmos\agent-winstream-1, Status RUNNING,
+                                         At logon time, Run As User joshu
+    task command line .................. ...\Kosmos\runtime\node.exe
+                                         ...\Kosmos\runtime\supervisor-boot.js
+                                         "winstream-1" "...\workers\winstream-1"
+                                         "-" "-" "claude"
+                                         "C:\Users\joshu\.local\bin\claude"   <- arg six
+    supervisor ......................... pid 2300, run FROM THE ANCHOR
+    agent .............................. pid 16268, claude.exe,
+                                         PARENT 2300 (the supervisor holds it)
+    agent command line ................. --dangerously-skip-permissions -p
+                                         --input-format stream-json
+                                         --output-format stream-json --verbose
+                                         --session-id bb8b7cd2-...
+    claude agents --json ............... lists it, kind "interactive", under the
+                                         session id Kosmos recorded
+
+🔑 THAT IS THE SLICE, PROVEN RATHER THAN ARGUED. A person pressing the button now
+gets a STREAMING agent whose stdin is held by a supervisor — the shape that can be
+typed to. What is missing is only the road from the board to that supervisor.
+
+📌 AND ONE FIXTURE FACT WORTH NOT REDISCOVERING: `createAgent` on win32 refuses
+outside the board with "we could not check which agents are already running". That
+is a FOURTH tmux gate (`status.paneRoster()` throws when tmux cannot be asked), and
+it is not a defect — `server.js` installs `win32roster.make()` behind
+`status.setPaneSource` at boot, which is what makes the roster readable. Any
+harness driving create by hand has to install that seam and `win32capture` too, or
+it dead-ends before reaching any of the win32 code it meant to test.
+
+## What 7c-2 changed
 
     engine/win32supervisor.js  main() -> superviseStreaming()   the task runs THIS
     engine/create.js           win32StartViaJob()               the ONLY launch path
