@@ -40329,8 +40329,21 @@ async function frRecheckPress(btn) {
   try {
     await frRecheckGates();
   } finally {
-    if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
-    if (btn && mine === FR_RECHECK_PRESS) btn.disabled = false;
+    /* 🛑 THE GUARD COVERS BOTH LINES, and covering only one was worse than
+       covering neither. A stale press blanked the shared "Checking…" text while
+       a NEWER press was still in flight and still (correctly) holding the button
+       disabled, so the screen said nothing was happening next to a greyed-out
+       control. Measured before the fix: msg "" with disabled true.
+       ⭐ A half-guarded `finally` READS as guarded, which is the trap: the token
+       on the line below made the whole block look considered.
+       📌 The sibling `frRecheck` has this same unguarded-clear shape on its own
+       message line. Left alone deliberately: it is pre-existing, on another
+       screen, and not what this card is about. Noted so it is not mistaken for
+       having been checked and approved. */
+    if (mine === FR_RECHECK_PRESS) {
+      if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
+      if (btn) btn.disabled = false;
+    }
   }
 }
 
