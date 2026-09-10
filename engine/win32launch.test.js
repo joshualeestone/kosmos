@@ -318,6 +318,50 @@ test('#570 a RESUME whose spawn throws retires the token it minted, and keeps th
   assert.equal(win32sessions.read()['a-session-we-already-own-4'].name, 'streamer-4', 'the agent\'s own row survives a failed restart');
 });
 
+test('#570 a RESUME whose mint fails still starts, token-less, and SAYS why', () => {
+  /* The crash-restart is the case this branch exists for. A mint fault must not
+     cost the relaunch, and must not pass silently either. The fault is scoped to
+     ONE agent: a directory where its token file belongs (the path comes from the
+     module, as win32create.test.js explains). */
+  const store = require('./store');
+  const blocked = path.join(sendertoken.DIR, store.safeKey('streamer-5') + '.json');
+  fs.mkdirSync(blocked, { recursive: true });
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ opts }); return { pid: 558, stdin: {}, unref() {} }; });
+  try {
+    const r = launcher.launchStreaming({
+      name: 'streamer-5', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+      resumeSessionId: 'a-session-we-already-own-5',
+    });
+    assert.equal(r.ok, true, 'a failed mint is not a failed relaunch');
+    assert.ok(typeof r.tokenBecause === 'string' && r.tokenBecause.length > 0, 'the degradation is named');
+    assert.equal(r.instance, null, 'there is no run token to retire later');
+    assert.equal(calls[0].opts.env.KOSMOS_AGENT_TOKEN, undefined, 'and no empty token rides into the agent');
+  } finally { fs.rmSync(blocked, { recursive: true, force: true }); }
+});
+
+test('#570 a RESUME whose spawn throws AND whose retire fails says so in its refusal', () => {
+  /* The token was minted, then the spawn threw, and the retire could not run: the
+     token is still live, and the task log must say so rather than "could not start
+     it" alone. The retire is made to fail by putting a directory where the token
+     file was, AFTER the mint wrote it. */
+  const store = require('./store');
+  const file = path.join(sendertoken.DIR, store.safeKey('streamer-6') + '.json');
+  launcher.setSpawn(() => {
+    fs.rmSync(file, { force: true });
+    fs.mkdirSync(file, { recursive: true });
+    const e = new Error('nope'); e.code = 'ENOENT'; throw e;
+  });
+  try {
+    const r = launcher.launchStreaming({
+      name: 'streamer-6', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+      resumeSessionId: 'a-session-we-already-own-6',
+    });
+    assert.equal(r.ok, false);
+    assert.match(r.because, /^we could not start it \(ENOENT\); .+/, 'the refusal names the token it could not retire');
+  } finally { fs.rmSync(file, { recursive: true, force: true }); }
+});
+
 test('#570 7c a message is ONE json line, in the shape stream-json reads', () => {
   const line = launcher.messageLine('hello agent');
   assert.ok(line.endsWith('\n'), 'newline-delimited, or the reader never sees it');

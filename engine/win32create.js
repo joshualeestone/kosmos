@@ -126,8 +126,9 @@ function mintForRun(name) {
 }
 
 /**
- * Retire ONE run's credential. Shared by `abandon` (a fresh start that never
- * started) and a resume whose spawn failed, so the retire-never-revoke rule below
+ * Retire ONE run's credential: the supervisor's death handler at the end of every
+ * run, `abandon` for a fresh start that never started, and the launcher for a
+ * resume whose spawn failed. One function, so the retire-never-revoke rule below
  * lives in one place.
  */
 function retireRun(name, instance) {

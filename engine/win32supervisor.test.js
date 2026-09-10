@@ -476,6 +476,28 @@ test('#570 a run that got NO token says so when it starts, since the board will 
   h.stop();
 });
 
+test('#570 a RESUMED run that got no token says so too -- the crash-restart is the case this branch fixes', () => {
+  const events = [];
+  const kids = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tokenless-2', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    onEvent: (e) => events.push(e),
+    launch: (spec) => {
+      n += 1; const c = fakeChild(); kids.push(c);
+      return { ok: true, sessionId: 's', child: c, resumed: Boolean(spec.resumeSessionId),
+        tokenBecause: n === 1 ? null : 'the token store is busy' };
+    },
+  });
+  assert.ok(!('because' in events.find((e) => e.action === 'started')), 'a run WITH a token says nothing extra');
+  kids[0].die(1);                                   // crash: comes back as a resume, with no token
+  const resumed = events.find((e) => e.action === 'resumed');
+  assert.ok(resumed, 'the crash came back as a resume');
+  assert.match(resumed.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
 test('#570 a run that was launched with no token retires nothing', () => {
   const kids = [];
   const retired = [];
