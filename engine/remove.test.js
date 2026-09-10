@@ -55,6 +55,14 @@ const fleet = require('../test-support/fleet');
  * are trying to exercise. The path only has to be a real, runnable file — it is
  * never spawned, because `create.setRunner` is stubbed for every fixture.
  */
+/* 📌 AND EVERY createAgent BELOW HAS TO STATE IT. Two of the three did not, and
+   on a Windows host they therefore inherited win32 and ran the real substrate --
+   which, until 7c-2, "succeeded" by spawning `cmd /c start` on a stand-in binary
+   and never checking that an agent came out of it. The moment the win32 create
+   started verifying its own result, those two went red: the fixture had been
+   asserting a launchd world through the Windows arm, and getting away with it
+   because the Windows arm did not look. Named here because a THIRD such call is
+   the easy mistake, and it fails in a way that reads as a product bug. */
 const MAC = 'darwin';
 const HOST_BIN = process.platform === 'win32' ? 'C:/Windows/System32/cmd.exe' : '/bin/echo';
 const BINS = { claudeBin: HOST_BIN, tmuxBin: HOST_BIN };
@@ -713,7 +721,7 @@ test('a removed name cannot be created into invisibility', () => {
   create.setDryRun(false);
   status.setPaneSource(() => '');
   try {
-    const again = create.createAgent({ ...BINS, name, role: 'pm' });
+    const again = create.createAgent({ ...BINS, name, role: 'pm', platform: MAC });
     assert.equal(again.outcome, create.OUTCOME.REFUSED,
       'a new agent was created under a removed name, so it exists and the board will never show it');
     assert.match(again.because, /removed list/,
@@ -732,7 +740,7 @@ test('a removed name cannot be created into invisibility', () => {
   create.setDryRun(false);
   status.setPaneSource(() => '');
   try {
-    const after = create.createAgent({ ...BINS, name: 'reused-name-2', role: 'pm' });
+    const after = create.createAgent({ ...BINS, name: 'reused-name-2', role: 'pm', platform: MAC });
     assert.equal(after.outcome, create.OUTCOME.CREATED, after.because);
   } finally {
     create.setRunner(null);

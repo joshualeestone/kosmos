@@ -16,23 +16,57 @@ first run now names the real installer; 4: the board comes back at logon).
 lying "Up to date"). **One is the critical path** (1: you cannot message a
 Windows agent) and its substrate is built and measured — what remains is wiring.
 
-## Do this next (slice 7c-2)
+## ✅ 7c-2 IS DONE (2026-09-10). The streaming agent is the LIVE path.
 
-Both halves of the delivery substrate exist, are tested, and are DELIBERATELY
-UNWIRED:
+    engine/win32supervisor.js  main() -> superviseStreaming()   the task runs THIS
+    engine/create.js           win32StartViaJob()               the ONLY launch path
 
-    engine/win32launch.js      launchStreaming()      spawns the agent WITH PIPES
-    engine/win32supervisor.js  superviseStreaming()   HOLDS them, and has send()
+What changed, and the four things worth not re-deriving:
 
-7c-2 is to make them the live path:
+1. **The task supervises the streaming agent.** `main()` called `supervise()`,
+   which watches a DETACHED agent nobody holds the stdin of -- structurally the
+   one shape that can never be messaged. It now calls `superviseStreaming`, whose
+   child is ours and whose `handle.send()` is what 7c-3 will reach.
+2. **`create.js` no longer spawns an agent at all.** It registers the job and
+   RUNS it (`win32StartViaJob`), so what starts now and what starts at logon are
+   one command line and cannot drift. Two launch paths became one.
+3. **A failed registration is now a failed start**, and that trade is deliberate:
+   the old fallback produced the unmessageable detached agent. Refusing with the
+   reason beats shipping a healthy-looking row that answers nobody.
+4. **A start is verified, because `schtasks /Run` lies.** It reports SUCCESS for a
+   run that started nothing (measured, §3c). The evidence is the ownership record
+   the supervisor writes BEFORE it spawns -- `win32create.awaitSession`, watching
+   for a row that was not there before. The roster would be the same answer ~5s
+   later, which would make every create feel broken.
 
-1. `engine/win32job.js` registers a task that runs the anchored shim, which calls
-   `win32supervisor.main()` -> `supervise()`. Point that at `superviseStreaming`.
-2. `engine/create.js`'s win32 arm launches the AGENT directly (7a). It should
-   start the SUPERVISOR instead, which collapses today's two launch paths into
-   one. `installJob`'s never-overwrite guard already refuses a second launch.
-3. Then 7c-3 (a local board -> supervisor channel) and 7c-4 (`chat.js`'s win32
-   arm on it). §3 has the sizing.
+⚠️ AND TWO GUARDS WENT IN WITH IT, both for the duplicate-agent hazard:
+`superviseStreaming` now asks who is already live under this name before it starts
+anything (an unheld session, or its own id still listed, makes it WAIT -- it does
+not kill and it does not resume on top of itself); and the resolved runner path
+now rides on the task's command line as argument six, because the task path had
+silently been falling back to a bare `claude` on whatever PATH the logon had.
+
+📌 AND A TEST SUITE WAS REGISTERING REAL SCHEDULED TASKS ON THIS BOX.
+`engine/create.test.js` never states its platform, so on Windows every
+`createAgent` in it took the win32 arm for real -- `Kosmos\agent-ct-*` were found
+registered on the developer's machine. Harmless while the arm only wrote a task;
+with 7c-2 the same path would have `/Run` them and start real agents. The win32
+seams are now stubbed at the top of that file. `remove.test.js` had the same hole
+in two calls and now states `platform: MAC`, which is what the file already
+claimed to do.
+
+## Do this next (slice 7c-3)
+
+The channel. The supervisor holds `handle.send()`; the BOARD is a different
+process and has no way to call it.
+
+1. A local channel per agent -- a named pipe (`\\.\pipe\kosmos-agent-<name>`) is
+   the Windows analog of the unix socket, and `win32supervisor.main()` is where it
+   is served, because that is the process holding the stdin.
+2. Agent-token auth on it, and honest failure when the supervisor is down: the
+   `could_not` contract `chat.js` already has, not a silent drop.
+3. Then 7c-4 (`chat.js`'s win32 arm on that channel, keeping verify-before-send)
+   and 7c-5 (re-run R1–R8, and R3 for the first time). §3 has the sizing.
 
 ⚠️ DO NOT re-derive the three measurements in §3 — a streaming session stays
 alive across turns, is still listed by `claude agents --json` as
@@ -47,11 +81,14 @@ build:
 
     C:\Users\joshu\build-out\extract\runtime\node.exe --test engine/win32anchor.test.js engine/win32job.test.js engine/win32supervisor.test.js engine/win32launch.test.js engine/win32roster.test.js engine/win32capture.test.js engine/win32create.test.js engine/win32live.test.js engine/win32stop.test.js engine/win32board.test.js engine/boardrestart.win32-570.test.js engine/jobexists.win32-570.test.js engine/create.win32-launch-570.test.js engine/remove.win32-job-570.test.js engine/remove.test.js engine/platform.test.js engine/platform-gate-wiring.test.js engine.reachable.test.js
 
-Expect all green. Suites with KNOWN pre-existing Windows failures, which are NOT
-regressions — check the count before blaming a change:
+Expect all green — 266 as of 2026-09-10. Suites with KNOWN pre-existing Windows
+failures, which are NOT regressions — check the count (pass/fail) before blaming a
+change. Every one re-measured on this box 2026-09-10, unchanged by 7c-2:
 
     create.test.js 61/100   register 13/9   delete-leftover 8/1   status 187/1
     discover 17/1   connect 51/12   machine 41/25   server.connect 38/9
+
+(`server.connect.test.js` is at the REPO ROOT, not under `engine/`.)
 
 ## The working rules this lane earned the hard way
 
@@ -195,11 +232,12 @@ resume-not-replace, and the property it protected is preserved rather than trade
 
 | Slice | Work | Estimate |
 |---|---|---|
-| 7c-1 | agent runs as a STREAMING CHILD: `-p --input-format stream-json` with pipes, held by the supervisor. Create starts the SUPERVISOR rather than the agent, which collapses today's two launch paths into one | 1–2 sessions |
-| 7c-2 | board → supervisor channel: a local named pipe per agent, agent-token auth, honest failure when the supervisor is down | ~1 session |
-| 7c-3 | `chat.js` win32 arm on that channel, keeping verify-before-send and the `could_not` contract | ~½ session |
-| 7c-4 | state + transcript from the EVENT STREAM (see §4) | 1–2 sessions |
-| 7c-5 | re-run R1–R8, and R3 for the first time | ½ session + a reboot |
+| 7c-1 | ✅ **DONE** — the substrate: `win32launch.launchStreaming()` spawns `-p --input-format stream-json` WITH PIPES; `win32supervisor.superviseStreaming()` holds them and has `send()`. Built and tested unwired first, deliberately | — |
+| 7c-2 | ✅ **DONE 2026-09-10** — WIRED LIVE. The task's `main()` supervises the streaming agent, and `create.js` starts the agent by RUNNING ITS JOB rather than spawning one, collapsing two launch paths into one. See the RESUME block for the four facts | — |
+| 7c-3 | board → supervisor channel: a local named pipe per agent, agent-token auth, honest failure when the supervisor is down | ~1 session |
+| 7c-4 | `chat.js` win32 arm on that channel, keeping verify-before-send and the `could_not` contract | ~½ session |
+| 7c-5 | state + transcript from the EVENT STREAM (see §4) | 1–2 sessions |
+| 7c-6 | re-run R1–R8, and R3 for the first time | ½ session + a reboot |
 
 **Estimate: 4–6 working sessions**, plus the near-certainty of 2–4 new defects
 that only a real box surfaces. That rate is not pessimism, it is the record:

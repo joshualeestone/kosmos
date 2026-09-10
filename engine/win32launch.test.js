@@ -291,3 +291,32 @@ test('#570 7c the streaming launch refuses the same things the detached one does
   assert.match(launcher.launchStreaming({ name: 'x', cwd: SANDBOX, platform: 'darwin' }).because, /launchd/);
   assert.match(launcher.launchStreaming({ name: 'x', cwd: 'work/here', platform: 'win32' }).because, /absolute/);
 });
+
+test('#570 7c-2 the resolved runner path is a HINT, and a stale one falls back to PATH', () => {
+  /* 🛑 WHY THIS EXISTS. Since 7c-2 the launcher is a Scheduled Task, and the task
+     carries the path `create.js` resolved on the day the agent was made. That task
+     is still firing months later -- across a Claude Code update, a reinstall, or
+     somebody moving where they keep it. A stranded path spawns ENOENT forever, and
+     the symptom is a supervisor throttle-looping into a task log nobody reads.
+     Neither half is enough alone: the hint beats a logon PATH that does not carry
+     %USERPROFILE%\.local\bin, and PATH beats a hint that has gone stale. */
+  const spawns = [];
+  launcher.setSpawn((bin, argv) => { spawns.push(bin); return { pid: 1, stdin: {}, unref() {} }; });
+
+  const here = process.execPath;                       // exists on every box
+  const gone = path.join(SANDBOX, 'no', 'such', 'claude.exe');
+
+  launcher.launchStreaming({ name: 'hint-1', cwd: SANDBOX, claudeBin: here, platform: 'win32' });
+  assert.equal(spawns[0], here, 'a path that is really there is the one we resolved -- use it');
+
+  launcher.launchStreaming({ name: 'hint-2', cwd: SANDBOX, claudeBin: gone, platform: 'win32' });
+  assert.equal(spawns[1], 'claude', 'a path that has gone must not strand the agent');
+
+  /* 📌 AND THE FALLBACK SPELLING FOLLOWS THE RUNNER. `claudeBin` is the parameter's
+     name for historical reasons; its VALUE is whichever runner this agent uses, so
+     falling back to `claude` for a codex agent would spawn the wrong program on the
+     one path where the hint is gone. */
+  launcher.launchStreaming({ name: 'hint-3', cwd: SANDBOX, claudeBin: gone, runner: 'codex', platform: 'win32' });
+  assert.equal(spawns[2], 'codex');
+  launcher.setSpawn(null);
+});

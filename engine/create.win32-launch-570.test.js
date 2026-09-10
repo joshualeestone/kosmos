@@ -30,6 +30,14 @@ fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify({ pro
 const create = require('./create');
 const launcher = require('./win32launch');
 const job = require('./win32job');
+const win32create = require('./win32create');
+const win32sessions = require('./win32sessions');
+
+/* 🛑 NEVER ACTUALLY SLEEP. Since 7c-2 the win32 create waits for the SUPERVISOR
+   to write its ownership record -- the launch happens in another process now, so
+   this is how create sees its result. Every arm that drives a failure would
+   otherwise serve the real eight-second timeout, one after another. */
+win32create.setPark(() => {});
 
 /**
  * 🛑 BOTH JOB SEAMS, STUBBED FOR EVERY win32 ARM, and this is not tidiness. With
@@ -40,11 +48,33 @@ const job = require('./win32job');
  * quietly different sentence -- which is exactly what it did before this stub
  * existed.
  */
-function stubJob() {
+let sessionSeq = 0;
+/**
+ * Stand in for the supervisor the task would have started.
+ *
+ * 🔑 THE ONLY EVIDENCE A win32 CREATE HAS (7c-2). `create.js` no longer spawns
+ * the agent: it registers the job and runs it, and the supervisor -- in another
+ * process -- writes the ownership record before it spawns. So a stub that only
+ * answered SUCCESS to `/Run` would be describing a machine where the task starts
+ * nothing, which is exactly the machine `schtasks` lies about (it reports success
+ * for a run that started nothing; measured, see engine/win32board.js). Writing the
+ * row here is what makes this fixture a machine where the job WORKED.
+ */
+function supervisorStarts(taskArg) {
+  const name = String(taskArg || '').replace(/^.*\\agent-/, '');
+  if (!name) return;
+  win32sessions.record('sess-' + (++sessionSeq) + '-0000', { name, runner: 'claude' });
+}
+
+function stubJob(opts) {
+  const o = opts || {};
   const calls = [];
   job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
   job.setRunner((args) => {
     calls.push(args);
+    /* `/Run` is where a real supervisor comes up, so it is where the fixture's
+       one does too -- unless the arm is about a run that started nothing. */
+    if (args && args[0] === '/Run' && o.startsNothing !== true) supervisorStarts(args[2]);
     /* ⚠️ A QUERY MUST ANSWER "NO SUCH TASK", NOT BLANKET SUCCESS. `installJob`
        gained a never-overwrite guard: it asks `presence()` first and refuses an
        agent that already has a job. A stub that answers ok to EVERY schtasks call
@@ -70,6 +100,7 @@ test.after(() => {
   job.setRunner(null);
   job.setAnchorer(null);
   create.setRunner(null);
+  win32create.setPark(null);
   try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ }
 });
 
@@ -170,7 +201,13 @@ test('#570 asked about win32, installJob launches through the substrate and NEVE
 
   assert.equal(r.ok, true, r.because || '');
   assert.equal(r.started, true);
-  assert.equal(calls.length, 1, 'the agent was spawned through win32launch');
+  /* 🛑 THE ONE LAUNCH PATH (7c-2). create.js used to spawn the agent ITSELF and
+     then register a job that would start a different one at logon -- two paths,
+     and the one a person got by pressing the button was the detached shape nobody
+     holds the stdin of, which is why a Windows agent could not be messaged. The
+     job is the launcher now, so create spawns NOTHING directly. */
+  assert.equal(calls.length, 0, 'create does not spawn the agent itself any more');
+  assert.ok(tasks.some((a) => a[0] === '/Run'), 'it started the agent by RUNNING its job');
 
   /* 🛑 THE LOAD-BEARING NEGATIVE. The Mac path shells `launchctl enable` and
      `launchctl bootstrap`; on Windows there is no launchd and those calls would
@@ -199,6 +236,20 @@ test('#570 asked about win32, installJob launches through the substrate and NEVE
   assert.ok(!created[0].includes('ONLOGON'), '/SC ONLOGON requires elevation and must not come back');
   assert.equal(fs.existsSync(path.join(SANDBOX, 'Library')), false,
     'and no LaunchAgents/plist tree was created');
+
+  /* ⚠️ REGISTER, THEN RUN, and the order is not interchangeable: `/Run` names a
+     task, so running before registering runs nothing and reports success doing it. */
+  const verbs = tasks.map((a) => a[0]);
+  assert.ok(verbs.indexOf('/Create') < verbs.indexOf('/Run'),
+    'the job has to exist before it can be run');
+
+  /* 🔑 AND THE RESOLVED RUNNER RIDES INTO THE TASK. Everything the agent needs has
+     to survive on the task's command line now; the resolved path did not, and a
+     task-started agent fell back to a bare `claude` on whatever PATH the logon had. */
+  assert.ok(created[0].join(' ').includes('/XML'), 'registered from XML');
+  const xml = job.taskXml({ name: 'winjob', cwd: 'C:\\w', claudeBin: REAL_BIN }, { USERNAME: 'u' });
+  assert.ok(xml.includes(REAL_BIN.replace(/&/g, '&amp;')),
+    'the runner Kosmos resolved is carried, not assumed off PATH');
 });
 
 test('#570 the same call on darwin still takes the launchd path', () => {
@@ -242,23 +293,35 @@ test('#570 DRY_RUN spawns nothing on win32', () => {
   assert.equal(calls.length, 0, 'a dry run must not start a real agent');
 });
 
-test('#570 a refused launch is reported, not swallowed into a started agent', () => {
-  launcher.setSpawn(() => { const e = new Error('nope'); e.code = 'ENOENT'; throw e; });
+test('#570 7c-2 a job that RAN and started nothing is a failed create, not a quiet success', () => {
+  /* 🛑 THE MEASURED LIE THIS ARM EXISTS FOR. `schtasks /Run` reports SUCCESS
+     whether or not the task's action actually started -- measured on this box
+     against an already-running task (engine/win32board.js). So its exit code is
+     not evidence, and a create that believed it would hand somebody an agent that
+     does not exist. The evidence is the ownership record the supervisor writes
+     before it spawns; this fixture is a machine where the run started nothing. */
+  const tasks = stubJob({ startsNothing: true });
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
-  agentFolder('failing');
-  const r = create.installJob('failing', { platform: 'win32', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
-  assert.equal(r.ok, false, 'a spawn that threw must not read as an installed job');
-  assert.match(String(r.because), /could not start it/);
+  agentFolder('ranothing');
+  const r = create.installJob('ranothing', { platform: 'win32', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
+
+  assert.equal(r.ok, false, 'schtasks said SUCCESS and no agent started -- that is not a created agent');
+  assert.match(String(r.because), /no agent had started/);
+  /* ⚠️ AND IT TAKES ITS OWN REGISTRATION BACK. installJob has no rollback behind
+     it, so a task left here would start an agent at the next logon that the person
+     was just told does not exist -- the undisclosed-install defect, through the
+     adoption path. */
+  assert.ok(tasks.some((a) => a[0] === '/Delete'), 'the job it registered was removed again');
+  assert.ok(tasks.some((a) => a[0] === '/End'), 'and anything it started was ended first');
 });
 
-test('#570 the win32 sentence promises login persistence ONLY when the job was registered', () => {
-  /* 🔑 THE SENTENCE TRACKS THE TRUTH PER AGENT. This test used to assert the
-     opposite -- that no win32 create may say "login" -- and it was right while
-     keep-alive was a later slice. It has landed (win32job + win32supervisor), so
-     the claim is now earned. What must never happen is the claim being made when
-     the registration FAILED, which is the only version of this that a person
-     discovers by rebooting and finding an empty board. */
+test('#570 7c-2 the sentence promises login persistence, because it is now the SAME act', () => {
+  /* 🔑 THE PROMISE AND THE FACT ARE NO LONGER SEPARABLE. This used to assert the
+     asymmetry -- an agent could be running while its job was not, so the sentence
+     tracked the second half per agent. Registering the job is HOW the agent starts
+     now, so there is no state where one is true and the other is not, and the
+     sentence can be flat. */
   const calls = recordingSpawn();
   stubJob();
   create.setRunner(() => ({ ok: true }));
@@ -266,36 +329,40 @@ test('#570 the win32 sentence promises login persistence ONLY when the job was r
   agentFolder('sentence');
   const r = create.installJob('sentence', { platform: 'win32', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
   assert.equal(r.ok, true, r.because || '');
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 0, 'nothing was spawned directly');
   assert.equal(r.atLogin, true);
   assert.match(String(r.because), /login/, 'the durability we now deliver is stated');
 });
 
-test('#570 A FAILED JOB DOES NOT FAIL A LAUNCHED AGENT -- it changes the sentence', () => {
-  /* 🛑 The asymmetry, pinned. By the time the job is registered the agent is
-     ALREADY RUNNING. Returning ok:false would tell somebody their agent was not
-     created while it sits there working, and the only route back would be the
-     manual recipe this product exists to spare them. So the launch decides `ok`
-     and the job decides only what we PROMISE. */
+test('#570 7c-2 A FAILED JOB IS NOW A FAILED START -- and it says so instead of half-succeeding', () => {
+  /* 🛑 THE TRADE, PINNED SO IT CANNOT BE UNDONE BY ACCIDENT. Before 7c-2 a box
+     where the job could not be registered still got a running agent, and the
+     sentence said it would not survive a restart. That agent was the DETACHED
+     shape -- nobody holds its stdin, so nobody can ever type to it. Falling back
+     to it would ship exactly the failure this slice removes: a healthy-looking row
+     that silently answers nobody. So the refusal is deliberate, and what must
+     never happen is a create that claims an agent it did not start. */
   const calls = recordingSpawn();
   job.setAnchorer(() => ({ ok: false, because: 'the anchor could not be written' }));
   /* The /Query must answer not-found, or installJob's never-overwrite guard
      refuses this fresh agent as one that already has a job -- see stubJob. */
-  job.setRunner((args) => (args && args[0] === '/Query'
-    ? { ok: false, out: 'ERROR: The system cannot find the file specified.' }
-    : { ok: true, out: '' }));
+  const tasks = [];
+  job.setRunner((args) => {
+    tasks.push(args);
+    return args && args[0] === '/Query'
+      ? { ok: false, out: 'ERROR: The system cannot find the file specified.' }
+      : { ok: true, out: '' };
+  });
   create.setRunner(() => ({ ok: true }));
   create.setDryRun(false);
   agentFolder('nojob');
   const r = create.installJob('nojob', { platform: 'win32', claudeBin: REAL_BIN, tmuxBin: REAL_BIN });
 
-  assert.equal(r.ok, true, 'the agent launched, so the create succeeded');
-  assert.equal(r.started, true);
-  assert.equal(calls.length, 1, 'and it really was launched');
-  assert.equal(r.atLogin, false);
-  assert.doesNotMatch(String(r.because), /it will start again at every login/,
-    'a durability we did not get must never be claimed');
-  assert.match(String(r.because), /not come back by itself/, 'and the shortfall is said plainly');
+  assert.equal(r.ok, false, 'no job means no agent, and the answer says so');
+  assert.match(String(r.because), /anchor could not be written/, 'with the reason a person can act on');
+  assert.equal(calls.length, 0, 'and nothing was started behind the refusal');
+  assert.deepEqual(tasks.filter((a) => a[0] === '/Create'), [],
+    'a registration that could not be anchored is never attempted');
 });
 
 test('#570 7d the launch does NOT hand back a pid that is not the agent', () => {

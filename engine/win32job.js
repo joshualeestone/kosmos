@@ -104,8 +104,15 @@ function taskExec(spec) {
   const node = s.node || process.execPath;
   const supervisor = s.supervisor || path.resolve(__dirname, 'win32supervisor.js');
   /* Positional and append-only; see specFromArgv. A missing middle argument is
-     '-' rather than omitted, so position never shifts. */
-  const argv = [s.name, s.cwd, s.model || '-', s.configDir || '-', s.runner || 'claude'];
+     '-' rather than omitted, so position never shifts.
+
+     🔑 `claudeBin` IS THE SIXTH AND IT WAS ADDED WITH 7c-2. Once the task became
+     the only launcher, everything the agent needs has to survive on this line --
+     and the runner's RESOLVED path did not, so a task-started agent fell back to
+     a bare `claude` and quietly depended on the logon PATH. `win32launch.binFor`
+     treats it as a hint rather than a contract, so a path that goes stale between
+     now and some logon months from now falls back instead of stranding the agent. */
+  const argv = [s.name, s.cwd, s.model || '-', s.configDir || '-', s.runner || 'claude', s.claudeBin || '-'];
   return {
     command: node,
     args: ['"' + supervisor + '"'].concat(argv.map((a) => '"' + String(a) + '"')).join(' '),

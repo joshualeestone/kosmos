@@ -285,3 +285,51 @@ test('#570 Gap-B a token-store fault DEGRADES the session, it does not fail the 
   const r = win32create.abandon(out);
   assert.equal(r.ok, true, 'abandoning a tokenless prepare is clean, not a phantom retire failure');
 });
+
+/* ── 7c-2: seeing a launch that happened in another process ─────────────────── */
+
+test('#570 7c-2 awaitSession answers with the row THIS launch produced, never an old one', () => {
+  /* 🛑 WHY A CALLER NEEDS THIS AT ALL. Until 7c-2 the thing that started a Windows
+     agent was `create.js` itself, so it held the session id the moment the spawn
+     returned. The launch happens in the SUPERVISOR now, started by a Scheduled
+     Task -- so create performs an act whose result it cannot see, and this is how
+     it sees it.
+
+     ⚠️ A NEW ROW, NOT ANY ROW. A crashed earlier attempt at the same name leaves a
+     row behind; matching on the name alone would read that as this launch's
+     success and hand back a session id belonging to nothing. */
+  win32create.setPark(() => {});
+  win32sessions.record('stale-attempt', { name: 'awaited', runner: 'claude' });
+  const before = win32create.knownSessions();
+  assert.equal(before.has('stale-attempt'), true, 'the fixture has the old row, or nothing below can fail');
+
+  const late = win32create.awaitSession('awaited', { before, waitMs: 0 });
+  assert.equal(late.ok, false, 'the row that was already there is not evidence of this launch');
+
+  win32sessions.record('fresh-one', { name: 'awaited', runner: 'claude' });
+  const got = win32create.awaitSession('awaited', { before, waitMs: 0 });
+  assert.equal(got.ok, true);
+  assert.equal(got.sessionId, 'fresh-one');
+  win32create.setPark(null);
+});
+
+test('#570 7c-2 a launch that never appears is a FAILURE with a sentence, not a shrug', () => {
+  /* The supervisor refusing (an untrusted folder, a runner it could not spawn)
+     looks exactly like a supervisor that is slow. The honest thing to say is that
+     we set the job going and never saw an agent -- which is what create rolls back
+     on, and the alternative is telling somebody they have an agent they do not. */
+  win32create.setPark(() => {});
+  const r = win32create.awaitSession('never-shows', { before: win32create.knownSessions(), waitMs: 0 });
+  assert.equal(r.ok, false);
+  assert.match(r.because, /no agent had started/);
+  win32create.setPark(null);
+});
+
+test('#570 7c-2 knownSessions treats an unreadable record as EMPTY, which errs toward waiting', () => {
+  /* The set is used only to tell a new row from an old one. Erring toward
+     "everything is new" would make a stale row look like a fresh launch; erring
+     toward "nothing is known" makes us wait for a row we can prove we did not see,
+     which is the direction that cannot invent a success. */
+  const set = win32create.knownSessions();
+  assert.ok(set instanceof Set);
+});

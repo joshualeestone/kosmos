@@ -240,7 +240,7 @@ test('#570 the argument vector is POSITIONAL and never shifts', () => {
   const cmd = joined({ name: 'n', cwd: 'C:\\w', configDir: 'C:\\cfg' });
   const quoted = cmd.match(/"[^"]*"/g).map((s) => s.slice(1, -1));
   const argv = quoted.slice(2);   // after node + supervisor
-  assert.deepEqual(argv, ['n', 'C:\\w', '-', 'C:\\cfg', 'claude']);
+  assert.deepEqual(argv, ['n', 'C:\\w', '-', 'C:\\cfg', 'claude', '-']);
 
   // and the supervisor reads them back the same way, including the '-' holes
   const spec = sup.specFromArgv(argv);
@@ -249,6 +249,28 @@ test('#570 the argument vector is POSITIONAL and never shifts', () => {
   assert.equal(spec.model, undefined, 'a dash is a HOLE, not a model called "-"');
   assert.equal(spec.configDir, 'C:\\cfg');
   assert.equal(spec.runner, 'claude');
+  assert.equal(spec.claudeBin, undefined, 'and the sixth is a hole too when nothing resolved');
+
+  /* 🔑 APPEND-ONLY, PROVEN BY READING AN OLD VECTOR. A task registered before
+     `claudeBin` existed passes five arguments and must keep working -- that is the
+     whole reason the contract is positional and append-only rather than tidy. */
+  const old = sup.specFromArgv(['n', 'C:\\w', '-', 'C:\\cfg', 'claude']);
+  assert.equal(old.name, 'n');
+  assert.equal(old.runner, 'claude');
+  assert.equal(old.claudeBin, undefined);
+});
+
+test('#570 7c-2 the RESOLVED runner rides on the task line, and a hole is not a path', () => {
+  /* 🛑 THE FACT THAT GOT LOST WHEN THE TASK BECAME THE LAUNCHER. create.js resolves
+     the runner (runners.resolveBin, with the PATHEXT candidates #570 added) and used
+     to hand that path straight to the spawn. Once the supervisor did the spawning,
+     the only facts reaching it were the ones on this line -- and the resolved path
+     was not one of them, so every task-started agent fell back to a bare `claude`
+     and depended on the logon PATH carrying %USERPROFILE%\.local\bin. */
+  const cmd = joined({ name: 'n', cwd: 'C:\\w', claudeBin: 'C:\\Users\\j\\.local\\bin\\claude.exe' });
+  const argv = cmd.match(/"[^"]*"/g).map((s) => s.slice(1, -1)).slice(2);
+  assert.equal(argv[5], 'C:\\Users\\j\\.local\\bin\\claude.exe');
+  assert.equal(sup.specFromArgv(argv).claudeBin, 'C:\\Users\\j\\.local\\bin\\claude.exe');
 });
 
 test('#570 STOP DISABLES THE JOB -- it does not kill a process', () => {

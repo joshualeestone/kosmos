@@ -238,4 +238,77 @@ function abandon(prepared) {
   return { ok: true };
 }
 
-module.exports = { prepareSession, abandon };
+/* ── waiting for a launch somebody else performed (7c-2) ───────────────────── */
+
+/* A bounded synchronous park, the shape win32stop, chat.js and filelock.js
+   already use: Atomics.wait on a private buffer blocks this thread for the
+   timeout with no busy loop. Seamed so a test never actually sleeps. */
+const PARK = new Int32Array(new SharedArrayBuffer(4));
+let parkFn = null;
+function setPark(fn) { parkFn = typeof fn === 'function' ? fn : null; }
+function park(ms) {
+  if (parkFn) { parkFn(ms); return; }
+  try { Atomics.wait(PARK, 0, 0, ms); } catch { /* a park we cannot take is not a failure */ }
+}
+
+/** Every session id the record knows right now. An unreadable record is an empty
+    set: the caller uses this only to tell a NEW row from an old one, and erring
+    toward "everything is new" would make a stale row look like a fresh launch --
+    so it errs the other way and waits for a row it can prove it did not see. */
+function knownSessions() {
+  try {
+    const rec = win32sessions.read();
+    return new Set(rec ? Object.keys(rec) : []);
+  } catch { return new Set(); }
+}
+
+/**
+ * Wait until the ownership record shows a session under this name that was NOT
+ * there before, and answer with its id.
+ *
+ * 🛑 WHY A CALLER WOULD EVER NEED THIS (7c-2). Until now the thing that started a
+ * Windows agent was `create.js` itself, so it held the session id the instant the
+ * spawn returned. The launch now happens in the SUPERVISOR, in another process,
+ * started by the Scheduled Task -- so `create.js` performs an act whose result it
+ * cannot see. This is how it sees it.
+ *
+ * 🔑 THE RECORD IS THE RIGHT THING TO WATCH, AND IT IS EARLIER THAN THE ROSTER.
+ * `prepareSession` writes it BEFORE the spawn, so a row appearing proves the
+ * supervisor started, resolved the folder's trust and got as far as launching.
+ * `claude agents --json` is the other candidate and it is ~5s later (measured),
+ * because an agent takes that long to register -- so watching the roster would
+ * make every create feel broken to buy the same answer late.
+ *
+ * ⚠️ A NEW ROW, NOT ANY ROW, and the `before` snapshot is what makes that
+ * possible. A crashed earlier attempt at the same name can leave a row behind;
+ * matching on the name alone would read that as this launch's success and hand
+ * back a session id belonging to nothing.
+ *
+ * ⚠️ AND A TIMEOUT IS A FAILURE WITH A SENTENCE, never a shrug. The supervisor
+ * refusing (an untrusted folder, a runner it could not spawn) looks exactly like
+ * a supervisor that is slow, and the honest thing to say is that we started the
+ * job and never saw the agent -- which is what the caller then rolls back on.
+ */
+function awaitSession(name, opts) {
+  const o = opts || {};
+  const before = o.before instanceof Set ? o.before : new Set();
+  const waitMs = Number.isFinite(o.waitMs) ? o.waitMs : 8000;
+  const stepMs = Number.isFinite(o.stepMs) ? o.stepMs : 250;
+  let waited = 0;
+  for (;;) {
+    let rec = null;
+    try { rec = win32sessions.read(); } catch { rec = null; }
+    if (rec) {
+      for (const id of Object.keys(rec)) {
+        if (before.has(id)) continue;
+        if (rec[id] && rec[id].name === name) return { ok: true, sessionId: id };
+      }
+    }
+    if (waited >= waitMs) break;
+    park(Math.min(stepMs, waitMs - waited));
+    waited += stepMs;
+  }
+  return { ok: false, because: 'we set its startup job going, but no agent had started under it yet' };
+}
+
+module.exports = { prepareSession, abandon, awaitSession, knownSessions, setPark };

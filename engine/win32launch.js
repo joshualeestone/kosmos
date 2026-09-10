@@ -48,6 +48,7 @@
  */
 
 const { spawn } = require('node:child_process');
+const fs = require('node:fs');
 const path = require('node:path');
 
 const win32create = require('./win32create');
@@ -150,6 +151,38 @@ function argvFor(prepared, opts) {
   return argv.concat(prepared.launchArgs);
 }
 
+/**
+ * The program to spawn: the resolved path when we have one and it is still there,
+ * the bare name when we do not.
+ *
+ * 🛑 A DURABLE TASK OUTLIVES A RESOLVED PATH (7c-2). `create.js` resolves the
+ * runner once, at create time, and that absolute path now rides into a Scheduled
+ * Task that will still be firing months later -- across a Claude Code update, a
+ * reinstall, or a person moving where they keep it. A stranded path spawns ENOENT
+ * forever, and the symptom is a supervisor that throttle-loops in a task log
+ * nobody is reading.
+ *
+ * 🔑 SO THE PATH IS A HINT, NOT A CONTRACT, and the bare name is the fallback --
+ * which is what PATH is for and what the shipped installer arranges (it lands
+ * `claude.exe` under `%USERPROFILE%\.local\bin`, on PATH). Both directions are
+ * covered: the hint beats a PATH that does not carry the folder, and PATH beats a
+ * hint that has gone stale. Neither alone was enough.
+ *
+ * 📌 THE RUNNER PICKS THE FALLBACK SPELLING. `claudeBin` is the parameter's name
+ * for historical reasons but its VALUE is whichever runner this agent uses, so
+ * falling back to `claude` for a codex agent would spawn the wrong program on the
+ * one path where the hint is gone.
+ */
+function binFor(s) {
+  const bare = String((s && s.runner) === 'codex' ? 'codex' : 'claude');
+  const given = s && s.claudeBin;
+  if (!given) return bare;
+  /* Only a path can go stale; a bare name handed in is already the PATH lookup. */
+  if (!path.isAbsolute(String(given))) return String(given);
+  try { if (fs.existsSync(String(given))) return String(given); } catch { /* treat as gone */ }
+  return bare;
+}
+
 /* The spawn seam. Tests replace it; nothing else does. Mirrors the
    setPaneSource/setRunner shape the rest of the engine uses. */
 let spawnFn = null;
@@ -202,7 +235,7 @@ function launch(spec) {
         argument -- omitting it makes `start` treat a quoted program path as the
         title and launch nothing, which is a genuinely baffling failure to debug. */
   const argv = argvFor(prepared, s);
-  const bin = s.claudeBin || 'claude';
+  const bin = binFor(s);
   let child;
   try {
     child = spawner()('cmd.exe', ['/c', 'start', '', '/min', bin].concat(argv), {
@@ -338,7 +371,7 @@ function launchStreaming(spec) {
   }
 
   const argv = streamArgvFor(prepared, s);
-  const bin = s.claudeBin || 'claude';
+  const bin = binFor(s);
   let child;
   try {
     child = spawner()(bin, argv, {
