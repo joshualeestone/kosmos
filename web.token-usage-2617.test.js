@@ -45,7 +45,8 @@ function bundle() {
     + lift('usageMoneyHtml') + '\n'
     + lift('usageChartSvg') + '\n'
     + lift('usageLegendHtml') + '\n'
-    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS };'
+    + lift('usageTableHtml') + '\n'
+    + 'return { usageTotals, usageDailySeries, usageCardsHtml, usageMoneyHtml, usageChartSvg, usageLegendHtml, usageTableHtml, usageDayLabel, usageNum, USAGE_CLASS_COLORS };'
   )();
 }
 const U = bundle();
@@ -90,6 +91,22 @@ test('#2617: the four class cards show the full numbers, cache-read gold-accente
   // no abbreviation: the billion-scale cache-read is not softened to "1.9B" etc
   assert.ok(!/\d(\.\d+)?[KMB]\b/.test(html), 'no K/M/B abbreviation (Josh: show them in full)');
   assert.match(html, /class="usage-cls read"[\s\S]*Cache read/, 'the cache-read card carries the gold "read" class');
+  // the card accent comes from the SHARED source (not the app-wide --gold), so it
+  // agrees with the chart line and legend swatch by reference.
+  const readColor = U.USAGE_CLASS_COLORS.find((c) => c.key === 'cacheRead').color;
+  assert.match(html, new RegExp('class="usage-v" style="color:' + reEsc(readColor) + '"'),
+    'the cache-read card value is colored from USAGE_CLASS_COLORS (' + readColor + '), the same source as the chart');
+});
+
+test('#2617: the table renders a row per day/model and escapes model names (the innerHTML site)', () => {
+  const rows = U.usageTableHtml(FIXTURE);
+  assert.match(rows, /<table class="usage-table">/, 'a table is produced');
+  assert.equal((rows.match(/<tr>/g) || []).length, 3, 'one header row + one row per day/model (2 days) = 3');
+  assert.ok(rows.includes(fmt(EXPECT.cacheRead)) === false, 'per-row values are per-day, not the summed total');
+  // escaping: a hostile model name must not inject markup through innerHTML.
+  const hostile = U.usageTableHtml({ '2026-09-01': { '<img src=x onerror=alert(1)>': { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 1, cache_read_input_tokens: 1 } } });
+  assert.ok(!hostile.includes('<img src=x'), 'a hostile model name is escaped, not rendered as a tag');
+  assert.ok(hostile.includes('&lt;img'), 'the hostile string is HTML-escaped');
 });
 
 test('#2617: the money box is derived from OUTPUT alone and names its class', () => {

@@ -1884,7 +1884,10 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    wraps inside its card instead of widening the grid -- Josh's rule is to show
    every class in full, so the layout has to hold an alarming number. */
 .usage-v { color: var(--k-ink); font: 700 1.375rem/1.1 var(--font-mono); letter-spacing: -.01em; word-break: break-all; }
-.usage-cls.read .usage-v { color: var(--gold); }
+/* The cache-read card's accent is applied inline by usageCardsHtml from the shared
+   USAGE_CLASS_COLORS, so it agrees with the chart line and legend swatch by
+   REFERENCE, not by both happening to equal the app-wide --gold (which is reused
+   for unrelated accents and could drift from the class color). */
 .usage-say { color: var(--k-ink-2); font-size: .8125rem; margin: 6px 0 0; }
 .usage-chartwrap { border: 1px solid var(--k-rule); border-radius: 14px; padding: 16px 16px 10px; margin: 16px 0 0; }
 .usage-chartwrap h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 2px; }
@@ -1894,7 +1897,6 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
 .usage-lg i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
 .usage-money { border: 1px solid var(--k-rule); border-radius: 12px; padding: 16px 18px; margin: 22px 0 0;
                background: linear-gradient(180deg, rgba(214, 166, 46, .06), transparent 70%); }
-.usage-money:empty { display: none; }
 .usage-money-lab { color: var(--k-ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
 .usage-money-big { font: 700 2rem/1 var(--font-ui); color: var(--k-ink); letter-spacing: -.02em; margin: 0; }
 .usage-money-big span { color: var(--gold); }
@@ -22492,16 +22494,20 @@ function usageDayLabel(day) {
    number somebody screenshots. */
 function usageCardsHtml(totals) {
   const t = totals || {};
-  const card = (extra, label, value, say) =>
+  /* The cache-read accent is taken from the SAME shared source as the chart line
+     and the legend swatch, so all three agree by reference rather than by all
+     happening to equal the app-wide --gold. */
+  const readColor = (USAGE_CLASS_COLORS.find((c) => c.key === 'cacheRead') || {}).color || '';
+  const card = (extra, label, value, say, color) =>
     '<div class="usage-cls' + (extra ? ' ' + extra : '') + '">'
     + '<div class="usage-k">' + label + '</div>'
-    + '<div class="usage-v">' + usageNum(value) + '</div>'
+    + '<div class="usage-v"' + (color ? ' style="color:' + color + '"' : '') + '>' + usageNum(value) + '</div>'
     + '<div class="usage-say">' + say + '</div></div>';
   return '<div class="usage-four">'
-    + card('', 'Input', t.input, 'what you sent the models')
-    + card('', 'Output', t.output, 'what the models produced')
-    + card('', 'Cache written', t.cacheWritten, 'context stored for reuse')
-    + card('read', 'Cache read', t.cacheRead, 'the same context read again on every turn')
+    + card('', 'Input', t.input, 'what you sent the models', '')
+    + card('', 'Output', t.output, 'what the models produced', '')
+    + card('', 'Cache written', t.cacheWritten, 'context stored for reuse', '')
+    + card('read', 'Cache read', t.cacheRead, 'the same context read again on every turn', readColor)
     + '</div>';
 }
 /* One interpretation, in money, from OUTPUT tokens only. The class is named in
@@ -22566,7 +22572,7 @@ function usageChartSvg(series) {
   const labels = s.map((p, i) => (i % 2 === 0)
     ? '<text x="' + xAt(i).toFixed(1) + '" y="292" text-anchor="middle" font-size="9" fill="var(--k-ink-2)">' + esc(usageDayLabel(p.day)) + '</text>'
     : '').join('');
-  return '<svg viewBox="0 0 760 300" role="img" aria-label="Daily token usage by class">'
+  return '<svg viewBox="0 0 760 300" role="img" aria-label="Daily token usage by class, ' + n + ' days">'
     + '<line x1="' + x0 + '" y1="' + yBase + '" x2="' + x1 + '" y2="' + yBase + '" stroke="var(--k-rule)" stroke-width="1"/>'
     + lines + labels + '</svg>';
 }
