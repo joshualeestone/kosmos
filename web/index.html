@@ -10525,8 +10525,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            folder for it...") is irrelevant to a business person; the line is
            kept for the code that writes it and never shown. -->
       <p class="pj-chosen" id="pj-will-be" hidden></p>
-      <!-- #2606: a name refusal (empty, too long, a folder collision) lands HERE,
-           beside the name field, not only in #pj-add-msg below the button. Filled
+      <!-- #2606: a name-rule refusal (empty, too long, too many with that name) lands
+           HERE, beside the name field, not only in #pj-add-msg below the button. Filled
            by `pjFieldBad`; empty and hidden (`.ferr:empty`) until then. -->
       <p class="ferr" id="pj-name-err" aria-live="polite"></p>
     </div>
@@ -38214,9 +38214,13 @@ document.getElementById('pj-create').addEventListener('click', async () => {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else if (err && err.message && /name/i.test(err.message)) {
-      // #2606: a name refusal (empty, too long, "too many projects with that name",
-      // a folder collision) lands at the name field. Checked AFTER description so a
-      // message that happened to mention both still routes to description.
+      // #2606: a name-RULE refusal lands at the name field -- "give this project a name"
+      // (empty), "that name is longer than a project name should be", "there are too many
+      // projects with that name": each contains "name", so /name/i matches. Checked AFTER
+      // description so a message mentioning both still routes to description. NOTE a folder
+      // collision ("that folder is already the project X", the advanced-picker path) does
+      // NOT contain "name" and so falls through to the generic below-button message -- the
+      // same graceful fallback the by-design parent refusal takes.
       pjFieldBad('pj-name', 'pj-name-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else {
