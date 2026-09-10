@@ -6687,6 +6687,14 @@ a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
 .plus-signin-link { color: #7ea0f0; text-decoration: none; font-weight: 600; }
 .plus-signin-link:hover { text-decoration: underline; }
 .plus-signin-link:focus-visible { outline: 2px solid #7ea0f0; outline-offset: 2px; border-radius: 3px; }
+/* #2625: the TOP sign-in ("the sign-in box above the logo", Josh's words) is the
+   reference's bordered pill (.signin-btn in first-step.html), visually distinct from
+   the plain-text foot link. Still an <a>, so state1 stays control-free. */
+.plus-signin-pill { display: inline-block; background: transparent; border: 1px solid rgba(120,150,200,.4);
+  color: #E6EBF7; border-radius: 9px; padding: 7px 16px; margin-left: 8px; font-weight: 600;
+  font-size: .9rem; text-decoration: none; }
+.plus-signin-pill:hover { border-color: #41C2E3; }
+.plus-signin-pill:focus-visible { outline: 2px solid #41C2E3; outline-offset: 2px; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
    whole app is already blue via the token override above; this frames the two
    working states as the mock's card. Their wired ids are untouched. */
@@ -11634,7 +11642,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            control tags literally, or it trips the very rule it describes).
            The href is set from JS (paintPlus), never in markup, per the same
            no-hostname guard as plus-site-link below. -->
-      <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-link" href="#" target="_blank" rel="noreferrer noopener">Sign in</a></p>
+      <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#" target="_blank" rel="noreferrer noopener">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
            over 1.5s (or a single static frame under prefers-reduced-motion), by
            the plusMark engine in the app script. Decorative -> aria-hidden; the
