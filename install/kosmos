@@ -296,15 +296,41 @@ port_taken_by_stranger() {
 # note in engine/boardauth.js), not the forever-secret the durable token was.
 # 🛑 CALL IT AS `_bt="$(board_token || true)"` UNDER `set -euo pipefail` (kosmos#1968).
 # It RETURNS 1 whenever there is no token to hand back -- a non-enforcing board
-# (no token file), or an install layout where `$NODE` is not present. A bare
+# (no token file), or a layout with no usable node at all (kosmos#2644 makes it
+# resolve node + the store module across the installed AND source layouts, so a
+# source checkout no longer falls here). A bare
 # `_bt="$(board_token)"` then makes `set -e` ABORT the whole command with exit 1
 # and no output, so on a non-enforcing board `kosmos report`/`reply`/`msg`/`post`/
 # `whoami` silently did nothing. The `|| true` keeps the failure local: `_bt` is
 # the token or empty, and every caller already guards (kosmos_curl omits a header
 # whose token arg is empty, exactly as the old `${_bt:+-H ...}` did).
 board_token() {
-  local _root _tok
-  _root="$("$NODE" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$KOSMOS_HOME/app/engine/store" 2>/dev/null)" || return 1
+  local _root _tok _node _storemod
+  # kosmos#2644: resolve node AND the store module across BOTH layouts. The
+  # installed bundle has `$KOSMOS_HOME/runtime/bin/node` and `app/engine/store`;
+  # a SOURCE checkout -- which the report hook prefers on a box whose installed
+  # bundle is stale -- has neither (`runtime/` absent, the module is `engine/store`,
+  # not `app/engine/store`). The installed path is tried FIRST; behaviour is identical
+  # to before whenever the bundled runtime is present+executable. When it is absent
+  # (source checkout) OR present-but-non-executable (a partial install), we fall back
+  # to a system node -- deliberately: board_token needs only SOME node to read a
+  # version-independent store.ROOT, so any node yields the same token, and a genuinely
+  # broken install is still surfaced by the -f/-x die-check the runtime-dependent ops
+  # perform elsewhere (this function is best-effort self-report, not the install gate).
+  # Without these fallbacks the node call load-fails, board_token returns no token, and
+  # since #1976 requires one every hook report is silently refused (the 2026-09-03
+  # fleet-wide self-report freeze, the live tail of #2509).
+  # Guard with -f before -x: a directory carries the executable (traversable) bit, so an
+  # unguarded -x test on a path accepts a directory and we would then try to exec one. The
+  # installer runnable-guard test enforces the -f-then-x form repo-wide.
+  _node="$NODE"; { [ -f "$_node" ] && [ -x "$_node" ]; } || _node="$(command -v node 2>/dev/null || true)"
+  [ -n "$_node" ] || return 1
+  # Only the installed candidate is existence-checked; the source fallback is assigned
+  # unconditionally because the `require()` below fails closed either way (2>/dev/null
+  # || return 1), so a third layout would just need its own branch here.
+  _storemod="$KOSMOS_HOME/app/engine/store"
+  [ -f "$_storemod.js" ] || _storemod="$KOSMOS_HOME/engine/store"
+  _root="$("$_node" -e 'process.stdout.write(require(process.argv[1]).ROOT)' "$_storemod" 2>/dev/null)" || return 1
   [ -n "$_root" ] || return 1
   _tok="$(cat "$_root/board.token" 2>/dev/null)" || return 1
   [ -n "$_tok" ] || return 1
