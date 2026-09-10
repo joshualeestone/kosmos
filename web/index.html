@@ -8738,7 +8738,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* #2647: .s3-recheck-row / -note / -hint are GONE with the control they
            styled (moved to the bottom nav). Removed rather than left behind: dead
            CSS naming a class nothing renders reads as a live surface to the next
-           person, and to a grep. The nav hint's own style is .fr-alt-hint. */
+           person, and to a grep. The nav hint is styled BY ID, at `#firstrun #fr-alt-hint`. (An earlier
+           version of this line said `.fr-alt-hint`, a selector with no rules
+           anywhere: the span carried that class and nothing matched it. The
+           dead class and this wrong pointer are both gone.) */
         /* #2647: the .s3-recheck button styling is gone with the button. It now
            rides #fr-alt, which already carries this file's secondary-button
            convention (the very convention the deleted comment here cited). */
@@ -9337,7 +9340,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            when a screen passes none, because this bar is shared by nine screens
            and a sentence left on leaks forward (same rule the `is-link` toggle
            above states for itself). -->
-      <span class="fr-alt-hint" id="fr-alt-hint" hidden></span>
+      <span id="fr-alt-hint" hidden></span>
       <span class="fr-spacer"></span>
       <button class="btn fr-primary" id="fr-next" type="button">Continue</button>
     </div>
@@ -40308,9 +40311,16 @@ async function frRecheckPress(btn) {
      its re-enable with exactly this pattern and saying why at its own code.
      Re-enabling unconditionally in a `finally` means a slow press from this
      screen can hand the button back while a NEWER owner still has a request in
-     flight. frActions resets `disabled` on every step change, which narrows the
-     window rather than closing it, and "narrow" is not a property worth relying
-     on when the sibling already shows the shape.
+     flight.
+     ⚠️ AND THE OBVIOUS REASON TO SKIP THIS GUARD IS FALSE, which is why it is
+     written out rather than asserted. "frActions resets `disabled` on every step
+     change" is NOT true: that reset lives only in the `if (alt)` branch, and
+     both `else` branches (a screen with no alt) set `hidden` and `onclick` and
+     leave `disabled` untouched. The flag is carried forward invisibly and is
+     cleared by the next screen that actually SHOWS an alt, not by the step
+     change. So the window is narrower than it looks, but not for the reason it
+     first appears, and "narrow" is not a property worth relying on when the
+     sibling already shows the shape.
      ⇒ Only the press that still owns the button re-enables it. */
   FR_RECHECK_PRESS += 1;
   const mine = FR_RECHECK_PRESS;
