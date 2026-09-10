@@ -17592,6 +17592,13 @@ async function worldswSwitch(id, name) {
   // UNHIDE first, then set the text (setting text on a hidden region can go unspoken).
   const say = (t) => { banner.hidden = false; bmsg.textContent = t; };
   WORLDSW_SWITCHING = true;
+  // #2628: capture the switch-initiation time NOW, before the POST that triggers the board
+  // restart. The restarted board stamps lastAbandonedWorld.at only AFTER this, so an abandon
+  // with at > switchStart is THIS switch's, and one from an earlier boot is older. Captured
+  // here, NOT inside worldswReconnect (whose own `start` is set after the POST response and a
+  // worldsFetch await -- late enough that a fast respawn could stamp `at` before it and the
+  // guard would miss this switch's own abandon).
+  const switchStart = Date.now();
   try {
     let res;
     try {
@@ -17653,7 +17660,7 @@ async function worldswSwitch(id, name) {
       // focus to the switcher trigger (now showing the new name) before the poll, or
       // keyboard focus would sit on <body> for the whole ~150s reconnect.
       worldswFocusTrigger();
-      await worldswReconnect(switchedId, switchedName, say);
+      await worldswReconnect(switchedId, switchedName, say, switchStart);
       return;
     }
     if (noop) {
@@ -17690,7 +17697,7 @@ async function worldswSwitch(id, name) {
    WORLDSW_RECONNECT_SLOW_MS with no flip, update the banner ONCE to offer the manual
    restart as an escape hatch while still polling (mirrors the #553 update flow's "slow"
    verdict). The reload-on-flip behaviour is unchanged. */
-async function worldswReconnect(switchedId, switchedName, say) {
+async function worldswReconnect(switchedId, switchedName, say, switchStart) {
   // WORLDSW_RECONNECTING keeps the switcher menu (and this banner, which lives inside it)
   // open across the poll -- see worldswClose. Cleared in finally so a menu close, or a
   // second switch, is possible again the moment the poll ends (success reload or timeout).
@@ -17703,13 +17710,34 @@ async function worldswReconnect(switchedId, switchedName, say) {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, WORLDSW_RECONNECT_INTERVAL_MS));
       let booted = null;
+      let abandoned = null;
       try {
         const s = await fetch('/api/status', { cache: 'no-store' });
-        if (s.ok) { const body = await s.json().catch(() => null); booted = body && body.activeWorldId; }
+        if (s.ok) {
+          const body = await s.json().catch(() => null);
+          booted = body && body.activeWorldId;
+          abandoned = body && body.lastAbandonedWorld;
+        }
       } catch { /* the board dropped the connection mid-restart; that is expected, keep polling */ }
       if (booted != null && booted === switchedId) {
         say('Switched to ' + switchedName + '. Reloading…');
         worldswReload();
+        return;
+      }
+      // #2628: the board came back, but it ABANDONED the world we asked for -- that world
+      // would not start, so it fell back to Kosmos 1 (engine/worldenv + engine/worldbootguard,
+      // the #2528 lockout recovery). Say so at once, with the reason, instead of waiting out
+      // the whole timeout on a bare spinner (Josh: "the restart errored and I am back in
+      // Kosmos 1" with no explanation). Guard on `at > switchStart` (the time the switch was
+      // initiated, captured in worldswSwitch BEFORE the POST): lastAbandonedWorld persists for
+      // the life of a board, so this rejects BOTH a world that failed on an EARLIER boot (the
+      // still-running old board reports a stale, older `at` the instant this poll first reaches
+      // it, before the switch's own restart) AND is stamped correctly for THIS switch, since
+      // the restarted board can only abandon AFTER the POST that switchStart precedes. Do not
+      // reload: the board is on Kosmos 1 and the point is that the person reads why.
+      if (abandoned && abandoned.id === switchedId && Number(abandoned.at) > switchStart) {
+        say('"' + switchedName + '" could not start, so Kosmos brought you back to Kosmos 1. Check the board log for why, or try switching again.');
+        worldswFocusTrigger();
         return;
       }
       if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
