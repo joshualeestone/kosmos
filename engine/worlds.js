@@ -396,7 +396,9 @@ function importAgents(base, targetWorld, sourceWorldIds) {
   const reg = readRegistry(base);
   const targetDir = worldProfilesDir(base, targetWorld);
   fs.mkdirSync(targetDir, { recursive: true });
-  for (const rawId of sourceWorldIds) {
+  // Dedupe the source ids: a repeated id would otherwise re-scan the same world and
+  // count its already-copied files as `skipped` on the second pass, overcounting.
+  for (const rawId of new Set(sourceWorldIds)) {
     const src = reg.worlds.find((w) => w.id === rawId);
     if (!src || src.id === targetWorld.id) {
       // Unknown/malformed id -> count it; importing a world from itself is a no-op we
@@ -413,18 +415,16 @@ function importAgents(base, targetWorld, sourceWorldIds) {
       if (fs.existsSync(dst)) { result.skipped += 1; continue; } // first-wins
       const tmp = dst + `.${process.pid}.tmp`;
       try {
-        // A profile copied into a NEW Kosmos is a SEPARATE agent, so strip the
-        // identity fields (id/idInstall). store.writeProfile mints a FRESH id on the
-        // imported agent's first write when id is absent -- the decided restore
-        // convention ("a restored agent is a separate agent with its own fresh id",
-        // store.js:404). A byte copy would carry the source id over, and because the
-        // import is same-install, store's remint-on-different-install rule would NOT
-        // fire, silently conflating the two agents to any future id-based feature.
-        // Reading + re-serializing also means a corrupt (unparseable) source profile
-        // is skipped rather than copied verbatim.
-        const prof = JSON.parse(fs.readFileSync(path.join(srcDir, file), 'utf8'));
-        delete prof.id;
-        delete prof.idInstall;
+        // A profile copied into a NEW Kosmos is a SEPARATE agent, so strip its identity
+        // via store.stripIdentity (store OWNS the identity-field set, so this cannot
+        // drift from what writeProfile mints/restores if that set ever grows). The
+        // imported agent then mints a FRESH id on its first store.writeProfile -- the
+        // decided restore convention. A byte copy would carry the source id over, and
+        // because the import is same-install, store's remint-on-different-install rule
+        // would NOT fire, silently conflating the two agents to any future id-based
+        // feature. Reading + re-serializing also means a corrupt (unparseable) source
+        // profile is skipped rather than copied verbatim.
+        const prof = store.stripIdentity(JSON.parse(fs.readFileSync(path.join(srcDir, file), 'utf8')));
         fs.writeFileSync(tmp, JSON.stringify(prof, null, 2));
         fs.renameSync(tmp, dst);
         result.copied += 1;

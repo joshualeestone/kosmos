@@ -90,6 +90,16 @@ test('#2563 collision is FIRST-WINS: an earlier source and a pre-existing target
     'a pre-existing target agent is not clobbered by an import');
 });
 
+test('#2563 a duplicate source id is deduped, not counted twice as skipped', () => {
+  const base = sandbox();
+  const src = worlds.createWorld(base, 'Source');
+  const dst = worlds.createWorld(base, 'Dest');
+  seedAgent(base, src, 'alice', { name: 'alice' });
+  // the same source listed twice must not re-scan and count its own copy as skipped
+  const r = worlds.importAgents(base, dst, [src.id, src.id]);
+  assert.deepEqual(r, { copied: 1, skipped: 0, unknownSources: 0 });
+});
+
 test('#2563 an unknown or traversing source id is skipped, not fatal', () => {
   const base = sandbox();
   const dst = worlds.createWorld(base, 'D');
