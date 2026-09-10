@@ -134,9 +134,13 @@ test('#2669 record: a held record lock REFUSES the write rather than racing it, 
   const saved = process.env.AGENT_WORKFORCE_LOCK_MS;
   fs.mkdirSync(win32sessions.DIR, { recursive: true });
   fs.mkdirSync(lockDir);
-  process.env.AGENT_WORKFORCE_LOCK_MS = '50';
+  delete process.env.AGENT_WORKFORCE_LOCK_MS;   // the record's OWN wait, not a test override
   try {
+    const t0 = Date.now();
     const r = win32sessions.record('locked-2669', { name: 'lk', runner: 'claude' });
+    /* The wait blocks the caller's whole process (a supervisor's stdout handler), so
+       it must be short, not filelock's 2s default (review round 2). */
+    assert.ok(Date.now() - t0 < 1000, 'a held lock is refused quickly: waited ' + (Date.now() - t0) + 'ms');
     assert.equal(r.ok, false, 'a held lock is a refusal, not a blind write');
     assert.match(r.because, /busy/);
     assert.equal(win32sessions.isOurs('locked-2669'), false, 'and nothing was written');

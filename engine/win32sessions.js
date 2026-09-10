@@ -43,6 +43,14 @@ function file() { return path.join(dir(), 'record.json'); }
    floor, same "single local user" trust model as the rest of the store. */
 const FILE_MODE = 0o600;
 
+/* How long a write waits for the record's lock before refusing (#2669). The wait
+   is synchronous and blocks the caller's whole process, and one caller is a
+   supervisor's stdout handler, so it is kept far below filelock's 2s default. A
+   holder's critical section is one small read and one rename (milliseconds), so
+   250ms still outlasts any live holder. A refusal costs little: a rekey retries on
+   its own, and a create or removal reports the sentence. */
+const RECORD_LOCK_WAIT_MS = 250;
+
 /* A session id is a UUID from `claude agents --json`. The charset gate keeps a
    malformed id out of the store key and out of any later shelling; we do not
    invent our own ids, so anything not matching is not one of ours anyway.
@@ -116,7 +124,7 @@ function rewrite(failure, change) {
         fs.renameSync(tmp, file());
       } catch (e) { return fail(e); }
       return { ok: true };
-    }, { busy: failure + ' (the record is busy, ELOCKBUSY)', cannotAccess: failure + ' (we could not lock it)' });
+    }, { busy: failure + ' (the record is busy, ELOCKBUSY)', cannotAccess: failure + ' (we could not lock it)', waitMs: RECORD_LOCK_WAIT_MS });
   } catch (e) { return fail(e); }
   return held.ok ? held.value : { ok: false, because: held.because };
 }
