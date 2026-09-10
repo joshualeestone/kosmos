@@ -16736,7 +16736,11 @@ async function paintAccounts() {
               ? ' Any agents stopped this way will need a different account before they can start again.'
               : ' Anything stopped this way can be put back from the removed list, '
                 + 'once you add this account again under the same name.';
-            msg.textContent = String((out && out.error) || 'agents are set up to run on this account')
+            /* The fallback ends in a period: without one, an absent `out.error`
+               composed as "...run on this account Press again to disconnect...".
+               Defensive only (the route always sends `error` beside `usedBy`),
+               and the same run-on class as the server-side join guards. */
+            msg.textContent = String((out && out.error) || 'agents are set up to run on this account.')
               + (already ? wayBack : (isRemove
                 ? ' Press again to delete this account for good and stop ' + (one ? 'it' : 'them')
                   + '; ' + (one ? 'it' : 'they') + ' will need a different account before '

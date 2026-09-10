@@ -5051,6 +5051,17 @@ const server = http.createServer((req, res) => {
            is worse than none, because it reads as protection. Caught by a
            mutation control: deleting the dryRun test changed nothing. */
         verified: !!(done && done.outcome === removal.OUTCOME.REMOVED) && !dry,
+        /* 🛑 THE TWO FAKE-SUCCESS PATHS DIFFER IN WHETHER THEY LEFT A TRACE, and
+           the outcome alone cannot tell them apart. Under DRY_RUN with no runner,
+           `recordRemoval` returns early, so nothing is written. Under a MISSED
+           live-execution opt-in it does not return early: the removed-list record
+           is written and the agent's sender token is revoked, so the agent leaves
+           the board and keeps running. Both come back REMOVED and unverified.
+           `dryRun` is the marker that separates them, and the sentence below has
+           to, or it tells half these people their agent was taken off the board
+           when it was not. */
+        recorded: !!(done && done.outcome === removal.OUTCOME.REMOVED)
+          && !real && done.dryRun !== true,
         /* 🛑 WHEN NO COMMAND RAN, SAY SO WHATEVER THE OUTCOME WAS. Under a missed
            live-execution opt-in every command fake-succeeds, so a RUNNING agent
            comes back PARTIAL and the primitive's own sentence then describes a
@@ -5101,7 +5112,27 @@ const server = http.createServer((req, res) => {
        new copy is invented here, and the page only renders `error`, so this is
        the only route by which that sentence reaches a screen at all. */
     const partly = stopReport.notStopped.filter((r) => r.outcome === removal.OUTCOME.PARTIAL);
+    /* 🛑 A STOP WE REFUSED TO BELIEVE STILL CHANGED SOMETHING, AND THIS IS THE
+       PATH `commandsAreReal()` EXISTS FOR. When live execution is unarmed,
+       `run()` fake-succeeds every command, so the launchctl and tmux work never
+       happened -- but `recordRemoval` returns early only under `DRY_RUN &&
+       !runner`, so on that path it DOES write the removed-list record and revoke
+       the agent's sender token. The agent therefore leaves the board and loses
+       its token while still running. "Nothing was changed" is false about the
+       AGENT even though it is true about the account, and every non-macOS board
+       is in this state, because live execution is armed only on a supported
+       platform. Told apart by shape: the primitive claimed REMOVED and we
+       declined to believe it. */
+    const recorded = stopReport.notStopped.filter((r) => r.recorded);
     if (!done.length) {
+      if (recorded.length) {
+        const oneRec = recorded.length === 1;
+        return 'This account was left connected. '
+          + `${recorded.map((r) => r.name).join(', ')} ${oneRec ? 'was' : 'were'} taken off the board, `
+          + `but no command actually ran, so ${oneRec ? 'it may' : 'they may'} still be running. `
+          + `Put ${oneRec ? 'it' : 'them'} back from the removed list.`
+          + (partly.length ? ' ' + partly.map((r) => `${r.name}: ${r.because}`).join(' ') : '');
+      }
       if (!partly.length) return `We could not stop ${failed.join(', ')}, so nothing was changed.`;
       /* 🛑 NAME THE OTHERS TOO. The first version of this branch mapped over
          `partly` alone, so a batch with one PARTIAL and one REFUSED named the
@@ -5135,11 +5166,13 @@ const server = http.createServer((req, res) => {
     const flatlyLeft = stopReport.notStopped
       .filter((r) => r.outcome !== removal.OUTCOME.PARTIAL)
       .map((r) => r.name);
-    const oneFlat = flatlyLeft.length === 1;
+    /* Named explicitly rather than as "the rest", because with two flat refusals
+       AND a partial in the same batch "the rest" reads as covering the partial
+       too, which is the instruction the split above exists to stop giving. */
     return `We stopped ${done.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
       + `Put ${oneDone ? done[0] : 'the stopped ones'} back from the removed list.`
       + (flatlyLeft.length
-        ? ` Stop ${oneFlat ? flatlyLeft[0] : 'the rest'} yourself and try again.`
+        ? ` Stop ${flatlyLeft.join(', ')} yourself and try again.`
         : '')
       + (partlyLeft.length
         ? ' ' + partlyLeft.map((r) => `${r.name}: ${r.because}`).join(' ')
@@ -5216,6 +5249,11 @@ const server = http.createServer((req, res) => {
          condition is what was nonsense here, not the stop itself. */
       const gone = stopReport.stopped;
       const single = gone.length === 1;
+      /* The same join guard as the branch below it, for the same reason it gives:
+         latent today because both routes end their already-gone sentence in a
+         period, and a latent defect with a known instance next door is worth
+         closing rather than explaining twice. */
+      const head = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
       /* ⚠️ THE NOT-RESTORABLE CLAUSE STILL BELONGS HERE; ONLY THE RE-ADD ONE DOES
          NOT. What made the original sentence nonsense on this branch was
          promising a way back "once you add this account again under the same
@@ -5230,7 +5268,7 @@ const server = http.createServer((req, res) => {
       return {
         ...payload,
         stopped: gone,
-        because: `${payload.because} ${single ? gone[0] + ' was' : gone.length + ' agents were'} stopped first`
+        because: `${head} ${single ? gone[0] + ' was' : gone.length + ' agents were'} stopped first`
           + `${single ? '' : ' (' + gone.join(', ') + ')'}.${stillNeeded}`,
       };
     }
@@ -5295,6 +5333,15 @@ const server = http.createServer((req, res) => {
        not reach. Now it can. */
     let stopReport = null;
     let stopUnavailable = false;
+    /* The door, hoisted for the same reason as the two above: the outer
+       `.catch` needs it. Both catches used to pass `restorable: true`
+       unconditionally, so a throw after a successful DELETE (the success
+       payload calls `list()`, inside the same `.then`) answered "you can put
+       it back from the removed list" for an account directory that had just
+       been rmSynced. That is the false promise the measured `existsSync` on
+       the removeAccount-failure path exists to prevent, arriving through the
+       one exit that had not been given the treatment. */
+    let deleteDoor = false;
     readBody(req)
       .then((raw) => {
         let body = null;
@@ -5307,6 +5354,7 @@ const server = http.createServer((req, res) => {
         // least as dangerous as a rename - so only the final engine call and the
         // answer differ.
         const remove = !!(body && body.remove === true);
+        deleteDoor = remove;
 
         let isDefault = false;
         try { isDefault = path.resolve(dir) === path.resolve(openaiAccounts.defaultDir()); }
@@ -5684,7 +5732,7 @@ const server = http.createServer((req, res) => {
          agents were really stopped is the state `withStopDone` exists to
          prevent, arriving through the one exit it could not reach. */
       .catch(() => sendJson(res, 400, withStopDone(
-        { error: 'we could not read that request' }, stopReport, true,
+        { error: 'we could not read that request' }, stopReport, !deleteDoor,
       )));
     return;
   }
@@ -5731,6 +5779,15 @@ const server = http.createServer((req, res) => {
        not reach. Now it can. */
     let stopReport = null;
     let stopUnavailable = false;
+    /* The door, hoisted for the same reason as the two above: the outer
+       `.catch` needs it. Both catches used to pass `restorable: true`
+       unconditionally, so a throw after a successful DELETE (the success
+       payload calls `list()`, inside the same `.then`) answered "you can put
+       it back from the removed list" for an account directory that had just
+       been rmSynced. That is the false promise the measured `existsSync` on
+       the removeAccount-failure path exists to prevent, arriving through the
+       one exit that had not been given the treatment. */
+    let deleteDoor = false;
     readBody(req)
       .then((raw) => {
         let body = null;
@@ -5742,6 +5799,7 @@ const server = http.createServer((req, res) => {
         // agents enumeration either way; only the final engine call and the
         // answer differ.
         const remove = !!(body && body.remove === true);
+        deleteDoor = remove;
 
         /* `=== true` because isDefaultDir answers NULL for an unresolvable path,
            which would make this boolean|null. Both are falsy at the one use
@@ -5922,10 +5980,12 @@ const server = http.createServer((req, res) => {
              🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
              version of this comment claimed an invariant it does not have and
              claimed it in the UNSAFE direction ("every refusal that does not
-             depend on the agents comes BEFORE the agents guard"). Three refusals
-             precede the agents guard and are therefore visible here: the path
-             guard, the default-account guard, and the OpenAI
-             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             depend on the agents comes BEFORE the agents guard"). TWO refusals
+             precede the agents guard here and are therefore visible: the path
+             guard and the default-folder guard. (The OpenAI engine has a third,
+             its sign-in-in-progress guard. This one has none, and an earlier
+             version of this paragraph was a verbatim copy of the OpenAI route's
+             that claimed it did.) The IDENTITY refusal ("that is not a
              Claude/OpenAI account on this computer") does NOT, in any of the
              four, and it cannot be hoisted: `engine/accounts.js` states why at
              the guard itself, that `identityOf` answers null for a missing
@@ -5964,16 +6024,18 @@ const server = http.createServer((req, res) => {
              engine's own rather than a copy of it. The models route already
              gates on exactly this membership.
 
-             ⚠️ "CANNOT DRIFT" WOULD BE TOO STRONG, AND THE ONE PLACE IT IS NOT
-             TRUE IS WORTH NAMING. `list()` enumerates `defaultDir()` plus
-             `homeDir()/.codex-*`, while `forgetAccount` accepts any `.codex` or
-             `.codex-*` inside home. So with `CODEX_HOME` pointed at a named
-             home, a leftover credentialled `~/.codex` is absent from the list
-             while the engine would happily forget it: `dirIsAnAccount` goes
-             false and the stop is unavailable for that directory. It fails in
-             the safe direction (we decline to stop rather than stopping
-             wrongly), and it is API-reachable only, since the page never renders
-             an unlisted row.
+             ⚠️ "CANNOT DRIFT" WOULD BE TOO STRONG, AND THE CLAUDE-SIDE
+             DIVERGENCE IS ITS OWN, NOT THE OPENAI ONE. `list()` forces `apiKey`
+             false for the DEFAULT directory (`const apiKey = !who && isDefault
+             !== true && apiKeyStored(dir)`), and then omits any row that is
+             neither an oauth account nor an api-key one. So a `~/.claude` whose
+             only credential is a stored api key is absent from the list while
+             the engine still treats it as a real directory. `dirIsAnAccount`
+             goes false, we decline to stop, and the engine then refuses it
+             anyway under its default-folder guard, so the outcome is right and
+             nothing was stopped for an operation that was never going to run.
+             It fails in the safe direction, and it is API-reachable only, since
+             the page renders no control on the default row.
 
              ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
              list either and its answer is a quiet SUCCESS rather than a refusal.
@@ -6169,7 +6231,7 @@ const server = http.createServer((req, res) => {
          agents were really stopped is the state `withStopDone` exists to
          prevent, arriving through the one exit it could not reach. */
       .catch(() => sendJson(res, 400, withStopDone(
-        { error: 'we could not read that request' }, stopReport, true,
+        { error: 'we could not read that request' }, stopReport, !deleteDoor,
       )));
     return;
   }

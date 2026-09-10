@@ -365,6 +365,24 @@ test('#2570: a "removed" from commands that never ran is not a stop, and the acc
   assert.equal(r.json.notStopped[0].outcome, removal.OUTCOME.REMOVED,
     'the underlying outcome must be the lying REMOVED; anything else and the guard was never reached');
   assert.equal(r.json.notStopped[0].verified, false, 'the verdict field must be the thing that refused it');
+  /* 🛑 AND `recorded` MUST BE FALSE HERE, WHICH IS THE HALF THIS HARNESS CAN
+     PROVE. The two fake-success paths differ in whether they leave a trace: under
+     DRY_RUN with no runner `recordRemoval` returns early and writes nothing,
+     while a MISSED live-execution opt-in writes the removed-list record and
+     revokes the agent's token. Both answer REMOVED and unverified, so the
+     sentence keys on this flag. If it were true here, a dry-run stop would tell
+     the person their agent had been taken off the board when it had not.
+     ⚠️ THE OTHER HALF IS UNREACHABLE IN THIS HARNESS, BY THE ENGINE'S OWN
+     DESIGN: `setDryRun(false)` throws unless a runner is installed, and
+     `setRunner(null)` re-arms dry-run, so "no runner AND not dry-run" cannot be
+     constructed here. That interlock exists to stop a test stopping the
+     operator's real agents, and it is worth more than the arm it costs. What is
+     unpinned is therefore the WORDING of the recorded case, not the flag that
+     selects it. */
+  assert.equal(r.json.notStopped[0].recorded, false,
+    'a dry-run stop wrote no record, so it must not be reported as taken off the board');
+  assert.match(String(r.json.error), /nothing was changed/,
+    'with no record written, nothing-was-changed is the true sentence here');
   assert.ok(fs.existsSync(dir), 'THE ACCOUNT MUST STILL BE THERE: nothing was actually stopped');
 });
 
@@ -728,6 +746,36 @@ test('#2570: the OpenAI DELETE door honours stopAgents, and does NOT promise a r
   assert.doesNotMatch(String(r.json.because), /put it back|restore/i,
     'the OpenAI delete door promises a way back that cannot work');
   assert.match(String(r.json.because), /needs a different one before it can start again/);
+});
+
+/* 🛑 THREE BEHAVIOURS WERE PINNED ON THE CLAUDE ROUTE ONLY, and the ~100-line
+   gate is duplicated verbatim into both. This file's own stated hazard is that
+   two spellings of one thing fail asymmetrically, so the OpenAI copy gets its
+   own arms for consent staleness, the unavailable flag, and the post-stop
+   failure join. */
+test('#2570 OpenAI: an agent the confirm never named is REFUSED there too', async () => {
+  installRunner();
+  const dir = codexAccount('newcomer');
+  registeredNotRunning('codexa', dir, 'codex');
+  registeredNotRunning('codexb', dir, 'codex');
+  const r = await del('openai', { dir, stopAgents: true, stopNames: ['codexa'] });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.consentStale, true);
+  assert.match(String(r.json.error), /codexb is also set up to run on this account now/);
+  assert.deepEqual(calls, [], 'nobody may be stopped on a consent mismatch');
+  assert.ok(fs.existsSync(dir));
+});
+
+test('#2570 OpenAI: a directory that is not an account is flagged unavailable there too', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.codex-hollow');
+  fs.mkdirSync(dir, { recursive: true });     // account-shaped, no auth.json
+  registeredNotRunning('codexghost', dir, 'codex');
+  const r = await del('openai', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.stopUnavailable, true);
+  assert.deepEqual(calls, []);
+  assert.ok(!removedNames().includes('codexghost'));
 });
 
 test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the agent', async () => {
