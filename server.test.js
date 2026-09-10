@@ -4343,6 +4343,72 @@ test('the confirmation asks by name, defaults to keeping, and never writes its o
  * Deliberately whole-file rather than scoped to the modal: the same mistake was
  * already sitting on `main` in `#d-untied`, unnoticed since it shipped.
  */
+/* 🛑 #2615: THE `true` CASE OF THE ROUTE'S ONE NEW LINE, and it exists because
+ * the arm in the sibling test below CANNOT see it.
+ *
+ * That test's fixture writes a plist body of `<plist/>`, so `readJob` returns
+ * null, the predicate returns null, and BOTH sides of its agreement assertion
+ * are `false`. Measured: replacing the route's line with a hardcoded
+ * `accountFolderGone: false` leaves that test PASSING. Nothing else covered it
+ * either -- the browser check STUBS `/api/removed`, and the engine arms call the
+ * predicate directly -- so the whole card could silently stop shipping with a
+ * fully green suite.
+ *
+ * ⭐ `false === false` is the shape to remember: an equality between two
+ * expressions that are both the boring value is not a test of either. The arm
+ * read as a strong cross-check ("the payload agrees with the predicate") and was
+ * satisfied by a constant.
+ *
+ * This one builds a REAL plist naming a REAL account dir, deletes the dir, and
+ * asserts the route ships `true`.
+ */
+test('#2615 the removed list reports a gone account folder as gone', async () => {
+  const removal = require('./engine/remove');
+  const create = require('./engine/create');
+  const status = require('./engine/status');
+  const name = 'payload-gone-acct';
+  fs.mkdirSync(create.workerDir(name), { recursive: true });
+  fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'You are **Gone**.\n', 'utf8');
+  const acctDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-acct-2615-'));
+  const plistDir = nodePath.dirname(create.plistPath(name));
+  fs.mkdirSync(plistDir, { recursive: true });
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, '/bin/echo', '/bin/echo', null, acctDir, 'claude'), 'utf8');
+  // CONTROL: the fixture must actually name the account dir, or this arm tests
+  // a plist the predicate cannot read and passes for the wrong reason.
+  assert.equal(create.readJob(name).configDir, acctDir,
+    'the fixture plist does not name the account dir, so this arm proves nothing');
+  status.setPaneSource(() => fleet.line({ session: name, claim: name, title: '✳ Claude Code' }));
+  status.setPaneCapture(() => null);
+  removal.setRunner((file, args) => (args && args[0] === 'has-session'
+    ? { ok: false, code: 1 }
+    : { ok: true, stdout: '' }));
+  removal.setDryRun(false);
+  try {
+    assert.equal(removal.remove(name).outcome, removal.OUTCOME.REMOVED);
+
+    // Present: the route must say NOT gone, or the `true` below is meaningless.
+    let row = JSON.parse((await req('/api/removed')).body).agents.find((a) => a.name === name);
+    assert.equal(row.accountFolderGone, false,
+      'the route reports a PRESENT account folder as gone, so the field is stuck true');
+
+    fs.rmSync(acctDir, { recursive: true, force: true });
+    assert.ok(!fs.existsSync(acctDir), 'control: the account dir must actually be gone');
+
+    row = JSON.parse((await req('/api/removed')).body).agents.find((a) => a.name === name);
+    assert.equal(row.accountFolderGone, true,
+      'the route does not report a gone account folder, so the Restore control stays live and the '
+      + 'person is refused by the engine after clicking: the defect this card exists to fix');
+  } finally {
+    removal.setRunner(null);
+    status.setPaneSource(null);
+    status.setPaneCapture(null);
+    try { fs.rmSync(create.plistPath(name), { force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(acctDir, { recursive: true, force: true }); } catch { /* best effort */ }
+    try { fs.rmSync(removal.REMOVED_FILE, { force: true }); } catch { /* best effort */ }
+  }
+});
+
 test('the removed list gives the browser only what it draws', async () => {
   /**
    * ⚠️ Pins an ALLOWLIST, which is the only shape that can catch the regression
@@ -4395,13 +4461,17 @@ test('the removed list gives the browser only what it draws', async () => {
       ['accountFolderGone', 'name', 'removedAt', 'shownAs', 'stopped'],
       'the removed list ships fields the screen does not draw');
     assert.equal(row.shownAs, 'Payload', 'the row has nothing recognisable to show');
-    /* 🔑 #2615: THE FIELD AND THE REFUSAL MUST AGREE, and this is the arm that
-       reds if either side is ever changed alone. They share one predicate
-       today; this asserts the SHARING, not merely that both happen to say the
-       same thing right now. Compared against the engine directly rather than
-       against a second hard-coded expectation, so a change to the predicate
-       moves both sides of this equality together and a change to only ONE of
-       the two callers breaks it. */
+    /* #2615: the field agrees with the predicate FOR THIS FIXTURE.
+       🛑 THIS ARM IS WEAKER THAN ITS FIRST COMMENT CLAIMED, and the claim is
+       corrected rather than deleted because the overclaim is the instructive
+       part. It said this "asserts the SHARING, not merely that both happen to
+       say the same thing right now". It does not: this fixture's plist body is
+       `<plist/>`, so `readJob` returns null and BOTH sides are `false`. A
+       hardcoded `accountFolderGone: false` in the route passes it.
+       ⇒ The `true` case is covered by the dedicated arm above, which builds a
+       real plist and deletes the dir, and the SHARING is pinned on the source in
+       engine/remove.test.js. What survives here is a cheap shape check on the
+       boring case, which is all it ever was. */
     assert.equal(typeof row.accountFolderGone, 'boolean',
       'accountFolderGone is not a boolean, so the screen cannot branch on it safely');
     assert.equal(row.accountFolderGone,
