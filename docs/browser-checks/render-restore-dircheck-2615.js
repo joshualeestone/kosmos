@@ -75,7 +75,16 @@ const AGENTS = [
       const b = [...document.querySelectorAll('#removed-list [data-restore], #removed-list [data-restore-blocked]')]
         .find((x) => (x.dataset.shownAs || '') === shown);
       if (!b) return null;
+      /* 🛑 COMPUTED STYLE, NOT JUST SEMANTICS. Everything else this check reads
+         is an attribute, and a card titled "grey out the control" shipped
+         greying nothing out while every attribute arm passed: `disabled` had
+         been doing two jobs (semantics AND the `.btn:disabled` dimming) and the
+         move to `aria-disabled` kept the first and silently dropped the second.
+         An attribute assertion cannot see that. This one can. */
+      const cs = getComputedStyle(b);
       return {
+        opacity: cs.opacity,
+        cursor: cs.cursor,
         ariaDisabled: b.getAttribute('aria-disabled') === 'true',
         hardDisabled: b.disabled === true,
         acting: b.hasAttribute('data-restore'),
@@ -160,6 +169,32 @@ const AGENTS = [
       problems.push('the unavailable Restore uses hard `disabled`, so it leaves the tab order and a '
         + 'keyboard user never lands on it or hears why: WCAG AA failure, and a title on a disabled '
         + 'control is not announced at all');
+    }
+    /* 🛑 IT MUST ACTUALLY LOOK UNAVAILABLE. This is the card's own title and it
+       was the one thing nothing asserted: the first version of this check
+       passed clean while a getComputedStyle read found the blocked and live
+       buttons IDENTICAL on opacity, cursor, background, colour and border, so a
+       sighted mouse user still clicked a normal-looking button and learned why
+       afterwards, which is the exact defect the card exists to end.
+       ⚠️ Asserted as "dimmed at all" rather than a specific number, so a future
+       contrast adjustment does not red this for no reason. The VALUE is argued
+       at the CSS rule (`.8` keeps AA because this control is focusable and
+       therefore not exempt; `.5` would fail it). */
+    if (!(parseFloat(r.gone.opacity) < 1)) {
+      problems.push('the unavailable Restore renders at full opacity (' + r.gone.opacity
+        + '), so it looks exactly like a live button and the card greys nothing out');
+    }
+    if (r.gone.cursor !== 'not-allowed') {
+      problems.push('the unavailable Restore does not show a not-allowed cursor (got '
+        + JSON.stringify(r.gone.cursor) + '), so the only pre-click signal is missing');
+    }
+    /* 🛑 THE NEGATIVE ARM, and it is load-bearing for the same reason as the
+       others: dimming EVERY Restore would satisfy both assertions above and be
+       a worse regression than the one this fixes. */
+    if (parseFloat(r.fine.opacity) < 1 || r.fine.cursor === 'not-allowed') {
+      problems.push('a row whose account folder is PRESENT is dimmed or shows not-allowed (opacity '
+        + r.fine.opacity + ', cursor ' + JSON.stringify(r.fine.cursor)
+        + '), so a working Restore looks unavailable');
     }
     /* A press must SAY WHY. A focusable control that does nothing is the
        "pressable but silent" failure aria-disabled invites. */

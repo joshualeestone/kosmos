@@ -842,6 +842,32 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
 .btn:hover { background: var(--attn-bg); }
 .btn:disabled { opacity: 0.5; cursor: default; }
 .btn:disabled:hover { background: var(--bg); }
+/* 🛑 #2615: THE aria-disabled ARM NEEDS ITS OWN RULE, AND ITS ABSENCE SHIPPED A
+   CARD TITLED "grey out the control" THAT GREYED NOTHING OUT. `disabled` was
+   doing TWO jobs: the semantics AND the dimming, via `.btn:disabled` right
+   above. Moving the removed-list Restore to `aria-disabled` (so it keeps the
+   tab order and a keyboard user can reach the reason) preserved the semantics
+   and SILENTLY DROPPED THE STYLING, because `:disabled` stops matching. A
+   getComputedStyle read found the blocked and live buttons identical on
+   opacity, cursor, background, colour and border.
+   ⭐ The lesson past this bug: an attribute swap that fixes accessibility can
+   take a visual affordance with it, because CSS matched the OLD attribute and
+   no test asserted style. Nothing in the suite could see it.
+   ⚠️ `.8`, NOT the `.5` on `.btn:disabled` two lines up, and the difference is
+   WCAG rather than taste. A hard-`disabled` control is EXEMPT from the contrast
+   minimum, so `.5` is fine there. This one is NOT exempt: it stays focusable and
+   a press does something (it explains why). Measured on --label #14161a over
+   --bg #faf9f7: full 17.21:1, `.8` 9.36:1 (passes AA), `.7` 6.55:1, `.5`
+   3.39:1 (FAILS the 4.5 minimum). Same reasoning and same value as the sibling
+   `.acct-disconnect[aria-disabled="true"]`, which did this math first.
+   📌 SCOPED TO `.acts` DELIBERATELY. A bare `.btn[aria-disabled="true"]` ties
+   `.btn:disabled` on specificity and wins on source order, which would quietly
+   restyle `#fr-next` in the first-run wizard (it sets BOTH attributes) from .5
+   to .8: a different flow, changed as a side effect of this card. */
+.acts .btn[aria-disabled="true"] { opacity: .8; cursor: not-allowed; }
+/* The hover highlight is the "this will do the thing" affordance and it will
+   not, so it is suppressed rather than left to contradict the cursor. */
+.acts .btn[aria-disabled="true"]:hover { background: var(--bg); }
 .fmsg { font: var(--text-callout) var(--font-ui); color: var(--label-2); margin-top: var(--space-4); min-height: 1em; }
 /* 🔑 A REFUSAL AT THE FIELD IT IS ABOUT (kosmos#1303 G). Josh: "The error was
    below the Save Changes button so when I scrolled down to hit the button, I
