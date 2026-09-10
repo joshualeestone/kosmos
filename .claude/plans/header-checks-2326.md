@@ -11,7 +11,7 @@ and is in this cut. The checks still assert the pre-#2282 tab-only-header model.
 - `.headright` and `#worldsw` are NO LONGER hidden in the consolidated view — the
   full-width header persists across every view, so both are VISIBLE in consolidated.
 - The rail copies are now hidden in consolidated:
-  `html[data-layout="consolidated"] body.consolidated .railme-theme, .railme-lay { display: none }`.
+  `html[data-layout="consolidated"] body.consolidated .railme-theme, html[data-layout="consolidated"] body.consolidated .railme-lay { display: none }`.
   `#rail-me .laypick` is `.railme-lay` (HTML: `<span class="laypick railme-lay">`), so
   it is display:none in consolidated.
 - `.tabs` remains hidden in consolidated.
