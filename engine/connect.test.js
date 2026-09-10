@@ -1742,6 +1742,39 @@ driverTest('#1922: a capture failure AFTER the login landed reports connected, n
   } finally { subscription.setRunner(null); }
 });
 
+// #1922 + #1937 BLOCKER guard: a RE-AUTH of a STILL-LIVE credential reads checkLive
+// CONNECTED off the OLD credential from the first tick. If its pane dies before the NEW
+// login completes (sawLoginDone never set, deadCredential false), the capture-fail rescue
+// must NOT finish it off the old credential -- that would report a success the new login
+// never earned. It must go STUCK instead. (Present-but-dead first-run, by contrast, DOES
+// finish via the deadCredential clause -- covered by the test above.)
+driverTest('#1922: a re-auth on a still-live credential does NOT finish on a capture failure (no false connected)', async () => {
+  const term = fakeTerminal();
+  let failCaptures = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    if (args[0] === 'capture-pane' && failCaptures) {
+      return { ok: false, stdout: '', stderr: "can't find pane: =kosmos-connect:" };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  writeClaudeConfig(CONNECTED_CONFIG);
+  // Credential is LIVE the whole time (reauth of a working account).
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  try {
+    await connect.start({ reauth: true });
+    await until(() => String(connect.state().phase).startsWith('signin'), 5000);
+    // The pane dies before the NEW login completes; sawLoginDone was never set.
+    failCaptures = true;
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 15000);
+    assert.equal(connect.state().phase, connect.PHASE.STUCK,
+      'a reauth-on-live whose pane died pre-login-done must NOT report connected off the old '
+      + 'credential: ' + connect.state().because);
+    assert.match(connect.state().because, /window closed/);
+  } finally { subscription.setRunner(null); }
+});
+
 driverTest('a code is refused while nothing is asking for one', async () => {
   const refusedCold = connect.submitCode('abCD1234#efGH5678');
   assert.equal(refusedCold.ok, false);
