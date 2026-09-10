@@ -7385,7 +7385,7 @@ test('the settings members wiring is real, not just extractable', () => {
   const flat = raw.replace(/\s+/g, ' ');
   // Presence control first: the section this absence speaks about must
   // exist, or a typo in the needle passes vacuously forever.
-  assert.ok(flat.includes('Project members'),
+  assert.ok(flat.includes('>Members</h3>'),
     'CONTROL: the members section is gone; the absence below proves nothing');
   assert.ok(!flat.includes('Who is on this project. Removing an agent takes it off'),
     'the cut members hint came back');

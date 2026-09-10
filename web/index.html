@@ -3795,12 +3795,9 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      full width, full height, scrolling inside itself; the header rule
      above and the composer below are the only edges it needs. */
   html[data-layout="consolidated"] body.consolidated .pjmid .thread { min-height: 0; max-height: none; flex: 1 1 auto; border: 0; border-radius: 0; background: none; }
-  /* #867 (Josh, 2026-08-25 15:52): "strip out the 'drop a file... type @'
-     hint for this view as well, because this is kind of the power user
-     mode. They're going to know what a + means or how to do an @ to
-     mention agents." Tab view keeps it; only the consolidated composer
-     drops it. */
-  html[data-layout="consolidated"] body.consolidated #pj-composerhint { display: none; }
+  /* #867 hid this hint in the consolidated view only; Josh, 2026-09-10
+     (#2711 item 9), removed the hint element outright, so both views now
+     drop it and there is no #pj-composerhint left to hide. */
   /* #520 piece seven (Josh, 2026-08-24 16:32: the project name and members
      "flush vertically with agents"): the projects panel keeps the .panel top
      padding, which sat the project title and its columns below the agents
@@ -10199,7 +10196,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            consolidated one does not, and that is a decision rather than an
            oversight. -->
 <div class="pjcard pjcard-members">
-      <h3 class="dlab">Project members</h3>
+      <!-- Josh, 2026-09-10 (#2711 item 14): the column heading is just
+           "Members" now. "Project members" restated the page it sits on. -->
+      <h3 class="dlab">Members</h3>
       <div id="pj-one-agents" class="pj-members"></div>
       <!-- ⚠️ The picker hides behind the button, not the other way round: the
            resting state of the box is the members, and "+ Add Member" (the
@@ -10304,7 +10303,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              (the attachment path). Naming this section for what it really shows
              is what stops it looking like the other one arrived. (#110, heading
              from Mona Lisa.) -->
-        <h3 class="dlab">Files in this project</h3>
+        <!-- Josh, 2026-09-10 (#2711 item 13): just "Files". Still the
+             project folder, top level, newest first, as the comment above says. -->
+        <h3 class="dlab">Files</h3>
         <div id="pj-docs" class="pj-docs"></div>
         <p class="fmsg" id="pj-docs-msg" aria-live="polite"></p>
         <!-- ⚠️ "Show them all in Finder", NOT "see all files". Josh asked for a
@@ -10412,9 +10413,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              v1 of Discord's UX, not the whole of it). Paired with #2067, which
              RENDERS emoji in dialogue; this is the INPUT side. -->
         <div class="emojipanel" id="pj-emoji" role="group" aria-label="Pick an emoji" hidden></div>
-        <!-- #142: a symbol is not a verb, and the bold @ rendered as a smudge
-             that read as a zero. The key is named, the bold is off the glyph. -->
-        <p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it. Type @ and a name to ask one agent directly.</p>
+        <!-- Josh, 2026-09-10 (#2711 item 9): the composer hint below the input
+             is removed. It named the drop-to-attach behaviour (which is not
+             built yet) and the @ mechanism; the @ picker still opens on typing @,
+             so the affordance stays, just without a permanent line of copy under
+             the box. (Was #142's "Type @ and a name to ask one agent directly.") -->
+
       </div>
       <div class="attach-chips" id="pj-attach-chips" hidden></div>
       <p class="fmsg" id="pj-room-msg"></p>

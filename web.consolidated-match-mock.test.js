@@ -184,10 +184,12 @@ test('each project row in the rail shows its agent count as a subtitle, without 
     'the project description and status-line got un-hidden along with the agent count -- only the count was asked for');
 });
 
-test('the drop-a-file / @-mention composer hint is stripped in the consolidated view only', () => {
-  assert.match(PAGE, /html\[data-layout="consolidated"\] body\.consolidated #pj-composerhint \{ display: none; \}/,
-    'the composer hint is not hidden in consolidated view');
-  // The tab view keeps it -- the base element and its text are untouched.
-  assert.match(PAGE, /<p class="composerhint" id="pj-composerhint">Drop a file anywhere in the conversation to add it\. Type @ and a name to ask one agent directly\.<\/p>/,
-    'the composer hint element itself was removed, not just hidden for consolidated -- the tab view needs it too');
+test('the drop-a-file / @-mention composer hint is gone from both views (#2711 item 9)', () => {
+  // Josh, 2026-09-10 (#2711 item 9): the hint below the composer is removed
+  // outright. It is gone from the markup, so there is no #pj-composerhint left
+  // and no consolidated-only rule to hide an element that no longer exists.
+  assert.ok(!PAGE.includes('id="pj-composerhint"'),
+    'the composer hint element is back; #2711 item 9 removed it from both views');
+  assert.ok(!/#pj-composerhint \{ display: none; \}/.test(PAGE),
+    'a consolidated display:none rule for the removed hint is back');
 });
