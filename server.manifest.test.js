@@ -64,8 +64,8 @@ test('the board is installable: manifest linked, served as its type, icons real,
   const page = await (await fetch(base + '/')).text();
   assert.match(page, /<link rel="manifest" href="\/manifest\.webmanifest">/, 'the page does not link the manifest');
   assert.match(page, /<meta name="apple-mobile-web-app-capable" content="yes">/, 'iOS Safari reads this, not display:standalone');
-  /* Theme-color is split per colour scheme (#2527), so the browser chrome
-     matches the app in light and dark. Both metas must be present. */
+  /* Theme-color is split per OS colour scheme (#2527), so the browser chrome
+     tracks the system light/dark setting. Both metas must be present. */
   assert.match(page, /<meta name="theme-color" content="#[0-9a-f]{6}" media="\(prefers-color-scheme: light\)">/, 'no light-scheme theme-color meta');
   assert.match(page, /<meta name="theme-color" content="#[0-9a-f]{6}" media="\(prefers-color-scheme: dark\)">/, 'no dark-scheme theme-color meta');
   const res = await fetch(base + '/manifest.webmanifest');
