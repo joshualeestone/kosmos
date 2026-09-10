@@ -6308,12 +6308,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 /* #2647: the copy that belongs to the far-left secondary action, sitting beside
    it in the nav. Quiet footnote weight so it reads as a hint rather than as a
    second control competing with Next.
-   ⚠️ `margin-right: auto` is load-bearing, not decoration: `#firstrun .fr-acts`
-   is `justify-content: flex-end`, so without it the hint is dragged right and
-   ends up wedged against Next, which is the opposite of "far left" and reads as
-   a caption for the wrong button.
-   📌 It sits BEFORE `.fr-spacer`, so on a narrow window the row wraps with the
-   hint under its own button rather than under Next. */
+   🛑 WHAT ACTUALLY HOLDS IT AT THE LEFT IS ITS DOM POSITION BEFORE
+   `.fr-spacer`, NOT its own margin. An earlier version of this comment claimed
+   `margin-right: auto` was load-bearing and that without it the hint would be
+   dragged against Next. MEASURED FALSE: geometry is byte-identical with and
+   without it at 1200/900/700/560/460 (hint.left 471/321/221/203/203 in both
+   arms), because `.fr-spacer { margin-left: auto }` already absorbs the free
+   space and a second auto margin in the same gap changes nothing.
+   ⚠️ THE MARGIN ONLY MATTERS IN THE ARRANGEMENT THAT COMMENT DID NOT DESCRIBE:
+   move this span AFTER `.fr-spacer` and dropping the margin shifts it 557 -> 628,
+   hard against Next. ⇒ If you reorder this span, you have removed the mechanism;
+   the margin is belt-and-braces and will not save you. Keep it before the spacer.
+   📌 And the wrap note was backwards too. Measured at 460px: the hint stays on
+   its own button's row and NEXT is what wraps to a second line. Also worth
+   knowing, since it is a real (cosmetic) change: adding this 162px hint makes
+   step 3's nav wrap below roughly 490px viewport, where on origin/main it did
+   not wrap at all down to 400px. */
 #firstrun #fr-alt-hint {
   font: var(--text-footnote, 400 .8125rem/1.4) var(--font-ui, -apple-system, sans-serif);
   color: var(--k-ink-2, #6b6656);
@@ -40287,16 +40297,30 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
  * shared nav (`#fr-alt`), and a lookup by id here would tie this function to a
  * slot other screens legitimately reuse for other actions.
  */
+let FR_RECHECK_PRESS = 0;   // #2647: which press owns the shared button right now
+
 async function frRecheckPress(btn) {
   const m = document.getElementById('fr-s3-msg');
   const hadErr = !!(m && m.classList.contains('fr-msg-err'));
+  /* 🛑 A TOKEN GUARD, BECAUSE THIS BUTTON IS NOT OURS ALONE. `#fr-alt` is the
+     shared nav slot for all nine screens, and `frRecheck` (the subscription
+     screen's own re-check) disables and re-enables THE SAME ELEMENT, guarding
+     its re-enable with exactly this pattern and saying why at its own code.
+     Re-enabling unconditionally in a `finally` means a slow press from this
+     screen can hand the button back while a NEWER owner still has a request in
+     flight. frActions resets `disabled` on every step change, which narrows the
+     window rather than closing it, and "narrow" is not a property worth relying
+     on when the sibling already shows the shape.
+     ⇒ Only the press that still owns the button re-enables it. */
+  FR_RECHECK_PRESS += 1;
+  const mine = FR_RECHECK_PRESS;
   if (btn) btn.disabled = true;
   if (m && !hadErr) m.textContent = 'Checking…';
   try {
     await frRecheckGates();
   } finally {
     if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
-    if (btn) btn.disabled = false;
+    if (btn && mine === FR_RECHECK_PRESS) btn.disabled = false;
   }
 }
 
