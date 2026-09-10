@@ -17,8 +17,8 @@
  *     once a name is typed.
  *  4. Creating a Kosmos closes the modal, the switcher menu re-opens on its own,
  *     and the new world appears in the list (the real POST /api/worlds + refetch).
- *  5. The switcher is hidden in the consolidated view (a tab-view header element
- *     until the persistent-header work lands).
+ *  5. The switcher is shown in the consolidated view (since #2282's persistent
+ *     full-width header, the switcher lives in the header across every view).
  *
  * Switching between worlds is slice 2b; this checks list + create only.
  *
@@ -134,11 +134,15 @@ function chk(ok, label, extra) {
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.getElementById('world-add-modal').hidden, null, { timeout: 4000 });
 
-    // ── Arm 5: the switcher is hidden in the consolidated view. ──────────────
+    // ── Arm 5: the switcher is shown in the consolidated view (#2282). ───────
+    // #2282's persistent full-width header keeps the header (and the switcher in
+    // it) present across every view, so the switcher is now shown in consolidated
+    // too. This reverses the pre-#2282 behavior, where the switcher was a tab-view
+    // header element hidden when the header collapsed in consolidated.
     await page.click('.headright .laypick [data-layout-switch="consolidated"]');
     await page.waitForFunction(() => document.body.classList.contains('consolidated'), null, { timeout: 8000 });
     await page.waitForTimeout(200);
-    chk(!(await page.locator('#worldsw').first().isVisible()), 'the switcher is hidden in the consolidated view');
+    chk(await page.locator('#worldsw').first().isVisible(), 'the switcher is shown in the consolidated view (#2282 persistent header)');
 
     chk(errs.length === 0, 'no page errors', errs.join(' | '));
   } finally {

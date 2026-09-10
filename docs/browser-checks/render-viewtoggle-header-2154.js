@@ -1,17 +1,20 @@
 'use strict';
 
 /**
- * The board-view toggle (#2154): one press flips tabs <-> consolidated, it persists through /api/style, it lives in the header on the tabbed view and in the agents rail on the consolidated view, and it is hidden below 960px. After #2194 it sits to the right of the light/dark switcher in the header.
+ * The board-view toggle (#2154): one press flips tabs <-> consolidated, it persists through /api/style, and it is hidden below 960px. After #2194 it sits to the right of the light/dark switcher in the header. After #2282 (the persistent full-width header) it lives in the header in EVERY view, including consolidated; the #rail-me copy is hidden there.
  *
  * 🔑 A RENDERED CHECK IS THE ONLY KIND THAT CAN SEE THIS. The toggle drives the
  * real applyLayout path over a real /api/style round-trip, and the effective
  * consolidated view (body.consolidated) is set by showTab, not by the saved
- * preference alone. The header's .headright is display:none in the consolidated
- * view, so the toggle is duplicated into the agents rail (like the theme pill
- * beside it) and the check has to prove BOTH placements are reachable in their
- * own view -- a source read cannot tell that the header copy vanishes and the
- * rail copy takes over, nor that the control is correctly absent below 960px
- * where the consolidated view is not offered at all.
+ * preference alone. Since #2282 the header's .headright stays visible in the
+ * consolidated view (the header is full-width across every view), so the toggle
+ * lives in the header in BOTH views and the #rail-me copy is display:none in
+ * consolidated -- the check proves the header toggle is reachable and functional
+ * in each view, and that the control is correctly absent below 960px where the
+ * consolidated view is not offered at all. (Before #2282 .headright collapsed in
+ * consolidated and the toggle was duplicated into the agents rail; this check
+ * proved that reversed placement, which is why the whole consolidated block
+ * changed when the persistent header landed.)
  *
  *   node docs/browser-checks/render-viewtoggle-header-2154.js <url> <sandbox-root>
  *
@@ -87,41 +90,31 @@ const { chromium } = require('playwright');
     say(await pg.evaluate(() => document.body.classList.contains('consolidated')), 'press one screen: the consolidated view is up');
     say((await savedLayoutOf()) === 'consolidated', 'press one screen: the layout is saved on the server (not a second store)');
 
-    // --- Consolidated view: the header copy is gone, the rail copy takes over. ---
-    say(!(await visible(HEAD)), 'consolidated view: the header toggle is gone (headright collapses)');
-    say(await visible(RAIL), 'consolidated view: the toggle is in the agents rail');
-    // #2194: the rail copy is ordered like the header (toggle to the RIGHT of the
-    // light/dark pill), so the two controls do not swap sides when a person flips
-    // between the tabbed and consolidated views. Reds on the pre-#2194 rail.
-    const railOrder = await pg.evaluate(() => {
-      const lay = document.querySelector('#rail-me .laypick');
-      const th = document.querySelector('#rail-me .themepick');
-      if (!lay || !th) return null;
-      const l = lay.getBoundingClientRect(), t = th.getBoundingClientRect();
-      return { layLeft: Math.round(l.left), thRight: Math.round(t.right) };
-    });
-    say(railOrder && railOrder.layLeft >= railOrder.thRight,
-      'consolidated view: the rail toggle sits to the right of the light/dark switcher too (#2194, no swap between views)',
-      railOrder ? JSON.stringify(railOrder) : 'one of the rail .laypick/.themepick missing');
-    say((await ariaOf(RAIL + ' [data-layout-switch="consolidated"]')) === 'true', 'consolidated view: the rail one-screen segment is checked');
-    say((await ariaOf(RAIL + ' [data-layout-switch="tabs"]')) === 'false', 'consolidated view: the rail tabs segment is not checked');
+    // --- Consolidated view (#2282): the header stays full-width across every
+    // view, so the toggle lives in the header here too and the rail copy is
+    // hidden. This reverses the old tab-only-header design, where .headright
+    // collapsed in consolidated and the toggle moved into #rail-me. ---
+    say(await visible(HEAD), 'consolidated view: the header toggle is still shown (#2282 persistent header)');
+    say(!(await visible(RAIL)), 'consolidated view: the rail copy is hidden (#2282 folds the rail controls up)');
+    say((await ariaOf(HEAD + ' [data-layout-switch="consolidated"]')) === 'true', 'consolidated view: the header one-screen segment is checked');
+    say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'false', 'consolidated view: the header tabs segment is not checked');
 
     // It survives a reload, because it was saved and the boot paint reads it.
     await pg.reload({ waitUntil: 'networkidle' });
     await dismissFirstRun();
     await settled(true);
-    say(await visible(RAIL), 'after a reload: the rail toggle is still shown (the saved one-screen choice)');
-    say((await ariaOf(RAIL + ' [data-layout-switch="consolidated"]')) === 'true', 'after a reload: the rail toggle still shows one screen');
+    say(await visible(HEAD), 'after a reload: the header toggle is still shown (the saved one-screen choice)');
+    say((await ariaOf(HEAD + ' [data-layout-switch="consolidated"]')) === 'true', 'after a reload: the header toggle still shows one screen');
 
-    // A press on "separate tabs" from the RAIL flips it back -- the only route
-    // back, since the header copy is hidden in this view.
-    await pg.click(RAIL + ' [data-layout-switch="tabs"]');
+    // A press on "separate tabs" from the HEADER flips it back -- #2282 keeps the
+    // header copy present in the consolidated view, so it is the route back.
+    await pg.click(HEAD + ' [data-layout-switch="tabs"]');
     await settled(false);
-    say((await htmlLayout()) === 'tabs', 'press separate tabs (rail): html data-layout is tabs');
-    say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'press separate tabs (rail): the consolidated view is down');
-    say(await visible(HEAD), 'press separate tabs (rail): the header toggle is back');
-    say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'true', 'press separate tabs (rail): the header tabs segment is checked again');
-    say((await savedLayoutOf()) === 'tabs', 'press separate tabs (rail): the tabbed layout is saved on the server');
+    say((await htmlLayout()) === 'tabs', 'press separate tabs (header): html data-layout is tabs');
+    say(!(await pg.evaluate(() => document.body.classList.contains('consolidated'))), 'press separate tabs (header): the consolidated view is down');
+    say(await visible(HEAD), 'press separate tabs (header): the header toggle is shown');
+    say((await ariaOf(HEAD + ' [data-layout-switch="tabs"]')) === 'true', 'press separate tabs (header): the header tabs segment is checked again');
+    say((await savedLayoutOf()) === 'tabs', 'press separate tabs (header): the tabbed layout is saved on the server');
 
     // The narrow-window gate: below 960px the consolidated view is not offered,
     // so the toggle must not be a dead control. Positive control: at 1400px it is
