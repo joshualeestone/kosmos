@@ -129,8 +129,8 @@ ramp-up, audit trail.
   indicators (`token_present=true`) instead. On a response that can echo a credential (a
   login or token exchange), log a structured extract and no body. Redact a body before
   logging it, cap it first, and fail closed on anything the redactor cannot delimit.
-- **Diagnostic logging**: prefix temporary lines with `DIAG_DEBUG` and remove them before
-  shipping unless actively needed.
+- **Diagnostic logging**: there is none in the tree today; if you add temporary diagnostic
+  logging, prefix it with `DIAG_DEBUG` so it is easy to find, and remove it before shipping.
 
 ### Testing
 
