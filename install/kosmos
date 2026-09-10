@@ -1194,9 +1194,9 @@ for _a in "$@"; do
 done
 if [ "$_kosmos_help" = 1 ]; then
   case "${1:-}" in
-    msg|reply|post|react|report|room|feedback|adopt|whoami) set -- "$1" ;;
+    msg|reply|post|react|report|room|feedback|task|adopt|whoami) set -- "$1" ;;
     *)
-      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | adopt | whoami\n\n'
+      printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | adopt | whoami\n\n'
       printf '  Add --help to any command; it never acts, except adopt and whoami, which show their read-only output.\n'
       printf '  (stop and restart ACT when run bare; --help never does.)\n'
       printf '  The dashboard lives at %s once started.\n\n' "$URL"
@@ -1369,6 +1369,105 @@ cmd_feedback() {
   esac
 }
 
+# ---- kosmos task <add|list|close> - the per-project tasks feature, surfaced (#2662) --------
+# The board already exposes GET /api/tasks?project=<id>, POST /api/project/<id>/tasks, and
+# POST /api/project/<id>/task/<n>/close|reopen; it just was not reachable from the terminal, so
+# agents improvised a shared task-board.md and collided. This surfaces it. Board-token handling
+# is free via kosmos_curl (header written to a mode-600 temp file and passed `-H @file`, never on
+# argv, which macOS `ps -ww -o args` exposes cross-account). Same hand-rolled JSON escaping and
+# `_bt`/rc idioms as cmd_post, and the same bash-3.2 reason for both.
+cmd_task() {
+  local sub; sub="${1:-}"; shift 2>/dev/null || true
+  case "$sub" in
+    ''|help|-h|--help)
+      say "Usage: kosmos task <list|add|close>"
+      say "  kosmos task list <project-id>                                 list this project's tasks"
+      say "  kosmos task add  <project-id> \"<what the task is>\" [\"more detail\"]  add one (quote each part)"
+      say "  kosmos task close <project-id> <task-number>                  close one (number is from list)"
+      say "  (project ids are in your instructions' Your projects section.)"
+      exit 2 ;;
+    # Validate the subcommand AND its required args BEFORE the health check, the same order
+    # cmd_post and cmd_room use, so a malformed invocation is named even when the board is stopped
+    # (rather than reporting "not running" and hiding the usage).
+    list)
+      [ -n "${1:-}" ] || { say "Usage: kosmos task list <project-id>"; exit 2; } ;;
+    add)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task add <project-id> \"<what the task is>\" [\"more detail\"]"; exit 2; } ;;
+    close)
+      { [ -n "${1:-}" ] && [ -n "${2:-}" ]; } || { say "Usage: kosmos task close <project-id> <task-number>   (the number is shown by kosmos task list)"; exit 2; }
+      case "${2:-}" in ''|*[!0-9]*) say "The task number must be a number, from: kosmos task list <project-id>."; exit 2 ;; esac ;;
+    *)
+      say "Unknown: kosmos task $sub. Try: list | add | close"
+      exit 2 ;;
+  esac
+  if ! healthy; then
+    say "Kosmos is not running, so its tasks are unreachable. Start it with: kosmos start"
+    exit 1
+  fi
+  local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert when empty
+  # A project id is a slug in practice; keep it path/query-safe without a urlencoder (bash 3.2).
+  # Use cmd_room's EXACT sanitizer (strip disallowed, no '~'), not an independently invented one,
+  # so `kosmos room <id>` and `kosmos task <id>` sanitize the same id to the same route.
+  local esc_project; esc_project=$(printf '%s' "${1:-}" | sed "s/[^A-Za-z0-9._-]//g")
+  case "$sub" in
+    list)
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/tasks?project=$esc_project" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to list tasks. Is it running at $URL?"; exit 1; }
+      case "$body" in '{"error":'*)
+        local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+        say "Kosmos refused that: ${because:-it did not say why}."; exit 1 ;;
+      esac
+      # Render with the app's own node (bash 3.2 has no JSON parser); raw JSON is the fallback.
+      if [ -f "$NODE" ] && [ -x "$NODE" ]; then
+        printf '%s' "$body" | "$NODE" -e 'const d=JSON.parse(require("fs").readFileSync(0));const t=d.tasks||[];if(!t.length){console.log("No tasks for this project yet. Add one: kosmos task add <project-id> <what the task is>");process.exit(0)}for(const x of t){const who=(x.whoNames&&x.whoNames.length)?" ("+x.whoNames.join(", ")+")":"";console.log("["+(x.number!=null?x.number:"?")+"] "+(x.isClosed?"[done] ":"")+(x.sentence||"(no description)")+who)}' 2>/dev/null || printf '%s\n' "$body"
+      else
+        printf '%s\n' "$body"
+      fi
+      ;;
+    add)
+      local project sentence detail
+      project="${1:-}"; sentence="${2:-}"   # both validated non-empty before the health check above
+      # Fold EVERY arg after the sentence into detail, so an unquoted multi-word detail is not
+      # silently dropped (bash word-splits it into $4, $5, ... which a $3-only read would lose).
+      shift 2 2>/dev/null || true   # drop project + sentence; the remaining args are the detail
+      detail="$*"
+      local esc_sentence esc_detail esc_pane
+      esc_sentence=$(printf '%s' "$sentence" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+      esc_detail=$(printf '%s' "$detail" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr '\t\r' '  ' | sed -e ':a' -e '$!{N;ba' -e '}' -e 's/\n/\\n/g')
+      esc_pane=$(printf '%s' "${TMUX_PANE:-}" | tr '\n\t\r' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g')
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/tasks" \
+        -H 'content-type: application/json' \
+        --data "{\"sentence\":\"$esc_sentence\",\"detail\":\"$esc_detail\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to add that task. Is it running at $URL?"; exit 1; }
+      # Success is the board's own {"task":...} shape (server.js), not merely the absence of
+      # {"error":...}: an unexpected 200 (a proxy page, a future response shape) must NOT read as done.
+      case "$body" in
+        '{"task":'*) say "Task added to ${project:-the project}. See it with: kosmos task list ${project:-<project-id>}" ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos refused that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when adding that task."; exit 1 ;;
+      esac
+      ;;
+    close)
+      local project num; project="${1:-}"; num="${2:-}"   # both validated (num is all-digits) before the health check above
+      local rc=0 body
+      body=$(kosmos_curl "$_bt" "" -sS -m 15 -X POST "$URL/api/project/$esc_project/task/$num/close" 2>/dev/null) || rc=$?
+      [ "$rc" -eq 0 ] || { say "We could not reach Kosmos to close that task. Is it running at $URL?"; exit 1; }
+      # Success is the board's own {"task":...} shape (server.js), not merely the absence of an error.
+      case "$body" in
+        '{"task":'*) say "Closed task $num on ${project:-the project}." ;;
+        '{"error":'*)
+          local because; because=$(printf '%s' "$body" | sed -n 's/.*"error":"\([^"]*\)".*/\1/p')
+          say "Kosmos could not close that task: ${because:-it did not say why}."; exit 1 ;;
+        *) say "Kosmos gave an answer we could not read when closing that task."; exit 1 ;;
+      esac
+      ;;
+  esac
+}
+
 case "${1:-}" in
   start)   cmd_start ;;
   stop)    cmd_stop ;;
@@ -1386,8 +1485,9 @@ case "${1:-}" in
   whoami)  shift; cmd_whoami "$@" ;;
   room)    shift; cmd_room "$@" ;;
   feedback) shift; cmd_feedback "$@" ;;
+  task)    shift; cmd_task "$@" ;;
   *)
-    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | adopt | whoami\n\n'
+    printf '\n  kosmos start | stop | restart | status | open | agents | version | msg | post | reply | react | report | room | feedback | task | adopt | whoami\n\n'
     printf '  The dashboard lives at %s once started.\n\n' "$URL"
     exit 2
     ;;
