@@ -1419,3 +1419,107 @@ test('#996: and it is not offered at all when there is nothing to run', () => {
     'a person with no Claude on disk was told to type a command that cannot run');
   assert.match(html, /carry on and connect later from Settings/);
 });
+
+/* --------------------------------------------------------------------------
+   #570: the Windows arm of the stuck card. Every input is INJECTED into the
+   painter -- the platform arrives in the state `publicView` serves, never from
+   `process.platform` -- so both arms run from either kind of box.
+   -------------------------------------------------------------------------- */
+
+/** The stuck state as the engine serves it on a clean Windows box. */
+function win32Stuck(over) {
+  return {
+    phase: 'stuck',
+    because: 'this platform (win32) is not supported; the Claude Code binary is a macOS build and was not downloaded',
+    platform: 'win32',
+    canInstallClaude: false,
+    canRunClaude: false,
+    progress: { got: 0, total: null },
+    ...over,
+  };
+}
+
+test('#570: on Windows the stuck card says whose job the install is, and how to do it', () => {
+  /**
+   * 🛑 THE DEFECT: THE CARD WAS HONEST AND STILL A DEAD END. `download()`
+   * refuses on win32 before any bytes move -- correctly, the binary it would
+   * fetch is a macOS build -- and that sentence reaches the card verbatim. What
+   * followed was "Try again" (the same doomed download) and "Continue anyway"
+   * (a board that cannot make a working agent). Nowhere in the engine, the web
+   * assets, the README or the docs was a Windows user told how to get Claude
+   * Code, while `engine/platform.js`'s own note assumed they would install it
+   * themselves.
+   *
+   * ⚠️ THE COMMAND IS PINNED BECAUSE IT IS THE WHOLE POINT. A card that says
+   * "install it yourself" without saying how has moved the dead end forward by
+   * one sentence. Measured 2026-09-09: `https://claude.ai/install.ps1` answers
+   * 200 with a PowerShell installer that reads the same `downloads.claude.ai`
+   * manifest this module's own downloader reads, verifies a SHA256, and runs
+   * `claude install` -- which lands `claude.exe` on the rung
+   * `runners.resolveBin('claude')` looks at.
+   */
+  const { els, actions } = connectHarness(win32Stuck());
+  const html = els['fr-sub'].innerHTML;
+
+  assert.match(html, /Kosmos cannot install Claude Code on Windows/,
+    'the Windows card still does not say that the install is the person\'s to do');
+  assert.match(html, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/,
+    'the card names no command, so "install it yourself" is a dead end one sentence further on');
+  assert.match(html, /press Try again/,
+    'nothing tells the person what to do once the install finishes');
+  /* The durable half, BESIDE the command rather than instead of it: a command in
+     shipped source ages, a vendor page does not. */
+  assert.match(html, /code\.claude\.com\/docs\/en\/quickstart/,
+    'no durable pointer, so a changed install route leaves this card wrong with nothing to check');
+  assert.ok(actions && actions.primary === 'Try again' && actions.alt === 'Continue anyway',
+    'the Windows arm changed the buttons; the refusal and its two exits are unchanged on purpose');
+
+  /* 🔑 THE COMMAND'S BOX HAS TO BE DRESSED, the same check the roster's state
+     pill carries. An undressed class renders the one line a person must copy
+     exactly as unstyled body text -- and the whole card is about that line. */
+  const page = fs.readFileSync(path.join(__dirname, 'web', 'index.html'), 'utf8');
+  const cls = (html.match(/<pre class="([^"]+)">irm /) || [])[1];
+  assert.ok(cls, 'the command is no longer in a <pre>, so it wraps into the sentence around it');
+  assert.match(page, new RegExp('\\.' + cls + '\\s*\\{'),
+    `the stylesheet dresses no .${cls}, so the command renders as plain body text`);
+});
+
+test('#570 CONTROL: the Windows sentence appears nowhere on a Mac', () => {
+  /* Same painter, same phase, two fields different. Without this the test above
+     passes for a card that shows the PowerShell command to everybody. */
+  const { els } = connectHarness({ phase: 'stuck', because: 'x', platform: 'darwin',
+    canInstallClaude: true, canRunClaude: false, progress: { got: 0, total: null } });
+  const html = els['fr-sub'].innerHTML;
+  assert.doesNotMatch(html, /PowerShell|install\.ps1/,
+    'a Mac is being told to run a Windows command');
+  assert.match(html, /Nothing is broken by this\. You can try again/,
+    'the Mac arm lost the sentence it has always had');
+});
+
+test('#570: the note retires itself the day Kosmos can install Claude Code on Windows', () => {
+  /**
+   * 🔑 GATED ON THE CAPABILITY, NOT ON THE PLATFORM ALONE. "Install it yourself"
+   * is true because Kosmos publishes no runner build for this OS, and that is a
+   * fact that can change -- `platform.js` split `RUNNER_DOWNLOADS` out of
+   * `SUPPORTED` for exactly that reason. Keyed on `win32` alone this card would
+   * go on naming a command nobody needs.
+   */
+  const { els } = connectHarness(win32Stuck({ canInstallClaude: true }));
+  assert.doesNotMatch(els['fr-sub'].innerHTML, /install\.ps1/,
+    'the card still hands the install to the person after Kosmos gained the ability to do it');
+});
+
+test('#570: a Windows box that already has claude.exe keeps the hatch as well', () => {
+  /* The other half of the path forward. Once Claude Code IS on the box,
+     `runners.resolveBin('claude')` finds `claude.exe` through PATHEXT (#570) and
+     the engine writes canRunClaude:true -- so signing in outside Kosmos is a real
+     way through here, exactly as on a Mac. The two notes answer different
+     questions (how to GET it, how to SIGN IN to it), so neither replaces the
+     other on a box part way between them. */
+  const { els } = connectHarness(win32Stuck({ canRunClaude: true }));
+  const html = els['fr-sub'].innerHTML;
+  assert.match(html, /<details class="fr-hatch"><summary>/,
+    'a Windows box that CAN run claude lost the sign-in-outside-Kosmos hatch');
+  assert.match(html, /irm https:\/\/claude\.ai\/install\.ps1 \| iex/,
+    'the two notes became exclusive, so a box part way through loses one of its two true answers');
+});

@@ -72,6 +72,18 @@ function kosmosCliShown(probeRoot) {
  * self-restart on this, so a from-source `node server.js` board (which a stop
  * would never bring back) is NEVER restarted -- it resolves to null here and
  * falls through to the manual-restart banner.
+ *
+ * 📌 #570: ON WINDOWS THIS IS ALWAYS null, AND THAT IS THE CORRECT ANSWER RATHER
+ * THAN A MISSING BRANCH. The shipped Windows bundle
+ * (`tools/build-kosmos-windows.sh`) is `Kosmos.exe` + `runtime\node.exe` +
+ * `app\` -- there is NO `bin\kosmos` wrapper of any spelling, so a win32 arm here
+ * could only invent a path that does not exist. What it must not do is leave a
+ * caller believing a restart is available: `engine/boardrestart.js` no longer
+ * reaches this arm on win32 at all (it asks engine/win32board.js whether the
+ * board's logon task started this board), so the null is a true negative that
+ * routes to a mechanism, not a dead end. The separate defect that agents are
+ * TAUGHT a bare `kosmos msg` on Windows lives in `kosmosCliShown` above and is
+ * BLOCKER 1's, not this one's -- see .claude/plans/WINDOWS-ROADMAP.md §3c.
  */
 function installedKosmosCli(probeRoot) {
   const installedHome = probeRoot || path.resolve(__dirname, '..', '..');

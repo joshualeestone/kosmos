@@ -707,18 +707,42 @@ test('#2397: the check never mutates launchd -- it only ever reads print-disable
   });
 });
 
-test('#2397: non-macOS has no launchd login job, so the row is omitted (null), not a false state', () => {
-  const got = machine.boardAutostartCheck(okRunner, { platform: 'win32' });
-  assert.equal(got, null);
-  // And check() must filter it rather than render an empty row.
+test('#2397 / #570: a platform with nothing true to say has the row omitted (null), not a false state', () => {
+  /* ⚠️ THIS USED TO ASSERT THE OPPOSITE FOR win32, AND THAT WAS THE BUG. #2397
+     read "no launchd" as "no answer", so a Windows Settings screen never raised
+     the subject -- while the true answer was "the board does not come back" for
+     every Windows board ever run (WINDOWS-ROADMAP §3c, BLOCKER 4). win32 now has
+     a real substrate to read (the board's Scheduled Task, engine/win32board.js)
+     and therefore a real row; the omission is for platforms where we still have
+     nothing true to say. Its own rows are pinned in
+     engine/machine.win32-autostart-570.test.js. */
+  assert.equal(machine.boardAutostartCheck(okRunner, { platform: 'linux' }), null);
+  // And check() must filter a null row rather than render an empty one.
   const os2 = require('node:os');
   const p2 = require('node:path');
   const fs2 = require('node:fs');
   const empty = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-win-'));
-  const got2 = machine.check({ pmset: DESKTOP_AWAKE, claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'win32' });
+  const got2 = machine.check({ pmset: DESKTOP_AWAKE, claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'linux' });
   fs2.rmSync(empty, { recursive: true, force: true });
   assert.ok(got2.checks.every((c) => c && c.key && c.state), 'a null row leaked into checks');
-  assert.ok(!got2.checks.some((c) => c.key === 'autostart'), 'the autostart row rendered on a platform with no launchd');
+  assert.ok(!got2.checks.some((c) => c.key === 'autostart'), 'the autostart row rendered on a platform we cannot read');
+});
+
+test('#570: win32 DOES get an autostart row, and check() renders it (the silence was the blocker)', () => {
+  const os2 = require('node:os');
+  const p2 = require('node:path');
+  const fs2 = require('node:fs');
+  const empty = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-win-'));
+  /* `boardTask` injected: no test may shell a real schtasks (this branch's rule 2). */
+  const got = machine.check({
+    pmset: DESKTOP_AWAKE, claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty],
+    platform: 'win32',
+    boardTask: { task: 'Kosmos\\board', bundle: true, registered: false, enabled: false, running: false, claimed: false, removeHint: 'schtasks /Delete /F /TN "Kosmos\\board"' },
+  });
+  fs2.rmSync(empty, { recursive: true, force: true });
+  const row = got.checks.find((c) => c.key === 'autostart');
+  assert.ok(row, 'a Windows board that will not come back must not be silent about it');
+  assert.equal(row.state, machine.STATE.ATTENTION);
 });
 
 /* ---------------------------------------------------------------------------

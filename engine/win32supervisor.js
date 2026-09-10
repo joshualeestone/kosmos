@@ -40,6 +40,7 @@
 
 const cp = require('node:child_process');
 
+const win32channel = require('./win32channel');
 const win32launch = require('./win32launch');
 const win32sessions = require('./win32sessions');
 
@@ -58,10 +59,15 @@ const POLL_MS = 5 * 1000;
    NULL IS NOT DEATH, which is the distinction the whole loop turns on. */
 let liveFn = null;
 function setLiveReader(fn) { liveFn = typeof fn === 'function' ? fn : null; }
-function liveSessions() {
+function liveSessions(bin) {
   if (liveFn) return liveFn();
   try {
-    const out = cp.execFileSync('claude', ['agents', '--json'], { encoding: 'utf8', timeout: 15000 });
+    /* 🔑 THE RUNNER'S BINARY WHEN WE HAVE IT, `claude` WHEN WE DO NOT. A task
+       starts with the user's logon environment, and whether `%USERPROFILE%\.local\bin`
+       is on that PATH is not ours to assume -- `claude install` puts it there, and a
+       fleet must not go blind because it did not. The absolute path rides argv (see
+       specFromArgv); this is the same fallback win32launch takes for the spawn. */
+    const out = cp.execFileSync(bin || 'claude', ['agents', '--json'], { encoding: 'utf8', timeout: 15000 });
     const v = JSON.parse(out);
     return Array.isArray(v) ? v : null;
   } catch { return null; }
@@ -197,7 +203,18 @@ function supervise(spec, opts) {
  * registered last week must keep working when a new argument is added. NEVER
  * REORDER THESE; add to the end.
  *
- *   argv:  <name> <cwd> [model] [configDir] [runner]
+ *   argv:  <name> <cwd> [model] [configDir] [runner] [claudeBin]
+ *
+ * 🛑 `claudeBin` IS ARGUMENT SIX, AND IT WAS ADDED BECAUSE THE TASK PATH LOST IT
+ * (7c-2). `create.js` resolves the runner's absolute path (`runners.resolveBin`,
+ * with the PATHEXT candidates #570 added) and used to hand it straight to
+ * `win32launch.launch`. Once the TASK became the launcher, the only facts that
+ * survive into the agent are the ones on this line -- and the resolved path was
+ * not one of them, so every task-started agent fell back to a bare `claude` and
+ * depended on the logon PATH carrying `%USERPROFILE%\.local\bin`. That is exactly
+ * the class of assumption this lane keeps being punished for, so the path is
+ * carried rather than assumed. A task registered before this argument existed
+ * passes five arguments, gets `undefined`, and falls back as it always did.
  */
 function specFromArgv(argv) {
   const a = Array.isArray(argv) ? argv : [];
@@ -208,6 +225,7 @@ function specFromArgv(argv) {
     model: at(2),
     configDir: at(3),
     runner: at(4) || 'claude',
+    claudeBin: at(5),
   };
 }
 
@@ -220,6 +238,19 @@ function specFromArgv(argv) {
  * shim instead, and the shim resolves the current engine and calls THIS. Keeping
  * the `require.main` guard as well means the file still runs standalone, which is
  * how it gets driven by hand on the box.
+ *
+ * 🛑 IT SUPERVISES THE STREAMING AGENT, NOT THE DETACHED ONE (7c-2). This called
+ * `supervise()` -- which watches a detached agent nobody holds the stdin of, and
+ * that is precisely why a Windows agent could not be TOLD anything. Pointing the
+ * task at `superviseStreaming` is what makes delivery possible at all: the agent
+ * the supervisor starts is its own child, its stdin is the message channel, and
+ * `handle.send()` is the thing `chat.js`'s win32 arm will call.
+ *
+ * ⚠️ AND IT IS ONE SWITCH, NOT A MODE FLAG, ON PURPOSE. Two supervision shapes
+ * selectable at runtime would mean two live paths, each half-exercised, which is
+ * the shape every defect in this lane arrived in. `supervise()` stays exported
+ * and tested -- it is the adoption watcher, and the measured knowledge in it is
+ * worth keeping -- but nothing in production selects it.
  */
 function main(argv) {
   const spec = specFromArgv(argv);
@@ -227,20 +258,56 @@ function main(argv) {
     process.stderr.write('kosmos win32 supervisor: needs <name> <cwd>\n');
     process.exit(2);
   }
-  const handle = supervise(spec, {
+  let last = null;
+  const handle = superviseStreaming(spec, {
     onEvent: (e) => {
-      /* One line per transition, on stderr so a task log captures it. Bounded by
-         being one short line per POLL_MS, and only on a CHANGE would be better --
-         noted rather than done, because a supervisor that hides a restart storm
-         is worse than one that is chatty about it. */
-      if (e.action === 'adopted') return;   // the steady state; do not narrate it
+      /* One line per transition, on stderr so a task log captures it.
+         ⚠️ A REPEATED `waiting` IS NOT A TRANSITION. Everything else here happens
+         once per start or per death; waiting repeats every poll for as long as
+         somebody else's session holds the name, which would be a line every five
+         seconds forever. Narrated on the EDGE, so the reason is still on the
+         record and the flood is not -- and every other action still prints every
+         time, because a supervisor that hides a restart storm is worse than one
+         that is chatty about it. */
+      if (e.action === 'waiting' && last === 'waiting') return;
+      last = e.action;
       process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' ' + e.action
         + (e.because ? ' -- ' + e.because : '') + '\n');
     },
   });
-  const bye = () => { handle.stop(); };
-  process.on('SIGINT', bye);
-  process.on('SIGTERM', bye);
+  /**
+   * 🔑 AND IT SERVES THE CHANNEL, BECAUSE IT IS THE ONLY PROCESS THAT COULD (7c-3).
+   * `handle.send()` types at the agent, and until now nothing outside this process
+   * could call it -- the board is somewhere else entirely. The pipe is opened here,
+   * in the process that holds the agent's stdin, which is the whole reason the
+   * server half lives in the supervisor rather than in the board.
+   *
+   * ⚠️ A CHANNEL THAT COULD NOT BE OPENED DOES NOT STOP THE SUPERVISOR. An agent
+   * that runs and cannot be messaged is the state Windows has been in all along;
+   * refusing to supervise it as well would turn a lost capability into a lost
+   * agent. It is said once, on stderr, where the task log keeps it.
+   */
+  const channel = win32channel.serve(spec.name, {
+    onSay: (text, replyWith) => { handle.send(text, replyWith); },
+  });
+  if (!channel.ok) {
+    process.stderr.write(new Date().toISOString() + ' ' + spec.name
+      + ' channel-refused -- ' + channel.because + '\n');
+  }
+
+  /* ⚠️ STOPPING HAS TO CLOSE THE CHANNEL TOO, and hanging that off `stop` rather
+     than off the signal handlers is what makes it true for every caller. A pipe
+     server holds the event loop open, so a supervisor that stopped supervising and
+     left its channel listening is a process that never exits -- which is a hung
+     Scheduled Task in production and a test run that never returns. */
+  const supervisionStop = handle.stop;
+  handle.stop = function stop() {
+    supervisionStop();
+    if (channel.ok) channel.close();
+  };
+  process.on('SIGINT', handle.stop);
+  process.on('SIGTERM', handle.stop);
+  handle.channel = channel;
   return handle;
 }
 
@@ -248,8 +315,190 @@ function main(argv) {
    the tests drive. */
 if (require.main === module) main(process.argv.slice(2));
 
+/* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
+
+/**
+ * Supervise an agent whose PIPES WE HOLD.
+ *
+ * 🛑 THE ONE PROPERTY THIS TRADES AWAY, AND ITS EXACT SHAPE. `supervise()` above
+ * watches a DETACHED agent: it outlives its supervisor, so a supervisor restart
+ * ADOPTS it. A piped agent cannot be adopted -- adoption would mean holding a
+ * stdin somebody else holds -- so the question is what happens to the agent when
+ * its holder dies. Measured on the box rather than reasoned about:
+ *
+ *      holder closes stdin cleanly  -> agent gone in ~800ms, out of agents --json
+ *      holder KILLED, pipes broken  -> agent gone in ~800ms, out of agents --json
+ *
+ * 🔑 NO ORPHANS, IN EITHER DIRECTION, and that is what makes this design safe.
+ * A dead supervisor leaves nothing live to collide with, so the task restarts the
+ * supervisor, it finds nothing, and it comes back with `--resume` -- the SAME
+ * session id, the same conversation (measured). Adopt-not-replace becomes
+ * resume-not-replace without ever risking two agents under one name.
+ *
+ * ⚠️ SO THE EXIT EVENT IS THE SIGNAL, NOT THE POLL. `supervise()` asks
+ * `claude agents --json` every POLL_MS because a detached agent's death is
+ * invisible otherwise. Here the child IS ours: its 'exit' fires immediately and
+ * cannot be missed, so death is known in milliseconds rather than up to a poll
+ * late, and the runner is not asked anything on the happy path.
+ */
+function superviseStreaming(spec, opts) {
+  const s = spec || {};
+  const o = opts || {};
+  const throttleMs = o.throttleMs === undefined ? THROTTLE_MS : o.throttleMs;
+  const pollMs = o.pollMs === undefined ? POLL_MS : o.pollMs;
+  const onEvent = typeof o.onEvent === 'function' ? o.onEvent : () => {};
+  const now = o.now || (() => Date.now());
+  const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
+  const launcher = o.launch || win32launch.launchStreaming;
+  /* The liveness seam, per-handle rather than module-wide, because this loop asks
+     the question at a different moment than `supervise()` does and a test needs to
+     drive the two independently. Defaults to the real runner. */
+  const readLive = o.liveReader || (() => liveSessions(s.claudeBin));
+
+  let running = true;
+  let child = null;
+  let lastStart = 0;
+  const handle = { sessionId: s.resumeSessionId || null };
+
+  function attach(c) {
+    child = c;
+    /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
+       acting on both would double-count a death and burn the throttle budget. */
+    let handled = false;
+    const gone = (code) => {
+      if (handled) return;
+      handled = true;
+      if (child === c) child = null;
+      onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId });
+      if (running) schedule();
+    };
+    c.on('exit', gone);
+    c.on('error', () => gone(null));
+  }
+
+  /**
+   * May we start one, or is a session we do not hold already answering to this
+   * name? Returns a sentence when the answer is no, and null when it is yes.
+   *
+   * 🛑 WITHOUT THIS, resume-not-replace HAS A HOLE THE SIZE OF adopt-not-replace's
+   * (7c-2). `supervise()` above asks `ourLiveSession` before every launch, for the
+   * one reason that matters: two agents under one name, editing one folder. This
+   * loop had no such check, because until 7c-2 nothing in production started it --
+   * and the moment the task and `create.js` both point here, the hole is live:
+   *
+   *   - `win32job.start()` (the Restore button, and create's own start) runs the
+   *     task NOW. If a detached agent from the pre-7c-2 launch path is still
+   *     running under that name, an unguarded start would put a second one beside
+   *     it -- and the first one is unreachable, so nothing would ever notice.
+   *   - a restart whose own session is still listed would `--resume` an id that
+   *     already has a process on it, which is two processes on one conversation.
+   *
+   * ⚠️ AND IT WAITS RATHER THAN KILLING, which is `ourLiveSession`'s own ruling
+   * and for its reason: killing would let a stale supervisor take out a live
+   * agent. Waiting is self-resolving -- the foreign session ends, or the box
+   * reaches a logon where nothing detached survives -- and it is honest on the
+   * way, because the sentence reaches the task log every time the state changes.
+   *
+   * ⚠️ AN UNREADABLE RUNNER IS NOT AN ABSENT AGENT, the most important branch in
+   * `ensureRunning` and the same branch here. Starting on a look that failed is
+   * how a transient failure becomes the duplicate this guard exists to prevent.
+   */
+  function blockedBy() {
+    const live = readLive();
+    if (live === null) return 'we could not ask which agents are running, so we did not start a second one';
+    const mine = ourLiveSession(s.name, live);
+    if (!mine) return null;
+    if (handle.sessionId && mine === handle.sessionId) {
+      /* Our own id, still listed. Either the list is a moment stale after a death
+         we already saw, or the agent is somehow still up; `--resume` is wrong in
+         both readings, and a poll from now it will be right in one of them. */
+      return 'its own session is still listed as running, so we did not resume it on top of itself';
+    }
+    return 'a session we do not hold is already running under this name, so we left it alone';
+  }
+
+  function startOnce() {
+    if (!running) return;
+    const blocked = blockedBy();
+    if (blocked) {
+      /* 🔑 THE THROTTLE IS NOT BURNED BY WAITING. `lastStart` is untouched here, so
+         a name that frees up after an hour of waiting starts immediately rather
+         than serving a crash-loop penalty it never earned. */
+      onEvent({ action: 'waiting', because: blocked });
+      timer(() => { if (running) startOnce(); }, pollMs);
+      return;
+    }
+    const r = launcher({
+      name: s.name, runner: s.runner, cwd: s.cwd, claudeBin: s.claudeBin,
+      configDir: s.configDir, model: s.model, platform: s.platform || 'win32',
+      /* 🔑 THE RETURN, NOT A BIRTH. Once we know the id, every later start is a
+         resume: same conversation, same id, and NOTHING new recorded. A start
+         that minted a fresh id each time would file a second ownership row per
+         restart -- the duplicate-name hazard, arriving through the routine path. */
+      resumeSessionId: handle.sessionId || undefined,
+    });
+    lastStart = now();
+    if (!r.ok) { onEvent({ action: 'refused', because: r.because }); if (running) schedule(); return; }
+    handle.sessionId = r.sessionId;
+    attach(r.child);
+    onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
+  }
+
+  /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not
+     spin: an agent that dies instantly would otherwise be relaunched as fast as
+     the event loop turns. */
+  function schedule() {
+    const since = now() - lastStart;
+    const wait = since >= throttleMs ? 0 : throttleMs - since;
+    if (wait > 0) onEvent({ action: 'throttled', waitMs: wait });
+    timer(() => { if (running) startOnce(); }, wait);
+  }
+
+  /**
+   * Deliver one message to the agent. The whole point of the design.
+   *
+   * Returns { ok:true } or { ok:false, because } and never throws -- `chat.js`'s
+   * contract is that a delivery either happened or is reported as could_not, and
+   * a throw here would become a 500 where a sentence belongs.
+   */
+  handle.send = function send(text, done) {
+    const answer = (r) => { if (typeof done === 'function') { try { done(r); } catch { /* the caller's problem, not ours */ } } return r; };
+    if (!child || !child.stdin || child.stdin.destroyed) {
+      return answer({ ok: false, because: 'it is not running just now, so we did not type anything' });
+    }
+    /* 🔑 `done` IS CALLED WHEN THE BYTES HAVE FLUSHED, NOT WHEN THEY WERE HANDED
+       TO A STREAM (7c-3). The return value is a PRE-CHECK -- it says the pipe was
+       open when we looked -- and that was enough while the only caller was a test.
+       The channel answers a person's send with it, so it needs the later truth: an
+       agent that died between the check and the write fails the write, and
+       reporting that as delivered is exactly the over-claim chat.js's `could_not`
+       contract exists to prevent. Callers that want the old, cheaper answer simply
+       pass no callback. */
+    try {
+      child.stdin.write(win32launch.messageLine(text), (err) => {
+        if (err) answer({ ok: false, because: 'we could not reach it (' + ((err && err.code) || 'unknown') + ')' });
+        else answer({ ok: true });
+      });
+    } catch (e) { return answer({ ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }); }
+    return { ok: true };
+  };
+
+  handle.stop = function stop() {
+    running = false;
+    /* Close stdin rather than killing: measured, the agent exits ~800ms later of
+       its own accord, which lets it finish writing anything in flight. A stop
+       that must be immediate is win32stop's job, and that is a different verb. */
+    if (child && child.stdin && !child.stdin.destroyed) { try { child.stdin.end(); } catch { /* it is going anyway */ } }
+    child = null;
+  };
+
+  handle.current = () => child;
+  startOnce();
+  return handle;
+}
+
 module.exports = {
   THROTTLE_MS, POLL_MS,
-  isAlive, ourLiveSession, ensureRunning, supervise, specFromArgv,
+  isAlive, ourLiveSession, ensureRunning, supervise, superviseStreaming, specFromArgv,
   setLiveReader, liveSessions, main,
 };

@@ -81,10 +81,18 @@ test('#570 with no token of its own, an agent does NOT inherit somebody elses', 
 // --- the argv: one mint point ---------------------------------------------------
 
 test('#570 launchArgs are spliced VERBATIM, so the recorded id is the running id', () => {
+  /* ⚠️ THE EXPECTED VECTORS GREW AN AUTONOMY FLAG, and that is the fix rather
+     than a concession. This arm's claim is that `launchArgs` are spliced VERBATIM
+     and stay LAST -- not that nothing may precede them; the model case below
+     always showed something could. The exact vectors it pinned happened to be the
+     ones with no permission flag, which is precisely the defect: an unattended
+     agent in a hidden console freezes on its first prompt. Kept as exact
+     deepEquals so a future flag has to be looked at rather than waved through. */
   const prepared = { launchArgs: ['--session-id', 'pinned-uuid'] };
-  assert.deepEqual(launcher.argvFor(prepared, {}), ['--session-id', 'pinned-uuid']);
+  assert.deepEqual(launcher.argvFor(prepared, {}),
+    ['--dangerously-skip-permissions', '--session-id', 'pinned-uuid']);
   assert.deepEqual(launcher.argvFor(prepared, { model: 'haiku' }),
-    ['--model', 'haiku', '--session-id', 'pinned-uuid'],
+    ['--dangerously-skip-permissions', '--model', 'haiku', '--session-id', 'pinned-uuid'],
     'a model goes BEFORE the pinned args and never rewrites them');
 });
 
@@ -166,4 +174,149 @@ test('#570 a spawn that THROWS undoes the record and the token, leaving nothing 
   assert.equal(r.ok, false);
   assert.match(r.because, /could not start it/);
   assert.equal(sendertoken.live('winagent-3').length, 0, 'the token did not outlive the failed launch');
+});
+
+test('#570 an UNATTENDED agent is launched with autonomy, or it freezes where nobody can see it', () => {
+  /* 🛑 THE DEFECT THIS PINS SHIPPED. `bin/agent-supervisor.sh` states the rule for
+     the Mac in its own words -- "--dangerously-skip-permissions is not optional
+     for an unattended agent. Without it the agent starts, looks healthy, and
+     freezes forever on its first permission prompt with nobody there to answer
+     it" -- and the win32 argv carried no permission flag at all.
+
+     ⚠️ AND WINDOWS NEEDS IT MORE THAN THE MAC DOES. A Mac agent lives in a tmux
+     pane a person can attach to and answer. This platform runs the agent in a
+     console created HIDDEN, so the prompt is on no screen that exists, while
+     `claude agents --json` keeps reporting `idle` and the board keeps drawing a
+     healthy row. Same shape as the trust dialog this module's header describes,
+     one prompt over.
+
+     📌 It survived because nothing ever reached a prompt: with no delivery path
+     (7c) a Windows agent had never been ASKED to do anything, so the rehearsal's
+     agents sat idle and never needed an approval. */
+  const argv = launcher.argvFor({ launchArgs: ['--session-id', 'abc'] }, { runner: 'claude' });
+  assert.ok(argv.includes('--dangerously-skip-permissions'),
+    'an agent nobody can answer for must not be able to ask: ' + argv.join(' '));
+  assert.ok(argv.indexOf('--dangerously-skip-permissions') < argv.indexOf('--session-id'),
+    'flags precede the spliced launchArgs, which stay verbatim and last');
+});
+
+test('#570 the autonomy flag is the RUNNER\'s spelling, and an unknown runner gets none', () => {
+  /* codex spells it differently, and the Mac pairs them the same way. An unknown
+     runner gets NO flag rather than a guessed one: a wrong flag is a refused
+     launch, which is loud, and inventing autonomy for a runner we do not know is
+     the one direction that must not be guessed. */
+  const codex = launcher.argvFor({ launchArgs: [] }, { runner: 'codex' });
+  assert.deepEqual(codex, ['--dangerously-bypass-approvals-and-sandbox']);
+
+  const unknown = launcher.argvFor({ launchArgs: [] }, { runner: 'gemini' });
+  assert.deepEqual(unknown, [], 'no flag invented for a runner we do not know');
+
+  // Absent runner means claude, which is what every existing caller means.
+  assert.deepEqual(launcher.argvFor({ launchArgs: [] }, {}), ['--dangerously-skip-permissions']);
+});
+
+test('#570 autonomy and model coexist, and launchArgs still come last', () => {
+  const argv = launcher.argvFor({ launchArgs: ['--session-id', 'zz'] }, { runner: 'claude', model: 'haiku' });
+  assert.deepEqual(argv, ['--dangerously-skip-permissions', '--model', 'haiku', '--session-id', 'zz']);
+});
+
+/* ── the streaming launch (7c) ────────────────────────────────────────────── */
+
+test('#570 7c a streaming agent is asked for stream-json IN and OUT, and keeps its pipes', () => {
+  /* The pipes ARE the feature: stdin is the delivery channel this platform has
+     had no substitute for, and stdout is the event stream that replaces the Mac's
+     pane scrape. `launch()` passes stdio:'ignore' deliberately; this must not. */
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ cmd, argv, opts }); return { pid: 555, stdin: {}, unref() {} }; });
+  const r = launcher.launchStreaming({ name: 'streamer-1', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32' });
+
+  assert.equal(r.ok, true, r.because);
+  assert.deepEqual(calls[0].opts.stdio, ['pipe', 'pipe', 'pipe'], 'nobody can type into a stdio:ignore agent');
+  assert.equal(calls[0].opts.detached, undefined, 'a detached child with pipes is a child whose pipes nobody holds');
+  const a = calls[0].argv;
+  assert.ok(a.includes('-p') && a.includes('--input-format') && a.includes('--output-format'),
+    'the streaming shape, measured to stay open across turns: ' + a.join(' '));
+  assert.equal(a[a.indexOf('--input-format') + 1], 'stream-json');
+  assert.equal(a[a.indexOf('--output-format') + 1], 'stream-json');
+  assert.ok(a.includes('--dangerously-skip-permissions'), 'an unattended agent still gets autonomy');
+});
+
+test('#570 7c a FRESH agent pins the minted id; a RESUME names the id it already has', () => {
+  /* 🔑 --session-id and --resume are mutually exclusive, and which one appears
+     says whether this is a birth or a return. Measured: a resume answers with the
+     SAME session id, which is what keeps the ownership record, the roster join
+     and the stop path pointing at one agent rather than two. */
+  const fresh = launcher.streamArgvFor({ launchArgs: ['--session-id', 'minted-1'] }, { runner: 'claude' });
+  assert.ok(fresh.includes('--session-id'), 'a fresh agent pins what win32create minted');
+  assert.ok(!fresh.includes('--resume'), 'and does not also ask to resume');
+
+  const back = launcher.streamArgvFor({ launchArgs: ['--session-id', 'minted-1'] },
+    { runner: 'claude', resumeSessionId: 'already-mine' });
+  assert.ok(back.includes('--resume'), 'a returning agent names its id');
+  assert.equal(back[back.indexOf('--resume') + 1], 'already-mine');
+  assert.ok(!back.includes('--session-id'), 'never both -- they are mutually exclusive');
+});
+
+test('#570 7c a RESUME mints nothing, so one agent never gets two ownership records', () => {
+  /* ⚠️ prepareSession WRITES the record. Calling it on a resume would file a
+     SECOND row for one agent -- exactly the duplicate-name hazard win32live
+     documents, arriving through the restart path that is supposed to be routine. */
+  const before = Object.keys(win32sessions.read()).length;
+  launcher.setSpawn(() => ({ pid: 556, stdin: {}, unref() {} }));
+
+  const r = launcher.launchStreaming({
+    name: 'streamer-2', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    resumeSessionId: 'a-session-we-already-own',
+  });
+
+  assert.equal(r.ok, true, r.because);
+  assert.equal(r.resumed, true);
+  assert.equal(r.sessionId, 'a-session-we-already-own', 'it returns to the id it was given');
+  assert.equal(Object.keys(win32sessions.read()).length, before, 'a resume records nothing new');
+});
+
+test('#570 7c a message is ONE json line, in the shape stream-json reads', () => {
+  const line = launcher.messageLine('hello agent');
+  assert.ok(line.endsWith('\n'), 'newline-delimited, or the reader never sees it');
+  assert.equal(line.indexOf('\n'), line.length - 1, 'exactly one line -- a newline inside would split the message');
+  const parsed = JSON.parse(line);
+  assert.deepEqual(parsed, {
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'text', text: 'hello agent' }] },
+  });
+});
+
+test('#570 7c the streaming launch refuses the same things the detached one does', () => {
+  launcher.setSpawn(() => ({ pid: 1, stdin: {}, unref() {} }));
+  assert.match(launcher.launchStreaming({ name: 'x', cwd: SANDBOX, platform: 'darwin' }).because, /launchd/);
+  assert.match(launcher.launchStreaming({ name: 'x', cwd: 'work/here', platform: 'win32' }).because, /absolute/);
+});
+
+test('#570 7c-2 the resolved runner path is a HINT, and a stale one falls back to PATH', () => {
+  /* 🛑 WHY THIS EXISTS. Since 7c-2 the launcher is a Scheduled Task, and the task
+     carries the path `create.js` resolved on the day the agent was made. That task
+     is still firing months later -- across a Claude Code update, a reinstall, or
+     somebody moving where they keep it. A stranded path spawns ENOENT forever, and
+     the symptom is a supervisor throttle-looping into a task log nobody reads.
+     Neither half is enough alone: the hint beats a logon PATH that does not carry
+     %USERPROFILE%\.local\bin, and PATH beats a hint that has gone stale. */
+  const spawns = [];
+  launcher.setSpawn((bin, argv) => { spawns.push(bin); return { pid: 1, stdin: {}, unref() {} }; });
+
+  const here = process.execPath;                       // exists on every box
+  const gone = path.join(SANDBOX, 'no', 'such', 'claude.exe');
+
+  launcher.launchStreaming({ name: 'hint-1', cwd: SANDBOX, claudeBin: here, platform: 'win32' });
+  assert.equal(spawns[0], here, 'a path that is really there is the one we resolved -- use it');
+
+  launcher.launchStreaming({ name: 'hint-2', cwd: SANDBOX, claudeBin: gone, platform: 'win32' });
+  assert.equal(spawns[1], 'claude', 'a path that has gone must not strand the agent');
+
+  /* 📌 AND THE FALLBACK SPELLING FOLLOWS THE RUNNER. `claudeBin` is the parameter's
+     name for historical reasons; its VALUE is whichever runner this agent uses, so
+     falling back to `claude` for a codex agent would spawn the wrong program on the
+     one path where the hint is gone. */
+  launcher.launchStreaming({ name: 'hint-3', cwd: SANDBOX, claudeBin: gone, runner: 'codex', platform: 'win32' });
+  assert.equal(spawns[2], 'codex');
+  launcher.setSpawn(null);
 });

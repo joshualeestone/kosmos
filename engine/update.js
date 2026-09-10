@@ -20,6 +20,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 const liveExec = require('./live-execution');
+const platformGate = require('./platform'); // #570: can this OS replace its own Kosmos?
 const updating = require('./updating');
 const { version: RUNNING } = require('../package.json');
 
@@ -326,6 +327,33 @@ function setupUrl() {
  * throughout; only the board restarts (their launchd jobs and tmux sessions
  * are separate process trees).
  */
+/**
+ * #570: the sentence for a platform whose Kosmos cannot replace itself.
+ * Returns null where self-update works, so a caller reads it as "is there a
+ * refusal", never as a boolean it has to remember the polarity of.
+ *
+ * 🛑 WHY A SENTENCE AND NOT A BOOLEAN. `beginInstall` ends in a DETACHED,
+ * unref'd `spawn` of `/bin/sh` (see the gate above it). On Windows there is
+ * no `/bin/sh`, so that spawn can only ENOENT -- and the one thing this
+ * codebase refuses is a button that does nothing and says nothing. The person
+ * pressing Update needs the next act, not the errno, so the refusal carries the
+ * act: download the build, extract it over the install.
+ *
+ * ⚠️ THE POLISHED WORDING IS THE OPERATOR'S TO REFINE, same as runners.js's and
+ * connect.js's refusals (see engine/platform.js). What is load-bearing here is
+ * that a refusal EXISTS and names an action, not this exact phrasing.
+ *
+ * 📌 `platform` is a parameter defaulting to process.platform -- the seam this
+ * whole gate family uses -- so both arms are testable from either OS.
+ */
+function selfInstallRefusal(platform = process.platform) {
+  if (platformGate.canSelfInstall(platform)) return null;
+  if (platform === 'win32') {
+    return 'Kosmos cannot update itself on Windows yet: download the latest build and extract it over your install';
+  }
+  return 'Kosmos cannot update itself on this platform (' + String(platform) + '): its installer is a POSIX shell script';
+}
+
 let installStarted = false;
 /* #553: the last install ATTEMPT this server saw end, so the page can say
    a true sentence instead of spinning. A failed install never kills this
@@ -636,6 +664,36 @@ function beginInstall(opts) {
      the `if` exits 0 rather than letting a failed `rm -f /dev/null` (non-zero as a
      non-root user) reach wireChild's exit listener and record a false failure. */
   const startedMarker = installStartedFile() || '/dev/null';
+  /* 🛑 #570: AND THE PLATFORM, REFUSED BEFORE THE SPAWN FOR THE SAME REASON THE
+     LIVE-EXECUTION GATE IS. The next statement spawns `/bin/sh`, which
+     on Windows can only ENOENT; `engine/platform.js` is the single source of
+     truth for what an OS can do here, and `canSelfInstall` is the name for this
+     question (`isSupported` is true on win32 and would wave this straight
+     through). Same shape as connect.js's and runners.js's download refusals:
+     refuse BEFORE anything moves, in a sentence naming the next act.
+     📌 AND NO COMMENT IN THIS FILE MAY SPELL THE INSTALLER CALL LITERALLY --
+     the shell name, quoted, immediately after the spawn function's name. That
+     exact character sequence is what update.test.js keys on to find the reviewed
+     command shape (it indexes the source for it and slices FORWARD), so a comment
+     carrying the same characters becomes the first hit and that guard silently
+     reads prose instead of the call. Found by making exactly that mistake here.
+     ⚠️ IT SITS HERE, AFTER THE `installRunner` SEAM, ON PURPOSE. An injected
+     runner is not `/bin/sh` and is not subject to its absence, and gating it
+     would make every existing double refuse on a Windows host for a reason that
+     has nothing to do with what the double is measuring.
+     ⚠️ AND IT RELEASES SINGLE-FLIGHT BEFORE THROWING. `installStarted` was set
+     true at the top of this function; a refusal that left it true would answer
+     every later press "already updating" for the life of the board -- the exact
+     stranded-flag failure the two child listeners exist to prevent. */
+  const refusal = selfInstallRefusal();
+  if (refusal) {
+    installStarted = false;
+    /* The record the status payload already carries (`updateAttempt`), so the
+       refusal is observable to a screen without one being built here. */
+    const at = new Date().toISOString();
+    lastAttempt = { startedAt: (lastAttempt && lastAttempt.startedAt) || at, endedAt: at, code: null, because: refusal, log: null };
+    throw new Error(refusal);
+  }
   /* 🛑 #1726: THE GATE GOES HERE, AND THIS CALL SITE NEEDS IT MORE THAN THE ONES
      THAT ALREADY HAD IT. `create.js` (#1598), `remove.js` and `delete-leftover.js`
      all gate an exec whose child this process still holds. THIS ONE IS
@@ -683,6 +741,7 @@ module.exports = {
   available, poke, startPolling, refresh, newer, installedRoot, setupUrl, beginInstall, lastAttempt: lastAttemptView, installLog,
   updateAbort, // #2055: the durable board-would-not-pause abort marker ({count,reason,port,ts} or null)
   installStartedFile, // #1728: the durable in-flight marker path (tests + direct readers)
+  selfInstallRefusal, // #570: null where self-update works, else the sentence to show
   alreadyInstalling, setBase, setFetcher, setInstallRunner, setInstalledRoot, setAutoPref,
   resetCache, RUNNING, TTL, lastLook, checkNow,
 };

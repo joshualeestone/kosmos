@@ -1275,10 +1275,23 @@ function labelTruthCheck(runner) {
    never mutates launchd (the same conservatism boardrestart.js is built on). A
    heal/notify arm is a deliberate follow-up, tracked on #2397.
 
-   Returns null on non-darwin (no launchd login-job concept); check() filters it.
+   #570: WINDOWS HAS THE SAME QUESTION AND HAD NO ROW. This check returned null
+   off-darwin and check() filters falsy rows out, so a Windows Settings screen
+   never raised the subject at all -- while the answer was NO for every Windows
+   board ever run (nothing registered the board to start at logon; see
+   engine/win32board.js). That silence is the defect BLOCKER 4 names: the board
+   not coming back was bad, and nothing saying so is what made it a blocker.
+   The win32 arm below asks the same three-way question (missing / switched off /
+   in place) against the Scheduled Task rather than a plist, and keeps the same
+   never-fight-the-user posture: a task the person turned off is REPORTED, not
+   re-enabled.
+
+   Returns null on any other platform (no login-job concept we can read);
+   check() filters it.
    @returns {{key,state,title,detail}|null} */
 function boardAutostartCheck(runner, opts) {
   const platform = opts && opts.platform || process.platform;
+  if (platform === 'win32') return win32BoardAutostartCheck(opts);
   if (platform !== 'darwin') return null;
 
   /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
@@ -1369,6 +1382,63 @@ function boardAutostartCheck(runner, opts) {
     detail: 'Its login job is in place, so Kosmos and your agents come back on their own after this computer restarts.' };
 }
 
+/**
+ * #570: the same row on Windows, read from the board's Scheduled Task.
+ *
+ * 🔑 THE FACTS COME FROM engine/win32board.describe(), INJECTABLE AS
+ * `opts.boardTask`, so this never shells a real `schtasks` in a suite and a Mac
+ * can assert the win32 arm -- the seam discipline `win32job.setRunner` set for
+ * this branch. Lazily required so a Mac does not load the Windows module to
+ * render a Mac row.
+ *
+ * ⚠️ EVERY DETAIL LINE NAMES THE TASK AND HOW TO REMOVE IT. Rule 3 of this
+ * branch: anything durable that Kosmos registers must be findable and removable,
+ * and a Settings row is where a person will actually look for it.
+ */
+function win32BoardAutostartCheck(opts) {
+  let d;
+  try {
+    /* `'boardTask' in opts`, not a truthiness test -- machine.js's own idiom (see
+       boardAutostartCheck's `'installedRoot' in opts`). A test injecting an
+       explicit null means "we could not read the scheduler"; a truthiness test
+       would send that case off to shell a REAL schtasks, which is exactly what
+       this seam exists to prevent. Caught by the unknown-row assertion. */
+    d = (opts && 'boardTask' in opts)
+      ? opts.boardTask
+      : require('./win32board').describe({ platform: 'win32' });
+  } catch (e) {
+    d = null;
+  }
+  if (!d) {
+    return { key: 'autostart', state: STATE.UNKNOWN,
+      title: 'We could not check whether Kosmos starts when you log in',
+      detail: 'Not the same as it being wrong. We could not read this computer\'s scheduled tasks.' };
+  }
+  /* A from-source checkout legitimately has no logon task and must not alarm --
+     the same exemption the darwin arm gives a from-source board. */
+  if (!d.bundle) {
+    return { key: 'autostart', state: STATE.OK,
+      title: 'Kosmos is running from source',
+      detail: 'There is no startup job to check: a from-source checkout is started by hand, not by Windows when you log in.' };
+  }
+  if (!d.registered) {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos will not start itself when you log in',
+      detail: `The scheduled task that brings Kosmos back after a restart (${d.task}) is not there, so your board will not `
+        + 'come back on its own -- your agents will, and you will have nowhere to watch them. Starting Kosmos once puts it back.' };
+  }
+  if (!d.enabled) {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos is set up to start when you log in, but it is turned off',
+      detail: `Its startup job (${d.task}) is on this computer but switched off, so Kosmos will not start on its own after a `
+        + 'restart. You can turn it back on in Task Scheduler, under Task Scheduler Library then Kosmos.' };
+  }
+  return { key: 'autostart', state: STATE.OK,
+    title: 'Kosmos starts itself when you log in',
+    detail: `Its startup job (${d.task}) is in place, so Kosmos and your agents come back on their own after this computer `
+      + `restarts. To remove it: ${d.removeHint}` };
+}
+
 function check(opts) {
   const runner = (opts && opts.runner) || run;
 
@@ -1394,8 +1464,9 @@ function check(opts) {
     sleepRow,
     restartCheck(runner),
     labelTruthCheck(runner),
-    // #2397: the board's own login job -- present + enabled? Returns null on
-    // non-darwin (no launchd), so filter falsy rather than render an empty row.
+    // #2397: the board's own login job -- present + enabled? #570 gave it a win32
+    // arm (the board's Scheduled Task); it still returns null on any OTHER
+    // platform, so filter falsy rather than render an empty row.
     boardAutostartCheck(runner, opts),
   ].filter(Boolean);
 
@@ -1418,4 +1489,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, win32BoardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

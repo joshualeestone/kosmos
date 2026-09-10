@@ -7022,6 +7022,18 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/update' && req.method === 'POST') {
     const avail = updates.available();
     if (!avail) { sendJson(res, 409, { error: 'there is no update to install right now' }); return; }
+    /* 🛑 #570: THE PLATFORM ARM GOES FIRST, AND ITS ORDER IS THE WHOLE POINT.
+       The updater ends in `spawn('/bin/sh', ...)`, which cannot exist on Windows;
+       the engine refuses it (update.selfInstallRefusal) and this is where that
+       refusal becomes something a person READS -- the confirm dialog renders this
+       route's `error` verbatim (web/index.html, uc-go's handler).
+       ⚠️ BEFORE the installedRoot arm, because on Windows that arm answers FIRST
+       and answers WRONG: the shipped Windows bundle is `runtime/node.exe`, not
+       `runtime/bin/node`, so installedRoot() reads null and a portable-zip install
+       is told "this Kosmos runs from its source code" -- a sentence that is false
+       and points at git. Two true things beat one, and the truer one goes first. */
+    const platRefusal = updates.selfInstallRefusal();
+    if (platRefusal) { sendJson(res, 409, { error: platRefusal }); return; }
     if (!updates.installedRoot()) {
       sendJson(res, 409, { error: 'this Kosmos runs from its source code, so it updates from git, not from here' });
       return;
@@ -11524,6 +11536,46 @@ if (require.main === module) {
     }
   } catch (err) {
     process.stderr.write(`Kosmos could not refresh the script it starts agents with: ${String(err && err.message)}\n`);
+  }
+  /**
+   * #570 BLOCKER 4: make sure something brings the BOARD back at logon on Windows.
+   *
+   * 🛑 THE AGENTS CAME BACK AND THE BOARD DID NOT. `engine/win32job.js` registers
+   * an at-logon Scheduled Task per agent (measured, R8), but the board is a
+   * separate process and nothing restarted it -- no Startup entry, no Registry Run
+   * key, no task. After a reboot the fleet was running and the screen you watch it
+   * through was gone, with nothing anywhere saying so. On the Mac
+   * `install/setup.sh` writes `com.kosmos.board.plist` with RunAtLoad at INSTALL
+   * time; the Windows bundle is a portable zip with no install step, so the
+   * board's own first run is the only moment there is.
+   *
+   * 🔑 SAME PLACE, SAME REASON, AS THE SUPERVISOR REFRESH ABOVE: the board
+   * restarting IS the update, so this runs exactly when a new install arrives and
+   * never in between -- which is also what keeps the registered task pointing at
+   * the app that is actually here.
+   *
+   * ⚠️ IT REFRESHES, IT DOES NOT RE-IMPOSE. A task the person switched off or
+   * deleted is LEFT THAT WAY and reported, never quietly re-created;
+   * `ensureInstalled` documents all five states. And a from-source checkout
+   * registers nothing at all, exactly as it has no login job on the Mac.
+   *
+   * ⚠️ NOT FATAL, and it must never be -- the posture of every neighbour in this
+   * block. A board that refused to start because it could not register a logon
+   * task would be strictly worse than the board that is starting right now.
+   */
+  if (process.platform === 'win32') {
+    try {
+      const r = require('./engine/win32board').ensureInstalled({});
+      if (r.action === 'registered') {
+        process.stdout.write(`Kosmos will now start when you log in. Task Scheduler > Kosmos > board; remove it with: ${r.removeHint}\n`);
+      } else if (!r.ok) {
+        /* The whole point of this slice: when the board will NOT come back, say
+           so, rather than let a person find out after a reboot. */
+        process.stderr.write(`Kosmos will not start itself when you log in: ${r.because}\n`);
+      }
+    } catch (err) {
+      process.stderr.write(`Kosmos could not check whether it starts when you log in: ${String(err && err.message)}\n`);
+    }
   }
   /**
    * Refresh every agent's managed connections block, at boot (#1649).

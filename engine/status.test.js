@@ -65,6 +65,29 @@ fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
 fs.mkdirSync(process.env.AGENT_WORKFORCE_DATA, { recursive: true });
 fs.mkdirSync(process.env.AGENT_WORKFORCE_LAUNCH, { recursive: true });
 
+/* 🛑 THE JOB GATE IS NOT A FILE ON WINDOWS (#570). `notYetStarted` and
+   `neverRecorded` used to stat a `.plist`, which is why this suite's fixtures
+   express "Kosmos launched this one" by writing one. They now ask
+   `create.hasJob`, and on win32 that asks Task Scheduler -- so on a Windows box
+   every fixture here would read as having no job, and the notYet / never-
+   recorded discriminator these tests exist for could not go red for the right
+   reason.
+
+   🔑 MIRROR THE FIXTURE AT THE COMMAND SEAM rather than teach every test a
+   second vocabulary: the stub answers "this task is registered" exactly when the
+   fixture's plist is on disk, so ONE fixture drives both arms and every
+   assertion below is unchanged. Nothing here ever shells `schtasks`. */
+require('./win32job').setRunner((args) => {
+  const tn = String(args[args.indexOf('/TN') + 1] || '');
+  const name = tn.replace(/^Kosmos\\agent-/, '');
+  const at = nodePath.join(process.env.AGENT_WORKFORCE_LAUNCH, `com.kosmos.agent.${name}.plist`);
+  return fs.existsSync(at)
+    ? { ok: true, out: 'Scheduled Task State: Enabled\n' }
+    // The sentence schtasks gives for a task that is not there, measured on
+    // en-US -- `win32job.presence` reads it to tell absence from a failed look.
+    : { ok: false, out: 'ERROR: The system cannot find the file specified.\n', code: 1 };
+});
+
 /** Give a name a worker file, so `readIdentity` has something real to find. */
 function seedWorker(name, body) {
   const dir = nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, name);

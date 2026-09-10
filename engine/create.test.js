@@ -121,6 +121,49 @@ function jobArguments(name, { model = null, runner } = {}) {
  * installed is now impossible rather than merely unlikely.
  */
 create.setRunner(null);
+
+/**
+ * ⚠️ AND THE SAME GUARANTEE FOR THE WINDOWS SUBSTRATE (#570 7c-2).
+ *
+ * 🛑 `create.setRunner` GUARDS launchd AND NOTHING ELSE. Every `createAgent` in
+ * this file inherits `process.platform`, so on a Windows box they take the win32
+ * arm -- which does not go through that runner at all. It went through
+ * `win32job`, and it went through it FOR REAL: a run of this suite registered
+ * live Scheduled Tasks on the developer's machine (`Kosmos\agent-ct-*` were found
+ * there) and copied a 92 MB interpreter into an anchor. Nothing noticed, because
+ * nothing here asserts anything about Windows.
+ *
+ * 🔑 AND 7c-2 IS WHY IT CANNOT STAY THAT WAY. The task is the launcher now, so
+ * the same unstubbed path would `/Run` those tasks -- starting real supervisors
+ * and real agents from a test run. The two seams below are the same pair
+ * `create.win32-launch-570.test.js` states, and the `/Run` arm stands in for the
+ * supervisor by writing the ownership row a real one writes before it spawns:
+ * without that, every win32 create in this file would fail for want of an agent
+ * that no fixture was ever going to start.
+ *
+ * 📌 The right answer is for these tests to STATE their platform, the way
+ * `remove.test.js` does. This is the guard that makes forgetting harmless rather
+ * than expensive.
+ */
+if (process.platform === 'win32') {
+  const win32job = require('./win32job');
+  const win32create = require('./win32create');
+  const win32sessions = require('./win32sessions');
+  let seq = 0;
+  win32create.setPark(() => {});
+  win32job.setAnchorer(() => ({ ok: true, node: 'C:\\Anchor\\node.exe', boot: 'C:\\Anchor\\supervisor-boot.js' }));
+  win32job.setRunner((args) => {
+    /* A fresh agent, or installJob's never-overwrite guard refuses it as one that
+       already has a job -- the query must say not-found in NO_SUCH_TASK's shape. */
+    if (args && args[0] === '/Query') return { ok: false, out: 'ERROR: The system cannot find the file specified.' };
+    if (args && args[0] === '/Run') {
+      const name = String(args[2] || '').replace(/^.*\\agent-/, '');
+      if (name) win32sessions.record('ct-session-' + (++seq), { name, runner: 'claude' });
+    }
+    return { ok: true, out: '' };
+  });
+}
+
 const roles = require('./roles');
 const status = require('./status');
 const fleet = require('../test-support/fleet');
