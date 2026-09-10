@@ -25,9 +25,9 @@ explicitly to learn the repo's pre-PR commands and conventions.
   focused tool tests); `run-tests.sh` invokes it.
 - `yarn test:install` / `test:install-gate` exercise the installer.
 - **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
-  shells out to `yarn` (`yarn -s test:shell`, and it self-invokes `yarn test`), and its own
-  coverage-mismatch message names `yarn test` the canonical helper, so yarn must be present
-  regardless. There is no committed lockfile or `packageManager` pin.
+  shells out to `yarn` (`yarn -s test:shell`, line 210), and its own coverage-mismatch message
+  names `yarn test` the canonical helper, so yarn must be present regardless. There is no
+  committed lockfile or `packageManager` pin.
 
 ### Build / Lint
 
@@ -69,7 +69,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 | Task | Where to Look |
 |------|---------------|
 | Run the test suite the way CI does | `yarn test` -> `tools/run-tests.sh` |
-| Add or change a test | Colocated `*.test.js` next to the code; the runner considers every `*.test.js` in the tree (see Repo-Specific Conventions) |
+| Add or change a test | Most suites are dot-namespaced at the repo root (`web.foo.test.js`); `engine/` mostly colocates in-directory. The runner (`tools/run-tests.sh`) considers every `*.test.js` in the tree (see Repo-Specific Conventions) |
 | Change the board UI | `web/index.html` (single page); a committed change here needs a browser-check assertion or a `Browser-check:` trailer |
 | Find the data root / Application Support path | `engine/store.js` (`store.ROOT`) |
 | Work on multi-Kosmos switching | `engine/worlds.js`, `engine/worldenv.js`, `engine/worldbootguard.js`, `engine/boardrestart.js`; the switch route in `server.js` (`/api/worlds/active`) |
@@ -100,7 +100,8 @@ why; the loop can catch convention mismatches in the docs).
 ### Branch and commit format
 
 - Flat branch names, no folder prefixes (`fix-switch-revert`, `worlds-boot-diag-2628`).
-- Commit subject: `<branch-name> -- <message>` (single sentence, no special characters).
+- Commit subject: `<branch-name> -- <message>` (single sentence, no special characters). Plan
+  and issue commits are also seen as `#N: <message>`; either form is accepted.
 - Never push more commits onto a branch that already has an open or merged PR; branch off
   `main` again instead.
 
@@ -137,8 +138,10 @@ Behavioral code changes must include tests (no size exemption). Pure config chan
 docs-only changes, and zero-behavior changes (comment typos, formatting) are exempt from the
 test requirement, but never from the plan or the `/challenge-loop`. Prefer tests that
 exercise real behavior end to end over heavily mocked ones; mock at external boundaries, not
-at internal ones. Test files are colocated `*.test.js`; the canonical runner is
-`tools/run-tests.sh` (see Repo-Specific Conventions for why a bare glob is wrong here).
+at internal ones. Most suites are dot-namespaced at the repo ROOT (`web.foo.test.js`,
+`install.foo.test.js`); `engine/` is the exception and mostly colocates its `*.test.js`
+in-directory. The canonical runner is `tools/run-tests.sh` (see Repo-Specific Conventions for
+why a bare directory glob is wrong here).
 
 ### Pull requests
 
@@ -182,17 +185,21 @@ the code that enforces or motivates it, so it is checkable rather than opinion. 
 from a night in this codebase, kosmos#2616.)
 
 1. **`node --test <explicit files>`, never a bare glob. `tools/run-tests.sh` is the
-   canonical runner.** A path glob like `engine/*.test.js` does not descend subdirectories,
-   so a bare glob silently runs only part of the suite and still exits green.
-   `tools/run-tests.sh` (around lines 170-207) counts every `*.test.js` in the tree as a
-   coverage assertion and then runs that same set (`KOSMOS_TEST_FILES`), so the count and the
-   run cannot drift.
+   canonical runner.** Most suites live at the repo ROOT under a dot pseudo-namespace
+   (`engine.foo.test.js`, `web.foo.test.js`) while a real `engine/` directory also exists, so a
+   directory-scoped glob like `engine/*.test.js` matches only the files IN that directory and
+   silently misses the far larger set at the root, still exiting green on the fraction it ran.
+   `tools/run-tests.sh` (around lines 170-207) globs `engine/*.test.js *.test.js`, refuses to
+   run unless that set matches every `*.test.js` in the tree, then runs that exact set
+   (`KOSMOS_TEST_FILES`), so the count and the run cannot drift.
 
 2. **Sandbox every root before any `require`.** Roughly two dozen modules freeze `store.ROOT`
    at require time (the ONE data-root derivation, `engine/store.js`, kosmos#1848/#1856). Set
    the `AGENT_WORKFORCE_*` root env before the first `require` of a store-using module, or
-   the module captures the wrong root. `engine/store.js`'s header documents the
-   require-ordering trap.
+   the module captures the wrong root. `engine/worldenv.js`'s header enumerates the ~26 frozen
+   modules across both capture shapes (`const BASE = store.ROOT` and
+   `path.join(store.ROOT, ...)`), and `engine/updating.js` (kosmos#988) documents the
+   require-ordering trap for consumers; `engine/store.js` owns the `store.ROOT` getter itself.
 
 3. **Destructive/live actions fail closed by default; production opts in once.** A module that
    performs a real side effect (a `launchctl`/`tmux kill-session`, a delete) calls
@@ -215,11 +222,14 @@ from a night in this codebase, kosmos#2616.)
    unasserted rendered surface cannot merge.
 
 5. **Two derivations of one fact is this codebase's most-shipped defect.** When two places
-   compute or state the same thing (for example the account routes copying an enumeration but
-   sharing the sentences), they drift, and the drift ships silently. Prefer one source of
-   truth that both sites read; if you must duplicate, add a test that pins them equal. A
-   comment that asserts behavior the code does not have is the same defect in prose: state
-   what the code does at the code, and put reasoning that can go stale in the commit or plan.
+   compute or state the same thing, they drift, and the drift ships silently. The measured
+   instance is `one-derivation.test.js` (kosmos#1228): three of four `instructions.staleness`
+   call sites were wrapped in `toldOverride` and one silently was not, so the same agent could
+   read `stale` in one place and `told` in another. Prefer one source of truth that both sites
+   read; if you must duplicate, add a test that pins them equal (that test asserts the SHAPE,
+   not a count, so a new caller has to be deliberate rather than merely plausible). A comment
+   that asserts behavior the code does not have is the same defect in prose: state what the
+   code does at the code, and put reasoning that can go stale in the commit or plan.
 
 ### This list is intentionally incomplete
 
