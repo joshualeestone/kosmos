@@ -2,6 +2,13 @@
 /**
  * "A scraped `needs_you` appeared, and nobody was told."
  *
+ * 🛑 #2623: THE PHONE SEAM (engine/notify.js) WAS DELETED as phone-home telemetry
+ * (Josh, 2026-09-09, "invasion of privacy"). This module never sent anything and
+ * still does not: it writes a LOCAL 0600 diagnostic log (no endpoint, no receiver,
+ * no switch) answering the product question "how often would a needs_you have
+ * fired?". That question outlives the seam, so this is kept; references below to
+ * "the phone seam" describe the now-removed notify.js.
+ *
  * 🛑 WHY THIS EXISTS INSTEAD OF A NOTIFICATION (#1494). The phone seam has one
  * live trigger and it is an agent choosing to TYPE `kosmos report needs_you`:
  * 23 times in 31,266 self-report entries. The automatic trigger cannot fire,

@@ -71,6 +71,16 @@ let bootedWorldId = null;
    before applyActiveWorldEnv moves AGENT_WORKFORCE_DATA, so it cannot be re-derived
    from process.env afterwards. */
 let bootedBase = null;
+/* #2628: when this boot ABANDONS a non-default world that will not come up (the
+   #2528 fallback), record which world it was, its display name, and WHEN, so the
+   running board can report it via /api/status. The switcher's reconnect otherwise
+   only sees the board come back on the default world and waits out its whole timeout
+   with no explanation -- Josh's "the restart button errored and I am back in Kosmos 1"
+   with no reason. This is null on a normal boot (a fresh process that boots a world
+   successfully never sets it), so a non-null value means THIS process abandoned that
+   world at `at`. The `at` timestamp lets a consumer ignore a stale abandon from an
+   earlier boot (see the reconnect's at > switchStart guard). */
+let abandonedWorld = null;
 
 /*
  * Capture the pre-override registry base from the ORIGINAL env, then apply the
@@ -98,6 +108,12 @@ function bootstrapWorldEnv(env = process.env) {
     if (activeId !== worlds.DEFAULT_ID && worldbootguard.shouldAbandon(base, activeId)) {
       console.error('#2528: world "' + activeId + '" is not coming up (never served, or a '
         + 'confirmed world that failed repeatedly); falling back to the default world.');
+      // #2628: capture the abandoned world's display name BEFORE setActiveWorld flips the
+      // pointer to default (after which activeWorld(base) would name the default world).
+      // Fail-open: if the name lookup throws, fall back to the id so the signal still fires.
+      let abandonedName = activeId;
+      try { abandonedName = worlds.activeWorld(base).name || activeId; } catch (_) { /* keep id */ }
+      abandonedWorld = { id: activeId, name: abandonedName, at: Date.now() };
       let didReset = false;
       try { worlds.setActiveWorld(base, worlds.DEFAULT_ID); didReset = true; }
       catch (_) { /* fail-open: the default-env return below still lands on default THIS boot */ }
@@ -144,4 +160,11 @@ function bootedWorld() { return bootedWorldId; }
    bootstrapWorldEnv was never called or hit the broken-env fail-open path. */
 function bootedBaseDir() { return bootedBase; }
 
-module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir };
+/* #2628: the world this boot abandoned (id, display name, and the ms timestamp of the
+   abandon), or null on a normal boot. /api/status surfaces it so the switcher can tell
+   the user "X could not start" instead of silently landing them on the default world.
+   The timestamp is included so a consumer can distinguish THIS switch's abandon from a
+   stale one recorded on an earlier boot. */
+function lastAbandonedWorld() { return abandonedWorld ? { ...abandonedWorld } : null; }
+
+module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir, lastAbandonedWorld };

@@ -6,9 +6,9 @@
  *
  * #11 (0.6.39) removed the SECOND switch (#fr-s6-createping, "Let Kosmos know when
  * you create an agent") from this screen per Josh; it belongs on the
- * Create-an-Agent screen (#2020). Its /api/ping-setting backend is unchanged; only
- * the install-flow control and its wiring are gone, so the ping assertions that
- * used to live here are gone with it.
+ * Create-an-Agent screen (#2020). #2623: that create-agent telemetry, and its
+ * /api/ping-setting backend, were later deleted entirely (Josh, 2026-09-09,
+ * "invasion of privacy"), so the ping assertions that used to live here are gone.
  *
  * Two layers:
  *  - STRUCTURE (source-grep): the markup is default-ON, the copy is present, and

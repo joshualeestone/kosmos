@@ -38,9 +38,16 @@ const helpers = new Function(`
 `)();
 const { acctPrimaryName, acctHasChosenName } = helpers;
 
-/* accountQualifiers is pure; its key calls acctChosenName, so include it too. */
+/* accountQualifiers is pure, but its KEY IS `acctPrimaryName` (kosmos#2612,
+   iteration 9), so the eval scope needs that helper and the acctChosenName it
+   calls, or the extracted function throws ReferenceError.
+   ⚠️ THIS IS THE THIRD FILE CARRYING ITS OWN COPY OF THIS EXTRACTION, and when
+   the key gained that dependency the other two were updated and this one was
+   not: `web.account-qualifier.test.js` passed 44/44 while the repo was red,
+   which is exactly why the FULL suite is the gate and a single file is not. */
 const qualify = new Function('list', `
   ${grab('function acctChosenName(')}
+  ${grab('function acctPrimaryName(')}
   ${grab('function accountQualifiers(')}
   return accountQualifiers(list);
 `);

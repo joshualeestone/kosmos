@@ -23,8 +23,9 @@
  * already holds the client certificate this route needs, and node can present it.
  *
  * 🛑 NOTHING HERE MAY FAIL AN UPDATE. The caller is the one route that installs
- * software. engine/notify.js is the precedent: an outer try/catch that swallows
- * everything, a short timeout, fire and forget, no retry.
+ * software. The fire-and-forget senders (engine/feedbacksend.js) are the
+ * precedent: an outer try/catch that swallows everything, a short timeout, no
+ * retry.
  */
 const fs = require('node:fs');
 const path = require('node:path');
