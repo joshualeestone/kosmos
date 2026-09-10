@@ -112,6 +112,64 @@ test('two defaults sharing a login are named distinctly (cross-provider default 
   assert.notEqual(a, b, 'both defaults got the SAME qualifier, so the two reauth controls still answer to one accessible name -- deferred finding 9');
 });
 
+/* #2612: the arm above proves the two cross-provider defaults are DISTINCT, which
+   the raw `dir` fallback already satisfied. It cannot tell a friendly name from a
+   filesystem path, so it passed while the screen read "Sign in again as
+   josh@you.com (/Users/josh/.codex)". This is the arm that can. */
+test('#2612: a second cross-provider default is qualified by PROVIDER, not by its path', () => {
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const q = qualifiers([claudeDefault, openaiDefault]);
+  assert.equal(q.get(claudeDefault.dir), 'main', 'the FIRST default still keeps the reserved qualifier');
+  assert.equal(q.get(openaiDefault.dir), 'OpenAI',
+    'the second default is still qualified by its raw directory path, which is what #2612 is about');
+  /* The negative half, stated separately: whatever it is, it must not be a path.
+     An assertion that only checks the happy string cannot see a regression to a
+     DIFFERENT path-shaped value. */
+  assert.doesNotMatch(String(q.get(openaiDefault.dir)), /[/\\]/,
+    'the qualifier contains a path separator, so a person is being shown a directory again');
+});
+
+/* The mirror, so the map is not one-directional: a Claude second default reads
+   "Claude" rather than the long providerName or a path. Ordered with the OpenAI
+   default FIRST so the Claude one is the row that falls past `main`. */
+test('#2612: the provider map works in the other direction too', () => {
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const q = qualifiers([openaiDefault, claudeDefault]);
+  assert.equal(q.get(openaiDefault.dir), 'main');
+  assert.equal(q.get(claudeDefault.dir), 'Claude',
+    'the short product name, not "Anthropic / Claude" and not the path');
+});
+
+/* 🛑 AN UNKNOWN PROVIDER MUST NOT BE GUESSED. A ternary defaulting anything that
+   is not `openai` to "Claude" would label a future third provider wrongly, and
+   being wrong about WHICH account this is defeats the point of a qualifier. The
+   collision-proof `dir` is the correct answer when we cannot tell. */
+test('#2612 CONTROL: a provider the map does not know falls back to the path, not to a guess', () => {
+  const known = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const future = { provider: 'gemini', email: 'agent@example.com', dir: '/Users/x/.gemini', label: null, isDefault: true };
+  const q = qualifiers([known, future]);
+  assert.equal(q.get(known.dir), 'main');
+  assert.equal(q.get(future.dir), '/Users/x/.gemini',
+    'an unknown provider was given a friendly name it has not earned');
+});
+
+/* 🛑 AND THE PROVIDER QUALIFIER IS STILL SUBJECT TO THE USED-SET. If another row
+   in the group already took "OpenAI" as its LABEL, handing the same string to the
+   default would put two controls back under one accessible name, which is the
+   defect this whole function exists to prevent. */
+test('#2612: a label that already took the provider name pushes the default to its path', () => {
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const decoy = { provider: 'openai', email: 'agent@example.com', dir: '/Users/x/.codex-openai', label: 'OpenAI', isDefault: false };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const q = qualifiers([claudeDefault, decoy, openaiDefault]);
+  assert.equal(q.get(claudeDefault.dir), 'main');
+  assert.equal(q.get(decoy.dir), 'OpenAI', 'the labelled row keeps its own label');
+  assert.equal(q.get(openaiDefault.dir), '/Users/x/.codex',
+    'the default took a qualifier another row already owns, so two controls share one name again');
+});
+
 /* The screen half. The control's accessible name is what named-controls reads and
    what a screen reader announces, and it is a different string from the visible
    row, so it needs its own pin.

@@ -15933,7 +15933,37 @@ function accountQualifiers(list) {
          first default row and may already be taken by another default in this
          group), or a label another row in this group already took all fall back
          to it. */
-      if (!qual || qual === 'main' || used.has(qual)) qual = dir;
+      if (!qual || qual === 'main' || used.has(qual)) {
+        /* 🔑 #2612: THE PROVIDER BEFORE THE PATH. A second default in a group has
+           no label (`list()` sets `label: null` for a default), so it fell
+           straight through to `dir` and the screen read "Sign in again as
+           josh@you.com (/Users/josh/.codex)". `dir` is correct and unique; a
+           filesystem path is just a poor thing to show a person or announce to a
+           screen reader. Defaults differ BY provider, which makes the provider
+           the natural disambiguator for exactly this collision.
+
+           ⚠️ AN UNKNOWN PROVIDER FALLS THROUGH TO `dir` RATHER THAN GUESSING.
+           The two values the payload actually carries are `anthropic`
+           (server.js, which also sets providerName "Anthropic / Claude") and
+           `openai` (openaiaccounts.js). A ternary defaulting anything else to
+           "Claude" would label a future third provider wrongly, and being wrong
+           about which account this is defeats the whole point of a qualifier.
+           So the map is explicit and silence means `dir`.
+
+           📌 The SHORT form, not `providerName`. This renders inside a
+           parenthetical after the login, and "(Anthropic / Claude)" carries a
+           slash that reads as a second field. "Claude" is what the rest of the
+           product calls it.
+
+           🛑 STILL SUBJECT TO THE USED-SET, like every other qualifier here. If
+           a row in this group already took "OpenAI" as its LABEL, the provider
+           qualifier would collide and two controls would answer to one
+           accessible name again, which is the whole defect this function
+           exists to prevent. */
+        const prov = a.provider === 'openai' ? 'OpenAI'
+          : (a.provider === 'anthropic' ? 'Claude' : '');
+        qual = (prov && !used.has(prov)) ? prov : dir;
+      }
     }
     used.add(qual);
     out.set(dir, qual);
