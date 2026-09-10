@@ -179,9 +179,13 @@ function setPauser(fn) {
 
 /**
  * The Windows channel seam (#570 7c-4), `runner`'s twin for agents reached
- * through their supervisor's pipe rather than a pane. Same interlock, for the
- * same reason: clearing it re-arms dry-run, so no ordering of teardowns leaves a
- * suite able to type into a real Windows agent.
+ * through their supervisor's pipe rather than a pane. Clearing it re-arms
+ * dry-run, as clearing `runner` does.
+ *
+ * ⚠️ AND A FAKE TMUX IS NOT PERMISSION TO USE THE REAL CHANNEL. `setDryRun(false)`
+ * checks only that a tmux `runner` was injected, so a suite that faked tmux and
+ * left dry-run would otherwise send Windows cards down a real pipe. The real
+ * `say` is therefore used only when NO runner is injected, which is production.
  */
 let channel = null;
 
@@ -992,9 +996,10 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
  *   anything else -> COULD_NOT    nothing was typed, so re-sending is safe
  *
  * ⚠️ `unsure` IS THE CHANNEL'S OWN CLAIM, not inferred here. `win32channel`
- * sets it for exactly the outcomes where the request had already been written,
- * and folding those into COULD_NOT would tell somebody "not delivered" about a
- * message sitting in the agent's conversation, which is how it gets sent twice.
+ * sets it when the message may have reached the supervisor: an answer lost after
+ * the request was written, or a helper that died without a verdict. Folding
+ * those into COULD_NOT would tell somebody "not delivered" about a message that
+ * may be in the agent's conversation, which is how it gets sent twice.
  *
  * ⚠️ A THROW IS UNCONFIRMED, NOT COULD_NOT. `say()` promises never to throw, so
  * one that does has broken that promise at a point we cannot see, and "nothing
@@ -1002,7 +1007,7 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
  */
 function deliverThroughChannel(card, wire, ctx) {
   const { at, paneState, noteFor } = ctx;
-  const say = channel || (DRY_RUN ? null : require('./win32channel').say);
+  const say = channel || ((DRY_RUN || runner) ? null : require('./win32channel').say);
   if (!say) {
     return {
       state: DELIVERY.COULD_NOT,

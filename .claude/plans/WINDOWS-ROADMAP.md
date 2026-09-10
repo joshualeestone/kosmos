@@ -148,6 +148,12 @@ never `could_not`. `chat.setChannel` is the seam, with setRunner's interlock.
   wrong. No released user can have one; noted, not fixed.
 - **Test sandboxes leak.** ~138 `win32-sessions/record.json` copies were left
   under `%TEMP%` by the win32 suites. Harmless, untidy.
+- **NOBODY READS THE AGENT'S STDOUT, AND IT DOES NOT HANG IT (measured).** The
+  supervisor holds stdout/stderr pipes and never drains them, which looked like a
+  freeze waiting for a full pipe buffer. Measured on winstream-1: an 18,892-char
+  answer completed, and a follow-up was answered 2s later, agent alive. So Claude
+  Code buffers or the pipe is roomy at this size. 7c-5 reads the stream anyway
+  (state comes from it), which retires the question rather than relying on it.
 
 📌 SPLINTER'S ANSWERS 2026-09-10: v1 ships with by-hand update (Josh approved);
 installkosmos.com serves a STALE Windows zip (0.6.37); #2604 is merged and win32

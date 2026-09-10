@@ -457,9 +457,10 @@ function superviseStreaming(spec, opts) {
   /**
    * Deliver one message to the agent. The whole point of the design.
    *
-   * Returns { ok:true } or { ok:false, because } and never throws -- `chat.js`'s
-   * contract is that a delivery either happened or is reported as could_not, and
-   * a throw here would become a 500 where a sentence belongs.
+   * Returns { ok:true } or { ok:false, because } and never throws -- a throw here
+   * would become a 500 where a sentence belongs. `done` gets the same shapes,
+   * plus `unsure:true` when the bytes may have reached the agent anyway, which
+   * `chat.js` reports as unconfirmed rather than could_not.
    */
   handle.send = function send(text, done) {
     const answer = (r) => { if (typeof done === 'function') { try { done(r); } catch { /* the caller's problem, not ours */ } } return r; };
@@ -476,7 +477,12 @@ function superviseStreaming(spec, opts) {
        pass no callback. */
     try {
       child.stdin.write(win32launch.messageLine(text), (err) => {
-        if (err) answer({ ok: false, because: 'we could not reach it (' + ((err && err.code) || 'unknown') + ')' });
+        /* 🔑 A WRITE THAT FAILS HERE HAD ALREADY BEEN HANDED TO THE PIPE, so part
+           of it may be in front of the agent. That is `unsure` -- the Mac's
+           UNCONFIRMED -- never a definite no (Baron's bar, 2026-09-10: a write
+           that buffered and then errored is not could_not). Only the synchronous
+           throw below proves nothing left this process. */
+        if (err) answer({ ok: false, unsure: true, because: 'the write to it failed part-way (' + ((err && err.code) || 'unknown') + '), so we cannot tell whether it arrived' });
         else answer({ ok: true });
       });
     } catch (e) { return answer({ ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }); }

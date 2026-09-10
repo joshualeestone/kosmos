@@ -85,8 +85,11 @@ test('#570 7c-4 the wire is the envelope, the words and the trailer, unescaped f
   withFleet([windowsAgent('winstream')], (board) => {
     const say = fakeChannel({ ok: true });
     chat.setChannel(say);
+    // A TRAILING `;` is the one wireText rewrites, so this is the call that
+    // fails if the tmux escaping ever leaks onto the channel path.
+    chat.deliver('winstream', 'ship it;', board.agents);
     chat.deliver('winstream', 'ship it;', board.agents, '[from Josh]', ' C:\\Users\\joshu\\notes.txt');
-    assert.deepEqual(say.calls.map((c) => c.text), ['[from Josh] ship it; C:\\Users\\joshu\\notes.txt']);
+    assert.deepEqual(say.calls.map((c) => c.text), ['ship it;', '[from Josh] ship it; C:\\Users\\joshu\\notes.txt']);
   });
 });
 
@@ -167,6 +170,28 @@ test('#570 7c-4 in dry-run with no channel, nothing is sent and the verdict says
     assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
     assert.match(verdict.because, /without permission to touch agents/);
   });
+});
+
+test('#570 7c-4 a suite that faked TMUX and left dry-run still never reaches the real channel', () => {
+  /* setDryRun(false) only proves a fake tmux exists. Without the runner check
+     in deliverThroughChannel, this exact sequence sent a Windows card down the
+     real win32channel.say (found in review). The real module's `say` is swapped
+     for a recorder here so the assertion is about the call, not about a pipe. */
+  const real = require('./win32channel');
+  const original = real.say;
+  const called = [];
+  real.say = (...args) => { called.push(args); return { ok: true }; };
+  try {
+    withFleet([windowsAgent('winstream')], (board) => {
+      chat.setRunner(recordingTmux());
+      chat.setDryRun(false);
+      const verdict = chat.deliver('winstream', 'hello', board.agents);
+      assert.equal(verdict.state, chat.DELIVERY.COULD_NOT);
+      assert.equal(called.length, 0, 'the real channel must not be reached from a suite');
+    });
+  } finally {
+    real.say = original;
+  }
 });
 
 test('#570 7c-4 clearing the channel re-arms dry-run, the same interlock as the tmux seam', () => {

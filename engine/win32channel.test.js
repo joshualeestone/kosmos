@@ -180,6 +180,38 @@ test('#570 7c-4 a helper that never started is a definite no, not an unsure one'
   assert.match(r.because, /could not reach it to type anything/);
 });
 
+test('#570 7c-4 the supervisor does NOT time out a message it has already handed over', async () => {
+  /* Found in review: the server's idle timer kept running after onSay, and when
+     it fired it answered "nothing arrived" -- a definite no -- for a message
+     whose write to the agent was still queued. With the timer stopped at
+     handover, the only way this ends is the caller's own timeout, which is
+     unsure. idleMs is shorter than the caller's timeout so the old defect would
+     answer first. */
+  const s = serving('pending', { idleMs: 200, onSay: () => { /* still writing */ } });
+  const r = await ask('pending', 'hello', s.pipe, { timeoutMs: 900 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true, r.because);
+  assert.doesNotMatch(r.because, /nothing arrived/);
+});
+
+test('#570 7c-4 a helper that dies without a verdict is unsure, and says it stopped', () => {
+  const script = path.join(SANDBOX, 'helper-dies.js');
+  fs.writeFileSync(script, 'process.exit(1);\n', 'utf8');
+  const r = channel.say('dies', 'x', { pipe: address(), helper: script, timeoutMs: 2000 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /stopped before it told us/);
+});
+
+test('#570 7c-4 a helper killed at the deadline is unsure, and says it did not answer in time', () => {
+  const script = path.join(SANDBOX, 'helper-hangs.js');
+  fs.writeFileSync(script, 'setTimeout(() => {}, 60000);\n', 'utf8');
+  const r = channel.say('hangs', 'x', { pipe: address(), helper: script, timeoutMs: 300 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /did not answer us in time/);
+});
+
 test('#570 7c-3 a delivery the supervisor could not make is relayed with ITS sentence', async () => {
   /* The supervisor knows things the board cannot: that the agent died between the
      roster read and the write, that the pipe broke. Inventing a sentence here would
@@ -190,6 +222,20 @@ test('#570 7c-3 a delivery the supervisor could not make is relayed with ITS sen
   const r = await ask('honest', 'hello', s.pipe);
   assert.equal(r.ok, false);
   assert.match(r.because, /not running just now/);
+  assert.ok(!r.unsure, 'nothing was typed, so the board may say not delivered');
+});
+
+test('#570 7c-4 the supervisor\'s UNSURE survives the crossing', async () => {
+  /* Only the supervisor knows its write had started before it failed. A server
+     that relayed the sentence but dropped the flag would turn a maybe-delivered
+     message into "not delivered" at the board -- the duplicate-send hazard. */
+  const s = serving('halfway', {
+    onSay: (t, done) => done({ ok: false, unsure: true, because: 'the write to it failed part-way (EPIPE), so we cannot tell whether it arrived' }),
+  });
+  const r = await ask('halfway', 'hello', s.pipe);
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /failed part-way/);
 });
 
 test('#570 7c-3 more than a message is refused rather than buffered', async () => {

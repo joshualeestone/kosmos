@@ -287,6 +287,33 @@ test('#570 7c send() writes ONE json line, and refuses honestly when nothing is 
   h.stop();
 });
 
+test('#570 7c-4 a write that fails AFTER it was handed to the pipe is unsure, never a definite no', () => {
+  /* Baron's bar (Mac delivery owner, 2026-09-10): a write that buffered and then
+     errored may already have put bytes in front of the agent, so it must read as
+     unconfirmed, not could_not. A write that THROWS never left this process, and
+     only that one is a safe-to-resend no. */
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+
+  kids[0].stdin.write = (s, cb) => cb(Object.assign(new Error('pipe broke'), { code: 'EPIPE' }));
+  let got = null;
+  h.send('hello', (r) => { got = r; });
+  assert.equal(got.ok, false);
+  assert.equal(got.unsure, true, 'the bytes may be in front of the agent');
+  assert.match(got.because, /EPIPE.*cannot tell whether it arrived/);
+
+  kids[0].stdin.write = () => { throw Object.assign(new Error('bad argument'), { code: 'ERR_INVALID_ARG_TYPE' }); };
+  got = null;
+  h.send('again', (r) => { got = r; });
+  assert.equal(got.ok, false);
+  assert.ok(!got.unsure, 'a write that threw put nothing on the pipe, so re-sending is safe');
+  h.stop();
+});
+
 test('#570 7c a REFUSED launch is reported and retried, not swallowed into a started agent', () => {
   const events = [];
   let n = 0;
