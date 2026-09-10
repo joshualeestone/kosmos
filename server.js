@@ -2742,6 +2742,23 @@ const server = http.createServer((req, res) => {
     }
     return;
   }
+  /* #2563: the create-a-new-Kosmos "add my agents from" selector needs the user's
+     Kosmoses WITH a per-world agent count. The sibling GET /api/worlds returns the
+     registry pointers (active/booted) the switcher needs; this returns the counted
+     list Angel's web slice populates the selector from. Read-only. */
+  if (pathname === '/api/worlds/list' && (req.method === 'GET' || req.method === 'HEAD')) {
+    try {
+      const base = worldBase();
+      sendJson(res, 200, {
+        worlds: worlds.listWorlds(base).map((w) => ({
+          id: w.id, name: w.name, agentCount: worlds.agentCount(base, w),
+        })),
+      });
+    } catch (_e) {
+      sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
+    }
+    return;
+  }
   if (pathname === '/api/worlds' && req.method === 'POST') {
     readBody(req)
       .then((buf) => {
@@ -2754,7 +2771,17 @@ const server = http.createServer((req, res) => {
         let world;
         try { world = worlds.createWorld(base, body.name); }
         catch (e) { sendJson(res, 400, { ok: false, because: worldCreateReason(e) }); return; }
-        sendJson(res, 200, { ok: true, world });
+        // #2563: optionally import agents from existing Kosmos(es) into the new one
+        // (copy-not-move; sources untouched). An import failure must NOT fail the
+        // create -- the world already exists, so a thrown copy would orphan it; report
+        // what imported instead. Absent/empty importAgentsFrom is a plain create, so
+        // this is byte-for-byte the old behaviour for every existing caller.
+        let imported = null;
+        if (Array.isArray(body.importAgentsFrom) && body.importAgentsFrom.length > 0) {
+          try { imported = worlds.importAgents(base, world, body.importAgentsFrom); }
+          catch (_e) { imported = { copied: 0, skipped: 0, unknownSources: 0, error: true }; }
+        }
+        sendJson(res, 200, imported ? { ok: true, world, imported } : { ok: true, world });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;

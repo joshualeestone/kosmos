@@ -342,6 +342,91 @@ function applyActiveWorldEnv(env, base) {
   return overrides;
 }
 
+/*
+ * #2563 (add-agents-from-an-existing-Kosmos, engine slice). The STORE root of a
+ * world -- where its profiles/avatars live. The DEFAULT world's store IS `base`
+ * (the legacy roots, base:null); a NAMED world's store nests at
+ * <worldBaseDir>/<store.APP>, matching exactly the leaf createWorld lays down
+ * (`fs.mkdirSync(path.join(dir, store.APP))`) and what dataRootFor appends under
+ * the world's AGENT_WORKFORCE_DATA override. Derived by id via worldBaseDir, so a
+ * hand-passed id is CLEAN_ID-guarded before it reaches a path join.
+ */
+function worldStoreRoot(base, world) {
+  const dir = worldBaseDir(base, world); // null for the default world; guarded for named
+  return dir ? path.join(dir, store.APP) : base;
+}
+
+function worldProfilesDir(base, world) {
+  return path.join(worldStoreRoot(base, world), 'profiles');
+}
+
+/*
+ * How many agents a world holds: the count of profile JSONs under its store. A
+ * profile is <safeKey(name)>.json; the store writes a `<name>.json.tmp` mid-write,
+ * which `.endsWith('.json')` correctly excludes (it ends with .tmp). Read-only and
+ * total: a missing or unreadable profiles dir is 0 agents, never a throw -- a world
+ * that has never held an agent has no profiles dir, and that is zero, not an error.
+ */
+function agentCount(base, world) {
+  let entries;
+  try { entries = fs.readdirSync(worldProfilesDir(base, world)); }
+  catch { return 0; }
+  return entries.filter((f) => f.endsWith('.json')).length;
+}
+
+/*
+ * Copy the agents (profiles) of one or more SOURCE worlds into a TARGET world's
+ * profiles dir. COPY, never move: a source file is read and never modified, renamed
+ * or deleted (Angel's ruled copy-not-move default, kosmos#2563). Semantics:
+ *   - A source id is honored only if it names a real registered world; an unknown
+ *     or malformed id is counted in `unknownSources` and skipped, never joined into
+ *     a path (worldBaseDir re-guards CLEAN_ID regardless).
+ *   - FIRST-WINS on collision: a profile whose filename already exists in the target
+ *     (because the target already holds it, or an earlier source in the list supplied
+ *     it) is left untouched and counted in `skipped`. Source order is the tiebreak.
+ *   - Each copy is temp-file + rename, so a concurrent reader of the target never
+ *     sees a half-written profile.
+ * Returns { copied, skipped, unknownSources }. Does NOT make the imported agents run
+ * (named-world agents are out of v1 launch scope, worlds.js SCOPE note) -- it brings
+ * the roster/config across; running follows the world-scoped-launch slice.
+ */
+function importAgents(base, targetWorld, sourceWorldIds) {
+  const result = { copied: 0, skipped: 0, unknownSources: 0 };
+  if (!targetWorld || !Array.isArray(sourceWorldIds) || sourceWorldIds.length === 0) return result;
+  const reg = readRegistry(base);
+  const targetDir = worldProfilesDir(base, targetWorld);
+  fs.mkdirSync(targetDir, { recursive: true });
+  for (const rawId of sourceWorldIds) {
+    const src = reg.worlds.find((w) => w.id === rawId);
+    if (!src || src.id === targetWorld.id) {
+      // Unknown/malformed id -> count it; importing a world from itself is a no-op we
+      // do not count as unknown (the id is real), just skip it.
+      if (!src) result.unknownSources += 1;
+      continue;
+    }
+    let files;
+    try { files = fs.readdirSync(worldProfilesDir(base, src)).filter((f) => f.endsWith('.json')); }
+    catch { files = []; } // a source with no profiles dir contributes nothing, not an error
+    for (const file of files) {
+      const dst = path.join(targetDir, file);
+      if (fs.existsSync(dst)) { result.skipped += 1; continue; } // first-wins
+      const from = path.join(worldProfilesDir(base, src), file);
+      const tmp = dst + `.${process.pid}.tmp`;
+      try {
+        fs.copyFileSync(from, tmp);
+        fs.renameSync(tmp, dst);
+        result.copied += 1;
+      } catch (_e) {
+        try { fs.unlinkSync(tmp); } catch (_u) { /* best effort */ }
+        // A single unreadable/unwritable profile must not abort the whole import or
+        // orphan the created world; skip it and keep going.
+        result.skipped += 1;
+      }
+    }
+  }
+  return result;
+}
+
 module.exports = {
   DEFAULT_ID,
   baseRoot,
@@ -357,4 +442,8 @@ module.exports = {
   renameWorld,
   setActiveWorld,
   applyActiveWorldEnv,
+  worldStoreRoot,
+  worldProfilesDir,
+  agentCount,
+  importAgents,
 };
