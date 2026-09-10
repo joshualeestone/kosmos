@@ -14690,6 +14690,10 @@ async function tick() {
     if (RESTORE_WAITING && data.agents.some((a) => a && a.sessionName === RESTORE_WAITING)) {
       RESTORE_WAITING = null;
       RESTORE_WAITING_SENTENCE = null;
+      /* Cleared with it: the arrival blanks the whole region, so a held sentence
+         that outlived what is on screen would be re-asserted onto an empty one
+         by the next writer and reappear from nowhere. */
+      RESTORE_BLOCKED_SAID = null;
       const done = document.getElementById('removed-msg');
       if (done) done.textContent = '';
     }
@@ -25914,6 +25918,15 @@ let RESTORE_WAITING = null;
    anything that overwrites it destroys it permanently: the person is left with
    no status for a restore that is still running. */
 let RESTORE_WAITING_SENTENCE = null;
+/* #2615: the blocked-Restore explanation, held for the SAME reason and as the
+   mirror of the variable above. Iteration 2 stopped the explain handler
+   destroying an in-flight restore's status; iteration 4 found the REVERSE was
+   still true, because a fix written in one direction reads as finished.
+   ⭐ A shared region needs every writer to know about every other writer, which
+   is N-squared and is why the region keeps producing this bug. Both writers on
+   THIS card now re-assert rather than clobber; the other pre-existing writers
+   are a named follow-up and are not this card. */
+let RESTORE_BLOCKED_SAID = null;
 
 /**
  * ⚠️ Answers "we do not know" rather than inventing a date.
@@ -26028,6 +26041,7 @@ document.getElementById('removed-list').addEventListener('click', (e) => {
      person was waiting for), and the explanation is re-obtainable by pressing
      the control again, which is exactly what a person does. */
   const explain = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
+  RESTORE_BLOCKED_SAID = explain;
   msg.textContent = RESTORE_WAITING_SENTENCE
     ? explain + ' ' + RESTORE_WAITING_SENTENCE
     : explain;
@@ -26148,7 +26162,16 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
     if (say) {
       RESTORE_WAITING = name;
       RESTORE_WAITING_SENTENCE = 'Starting ' + (btn.dataset.shownAs || name) + ' again. It takes a few seconds, and its card appears here on its own.';
-      say.textContent = RESTORE_WAITING_SENTENCE;
+      /* 🛑 THE MIRROR OF THE EXPLAIN HANDLER, AND ITS ABSENCE WAS A REAL BUG.
+         Press an unavailable Restore on one row, read why, then press a WORKING
+         Restore on another: this line used to erase the explanation, which is
+         the exact failure iteration 2 fixed in the other direction and this one
+         reproduced by only fixing that direction.
+         ⇒ Both sentences are true at once, so both are said. The one about what
+         was just pressed leads, matching the explain handler's own order. */
+      say.textContent = RESTORE_BLOCKED_SAID
+        ? RESTORE_WAITING_SENTENCE + ' ' + RESTORE_BLOCKED_SAID
+        : RESTORE_WAITING_SENTENCE;
     }
     await tick();
     await paintRemoved();
