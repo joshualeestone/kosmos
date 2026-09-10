@@ -951,6 +951,71 @@ test('restore says so when the startup file has gone, rather than claiming it st
     'it still claims the startup job will bring the agent back');
 });
 
+/* #2609: the launch file names the agent's account dir by absolute path
+   (CLAUDE_CONFIG_DIR). Delete that account after the agent is removed -- which
+   #2570 turned into one guided click -- and Restore used to re-enable a launchd
+   job pointing at a directory that is gone (the #1659 "blank agent" state), with
+   nothing checking. `restoreInner` now REFUSES that case with an actionable
+   sentence, and -- crucially -- runs NOTHING, so the job is not re-pointed at a
+   deleted dir. Fixtures build a plist that names the account dir (madeAgent is a
+   default-account agent with no configDir, foreignAgent writes a stub plist, so
+   neither exercises this on its own). */
+function acctAgent(name) {
+  foreignAgent(name);
+  const acctDir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-acct-2609-'));
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, BINS.claudeBin, BINS.tmuxBin, null, acctDir, 'claude'), 'utf8');
+  assert.equal(create.readJob(name).configDir, acctDir,
+    'the fixture plist must name the account dir, or this tests the wrong thing');
+  return acctDir;
+}
+
+test('#2609 restore REFUSES when the account directory the agent ran on is gone, and runs nothing', () => {
+  const name = 'acct-deleted';
+  const acctDir = acctAgent(name);
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+
+  // The account is deleted while the agent is off the board (#2570's delete-for-good).
+  fs.rmSync(acctDir, { recursive: true, force: true });
+  assert.ok(!fs.existsSync(acctDir), 'control: the account dir must actually be gone');
+
+  const calls = world();
+  remove.setDryRun(false);
+  const r = mac.restore(name);
+
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, r.because);
+  assert.match(r.because, /folder is gone/, 'the refusal must name the gone-account cause');
+  assert.match(r.because, /Add that account back under the same name first/,
+    'the refusal must say what makes it work, not just that it failed');
+  // ⚠️ THE STRONGER HALF: nothing ran. A re-enable here re-points a launchd job at a
+  // deleted directory -- the #1659 blank-agent state this refusal exists to prevent.
+  assert.ok(!calls.some(([, a]) => a && a[0] === 'enable'),
+    'it re-enabled a job pointing at a deleted account instead of refusing');
+  assert.equal(remove.isRemoved(name), true, 'a refused restore must leave it on the removed list');
+});
+
+test('#2609 CONTROL: restore proceeds normally when the account directory still EXISTS', () => {
+  // The check must not over-refuse: a removed agent whose account is still there
+  // restores exactly as before. This is what makes the REFUSE above mean something.
+  const name = 'acct-present';
+  acctAgent(name);   // acctDir left in place
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+
+  const calls = world();
+  remove.setDryRun(false);
+  const r = mac.restore(name);
+
+  assert.equal(r.outcome, remove.OUTCOME.RESTORED, r.because);
+  assert.ok(calls.some(([, a]) => a && a[0] === 'enable'),
+    'the present-account restore must actually re-enable the job (the check must not fire)');
+});
+
 test('a job that will not re-enable is reported, not reported as restored', () => {
   const name = madeAgent('stuck-enable');
   boardShows(name, name);
