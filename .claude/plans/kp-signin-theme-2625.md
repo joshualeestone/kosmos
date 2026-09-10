@@ -1,4 +1,4 @@
-# Plan — #2625: Kosmos Plus tab sign-in + brighter navy theme + Join Kosmos+ CTA
+# Plan - #2625: Kosmos Plus tab sign-in + brighter navy theme + Join Kosmos+ CTA
 
 **Card:** joshualeestone/agent-workforce#2625 (labels: claimed:monalisa, josh-review)
 **Surface:** the in-app Kosmos Plus tab, `web/index.html` state1 (`#plus-state1`).
@@ -45,8 +45,9 @@ Three defects, all in state1 (the resting, unpaid view most people see):
   so pointing at the served /plus (which routes onward to Join/Sign in) is the honest
   interim. When login.kosmosplus.com is live and branded, move the two sign-in links to
   its direct sign-in route. Reversible one-line JS change.
-- **The "Sign-up is not open yet" honesty paragraph (#1115) is left in place** — out of
+- **The "Sign-up is not open yet" honesty paragraph (#1115) is left in place**, out of
   scope for #2625's three asks, and the site is the source of truth for open/not-open.
+  (Left as a hyphen-only file per Josh's no-em-dash rule.)
 
 ## Verification
 
