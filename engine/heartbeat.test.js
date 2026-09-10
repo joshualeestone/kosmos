@@ -1,6 +1,25 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert');
+
+// boardRows below counts and maps the rows snapshot() returns, so the roster it reads must hold ONLY
+// the fixture agents. snapshot()'s paneless arm (the #1112 no-pane roster) reads sendertoken +
+// liveness off store.ROOT, which is frozen from AGENT_WORKFORCE_DATA at module load; on a cut box
+// carrying real running agents (a live heartbeat, no captured pane -- e.g. the machine auto-imports
+// per #2651) those leak into the roster and red the count. Point the data root at an empty temp
+// sandbox so panelessKeys reads nothing, exactly as status.paneless-roster.test.js does. This MUST
+// stay above the ./heartbeat / ../test-support/fleet requires: sendertoken and liveness freeze their
+// DIR from store.ROOT the moment they load, and fleet pulls in status, which pulls in both.
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const SANDBOX = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-heartbeat-'));
+process.env.AGENT_WORKFORCE_DATA = path.join(SANDBOX, 'data');
+process.env.AGENT_WORKFORCE_WORKERS = path.join(SANDBOX, 'workers');
+process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = path.join(SANDBOX, 'claude.json');
+process.env.AGENT_WORKFORCE_LAUNCH = path.join(SANDBOX, 'launch');
+process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: true }); } catch { /* best effort */ } });
+
 const { tick, step, rowsFrom } = require('./heartbeat');
 const fleet = require('../test-support/fleet');
 
@@ -8,7 +27,9 @@ const fleet = require('../test-support/fleet');
 // snapshot()/classify() via the fleet fixture (test-support/fleet), so a test of
 // the board-consuming code (rowsFrom, step) reads the fields the producer really
 // emits -- fixture-discipline.test.js forbids hand-building a roster row exactly
-// because a hand-built one can carry a field the board does not.
+// because a hand-built one can carry a field the board does not. Hermetic by construction: the
+// top-of-file AGENT_WORKFORCE_DATA sandbox empties snapshot()'s paneless arm (#1112), so these rows
+// are exactly the fixture agents -- the rowsFrom count assertion below would red if that leaked.
 function boardRows(specs) {
   const b = fleet.install(specs.map(([n, s]) => fleet.agent(n, { state: s })));
   const rows = b.agents.map((a) => ({ ...a })); // plain copies of the real rows, all fields, no sessionName literal
