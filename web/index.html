@@ -40593,6 +40593,15 @@ function frOpenaiSubWatch() {
   acctOpenaiSubStop();
   const msg = document.getElementById('fr-openai-msg');
   ACCT_OPENAI_SUB_POLL = setInterval(async () => {
+    /* 🛑 STEP-SCOPED TEARDOWN, mirroring Claude's first-run sub poll frConnWatch
+       (`if (FR_STEP !== 5) { frConnStopWatch(); return; }`). The OpenAI connect step
+       is fr-pane-5; if the person starts a ChatGPT sign-in here and then navigates
+       away (Skip / Continue / the stepper back-nav) without cancelling, this poll
+       would otherwise keep firing every 1.2s and, on a late resolve, repaint a hidden
+       pane. Self-stop when we are no longer on step 5. (Settings gets the same
+       protection from closeAcctAdd() on dialog close; first-run's navigation model
+       needs this instead.) */
+    if (FR_STEP !== 5) { acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; return; }
     const id = ACCT_OPENAI_SUB_SESSION;
     if (!id) { acctOpenaiSubStop(); return; }
     let r;
@@ -40611,6 +40620,9 @@ function frOpenaiSubWatch() {
     acctOpenaiSubStop();
     if (view.ok) {
       if (!ACCT_OPENAI_SUB_SESSION) return;   // a slow overlapping tick already handled it
+      // The status fetch is async: the person may have left step 5 while it was in
+      // flight. Do not paint a connected box into a pane they navigated away from.
+      if (FR_STEP !== 5) { ACCT_OPENAI_SUB_SESSION = null; return; }
       ACCT_OPENAI_SUB_SESSION = null;
       await frOpenaiSubConnected(out.account);
       return;
@@ -40619,7 +40631,12 @@ function frOpenaiSubWatch() {
     frOpenaiSubReset();
   }, 1200);
 }
-async function frOpenaiSubConnected(account) {
+async function frOpenaiSubConnected(_account) {
+  // `_account` (the connected account, with its email) is INTENTIONALLY not read:
+  // first-run's connected box is the lighter frPaintOpenai gold box, which does not
+  // surface an email for the KEY path either, so a subscription connect matches it
+  // rather than Settings' fuller "Signed in ... (email)" line. The parameter is kept
+  // for signature-parity with the Settings mirror acctOpenaiSubConnected(account).
   ACCT_OPENAI_SUB_SESSION = null;
   const labelField = document.getElementById('fr-openai-sub-label');
   if (labelField) labelField.value = '';

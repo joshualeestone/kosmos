@@ -53,8 +53,13 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const vis = (id) => { const e = document.getElementById(id); return !!e && !e.hidden; };
     const out = {};
     document.getElementById('firstrun').hidden = false;
-    if (typeof frOpenaiShowPick !== 'function') return { error: 'frOpenaiShowPick is not a function (first-run picker was not ported)' };
-    // The runner-present hand-off shows the picker.
+    // The OpenAI connect step is fr-pane-5; the real flow only reaches this picker on
+    // step 5, and the sub poll's step-guard reads FR_STEP, which only frGo() sets (it
+    // is a lexical `let`). frGo(5) navigates there (its cold-read paints degrade
+    // harmlessly under file://'s failing fetch); the picker is then revealed as the
+    // runner-present hand-off does.
+    if (typeof frGo !== 'function' || typeof frOpenaiShowPick !== 'function') return { error: 'frGo / frOpenaiShowPick missing (first-run picker was not ported)' };
+    frGo(5);
     frOpenaiShowPick();
     out.pickShown = vis('fr-openai-pick');
     out.hasSubBtn = !!document.getElementById('fr-openai-pick-sub');
@@ -109,9 +114,54 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       pickCleared: !vis('fr-openai-pick'),
     };
   });
+
+  // Step-scoped teardown: a sub sign-in started on step 5, then navigated away from
+  // (FR_STEP != 5) without cancelling, must STOP polling and must NOT paint a connected
+  // box into the abandoned pane. Drive a fresh page with a NON-terminal status stub so
+  // the poll keeps running until the step guard stops it.
+  const teardown = await (async () => {
+    const p2 = await browser.newPage({ viewport: { width: 900, height: 1000 } });
+    await p2.goto('file://' + PAGE);
+    const started = await p2.evaluate(async () => {
+      document.getElementById('firstrun').hidden = false;
+      if (typeof frGo !== 'function') return { error: 'frGo is not defined' };
+      frGo(5);
+      frOpenaiShowPick();
+      document.getElementById('fr-openai-pick-sub').click();
+      window.fetch = (u) => {
+        const url = String(u);
+        if (url.indexOf('/subscription/start') !== -1) return Promise.resolve({ ok: true, json: async () => ({ sessionId: 's9', authUrl: 'https://openai.example/s', mode: 'browser' }) });
+        // NON-terminal: the poll keeps going, so only the FR_STEP guard can stop it.
+        if (url.indexOf('/subscription/status') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ state: 'awaiting_authorization' }) });
+        return Promise.resolve({ ok: true, json: async () => ({}) });
+      };
+      document.getElementById('fr-openai-sub-go').click();
+      return { ok: true };
+    });
+    if (started && started.error) { await p2.close(); return started; }
+    await p2.waitForTimeout(300);                 // let one poll tick arm while on step 5
+    await p2.evaluate(() => { frGo(6); });         // navigate away (real step change) without cancelling
+    await p2.waitForTimeout(1600);                // one+ poll interval (1200ms)
+    const out = await p2.evaluate(() => {
+      const msg = document.getElementById('fr-openai-msg');
+      return {
+        pollStopped: typeof ACCT_OPENAI_SUB_POLL === 'undefined' || ACCT_OPENAI_SUB_POLL === null,
+        sessionCleared: typeof ACCT_OPENAI_SUB_SESSION === 'undefined' || ACCT_OPENAI_SUB_SESSION === null,
+        paintedConnected: !!msg && msg.className === 'fr-connbox',
+      };
+    });
+    await p2.close();
+    return out;
+  })();
   await browser.close();
 
   const problems = [];
+  if (teardown.error) problems.push('teardown arm setup failed: ' + teardown.error);
+  else {
+    if (!teardown.pollStopped) problems.push('the sub poll kept running after navigating away from step 5 (leaked poll -- the #2621-iter2 hazard)');
+    if (!teardown.sessionCleared) problems.push('the sub session was not cleared after navigating away from step 5');
+    if (teardown.paintedConnected) problems.push('a connected box was painted into the abandoned pane after leaving step 5');
+  }
   if (!r.pickShown) problems.push('the first-run picker (#fr-openai-pick) did not show at the runner-present hand-off');
   if (!r.hasSubBtn) problems.push('no "Sign in with ChatGPT" option (#fr-openai-pick-sub) in the install flow -- the #2621 gap');
   if (!r.hasKeyBtn) problems.push('no "Use an API key" option (#fr-openai-pick-key) in the picker');
