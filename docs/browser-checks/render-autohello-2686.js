@@ -128,7 +128,10 @@ function initStub() {
     RESTART_READY_WINDOW_MS = 800;
     RESTART_READY_POLL_MS = 60;
     LAST = [{ sessionName: 'april', name: 'April', displayName: 'April', role: 'a researcher' }];
-    CURRENT = null;
+    // The open agent is april, so the rst-go receipt's CURRENT.sessionName===name
+    // guard passes and the note writes. Arm 8 changes this mid-wait to prove the
+    // guard suppresses a resolution meant for an agent the person navigated off.
+    CURRENT = { sessionName: 'april', name: 'April' };
     // A restart button + its stale-notice sibling, exactly the shape noteFor()
     // reads (btn.parentNode .instr-restart-note). Kept in a known host so each
     // arm can reset the note text.
@@ -271,6 +274,37 @@ function initStub() {
     threadCalls: window.__posted.filter((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && p.method === 'POST').length,
   }));
   check('detached note: the wake hello still fires when the notice was regenerated away', s7.threadCalls === 1, 'calls=' + s7.threadCalls);
+
+  // ---- Arm 8: the person NAVIGATES to another agent mid-wait ----
+  // On the detail-page control the note (d-restart-msg) is shared across agents
+  // and stays connected, so isConnected alone would let agent A's resolution land
+  // in agent B's open dialog. The CURRENT.sessionName===name guard must suppress
+  // it. The wake hello still fires (it is not gated on who is viewing).
+  await page.evaluate(() => {
+    window.__posted = [];
+    window.__readyAfterCalls = 2; window.__statusSinceRestart = 0;
+    // Rebuild the host: arm 7 removed the note node, so recreate it fresh.
+    document.querySelector('#__ah').innerHTML =
+      '<div class="row"><button type="button" data-restart-agent="april">Restart</button>'
+      + '<span class="instr-restart-note"></span></div>';
+    CURRENT = { sessionName: 'april', name: 'April' };
+    openRestartModal(document.querySelector('#__ah [data-restart-agent]'), 'april');
+  });
+  await page.click('#rst-go');
+  // Navigate away: CURRENT becomes a different agent while the wait is in flight.
+  await page.evaluate(() => { CURRENT = { sessionName: 'other', name: 'Other' }; });
+  await page.waitForFunction(
+    () => window.__posted.some((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && (p.method === 'POST')),
+    { timeout: 4000 },
+  ).catch(() => {});
+  const s8 = await page.evaluate(() => ({
+    threadCalls: window.__posted.filter((p) => /\/api\/agent\/[^/]+\/thread$/.test(p.url) && p.method === 'POST').length,
+    note: (document.querySelector('#__ah .instr-restart-note') || {}).textContent || '',
+  }));
+  check('navigate-away: the wake hello still fires for the restarted agent', s8.threadCalls === 1, 'calls=' + s8.threadCalls);
+  check('navigate-away: the resolution does NOT land in the other agent\'s dialog', s8.note !== SAID, JSON.stringify(s8.note));
+  // Restore CURRENT so a later re-use of the page starts clean.
+  await page.evaluate(() => { CURRENT = { sessionName: 'april', name: 'April' }; });
 
   if (pageErrors.length) check('no page/console errors during the run', false, pageErrors.join(' | '));
   else check('no page/console errors during the run', true);

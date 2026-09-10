@@ -24565,9 +24565,10 @@ document.getElementById('doc-go').addEventListener('click', async () => {
              does not land the line in another agent's dialog. */
           msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
           const forAgent = plan.sessionName;
-          // isConnected as well as the open-agent guard: the same detached-node
-          // protection as the rst-go site, so a resolution that lands after the
-          // dialog's message element is gone is a clean no-op rather than a throw.
+          // The open-agent guard (CURRENT.sessionName === forAgent) AND isConnected,
+          // the same pair the rst-go site uses: the first keeps a late resolution
+          // from landing in another agent's dialog, the second makes a write to a
+          // regenerated-away node a clean no-op rather than a throw.
           autoHelloAfterRestart(forAgent,
             (t) => { if (CURRENT && CURRENT.sessionName === forAgent && msg.isConnected) msg.textContent = t; },
             'Added and restarted, and said hello to wake ' + who2 + '.',
@@ -26872,7 +26873,14 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        to "said hello" once the agent is back, or to the old manual line if the
        agent does not come back in time. Fire-and-forget: the handler's UI work
        (modal closed, button restored) is already done. */
-    const showNote = (t) => { if (note && note.isConnected) note.textContent = t; };
+    /* Guard the receipt on BOTH the open agent still being this one AND the node
+       still being connected. isConnected covers the stale notice, which
+       renderStale detaches; CURRENT covers the detail-page control, whose
+       d-restart-msg element is SHARED across agents and stays connected -- without
+       it, agent A's late resolution would land in agent B's dialog if the person
+       navigated away during the wait. This is the open-agent capture-and-recheck
+       the doctrine site and the rest of this file already use. */
+    const showNote = (t) => { if (CURRENT && CURRENT.sessionName === name && note && note.isConnected) note.textContent = t; };
     showNote('Restarted. Waking them…');
     autoHelloAfterRestart(name, showNote,
       'Restarted, and said hello to wake them.',
