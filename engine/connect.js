@@ -1890,15 +1890,17 @@ async function runFlow(owner, haveBinary) {
    *                  start() applies must apply here, or the guard is decorative.
    * Caught by the #1562 matrix cells, not by the suite, which stayed green.
    */
-  /* #1937: `!owner.reauth` is the FOURTH stale-file finish this card gates, the
-     one on the binary-just-installed path. An explicit re-auth must run the login
-     it was asked for -- and `checkLive` here is the same expiry-blind
-     `claude auth status` (#874/#1916), so on a dead-but-present credential this
-     gate would otherwise finish connected and never launch the login, the exact
-     symptom on the missing-binary path. The plan flagged this site. Mirror the
-     start() bypass: a re-auth always falls through to launchSignin; non-reauth is
-     byte-identical. */
-  if (!haveBinary && !owner.reauth) {
+  /* #1937/#2645: `!owner.needsLogin` is the FOURTH stale-file finish this card gates,
+     the one on the binary-just-installed path. A flow that needs a login -- a re-auth
+     OR a present-but-dead credential (#2645) -- must run the login it was asked for,
+     and `checkLive` here is the same expiry-blind `claude auth status` (#874/#1916),
+     so on a dead-but-present credential this gate would otherwise finish connected and
+     never launch the login, the exact symptom on the missing-binary path. The plan
+     flagged this site; #2645 aligned it from `!owner.reauth` to `needsLogin` so all
+     five sites (this, the launch, and the three in-flow completion gates) move together
+     on one signal. Mirror the start() bypass: a needsLogin flow always falls through to
+     launchSignin; a flow with no login to run is byte-identical. */
+  if (!haveBinary && !owner.needsLogin) {
     const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (already.state === subscription.STATE.CONNECTED) {
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
@@ -2032,8 +2034,11 @@ async function launchSignin(owner) {
 
      📌 #2645 BROADENED THIS FROM `owner.reauth` TO `owner.needsLogin` (reauth OR a
      present-but-dead credential -- the file said CONNECTED but the live check said NONE,
-     set at the #1560 fall-through above). A genuinely FRESH machine (no credential; live
-     UNKNOWN, not NONE) still gets a byte-identical bare `claude` and its own onboarding.
+     set at the #1560 fall-through above). A genuinely FRESH machine (no credential) still
+     gets a byte-identical bare `claude` and its own onboarding, because `check()` returns
+     NONE there, so the CONNECTED-file block that sets `deadCredential` is never entered
+     and `needsLogin` stays false -- it is that gate, not the live-check verdict, that keeps
+     a fresh machine on the bare path.
      What changed is the one path the bare launch could not repair: a first-run/reauth
      Connect against a dead credential now runs the real login instead of wedging in the
      "Not logged in" REPL. The launch scopes CLAUDE_CONFIG_DIR to configDir (below), so the
@@ -2159,7 +2164,7 @@ async function tickBody(owner) {
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (driver !== owner) return;
       if (live.state === subscription.STATE.CONNECTED) {
-        finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
+        await finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
         return;
       }
       becomeStuck(owner, 'the sign-in window closed before Claude finished',

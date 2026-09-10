@@ -1,8 +1,8 @@
-# fix-claude-connect-firstrun-signin — Claude first-run Connect wedges (never opens the authorize browser)
+# fix-claude-connect-firstrun-signin -- Claude first-run Connect wedges (never opens the authorize browser)
 
 ## Definition of done (what is TRUE when finished)
 
-An explicit Connect of the Claude (Anthropic) provider — first-run, add-another, OR reauth —
+An explicit Connect of the Claude (Anthropic) provider -- first-run, add-another, OR reauth --
 launches a REAL login (`claude auth login --claudeai`) so the authorize browser opens, and reports
 "connected" only on real login-success evidence, never a stale local credential file. A machine
 whose Claude credential is present-but-DEAD (the state the 2026-09-10 account migration created)
@@ -12,7 +12,7 @@ error + retry rather than silently clearing the box. Fresh-machine Connect and O
 unchanged. Regression tests assert the launch argv + strict completion for first-run, with a control
 proving fresh-machine / OpenAI are untouched. Needs its own cut (NOT Baron's 0.6.55).
 
-## Root cause (confirmed — my read + ICK + Josh's symptoms + connect.js's own comments)
+## Root cause (confirmed -- my read + ICK + Josh's symptoms + connect.js's own comments)
 
 - `engine/connect.js:1985` `if (owner.reauth) cmd.push('auth','login','--claudeai')` gates the #1937
   real-login args to REAUTH ONLY. `reauth` = `opts.reauth` (line 966), so first-run / add-another
@@ -26,7 +26,7 @@ proving fresh-machine / OpenAI are untouched. Needs its own cut (NOT Baron's 0.6
   (`if (sub.state === CONNECTED && !reauth)`) briefly reading the stale file as CONNECTED before its
   live `claude auth status` check reverts it, then falling into the bare-claude launch that wedges.
 
-## Fix — Option A (recommended; decide finally in implementation, document the weakest premise)
+## Fix -- Option A (recommended; decide finally in implementation, document the weakest premise)
 
 Treat an explicit Connect as "always run a real login, always require real success":
 
@@ -46,7 +46,7 @@ Treat an explicit Connect as "always run a real login, always require real succe
   `claude auth status` already distinguishes dead-from-live) and take the reauth-style path ONLY
   then, preserving bare-claude for genuinely fresh machines.
 
-## Secondary (defense-in-depth — Mona's pinpoint)
+## Secondary (defense-in-depth -- Mona's pinpoint)
 
 The `signin-launching` timeout/bail must surface an ACTIONABLE error + retry, not silently clear the
 box. Verify `becomeStuck`'s message actually reaches the UI (painters at `web/index.html` ~40414
@@ -56,7 +56,7 @@ the stuck message + a "Try again", fix that so an unforeseen wedge is never a si
 ## Checklist
 
 - [ ] **1.** Read `server.connect.test.js` (esp. the reauth test at :327): how it captures the tmux
-      launch argv and drives `/api/connect/start` — the harness the regression test mirrors.
+      launch argv and drives `/api/connect/start` -- the harness the regression test mirrors.
 - [ ] **2.** Implement the launch-args change (`connect.js:1985`) so an explicit Connect runs
       `auth login --claudeai` (first-run + add-another + reauth). Keep the tmux argv multi-arg + bare
       (three elements `'auth','login','--claudeai'`), per the #1937 note.
@@ -72,12 +72,12 @@ the stuck message + a "Try again", fix that so an unforeseen wedge is never a si
       Connect (`reauth:false`) against a present-but-dead credential (a) pushes `auth login
       --claudeai` in the launch argv and (b) requires login-success before reporting connected.
       CONTROL arms: a fresh machine (no credential) still opens the browser, and the OpenAI path is
-      unchanged — so the fix is scoped, not a blanket behavior swap.
+      unchanged -- so the fix is scoped, not a blanket behavior swap.
 - [ ] **6.** Run the full node suite (`bash tools/run-tests.sh`, assert the test count, not just exit
       0) + confirm `docs/browser-checks/live-connect.js` still passes / is unaffected (it sets
       `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR` -> assignment branch, so it may not exercise the login arm).
 - [ ] **7.** `/challenge-loop` to convergence (this is a prod-auth change to a heavily-commented
-      driver — the loop is critical), then PR: reviewer `joshualeestone` only, squash, merge on green.
+      driver -- the loop is critical), then PR: reviewer `joshualeestone` only, squash, merge on green.
       Flag in the PR that it needs its own cut (not 0.6.55). No em dashes anywhere.
 
 ## Notes
