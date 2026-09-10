@@ -83,20 +83,15 @@ function seed() {
 
     await pg.click('.tab:has-text("Settings")');
     await pg.waitForTimeout(1800);
-    /* 📌 tell-toggle and notify-toggle are BACK (#2020, Josh 2026-09-03): the
-       telemetry opt-out controls he removed 08-26, restored so the sends "can be
-       turned off". On a readable board they resolve to a real position like the
-       rest, so the rule below names them again. */
-    /* 🛑 THE COUNT IS DERIVED, NOT TYPED (#1360). This said "all five switches
-       resolved" while asserting over three: the list was correctly narrowed when
-       both telemetry rows were removed on 2026-08-26 and the label was not.
-       ⚠️ IT IS A FAILURE MESSAGE, so it is read at the worst possible moment.
-       Baron hit `FAIL dark: all five switches resolved [null,"true",null]` while
-       working out whether a release carried a regression, and had to spend his
-       first move establishing that two switches were not MISSING from the array.
-       A count written beside a list will drift from it; one taken FROM the list
-       cannot. */
-    const SWITCH_IDS = ['lim-toggle', 'tell-toggle', 'notify-toggle', 'auto-toggle', 'eng-toggle'];
+    /* #2623: tell-toggle and notify-toggle (the telemetry opt-outs) were DELETED
+       (Josh, 2026-09-09, "invasion of privacy"), so they leave this list. */
+    /* 🛑 THE COUNT IS DERIVED, NOT TYPED (#1360). An earlier version said "all
+       five switches resolved" while asserting over three; the message is now
+       taken FROM the list so it cannot drift from it. It is a FAILURE MESSAGE,
+       read at the worst possible moment (Baron hit `FAIL dark: all five switches
+       resolved [null,"true",null]` mid-regression and had to prove two were not
+       MISSING), which is why the count is derived, never typed. */
+    const SWITCH_IDS = ['lim-toggle', 'auto-toggle', 'eng-toggle'];
     const sw = await pg.evaluate((ids) => ids
       .map((id) => document.getElementById(id).getAttribute('aria-checked')), SWITCH_IDS);
     /* Every switch is born `mixed` and must resolve. A switch still reading
@@ -302,18 +297,17 @@ function seed() {
         provider: sel('create-provider') ? sel('create-provider').value : null,
         account: !!sel('create-account'),
         models: model ? model.querySelectorAll('option').length : 0,
-        /* #2020: the created-ping checkbox is back (Josh reversed item 3 on
-           2026-09-05). Measure presence of both the box and its note row; guard
-           the lookups so a missing element is a red assertion, not a throw. */
-        tellPresent: !!sel('create-tell') && !!sel('create-tell-note') };
+        /* #2623: the created-ping checkbox was DELETED (Josh, 2026-09-09,
+           "invasion of privacy"). Assert both the box and its note row are gone
+           so a regression that brings the telemetry back goes red. */
+        tellGone: !sel('create-tell') && !sel('create-tell-note') };
     });
     chk(/Model \(you can change this later\)/.test(create.hint || ''), theme + ': the model hint is there', create.hint);
     chk(create.provider !== null && create.account && create.models >= 2,
       theme + ': provider, account and model menus, with models to pick from', JSON.stringify(create));
-    /* The setting is on by default on a fresh board (#2020, restored
-       2026-09-05), so the create form carries the box again. */
-    chk(create.tellPresent === true,
-      theme + ': the created-ping checkbox is on the create form', JSON.stringify(create));
+    /* #2623: the create-agent telemetry was deleted, so the box is gone. */
+    chk(create.tellGone === true,
+      theme + ': the created-ping checkbox is gone from the create form (#2623)', JSON.stringify(create));
 
     chk(errs.length === 0, theme + ': no console errors', errs.slice(0, 2).join(' | '));
     await pg.close();

@@ -337,8 +337,6 @@ const tokendoors = require('./engine/tokendoors');
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
-const ping = require('./engine/ping');
-const notify = require('./engine/notify');
 const feedback = require('./engine/feedback');
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: the opt-in-gated send layer
 const heartbeat = require('./engine/heartbeat');
@@ -3298,13 +3296,8 @@ const server = http.createServer((req, res) => {
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
         });
-        /* #238. Only on a real creation, and never in a way that can affect
-           one: `agentCreated` returns nothing, so this cannot be awaited, and
-           every failure inside it is swallowed. The box on the form is one
-           agent's answer; the standing setting in Settings beats it. */
-        if (result.outcome === create.OUTCOME.CREATED) {
-          ping.agentCreated({ wanted: body.tellKosmos !== false });
-        }
+        /* #2623: the create-agent telemetry ping was deleted (Josh, 2026-09-09,
+           "invasion of privacy"). A creation no longer tells anyone anything. */
         // REFUSED is the caller's fault (a bad name, a duplicate); PARTIAL is
         // ours, and it is a 200 because the thing half-happened and the caller
         // needs the detail rather than an error.
@@ -4197,31 +4190,11 @@ const server = http.createServer((req, res) => {
   /* What "Delete your history" would remove, so the screen can say it before
      it asks. The counts come from the engine, never from the page: a control
      with no undo must not describe its own scope in its own words. */
-  /* The standing answer for #238, so Settings can turn it off for good. Same
-     shape as the other preference routes: GET to learn it, PUT to set it, and
-     the READ is echoed back after a write rather than the request body. */
-  if (pathname === '/api/ping-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { const r = ping.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
-    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
-    return;
-  }
-  if (pathname === '/api/ping-setting' && req.method === 'PUT') {
-    readBody(req)
-      .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const saved = ping.setOn(body.on);
-        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        const r = ping.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
-    return;
-  }
+  /* #2623: the /api/ping-setting route (the create-agent telemetry on/off) was
+     deleted with the telemetry itself. */
 
-  /* The daily product-feedback SEND opt-in (#2037 PR-C1). Mirrors ping-setting:
-     GET returns the switch state, PUT flips it. The send layer (scrub + the
+  /* The daily product-feedback SEND opt-in (#2037 PR-C1). GET returns the switch
+     state, PUT flips it. The send layer (scrub + the
      #2246 contract) is engine/feedbacksend.js; the board sweep fires it. Default
      is ON (Josh: "baked in day one"); the person opts out here. The install-time
      disclosure surface is the fast-follow (PR-C2). */
@@ -4285,9 +4258,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* The outbound "something happened" setting (engine/notify.js): the seam a
-     phone notification rides on, off by default. Same two routes as the
-     created ping, same shape. */
   /* ---- Plus (the relay service): the Settings tab's seam over
      engine/remote.js (#464). READ is always honest; the write routes are
      real but the page renders them only when a relay is configured,
@@ -4462,25 +4432,8 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
     return;
   }
-  if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { const r = notify.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
-    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
-    return;
-  }
-  if (pathname === '/api/notify-setting' && req.method === 'PUT') {
-    readBody(req)
-      .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const saved = notify.setOn(body.on);
-        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        const r = notify.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
-    return;
-  }
+  /* #2623: the /api/notify-setting route (the "let the Kosmos team know when an
+     agent posts or answers you" phone-home on/off) was deleted with the seam. */
   /* #1722: the heartbeat setting (Settings > Automation). GET returns the value
      the runner reads each cycle -- the setting file IS the in-force value, there
      is no second copy -- plus the closed interval choices so the UI selector and
@@ -7860,13 +7813,9 @@ const server = http.createServer((req, res) => {
           sendJson(res, 200, { recorded: false, because: kept.because });
           return;
         }
-        /* The phone seam, AFTER the record, and with ZERO translation: the
-           report's word IS notify's word. This is the state transition
-           notify.js:26 has been waiting for -- `needs_you` stops being a
-           pane scrape on every platform at once, because the agent said it. */
-        if (body.state === 'needs_you') {
-          notify.happened({ kind: 'needs_you', id: 'report:' + who + ':' + kept.at, agent: sender.card.name || who, session: who, project: null });
-        }
+        /* #2623: the phone seam (engine/notify.js) was deleted. A reported
+           needs_you is recorded on the board as before; it no longer POSTs
+           anything off the Mac. */
         sendJson(res, 200, { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -7931,13 +7880,8 @@ const server = http.createServer((req, res) => {
           at,
           from: who,
         });
-        /* The phone seam, AFTER the record: a reply that was not kept is not
-           something the phone can fetch. The id is the thread's own key for
-           the row (agent plus time), so a coordinator can de-duplicate and a
-           phone can ask the Mac for this one. */
-        if (kept.recorded === true) {
-          notify.happened({ kind: 'replied', id: 'reply:' + who + ':' + at, agent: sender.card.name || who, session: who, project: null });
-        }
+        /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
+           recorded for the person's own thread as before; nothing leaves the Mac. */
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
@@ -8223,14 +8167,9 @@ const server = http.createServer((req, res) => {
           projectName: found.name,
           text: body.text,
         }, roster, members);
-        /* An agent posted in a room: the phone seam (engine/notify.js). Only
-           a post that reached the room is something that happened; a refusal
-           is not. The sender's shown name and the project's name, never the
-           words. */
-        if (delivery && delivery.state !== 'could_not') {
-          const card = roster.find((c) => c && c.sessionName === delivery.from) || null;
-          notify.happened({ kind: 'posted', id: delivery.id || null, agent: (card && card.name) || delivery.from || 'an agent', session: delivery.from || null, project: found.name });
-        }
+        /* #2623: the phone seam (engine/notify.js) was deleted. A post that
+           reached the room is delivered on the board as before; it no longer
+           POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -11419,31 +11358,13 @@ function start(port = PORT) {
           const roster = setting.on ? safeRoster() : null;
           const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
           heartbeatPrev = outcome.next;
-          if (setting.on && outcome.toAsk.length) {
-            const shown = new Map((roster || []).map((a) => [a.sessionName, a.name]));
-            for (const ask of outcome.toAsk) {
-              /* A QUESTION, not a verdict, and delivery is UNCONFIRMED:
-                 notify.happened is fire-and-forget with no receipt, so we do NOT
-                 mark the agent asked -- the next tick re-asks until a real receipt
-                 exists (engine/heartbeat.js). The app renders the question; the
-                 payload carries who + when, never the words.
-                 ⚠️ THE ID IS STABLE ACROSS RE-ASKS OF ONE STALL ON PURPOSE (session
-                 + arrived-state), so a coordinator MAY collapse a rapid double-fire
-                 into one alert -- but it MUST NOT treat the interval-cadence re-asks
-                 as duplicates to drop, because re-asking until delivery is confirmed
-                 is the whole design (an unconfirmed ask must not be silenced). When
-                 a receipt channel exists, the runner stops re-asking on its own. */
-              try {
-                notify.happened({
-                  kind: 'check_in',
-                  id: 'check_in:' + ask.session + ':' + ask.to,
-                  agent: shown.get(ask.session) || ask.session,
-                  session: ask.session,
-                  project: null,
-                });
-              } catch { /* notify never throws; belt and braces */ }
-            }
-          }
+          /* #2623: the heartbeat's check_in nudge was delivered through the phone
+             seam (engine/notify.js), which was deleted as phone-home telemetry
+             (Josh, 2026-09-09, "invasion of privacy"). The runner still tracks
+             stalls in heartbeatPrev, but there is no off-Mac delivery: the seam
+             barely fired anyway (see engine/wouldping.js) and the app has no
+             notification relay yet. A future in-app delivery channel is a
+             separate build. */
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);

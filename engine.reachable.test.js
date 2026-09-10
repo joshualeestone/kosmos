@@ -30,7 +30,7 @@ const EXCUSED = {
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   resetForTests: 'test seam',
   dispatch: 'test-only export (#988): engine/updating.js exports its real protocol dispatch so an arm can cover it. Named here rather than passing by luck: it otherwise survives only by colliding with boardauth/server, which is what the setRelay excuse warns against',
-  underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/notify/feedbacksend',
+  underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/feedbacksend (notify.js, a third definer, was deleted in #2623)',
   setRequestFactory: 'test seam (#988): replaces the coordinator TRANSPORT only, so enrolment, the certificate read and the URL derivation still run under test',
   agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
@@ -52,7 +52,8 @@ const EXCUSED = {
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',
   currentChildPid: 'test seam: reads the tunnel supervisor child pid to assert its lifetime deterministically',
   setRelay: 'engine/remote.js: dormant until the Kosmos-team Settings surface wires the self-host relay field; validated here so garbage is refused at set time. Its siblings (setOn, status, ...) escape this sweep only because their names collide with words in other files; setRelay is unique, so it is named here rather than passing by luck.',
-  setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file (feedbacksend.js\'s equivalent, setSender, escapes only by a name-collision); production pull() uses the default fetch transport.',
+  setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file; production pull() uses the default fetch transport.',
+  setSender: 'test seam (#2037): engine/feedbacksend.js injects a fake sender so the daily-report send tests never hit the network; production uses global fetch. Named here from #2623 onward: it used to escape this sweep by a name-collision with engine/notify.js and engine/ping.js, both of which had a setSender -- #2623 deleted notify.js and ping.js\'s sender, so feedbacksend.js is now the sole definer and the collision cover is gone. A test seam, not an orphan.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
   // checkLive's excuse was removed in the #2420 listing slice because it is no longer
