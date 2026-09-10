@@ -15879,7 +15879,7 @@ function accountQualifiers(list) {
       /* The chain is label, then a provider name where the group spans
          providers, then `dir`: an empty label, the reserved `main`, or a label
          another row in this group already took all fall past here, and `dir` is
-         the collision-proof last resort. */
+         the last resort, disambiguated by `distinctly` if even it is taken. */
       if (!qual || String(qual).toLowerCase() === 'main' || takenAlready(qual)) {
         /* 🔑 #2612: THE PROVIDER BEFORE THE PATH. A second default has no label
            (`list()` sets `label: null` for a default), so it fell straight to

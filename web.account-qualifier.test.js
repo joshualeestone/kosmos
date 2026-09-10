@@ -1002,8 +1002,8 @@ test('#2612: a row with no provider does not fake a cross-provider group', () =>
 });
 
 /* ─────────────────────────────────────────────────────────────────────────────
- * #2612 + CLAUDE.md convention 5: THE THREE DERIVATIONS OF A PROVIDER'S DISPLAY
- * NAME ARE PINNED EQUAL, because there are three of them and they must not drift.
+ * #2612 + CLAUDE.md convention 5: THE PROVIDER DISPLAY-NAME DERIVATIONS ARE
+ * PINNED, because the same fact is written in several places and must not drift.
  *
  * The repo convention is explicit about the remedy when a fact IS duplicated:
  * "Prefer one source of truth that both sites read; if you must duplicate, add a
@@ -1011,27 +1011,36 @@ test('#2612: a row with no provider does not fake a cross-provider group', () =>
  * caller has to be deliberate rather than merely plausible)."
  *
  * 🔑 THEY ARE NOT ALL THE SAME STRING, AND THAT IS DELIBERATE, so this pins the
- * relationship rather than equality:
+ * relationship rather than equality. Read the MEMBERSHIP, not the number:
  *
- *   accountGroupsHtml   the GROUP HEAD, long form   "Anthropic / Claude" | "OpenAI"
- *   qualName fallback   the accessible name, short  "Claude"            | "OpenAI"
- *   accountQualifiers   the qualifier, short        "Claude" | "OpenAI" | ""
+ *   SHORT pair, "Claude" | "OpenAI", must agree exactly:
+ *     accountQualifiers   the qualifier          "Claude" | "OpenAI" | ""
+ *     qualName fallback   the accessible name    "Claude" | "OpenAI"
+ *     provName            switch-account screen  "Claude" | "OpenAI"
+ *   LONG pair, pinned separately, must CONTAIN the short one:
+ *     accountGroupsHtml   the group head         "Anthropic / Claude" | "OpenAI"
+ *   A THIRD pair entirely, deliberately out of scope and documented at its sites:
+ *     "OpenAI" | "Anthropic"  (changeModelNow and its sibling)
  *
- * ⇒ The two SHORT ones must agree exactly, and the long one must CONTAIN the
- * short one, or the same account is called two different things on one screen.
+ * ⚠️ AN EARLIER VERSION OF THIS TABLE LISTED THE GROUP HEAD AS ONE OF THE THREE
+ * SHORT SITES AND OMITTED `provName` ENTIRELY, which is how `provName` went
+ * unpinned while a banner said it was covered. That is the whole failure this
+ * pin exists to prevent, committed by the pin, and the note below records how it
+ * then got miscounted a second time while being fixed.
  *
- * ⚠️ NOT CONSOLIDATED HERE, and kosmos#2634 records why: `qualName` is pinned to
- * its exact current form by an existing arm in this file, and folding a refactor
- * of two other call sites into a one-step qualifier change makes a small
- * reviewable diff into a broad one. This pin is what makes that refactor safe to
- * do later: change one derivation and this goes red.
+ * ⚠️ NOT CONSOLIDATED HERE, and kosmos#2634 records why: folding a refactor of
+ * the other call sites into a one-step qualifier change makes a small reviewable
+ * diff into a broad one. This pin is what makes that refactor safe to do later:
+ * change any one short derivation and this goes red.
  *
  * 🛑 IT ALSO RECORDS THE DISAGREEMENT THAT ALREADY EXISTS, rather than asserting
  * a harmony the code does not have. For an UNKNOWN provider the two ternaries
  * guess "Claude" while `accountQualifiers` answers "" and falls through to the
- * collision-proof dir. That is the real gap #2634 exists for, and the arm below
- * asserts it EXPLICITLY so nobody reads this pin as proof the three agree
- * everywhere.
+ * dir. That is the real gap #2634 exists for, and the arm below asserts it
+ * EXPLICITLY so nobody reads this pin as proof the sites agree everywhere.
+ * 📌 That dir is NOT "the collision-proof last resort", which is what this
+ * paragraph used to call it: collision-proof as a STRING, not as a SOUND. See
+ * `distinctly()` in the page and the case-variant-dir arm in this file.
  */
 /* 🛑 THE COUNT IN THIS PIN'S OWN NAME HAS NOW BEEN WRONG TWICE, IN OPPOSITE
    DIRECTIONS, WHICH IS THE FAILURE THE PIN EXISTS TO PREVENT COMMITTED BY THE
