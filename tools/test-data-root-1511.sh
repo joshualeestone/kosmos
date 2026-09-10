@@ -37,7 +37,7 @@ run_err() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2
 # Support (neither leaf) rather than the runner's real one, which may hold either leaf
 # (a cut box carries the installed /Kosmos). These fallback arms then assert the
 # post-#2439 fresh default deterministically: /Kosmos.
-export HOME="$(mktemp -d)"; mkdir -p "$HOME/Library/Application Support"
+PINNED_HOME="$(mktemp -d)"; export HOME="$PINNED_HOME"; mkdir -p "$HOME/Library/Application Support"
 EXP_DEFAULT="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"; EXP_DEFAULT="${EXP_DEFAULT%/}/Kosmos"
 
 # 0. THE FILE PARSES. Every refusal arm below asserts "nothing on stdout, non-zero",
@@ -358,6 +358,6 @@ else
   bad "the one call sits inside uninstall() and above rm -rf KOSMOS_HOME" "uninstall=$fn call=$call delete=$del"
 fi
 
-rm -rf "$FAKE" "$HELPER"
+rm -rf "$FAKE" "$HELPER" "${PINNED_HOME:?}"
 printf '\n%s\n' "$([ "$FAIL" -eq 0 ] && echo "ALL PASS ($PASS arms)" || echo "$FAIL FAILED, $PASS passed")"
 [ "$FAIL" -eq 0 ]
