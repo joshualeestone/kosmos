@@ -25265,7 +25265,13 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/removal?force=1', { method: 'DELETE' });
     const done = await res.json().catch(() => null);
-    if (!done || done.outcome === 'refused') {
+    /* ⚠️ !res.ok FIRST, like the normal-remove handler (rm-go): a thrown
+       exception in removal.remove answers HTTP 500 with {error, detail} and NO
+       `outcome` field, so `done` is truthy and `done.outcome !== 'refused'`.
+       Without the res.ok check that falls through to the success branch and
+       tells the person we cleared the card when the server actually threw and
+       nothing happened. */
+    if (!res.ok || !done || done.outcome === 'refused') {
       msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
       btn.disabled = false;
       return;

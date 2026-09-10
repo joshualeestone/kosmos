@@ -560,7 +560,7 @@ function sessionFor(name) {
  * second copy of this for the partial path would have been the obvious way to
  * write it, and the obvious way for the two to drift.
  */
-function recordRemoval(clean, job, stopped, shownAs) {
+function recordRemoval(clean, job, stopped, shownAs, leftRunningByChoice) {
   if (DRY_RUN && !runner) return true;
   /* #2323: a removed agent's sender token must stop working. Revoke it here --
      the ONE point every removal-commit path reaches (recordAndSay's partials and
@@ -631,6 +631,16 @@ function recordRemoval(clean, job, stopped, shownAs) {
      * is precisely what the card is for.
      */
     stopped: stopped !== false,
+    /* #2651: THE ONE STATE `stopped` CANNOT EXPRESS. `stopped:false` means "we
+       did not stop it, so keep the card, it may still be going" -- the partial
+       case. The untied-override is the opposite intent on the same stop-state:
+       we deliberately did NOT stop the session (it is a teammate's process we
+       cannot tie to the card), yet the person asked to clear the card anyway.
+       So the card must HIDE while `stopped` stays false (the session genuinely
+       is not stopped, which engine/messages.js correctly reads). A separate
+       flag carries "hide it even though we left it running", read only by the
+       board-visibility predicate `hidesCard`, never by the stop-state readers. */
+    leftRunningByChoice: leftRunningByChoice === true,
     // ⚠️ What RESTORE needs, captured at removal rather than re-derived later.
     // By then the plist may be gone, or a different one may have taken its
     // place, and restoring the wrong job is worse than not restoring at all.
@@ -673,8 +683,24 @@ function recordRemoval(clean, job, stopped, shownAs) {
  */
 function isHidden(name) {
   const clean = create.cleanName(name);
-  const r = readRemoved().find((x) => x.name === clean);
-  return Boolean(r) && r.stopped !== false;
+  return hidesCard(readRemoved().find((x) => x.name === clean));
+}
+
+/**
+ * Whether a removed-list RECORD should take its agent's card off the board.
+ *
+ * ⚠️ THE ONE PREDICATE, so the six places that ask it cannot drift (server.js
+ * re-implemented `stopped !== false` inline five times; #2651 added a second
+ * clause and every one of them had to learn it). A card hides when the agent
+ * actually stopped (`stopped !== false`), OR when the person chose to clear an
+ * untied card off their board while its session was deliberately left running
+ * (`leftRunningByChoice`). `stopped:false` alone still means "keep the card, it
+ * may be running" -- the partial case -- so the override needs its own flag
+ * rather than overloading the stop-state, which engine/messages.js reads with
+ * the opposite meaning (a session left running IS not-stopped, correctly).
+ */
+function hidesCard(r) {
+  return Boolean(r) && (r.stopped !== false || r.leftRunningByChoice === true);
 }
 
 /**
@@ -982,12 +1008,17 @@ function removeInner(name, { tmuxBin, platform, force } = {}) {
     if (force === true && intent.untied === true) {
       const clean = create.cleanName(name);
       const shown = status.readIdentity(clean).displayName || clean;
-      const kept = recordRemoval(clean, null, false, shown);
+      const kept = recordRemoval(clean, null, false, shown, true);
       if (!kept) {
+        /* ⚠️ NOTHING WAS CLEARED. On this path the record write is the ONLY
+           action -- there is no prior stop/disable step (unlike the ordinary
+           partial, where real work happened before the write), and hiding the
+           card is driven entirely by `leftRunningByChoice` on that record. So a
+           failed write means the board is unchanged; do not say we cleared it. */
         return {
           outcome: OUTCOME.PARTIAL,
           steps: [],
-          because: `we cleared ${shown} from your board but could not save a record, so it may not show under removed agents. Its terminal session was left running.`,
+          because: `we could not clear ${shown} from your board just now, because saving the change failed. Nothing was stopped, and its terminal session is still running. Please try again in a moment.`,
         };
       }
       return {
@@ -1587,6 +1618,15 @@ function restoreInner(name, platform) {
     // is "set to start again" would be a claim about a job that does not exist.
     because: (() => {
       if (!record.label) {
+        /* #2651: A CARD CLEARED BY THE UNTIED OVERRIDE WAS NEVER STOPPED. Its
+           session kept running the whole time, so restoring it needs no "start
+           it again" -- un-hiding is enough and the board repaints it on its own
+           within a poll. The generic no-label message below is for an agent that
+           had no startup job AND was actually stopped, where starting it again
+           IS what brings it back. */
+        if (record.leftRunningByChoice) {
+          return `${shown} is no longer removed from Kosmos. Its terminal session was left running when you cleared the card, so it will reappear on the board on its own within a few seconds.`;
+        }
         // ⚠️ Not "is back on the board" -- there is no card until something
         // starts it, and Kosmos has no job to start. Says what it did do.
         return `${shown} is no longer removed from Kosmos. It was not set to start on its own, so there was nothing `
@@ -1801,6 +1841,7 @@ module.exports = {
   restart,
   unsafeToActOn,
   isHidden,
+  hidesCard,   // #2651: the ONE board-visibility predicate, so server.js stops re-implementing it
   remove,
   restore,
   forget,

@@ -927,7 +927,7 @@ function safeRoster() {
     // would have claimed a successful tell about it (the told sentence
     // itself is retired now -- success says nothing -- but the write
     // gate this comment justifies is unchanged).
-    const gone = new Set(removal.removedAgents().filter((r) => r.stopped !== false).map((r) => r.name));
+    const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
     return agents.filter((a) => !gone.has(a.sessionName));
   } catch {
     return null;
@@ -1011,7 +1011,7 @@ function activeAgentsCreatedBy(creator) {
     // consuming a cap slot forever (over-refuse). slugFor is idempotent, so
     // applying it to an already-slug name is safe.
     gone = new Set(removal.removedAgents()
-      .filter((r) => r && r.stopped !== false)
+      .filter((r) => removal.hidesCard(r))
       .map((r) => { try { return create.slugFor(r.name); } catch { return String(r.name); } }));
   } catch { return null; }
   /* LAST-occurrence wins: the NEWEST 'created' birth per clean name is its current
@@ -2002,9 +2002,10 @@ const server = http.createServer((req, res) => {
       // ⚠️ The predicate is read off the records already in hand, not by calling
       // `isHidden` per agent -- that re-read and re-parsed `removed.json` once
       // per removed agent, on top of the read `removedAgents()` just did, on
-      // every five-second poll. `stopped !== false` is `isHidden`'s own test;
-      // if the two ever diverge this is the copy that is wrong.
-      const gone = new Set(removal.removedAgents().filter((r) => r.stopped !== false).map((r) => r.name));
+      // every five-second poll. `removal.hidesCard` is the ONE predicate
+      // `isHidden` uses too (#2651), so this filter and the per-agent check
+      // cannot diverge -- they read the same function over the same record.
+      const gone = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name));
       /**
        * What an agent's job will START it on, for the agents whose live model
        * we could not read.
@@ -5395,7 +5396,7 @@ const server = http.createServer((req, res) => {
            same "two derivations of the fleet" habit that comment calls this
            codebase's worst, arriving from the side that looks like a fix. */
         let goneNames = null;
-        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        try { goneNames = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name)); }
         catch { complete = false; goneNames = null; }
         const names = new Set();
         for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
@@ -5888,7 +5889,7 @@ const server = http.createServer((req, res) => {
         const knownNames = register.known();
         if (!knownNames || knownNames.ok !== true) complete = false;
         let goneNames = null;
-        try { goneNames = new Set(removal.removedAgents().filter((r) => r && r.stopped !== false).map((r) => r.name)); }
+        try { goneNames = new Set(removal.removedAgents().filter((r) => removal.hidesCard(r)).map((r) => r.name)); }
         catch { complete = false; goneNames = null; }
         const names = new Set();
         for (const a of (roster || [])) if (a && a.sessionName) names.add(a.sessionName);
