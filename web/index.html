@@ -15884,10 +15884,20 @@ function accountQualifiers(list) {
     acctChosenName(a)
     || a.email
     || (a.provider === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '');
+  /* Both facts about a key-group are gathered in ONE pass: how many rows share
+     the key, and which providers those rows come from. They are siblings, and
+     the provider set used to be rebuilt per row with a full `rows.filter()`
+     inside the second loop, which is the same work done N times for an answer
+     that cannot change between rows of one group. */
   const count = new Map();
+  const providersByKey = new Map();
   for (const a of rows) {
     const k = key(a);
-    if (k) count.set(k, (count.get(k) || 0) + 1);
+    if (!k) continue;
+    count.set(k, (count.get(k) || 0) + 1);
+    let provs = providersByKey.get(k);
+    if (!provs) { provs = new Set(); providersByKey.set(k, provs); }
+    provs.add(String((a && a.provider) || ''));
   }
   /* 🔑 KEYED ON `dir`, NOT ON THE ROW OBJECT. Object identity is correct today,
      because accountGroupsHtml pushes the same references it was handed, but it
@@ -15956,19 +15966,41 @@ function accountQualifiers(list) {
       (u) => String(u).toLowerCase() === String(v).toLowerCase(),
     );
     /* 🛑 THE PROVIDER IS ONLY A QUALIFIER WHERE IT ACTUALLY DISTINGUISHES, and
-       this function has THREE call sites, not one. Settings groups by provider
-       and shows a head, but `fillCreateAccounts` and the switch-account menu
-       filter to ONE provider and show no head, so "(OpenAI)" there says nothing
-       the surrounding list does not already say, while REPLACING a path that at
-       least identified the row. That is the #1917 shape ("a real tester could
-       not tell which to pick") which the picker call site exists to prevent.
-       ⇒ So the provider name is offered only when the key-group genuinely holds
-       more than one provider. In a single-provider list the chain stays what it
-       was: label, else dir. Informative by construction rather than by which
-       screen happens to be calling. */
-    const providersHere = new Set(
-      rows.filter((r) => key(r) === k).map((r) => String((r && r.provider) || '')),
-    );
+       the test below is exactly that: does THIS key-group hold more than one
+       provider. Nothing here asks which screen is calling or whether that screen
+       draws a group head.
+
+       ⚠️ AN EARLIER VERSION OF THIS COMMENT ARGUED HEAD-VS-NO-HEAD, WHICH IS A
+       DIFFERENT PROPERTY FROM THE ONE THE CODE TESTS, AND IT HAD THE HEAD
+       REASONING BACKWARDS. Both halves are worth stating so the next reader does
+       not restore it:
+
+         - The load-bearing reason to qualify AT ALL is the per-control
+           ACCESSIBLE NAME. A screen reader arriving at a "Sign in again" button
+           announces that button's own name; it does not re-read the group head
+           above it. So a head never makes the qualifier unnecessary, and
+           "Settings has a head" was never an argument for dropping it.
+         - What the head actually affects is VISIBLE redundancy: in Settings the
+           box already says "OpenAI", so a visible "(OpenAI)" tag repeats it,
+           while the two pickers show no head and repeat nothing. That points the
+           OPPOSITE way from the rule below, which is precisely why it is not the
+           rule.
+
+       ⇒ The real disqualifier is that a provider name cannot separate rows that
+       all share one provider. In a single-provider key-group "(OpenAI)" is the
+       same word on every row: it distinguishes nothing, and it would REPLACE
+       `dir`, which is unique per row by construction and does distinguish. That
+       is the #1917 shape ("a real tester could not tell which to pick"), and it
+       is a property of the GROUP, not of the caller. So the chain in a
+       single-provider group stays what it was: label, else dir.
+
+       📌 The three call sites still matter, but as the reason this must be
+       decided from the data rather than from the screen: `accountGroupsHtml`
+       (Settings) passes a multi-provider list, while `fillCreateAccounts` and
+       the switch-account menu each pass one provider's rows. A caller-aware rule
+       would need all three kept in step by hand; the group test gets the same
+       answer on all three by construction. */
+    const providersHere = providersByKey.get(k) || new Set();
     const providerDistinguishes = providersHere.size > 1;
     let qual;
     if (a.isDefault && !takenAlready('main')) {
@@ -16023,7 +16055,19 @@ function accountQualifiers(list) {
            same three rows previously gave `["main","/home/.codex","openai"]`,
            which is ugly and audibly distinct.
            ⚠️ `docs/browser-checks/named-controls.js` keys its `seen` set on the
-           raw name too, so that guard cannot catch this either. */
+           raw name too, so that guard cannot catch this either.
+
+           📌 THIS IS THE THIRD PLACE THAT DERIVES A SHORT PROVIDER NAME, AND
+           kosmos#2634 IS THE CARD TO CONSOLIDATE THEM. The other two are
+           `qualName` and `accountGroupsHtml`'s grouping key (which needs the
+           LONG form, "Anthropic / Claude", so the three are not one function
+           yet). This ternary was deliberately NOT folded into that refactor:
+           #2612 is a one-step qualifier change and a three-site rewrite would
+           make a small reviewable diff broad. `web.account-qualifier.test.js`
+           carries a cross-derivation PIN that asserts the disagreement which
+           already exists, so whoever fixes #2634 sees it go red and updates it
+           on purpose rather than by accident. Change any one of the three and
+           read that arm before you change the pin. */
         const prov = !providerDistinguishes ? ''
           : (a.provider === 'openai' ? 'OpenAI'
             : (a.provider === 'anthropic' ? 'Claude' : ''));
