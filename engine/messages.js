@@ -690,7 +690,7 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
      case-distinct agent (a real `SubZero` alongside `subzero`) still routes to
      that agent and is NOT over-refused -- resolveCard returns their card, whose
      sessionName is not `from`. The literal `toName === from` fast path is kept
-     for the common case and for a roster we cannot resolve against. */
+     for the common exact self-send. */
   const selfCard = chat.resolveCard(roster, toName);
   if (toName === from || (selfCard && selfCard.sessionName === from)) {
     return refuse(toName, 'that is your own name; a note to yourself does not need the wire');
