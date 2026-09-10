@@ -498,6 +498,25 @@ test('#570 a RESUMED run that got no token says so too -- the crash-restart is t
   h.stop();
 });
 
+test('#570 the supervisor\'s REAL retire (nothing injected) takes the dead run\'s token out of the store', () => {
+  /* Every other test injects `retireRun`; `main()` injects nothing, so production
+     runs the default. This pins that default against the real (sandboxed) token
+     store (review round 5: replacing it with a no-op stayed green). */
+  const sendertoken = require('./sendertoken');
+  const minted = sendertoken.mint('realretire');
+  assert.equal(minted.ok, true, minted.because);
+  const kids = [];
+  const h = sup.superviseStreaming({ name: 'realretire', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: minted.instance }; },
+  });
+  assert.ok(sendertoken.live('realretire').includes(minted.instance), 'the token is live while its run is');
+  h.stop();
+  kids[0].die(0);
+  assert.ok(!sendertoken.live('realretire').includes(minted.instance), 'and gone from the store once the run ends');
+});
+
 test('#570 a run that was launched with no token retires nothing', () => {
   const kids = [];
   const retired = [];

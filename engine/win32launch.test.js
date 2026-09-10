@@ -322,6 +322,27 @@ test('#570 a RESUME whose spawn throws retires the token it minted, and keeps th
   assert.equal(win32sessions.read()['a-session-we-already-own-4'].name, 'streamer-4', 'the agent\'s own row survives a failed restart');
 });
 
+test('#570 a RESUME that trust refuses mints NOTHING -- no token outlives a run that never started', () => {
+  /* The mint comes after the trust gate. A refused resume returns before any
+     spawn, so its instance would never reach the supervisor, and a mint hoisted
+     above the gate would leak one token per refused restart (review round 5). The
+     config is blocked the way the trust-refusal test above does it. */
+  const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG;
+  const blocked = path.join(SANDBOX, 'blocked-config-resume');
+  fs.mkdirSync(blocked, { recursive: true });
+  process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = blocked;
+  const before = sendertoken.live('streamer-7').length;
+  try {
+    const r = launcher.launchStreaming({
+      name: 'streamer-7', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+      resumeSessionId: 'a-session-we-already-own-7',
+    });
+    assert.equal(r.ok, false, 'trust refused the resume');
+    assert.match(r.because, /vouch for its folder/);
+    assert.equal(sendertoken.live('streamer-7').length, before, 'and it minted nothing');
+  } finally { process.env.AGENT_WORKFORCE_CLAUDE_CONFIG = saved; }
+});
+
 test('#570 a RESUME whose mint fails still starts, token-less, and SAYS why', () => {
   /* The crash-restart is the case this branch exists for. A mint fault must not
      cost the relaunch, and must not pass silently either. The fault is scoped to
