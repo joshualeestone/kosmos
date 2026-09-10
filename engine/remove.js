@@ -106,6 +106,41 @@ function setDryRun(on) {
    dry-run flag off) so a test can exercise the live-execution gate itself. */
 function resetForTests() { runner = null; DRY_RUN = false; }
 
+/**
+ * #2570: can a caller BELIEVE an outcome from this module?
+ *
+ * 🛑 WHY A CALLER CANNOT WORK THIS OUT ITSELF, and why the answer belongs here.
+ * `run()` has TWO fake-success paths: the dry-run flag, and a missed
+ * live-execution opt-in (which warns and then returns success for every
+ * command). Both mark their PER-COMMAND result `dryRun`, but `markDryRun` marks
+ * the top-level result only for the first, so an outcome produced entirely by
+ * the second is indistinguishable from a real one to anybody downstream.
+ *
+ * ⚠️ AND THE OBVIOUS SUBSTITUTE IS WRONG. A caller that asks
+ * `liveExecutionAllowed()` directly gets FALSE whenever a runner is injected,
+ * even though an injected runner is precisely the case where the commands DO
+ * run. Both halves are needed, and only this module knows the first.
+ *
+ * The one caller today is the #2570 disconnect-and-stop route, which goes on to
+ * rename or delete the account the stopped agents were running on. It must not
+ * do that on the strength of a stop that never happened.
+ *
+ * 🛑 WHAT IT DOES NOT SEE, said here so nobody reads it as wider than it is. It
+ * inspects THIS module's `runner` only. On win32 the actual commands go through
+ * `engine/win32job.js` and `engine/win32stop.js`, each of which carries its own
+ * independent `setRunner` seam that this function cannot see. Production is
+ * unaffected either way, because `liveExecutionAllowed()` is a single global flag
+ * that the board arms regardless of platform, so the second half of this `||`
+ * answers true there. The gap is a test-only false NEGATIVE: a win32 test that
+ * seeds runners into those two modules without also seeding this one would make
+ * this answer `false` and the #2570 route would then distrust a stop that really
+ * did happen, and refuse. Reaching into both modules for an accessor they do not
+ * expose would couple this module to their internals for a case no test
+ * exercises today; the honest move is to say so, and to add it when a win32
+ * caller actually needs it.
+ */
+function commandsAreReal() { return !!runner || liveExec.liveExecutionAllowed(); }
+
 function run(file, args) {
   if (runner) return runner(file, args);
   if (DRY_RUN) return { ok: true, stdout: '', dryRun: true };
@@ -1693,6 +1728,7 @@ module.exports = {
   setRunner,
   setDryRun,
   resetForTests,
+  commandsAreReal,
   run,
   OUTCOME,
   REMOVED_FILE,

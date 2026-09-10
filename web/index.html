@@ -16552,6 +16552,16 @@ async function paintAccounts() {
        and "deleted" are different promises. Copying "Remove it for
        good?" would make the confirm contradict the sentence after it. */
     let armed = false;
+    /* #2570: THE SECOND CONFIRM. A refusal naming the agents on this account
+       re-arms the button as "Disconnect and stop N agents?", and the next press
+       re-sends the same request with `stopAgents: true`. Held in the row's own
+       closure for the same reason `armed` is: no state outside it, nothing to
+       reset on a repaint, and one blur disarms both.
+       🛑 IT IS NEVER OFFERED UNTIL THE SERVER HAS REFUSED ONCE AND NAMED THE
+       AGENTS. Offering it up front would put "and stop your agents" in front of
+       somebody disconnecting an idle account, which is the common case and
+       needs no such warning. */
+    let stopFor = null;
     const REST = btn.textContent;
     /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
        SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
@@ -16579,9 +16589,14 @@ async function paintAccounts() {
          ⇒ The armed name now STARTS with the visible text and keeps the account
          identity after it, so it satisfies both: the words on screen are sayable,
          and the row is still identified. */
-      btn.setAttribute('aria-label', on ? CONFIRM + ' ' + REST_LABEL : REST_LABEL);
+      /* #2570: the armed name is taken from the VISIBLE text rather than from
+         CONFIRM, because there are now two armed states and only one constant.
+         The stop confirm showed "Disconnect and stop 2 agents?" while announcing
+         "Disconnect?", which is the WCAG 2.5.3 defect this line was written to
+         fix, arriving again through a second state the original could not see. */
+      btn.setAttribute('aria-label', on ? btn.textContent + ' ' + REST_LABEL : REST_LABEL);
     };
-    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; stopFor = null; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
       /* 🛑 THE PROVIDER GUARD RUNS BEFORE THE ARMING, and it did not until now even
          though the plan said it must. An unmarked button used to ARM on the first
@@ -16624,10 +16639,126 @@ async function paintAccounts() {
         const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(isRemove ? { dir: targetDir, remove: true } : { dir: targetDir }),
+          /* #2570: `stopAgents` only ever rides on the SECOND press, after a
+             refusal named the agents. The default request is byte-identical to
+             what #1659 shipped, so the refuse-and-name behaviour is untouched
+             for every caller that does not opt in. */
+          body: JSON.stringify(Object.assign(
+            { dir: targetDir },
+            isRemove ? { remove: true } : {},
+            /* `stopNames` is the set the confirm actually NAMED. The route
+               refuses anything enumerated beyond it, so an agent created between
+               the two presses cannot be stopped without having been shown. */
+            stopFor ? { stopAgents: true, stopNames: stopFor } : {},
+          )),
         });
         const out = await res.json().catch(() => null);
+        /* #2570: A REFUSAL THAT NAMES AGENTS IS AN OFFER, NOT A DEAD END. #1659
+           shipped the safe half (refuse, and say which agents are on the
+           account) and left the person to go and stop each one by hand. When
+           the server names them, re-arm this same button with the second
+           confirm; the next press sends `stopAgents` and the route stops them
+           first.
+           🛑 ONLY WHEN WE HAVE NOT ALREADY TRIED. A refusal that still names
+           agents AFTER a stop attempt means a stop did not work, and re-offering
+           the same press would loop a person against a failure. That path falls
+           through to the throw below, whose sentence names which agents stopped
+           and which did not. */
+        const blocking = (!res.ok && out && Array.isArray(out.usedBy))
+          ? out.usedBy.filter((n) => typeof n === 'string' && n)
+          : [];
+        /* `consentStale` re-opens the offer with the NEW set. That is not the
+           re-offer loop this guard exists to prevent: nothing was stopped, and
+           the agent list has CHANGED, so pressing again agrees to the set now on
+           screen rather than retrying a failure. */
+        /* `stopUnavailable` means the route declined to stop for this directory
+           at all (it is not one of the engine's accounts), so an offer here can
+           never succeed: the person would press, read the same refusal, and be
+           able to do it again forever with nothing saying why. */
+        if (blocking.length && !(out && out.stopUnavailable === true)
+            && (!stopFor || (out && out.consentStale === true))) {
+          stopFor = blocking;
+          armed = true;
+          btn.disabled = false;
+          /* 🛑 THE VERB COMES FROM THE ROW, NOT FROM THIS FEATURE. One handler
+             serves BOTH controls, and the delete row's own confirm is "Delete
+             for good?" precisely because that act is irreversible. A hardcoded
+             "Disconnect and stop ..." here would put the softer word on the
+             button that rmSyncs the account, drop the "for good" this file
+             reserves for delete, and compose an accessible name carrying two
+             contradictory verbs -- the WCAG 2.5.3 mismatch the armLabel change
+             in this same diff exists to fix, re-introduced one state over. */
+          const stopVerb = isRemove ? 'Delete for good and stop ' : 'Disconnect and stop ';
+          btn.textContent = blocking.length === 1
+            ? stopVerb + blocking[0] + '?'
+            : stopVerb + blocking.length + ' agents?';
+          btn.classList.add('armed');
+          armLabel(true);
+          /* The server's own sentence names the agents and is the thing to read
+             before pressing again. The button says what the press will do; this
+             line says what is on the account and, from the route, that they can
+             be restored.
+             🛑 THE CANCEL SITS INSIDE THE `if (msg)`, IMMEDIATELY BEFORE THE
+             WRITE, NOT ABOVE THE BLOCK. `web.account-qualifier.test.js` checks
+             the every-writer-cancels rule by looking back only as far as the
+             enclosing brace, deliberately, so that a cancel on a branch that did
+             not run cannot vouch for a write on the branch that did. A cancel
+             one block out is invisible to it, and it went red on this exact
+             line. The rule is real either way; this is where it is checkable. */
+          if (msg) {
+            acctCancelSay();
+            /* Same split as the button, and for the same reason: after a DELETE
+               the account directory is gone, so "restore them" would be a
+               promise the product cannot keep. Restoring an agent onto a
+               deleted config dir is the working-agent-behaving-like-a-blank-one
+               state #1659 exists to prevent. */
+            const one = blocking.length === 1;
+            /* 🛑 THE SERVER'S CONSENT-STALE SENTENCE ALREADY SAYS "PRESS AGAIN".
+               Appending ours produced two instructions in a row: "...Press again
+               to disconnect and stop it too. Press again to disconnect and stop
+               it; you can put it back..." -- and on the delete door the two
+               halves carried different verbs. On that path the server's sentence
+               is the instruction and ours contributes only the way back. */
+            const already = !!(out && out.consentStale === true);
+            /* 🛑 COUNT-NEUTRAL ON THE STALE PATH, ON PURPOSE. The server's
+               consent-stale sentence is phrased around the agents that NEWLY
+               appeared, and this clause was phrased around the whole current set,
+               so one agreed agent plus one newcomer read: "...you were not asked
+               about it. Press again to ... stop it too. You can put THEM back
+               ...". Two adjacent sentences, two different sets, each correct
+               alone. The page cannot borrow the server's count without
+               re-deriving which agents are new, and nothing here has been stopped
+               yet anyway, so the clause is about a future stop and does not need
+               a number at all.
+               📌 The non-stale path keeps its singular/plural, because there the
+               page owns the whole sentence and the set is unambiguous. */
+            const wayBack = isRemove
+              ? ' Any agents stopped this way will need a different account before they can start again.'
+              : ' Anything stopped this way can be put back from the removed list, '
+                + 'once you add this account again under the same name.';
+            /* The fallback ends in a period: without one, an absent `out.error`
+               composed as "...run on this account Press again to disconnect...".
+               Defensive only (the route always sends `error` beside `usedBy`),
+               and the same run-on class as the server-side join guards. */
+            msg.textContent = String((out && out.error) || 'agents are set up to run on this account.')
+              + (already ? wayBack : (isRemove
+                ? ' Press again to delete this account for good and stop ' + (one ? 'it' : 'them')
+                  + '; ' + (one ? 'it' : 'they') + ' will need a different account before '
+                  + (one ? 'it' : 'they') + ' can start again.'
+                /* Same condition the route's own sentence now names: a restore
+                   only lands on a working directory if the account comes back
+                   under the same name, because the launch file points at
+                   `.claude-<label>` by absolute path. */
+                : ' Press again to disconnect and stop ' + (one ? 'it' : 'them')
+                  + '; you can put ' + (one ? 'it' : 'them')
+                  + ' back from the removed list once you add this account again under the same name.'));
+            if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+          }
+          btn.focus({ preventScroll: true });
+          return;
+        }
         if (!res.ok) throw new Error((out && out.error) || 'we could not remove that account');
+        stopFor = null;
         /* 🛑 THE REPAINT MUST COME FIRST, AND THIS ORDER IS THE WHOLE
            PROMISE OF THE CARD. paintAccounts() opens by writing "Checking your
            accounts…" into this same line and ends by blanking it, so setting the
@@ -16686,8 +16817,14 @@ async function paintAccounts() {
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
         /* Restore the resting label, or a refused remove leaves the button
-           reading "Disconnect?" and the NEXT single click acts. */
-        armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
+           reading "Disconnect?" and the NEXT single click acts.
+           🛑 `stopFor = null` IS PART OF THE DISARM, NOT TIDYING. Without it a
+           failed stop leaves the offer latched: the button reads "Disconnect"
+           again, and the next ordinary two-press cycle silently sends
+           `stopAgents` behind a plain "Disconnect?" confirm, stopping agents
+           nobody was asked about. The blur handler already clears it, and this
+           path calls btn.focus() below, so no blur ever comes to save it. */
+        armed = false; stopFor = null; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
         /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
            THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
            dropped focus to `<body>` before the request went out, so without this a

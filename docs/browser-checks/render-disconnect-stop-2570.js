@@ -1,0 +1,186 @@
+// Browser-check-surface: data-forget acct-box
+'use strict';
+
+/**
+ * kosmos#2570: the Settings row's SECOND confirm, in a real DOM.
+ *
+ * ⚠️ WHY A BROWSER. `web.disconnect-stop-2570.test.js` reads the handler's SOURCE
+ * and can prove the flag sits inside a `stopFor` ternary. It cannot prove that
+ * three presses actually produce arm -> refusal-with-names -> stop, or that the
+ * request the third press sends carries the flag. That is the #1720 gap exactly:
+ * a source pin green while the page does nothing.
+ *
+ * The load-bearing assertion is the ORDER. A page that sent `stopAgents` on the
+ * FIRST disconnect would satisfy any check that merely looked for a request
+ * carrying it, and would be a page that stops your agents without asking.
+ *
+ * Run:
+ *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-disconnect-stop-2570.js
+ *
+ * ⚠️ HEADED by default, like its siblings. HEADED=0 on a machine with no console
+ * session; this asserts text and request bodies, not pixels, so the verdict is
+ * the same either way.
+ */
+
+const nodePath = require('node:path');
+
+let chromium;
+try { ({ chromium } = require('playwright')); }
+catch {
+  console.log('render-disconnect-stop-2570: playwright is not on NODE_PATH - SKIPPED, not passed.');
+  process.exit(0);
+}
+
+const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
+
+/* 🔑 THE STUB'S SENTENCES ARE CONSTANTS, AND THE ASSERTIONS COMPARE AGAINST THEM
+   RATHER THAN AGAINST WORDING THIS FILE DOES NOT OWN. An earlier version pasted
+   the route's real sentence into the stub and then matched a phrase from it, so
+   when the route's copy was tightened this check went red about a sentence it
+   had invented. What this check is for is the RENDER path: the server's reason
+   reaches the page, and the success sentence reaches the page. The route's actual
+   wording is pinned by server.disconnect-stop-2570.test.js, which is where it
+   belongs. */
+const REFUSAL = 'marlowe is set up to run on this account. Move it to another account or remove it first.';
+const SUCCESS = 'That account is off the list. marlowe was stopped first, and you can put it back later.';
+
+const ROW = {
+  provider: 'anthropic', providerName: 'Anthropic / Claude',
+  email: 'busy@example.com', label: 'busy@example.com', dir: '/home/.claude-busy',
+  organization: null, isDefault: false, keyTail: null,
+  memoryShared: true, offerable: true,
+  connection: {
+    state: 'connected', badge: 'working', plan: null, checkedLive: true,
+    because: 'because working', observedAt: Date.now() - 12000, observedAgeMs: 12000,
+  },
+};
+
+(async () => {
+  let browser;
+  try { browser = await chromium.launch({ headless: process.env.HEADED === '0' }); }
+  catch (err) {
+    console.error('FAIL  render-disconnect-stop-2570: could not start a browser'
+      + (process.env.HEADED === '0' ? '.' : ' (headed; try HEADED=0).'));
+    console.error('  ' + (err && err.message ? err.message.split('\n')[0] : err));
+    process.exit(1);
+  }
+  const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page.goto('file://' + PAGE);
+
+  const r = await page.evaluate(async ({ account, refusal, success }) => {
+    const sent = [];
+    /* The stubbed board keeps state, so the repaint after a successful
+       disconnect reflects what the route actually did. Without this the account
+       list answers the same row forever and "did the row go away?" is a question
+       the fixture, not the page, decides. */
+    let gone = false;
+    const realFetch = window.fetch;
+    /* The board is stubbed, not running: /api/accounts paints the row, and the
+       DELETE answers the way the route does -- refusing and NAMING the agent
+       until the request carries the flag. */
+    window.fetch = (u, opts) => {
+      const url = String(u);
+      if (url.indexOf('/api/accounts/claude') !== -1 && opts && opts.method === 'DELETE') {
+        let body = null;
+        try { body = JSON.parse(opts.body || 'null'); } catch { body = null; }
+        sent.push(body);
+        if (body && body.stopAgents === true) {
+          gone = true;
+          return Promise.resolve({ ok: true, json: async () => ({
+            forgotten: true, because: success, stopped: ['marlowe'],
+          }) });
+        }
+        return Promise.resolve({ ok: false, json: async () => ({
+          error: refusal, usedBy: ['marlowe'],
+        }) });
+      }
+      if (url.indexOf('/api/accounts') !== -1) {
+        return Promise.resolve({ ok: true, json: async () => ({ accounts: gone ? [] : [account] }) });
+      }
+      return realFetch(u, opts);
+    };
+    if (typeof paintAccounts !== 'function') return { error: 'paintAccounts is not a function' };
+    await paintAccounts();
+
+    const btn = document.querySelector('#set-accounts [data-forget]');
+    if (!btn) return { error: 'no Disconnect button rendered' };
+    const settle = () => new Promise((done) => setTimeout(done, 40));
+
+    const resting = (btn.textContent || '').trim();
+    btn.click();                       // 1: arm
+    await settle();
+    const armed = (btn.textContent || '').trim();
+    btn.click();                       // 2: send, and be refused by name
+    await settle();
+    await settle();
+    const offered = (btn.textContent || '').trim();
+    const offeredLabel = btn.getAttribute('aria-label') || '';
+    const said = ((document.getElementById('set-accounts-msg') || {}).textContent || '').trim();
+    btn.click();                       // 3: accept the offer
+    await settle();
+    await settle();
+    await settle();
+    /* The success half is the half the person actually sees, and no source
+       test can reach it: it lands after a repaint that only a real DOM runs. */
+    const afterSaid = ((document.getElementById('set-accounts-msg') || {}).textContent || '').trim();
+    const rowsAfter = document.querySelectorAll('#set-accounts [data-forget]').length;
+
+    return { resting, armed, offered, offeredLabel, said, sent, afterSaid, rowsAfter };
+  }, { account: ROW, refusal: REFUSAL, success: SUCCESS });
+
+  await browser.close();
+
+  const fails = [];
+  const ok = (cond, why) => { if (!cond) fails.push(why); };
+
+  if (r.error) { console.error('FAIL  render-disconnect-stop-2570: ' + r.error); process.exit(1); }
+
+  ok(/^Disconnect$/.test(r.resting), 'the resting button does not read "Disconnect": ' + JSON.stringify(r.resting));
+  ok(/^Disconnect\?$/.test(r.armed), 'the first press does not arm the ordinary confirm: ' + JSON.stringify(r.armed));
+
+  /* 🛑 THE ORDER, WHICH IS THE WHOLE POINT. The first request must NOT carry the
+     flag: a page that always sent it would stop agents nobody agreed to stop. */
+  ok(r.sent.length === 2, 'expected exactly two DELETEs (one refused, one accepted); got ' + r.sent.length);
+  ok(r.sent[0] && r.sent[0].stopAgents === undefined,
+    'the FIRST disconnect carried stopAgents, so agents are stopped without being offered: ' + JSON.stringify(r.sent[0]));
+  ok(r.sent[1] && r.sent[1].stopAgents === true,
+    'the second press did not carry stopAgents, so the offer does nothing: ' + JSON.stringify(r.sent[1]));
+  /* 🔑 AND IT CARRIES THE SET THE BUTTON NAMED. The route refuses anything
+     enumerated beyond this list, so without it an agent created between the two
+     presses would be stopped having never been shown to anybody. Asserted here
+     because only a real press can produce it: the source pin can see the field,
+     not the value the page actually sends. */
+  ok(r.sent[1] && Array.isArray(r.sent[1].stopNames)
+     && r.sent[1].stopNames.length === 1 && r.sent[1].stopNames[0] === 'marlowe',
+    'the second press did not carry the agent set the confirm named: ' + JSON.stringify(r.sent[1]));
+
+  ok(/Disconnect and stop marlowe\?/.test(r.offered),
+    'the refusal did not turn into the second confirm, naming the agent: ' + JSON.stringify(r.offered));
+  /* WCAG 2.5.3: the accessible name must start with the visible words, or speech
+     input cannot operate the button it can see. */
+  ok(r.offeredLabel.indexOf(r.offered) === 0,
+    'the armed accessible name does not start with the visible text: ' + JSON.stringify(r.offeredLabel));
+  ok(r.said.indexOf(REFUSAL) === 0,
+    'the server\'s own reason did not reach the page, so the person is not told WHY: ' + JSON.stringify(r.said));
+  ok(/put it back from the removed list once you add this account again under the same name/.test(r.said),
+    'the offer does not tell the person the way back and its condition: ' + JSON.stringify(r.said));
+
+  /* After the third press: the person is told what happened. A page that sent
+     the right request and then said nothing would satisfy every assertion
+     above, and would be a page that appears to do nothing. */
+  ok(r.afterSaid === SUCCESS,
+    'the route\'s success sentence never reached the page, so a successful stop appears to do nothing: '
+    + JSON.stringify(r.afterSaid));
+  ok(r.rowsAfter === 0,
+    'the disconnected row is still on the page after a successful disconnect (' + r.rowsAfter + ' left)');
+
+  if (fails.length) {
+    console.error('FAIL  render-disconnect-stop-2570');
+    /* Each finding carries FAIL, so the runner can QUOTE the reason beside a red
+       rather than reporting '(no FAIL or error line in its output)'. The shape is
+       the siblings' and browser-checks-reason-grep.test.js holds it. */
+    for (const f of fails) console.error('  FAIL  ' + f);
+    process.exit(1);
+  }
+  console.log('ok    render-disconnect-stop-2570: arm, refusal-by-name, then a stop the person agreed to');
+})();
