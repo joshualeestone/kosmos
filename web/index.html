@@ -8560,9 +8560,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p>To get the most out of your agents we need to ensure they can stay awake and access the things they need to work for you.</p>
 
         <p class="s3-step-cap">1 &middot; keep this computer awake</p>
-        <div class="s3-win" aria-hidden="true">
-          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw"></span></div></div>
+        <!-- #2620: the mock stays decorative (aria-hidden, pointer-events:none) so a click
+             on the decoy switch cannot be mistaken for the real action (0.6.41). The real,
+             focusable .s3-sw-open button is a SIBLING of the mock (lifted OUT of the
+             aria-hidden subtree), positioned over the switch by frSyncSwitchOverlays(), and
+             opens the exact macOS pane. The switch VISUAL (gray -> blue + swipe hint) is
+             mirrored from the gate row's state by frPollGates. -->
+        <div class="s3-mock">
+          <div class="s3-win" aria-hidden="true">
+            <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Energy</span></div>
+            <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Prevent automatic sleeping when the display is off</span><span class="s3-sw" data-sw-gate="sleep"></span></div></div>
+          </div>
+          <button class="s3-sw-open" type="button" data-sw-gate="sleep" aria-label="Open Energy settings"></button>
         </div>
         <div class="s3-gate-row" data-gate="sleep">
           <span class="s3-gate-lbl">Prevent sleep</span>
@@ -8589,9 +8598,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              onboarding registers), not tmux -- so this mock and the gate row below read
              "Kosmos". The internal data-gate key stays "tmux" (it is the FR_GATES /
              handler / browser-check selector; the subject is Kosmos.app). -->
-        <div class="s3-win" aria-hidden="true">
-          <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
-          <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw"></span></div></div>
+        <div class="s3-mock">
+          <div class="s3-win" aria-hidden="true">
+            <div class="s3-bar"><span class="s3-tl s3-r"></span><span class="s3-tl s3-y"></span><span class="s3-tl s3-g"></span><span class="s3-title">Accessibility</span></div>
+            <div class="s3-body"><div class="s3-mrow"><span class="s3-mtxt">Kosmos<small>Control your computer</small></span><span class="s3-sw" data-sw-gate="tmux"></span></div></div>
+          </div>
+          <button class="s3-sw-open" type="button" data-sw-gate="tmux" aria-label="Open Accessibility settings for Kosmos"></button>
         </div>
         <div class="s3-gate-row" data-gate="tmux">
           <span class="s3-gate-lbl">Kosmos</span>
@@ -38897,6 +38909,16 @@ async function frPollGates(screenEl, gen) {
     // #2587: the laptop sleep row (battOnly) shows an honest note in place of the
     // useless Turn On (CSS keys on [data-battonly]); clear it otherwise.
     if (reads[i].battOnly && st === 'blocked') row.setAttribute('data-battonly', ''); else row.removeAttribute('data-battonly');
+    // #2620: mirror the gate state onto the paired mock switch. The switch sits ABOVE its
+    // row, so CSS cannot reach it from the row; copy the three state attrs so the decorative
+    // .s3-sw shows gray/off, blue/granted, or the swipe hint, matching the real gate. Null-safe
+    // (the S2 file-access gate has no mock switch).
+    const swMirror = document.querySelector('.s3-sw[data-sw-gate="' + row.getAttribute('data-gate') + '"]');
+    if (swMirror) {
+      ['data-granted', 'data-checking', 'data-battonly'].forEach((a) => {
+        if (row.hasAttribute(a)) swMirror.setAttribute(a, ''); else swMirror.removeAttribute(a);
+      });
+    }
     // #2587 (Josh's ruling): the sleep step is ADVISORY -- it never gates Next. A
     // laptop that cannot satisfy it (macOS has no never-sleep-on-battery switch), or
     // anyone who simply has not set it, can still move on; the honest note stays as
@@ -38911,12 +38933,40 @@ async function frPollGates(screenEl, gen) {
   next.disabled = anyBlocked;
   if (anyBlocked) next.setAttribute('aria-disabled', 'true'); else next.removeAttribute('aria-disabled');
 }
+// #2620: keep each real .s3-sw-open overlay button sitting exactly over its decorative
+// switch. The two mocks differ in height (Energy is one label line, Accessibility is two:
+// "Kosmos" + "Control your computer"), so the switch's vertical position differs per mock --
+// MEASURE rather than hardcode an offset. Idempotent and cheap; runs when S3 paints and on
+// resize. Skips a switch that has not been laid out yet (pane hidden -> zero rect).
+function frSyncSwitchOverlays() {
+  document.querySelectorAll('.s3-sw-open').forEach((btn) => {
+    const gate = btn.getAttribute('data-sw-gate');
+    const mock = btn.closest('.s3-mock');
+    const sw = mock && mock.querySelector('.s3-sw[data-sw-gate="' + gate + '"]');
+    if (!mock || !sw) return;
+    const mr = mock.getBoundingClientRect();
+    const sr = sw.getBoundingClientRect();
+    if (!sr.width || !sr.height) return;
+    btn.style.top = (sr.top - mr.top) + 'px';
+    btn.style.left = (sr.left - mr.left) + 'px';
+    btn.style.width = sr.width + 'px';
+    btn.style.height = sr.height + 'px';
+  });
+}
+window.addEventListener('resize', frSyncSwitchOverlays);
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
   FR_GATE_SCREEN = screenEl;   // #2451: so the manual "Check again" button can re-poll this screen now
   frPollGates(screenEl, gen);
   FR_GATE_TIMER = setInterval(() => frPollGates(screenEl, gen), FR_GATE_POLL_MS);
+  // #2620: place the switch overlays now that the gated screen is showing (rAF so the pane
+  // has laid out). typeof-guarded so a unit test that eval-slices frGateStart in isolation
+  // never throws on the helper being out of scope.
+  if (typeof frSyncSwitchOverlays === 'function') {
+    frSyncSwitchOverlays();
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(frSyncSwitchOverlays);
+  }
   return gen;
 }
 // #2451/#2559: fire an immediate gate re-check (the manual "Check again" affordance).
@@ -39460,6 +39510,24 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  // #2620: a click on the mock switch (its real overlay button, .s3-sw-open) opens the
+  // same macOS pane as that row's "Turn On" -- Josh's point is people try to click the
+  // switch itself. Same trigger/fallback map as the .s3-on handler below; keyed on the
+  // overlay's data-sw-gate rather than a data-gate row (the overlay is a mock sibling).
+  const swOpen = e.target.closest('.s3-sw-open');
+  if (swOpen) {
+    if (swOpen.disabled) return;
+    const g = swOpen.getAttribute('data-sw-gate');
+    const swTrigger = g === 'tmux' ? '/api/a11y-prompt' : null;
+    const swFallback = g === 'sleep' ? '/api/open-sleep-settings'
+      : g === 'tmux' ? '/api/open-accessibility-settings' : null;
+    if (!swFallback) return;
+    const swMsg = document.getElementById('fr-s3-msg');
+    swOpen.disabled = true;
+    try { await frFirePermission(swTrigger, swFallback, swMsg); }
+    finally { swOpen.disabled = false; }
+    return;
+  }
   // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
   // instead of waiting for the next poll tick, so a just-granted permission reflects at
   // once. The poll keeps running regardless; this only front-runs the next tick.
