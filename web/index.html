@@ -79,6 +79,12 @@
      definition, not just the defence its source happened to carry. The
      fallbacks stay at the usage sites anyway, verbatim from the pack. */
   --k-sunk: rgba(20,22,26,.05);
+  /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
+     rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
+     the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
+     source and a future opacity change is one edit per theme, not four scattered
+     rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
+  --usermsg-tint: rgba(65,113,227,.10);
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -291,6 +297,8 @@
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
+    --usermsg-tint: rgba(65,113,227,.15);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -4330,13 +4338,15 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      long unbroken token. */
   white-space: pre-wrap; overflow-wrap: anywhere; }
 /* #2660 (Josh, 2026-09-10): the person's OWN message wears a faint ROYAL BLUE
-   (#4171E3 = rgb 65,113,227), replacing the old gold. Fill only, NO stroke, so
-   a message you posted reads apart from the plain agent rows. 10% in light;
-   15% in dark (re-stated under the two dark selectors, the .msg-av pattern),
-   which is the subtle indicator he asked for. Both surfaces that emit a
-   `dm mine` bubble -- the to-agent DM view (dmRow) and the project room -- take
-   this one rule. Its project-room sibling is `.pj-msg`, tinted to match below. */
-.dm.mine .dm-b { background: rgba(65,113,227,.10); }
+   (#4171E3), replacing the old gold. Fill only, NO stroke, so a message you
+   posted reads apart from the plain agent rows -- the agent side renders as
+   `.dm.theirs` (dmRow, since #175) and takes the `.dm-b` default, which is now
+   `transparent`, so only `.mine` carries a fill. The colour is the
+   `--usermsg-tint` token, defined per theme beside --k-sunk (10% light, 15%
+   dark), so this ONE rule covers both themes and both surfaces that emit a
+   `dm mine` bubble -- the to-agent DM view (dmRow) and the project room. Its
+   project-room sibling `.pj-msg` uses the same token below. */
+.dm.mine .dm-b { background: var(--usermsg-tint); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -4665,11 +4675,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .composerhint b { font-family: var(--font-mono); font-weight: 700; color: var(--k-ink); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
-  /* #2660: the user's own message goes to 15% blue in dark, up from the 10%
-     light base, so the wash stays legible on the dark ground (Josh's pick,
-     2026-09-10: 10% light / 15% dark). */
-  :root:not([data-theme="light"]) .dm.mine .dm-b { background: rgba(65,113,227,.15); }
-  :root:not([data-theme="light"]) .pj-msg { background: rgba(65,113,227,.15); }
+  /* #2660: the user-message tint does NOT need a per-selector dark rule here --
+     it rides the `--usermsg-tint` token, which is redefined 15% in every dark
+     token block (like --k-sunk), so `.dm.mine .dm-b` / `.pj-msg` flip on their
+     own. No forced-dark twin is generated for them either. */
 }
 /* ⚠️ `display: block` on all three, and it is not cosmetic. These are
    SPANs inside a button, so without it the folder path and the agents line ran
@@ -4909,9 +4918,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .pj-msgs { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-5) 0; }
 /* #2660 (Josh, 2026-09-10): every `.pj-msg` in a room is a message the person
    posted (the agent's side is read live off the pane, not stored), so it takes
-   the same faint royal-blue wash as the to-agent bubble above -- 10% light,
-   15% dark. Fill ONLY, no stroke (Josh: "no strokes around the box at all,
-   either in light or dark, just the color"); the base border is dropped. Two
+   the same `--usermsg-tint` wash as the to-agent bubble above -- one token per
+   theme, 10% light, 15% dark. Fill ONLY, no stroke (Josh: "no strokes around
+   the box at all, either in light or dark, just the color"); the base border is
+   dropped. Two
    state cues survive that removal, but NOT the same way: `.pj-msg.failed`
    re-declares a full 0.5px dashed border below (its "did not go through" box),
    while `.pj-msg.unsure` keeps only its own pre-existing warn-ink LEFT rule --
@@ -4920,7 +4930,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    frame is consistent with the no-stroke intent; its left rule still marks it
    as needing a look. */
 .pj-msg { padding: var(--space-4) var(--space-5);
-  border-radius: var(--radius-control); background: rgba(65,113,227,.10); }
+  border-radius: var(--radius-control); background: var(--usermsg-tint); }
 /* ⚠️ `overflow-wrap: anywhere` on BOTH message spans (round 21, measured): a
    single unbroken token -- a URL, an absolute path, a git SHA, exactly what
    people type to agents -- stretched the whole page 1262px sideways at 1280,
@@ -6675,6 +6685,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
+    --usermsg-tint: rgba(65,113,227,.15);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -6700,11 +6712,6 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 :root[data-theme="dark"] .pjonode .pjoc.a { color: #ff8c82; }
 
 :root[data-theme="dark"] .msg-av { background: rgba(245,245,244,.10); }
-/* #2660: the user's own message goes to 15% blue in dark, up from the 10%
-     light base, so the wash stays legible on the dark ground (Josh's pick,
-     2026-09-10: 10% light / 15% dark). */
-:root[data-theme="dark"] .dm.mine .dm-b { background: rgba(65,113,227,.15); }
-:root[data-theme="dark"] .pj-msg { background: rgba(65,113,227,.15); }
 
 :root[data-theme="dark"] .utoast { --utone: #ff8c82; }
 /* ⚠️ RE-STATED UNDER THE THEME, not left to the base rule. The dark override
@@ -6813,6 +6820,7 @@ body.plus-active {
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
+  --usermsg-tint: rgba(65,113,227,.15); /* #2660: 15% on the navy ground, as in dark */
   --k-optline: #5f7099;
   /* --label/--bg system */
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
