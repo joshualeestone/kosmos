@@ -12391,11 +12391,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="found-lead">
       <span class="found-desc" id="found-desc"></span>
       <button class="found-show" id="found-toggle" type="button"
-              aria-expanded="false" aria-controls="found-list"></button>
+              aria-describedby="found-desc" aria-expanded="false" aria-controls="found-list"></button>
     </div>
     <button class="found-dismiss" id="found-dismiss" type="button" aria-label="Dismiss this forever">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
-      <span class="found-x-say"></span>
+      <span class="found-x-say" role="status" aria-live="polite"></span>
     </button>
   </div>
   <div class="removed-list found-list" id="found-list" hidden></div>
@@ -12412,11 +12412,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="found-lead">
       <span class="found-desc" id="scan-desc"></span>
       <button class="found-show" id="scan-toggle" type="button"
-              aria-expanded="false" aria-controls="scan-list"></button>
+              aria-describedby="scan-desc" aria-expanded="false" aria-controls="scan-list"></button>
     </div>
     <button class="found-dismiss" id="scan-dismiss" type="button" aria-label="Dismiss this forever">
       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
-      <span class="found-x-say"></span>
+      <span class="found-x-say" role="status" aria-live="polite"></span>
     </button>
   </div>
   <div class="removed-list found-list" id="scan-list" hidden></div>
@@ -25845,7 +25845,8 @@ async function paintFoundBoard() {
   const wrap = document.getElementById('found-wrap');
   const list = document.getElementById('found-list');
   const toggle = document.getElementById('found-toggle');
-  if (!wrap || !list || !toggle) return;
+  const desc = document.getElementById('found-desc');
+  if (!wrap || !list || !toggle || !desc) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
   /* ⚠️ A row somebody has pressed is a row that must survive the next poll. The
      board repaints every five seconds and an add makes the set change, so
@@ -25885,7 +25886,7 @@ async function paintFoundBoard() {
      #362 visible (the same agents counted above and offered here); removing
      it does not settle that, which is why #362 stays open. One sentence,
      the verb carried by the fold state, no arithmetic for a reader to do. */
-  document.getElementById('found-desc').textContent =
+  desc.textContent =
     'We found ' + (n === 1 ? 'an agent' : 'agents') + ' on your computer.';
   toggle.textContent = (FOUND_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
   toggle.setAttribute('aria-expanded', FOUND_OPEN ? 'true' : 'false');
@@ -25985,7 +25986,8 @@ async function paintScanBoard() {
   const wrap = document.getElementById('scan-wrap');
   const list = document.getElementById('scan-list');
   const toggle = document.getElementById('scan-toggle');
-  if (!wrap || !list || !toggle) return;
+  const desc = document.getElementById('scan-desc');
+  if (!wrap || !list || !toggle || !desc) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
   /* A row somebody has pressed must survive the next poll. Same guard the found
      panel uses, widened by `.fr-adoptno:disabled` because a Skip in flight is also
@@ -26011,7 +26013,7 @@ async function paintScanBoard() {
 
   const n = cands.length;
   wrap.hidden = false;
-  document.getElementById('scan-desc').textContent =
+  desc.textContent =
     'We found ' + (n === 1 ? 'an agent' : 'agents') + ' on this computer we have not seen before.';
   toggle.textContent = (SCAN_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
   toggle.setAttribute('aria-expanded', SCAN_OPEN ? 'true' : 'false');

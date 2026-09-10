@@ -52,9 +52,14 @@ found variant and ~25920 the scan variant).
 3. The "Show removed agents" toggle: new plain-control class, no underline.
 4. CSS: new classes for the description text, the "Show them" button (the app's
    `.btn` idiom), the circle-X, and the plain removed-toggle; `.linkish` untouched.
-5. Tests: update web.found-board / web.found-scale / web.found-undo /
-   web.found-every-path-1493 / web.import-found-1652 / web.ask-first-1683 for the
-   new structure and text split.
+5. Tests: web.found-board is the only one that needed updating (split the
+   sentence-vs-button assertions, stubbed found-desc). The other found-* tests
+   lift frPaintFound / frPaintFleet / foundImportRowsHtml / the account-remove
+   binding, not the toggle builders, and reference neither the toggle nor the
+   description text, so they need no change (verified). paintScanBoard has no
+   lifted unit test (a pre-existing gap, not introduced here); the split's new
+   scan-desc deref is guarded in the builder (`if (!wrap || !list || !toggle ||
+   !desc) return;`) and covered by the render-scan-board browser-check.
 
 ## What I rejected / weakest premise
 
