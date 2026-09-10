@@ -2754,6 +2754,28 @@ test('#2702: the room rejects an UNKNOWN project id (404) but still serves a rea
   });
 });
 
+test('#2702: the room FAILS OPEN when the projects store is unreadable (a read fault must not 404 a real room)', async () => {
+  /* The existence check is the load-bearing safety property of this fix: a
+     transient projects-store read fault must NOT become a false "no project by
+     that name". readAll() throws UNREADABLE on a permission error (only ENOENT
+     returns []), so the route's catch fires and it falls through to the
+     best-effort room read (200) instead of a 404. Simulated with chmod 000, the
+     repo's own pattern for an unreadable store. */
+  reset();
+  await withThread(fleet.agent('room2702open', { state: 'idle' }), [], async ({ project }) => {
+    const storeFile = path.join(require('./engine/store').ROOT, 'projects.json');
+    fs.chmodSync(storeFile, 0o000);
+    try {
+      const res = await req(`/api/project/${project.id}/room?as=text`);
+      assert.notEqual(res.status, 404, 'a transient unreadable projects store turned into a false 404');
+      assert.equal(res.status, 200, 'the room did not fall through to the best-effort read on an unreadable store');
+    } finally {
+      // Restore BEFORE withThread's finally runs, so its cleanup can read the store.
+      fs.chmodSync(storeFile, 0o644);
+    }
+  });
+});
+
 test('#2239: a multi-paragraph post stays ONE line per row in the text view, though the store keeps its breaks', async () => {
   /* The store now persists paragraph breaks (storeText) so the HTML room can
      render them; the `kosmos room` text arm's contract is still one line per

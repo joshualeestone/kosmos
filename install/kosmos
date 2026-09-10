@@ -1131,7 +1131,10 @@ cmd_room() {
   # -w appended "\n<http_code>" as the final line: split it off the body tail.
   _code="${_body##*$'\n'}"
   _body="${_body%$'\n'*}"
-  printf '%s\n' "$_body"
+  # printf '%s' (no added newline): the server body already carries its own
+  # trailing newline, which survived the split above -- a '%s\n' would double it
+  # and leave a spurious blank line after every `kosmos room`.
+  printf '%s' "$_body"
   case "$_code" in
     4??|5??) exit 1 ;;
   esac
