@@ -228,3 +228,78 @@ would mean nothing.
 
 Probe kept at `/tmp` deliberately: it compares against a sha that will not survive a rebase, so it
 is a measurement of this moment rather than a test worth committing.
+
+## Challenge-loop iteration 6 (sonnet): no BLOCKERs, 1 WARNING, 1 NIT, both real
+
+### The WARNING was a duplicate test wearing a broader comment
+
+The arm named "the same collision in a cross-provider group still gets the provider name" had the
+fixture `[claudeDefault, openaiDefault]`, **byte-for-byte the rows of an arm far above it**, so it
+re-asserted a subset of that arm while its comment claimed to mirror the `label: 'main'` collision
+directly above. **The combined case the comment describes was exercised by nothing.**
+
+⭐ This is the branch's own recurring class, arriving for the sixth time and in its purest form:
+**a claim about coverage that nothing backs, where the only thing asserting the coverage is the
+comment.** A duplicate is the hardest version to see, because it is green, it is about the right
+subject, and its neighbours are real.
+
+Measured what the untested case actually does, then put it in the fixture:
+
+| fixture | result |
+|---|---|
+| `[claudeDefault, named('main')]` (single-provider) | `["main", "/Users/x/.claude-main"]` |
+| `[claudeDefault, named('main'), openaiDefault]` (spans providers) | `["main", "Claude", "OpenAI"]` |
+
+⇒ The pair now shows the actual point: **the same `label: 'main'` row answers its PATH in a
+single-provider group and "Claude" in a cross-provider one**, because the provider only becomes a
+usable qualifier once the group spans providers. One fixture without the other cannot show that,
+which is exactly why a duplicate read as coverage. Added an arm that all three stay audibly
+distinct, which the three equalities do not imply.
+
+### The NIT was a correctness defect once measured
+
+The provider id was compared **exact-string** in `providersByKey` and in the ternary, while every
+other membership test in this same function was made case-insensitive after being burned twice.
+
+🛑 Not merely an asymmetry. A case-variant id **inflates the provider set**, so
+`providerDistinguishes` goes TRUE for a group holding ONE real provider, and a row in it is then
+qualified by a provider name that identifies nothing. That is the #1917 shape the scoping was added
+to prevent, reached from the opposite direction.
+
+Reproduced, three rows all genuinely Anthropic with one id spelled `"Anthropic"`:
+
+```
+exact    -> ["main", "work", "Claude"]                     <- a provider name in a
+                                                              single-provider group
+control  -> ["main", "work", "/Users/x/.claude-work"]      <- same rows, ids consistent
+```
+
+Both sites now lowercase so they agree; silence still means `dir`.
+
+**Reachability traced rather than assumed:** `/api/accounts` rows take their provider from
+`server.js` (`'anthropic'` at :4610, `'openai'` at :4696) and from `openaiaccounts.js`'s `PROVIDER`
+constant, all lowercase literals. The `provider: 'claude'` at `server.js:4739` is an **error body**
+from `POST /api/accounts/claude/apikey`, not an account row, so it never arrives here. ⇒ The new arm
+**pins a property rather than guarding a live path**, and #2634 is the moment a third provider could
+arrive differently cased. Recorded that way at the code, so nobody later reads it as a live guard.
+
+### Mutation controls, both new arms proven able to fail
+
+```
+providersByKey NOT lowercased -> rc=1, reds EXACTLY the new case-variant arm
+                                 (actual 'Claude' vs expected '/Users/x/.claude-work')
+provider step disabled        -> rc=1, 6 arms red
+```
+
+The case-variant arm carries **its own two controls**, because its primary assertion would otherwise
+be satisfied by a function that never qualifies by provider at all: a hand-normalised rerun must
+agree, and a genuinely cross-provider group must still yield `"OpenAI"`.
+
+📌 **What I got wrong about my own review process here:** the reviewer filed the casing issue as a
+NIT and described it as "purely a robustness/consistency nit". I nearly accepted that rating.
+Measuring it took two minutes and turned it into a reproducible wrong answer. ⭐ **A severity
+label is the reviewer's guess, not a measurement, and the cheap move is to reproduce before
+accepting the rating rather than after.**
+
+State: 37 arms (was 36), `bash tools/run-tests.sh` rc=0 with 5580 tests and 0 fail, browser check
+green under real playwright. **Not converged**; iteration 7 (opus) running.
