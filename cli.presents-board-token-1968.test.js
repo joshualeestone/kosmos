@@ -22,7 +22,7 @@ const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const fs = require('node:fs');
-const { execFile } = require('node:child_process');
+const { execFile, execFileSync } = require('node:child_process');
 
 const CLI = path.join(__dirname, 'install', 'kosmos');
 const TOKEN = 'abc123boardtoken';
@@ -155,5 +155,43 @@ test('#2644: source-checkout layout with no token sends NO header (control: it i
     assert.equal(await drive(port, seen, 'reply', extra), undefined, 'source layout, no token file -> no board-token header');
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
+  }
+}));
+
+// #2644 (integration arm): the two tests above stub the store module, so they prove the
+// fallback BRANCHES are selected but not that a system node can require the REAL
+// engine/store.js. That real-module-under-fallback-node path is the fix's load-bearing
+// runtime claim, and a future engine/store.js that a plain system node cannot load (a heavy
+// or version-gated top-level dep) would silently re-freeze self-report on real boxes -- the
+// exact #2509 symptom this change ends. So this arm symlinks the REAL engine/ (deps and all)
+// and controls ROOT via AGENT_WORKFORCE_HOME, asking the real store what ROOT it computes
+// rather than hardcoding its platform formula.
+function makeRealStoreSourceHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-2644-real-'));
+  // engine/ -> the repo's REAL engine dir, so require($KOSMOS_HOME/engine/store) loads the
+  // actual module with its actual siblings. No runtime/ and no app/ so both fallbacks fire.
+  fs.symlinkSync(path.join(__dirname, 'engine'), path.join(home, 'engine'));
+  const awHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-2644-awhome-'));
+  const realRoot = execFileSync(
+    process.execPath,
+    ['-e', 'process.stdout.write(require(process.argv[1]).ROOT)', path.join(__dirname, 'engine', 'store')],
+    { env: { ...process.env, AGENT_WORKFORCE_HOME: awHome }, encoding: 'utf8' },
+  );
+  fs.mkdirSync(realRoot, { recursive: true });
+  return { home, awHome, realRoot };
+}
+
+test('#2644: source layout resolves the token through the REAL engine/store.js under a system node (integration)', () => withStub(async (port, seen) => {
+  const { home, awHome, realRoot } = makeRealStoreSourceHome();
+  try {
+    fs.writeFileSync(path.join(realRoot, 'board.token'), TOKEN);
+    // AGENT_WORKFORCE_HOME must match what makeRealStoreSourceHome() asked the store, so the
+    // CLI's node computes the SAME ROOT and finds board.token there.
+    const extra = { ...withNodeOnPath(home), AGENT_WORKFORCE_HOME: awHome };
+    assert.equal(await drive(port, seen, 'report', extra), TOKEN,
+      'a system node must require the REAL engine/store.js and yield ROOT so the token is presented');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(awHome, { recursive: true, force: true });
   }
 }));
