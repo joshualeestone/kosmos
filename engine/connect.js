@@ -1349,9 +1349,10 @@ async function start(opts) {
      the reauth path. A reauth of a STILL-LIVE credential leaves this false (checkLive CONNECTED at
      start), so that case still falls to becomeStuck -- it cannot prove the new login landed vs.
      reading the old live one (the iter-7 BLOCKER guard). This site handles the reauth arm where the
-     binary is PRESENT at start; the binary-less reauth arm (checkLive is UNKNOWN here with nothing
-     on disk) is handled AFTER the install, by the `!haveBinary && owner.needsLogin` block in
-     runFlow -- between the two, every reauth-of-a-dead-credential path sets deadCredential. Before
+     binary is usable at start; the arm with no usable binary at start (checkLive is UNKNOWN here --
+     nothing on disk, or a launcher that later fails the --version probe) is handled AFTER the
+     install, by the `!haveBinary && owner.needsLogin` block in runFlow -- between the two, every
+     reauth-of-a-dead-credential path sets deadCredential. Before
      the driver claim below, so a concurrent start that claims during this await is caught by the
      `if (driver) return state()` guard (deadCredential is a local, unused until the owner literal). */
   if (reauth && haveBinary) {
@@ -1913,19 +1914,26 @@ async function runFlow(owner, haveBinary) {
    *                  start() applies must apply here, or the guard is decorative.
    * Caught by the #1562 matrix cells, not by the suite, which stayed green.
    */
-  /* #1922 (reauth + no-binary-at-start): compute deadCredential post-install for the ONE
-     needsLogin arm that no other site covers. A needsLogin flow that reaches runFlow with
-     `!haveBinary` is necessarily a RE-AUTH: a present-but-dead first-run leaves needsLogin false
-     at start() (its live check is UNKNOWN with no binary, not NONE), so it is caught by the
-     `!owner.needsLogin` block just below instead. start()'s reauth deadCredential detection is
-     gated `haveBinary`, and the block below is gated `!owner.needsLogin`, so a reauth on a
-     binary-less box slips both. Now that the install has run, checkLive is authoritative: if the
-     credential is dead here, a later CONNECTED after a pane-death is the dead->live proof the
-     #1922 capture-fail rescue reads, so set deadCredential. Without it that reauth would
-     false-stick a landed login (the reauth-completes-but-not-seen symptom, on the no-binary arm).
-     This ONLY sets the flag -- a reauth must still run the login and never finish here (that is
-     why it is separate from the finish-capable block below, not a relaxation of its guard). Safe
-     after the await: launchSignin re-guards with `if (driver !== owner) return`. */
+  /* #1922 (a login is needed and no usable binary was present at start): compute deadCredential
+     post-install for the needsLogin arm that start()'s two checkLive sites could not. TWO flows
+     reach here with `!haveBinary && owner.needsLogin`, and it would be wrong to call it reauth-only:
+       - a RE-AUTH on a box with no binary (the arm this block exists for): start()'s reauth
+         detection is gated `haveBinary`, so with nothing on disk its checkLive was UNKNOWN and
+         deadCredential stayed false -- this block is the ONLY site that sets it for that arm;
+       - a present-but-dead FIRST-RUN whose binary was present enough for start()'s #1560 checkLive
+         to return NONE (so deadCredential is ALREADY true and needsLogin already true) but then
+         FAILED the `--version` probe, flipping haveBinary false. Here this block is a harmless
+         idempotent re-confirm, not the setter of record.
+     (A present-but-dead first-run whose binary was truly ABSENT at start leaves needsLogin false
+     until here -- checkLive was UNKNOWN, not NONE -- so it is caught by the finish-capable
+     `!owner.needsLogin` block just below instead, not by this one.)
+     Either way, now that the install has run checkLive is authoritative: if the credential is dead,
+     a later CONNECTED after a pane-death is the dead->live proof the #1922 capture-fail rescue
+     reads, so set deadCredential. Without it the reauth arm would false-stick a landed login (the
+     reauth-completes-but-not-seen symptom, on the no-binary arm). This ONLY sets the flag -- a
+     needsLogin flow must still run the login and never finish here (that is why it is separate from
+     the finish-capable block below, not a relaxation of its guard). Safe after the await:
+     launchSignin re-guards with `if (driver !== owner) return`. */
   if (!haveBinary && owner.needsLogin) {
     const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (driver !== owner) return;
