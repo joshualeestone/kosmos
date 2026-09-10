@@ -25245,9 +25245,15 @@ document.getElementById('d-remove-start').addEventListener('click', () => {
 function setForceOffered(show, sessionName) {
   const wrap = document.getElementById('d-remove-force-wrap');
   const note = document.getElementById('d-remove-force-note');
+  const btn = document.getElementById('d-remove-force');
   if (wrap) wrap.hidden = !show;
   if (note) note.hidden = !show;
-  if (show && sessionName) document.getElementById('d-remove-force').dataset.forceAgent = sessionName;
+  // #2651: carry the agent name only while offered; clear it on hide so a stale
+  // name cannot linger on the hidden button (the click handler reads it).
+  if (btn) {
+    if (show && sessionName) btn.dataset.forceAgent = sessionName;
+    else delete btn.dataset.forceAgent;
+  }
 }
 
 /* #2651: clear an untied card off the board WITHOUT stopping its session. A plain
@@ -25276,9 +25282,20 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
       btn.disabled = false;
       return;
     }
-    // REMOVED or PARTIAL: the card is off the board. Do not re-enable a button
-    // that is now gone; the message says what happened (including the session
-    // being left running).
+    /* ⚠️ PARTIAL IS NOT SUCCESS ON THIS PATH, AND THE BUTTON MUST STAY ALIVE.
+       The record write is the ONLY action here (no prior stop step), so a
+       PARTIAL means the write failed and NOTHING was cleared -- its `because`
+       says so and asks the person to try again. Folding it into the success
+       branch would claim the card is gone AND leave the only retry button dead,
+       forcing a dismiss-and-reopen. Same posture as the normal-remove handler
+       (rm-go), which re-enables its button on a partial for the same reason. */
+    if (done.outcome === 'partial') {
+      msg.textContent = done.because || 'We could not clear that card just now. Try again in a moment.';
+      btn.disabled = false;
+      return;
+    }
+    // REMOVED: the card is off the board. Do not re-enable a button that is now
+    // gone; the message says what happened (including the session left running).
     msg.textContent = done.because || 'Cleared from your board.';
   } catch {
     msg.textContent = 'We could not reach the board just now. Try again in a moment.';
