@@ -1412,7 +1412,7 @@ async function start(opts) {
   /* #2645: `needsLogin` (reauth OR a present-but-dead credential) is the single signal
      every gate reads; `owner.reauth` itself is no longer read anywhere, so it is not
      stored -- the local `reauth` const still feeds needsLogin here. */
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, needsLogin: reauth || deadCredential };
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, deadCredential, needsLogin: reauth || deadCredential };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -2174,7 +2174,20 @@ async function tickBody(owner) {
          checkLive and cannot enforce it.) */
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (driver !== owner) return;
-      if (live.state === subscription.STATE.CONNECTED) {
+      /* #1922 + #1937: finish here ONLY if the login PROVABLY landed. `checkLive`
+         CONNECTED alone is not proof for a needsLogin flow whose credential was already
+         live: a re-auth of a WORKING account reads CONNECTED off the OLD credential from
+         the first tick, so finishing on a pane-death before the new login completed would
+         report a success the login never earned (the #1937 class). Proof is sawLoginDone
+         (we saw "Login successful"), OR deadCredential (the credential was DEAD at start,
+         so a now-CONNECTED live check is a dead->live transition only a real login makes
+         -- exactly the present-but-dead case #1922 exists for, where the login-done screen
+         was missed between ticks and the pane then closed). A re-auth on a still-live
+         credential has neither, so it falls through to becomeStuck rather than finishing
+         off the old credential. A non-needsLogin flow (fresh first-run) has no stale
+         credential to mistake, so checkLive CONNECTED is enough. */
+      if (live.state === subscription.STATE.CONNECTED
+          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential)) {
         await finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
         return;
       }
