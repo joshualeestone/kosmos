@@ -399,6 +399,66 @@ test('#1585 CONTROL: when the world agrees the file, the route still answers con
   }
 });
 
+// #2645: a PRESENT-but-DEAD credential (the file claims CONNECTED, the live check says
+// signed-out -- the #1560 fall-through) must launch a REAL login. A bare `claude` drops
+// into the "Not logged in" REPL against a dead credential and never opens the browser
+// (the #1937 hazard, previously fixed only for reauth). The launch argv is captured
+// through connect.setRunner (the same seam server.connect.test.js line ~960 uses).
+test('#2645: a present-but-dead credential launches a real login (auth login --claudeai), not a bare claude', async () => {
+  const subscription = require('./engine/subscription');
+  fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const calls = [];
+  connect.setRunner((file, args) => {
+    calls.push({ file, args: args || [] });
+    if ((args || []).includes('--version')) return { ok: true, stdout: '2.1.0' };
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const got = await post('/api/connect/start');
+    assert.equal(got.status, 200, got.body);
+    const launch = calls.find((c) => (c.args || []).includes('new-session'));
+    assert.ok(launch, 'no tmux new-session -- the sign-in never launched');
+    assert.match(launch.args.join(' '), /auth login --claudeai/,
+      'a present-but-dead credential must launch a REAL login; got: ' + launch.args.join(' '));
+  } finally {
+    connect.setRunner(null);
+    subscription.setRunner(null);
+    fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+    await post('/api/connect/cancel').catch(() => {});
+    connect.resetForTests();
+  }
+});
+
+// #2645 CONTROL: a genuinely FRESH machine (no credential -> check() NONE -> the
+// deadCredential fall-through is never entered) must still launch a BARE claude for its
+// own onboarding. Without this arm, the test above is satisfied by a change that ALWAYS
+// forces a login, which would break the fresh-machine path the #1937 comment protects.
+test('#2645 CONTROL: a fresh machine (no credential) still launches a bare claude, no forced login', async () => {
+  const subscription = require('./engine/subscription');
+  fs.rmSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, { force: true });
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const calls = [];
+  connect.setRunner((file, args) => {
+    calls.push({ file, args: args || [] });
+    if ((args || []).includes('--version')) return { ok: true, stdout: '2.1.0' };
+    return { ok: true, stdout: '' };
+  });
+  try {
+    const got = await post('/api/connect/start');
+    assert.equal(got.status, 200, got.body);
+    const launch = calls.find((c) => (c.args || []).includes('new-session'));
+    assert.ok(launch, 'no tmux new-session -- the sign-in never launched');
+    assert.doesNotMatch(launch.args.join(' '), /auth login --claudeai/,
+      'a fresh machine must launch a bare claude for onboarding, not a forced login; got: ' + launch.args.join(' '));
+  } finally {
+    connect.setRunner(null);
+    subscription.setRunner(null);
+    await post('/api/connect/cancel').catch(() => {});
+    connect.resetForTests();
+  }
+});
+
 test('#1585 CONTROL: an UNVERIFIABLE live check keeps connected rather than forcing a sign-in through the route', async () => {
   // The third live state matters and is load-bearing (connect.js reads NONE,
   // not "!== CONNECTED"). checkLive answers UNKNOWN when it cannot reach Claude

@@ -1040,6 +1040,13 @@ async function start(opts) {
      account connected and a fresh directory requested, an unscoped check
      would early-exit every add-another-account attempt as already done. */
   const sub = subscription.check(configDir ? { configDir } : undefined);
+  /* #2645: set true when the local file claims CONNECTED but the LIVE check says NONE
+     (a credential that is PRESENT but DEAD -- an expired/invalid session, however it got
+     that way). The launch below must then run a real login rather than a bare `claude`,
+     which drops into the "Not logged in" REPL against a dead credential and never opens
+     the browser (the #1937 hazard, previously fixed only for an explicit reauth). Carried
+     into `owner.needsLogin` so the launch + completion take the reauth-style path. */
+  let deadCredential = false;
   if (sub.state === subscription.STATE.CONNECTED && !reauth) {
     /**
      * 🛑 THE FILE SAYING CONNECTED IS NOT ENOUGH TO REFUSE TO CONNECT (#1560).
@@ -1194,6 +1201,11 @@ async function start(opts) {
        to change together, which is #1937, and `/login` from that REPL does yield
        the chooser and the browser-open OAuth this driver already walks. */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
+      // #2645: a PRESENT-but-DEAD credential (the file claimed CONNECTED but the live
+      // check says NONE) needs a REAL login -- a bare `claude` drops into the REPL against
+      // it and never opens the browser. Carried to the launch + completion via
+      // owner.needsLogin. (A missing binary alone -- live UNKNOWN -- is not this case.)
+      if (live.state === subscription.STATE.NONE) deadCredential = true;
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
        * Either there is nothing on disk to run (#1580) or the file and the world
@@ -1391,7 +1403,13 @@ async function start(opts) {
    * cannot distinguish "cancelled" from "replaced"; `driver !== owner` can.
    */
   flowDir = configDir;
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, reauth };
+  /* #2645: needsLogin -- run a real login (auth login --claudeai) AND require login-success
+     evidence -- for an explicit reauth OR a present-but-dead credential. Without it, a
+     first-run Connect against a dead credential launches a bare `claude` that wedges in the
+     "Not logged in" REPL and never opens the browser (the #1937 hazard, previously fixed only
+     for reauth). The launch already scopes CLAUDE_CONFIG_DIR to configDir, so the token lands
+     in the account's own dir, where the check reads it. */
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, reauth, needsLogin: reauth || deadCredential };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -2012,11 +2030,15 @@ async function launchSignin(owner) {
      `--claudeai` skips the login-method chooser, which is harmless. No recognizer
      widening was needed.
 
-     📌 Only for `owner.reauth`. The first-run/add-another launch is left byte-
-     identical (a bare `claude` on a machine with no credential opens its own
-     onboarding); this changes only the deliberate re-auth of an existing account,
-     which is the one path the bare launch could not repair. */
-  if (owner.reauth) {
+     📌 #2645 BROADENED THIS FROM `owner.reauth` TO `owner.needsLogin` (reauth OR a
+     present-but-dead credential -- the file said CONNECTED but the live check said NONE,
+     set at the #1560 fall-through above). A genuinely FRESH machine (no credential; live
+     UNKNOWN, not NONE) still gets a byte-identical bare `claude` and its own onboarding.
+     What changed is the one path the bare launch could not repair: a first-run/reauth
+     Connect against a dead credential now runs the real login instead of wedging in the
+     "Not logged in" REPL. The launch scopes CLAUDE_CONFIG_DIR to configDir (below), so the
+     refreshed token lands in the account's own dir, which is where the check reads it. */
+  if (owner.needsLogin) {
     cmd.push('auth', 'login', '--claudeai');
   }
 
@@ -2148,7 +2170,7 @@ async function tickBody(owner) {
          unrecognised screen with no completion evidence is a genuine "we could
          not confirm", not a silent success on the old credential. Non-reauth is
          unchanged (`!owner.reauth` short-circuits true). */
-      if ((!owner.reauth || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
+      if ((!owner.needsLogin || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
       }
@@ -2247,7 +2269,7 @@ async function tickBody(owner) {
        -- finishing on it kills the still-running `claude auth login` and reports
        success with no credential repaired. Require login-done first for a
        re-auth; a normal flow (file starts signed-out) is unchanged. */
-    if (!owner.reauth || owner.sawLoginDone) {
+    if (!owner.needsLogin || owner.sawLoginDone) {
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (sub.state === subscription.STATE.CONNECTED) {
         await finishConnected(owner, sub);
@@ -2503,7 +2525,7 @@ async function tickBody(owner) {
            repl path and every non-reauth flow are unchanged. A re-auth stuck on a
            pre-login press-enter instead falls to the never-moves becomeStuck. */
         if (seen.kind === 'repl'
-          || ((owner.settleTicks || 0) > 4 && (!owner.reauth || owner.sawLoginDone))) {
+          || ((owner.settleTicks || 0) > 4 && (!owner.needsLogin || owner.sawLoginDone))) {
           await finishConnected(owner, sub);
           return;
         }
