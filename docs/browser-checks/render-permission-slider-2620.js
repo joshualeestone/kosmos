@@ -93,7 +93,7 @@ function readTmuxSwitch(page) {
     const on = await readTmuxSwitch(p2);
     ok(on.granted === true, 'granted -> the switch carries data-granted (mirrors the real gate)');
     ok((on.animName || 'none') === 'none', `granted -> the hint animation stops (animation-name: ${on.animName})`);
-    ok(on.bg === 'rgb(47, 123, 227)', `granted -> the switch is the on-brand blue #2f7bf6 (got: ${on.bg})`);
+    ok(on.bg === 'rgb(47, 123, 246)', `granted -> the switch is the on-brand blue #2f7bf6 (got: ${on.bg})`);
     await c2.close();
   } finally {
     await browser.close();

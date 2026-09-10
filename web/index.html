@@ -8485,9 +8485,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* The real, focusable click target. It sits OUTSIDE the aria-hidden .s3-win (in the
            .s3-mock wrapper) and is absolutely positioned over the visible switch, so the
            mock stays purely decorative (the 0.6.41 decoy fix) while a click on the switch
-           does something honest: it opens the exact macOS pane. pointer-events:auto
-           re-enables it despite the mock's pointer-events:none. Scoped to the switch, not
-           the row, so a stray click near the text does not open Settings. */
+           does something honest: it opens the exact macOS pane. It is a SIBLING of .s3-win
+           (not a descendant), so .s3-win's pointer-events:none never reached it; the
+           pointer-events:auto here is defensive, keeping it clickable regardless. Sized to
+           the switch, not the row, so a stray click near the text does not open Settings. */
         .s3-mock{position:relative}
         .s3-sw-open{position:absolute;padding:0;margin:0;border:0;background:transparent;cursor:pointer;border-radius:99px;pointer-events:auto}
         .s3-sw-open:focus-visible{outline:2px solid #2f7bf6;outline-offset:2px}
@@ -38963,7 +38964,7 @@ function frSyncSwitchOverlays() {
     btn.style.height = sr.height + 'px';
   });
 }
-window.addEventListener('resize', frSyncSwitchOverlays);
+if (typeof window !== 'undefined') window.addEventListener('resize', frSyncSwitchOverlays);
 function frGateStart(screenEl) {
   frGateStop();
   const gen = ++FR_GATE_GEN;
