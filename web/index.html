@@ -8800,9 +8800,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
                      "the font sizes should all match as well"). -->
                 <!-- #2621 (Josh, 2026-09-09): the same subscription-vs-API-key choice
                      Settings offers (#2338/#2433, #acct-openai-pick), ported into the
-                     first-run install so the wizard is not API-key-only. Mirrors the
-                     Settings elements with fr-* ids; the subscription driver itself is
-                     SHARED (openaiSubStart/Watch/Reset take an els config), not copied. -->
+                     first-run install so the wizard is not API-key-only. The sub-step
+                     elements AND their driver (frOpenaiChoose/Show*/Sub* at ~40540) are
+                     first-run MIRRORS of Settings' #acct-openai-sub-step with fr-* ids --
+                     the same mirror pattern first-run already uses for the key form
+                     (fr-openai-key mirrors acct-openai-key). What is genuinely SHARED, not
+                     copied: the pure state mapper acctOpenaiSubView, the poll teardown
+                     acctOpenaiSubStop, the app-wide session state (ACCT_OPENAI_SUB_*), and
+                     the engine subscription/{start,status,cancel} routes. The JS comment at
+                     the driver says the same; keep the two in sync. -->
                 <div id="fr-openai-pick" hidden class="fr-confirm">
                   <p class="fr-confirm-t">Download complete. Choose how to connect OpenAI.</p>
                   <div class="frow" style="margin-top:8px;">
@@ -40525,21 +40531,22 @@ async function frOpenaiRunnerPresent() {
     return o ? !!o.present : false;
   } catch { return false; }
 }
-function frOpenaiShowKey() {
-  document.getElementById('fr-openai-confirm').hidden = true;
-  document.getElementById('fr-openai-flow').hidden = false;
-  const k = document.getElementById('fr-openai-key');
-  if (k) k.focus();
-}
 /* #2621: the first-run OpenAI step now offers the SAME subscription-vs-API-key
    choice Settings does. The runner-present hand-off shows this picker (was the
    key form directly); the key branch is unchanged (#fr-openai-flow), the sub
    branch is a first-run mirror of Settings' #acct-openai-sub-step. The mirror is
    the SAME pattern first-run already uses for the key form (fr-openai-key mirrors
    acct-openai-key); it shares the pure state mapper acctOpenaiSubView, the poll
-   teardown acctOpenaiSubStop, the app-wide session state (ACCT_OPENAI_SUB_*, only
-   one sign-in at a time), and the engine's subscription/{start,status,cancel}
-   routes -- only the DOM ids and the connected paint differ. */
+   teardown acctOpenaiSubStop, the app-wide session state (ACCT_OPENAI_SUB_*), and
+   the engine's subscription/{start,status,cancel} routes -- only the DOM ids and
+   the connected paint differ.
+   🔑 SHARING ACCT_OPENAI_SUB_* ACROSS THE TWO SURFACES IS SAFE ON A UI-EXCLUSIVITY
+   INVARIANT, stated so it is not merely implicit: the first-run WIZARD and the
+   Settings MODAL are never both live, so only one sub flow owns the session/poll
+   at a time. The teardown is preserved from Settings (the overlapping-tick guard
+   and Watch's stop-before-set); what makes it enough is that no concurrent second
+   flow contends for the shared globals. If that exclusivity ever stops holding,
+   the session state must move per-surface. */
 function frOpenaiShowPick() {
   document.getElementById('fr-openai-confirm').hidden = true;
   const flow = document.getElementById('fr-openai-flow'); if (flow) flow.hidden = true;

@@ -27,25 +27,25 @@ OpenAI API key to finish."
 - `#fr-openai-flow` (the existing key form) is now the "key" branch, revealed by the
   picker rather than directly.
 
-### JS — share the driver, not duplicate it
+### JS — MIRROR the driver with fr-* ids (decision changed mid-build, see below)
 The Settings subscription driver (`acctOpenaiSubShowStart/Stop/Reset/Watch`, the
 sub-go start, cancel) is coupled to `acct-openai-sub-*` IDs and ends in
 `acctOpenaiSubConnected` → `acctShowSuccess` (a Settings-modal success). First-run's
 success is `frPaintOpenai({connected:true})`. So:
-- Generalize the driver functions to take an **element-config `els`** (the sub-step
-  element ids + the `msg` element) and an injected **`onConnected(account)`**. The
-  pure `acctOpenaiSubView(state)` state-mapper and the module-level session state
-  (`ACCT_OPENAI_SUB_SESSION`/`_POLL` — only one sign-in at a time app-wide) are
-  already shared and stay so.
-- Settings keeps its exact behavior: its handlers call the shared functions with the
-  Settings `els` + `acctOpenaiSubConnected`. (Refactor is lookup-only; no behavior
-  change — guarded by the existing Settings tests/browser-checks staying green.)
-- First-run adds `frOpenaiChoose(which)` (mirror of `acctOpenaiChoose`) +
-  `frOpenaiShowPick()`, and binds `#fr-openai-pick-sub/-key`, `#fr-openai-sub-go`,
-  `#fr-openai-sub-cancel` to the shared driver with the first-run `els` +
-  `frOpenaiSubConnected` (which calls `frPaintOpenai({connected:true, ...})`).
-- Reveal wiring: the download-complete handler (currently `frOpenaiShowKey()` at the
-  runner-present tick) calls `frOpenaiShowPick()` instead.
+- First-run gets its OWN `frOpenaiChoose`/`frOpenaiShowPick`/`frOpenaiSubShowStart`/
+  `frOpenaiSubReset`/`frOpenaiSubWatch`/`frOpenaiSubConnected` + pick/sub-go/cancel
+  handlers — first-run **mirrors** of the `acctOpenaiSub*` functions with `fr-*` ids.
+  This is the SAME mirror pattern first-run already uses for the key form
+  (`fr-openai-key` mirrors `acct-openai-key`, `fr-openai-go` mirrors `acct-openai-go`).
+- What is genuinely **shared, not copied**: the pure state-mapper
+  `acctOpenaiSubView(state)`, the poll teardown `acctOpenaiSubStop`, the module-level
+  session state (`ACCT_OPENAI_SUB_SESSION`/`_POLL`, safe on a UI-exclusivity invariant
+  — the wizard and the Settings modal are never both live), and the engine routes.
+- **Settings code is UNTOUCHED** (not refactored), so the whole risk of breaking the
+  critical Settings sign-in via a shared-driver refactor is zero.
+- Reveal wiring: the download-complete handler (was `frOpenaiShowKey()` at the
+  runner-present tick) now calls `frOpenaiShowPick()`; `frOpenaiShowKey` is removed
+  as dead once both call sites move.
 
 ### Engine
 Unchanged — reuses the shared `/api/accounts/openai/subscription/{start,status,cancel}`
@@ -53,10 +53,20 @@ routes and the #2584 reauth-safe driver. `reauthDir` is not used in first-run (f
 add only), so the start POST omits it.
 
 ## Decisions / rejected
-- **Rejected: duplicate the whole driver into first-run** (~150 lines). The codebase
-  centralizes the subscription poll deliberately (its own comments); a second copy is
-  a second source of truth a reviewer would reject. Sharing via an `els` config keeps
-  one implementation.
+- **Chosen: MIRROR the driver with `fr-*` ids (this changed mid-build).** The initial
+  plan was to generalize the Settings driver behind an `els` config so there was a
+  single implementation. On writing it, two things pointed the other way: (1) first-run
+  ALREADY mirrors Settings for the key form (`fr-openai-key`/`fr-openai-go` are copies
+  of `acct-openai-key`/`acct-openai-go`), so a mirror is the established, consistent
+  pattern here — not a novel duplication; and (2) generalizing would REFACTOR the
+  working, tested Settings sign-in (touching `acctOpenaiSubReset`/`Stop`, which have
+  external callers: `acctOpenaiChoose`, dialog-close, switch-away), putting a critical
+  flow at risk for a payoff the mirror already gets by sharing the pure mapper +
+  teardown + session state + engine routes. The residual cost — the DOM/poll wiring
+  exists in two thin copies — is bounded and matches the key-form precedent; a change
+  to the subscription poll semantics must touch both, which the JS + HTML comments both
+  say. The blind review flagged the divergence from this plan; this section is the
+  reconciliation (the delivered design is the mirror).
 - **Rejected: reuse the Settings modal from within first-run.** First-run is a wizard
   pane, not a modal; opening the Settings modal mid-wizard is visually wrong and
   breaks the wizard's Continue gating.
