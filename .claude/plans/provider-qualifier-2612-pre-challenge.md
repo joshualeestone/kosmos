@@ -89,3 +89,77 @@ finding worth carrying forward:
 origin/main merged in at 25 commits ahead / 0 behind. `accountQualifiers` proven **byte-identical
 across the merge** (function body extracted from both sides and compared), so the merge cannot have
 altered the reviewed behaviour.
+
+## Review output, per iteration
+
+#### Iteration 1 (opus)
+- [BLOCKER] exact-string membership let a label `openai` sit beside the new qualifier `OpenAI`, which a screen reader announces identically. This was a REGRESSION: pre-change those rows were audibly distinct.
+- [WARNING] the fixture used `label: 'OpenAI'`, a shape `list()` can never produce, so it pinned a guard that can never fire while the reachable variant went untested.
+- [WARNING] four comments around the change still described the old two-step chain.
+- [NIT] the plan understated its own coverage (four new arms claimed, nine present).
+
+#### Iteration 2 (sonnet)
+- [CONVENTION] commit subject shape.
+
+#### Iteration 3 (opus)
+- [WARNING] a trade accepted for ONE surface was applied to THREE: the plan reasoned about the Settings box while the change also hit two pickers where a provider name identifies nothing.
+- [CONVENTION] the scoping needed stating at the code, not only in the plan.
+- [NIT] stale wording in the chain comment.
+
+#### Iteration 4 (sonnet)
+- [BLOCKER] the reserved word `main` was still compared exact-case. Reproduced `["Main","main"]`: two strings, ONE sound.
+- [CONVENTION] the comment claiming "nothing can put a case-variant of `main` into `used`" was false, and was itself an instance of the class it warned about.
+- [NIT] fixture shape.
+
+#### Iteration 5 (opus)
+- [WARNING] the plan asserted a downside that the scoping added in iteration 3 makes impossible.
+- [NIT] scoping rationale argued a different property from the one the code tests.
+- [NIT] `providersHere` rebuilt per row with a full `rows.filter()` while its sibling fact was precomputed in one pass.
+- [NIT] the browser check's slash test ran against the whole aria-label, not the qualifier.
+- [NIT] the provider ternary carried no `#2634` pointer at the code.
+- [STRENGTH] swept 25,600 fixture combinations against a mutant reverting membership to an exact `Set.has`: 0 audible collisions on the branch versus 1,025 on the mutant.
+
+#### Iteration 6 (sonnet)
+- [WARNING] a test named as "the mirror" was a byte-for-byte DUPLICATE of an earlier arm; the combined case its comment described was exercised by nothing.
+- [NIT] the provider id was compared exact-string while every other membership test in the same function had been made case-insensitive. Reproduced: `["main","work","Claude"]` versus a control of `["main","work","/Users/x/.claude-work"]`.
+
+#### Iteration 7 (opus)
+- [WARNING] the empty-string provider inflated the group's provider set exactly as a case-variant did; iteration 6 closed the CASE arm and left the MISSING arm open.
+- [WARNING] `provId`'s lowercasing was unpinned: reverting it left all 37 arms green, because the case-variant fixture was all-Anthropic so the ternary was never reached.
+- [WARNING] the comment cited `server.js:4696` as a source of account-row providers; it is a 400 error body, the same category the next sentence disqualifies for `:4739`.
+- [WARNING] the comment claimed a label "can never BE OpenAI"; `engine/openaiaccounts.js:166` reads the basename with no normalisation, so `~/.codex-OpenAI` yields `"OpenAI"`.
+- [WARNING] the cross-derivation pin's own name miscounted the sites it pinned, leaving one unmatched.
+- [WARNING] the browser check header claimed "REDS on origin/main (both labels identical)"; measured, it reds as `(main)` versus `(/home/.codex)`.
+- [CONVENTION] 235 comment lines to 49 code lines (4.8:1), mostly review archaeology.
+- [NIT] the qualifier extraction took the LAST parenthetical, and `who` is arbitrary user text.
+- [NIT] the plan carried the head-vs-no-head justification the code retracts.
+
+#### Iteration 8 (sonnet)
+- [WARNING] the worktree held uncommitted changes not in the reviewed diff. NOT counted as a clean round; the review was against a stale tree.
+
+#### Iteration 9 (opus)
+- [BLOCKER] the grouping key was a strict PREFIX of `acctPrimaryName`, so a row identified only by its label keyed to '' and got NO qualifier. Measured `["", ""]` against a control of `["work", "OpenAI"]`. The original #2584 bug, shipping.
+- [WARNING] `dir` never cleared the used-set and was called "the collision-proof last resort": true of STRINGS, false of SOUNDS. Measured 1 distinct sound from 2 dirs.
+- [WARNING] the pin's count had been corrected in the WRONG direction: three short-pair producers, not four.
+
+#### Iteration 10 (sonnet)
+- [CONVENTION] a stale claim in `web.acct-picker-1917.test.js`, a file the diff never touched, which kept passing because nothing depended on it being true.
+- [NIT] `distinctly('')` returned '', the one value an ambiguous row must never receive.
+
+#### Iteration 11 (opus)
+- [WARNING] the `provIdOf` banner claimed three call sites including the key; there are two. It concealed the last exact-case provider read in the qualifier path.
+- [WARNING] iteration 10's empty-dir guard covers HALF the fix it was written for while reading complete: the returned Map is keyed on `dir`, so two rows sharing a dir read the SAME entry and the guard's value cannot reach the caller.
+- [NIT] `const dir = String(a.dir || '')` had no `a &&` guard, alone among the function's reads, so a null row threw.
+- [STRENGTH] 13 mutations, 12 red the suite; 2,075,040 brute-forced row-pairs over a 1,440-row pool against an oracle proven live; every cross-file citation opened and checked.
+
+#### Iteration 12 (sonnet)
+No issues found.
+- [STRENGTH] comment-accuracy sweep: every substantive claim checked against the code as it stands, including the three call sites and their filters, the three short-pair derivations, and the cross-file citations in `server.js` and `engine/openaiaccounts.js`.
+- [STRENGTH] hunted the #1917 "distinct but meaningless" harm class specifically, which the collision oracle is blind to: a provider tag is only assigned when `providersHere.size > 1` for that row's own key-group, computed from the same `rows` array the call site renders, so it cannot fire on a group that is not cross-provider from that screen's point of view. No meaningless-tag case found.
+- Note: the one full-suite failure it saw (`server.test.js` #338) was port contention from a live board holding :16180, not a regression. Confirmed by re-running `server.test.js` alone: 261/261 pass.
+
+### Final Ledger
+
+Converged on iteration 12 with zero findings. Eleven of twelve iterations found something real, so the loop was not stopped on falling yield: iteration 9 produced a BLOCKER after two comparatively quiet rounds, and iteration 11 produced two WARNINGs immediately after iteration 10 came back nearly clean.
+
+All findings above are either fixed on this branch or recorded at the code with the reasoning and the measurement. The known limits are listed in the section above and are not claimed as resolved.
