@@ -2489,6 +2489,11 @@ const server = http.createServer((req, res) => {
            this does not perturb the worldenv-require ordering the order test
            guards. */
         activeWorldId: require('./engine/worldenv').bootedWorld(),
+        /* #2628: if THIS boot abandoned a world that would not come up (the #2528
+           fallback landed us on the default world), name it here so the switcher's
+           reconnect can say "X could not start" instead of waiting out its full
+           timeout with no explanation. null on a normal boot. */
+        lastAbandonedWorld: require('./engine/worldenv').lastAbandonedWorld(),
         engine: engineFreshness(),
       });
     } catch (err) {
