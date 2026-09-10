@@ -212,7 +212,13 @@ function initStub() {
   // Persistence: a re-read (the poll / a reload) still sees asking:false, so the
   // question stays off screen rather than flashing back.
   await page.evaluate(() => loadThread());
-  await new Promise((r) => setTimeout(r, 150));
+  // Race-proof: assert the persisted hidden state directly rather than sleeping a
+  // fixed span. loadThread is awaited above, so this resolves at once; it removes the
+  // one place a slow/loaded machine could have flaked a timed wait.
+  await page.waitForFunction(() => {
+    const q = document.getElementById('pj-question');
+    return q && q.hidden === true;
+  }, { timeout: 5000 }).catch(() => {});
   const s2b = await page.evaluate(() => {
     const q = document.getElementById('pj-question');
     return { stillHidden: q && q.hidden === true };
@@ -230,7 +236,14 @@ function initStub() {
   }, { timeout: 5000 }).catch(() => {});
   await page.evaluate(() => { window.__posted = []; window.__clearOk = false; });
   await page.click('#pj-question-clear');
-  await new Promise((r) => setTimeout(r, 200));
+  // Race-proof: wait for the failure's OWN signal (the could-not-clear line pjClearState
+  // writes after its mocked-rejected fetch) instead of a fixed sleep. Once that positive
+  // event is present, pjClearState has finished, so the still-shown / no-re-read / button
+  // assertions below observe a settled state rather than one on a timer.
+  await page.waitForFunction(() => {
+    const emsg = document.getElementById('pj-question-clear-msg');
+    return emsg && /could not clear/i.test(emsg.textContent || '');
+  }, { timeout: 5000 }).catch(() => {});
   const s3 = await page.evaluate(() => {
     const q = document.getElementById('pj-question');
     const btn = document.getElementById('pj-question-clear');
