@@ -87,10 +87,15 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     const load = { foundHidden: fw.hidden, scanHidden: sw.hidden, triggerHidden: tr.hidden };
 
     /* Arm 2 - EXPLICIT PRESS. Pressing the trigger opens discovery: the panels must
-       SHOW and the trigger must HIDE. */
+       SHOW and the trigger must HIDE. Once the trigger row hides it takes the pressed
+       button with it, so focus must move INTO the revealed panel (the found toggle),
+       not fall to <body> and restart Tab from the top. */
     document.getElementById('found-scan-look').click();
     await new Promise((res) => setTimeout(res, 150));
-    const afterClick = { foundHidden: fw.hidden, scanHidden: sw.hidden, triggerHidden: tr.hidden, opened: DISCOVERY_OPENED };
+    const afterClick = {
+      foundHidden: fw.hidden, scanHidden: sw.hidden, triggerHidden: tr.hidden, opened: DISCOVERY_OPENED,
+      focusId: (document.activeElement && document.activeElement.id) || '',
+    };
 
     return { load, afterClick };
   }, { found: FOUND, scan: SCAN });
@@ -134,6 +139,7 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
   if (r.afterClick.foundHidden !== false) fail.push('the found panel did not open after the explicit press');
   if (r.afterClick.scanHidden !== false) fail.push('the scan panel did not open after the explicit press (a scan-only gate regression would otherwise stay green)');
   if (r.afterClick.triggerHidden !== true) fail.push('the trigger did not hide once the panels opened');
+  if (r.afterClick.focusId !== 'found-toggle') fail.push('focus did not move into the opened panel after the press (dropped to "' + r.afterClick.focusId + '"; a keyboard user restarts Tab from the top)');
   if (d.error) {
     fail.push('dismissed arm errored: ' + d.error);
   } else {
@@ -148,5 +154,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651 (3 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan and hides the trigger; a Dismissed-forever user is not re-offered the trigger. PASS');
+  console.log('render-discovery-gate-2651 (3 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan, hides the trigger, and moves focus into the opened panel; a Dismissed-forever user is not re-offered the trigger. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });

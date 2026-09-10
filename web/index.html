@@ -26351,6 +26351,19 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
      the panel untouched on a FAILED fetch, so the click cannot tell an empty result from a
      failed one, and a message would misreport "nothing found" when Kosmos never checked. */
   paintDiscoveryTrigger();
+  /* #2651 (review): once a panel opens, paintDiscoveryTrigger hides the trigger ROW that
+     holds this button, which would drop keyboard focus to <body> and restart Tab from the
+     top of the page. Move focus into the panel the press just revealed so a keyboard or
+     screen-reader user continues from there. Only when the trigger actually hid: an empty
+     look keeps the trigger, and focus stays on the button for an easy re-look. */
+  const trig = document.getElementById('found-scan-trigger');
+  if (trig && trig.hidden) {
+    const fw = document.getElementById('found-wrap');
+    const sw = document.getElementById('scan-wrap');
+    const target = (fw && !fw.hidden && document.getElementById('found-toggle'))
+      || (sw && !sw.hidden && document.getElementById('scan-toggle'));
+    if (target && typeof target.focus === 'function') target.focus();
+  }
 });
 
 /* #1938: the scan panel's toggle and dismiss, mirroring the found panel above so
