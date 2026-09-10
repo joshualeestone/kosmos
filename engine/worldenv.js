@@ -165,6 +165,6 @@ function bootedBaseDir() { return bootedBase; }
    the user "X could not start" instead of silently landing them on the default world.
    The timestamp is included so a consumer can distinguish THIS switch's abandon from a
    stale one recorded on an earlier boot. */
-function lastAbandonedWorld() { return abandonedWorld; }
+function lastAbandonedWorld() { return abandonedWorld ? { ...abandonedWorld } : null; }
 
 module.exports = { bootstrapWorldEnv, bootedWorld, bootedBaseDir, lastAbandonedWorld };
