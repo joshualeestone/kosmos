@@ -24,6 +24,9 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+/* #2647: the shared comment stripper (#1080), so the source-shape counts below
+   judge CODE rather than the prose describing it. */
+const { codeOnly } = require('./test-support/code-only');
 const fs = require('node:fs');
 const nodePath = require('node:path');
 
@@ -232,7 +235,16 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
      `assert.match(prBody, /fr-msg-err/)` was satisfied by a body that had lost
      the post-await re-read entirely, which is precisely the half a retyped copy
      drops. Verified: the one-hit form matches that mutant. */
-  assert.equal((prBody.match(/fr-msg-err/g) || []).length, 2,
+  /* ⚠️ COUNTED ON CODE, NOT ON SOURCE. A raw count over the function body
+     includes its COMMENTS, so a future line merely MENTIONING `fr-msg-err` in
+     prose (entirely harmless, and this file's house style is comment-heavy)
+     pushes it to 3 and reds an assertion about behaviour on a documentation
+     edit. Measured: one added comment mention takes the raw count 2 -> 3 while
+     codeOnly stays at 2.
+     🔑 `codeOnly` is the shared, both-directions-tested stripper (#1080). This is
+     the THIRD assertion on today's work to have reddened, or been about to
+     redden, on prose rather than on code; the tool for it already exists. */
+  assert.equal((codeOnly(prBody).match(/fr-msg-err/g) || []).length, 2,
     'frRecheckPress must read the shared #fr-s3-msg error state BOTH before and after the await; '
     + 'losing the post-await re-read silently wipes an error the person has not read');
 });
