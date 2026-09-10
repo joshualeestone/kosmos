@@ -6305,6 +6305,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
 }
 #firstrun #fr-alt.is-link:hover { background: transparent; color: var(--k-ink); }
 #firstrun #fr-alt:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 3px; }
+/* #2647: the copy that belongs to the far-left secondary action, sitting beside
+   it in the nav. Quiet footnote weight so it reads as a hint rather than as a
+   second control competing with Next.
+   ⚠️ `margin-right: auto` is load-bearing, not decoration: `#firstrun .fr-acts`
+   is `justify-content: flex-end`, so without it the hint is dragged right and
+   ends up wedged against Next, which is the opposite of "far left" and reads as
+   a caption for the wrong button.
+   📌 It sits BEFORE `.fr-spacer`, so on a narrow window the row wraps with the
+   hint under its own button rather than under Next. */
+#firstrun #fr-alt-hint {
+  font: var(--text-footnote, 400 .8125rem/1.4) var(--font-ui, -apple-system, sans-serif);
+  color: var(--k-ink-2, #6b6656);
+  margin-right: auto;
+  max-width: 22ch;
+}
 /* #1652/#5: the .fr-lookimport find-agents link CSS was removed with the link
    itself (Josh's 0.6.39 ruling; see the frPaintFleet create arm). */
 /* The heading still TAKES focus on each step (SC 4.1.3); the pack draws no
@@ -8710,18 +8725,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         /* #2451/#2559: the manual "Check again" affordance. A quiet SECONDARY control
            (not the gold Turn On primary): it does not grant anything, it just re-polls.
            Left-aligned per Josh. */
-        #fr-pane-3 .s3-recheck-row{margin:2px 0 0;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-        #fr-pane-3 .s3-recheck-note{margin:0 0 6px;font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
-        #fr-pane-3 .s3-recheck-hint{font:var(--text-footnote,400 .8125rem/1.4) var(--font-ui,-apple-system,sans-serif);color:var(--k-ink-2,#6b6656)}
-        /* Border is gold-deep (not the --k-rule content-divider token): matches the
-           file's secondary-button convention (#fr-alt) and clears WCAG 1.4.11's 3:1
-           non-text contrast on the near-white card, where --k-rule (~1.5:1) does not. */
-        .s3-recheck{border:1px solid var(--gold-deep,#b88920);border-radius:8px;padding:6px 12px;
-          font:600 .8125rem var(--font-ui,-apple-system,sans-serif);color:var(--k-ink,#231b06);
-          background:var(--k-surface,#fff);cursor:pointer}
-        .s3-recheck:hover{background:var(--k-surface-2,#f4f1ea)}
-        .s3-recheck:focus-visible{outline:2px solid var(--gold-deep,#b88920);outline-offset:2px}
-        .s3-recheck[disabled]{opacity:.55;cursor:default}
+        /* #2647: .s3-recheck-row / -note / -hint are GONE with the control they
+           styled (moved to the bottom nav). Removed rather than left behind: dead
+           CSS naming a class nothing renders reads as a live surface to the next
+           person, and to a grep. The nav hint's own style is .fr-alt-hint. */
+        /* #2647: the .s3-recheck button styling is gone with the button. It now
+           rides #fr-alt, which already carries this file's secondary-button
+           convention (the very convention the deleted comment here cited). */
         .s3-granted{display:none}
         .s3-gate-row[data-granted] .s3-req{display:none}
         .s3-gate-row[data-granted] .s3-granted{display:flex;align-items:center}
@@ -8747,7 +8757,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
 
         <p class="fc-eyebrow">Automation</p>
         <h2>Kosmos never sleeps</h2>
-        <p>To get the most out of your agents we need to ensure they can stay awake and access the things they need to work for you.</p>
+        <p>To get the most out of your agents we need to ensure they can stay awake and access the computer.</p>
 
         <p class="s3-step-cap">1 &middot; keep this computer awake</p>
         <!-- #2620: the mock stays decorative (aria-hidden, pointer-events:none) so a click
@@ -8812,11 +8822,13 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              way to force it NOW rather than wait for the next tick, so the screen does not
              feel stuck. Left-aligned under the rows, per Josh. Reassurance + hint copy is
              Mona Lisa's (she owns the wording; Josh left it to us). -->
-        <p class="s3-recheck-note">This can take a few seconds after you flip the switch.</p>
-        <div class="s3-recheck-row">
-          <button class="s3-recheck fr-recheck" type="button">Check again</button>
-          <span class="s3-recheck-hint">Turned it on already? Tap to check now.</span>
-        </div>
+        <!-- #2647 (Josh, product review 2026-09-10): the note is DELETED and the
+             Check-again control has MOVED to the bottom nav (far left, beside Next).
+             His reason is the whole point: he "could not see the helper copy at all
+             before finishing the connection". This block sat below the fold; the nav
+             is always visible. The control is now supplied by frActions' `alt` slot
+             at step 3 -- see frGo. Do NOT re-add a button here: two Check-agains is
+             not what was asked, and the second would be the invisible one again. -->
         <p class="fr-msg" id="fr-s3-msg" role="status" aria-live="polite"></p>
       </div>
 
@@ -9310,6 +9322,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            exits, exactly what the link did) plus the surfaced way out when a
            completion write fails (Carry on anyway). -->
       <button class="btn" id="fr-alt" type="button" hidden></button>
+      <!-- #2647: copy that belongs to the far-left secondary action, in the nav
+           beside it. Supplied per-screen via frActions' `alt.hint` and CLEARED
+           when a screen passes none, because this bar is shared by nine screens
+           and a sentence left on leaks forward (same rule the `is-link` toggle
+           above states for itself). -->
+      <span class="fr-alt-hint" id="fr-alt-hint" hidden></span>
       <span class="fr-spacer"></span>
       <button class="btn fr-primary" id="fr-next" type="button">Continue</button>
     </div>
@@ -39570,7 +39588,8 @@ let FR_GATE_GEN = 0, FR_GATE_TIMER = null, FR_GATE_SCREEN = null;
 // user granted the permission the pill/Next could sit unchanged for over a second and the
 // screen felt stuck ("what the hell is going on, I can't continue forward"). Poll faster
 // (750ms) so a grant reflects within about a second, and pair it with a manual "Check
-// again" button (see the fr-recheck handler) so the user can force an immediate re-check.
+// again" control (see frRecheckPress; #2647 moved it into the bottom nav) so the user can
+// force an immediate re-check.
 const FR_GATE_POLL_MS = 750;
 function frGateStop() { FR_GATE_GEN += 1; if (FR_GATE_TIMER) { clearInterval(FR_GATE_TIMER); FR_GATE_TIMER = null; } FR_GATE_SCREEN = null; }
 async function frReadGate(row) {
@@ -39701,6 +39720,29 @@ let FR_CHECKING = 0;      // which machine-check request is the current one (frR
 function frActions(primary, alt) {
   const next = document.getElementById('fr-next');
   const other = document.getElementById('fr-alt');
+  /**
+   * #2647: the far-left secondary action's copy, in the nav beside it.
+   *
+   * 🛑 CALLED ON EVERY PATH BELOW, INCLUDING THE ONES WITH NO HINT. `.fr-acts`
+   * is shared by nine screens, so a sentence left on does not merely linger: it
+   * reappears under a DIFFERENT screen's buttons describing an action that is
+   * not there. Same rule the `is-link` toggle states for itself, and this
+   * function has TWO alt-rendering paths, so both call this.
+   *
+   * 🔑 LOCAL, NOT MODULE-SCOPE, and that is load-bearing rather than style:
+   * web.firstrun-fractions-1835.test.js extracts THIS FUNCTION'S BODY and evals
+   * it alone with a stub `document`. A module-scope helper is out of scope
+   * there, so calling one threw ReferenceError and reddened five tests that
+   * have nothing to do with hints. Keeping it local keeps frActions
+   * self-contained, which is what that test relies on.
+   * 📌 Null-safe for the same reason: the stub returns null for unknown ids.
+   */
+  const setAltHint = (text) => {
+    const el = document.getElementById('fr-alt-hint');
+    if (!el) return;
+    el.textContent = text || '';
+    el.hidden = !text;
+  };
   /* 🔑 NO PRIMARY MEANS NO ACTION YET, which the flow needs now that one screen
      is WORKING rather than waiting on a person: the search for agents already on
      this computer paints before it has an answer, and every button it could
@@ -39723,7 +39765,9 @@ function frActions(primary, alt) {
       other.onclick = alt.go;
       other.disabled = false;
       other.classList.toggle('is-link', alt.link === true);
+      setAltHint(alt.hint);
     } else {
+      setAltHint(null);
       other.hidden = true;
       other.onclick = null;
     }
@@ -39753,11 +39797,14 @@ function frActions(primary, alt) {
        element is right and only the paint changes. Toggled BOTH ways: this
        element is shared by every step and a token left on leaks forward. */
     other.classList.toggle('is-link', alt.link === true);
+    setAltHint(alt.hint);
   } else {
+    setAltHint(null);
     other.hidden = true;
     other.onclick = null;
   }
 }
+
 
 // install-flow-9screen: focus the ACTIVE pane's own <h2> and make it the
 // dialog's accessible name. Each pane now carries its own eyebrow + <h2> (Mona's
@@ -39836,7 +39883,13 @@ function frGo(step) {
   } else if (step === 3) {
     // S3 Automation: sleep + tmux gates. Next unlocks only when BOTH are granted;
     // same FAIL-SAFE soft-open posture as S2.
-    frActions({ label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(4); } });
+    /* #2647: Check-again rides the nav's far-left secondary slot, with its copy
+       beside it. Josh could not see the old in-pane version before finishing the
+       connection; this bar is always visible. */
+    frActions(
+      { label: 'Next', go: () => { if (document.getElementById('fr-next').disabled) return; frGo(4); } },
+      { label: 'Check again', go: (e) => frRecheckPress(e && e.currentTarget), hint: 'Turned it on? Tap to check.' },
+    );
     frGateStart(pane);
   } else if (step === 4) {
     // S4 Notifications.
@@ -40205,6 +40258,35 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
   finally { b.disabled = false; }
 });
 
+/**
+ * #2451/#2559/#2647: the manual "Check again" press. Fires an immediate gate
+ * re-check instead of waiting for the next poll tick, so a just-granted
+ * permission reflects at once. The poll keeps running regardless; this only
+ * front-runs the next tick.
+ *
+ * 🛑 EXTRACTED RATHER THAN RETYPED AT THE NEW CALL SITE, because the part that
+ * looks incidental is the part that matters: it refuses to clobber an error on
+ * the shared `#fr-s3-msg` line, and it re-reads that error state AFTER the await
+ * as well as before, since a "Turn On" failure can land during it while both
+ * controls are live. A second copy would lose one of those two checks.
+ *
+ * 🔑 It takes the button rather than finding it: the control now lives in the
+ * shared nav (`#fr-alt`), and a lookup by id here would tie this function to a
+ * slot other screens legitimately reuse for other actions.
+ */
+async function frRecheckPress(btn) {
+  const m = document.getElementById('fr-s3-msg');
+  const hadErr = !!(m && m.classList.contains('fr-msg-err'));
+  if (btn) btn.disabled = true;
+  if (m && !hadErr) m.textContent = 'Checking…';
+  try {
+    await frRecheckGates();
+  } finally {
+    if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
+    if (btn) btn.disabled = false;
+  }
+}
+
 /* install-flow-9screen: S3 Automation's two "Turn On" buttons, delegated on the
    pane. This REPLACES the two retired top-level handlers (the machine-check
    screen's #fr-checks sleep button and the standalone a11y step's #fr-a11y-open),
@@ -40252,26 +40334,9 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   // #2451/#2559: the manual "Check again" affordance -- fire an immediate gate re-check
   // instead of waiting for the next poll tick, so a just-granted permission reflects at
   // once. The poll keeps running regardless; this only front-runs the next tick.
-  const recheck = e.target.closest('.fr-recheck');
-  if (recheck) {
-    const m = document.getElementById('fr-s3-msg');
-    // Do NOT clobber a real error on the shared status line (a "Turn On" failure the user
-    // may not have read yet): only show/clear our own transient "Checking..." when the line
-    // is not currently an error. The re-poll happens either way.
-    const hadErr = !!(m && m.classList.contains('fr-msg-err'));
-    recheck.disabled = true;
-    if (m && !hadErr) m.textContent = 'Checking…';
-    try {
-      await frRecheckGates();
-    } finally {
-      // Re-read the error state: a "Turn On" failure can arrive DURING the await (both
-      // buttons are live), so clear only if the line is still not an error -- never wipe a
-      // freshly-set (or pre-existing) error the user has not read.
-      if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
-      recheck.disabled = false;
-    }
-    return;
-  }
+  // #2647: the manual Check-again control MOVED to the bottom nav, so it is no
+  // longer inside this pane and a delegate here could never see it. Its body now
+  // lives in frRecheckPress, wired through frActions' `alt` slot at step 3.
   // #2587: no "Continue anyway" button any more. Josh's ruling made the sleep step
   // ADVISORY (FR_GATES.sleep gatesNext:false), so Next is never gated on it and there is
   // nothing to click past -- the honest note simply stays on the screen as information.
