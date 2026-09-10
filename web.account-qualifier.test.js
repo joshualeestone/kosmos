@@ -751,3 +751,86 @@ test('#1659: the repaint path CANCELS the pending announcement, all writers', ()
     + 'can be written after a repaint has already wiped the line. First unguarded write: '
     + JSON.stringify(body.slice(Math.max(0, (unguarded[0] || {}).index - 90), ((unguarded[0] || {}).index || 0) + 40)));
 });
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * #2612 + CLAUDE.md convention 5: THE THREE DERIVATIONS OF A PROVIDER'S DISPLAY
+ * NAME ARE PINNED EQUAL, because there are three of them and they must not drift.
+ *
+ * The repo convention is explicit about the remedy when a fact IS duplicated:
+ * "Prefer one source of truth that both sites read; if you must duplicate, add a
+ * test that pins them equal (that test asserts the SHAPE, not a count, so a new
+ * caller has to be deliberate rather than merely plausible)."
+ *
+ * 🔑 THEY ARE NOT ALL THE SAME STRING, AND THAT IS DELIBERATE, so this pins the
+ * relationship rather than equality:
+ *
+ *   accountGroupsHtml   the GROUP HEAD, long form   "Anthropic / Claude" | "OpenAI"
+ *   qualName fallback   the accessible name, short  "Claude"            | "OpenAI"
+ *   accountQualifiers   the qualifier, short        "Claude" | "OpenAI" | ""
+ *
+ * ⇒ The two SHORT ones must agree exactly, and the long one must CONTAIN the
+ * short one, or the same account is called two different things on one screen.
+ *
+ * ⚠️ NOT CONSOLIDATED HERE, and kosmos#2634 records why: `qualName` is pinned to
+ * its exact current form by an existing arm in this file, and folding a refactor
+ * of two other call sites into a one-step qualifier change makes a small
+ * reviewable diff into a broad one. This pin is what makes that refactor safe to
+ * do later: change one derivation and this goes red.
+ *
+ * 🛑 IT ALSO RECORDS THE DISAGREEMENT THAT ALREADY EXISTS, rather than asserting
+ * a harmony the code does not have. For an UNKNOWN provider the two ternaries
+ * guess "Claude" while `accountQualifiers` answers "" and falls through to the
+ * collision-proof dir. That is the real gap #2634 exists for, and the arm below
+ * asserts it EXPLICITLY so nobody reads this pin as proof the three agree
+ * everywhere.
+ */
+const PROVIDER_SITES = {
+  groupHead: /const name = a\.providerName \|\| \(a\.provider === 'openai' \? '([^']+)' : '([^']+)'\)/,
+  qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : '([^']+)'\)/,
+};
+
+test('#2612: the three provider-name derivations agree for every provider that exists', () => {
+  const head = PAGE.match(PROVIDER_SITES.groupHead);
+  const qual = PAGE.match(PROVIDER_SITES.qualName);
+  assert.ok(head, 'the group-head derivation moved or changed shape; restate this pin');
+  assert.ok(qual, 'the qualName fallback moved or changed shape; restate this pin');
+
+  const headFor = { openai: head[1], anthropic: head[2] };
+  const qualFor = { openai: qual[1], anthropic: qual[2] };
+  // The third derivation, read through the real helper rather than by regex.
+  const qualifierFor = (provider) => {
+    const a = { provider, email: 'x@e.com', dir: '/h/.a', label: null, isDefault: true };
+    const b = { provider: provider === 'openai' ? 'anthropic' : 'openai', email: 'x@e.com', dir: '/h/.b', label: null, isDefault: true };
+    return qualifiers([b, a]).get('/h/.a');   // `a` second, so it falls past `main`
+  };
+
+  for (const provider of ['openai', 'anthropic']) {
+    assert.equal(qualFor[provider], qualifierFor(provider),
+      `the two SHORT provider names disagree for ${provider}: the accessible-name fallback says `
+      + `${JSON.stringify(qualFor[provider])} and the qualifier says ${JSON.stringify(qualifierFor(provider))}, `
+      + 'so one account is called two things on one screen');
+    assert.ok(headFor[provider].includes(qualFor[provider]),
+      `the group head ${JSON.stringify(headFor[provider])} does not contain the short name `
+      + `${JSON.stringify(qualFor[provider])} for ${provider}, so the box and the control disagree`);
+  }
+});
+
+test('#2612 CONTROL: the pin can see a disagreement, and records the one that already exists', () => {
+  /* The control: a fabricated mismatch must fail the comparison the arm above
+     makes. Without this, that arm could be comparing two things that are equal
+     for a reason other than the one it claims. */
+  assert.notEqual('Claude', 'Anthropic', 'the comparison used above cannot distinguish two strings');
+
+  /* And the REAL disagreement, asserted rather than glossed: for a provider the
+     map does not know, the two ternaries guess and the qualifier does not. This
+     is kosmos#2634, and pinning it here means the day somebody fixes #2634 this
+     arm goes red and has to be updated deliberately. */
+  const unknown = { provider: 'gemini', email: 'x@e.com', dir: '/h/.gemini', label: null, isDefault: true };
+  const other = { provider: 'anthropic', email: 'x@e.com', dir: '/h/.claude', label: null, isDefault: true };
+  assert.equal(qualifiers([other, unknown]).get('/h/.gemini'), '/h/.gemini',
+    'the qualifier now guesses a name for an unknown provider, which is what #2612 refused to do');
+  const qual = PAGE.match(PROVIDER_SITES.qualName);
+  assert.equal(qual[2], 'Claude',
+    'the qualName fallback stopped guessing "Claude" for a non-openai provider: #2634 may be fixed, '
+    + 'in which case this arm and the qualifier above should now AGREE and this pin needs rewriting');
+});
