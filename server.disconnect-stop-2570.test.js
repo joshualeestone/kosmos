@@ -510,6 +510,45 @@ test('#2570: one stopped and one not names BOTH agents, singular', async () => {
   assert.ok(fs.existsSync(dir), 'an agent may still be live on it, so it stays connected');
 });
 
+/* 🛑 A PARTIAL AND A REFUSAL IN ONE BATCH, WITH NOTHING FULLY STOPPED. This is
+   the branch that names the partial agent's own reason, and its first version
+   mapped over the partials ALONE, so the refused agent vanished from the only
+   field the page renders. `notStopped` carried both and nothing reads it. */
+test('#2570: a PARTIAL and a REFUSAL in one batch names BOTH, not just the partial', async () => {
+  installRunner();
+  const dir = claudeAccount('twoways');
+  agentOn('holmes2', dir, 'claude');                    // will go PARTIAL
+  sessionsStillAlive.add('holmes2');
+  agentOn('mycroft2', dir, 'claude', 'someone-elses');  // not ours: REFUSED
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, [], 'this arm is about the nothing-fully-stopped branch');
+  assert.deepEqual([...r.json.notStopped.map((x) => x.outcome)].sort(), ['partial', 'refused'],
+    'the fixture stopped producing one of each, so this arm is no longer about what it says');
+  assert.match(String(r.json.error), /holmes2: /, 'the partial agent and its reason must be named');
+  assert.match(String(r.json.error), /We could not stop mycroft2 at all/,
+    'THE REFUSED AGENT VANISHED from the only field the page renders');
+});
+
+/* The OpenAI mirror of the Claude pre-flight arm. It matters on THIS provider
+   specifically because the two doors differ: `removeAccount` refuses the default
+   `.codex` outright while `forgetAccount` does not, so the delete door is the
+   one with a default guard for the pre-flight to find. */
+test('#2570: the OpenAI DELETE door refuses its default account and stops NOBODY', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.codex');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, 'auth.json'), JSON.stringify({ OPENAI_API_KEY: 'sk-test-default' }));
+  registeredNotRunning('codexdefault', dir, 'codex');
+  const r = await del('openai', { dir, stopAgents: true, remove: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /default account cannot be deleted/);
+  assert.deepEqual(calls, [],
+    'AGENTS WERE STOPPED FOR A DEFAULT ACCOUNT THAT WAS NEVER GOING TO BE DELETED');
+  assert.ok(!removedNames().includes('codexdefault'));
+  assert.ok(fs.existsSync(dir), 'the default account must still be there');
+});
+
 /* 🔑 A PIN ON AN ORDERING THE ROUTE DEPENDS ON, IN ANOTHER MODULE. The
    disconnect-and-stop pre-flight learns the engine's non-agents refusals by
    calling it with a NON-EMPTY `usedBy`, which means it can only ever see checks

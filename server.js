@@ -5103,8 +5103,19 @@ const server = http.createServer((req, res) => {
     const partly = stopReport.notStopped.filter((r) => r.outcome === removal.OUTCOME.PARTIAL);
     if (!done.length) {
       if (!partly.length) return `We could not stop ${failed.join(', ')}, so nothing was changed.`;
+      /* 🛑 NAME THE OTHERS TOO. The first version of this branch mapped over
+         `partly` alone, so a batch with one PARTIAL and one REFUSED named the
+         partial agent and the refused one VANISHED from the only field the page
+         renders. That is the same drop this whole helper exists to prevent, one
+         subset in: `notStopped` had both, and nothing reads `notStopped`. */
+      const others = stopReport.notStopped
+        .filter((r) => r.outcome !== removal.OUTCOME.PARTIAL)
+        .map((r) => r.name);
       return 'This account was left connected. '
-        + partly.map((r) => `${r.name}: ${r.because}`).join(' ');
+        + partly.map((r) => `${r.name}: ${r.because}`).join(' ')
+        + (others.length
+          ? ` We could not stop ${others.join(', ')} at all.`
+          : '');
     }
     /* 🛑 SINGULAR AND PLURAL, like every other sentence this feature adds. The
        first version read "Put the stopped ones back ... or stop the rest
@@ -5380,9 +5391,15 @@ const server = http.createServer((req, res) => {
         let stopReport = null;
         if (stoppable.length && !!(body && body.stopAgents === true)) {
           /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
-             THE AGENTS. `openaiAccounts.removeAccount` refuses the DEFAULT account outright, and
-             refuses a path that is not one of its accounts, and BOTH of those
-             checks run BEFORE its agents check. So without this, a request
+             THE AGENTS. Which refusals those are differs by DOOR on this
+             provider, and the earlier version of this comment named only the
+             delete one while sitting above a call that is `forgetAccount`
+             whenever `remove` is false: `openaiAccounts.removeAccount` refuses
+             the default `.codex` outright, `forgetAccount` does NOT (it can
+             rename the default aside, unlike the Claude side where forget
+             refuses `.claude` too). What both share is the path guard and the
+             sign-in-in-progress guard, and all of those checks run BEFORE the
+             agents check. So without this, a request
              naming the default account stopped every agent on it, for real, wrote
              each to the removed list, and then answered 400 with a refusal that
              never mentioned the stop. Deterministic, not a race. Not reachable
