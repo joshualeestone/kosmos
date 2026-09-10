@@ -403,7 +403,7 @@ test('#1585 CONTROL: when the world agrees the file, the route still answers con
 // signed-out -- the #1560 fall-through) must launch a REAL login. A bare `claude` drops
 // into the "Not logged in" REPL against a dead credential and never opens the browser
 // (the #1937 hazard, previously fixed only for reauth). The launch argv is captured
-// through connect.setRunner (the same seam server.connect.test.js line ~960 uses).
+// through connect.setRunner (the same seam the "start, poll, cancel" test above uses).
 test('#2645: a present-but-dead credential launches a real login (auth login --claudeai), not a bare claude', async () => {
   const subscription = require('./engine/subscription');
   fs.writeFileSync(process.env.AGENT_WORKFORCE_CLAUDE_CONFIG, JSON.stringify(CONNECTED_CONFIG));
