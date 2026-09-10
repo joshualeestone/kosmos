@@ -39,9 +39,9 @@ const { chromium } = require('playwright');
   /* The state, not a timer: the body class arrives by paintStyles -> applyLayout
      -> showTab after load, and by the click handler after a press. */
   const settled = async (cons) => { await pg.waitForFunction((c) => document.body.classList.contains('consolidated') === c, cons, { timeout: 15000 }); await pg.waitForTimeout(200); };
-  /* isVisible honours a display:none ANCESTOR (the header's .headright collapses
-     whole in the consolidated view), where a computed display read on the element
-     itself would not. */
+  /* isVisible honours a display:none ANCESTOR (since #2282 the rail's own copy,
+     .railme-lay, is display:none in the consolidated view where the header copy
+     takes over), where a computed display read on the element itself would not. */
   const visible = (sel) => pg.locator(sel).first().isVisible();
   const ariaOf = (sel) => pg.locator(sel).first().getAttribute('aria-checked').catch(() => 'missing');
   const dismissFirstRun = async () => { if (!(await pg.$('#firstrun[hidden]'))) { await pg.keyboard.press('Escape'); await pg.waitForTimeout(400); } };
