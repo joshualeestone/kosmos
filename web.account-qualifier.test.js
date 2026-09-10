@@ -781,6 +781,54 @@ test('#2612: a case-variant of the reserved word cannot sound like it', () => {
     + 'spoken name: ' + JSON.stringify(vals));
 });
 
+/* 🛑 THE ARM ABOVE PINS THE PAIR OF `main` GUARDS, NOT EITHER ONE, AND FOR A
+   WHILE THIS FILE READ AS THOUGH IT PINNED BOTH. Iteration 7 measured it, and
+   then a wider sweep here corrected the measurement in a way worth recording,
+   because the two runs answer DIFFERENT questions and only the second one
+   settles it:
+
+     revert `String(qual).toLowerCase() === 'main'`  (call it M1)
+     revert `!takenAlready('main')`                  (call it M2)
+
+     over 110,592 three-row fixtures, OUTPUTS that differ from unmutated:
+       M1 alone  25088     M2 alone  0      M1+M2  25088
+     over 64,000 of the same fixtures, AUDIBLE COLLISIONS produced:
+       base 0   M1 alone 0   M2 alone 0   M1+M2  7680   <- the control
+
+   ⇒ Two separate facts, and conflating them is how this stayed unpinned:
+     - **Neither guard is individually load-bearing for the INVARIANT.** Each
+       covers the other's single-revert path, so no arm asserting "no two
+       qualifiers sound alike" can ever red one alone. They are belt and braces,
+       deliberately, on an accessibility property.
+     - **But M1 is very much observable in OUTPUT** (25,088 fixtures), so it can
+       be pinned by asserting the CHOSEN QUALIFIER instead of the invariant.
+       That is what the arm below does, and it is the only way to hold this
+       guard, since the invariant cannot see it.
+
+   📌 M2 stays genuinely unpinned and this file no longer pretends otherwise:
+   0 differences in either sweep. It is a redundant guard kept on purpose, and
+   a redundant guard that is honestly labelled is better than a vacuous arm
+   claiming to hold it. The sweeps bound the claim to three-row fixtures over
+   this label/provider/default space; they are not a proof for all inputs. */
+test('#2612: the reserved word stays reserved case-insensitively, even with no default holding it', () => {
+  const E = 'agent@example.com';
+  /* NEITHER row is a default, so nothing has taken `main` and `takenAlready`
+     cannot be what rejects the label. Only the lowercased compare can, which is
+     precisely why this shape is the one that pins it. */
+  const plain = { provider: 'anthropic', email: E, dir: '/Users/x/.claude-a', label: null, isDefault: false };
+  const namedMain = { provider: 'anthropic', email: E, dir: '/Users/x/.claude-Main', label: 'Main', isDefault: false };
+  const q = qualifiers([plain, namedMain]);
+  assert.equal(q.get(namedMain.dir), '/Users/x/.claude-Main',
+    'a row labelled "Main" kept the reserved word because the compare stopped being '
+    + 'case-insensitive; `main` is reserved for the first default whether or not one is present');
+  /* CONTROL: the lowercase spelling must already behave this way, or the
+     assertion above is pinning something other than the case-insensitivity. */
+  const qCtl = qualifiers([plain, { ...namedMain, label: 'main' }]);
+  assert.equal(qCtl.get(namedMain.dir), q.get(namedMain.dir),
+    'the lowercase spelling and the mixed-case spelling disagree, so this arm is not '
+    + 'measuring the case-insensitivity it claims to');
+});
+
 /* 🛑 A ROW WHOSE LABEL IS LITERALLY `main`, WITH THE `provider` FIELD PRODUCTION
    ACTUALLY EMITS. `dirForLabel` has no reserved-word guard, so `~/.claude-main`
    is creatable, and beside `~/.claude` on one email that row reaches the LABEL
@@ -885,6 +933,63 @@ test('#2612: a case-variant provider id does not fake a cross-provider group', (
   assert.equal(qReal.get('/Users/x/.codex'), 'work', 'the first labelled row keeps its label');
   assert.equal(qReal.get('/Users/x/.codex2'), 'OpenAI',
     'a genuinely cross-provider group no longer reaches the provider step at all');
+});
+
+/* 🛑 THE OTHER HALF OF THE SAME FIX, AND THE ARM ABOVE DOES NOT COVER IT.
+   Iteration 6 added TWO normalisations (the group's provider set, and `provId`
+   at the ternary) and pinned ONE. Iteration 7 measured it: reverting `provId`'s
+   `.toLowerCase()` left all 37 arms GREEN, because the fixture above is
+   all-Anthropic, so `providerDistinguishes` is false and the ternary is never
+   reached there. ⭐ An arm written to cover a fix can cover half of it and read
+   as complete, which is the same class as the duplicate iteration 6 found.
+
+   The shape that reaches the ternary needs the case-variant row NOT to be the
+   first default (or it takes `main` and never falls through) AND the group to
+   genuinely span providers (or the provider step is skipped). So: an OpenAI
+   default first, then a case-variant Anthropic row.
+   ⚠️ MEASURED BOTH ARMS before writing this:
+     unmutated                  -> ["main", "Claude"]
+     provId not lowercased      -> ["main", "/h/.claude"]   <- falls to the path */
+test('#2612: a case-variant provider id still RESOLVES where the group does span providers', () => {
+  const E = 'agent@example.com';
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: E, dir: '/Users/x/.codex', label: null, isDefault: true };
+  const oddCase = { provider: 'Anthropic', email: E, dir: '/Users/x/.claude', label: null, isDefault: false };
+  const q = qualifiers([openaiDefault, oddCase]);
+  assert.equal(q.get(openaiDefault.dir), 'main', 'the first default still holds the reserved word');
+  assert.equal(q.get(oddCase.dir), 'Claude',
+    'a case-variant provider id counted toward providerDistinguishes and then failed to resolve '
+    + 'to a name, so the row fell to its path: the two normalisations have drifted apart');
+});
+
+/* 🔑 AND THE MISSING PROVIDER, which is the same class as the case-variant one
+   arm above and was left open when that one was closed. A row with no
+   `provider` must not vote on whether the group spans providers: an absent
+   provider is not evidence of a SECOND one.
+   ⚠️ This is the arm that is reachable FROM THE TESTS rather than from
+   `/api/accounts`: DEFAULT_ROW, SECOND_ROW and OTHER at the top of this file
+   all omit `provider`, so mixing one with a provider-bearing row is a fixture
+   any future author would write without thinking about it. */
+test('#2612: a row with no provider does not fake a cross-provider group', () => {
+  const E = 'agent@example.com';
+  const noProvider = { email: E, dir: '/Users/x/.claude', label: null, isDefault: true };
+  const anthropic = { provider: 'anthropic', email: E, dir: '/Users/x/.claude-w', label: null, isDefault: false };
+  const q = qualifiers([noProvider, anthropic]);
+  assert.equal(q.get(anthropic.dir), '/Users/x/.claude-w',
+    'a provider-less row inflated the group\'s provider set, so a group with ONE real provider '
+    + 'qualified a row by a provider name that distinguishes nothing there');
+  /* CONTROL: the same two rows with the provider present must agree, or the
+     assertion above could pass for a reason unrelated to the empty string. */
+  const qCtl = qualifiers([{ ...noProvider, provider: 'anthropic' }, anthropic]);
+  assert.equal(qCtl.get(anthropic.dir), q.get(anthropic.dir),
+    'naming the provider on the first row changed the answer, so the empty string is still voting');
+  /* And the feature still works when a real second provider is present, so the
+     two assertions above are not satisfied by a disabled provider step. */
+  const qReal = qualifiers([
+    { provider: 'openai', email: E, dir: '/Users/x/.codex', label: null, isDefault: true },
+    anthropic,
+  ]);
+  assert.equal(qReal.get(anthropic.dir), 'Claude',
+    'a genuinely cross-provider group stopped reaching the provider step');
 });
 
 /* ─────────────────────────────────────────────────────────────────────────────
