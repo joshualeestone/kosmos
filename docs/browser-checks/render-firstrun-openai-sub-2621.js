@@ -115,11 +115,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     };
   });
 
-  // Step-scoped teardown: a sub sign-in started on step 5, then navigated away from
-  // (FR_STEP != 5) without cancelling, must STOP polling and must NOT paint a connected
-  // box into the abandoned pane. Drive a fresh page with a NON-terminal status stub so
-  // the poll keeps running until the step guard stops it.
-  const teardown = await (async () => {
+  // ABANDONMENT arms: a sub sign-in started on step 5, then left running by any of the
+  // three abandon paths -- navigating away from step 5, switching to the key branch, or
+  // switching to another provider -- must STOP the poll, clear the session, and NOT paint
+  // a connected box into the pane the person moved to. Drive a fresh page with a
+  // NON-terminal status stub so the poll keeps running until the abort fires.
+  const abandonScenario = async (abandonFn) => {
     const p2 = await browser.newPage({ viewport: { width: 900, height: 1000 } });
     await p2.goto('file://' + PAGE);
     const started = await p2.evaluate(async () => {
@@ -132,7 +133,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
         const url = String(u);
         if (url.indexOf('/subscription/start') !== -1) return Promise.resolve({ ok: true, json: async () => ({ sessionId: 's9', authUrl: 'https://openai.example/s', mode: 'browser' }) });
         // NON-terminal contract state (acctOpenaiSubView: done=false), so the poll keeps
-        // going and only the FR_STEP guard can stop it.
+        // going and only the abort path can stop it.
         if (url.indexOf('/subscription/status') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ state: 'awaiting-browser' }) });
         return Promise.resolve({ ok: true, json: async () => ({}) });
       };
@@ -141,7 +142,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     });
     if (started && started.error) { await p2.close(); return started; }
     await p2.waitForTimeout(300);                 // let one poll tick arm while on step 5
-    await p2.evaluate(() => { frGo(6); });         // navigate away (real step change) without cancelling
+    await p2.evaluate(abandonFn);                  // the abandon action
     await p2.waitForTimeout(1600);                // one+ poll interval (1200ms)
     const out = await p2.evaluate(() => {
       const msg = document.getElementById('fr-openai-msg');
@@ -153,16 +154,22 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     });
     await p2.close();
     return out;
-  })();
+  };
+  const navAway = await abandonScenario(() => { frGo(6); });                       // leave step 5
+  const branchSwitch = await abandonScenario(() => { frOpenaiChoose('key'); });    // sub -> key
+  const providerSwitch = await abandonScenario(() => { frCollapseProviders('claude'); }); // switch provider
   await browser.close();
 
   const problems = [];
-  if (teardown.error) problems.push('teardown arm setup failed: ' + teardown.error);
-  else {
-    if (!teardown.pollStopped) problems.push('the sub poll kept running after navigating away from step 5 (leaked poll -- the #2621-iter2 hazard)');
-    if (!teardown.sessionCleared) problems.push('the sub session was not cleared after navigating away from step 5');
-    if (teardown.paintedConnected) problems.push('a connected box was painted into the abandoned pane after leaving step 5');
-  }
+  const checkAbandon = (name, res) => {
+    if (res.error) { problems.push(name + ' arm setup failed: ' + res.error); return; }
+    if (!res.pollStopped) problems.push('the sub poll kept running after ' + name + ' (leaked poll)');
+    if (!res.sessionCleared) problems.push('the sub session was not cleared after ' + name);
+    if (res.paintedConnected) problems.push('a connected box was painted into the abandoned pane after ' + name);
+  };
+  checkAbandon('navigating away from step 5 (#2621-iter2)', navAway);
+  checkAbandon('switching to the key branch (#2621-iter4 WARNING)', branchSwitch);
+  checkAbandon('switching provider away from OpenAI (#2621-iter4 BLOCKER)', providerSwitch);
   if (!r.pickShown) problems.push('the first-run picker (#fr-openai-pick) did not show at the runner-present hand-off');
   if (!r.hasSubBtn) problems.push('no "Sign in with ChatGPT" option (#fr-openai-pick-sub) in the install flow -- the #2621 gap');
   if (!r.hasKeyBtn) problems.push('no "Use an API key" option (#fr-openai-pick-key) in the picker');

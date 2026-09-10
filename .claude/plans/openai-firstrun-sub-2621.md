@@ -74,10 +74,16 @@ add only), so the start POST omits it.
   explicit first-run call (#978); only the subscription branch is added.
 
 ## Weakest premise
-That generalizing the Settings driver leaves Settings behavior byte-identical. Guarded
-by keeping all Settings sub tests + `render-firstrun-openai-connectbox-2241` /
-`render-settings-openai-goldbox` / `render-claude-connect-choice-2433` green, plus a
-new first-run subscription browser check.
+That the SHARED session state / status element (ACCT_OPENAI_SUB_*, and the poll) is
+torn down on EVERY way the person can leave an in-flight sign-in, so a late `connected`
+resolve never paints over the pane they moved to. The naive mirror only guarded the
+navigate-away-from-step-5 case (the FR_STEP guard); the real premise is broader, and the
+missing exits were found in review and closed: switching providers (frCollapseProviders)
+and switching branches (frOpenaiChoose) both now call frOpenaiSubAbort() (stop poll +
+clear session + reset), mirroring Settings' acctPick switch-away. The one gap Settings
+ALSO has (its acctOpenaiChoose does not abort on branch switch) is now closed on this
+surface. Guarded by the browser check's teardown arms (navigate-away, and the abort
+paths) plus the unchanged Settings sub/openai/firstrun checks + node suite staying green.
 
 ## Verification
 - New browser check `render-firstrun-openai-sub-2621.js`: drives the first-run OpenAI

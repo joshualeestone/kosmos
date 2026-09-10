@@ -40406,11 +40406,17 @@ function frCollapseProviders(keep) {
   }
   if (keep !== 'openai') {
     let shut = false;
-    for (const id of ['fr-openai-confirm', 'fr-openai-flow']) {
+    /* #2621: the picker and the subscription step are part of OpenAI's panel too, so
+       collapsing OpenAI (e.g. the person clicks Claude's Connect) must hide them and
+       ABORT any in-flight ChatGPT sign-in -- otherwise the OpenAI picker/sub-step sits
+       open beside the Claude confirm (breaking the one-open-panel invariant) and its
+       poll keeps running. Mirrors Settings' acctPick switch-away teardown. */
+    for (const id of ['fr-openai-confirm', 'fr-openai-flow', 'fr-openai-pick', 'fr-openai-sub-step']) {
       const el = document.getElementById(id);
       if (el && !el.hidden) { el.hidden = true; shut = true; }
     }
     if (shut) {
+      frOpenaiSubAbort();
       const btn = document.getElementById('fr-openai-connect');
       if (btn && btn.setAttribute) btn.setAttribute('aria-expanded', 'false');
     }
@@ -40566,14 +40572,18 @@ function frOpenaiChoose(which) {
   const sub = document.getElementById('fr-openai-sub-step');
   const msg = document.getElementById('fr-openai-msg');
   if (msg) { msg.className = 'dhint'; msg.textContent = ''; }
+  /* #2621: choosing a branch ABANDONS any sign-in already in flight. Without this, a
+     person who clicks "Sign in with ChatGPT", starts the poll, then switches to "Use an
+     API key" would have the poll keep running on the same step (the FR_STEP guard does not
+     catch it) and, on a late `connected`, paint the connected box over the key form they
+     were typing into. Aborting here stops that; it is a no-op when nothing is running, so
+     re-entering the sub branch stays idempotent. */
+  frOpenaiSubAbort();
   if (pick) pick.hidden = true;
   if (flow) flow.hidden = which !== 'key';
   if (sub) sub.hidden = which !== 'sub';
   if (which === 'key') { const k = document.getElementById('fr-openai-key'); if (k) k.focus(); }
   else {
-    // Enter the sub step at its resting state -- a prior aborted sign-in could have
-    // left the open-page link / device code / cancel row showing (idempotent entry).
-    frOpenaiSubReset();
     const g = document.getElementById('fr-openai-sub-go'); if (g) g.focus();
   }
 }
@@ -40595,6 +40605,16 @@ function frOpenaiSubReset() {
   const code = document.getElementById('fr-openai-sub-code'); if (code) code.textContent = '';
   const go = document.getElementById('fr-openai-sub-go'); if (go) go.disabled = false;
 }
+/* #2621: fully ABANDON an in-flight first-run ChatGPT sign-in -- stop its poll, drop the
+   session, and reset the sub-step affordances. Called wherever the sub flow is left with a
+   sign-in possibly running: switching providers (frCollapseProviders), switching to the key
+   branch (frOpenaiChoose). Without this a late `connected` resolve would paint over whatever
+   the person moved on to. Mirrors what Settings' acctPick does on switch-away. */
+function frOpenaiSubAbort() {
+  acctOpenaiSubStop();
+  ACCT_OPENAI_SUB_SESSION = null;
+  frOpenaiSubReset();
+}
 function frOpenaiSubWatch() {
   acctOpenaiSubStop();
   const msg = document.getElementById('fr-openai-msg');
@@ -40607,7 +40627,7 @@ function frOpenaiSubWatch() {
        pane. Self-stop when we are no longer on step 5. (Settings gets the same
        protection from closeAcctAdd() on dialog close; first-run's navigation model
        needs this instead.) */
-    if (FR_STEP !== 5) { acctOpenaiSubStop(); ACCT_OPENAI_SUB_SESSION = null; return; }
+    if (FR_STEP !== 5) { frOpenaiSubAbort(); return; }
     const id = ACCT_OPENAI_SUB_SESSION;
     if (!id) { acctOpenaiSubStop(); return; }
     let r;
