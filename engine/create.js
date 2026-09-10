@@ -2731,7 +2731,11 @@ function createAgentInner(opts) {
     }
   }
   const problem = nameProblem(shown);
-  if (problem) return { outcome: OUTCOME.REFUSED, because: problem, steps };
+  // #2606: `field` names WHICH field the refusal is about, so the create page can
+  // put the reason beside that field (red border + message) instead of only in the
+  // after-the-button slot the person has scrolled past. The sentence still comes
+  // from the server (no client-side copy of the rule); this only says where it goes.
+  if (problem) return { outcome: OUTCOME.REFUSED, because: problem, field: 'name', steps };
 
   const role = roles.byKey(roleKey);
   if (!role) {

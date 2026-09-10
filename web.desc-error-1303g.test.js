@@ -116,7 +116,10 @@ test('both handlers check before sending, and route the engine refusal to the fi
     'a description refusal from the engine still lands under the button');
   const create = PAGE.slice(PAGE.indexOf("getElementById('pj-create').addEventListener"));
   assert.match(create.slice(0, 2000), /pjDescTooLong\(/, 'the create no longer pre-checks');
-  assert.match(create.slice(0, 4000), /\/description\/i\.test\(err\.message\)/,
+  // #2606 grew this handler (a name empty pre-check near the top, a name-refusal
+  // branch in the catch), so the description branch now sits deeper; widen the
+  // window past those additions but still within the one handler.
+  assert.match(create.slice(0, 6000), /\/description\/i\.test\(err\.message\)/,
     'a description refusal on create still lands under the button');
 });
 
@@ -138,7 +141,7 @@ test('the button they pressed never goes silent, on any refusal path', () => {
      button it was pressed under says nothing when the scroll does not land. */
   const paths = [
     ["getElementById('pjs-save').addEventListener", 'Nothing saved.', 3],
-    ["getElementById('pj-create').addEventListener", 'Nothing added.', 2],
+    ["getElementById('pj-create').addEventListener", 'Nothing added.', 4],
   ];
   for (const [anchor, expected, count] of paths) {
     const at = PAGE.indexOf(anchor);
@@ -153,10 +156,12 @@ test('the button they pressed never goes silent, on any refusal path', () => {
 
 test('the pointer never carries the reason, so the two cannot disagree', () => {
   /* The specific reason lives at the field. If the button line also spelled it
-     out, they would be two copies of one fact and would drift. Five sites now:
-     pjs-save x3 (desc pre-check, desc refusal, #1994 parent refusal) + pj-create x2. */
+     out, they would be two copies of one fact and would drift. Seven sites now:
+     pjs-save x3 (desc pre-check, desc refusal, #1994 parent refusal) + pj-create x4
+     (#2606 added the name empty pre-check and the name-refusal catch, each also
+     pointing at the button, alongside the desc pre-check and desc refusal). */
   const pointers = PAGE.match(/'Nothing (saved|added)\. There is something to fix above\.'/g) || [];
-  assert.equal(pointers.length, 5, 'the pointer sites changed shape');
+  assert.equal(pointers.length, 7, 'the pointer sites changed shape');
   for (const p of pointers) {
     assert.doesNotMatch(p, /\d/, 'the pointer names a number, which is a second copy of the cap');
     assert.doesNotMatch(p, /description/i, 'the pointer names the field, which is a second copy of the reason');
