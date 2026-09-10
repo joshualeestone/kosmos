@@ -5861,6 +5861,9 @@ function panelessCard(key, nowMs, defaultStatus) {
        Only paneless cards carry it, so a pane card is untouched and every
        existing reader sees exactly what it saw before. Test `=== true`. */
     paneless: true,
+    /* #570 7c-4: no pane and no supervisor pipe behind it, so nothing is reached
+       through a channel. Carried so every card answers the question. */
+    reachedByChannel: false,
     runner: null,
     task: null,
     state: status.state,
@@ -6327,6 +6330,12 @@ function snapshot() {
          `undefined` in production while nothing fails. So both kinds answer
          this, and a consumer branches on a fact rather than on absence. */
       paneless: false,
+      /* #570 7c-4: a message to this agent goes down its supervisor's pipe, not
+         into a pane. True exactly for the rows win32roster emits, which it marks
+         with WIN32_COMMAND, a command tmux never reports on a Mac. Derived HERE,
+         once, so chat.js reads a fact about the card rather than re-deciding
+         what platform it is on. */
+      reachedByChannel: pane.command === require('./win32roster').WIN32_COMMAND,
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex' or
          'claude', with empty meaning claude the way it does everywhere the
          option is absent. The switch screen keys on this, and it is the

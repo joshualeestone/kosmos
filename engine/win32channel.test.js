@@ -133,6 +133,53 @@ test('#570 7c-3 a supervisor that is not there says SO, and says it is not runni
   assert.match(r.because, /did not type anything/, 're-sending has to be safe, so say nothing was typed');
 });
 
+/* ── #570 7c-4: which failures may have delivered ───────────────────────────── */
+
+test('#570 7c-4 a reply that never comes is UNSURE, because the message was already handed over', async () => {
+  /* The supervisor got the message and never said what happened. It may well be
+     in the agent's conversation, so "not delivered" would invite a duplicate. */
+  const said = [];
+  const s = serving('mute', { onSay: (t) => { said.push(t); /* never answers */ } });
+  const r = await ask('mute', 'hello', s.pipe, { timeoutMs: 300 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /cannot tell whether it arrived/);
+  assert.deepEqual(said, ['hello'], 'and it really had been handed over');
+});
+
+test('#570 7c-4 a channel that drops after the request is UNSURE, however it drops', async () => {
+  /* A server that hangs up on receipt: depending on timing the client sees a
+     clean close or a reset error. Both come after the write, so both are unsure. */
+  const net = require('node:net');
+  const addr = address();
+  const srv = net.createServer((sock) => { sock.on('error', () => {}); sock.on('data', () => sock.destroy()); });
+  await new Promise((res) => srv.listen(addr, res));
+  try {
+    const r = await ask('slammer', 'hello', addr, { timeoutMs: 2000 });
+    assert.equal(r.ok, false);
+    assert.equal(r.unsure, true, r.because);
+  } finally { srv.close(); }
+});
+
+test('#570 7c-4 down and refused are NOT unsure: nothing was typed, so re-sending is safe', async () => {
+  const down = await ask('nobody-home-2', 'x', address(), { timeoutMs: 500 });
+  assert.equal(down.down, true);
+  assert.ok(!down.unsure);
+  const s = serving('refuser', { onSay: (t, done) => done({ ok: false, because: 'it would not take it' }) });
+  const refused = await ask('refuser', 'x', s.pipe);
+  assert.equal(refused.ok, false);
+  assert.ok(!refused.unsure);
+});
+
+test('#570 7c-4 a helper that never started is a definite no, not an unsure one', () => {
+  /* The one say() failure that is provably before any write: the helper
+     process could not even be spawned. */
+  const r = channel.say('nohelper', 'x', { pipe: address(), node: path.join(SANDBOX, 'no-such-node.exe'), timeoutMs: 500 });
+  assert.equal(r.ok, false);
+  assert.ok(!r.unsure);
+  assert.match(r.because, /could not reach it to type anything/);
+});
+
 test('#570 7c-3 a delivery the supervisor could not make is relayed with ITS sentence', async () => {
   /* The supervisor knows things the board cannot: that the agent died between the
      roster read and the write, that the pipe broke. Inventing a sentence here would

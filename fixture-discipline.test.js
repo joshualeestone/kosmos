@@ -73,7 +73,9 @@ test('the fields chat reads off a card are fields snapshot() really emits', () =
      field here does not mis-render a label, it refuses (or worse,
      mis-verifies) a send. Same tripwire discipline as the projects list
      below (round 40). */
-  const READ_BY_CHAT = ['sessionName', 'session', 'isNamedOurs', 'target', 'isAgentPane', 'isAgentSession', 'state'];
+  // `reachedByChannel`: #570 7c-4 sends to a card that carries it through the
+  // Windows channel instead of tmux.
+  const READ_BY_CHAT = ['sessionName', 'session', 'isNamedOurs', 'target', 'isAgentPane', 'isAgentSession', 'state', 'reachedByChannel'];
   const board = fleet.install([fleet.agent('mara', { state: 'working' })]);
   try {
     const card = board.card('mara');

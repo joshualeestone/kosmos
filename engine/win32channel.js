@@ -218,9 +218,11 @@ function serve(name, opts) {
  * deadline, and one without a deadline is the board's HTTP thread held by a
  * supervisor nobody can see.
  *
- * Returns { ok:true } or { ok:false, because, down? } -- never throws. `down` is
- * true when the supervisor is not there at all, which is the one failure a caller
- * may want to word differently from a refusal.
+ * Returns { ok:true } or { ok:false, because, down?, unsure? } -- never throws.
+ * `down` is true when the supervisor is not there at all, which is the one
+ * failure a caller may want to word differently from a refusal. `unsure` is true
+ * when the message may have arrived and only the answer was lost; every other
+ * `ok:false` means nothing was typed.
  */
 function say(name, text, opts) {
   const o = opts || {};
@@ -254,6 +256,15 @@ function say(name, text, opts) {
        failure we have to word ourselves. */
     out = (e && e.stdout) || '';
     if (!String(out).trim()) {
+      /* ⚠️ ONLY A HELPER THAT NEVER STARTED IS A DEFINITE NO. One that ran and
+         died without a verdict -- above all one killed at the deadline, which
+         arrives with a signal and no status (chat.js's `spawnFailure` measured
+         the same shapes) -- may already have handed the message over. Calling
+         that "not delivered" is what makes somebody send it twice. */
+      const neverRan = Boolean(e) && e.status == null && !e.signal;
+      if (!neverRan) {
+        return { ok: false, unsure: true, because: 'it did not answer us in time, so we cannot tell whether it arrived' };
+      }
       return { ok: false, because: 'we could not reach it to type anything (' + ((e && e.code) || 'no answer') + ')' };
     }
   }
@@ -261,7 +272,12 @@ function say(name, text, opts) {
   try { parsed = JSON.parse(String(out).trim().split('\n').pop()); }
   catch { return { ok: false, because: 'we could not make sense of what came back from its channel' }; }
   if (parsed && parsed.ok === true) return { ok: true };
-  return { ok: false, because: (parsed && parsed.because) || 'it did not take the message', down: Boolean(parsed && parsed.down) };
+  return {
+    ok: false,
+    because: (parsed && parsed.because) || 'it did not take the message',
+    down: Boolean(parsed && parsed.down),
+    unsure: Boolean(parsed && parsed.unsure),
+  };
 }
 
 /**
@@ -291,15 +307,31 @@ function clientMain(name, text, opts) {
   catch { done({ ok: false, because: 'that is not a name we can open a channel for' }); return null; }
 
   let settled = false;
+  /* Set the moment the request is written. Before it, every failure is a
+     definite "nothing typed"; after it, a broken channel may have delivered. */
+  let wrote = false;
   const finish = (payload) => { if (settled) return; settled = true; done(payload); try { sock.destroy(); } catch { /* going anyway */ } };
 
   const sock = net.connect(at);
-  sock.setTimeout(timeout, () => finish({ ok: false, because: 'it did not answer us in time, so we cannot tell whether it arrived' }));
+  /* 🔑 `unsure` MARKS THE TWO OUTCOMES WHERE THE MESSAGE MAY HAVE LANDED. The
+     request was written before either can happen, so the supervisor may have
+     typed it and only the answer was lost. chat.js turns `unsure` into
+     `unconfirmed` rather than `could_not`, because telling somebody "not
+     delivered" about a delivered message is how it gets sent twice. */
+  sock.setTimeout(timeout, () => finish({ ok: false, unsure: true, because: 'it did not answer us in time, so we cannot tell whether it arrived' }));
   sock.on('error', (e) => {
     /* 🔑 ENOENT IS THE SUPERVISOR BEING DOWN, and Windows gives it to us at once:
        a named pipe stops existing when its server exits, so there is no stale
        socket file to time out against the way a unix socket would leave. */
     const down = e && (e.code === 'ENOENT' || e.code === 'ECONNREFUSED');
+    if (!down && wrote) {
+      finish({
+        ok: false,
+        unsure: true,
+        because: 'its channel broke after we handed the message over (' + ((e && e.code) || 'unknown') + '), so we cannot tell whether it arrived',
+      });
+      return;
+    }
     finish({
       ok: false,
       down: Boolean(down),
@@ -319,10 +351,11 @@ function clientMain(name, text, opts) {
     catch { finish({ ok: false, because: 'we could not make sense of what came back from its channel' }); return; }
     finish(reply && reply.ok === true ? { ok: true } : { ok: false, because: (reply && reply.because) || 'it did not take the message' });
   });
-  sock.on('close', () => finish({ ok: false, because: 'its channel closed before it told us what happened' }));
+  sock.on('close', () => finish({ ok: false, unsure: true, because: 'its channel closed before it told us what happened, so we cannot tell whether it arrived' }));
 
   sock.on('connect', () => {
     sock.write(JSON.stringify({ v: 1, token: got.secret, type: 'say', text: String(text) }) + '\n');
+    wrote = true;
   });
   return sock;
 }
