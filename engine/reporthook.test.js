@@ -350,6 +350,30 @@ test('#570 ensureWired win32 migration: an OLD shell-form entry is repointed to 
   }
 });
 
+test('#570 CONTROL: a foreign win32 exec-form hook in the same event survives repointing', () => {
+  // The win32 analog of the #1467 CONTROL. A bystander that SHARES our node.exe
+  // command but is NOT ours (no marker in command or args) must survive when our
+  // OLD shell-form entry in the same event is repointed to exec form. Without
+  // this, the entryIsOurs(args)/full-shape sameHook coupling could let "replace
+  // our entries" quietly become "replace the list" on win32 -- and because the
+  // foreign entry shares our command string, a command-only identity check would
+  // be especially prone to mistaking it for ours.
+  const p = fresh();
+  const theirs = { matcher: '', hooks: [{ type: 'command', command: WIN_NODE, args: ['C:\\Somebody\\else\\thing.js'] }] };
+  const oursOldShell = { matcher: '', hooks: [{ type: 'command', command: '"' + WIN_NODE + '" "' + WIN_SCRIPT + '"', timeout: 15 }] };
+  fs.writeFileSync(p, JSON.stringify({ hooks: { SessionStart: [theirs, oursOldShell] } }));
+  reporthook.ensureWired(p, WIN_SCRIPT, { platform: 'win32', node: WIN_NODE });
+  const entries = readJson(p).hooks.SessionStart;
+  // The foreign exec-form bystander is untouched.
+  assert.equal(entries.filter((e) => e.hooks[0].args && e.hooks[0].args[0] === 'C:\\Somebody\\else\\thing.js').length, 1,
+    'a foreign win32 exec-form hook was destroyed by repointing');
+  // Ours is present exactly once, now in exec form (repointed, not doubled).
+  assert.equal(entries.filter(reporthook.entryIsOurs).length, 1, 'our win32 hook must be present exactly once after repoint');
+  const ours = entries.filter(reporthook.entryIsOurs)[0];
+  assert.equal(ours.hooks[0].command, WIN_NODE);
+  assert.deepEqual(ours.hooks[0].args, [WIN_SCRIPT]);
+});
+
 test('#570 ensureWired win32 guard: a node path with a double-quote is refused, a backslash path is not', () => {
   const bad = reporthook.ensureWired(fresh(), WIN_SCRIPT, { platform: 'win32', node: 'C:\\a"evil\\node.exe' });
   assert.equal(bad.wired, false, 'a quote in the node path must be refused');
