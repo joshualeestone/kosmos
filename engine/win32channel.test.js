@@ -284,6 +284,57 @@ test('#570 7c-4 the supervisor\'s UNSURE survives the crossing', async () => {
   assert.match(r.because, /failed part-way/);
 });
 
+test('#570 headless: a pipe the PREVIOUS supervisor still holds is retried until it frees', async () => {
+  /* A restart's /Run lands while the old supervisor is still leaving and still
+     holds the pipe. The listen fails with EADDRINUSE as an async event; this used
+     to be swallowed, leaving the new supervisor with no channel for its whole life. */
+  const net = require('node:net');
+  const at = address();
+  const occupier = net.createServer(() => {});
+  await new Promise((res) => occupier.listen(at, res));
+  const problems = [];
+  const s = serving('retrier', { pipe: at, onSay: (t, done) => done({ ok: true }), onProblem: (w) => problems.push(w) });
+  assert.equal(s.ok, true);
+  await new Promise((res) => setTimeout(res, 400));
+  await new Promise((res) => occupier.close(res));   // the old supervisor finally leaves
+  await new Promise((res) => setTimeout(res, 800));
+  const r = await ask('retrier', 'hello', at);
+  assert.deepEqual(r, { ok: true }, 'the new supervisor took the pipe once it was free');
+  assert.deepEqual(problems, [], 'a busy pipe is retried, not reported');
+});
+
+test('#570 headless: close() cancels a pending retry, so a stopped supervisor never takes the pipe later', async () => {
+  const net = require('node:net');
+  const at = address();
+  const occupier = net.createServer(() => {});
+  await new Promise((res) => occupier.listen(at, res));
+  const s = serving('closer', { pipe: at, onSay: (t, done) => done({ ok: true }), retryMs: 100 });
+  await new Promise((res) => setTimeout(res, 150));   // at least one retry is pending
+  s.close();                                          // the supervisor stops
+  await new Promise((res) => occupier.close(res));    // then the pipe frees
+  await new Promise((res) => setTimeout(res, 400));   // several retry periods later
+  const r = await ask('closer', 'hello', at);
+  assert.equal(r.ok, false, 'nothing is listening: the retry was cancelled');
+  assert.equal(r.down, true);
+});
+
+test('#570 headless: a pipe that never frees is given up on, and SAID', async () => {
+  const net = require('node:net');
+  const at = address();
+  const occupier = net.createServer(() => {});
+  await new Promise((res) => occupier.listen(at, res));
+  const problems = [];
+  const s = serving('stuck', { pipe: at, onSay: (t, done) => done({ ok: true }), retryMs: 30, retryLimit: 2, onProblem: (w) => problems.push(w) });
+  try {
+    await new Promise((res) => setTimeout(res, 400));
+    assert.equal(problems.length, 1, 'exactly one report, after the retries ran out');
+    assert.match(problems[0], /could not open its channel \(EADDRINUSE\)/);
+  } finally {
+    s.close();
+    await new Promise((res) => occupier.close(res));
+  }
+});
+
 test('#570 7c-3 more than a message is refused rather than buffered', async () => {
   /* An unauthenticated connection must not be able to grow the supervisor's heap.
      chat.js caps a person's text at 2000 characters, so anything near this bound is

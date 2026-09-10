@@ -103,9 +103,17 @@ test('no execution time limit -- the board runs as long as the box is up', () =>
 });
 
 test('every path is quoted and XML-escaped, so `C:\\a & b\\` cannot end an element', () => {
-  const xml = board.taskXml({ node: 'C:\\a & b\\node.exe', boot: 'C:\\a & b\\board-boot.js' }, ENV);
-  assert.ok(xml.includes('<Command>C:\\a &amp; b\\node.exe</Command>'), xml);
-  assert.ok(xml.includes('<Arguments>&quot;C:\\a &amp; b\\board-boot.js&quot;</Arguments>'), xml);
+  const xml = board.taskXml({ node: 'C:\\a & b\\node.exe', boot: 'C:\\a & b\\board-boot.js' }, { ...ENV, SystemRoot: 'C:\\Windows' });
+  assert.ok(xml.includes('<Arguments>--headless &quot;C:\\a &amp; b\\node.exe&quot; &quot;C:\\a &amp; b\\board-boot.js&quot;</Arguments>'), xml);
+});
+
+test('#570 the board runs with NO WINDOW, through the same headless host as the agents', () => {
+  /* Measured 2026-09-10: a task-started node opens a Windows Terminal window, and
+     closing it kills the board. The board's definition goes through the ONE
+     wrapper the agents' does. */
+  const xml = board.taskXml({ node: 'C:\\K\\node.exe', boot: 'C:\\K\\board-boot.js' }, { ...ENV, SystemRoot: 'C:\\Windows' });
+  assert.ok(xml.includes('<Command>C:\\Windows\\System32\\conhost.exe</Command>'), xml);
+  assert.ok(xml.includes('<Arguments>--headless &quot;C:\\K\\node.exe&quot; &quot;C:\\K\\board-boot.js&quot;</Arguments>'), xml);
 });
 
 test('the action runs in the bundle root, matching KosmosLauncher.cs rather than system32', () => {

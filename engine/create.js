@@ -2206,7 +2206,12 @@ function win32RegisterJob(name, o) {
  * `win32supervisor.superviseStreaming`, whose stdin is the delivery channel. What
  * runs at logon and what runs when you press the button are the same command line,
  * so they cannot drift -- and `MultipleInstancesPolicy: IgnoreNew` means a second
- * run cannot put a second supervisor beside the first.
+ * run cannot put a second supervisor beside a RUNNING first. (Since the task runs
+ * under `conhost --headless`, a `/Run` right after `/End` can overlap an old
+ * supervisor that is still leaving, for about a second. The old one refuses to
+ * start another agent (`mayStart`), the new one retries the channel it still holds
+ * (`win32channel.serve`), and the old one's stop leaves the new one's state file
+ * alone (`win32streamstate.clearState`).)
  *
  * ⚠️ AND A FAILED REGISTRATION IS NOW A FAILED START, WHICH IS A REAL TRADE. Before
  * this, a box where `schtasks` refused still got a running agent -- just not a
