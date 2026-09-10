@@ -23,7 +23,17 @@ provider, which makes the provider the natural disambiguator for exactly this co
 
 ```
 label  ->  provider ("OpenAI" / "Claude")  ->  dir
+                 ^ only where the key-group actually spans providers
 ```
+
+🛑 **THE SCOPING IS PART OF THE FIX, NOT A REFINEMENT, AND I MISSED IT AT FIRST.**
+`accountQualifiers` has **three** call sites, and my first version reasoned about one of them.
+Settings groups by provider and shows a head; `fillCreateAccounts` and the switch-account menu
+filter to a SINGLE provider and show no head, so "(OpenAI)" there says nothing the surrounding
+list does not already say, while REPLACING a path that at least identified the row. That is the
+#1917 shape ("a real tester could not tell which to pick") which the picker call site exists to
+prevent. So the provider name is offered only when the group genuinely holds more than one
+provider: informative by construction rather than by which screen happens to be calling.
 
 ## Decisions, and what was rejected
 
@@ -83,14 +93,36 @@ value, so it will fail loudly rather than drift.
 
 ## Test plan
 
-- `web.account-qualifier.test.js`, four new arms: the OpenAI-second case, the Claude-second mirror,
-  a CONTROL that an unknown provider gets the path rather than a guess, and one proving a label
-  that already took the provider name pushes the default to its path.
+- `web.account-qualifier.test.js`, **nine** new arms in two groups.
+  **The qualifier group (seven):** the OpenAI-second case, the Claude-second mirror, a CONTROL that
+  an unknown provider gets the path rather than a guess, the lowercase-label collision in BOTH
+  payload orderings, a row labelled literally `main` beside the default (which must keep its
+  identifying path, since both rows are Claude and the provider distinguishes nothing there), and
+  its mirror proving the same collision in a cross-provider group still gets the provider name, so
+  the scoping did not simply disable the feature.
+  **The cross-derivation pin (two):** provider-to-short-name is derived in THREE places in
+  `web/index.html`, and the repo CLAUDE.md's convention 5 prescribes the remedy when a fact is
+  duplicated: "if you must duplicate, add a test that pins them equal". The two short forms must
+  agree exactly and the long group-head form must CONTAIN the short one. The pin also asserts the
+  disagreement that ALREADY exists (an unknown provider: the two ternaries guess "Claude", the
+  qualifier answers ""), which is **kosmos#2634**, so whoever fixes that card sees this arm go red
+  and updates it deliberately. Not consolidated here because `qualName` is pinned to its exact
+  current form by an existing arm, and folding a three-site refactor into a one-step change makes
+  a small reviewable diff broad.
   ⚠️ The pre-existing cross-provider arm asserts only that the two qualifiers DIFFER, which the raw
   `dir` already satisfied, so it passed throughout the defect. Distinctness and readability are
   separate properties and only one was pinned.
+  ⚠️ And the pre-existing arm for the `label: 'main'` shape uses a fixture with **no `provider`
+  field**, which `/api/accounts` never emits, so it exercised only the unknown-provider path and
+  passed unchanged through this card. The reachable version is new.
 - `docs/browser-checks/render-account-dup-reauth-2584.js`, two new arms on the RENDERED
   aria-labels: neither may contain a path separator, and one must read "(OpenAI)". Measured after:
   `["Sign in again as agent@example.com (main)","Sign in again as agent@example.com (OpenAI)"]`.
-- Three mutation controls, each redding exactly its own arm: reverting to `dir`, guessing an
-  unknown provider as "Claude", and letting the provider qualifier escape the used-set.
+- **Seven mutation controls**, each redding exactly the arms it should: reverting to `dir`,
+  guessing an unknown provider as "Claude", letting the provider qualifier escape the used-set,
+  reverting membership to an exact `Set.has` (reds both ordering arms), fixing ONLY the provider
+  lookup rather than both sites (reds the real-payload arm, which is how my own incomplete first
+  fix was caught), and the scoping in BOTH directions: `true` reds the single-provider arm and
+  `false` reds three cross-provider arms.
+- Two drift mutations on the cross-derivation pin: changing one short name and changing the group
+  head each red it.

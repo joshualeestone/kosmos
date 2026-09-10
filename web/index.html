@@ -15766,7 +15766,8 @@ function accountQualifiers(list) {
      answer to deferred finding 8 below: the count used to be blind to a
      name-derived label, and it went live the moment a name became the visible
      text. Two accounts both typed "work" now key alike, are counted ambiguous,
-     and each gets a distinguishing qualifier (their label, else the unique dir)
+     and each gets a distinguishing qualifier (their label, else a provider name where
+     that distinguishes, else the unique dir)
      -- so the on-screen name and the accessible name stay distinct. Trimmed so a
      whitespace-only name never becomes the key. */
   const key = (a) => String((a && (
@@ -15805,7 +15806,8 @@ function accountQualifiers(list) {
      #2584 widened it by giving the OpenAI default a reauth button. The fix is to
      let `main` participate in the same used-set as every other qualifier: the
      first default in a group keeps `main`; a second falls through to the label,
-     else the unique `dir`, so the two controls stay distinct. */
+     then to a provider name where the group spans providers, then to the unique
+     `dir`, so the two controls stay distinct (#2612 added the provider step). */
   const usedByKey = new Map();
   for (const a of rows) {
     const k = key(a);
@@ -15813,8 +15815,11 @@ function accountQualifiers(list) {
     if (!k || (count.get(k) || 0) < 2) { out.set(dir, ''); continue; }
     let used = usedByKey.get(k);
     if (!used) { used = new Set(); usedByKey.set(k, used); }
-    /* 🛑 MEMBERSHIP IS CASE-INSENSITIVE, IN BOTH BRANCHES BELOW, AND THE SECOND
-       BRANCH IS THE ONE THAT IS EASY TO MISS. #2612 added the first mixed-case
+    /* 🛑 MEMBERSHIP IS CASE-INSENSITIVE AT BOTH `takenAlready` SITES BELOW (the
+       label lookup and the provider lookup), AND THE LABEL ONE IS EASY TO MISS.
+       The `main` comparisons stay exact, harmlessly: nothing can put a
+       case-variant of `main` into `used`, since labels are lowercase and the
+       only other members are `main`, a provider name and dirs. #2612 added the first mixed-case
        qualifier this namespace has ever held ("OpenAI"), and every label is
        lowercase by construction: `accounts.dirForLabel` and
        `openaiaccounts.cleanLabel` both `.toLowerCase()` and strip to
@@ -15828,6 +15833,21 @@ function accountQualifiers(list) {
     const takenAlready = (v) => !!v && [...used].some(
       (u) => String(u).toLowerCase() === String(v).toLowerCase(),
     );
+    /* 🛑 THE PROVIDER IS ONLY A QUALIFIER WHERE IT ACTUALLY DISTINGUISHES, and
+       this function has THREE call sites, not one. Settings groups by provider
+       and shows a head, but `fillCreateAccounts` and the switch-account menu
+       filter to ONE provider and show no head, so "(OpenAI)" there says nothing
+       the surrounding list does not already say, while REPLACING a path that at
+       least identified the row. That is the #1917 shape ("a real tester could
+       not tell which to pick") which the picker call site exists to prevent.
+       ⇒ So the provider name is offered only when the key-group genuinely holds
+       more than one provider. In a single-provider list the chain stays what it
+       was: label, else dir. Informative by construction rather than by which
+       screen happens to be calling. */
+    const providersHere = new Set(
+      rows.filter((r) => key(r) === k).map((r) => String((r && r.provider) || '')),
+    );
+    const providerDistinguishes = providersHere.size > 1;
     let qual;
     if (a.isDefault && !used.has('main')) {
       qual = 'main';
@@ -15836,8 +15856,13 @@ function accountQualifiers(list) {
       /* `dir` is unique per row by construction, so it is the collision-proof
          last resort: an empty label, the reserved `main` (which belongs to the
          first default row and may already be taken by another default in this
-         group), or a label another row in this group already took all fall back
-         to it. */
+         group), or a label another row in this group already took all fall
+         through here.
+         ⚠️ "FALL BACK TO IT" USED TO END THAT SENTENCE, AND #2612 MADE IT FALSE:
+         the provider step now sits INSIDE this very `if`, so a reader hit the
+         wrong statement before reaching the code that contradicts it. The chain
+         is label, then a provider name where the group spans providers, then
+         `dir`. */
       if (!qual || qual === 'main' || takenAlready(qual)) {
         /* 🔑 #2612: THE PROVIDER BEFORE THE PATH. A second default in a group has
            no label (`list()` sets `label: null` for a default), so it fell
@@ -15877,8 +15902,9 @@ function accountQualifiers(list) {
            which is ugly and audibly distinct.
            ⚠️ `docs/browser-checks/named-controls.js` keys its `seen` set on the
            raw name too, so that guard cannot catch this either. */
-        const prov = a.provider === 'openai' ? 'OpenAI'
-          : (a.provider === 'anthropic' ? 'Claude' : '');
+        const prov = !providerDistinguishes ? ''
+          : (a.provider === 'openai' ? 'OpenAI'
+            : (a.provider === 'anthropic' ? 'Claude' : ''));
         qual = (prov && !takenAlready(prov)) ? prov : dir;
       }
     }
@@ -29109,7 +29135,9 @@ function fillCreateAccounts() {
   /* #1917: two accounts on one email rendered as two identical options, so a real
      tester (Ben, 0.6.22) could not tell which to pick and ran his agent on the dead
      one for an hour. The Settings list already disambiguates duplicated rows via
-     `accountQualifiers` (the default is `main`, the others by their own label); the
+     `accountQualifiers` (the default is `main`, the others by their own label, then
+     by a provider name only where the group spans providers, then by dir; this list
+     is filtered to ONE provider, so the provider step never fires here); the
      picker threw that away and rendered by email alone -- the exact bug the Settings
      render was fixed for, one screen over. Compute the same qualifier over the rows
      actually OFFERED and append it, so a duplicated email is distinct and the default
