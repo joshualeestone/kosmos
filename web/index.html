@@ -3650,8 +3650,9 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .pj3 > aside.pjcol:not(.pjsplit) { grid-column: 2; grid-row: 1; }
   /* #520 piece six (Josh, 2026-08-24 16:14: "missing a whole lot"): the
      board's full-width notice bars do not belong over the consolidated grid;
-     the news line already lives in the header notice slot. found-wrap and
-     removed-wrap are board-management chrome for the tab view. */
+     the news line already lives in the header notice slot. The found/scan
+     discovery panels, their #2651 "Look for agents" trigger (#found-scan-trigger),
+     and removed-wrap are board-management chrome for the tab view. */
   html[data-layout="consolidated"] body.consolidated > #found-scan-trigger, html[data-layout="consolidated"] body.consolidated > #found-wrap, html[data-layout="consolidated"] body.consolidated > #scan-wrap, html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
   /* #867 shipped this as flat, borderless cards "like the mock" -- a
      citation nobody actually checked. The real mock (installkosmos.com/
@@ -26297,6 +26298,10 @@ document.getElementById('removed-toggle').addEventListener('click', () => {
       document.getElementById('found-wrap').hidden = true;
       document.getElementById('found-list').innerHTML = '';
       FOUND_SIG = null;
+      /* #2651: dismissing is a not-buildable-here decision too, so keep the trigger's gate
+         in sync at THIS call site rather than waiting for the next poll to relearn it. */
+      DISCOVERY_DISMISSED = true;
+      paintDiscoveryTrigger();
     } catch { reset(); dis.textContent = 'We could not reach Kosmos. Try again'; }
   });
   dis.addEventListener('blur', () => { if (!dis.disabled) reset(); });
@@ -26315,6 +26320,10 @@ document.getElementById('found-toggle').addEventListener('click', () => {
    both panels on demand. Keyed on panel VISIBILITY (not on DISCOVERY_OPENED), so it
    is also the resting state after a look that found nothing, and it hides itself the
    moment a panel renders candidates. */
+/* #2651: the neutral action label, ONE source (this const), so the HTML initial text and
+   the JS reset below cannot drift. */
+const FOUND_SCAN_LOOK_LABEL = 'Look for agents already on this computer';
+
 function paintDiscoveryTrigger() {
   const trig = document.getElementById('found-scan-trigger');
   if (!trig) return;
@@ -26323,27 +26332,41 @@ function paintDiscoveryTrigger() {
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
   /* #2651: also hidden once we learn the feature was Dismissed forever - a dismissed
      person is not re-offered the look. */
-  trig.hidden = !onAgentsTab() || anyPanel || DISCOVERY_DISMISSED;
+  const hidden = !onAgentsTab() || anyPanel || DISCOVERY_DISMISSED;
+  trig.hidden = hidden;
+  /* When the poll (re)shows the trigger, restore the neutral action label so a stale
+     "could not find" message from an EARLIER press cannot persist after the panel state
+     has changed (a later candidate found then handled would re-show the trigger). The
+     click handler sets its own empty-look message AFTER calling this, so that press's
+     feedback still wins for that press. */
+  if (!hidden) {
+    const look = document.getElementById('found-scan-look');
+    if (look) look.textContent = FOUND_SCAN_LOOK_LABEL;
+  }
 }
 
 document.getElementById('found-scan-look').addEventListener('click', async () => {
   DISCOVERY_OPENED = true;
   const look = document.getElementById('found-scan-look');
   look.disabled = true;
-  /* Await both, so the empty-result feedback below reads the SETTLED panels rather
-     than a fetch still in flight. */
-  await paintFoundBoard();
-  await paintScanBoard();
-  look.disabled = false;
+  try {
+    /* Await both, so the empty-result feedback below reads the SETTLED panels rather
+       than a fetch still in flight. */
+    await paintFoundBoard();
+    await paintScanBoard();
+  } catch { /* the paints swallow their own fetch errors; this only guards an unexpected throw */ }
+  finally {
+    /* finally, so a throw in either paint can never leave the button permanently disabled
+       (the same belt-and-braces the poll IIFEs carry with their .catch). */
+    look.disabled = false;
+  }
   paintDiscoveryTrigger();   // hides the trigger once a panel shows; keeps it if not
   const fw = document.getElementById('found-wrap');
   const sw = document.getElementById('scan-wrap');
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
-  /* Hedged and NOT a machine-scoped count claim (web.empty-scope guard): a screen must
-     not state as fact what is on the computer; say what our look turned up instead. */
-  /* Only when the look genuinely found nothing - NOT when the feature was dismissed
-     (paintDiscoveryTrigger has already hidden the trigger in that case), so the message
-     never misreports a dismissal as a search result. */
+  /* Hedged and NOT a machine-scoped count claim (web.empty-scope guard); and only when the
+     look genuinely found nothing - NOT when the feature was dismissed (paintDiscoveryTrigger
+     has already hidden the trigger there), so the message never misreports a dismissal. */
   if (!anyPanel && !DISCOVERY_DISMISSED) look.textContent = 'We could not find any new agents to add';
 });
 
@@ -26369,6 +26392,9 @@ document.getElementById('scan-toggle').addEventListener('click', () => {
       document.getElementById('scan-wrap').hidden = true;
       document.getElementById('scan-list').innerHTML = '';
       SCAN_SIG = null;
+      /* #2651: keep the trigger's gate in sync at this call site too (see the found-dismiss twin). */
+      DISCOVERY_DISMISSED = true;
+      paintDiscoveryTrigger();
     } catch { reset(); dis.textContent = 'We could not reach Kosmos. Try again'; }
   });
   dis.addEventListener('blur', () => { if (!dis.disabled) reset(); });

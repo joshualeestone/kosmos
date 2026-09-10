@@ -122,6 +122,24 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     return { shownBefore, triggerHidden: tr.hidden, dismissedFlag: (typeof DISCOVERY_DISMISSED !== 'undefined' && DISCOVERY_DISMISSED), label: look.textContent };
   });
 
+  /* Arm 4 - LABEL RESET. After an empty look flips the button to "We could not find any new
+     agents to add", a later poll that RE-SHOWS the trigger must restore the neutral action
+     label, so a stale message never persists across unrelated state changes (found-then-
+     handled candidate). Fresh page; simulate the prior empty-look label, then a poll show. */
+  const page3 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page3.goto('file://' + PAGE);
+  const L = await page3.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    const look = document.getElementById('found-scan-look');
+    const tr = document.getElementById('found-scan-trigger');
+    if (!look || !tr) return { error: 'button or trigger missing' };
+    look.textContent = 'We could not find any new agents to add';   // a prior empty look left this
+    paintDiscoveryTrigger();                                         // no panel, on tab, not dismissed -> the poll re-shows it
+    return { label: look.textContent, triggerHidden: tr.hidden };
+  });
+
   await browser.close();
 
   if (r.error) { console.error('FAIL  render-discovery-gate-2651: ' + r.error); process.exit(1); }
@@ -141,6 +159,12 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     if (d.dismissedFlag !== true) fail.push('dismissed arm: DISCOVERY_DISMISSED was not set from body.dismissed');
     if (d.triggerHidden !== true) fail.push('dismissed arm: the trigger did not hide for a dismissed-forever user');
     if (/could not find/i.test(d.label || '')) fail.push('dismissed arm: the empty-look message misreported a dismissal as a search result');
+  }
+  if (L.error) {
+    fail.push('label-reset arm errored: ' + L.error);
+  } else {
+    if (L.triggerHidden !== false) fail.push('label-reset arm: the trigger was not re-shown, so the reset path did not run (arm vacuous)');
+    if (/could not find/i.test(L.label || '')) fail.push('label-reset arm: a stale "could not find" message persisted after the trigger was re-shown');
   }
 
   if (fail.length) {

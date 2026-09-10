@@ -25,7 +25,7 @@ The existing per-panel Show/Hide fold (`FOUND_OPEN`/`SCAN_OPEN`) and "Dismiss th
 
 ## Verification
 
-- `docs/browser-checks/render-discovery-gate-2651.js` (new): hermetic file://, stubs /api/found-agents + /api/scan-agents, forces the Agents tab, drives the real paint functions. Two arms: ON LOAD both panels hidden + trigger shown; EXPLICIT PRESS opens both + hides the trigger. The load arm alone would pass on a page that never shows the panels, so the press arm is load-bearing. Proven can-fail: removing the `DISCOVERY_OPENED` gate reds the load arm.
+- `docs/browser-checks/render-discovery-gate-2651.js` (new): hermetic file://, stubs /api/found-agents + /api/scan-agents, forces the Agents tab, drives the real paint functions. Three arms: ON LOAD both panels hidden + trigger shown; EXPLICIT PRESS opens both (found and scan each asserted) + hides the trigger; DISMISSED FOREVER does not re-offer the trigger and never misreports the dismissal. The load arm alone would pass on a page that never shows the panels, so the press arm is load-bearing. Proven can-fail: removing the `DISCOVERY_OPENED` gate reds the load arm; a scan-only regression reds the press arm's scan assertion; a wrongly-tracked dismissed flag reds the dismissed arm.
 - Four browser-check wiring guards reconciled up front: reason-grep finding-emit count (92->94) + catch/launch count (61->63) + quotability (the fail line is single-line so the release runner can quote it), and the README index (the new check is named).
 
 ## Weakest premise
