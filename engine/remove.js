@@ -822,6 +822,17 @@ function plan(name, platform) {
   if (tie && tie.isNamedOurs !== true) {
     return {
       ok: false,
+      /* #2651: MACHINE-READABLE so ONLY this refusal is overridable. A person
+         whose board carries a residual/auto-imported card whose session Kosmos
+         cannot tie to it (a teammate's test agent on a shared Mac, a bare-named
+         session with no `-discord` suffix) is stuck: the safety gate rightly
+         will not STOP a process it cannot prove is this agent, so removal is
+         refused and the card cannot be cleared. `untied` lets the caller offer a
+         user-initiated override that removes the CARD (records the removal, hides
+         it) WITHOUT stopping the session -- the safe half of the act, which is
+         all the person needs to declutter their board. Every OTHER refusal above
+         and below stays unmarked, so the override can never reach them. */
+      untied: true,
       because: `something called ${clean} is already running, and we cannot confirm it is this agent. `
         + 'Kosmos will not stop it, because doing so could stop the wrong thing.',
     };
@@ -950,9 +961,43 @@ function markDryRun(result) {
   };
 }
 
-function removeInner(name, { tmuxBin, platform } = {}) {
+function removeInner(name, { tmuxBin, platform, force } = {}) {
   const intent = plan(name, platform);
-  if (!intent.ok) return { outcome: OUTCOME.REFUSED, because: intent.because, steps: [] };
+  if (!intent.ok) {
+    /* #2651: USER-INITIATED OVERRIDE OF THE UNTIED REFUSAL, AND ONLY THAT ONE.
+       A residual/auto-imported card whose session Kosmos cannot tie to it (a
+       teammate's test agent on a shared Mac, a bare-named session with no
+       `-discord` suffix) leaves the person stuck: the safety gate rightly will
+       not STOP a process it cannot prove is this agent, so removal is refused
+       and the card cannot be cleared. When the person explicitly opts in
+       (`force`) on THIS refusal (`intent.untied`), remove the CARD only:
+       recordRemoval hides it and revokes any token, and we DO NOT touch the
+       session -- so a teammate's process on a shared box keeps running while the
+       person's board gets clean. `force` is inert on every other refusal
+       (isHidden / not-there / unsafeToActOn are unmarked), so it can never reach
+       a case where stopping or hiding would be wrong. `job` is passed NULL on
+       purpose: we own no launchd job for an untied card, and recording jobFor()'s
+       resolution here could file a bystander's plist for a later restore to
+       re-enable -- the exact cross-agent hazard the gate exists for. */
+    if (force === true && intent.untied === true) {
+      const clean = create.cleanName(name);
+      const shown = status.readIdentity(clean).displayName || clean;
+      const kept = recordRemoval(clean, null, false, shown);
+      if (!kept) {
+        return {
+          outcome: OUTCOME.PARTIAL,
+          steps: [],
+          because: `we cleared ${shown} from your board but could not save a record, so it may not show under removed agents. Its terminal session was left running.`,
+        };
+      }
+      return {
+        outcome: OUTCOME.REMOVED,
+        steps: [],
+        because: `we cleared ${shown} from your board. We left its terminal session running, because Kosmos cannot confirm it is this agent and will not stop a session it cannot tie to the card. Whoever owns that session can stop it where it runs.`,
+      };
+    }
+    return { outcome: OUTCOME.REFUSED, because: intent.because, steps: [] };
+  }
 
   const clean = intent.name;
   /**

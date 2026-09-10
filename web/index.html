@@ -7896,6 +7896,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="frow">
       <button class="btn danger-btn" id="d-remove-start" type="button">Remove this agent…</button>
     </div>
+    <!-- #2651: shown ONLY when the removal was refused because Kosmos cannot tie
+         the running session to this card (a residual/auto-imported card, a
+         teammate's session on a shared machine). It clears the card off the
+         board WITHOUT stopping that session, so a person can declutter their
+         Agents page. Hidden for every other case, tied or refused. -->
+    <div class="frow" id="d-remove-force-wrap" hidden>
+      <button class="btn" id="d-remove-force" type="button">Remove from my board anyway</button>
+    </div>
+    <p class="fhint" id="d-remove-force-note" hidden>This clears the card off your board only. It leaves the terminal session running, because Kosmos will not stop a session it cannot confirm is this agent. Whoever owns that session can stop it where it runs.</p>
     <!-- `alert`, not `status`: a removal that only half worked is the one
          message here a person must not walk away without hearing. -->
     <div class="fmsg" id="d-remove-msg" role="alert" aria-live="assertive"></div>
@@ -14995,6 +15004,7 @@ async function tick() {
     REMOVE_ASK = null;
     const start = document.getElementById('d-remove-start');
     if (start) start.hidden = true;
+    setForceOffered(false);   // #2651: the card is gone; nothing to override
     const withdrawn = 'This agent is no longer under Agents. It may have been removed somewhere else, '
       + 'or it may have stopped. Nothing here can change it until it is back.';
     /* In the header, visible from every section: the Remove block is one
@@ -24889,6 +24899,7 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
     box.hidden = false;
     hint.textContent = 'We could not reach the board just now, so we cannot tell you whether this agent can be removed. It will come back on its own.';
     document.getElementById('d-remove-start').hidden = true;
+    setForceOffered(false);   // #2651: no override until we can actually read the board
     return;
   }
 
@@ -24901,11 +24912,17 @@ async function loadRemoval(sessionName, { fromPoll = false } = {}) {
     // again", describing work that does not happen.
     hint.textContent = ask.hint || '';
     document.getElementById('d-remove-start').hidden = false;
+    setForceOffered(false);   // #2651: a tied agent removes normally; no override
   } else {
     // Says WHY rather than simply not being there. Somebody looking for this
     // deserves an answer.
     hint.textContent = (ask && ask.because) || 'We cannot remove this agent right now.';
     document.getElementById('d-remove-start').hidden = true;
+    /* #2651: ONLY the untied refusal (Kosmos cannot tie the running session to
+       this card) is overridable, and only to CLEAR THE CARD off the board -- the
+       session is left running. Every other refusal (already removed, nothing
+       there, cannot check) shows no override. */
+    setForceOffered(!!(ask && ask.untied), sessionName);
   }
 }
 
@@ -25221,6 +25238,46 @@ document.getElementById('d-remove-start').addEventListener('click', () => {
   // an empty modal would show a confirmation with no name in it.
   if (!REMOVE_ASK || !CURRENT) return;
   openRemoveModal(CURRENT.sessionName, REMOVE_ASK);
+});
+
+/* #2651: show/hide the untied-override affordance. Only the untied refusal is
+   overridable, and only to CLEAR THE CARD -- so this is offered nowhere else. */
+function setForceOffered(show, sessionName) {
+  const wrap = document.getElementById('d-remove-force-wrap');
+  const note = document.getElementById('d-remove-force-note');
+  if (wrap) wrap.hidden = !show;
+  if (note) note.hidden = !show;
+  if (show && sessionName) document.getElementById('d-remove-force').dataset.forceAgent = sessionName;
+}
+
+/* #2651: clear an untied card off the board WITHOUT stopping its session. A plain
+   DELETE ?force=1 -- the engine gates force to the untied case only, so this can
+   never stop or hide the wrong thing. On success the board poll drops the card and
+   the panel becomes "no longer under Agents"; the message (kept by the poll) says
+   the session was left running. */
+document.getElementById('d-remove-force').addEventListener('click', async () => {
+  const btn = document.getElementById('d-remove-force');
+  const forAgent = btn.dataset.forceAgent;
+  const msg = document.getElementById('d-remove-msg');
+  if (!forAgent) return;
+  btn.disabled = true;
+  msg.textContent = '';
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/removal?force=1', { method: 'DELETE' });
+    const done = await res.json().catch(() => null);
+    if (!done || done.outcome === 'refused') {
+      msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
+      btn.disabled = false;
+      return;
+    }
+    // REMOVED or PARTIAL: the card is off the board. Do not re-enable a button
+    // that is now gone; the message says what happened (including the session
+    // being left running).
+    msg.textContent = done.because || 'Cleared from your board.';
+  } catch {
+    msg.textContent = 'We could not reach the board just now. Try again in a moment.';
+    btn.disabled = false;
+  }
 });
 
 document.getElementById('rm-keep').addEventListener('click', closeRemoveModal);

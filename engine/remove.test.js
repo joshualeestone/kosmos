@@ -524,6 +524,47 @@ test('a session the board does not tie to this agent is left alone', () => {
   assert.equal(remove.isRemoved(name), false, 'it recorded a removal it never performed');
 });
 
+test('#2651: a user-FORCED remove of an untied card clears the card and STILL leaves the session alone', () => {
+  // The residual/auto-imported card case (a teammate's session on a shared Mac):
+  // the default refusal is right, but the person must be able to clear it off
+  // their board. `force` records the removal (hides the card) and revokes any
+  // token, and touches NO tmux/launchd -- so the untied session keeps running.
+  const name = madeAgent('force-untied');
+  status.setPaneSource(() => fleet.line({ session: name, claim: 'somebody-else', title: '✳ Claude Code' }));
+  const calls = world();
+  remove.setDryRun(false);
+
+  // Default (no force) is unchanged: refused, nothing touched, not recorded.
+  const refused = mac.remove(name);
+  assert.equal(refused.outcome, remove.OUTCOME.REFUSED, refused.because);
+  assert.equal(remove.isRemoved(name), false, 'the default refusal recorded a removal');
+  assert.deepEqual(calls, [], 'the default refusal disabled/stopped/killed something');
+
+  // force:true clears the CARD (recorded/hidden) and STILL runs no commands.
+  const forced = mac.remove(name, { force: true });
+  assert.equal(forced.outcome, remove.OUTCOME.REMOVED, forced.because);
+  assert.equal(remove.isRemoved(name), true, 'the forced clear did not hide the card');
+  assert.match(forced.because, /left its terminal session running/i,
+    'it did not tell the person the session was left running');
+  assert.deepEqual(calls, [],
+    'the forced clear DISABLED, STOPPED or KILLED something -- it must ONLY record/hide the card, never touch the untied session');
+});
+
+test('#2651: force is INERT on a refusal that is not the untied case (it can never hide the wrong thing)', () => {
+  // The "we could not check which agent" refusal is NOT untied, so force must
+  // not reach it: the card stays, nothing is recorded, nothing runs.
+  const name = madeAgent('force-inert');
+  status.setPaneSource(() => { throw new Error('tmux is not where we thought'); });
+  const calls = world();
+  remove.setDryRun(false);
+
+  const r = mac.remove(name, { force: true });
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, 'force overrode a refusal that is not the untied case');
+  assert.match(r.because, /could not check which agent/);
+  assert.equal(remove.isRemoved(name), false, 'force hid a card on a refusal that was not untied');
+  assert.deepEqual(calls, [], 'force ran commands on a non-untied refusal');
+});
+
 test('the untied check is still made at the session step, for a roster that changes mid-removal', () => {
   /**
    * ⚠️ THE GATE IS NOT A REPLACEMENT FOR THE LATER CHECK, and this pins the

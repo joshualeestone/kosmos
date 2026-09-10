@@ -3776,11 +3776,19 @@ const server = http.createServer((req, res) => {
   if (rm && req.method === 'DELETE') {
     const name = decodeSegment(rm[1]);
     if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #2651: `?force=1` opts into the user-initiated override of the UNTIED
+       refusal ONLY -- clear the card of an agent whose session Kosmos cannot tie
+       to it (a residual/auto-imported card, a teammate's session on a shared box)
+       WITHOUT stopping that session. A QUERY param (not a DELETE body, which
+       proxies strip) so it survives the request. The engine gates it: force is
+       inert on every refusal except `untied`, so this cannot stop or hide the
+       wrong thing. Absent = today's behaviour exactly. */
+    const force = /[?&]force=(?:1|true)\b/i.test(req.url || '');
     let done;
     // ⚠️ Guarded for the reason given on the route above, and it matters most
     // here: this is the call that has already disabled a launchd job by the
     // time anything downstream can throw.
-    try { done = removal.remove(name); }
+    try { done = removal.remove(name, { force }); }
     catch (err) { sendJson(res, 500, { error: 'the removal failed partway and we cannot tell you how far it got', detail: String(err && err.message || err) }); return; }
     // ⚠️ A PARTIAL answers 200, deliberately: the request was understood and
     // acted on, and what happened is in the body, which is where a removal's
