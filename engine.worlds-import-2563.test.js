@@ -54,10 +54,11 @@ test('#2563 import copies profiles into the target and leaves the SOURCE untouch
   const r = worlds.importAgents(base, dst, [src.id]);
   assert.deepEqual(r, { copied: 2, skipped: 0, unknownSources: 0 });
 
-  // target now holds both, byte-identical
+  // target now holds both, same CONTENT (the copy re-serializes and re-mints identity,
+  // so it is not byte-identical, but the source had no id fields so content is equal)
   assert.equal(worlds.agentCount(base, dst), 2, 'both agents landed in the new world');
-  assert.equal(profileBytes(base, dst, 'alice'), before.alice, 'alice copied verbatim');
-  assert.equal(profileBytes(base, dst, 'bob'), before.bob, 'bob copied verbatim');
+  assert.deepEqual(JSON.parse(profileBytes(base, dst, 'alice')), JSON.parse(before.alice), 'alice content copied');
+  assert.deepEqual(JSON.parse(profileBytes(base, dst, 'bob')), JSON.parse(before.bob), 'bob content copied');
   // CONTROL: the source is UNCHANGED -- copy, never move
   assert.ok(profileExists(base, src, 'alice') && profileExists(base, src, 'bob'), 'source keeps its agents');
   assert.equal(profileBytes(base, src, 'alice'), before.alice, 'source alice byte-for-byte unchanged');
@@ -99,6 +100,35 @@ test('#2563 an unknown or traversing source id is skipped, not fatal', () => {
   assert.equal(r.unknownSources, 2, 'both bad ids counted as unknown');
   assert.equal(r.copied, 1, 'the one real source still imported');
   assert.equal(worlds.agentCount(base, dst), 1);
+});
+
+test('#2563 an imported profile is re-minted a FRESH identity: id/idInstall are stripped', () => {
+  const base = sandbox();
+  const src = worlds.createWorld(base, 'Source');
+  const dst = worlds.createWorld(base, 'Dest');
+  // a source profile carrying the store's identity fields (as a real one would)
+  seedAgent(base, src, 'alice', { name: 'alice', role: 'analyst', id: 'deadbeef0001', idInstall: 'install-XYZ' });
+
+  const r = worlds.importAgents(base, dst, [src.id]);
+  assert.equal(r.copied, 1);
+  const copied = JSON.parse(profileBytes(base, dst, 'alice'));
+  assert.ok(!('id' in copied), 'the imported copy carries no id -> store.writeProfile mints a fresh one on first write');
+  assert.ok(!('idInstall' in copied), 'and no idInstall');
+  assert.equal(copied.role, 'analyst', 'the rest of the profile is preserved');
+  // CONTROL: the SOURCE keeps its original identity (copy-not-move, and it was not stripped in place)
+  const srcProf = JSON.parse(profileBytes(base, src, 'alice'));
+  assert.equal(srcProf.id, 'deadbeef0001', 'source id untouched');
+  assert.equal(srcProf.idInstall, 'install-XYZ', 'source idInstall untouched');
+});
+
+test('#2563 importing from the DEFAULT Kosmos (the common first-Kosmos case) works', () => {
+  const base = sandbox();
+  seedAgent(base, worlds.defaultWorld(), 'dave', { name: 'dave', role: 'ops' });
+  const dst = worlds.createWorld(base, 'Dest');
+  const r = worlds.importAgents(base, dst, [worlds.DEFAULT_ID]);
+  assert.deepEqual(r, { copied: 1, skipped: 0, unknownSources: 0 });
+  assert.equal(worlds.agentCount(base, dst), 1, 'the default Kosmos agent copied into the new one');
+  assert.equal(worlds.agentCount(base, worlds.defaultWorld()), 1, 'the default Kosmos is unchanged');
 });
 
 test('#2563 a source Kosmos with no agents (no profiles dir) contributes nothing, not an error', () => {

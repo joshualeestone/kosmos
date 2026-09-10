@@ -34,8 +34,10 @@ builds the ENGINE half to that contract. A "Kosmos" is internally a "world" (eng
 **IN:**
 - `GET /api/worlds/list`: list worlds with a profile-count each.
 - `POST /api/worlds` + `importAgentsFrom`: after `createWorld`, copy the source worlds' profile
-  JSONs into the new world's `profiles/` dir. Sources untouched (copy, never move). Response gains
-  `imported` (count) so the web slice can confirm.
+  JSONs into the new world's `profiles/` dir. Sources untouched (copy, never move). Each copy
+  re-mints identity: the source `id`/`idInstall` are stripped so the imported agent gets a fresh id
+  on its first `store.writeProfile` (the decided restore convention, store.js:404). Response gains an
+  `imported` object `{ copied, skipped, unknownSources }` so the web slice can confirm.
 - Collision (the same profile filename from two sources, or already present in the target):
   FIRST-WINS (skip), deterministic, documented. Rationale: never silently overwrite an
   already-copied agent; the source order is the tiebreak.

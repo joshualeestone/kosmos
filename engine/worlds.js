@@ -404,22 +404,34 @@ function importAgents(base, targetWorld, sourceWorldIds) {
       if (!src) result.unknownSources += 1;
       continue;
     }
+    const srcDir = worldProfilesDir(base, src);
     let files;
-    try { files = fs.readdirSync(worldProfilesDir(base, src)).filter((f) => f.endsWith('.json')); }
+    try { files = fs.readdirSync(srcDir).filter((f) => f.endsWith('.json')); }
     catch { files = []; } // a source with no profiles dir contributes nothing, not an error
     for (const file of files) {
       const dst = path.join(targetDir, file);
       if (fs.existsSync(dst)) { result.skipped += 1; continue; } // first-wins
-      const from = path.join(worldProfilesDir(base, src), file);
       const tmp = dst + `.${process.pid}.tmp`;
       try {
-        fs.copyFileSync(from, tmp);
+        // A profile copied into a NEW Kosmos is a SEPARATE agent, so strip the
+        // identity fields (id/idInstall). store.writeProfile mints a FRESH id on the
+        // imported agent's first write when id is absent -- the decided restore
+        // convention ("a restored agent is a separate agent with its own fresh id",
+        // store.js:404). A byte copy would carry the source id over, and because the
+        // import is same-install, store's remint-on-different-install rule would NOT
+        // fire, silently conflating the two agents to any future id-based feature.
+        // Reading + re-serializing also means a corrupt (unparseable) source profile
+        // is skipped rather than copied verbatim.
+        const prof = JSON.parse(fs.readFileSync(path.join(srcDir, file), 'utf8'));
+        delete prof.id;
+        delete prof.idInstall;
+        fs.writeFileSync(tmp, JSON.stringify(prof, null, 2));
         fs.renameSync(tmp, dst);
         result.copied += 1;
       } catch (_e) {
         try { fs.unlinkSync(tmp); } catch (_u) { /* best effort */ }
-        // A single unreadable/unwritable profile must not abort the whole import or
-        // orphan the created world; skip it and keep going.
+        // A single unreadable/corrupt/unwritable profile must not abort the whole
+        // import or orphan the created world; skip it and keep going.
         result.skipped += 1;
       }
     }
