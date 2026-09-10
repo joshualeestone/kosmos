@@ -1008,6 +1008,94 @@ test('#2609 restore REFUSES when the account directory the agent ran on is gone,
   assert.equal(remove.isRemoved(name), true, 'a refused restore must leave it on the removed list');
 });
 
+/* ─────────────────────────────────────────────────────────────────────────────
+ * #2615: the predicate the SCREEN reads is the predicate the REFUSAL uses.
+ *
+ * #2609 kept this test inline in restoreInner, which was right while the
+ * refusal was its only consumer. The removed-list now needs the same answer
+ * BEFORE the click, to grey the Restore control out, and a browser cannot stat
+ * a filesystem. The tempting shape was four lines of readJob + existsSync
+ * copied into the route; these arms exist because that copy would have been
+ * green on the day it was written and is the thing that drifts.
+ *
+ * ⭐ Each arm below is one of #2609's OWN scope bullets, turned from a comment
+ * into an assertion. A scope stated only in prose is a scope nobody can see
+ * break, and widening this predicate is the specific way this card could make
+ * things worse: a control greyed out where the engine would have said YES is
+ * worse than the click-then-refuse it replaces, because it looks like a
+ * decision rather than a bug and nobody reports it.
+ * ───────────────────────────────────────────────────────────────────────────*/
+test('#2615 the exported predicate and the refusal agree, both ways', () => {
+  const gone = 'pred-gone';
+  const acctDir = acctAgent(gone);
+  boardShows(gone, `${gone}-discord`);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(gone).outcome, remove.OUTCOME.REMOVED);
+
+  // Present: predicate says null, and the refusal does not fire.
+  assert.equal(remove.restoreBlockedByMissingAccountDir(gone, 'darwin'), null,
+    'the predicate blocks while the account dir still exists');
+
+  fs.rmSync(acctDir, { recursive: true, force: true });
+  assert.ok(!fs.existsSync(acctDir), 'control: the account dir must actually be gone');
+
+  // Gone: predicate names the dir, and the refusal fires for the same agent.
+  assert.equal(remove.restoreBlockedByMissingAccountDir(gone, 'darwin'), acctDir,
+    'the predicate does not see the gone account dir the refusal refuses on');
+  world();
+  remove.setDryRun(false);
+  const r = mac.restore(gone);
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, r.because);
+  /* 🔑 THE AGREEMENT, asserted as one fact rather than as two that happen to
+     match: the refusal fires exactly when the predicate returns a dir. A change
+     to either caller alone reds this. */
+  assert.equal(!!remove.restoreBlockedByMissingAccountDir(gone, 'darwin'),
+    r.outcome === remove.OUTCOME.REFUSED,
+    'the predicate and the refusal disagree, so the greyed-out control and the engine have drifted');
+});
+
+test('#2615 SCOPE: a default-account agent is never blocked (configDir is null)', () => {
+  /* madeAgent is a default-account agent: no CLAUDE_CONFIG_DIR in its plist, so
+     readJob gives configDir null and ~/.claude always exists. Greying its
+     Restore out would disable a control that works. */
+  const name = 'pred-default';
+  madeAgent(name);
+  assert.equal(create.readJob(name) && create.readJob(name).configDir, null,
+    'the fixture must have no configDir, or this arm tests the wrong thing');
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'darwin'), null,
+    'a default-account agent was blocked, so a working Restore is greyed out');
+});
+
+test('#2615 SCOPE: win32 is never blocked, and that is a KNOWN GAP not a pass', () => {
+  /* The account dir rides the launchd plist and a win32 agent has none, so this
+     cannot fire there. #2609 named it as a follow-up and it is still open: a
+     Windows agent whose account was deleted restores unchecked.
+     ⚠️ This arm pins the CURRENT behaviour so the gap is visible in the suite
+     rather than only in a comment. It is not an assertion that the behaviour is
+     right. Whoever closes the win32 half should expect to change this line. */
+  const name = 'pred-win32';
+  const acctDir = acctAgent(name);
+  fs.rmSync(acctDir, { recursive: true, force: true });
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'darwin'), acctDir,
+    'control: on darwin this same agent IS blocked, or the win32 arm below proves nothing');
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'win32'), null,
+    'win32 now blocks; if that is deliberate, this arm and #2609 follow-up need updating together');
+});
+
+test('#2615 SCOPE: a gone plist is the plistGone case, not this one', () => {
+  /* readJob returns null with no plist, so this predicate must stay silent and
+     leave that case to the separate startableGone reporting. */
+  const name = 'pred-noplist';
+  const acctDir = acctAgent(name);
+  fs.rmSync(acctDir, { recursive: true, force: true });
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'darwin'), acctDir,
+    'control: with the plist present this agent IS blocked');
+  fs.rmSync(create.plistPath(name), { force: true });
+  assert.equal(remove.restoreBlockedByMissingAccountDir(name, 'darwin'), null,
+    'a missing plist was reported as a gone account folder, which is a different cause');
+});
+
 test('#2609 CONTROL: restore proceeds normally when the account directory still EXISTS', () => {
   // The check must not over-refuse: a removed agent whose account is still there
   // restores exactly as before. This is what makes the REFUSE above mean something.

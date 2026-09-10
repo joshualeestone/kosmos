@@ -252,6 +252,46 @@ function isRemoved(name) {
   return readRemoved().some((r) => r.name === clean);
 }
 
+/**
+ * The account directory this agent ran on, IF restoring it would point at a
+ * directory that is gone. `null` when a restore is not blocked for this reason.
+ *
+ * 🔑 #2615: EXPORTED SO THE SCREEN AND THE REFUSAL CANNOT DISAGREE. #2609 put
+ * this test inline in `restore()`, which was right while the only consumer was
+ * the refusal. The removed-list now needs the same answer BEFORE the click, to
+ * grey the Restore control out, and a browser cannot stat a filesystem.
+ * 🛑 The tempting shape is four lines of `readJob` + `existsSync` copied into
+ * the route. Do not: a pre-click state whose whole job is to agree with a
+ * post-click refusal is the last place two implementations of one fact belong,
+ * and a control greyed out where the engine would have said YES is worse than
+ * the click-then-refuse it replaces, because it fails in the direction nobody
+ * reports.
+ *
+ * The scope is #2609's and is deliberately narrow. Every bullet is a case this
+ * must NOT fire on, and each is pinned by an arm:
+ *  - **win32 is out, structurally.** The account dir rides the launchd plist,
+ *    and a win32 agent has none (it carries a registered Scheduled Task), so
+ *    `readJob` returns null. A Windows agent whose account was deleted still
+ *    restores unchecked; that is #2609's named follow-up, still open, and NOT
+ *    closed here.
+ *  - **A default-account agent has `configDir: null`** and is untouched: no
+ *    CLAUDE_CONFIG_DIR in its plist, and the default `~/.claude` always exists.
+ *  - **A gone plist** makes `readJob` return null, which is the separate
+ *    `plistGone` case, not this one. This fires only when the plist EXISTS and
+ *    names a configDir that does not.
+ *
+ * ⚠️ `fs.existsSync` matches the sibling `startableGone` check and its macOS
+ * case-insensitivity errs SAFE here: a case-variant dir reads as PRESENT, so
+ * the restore is allowed and the engine's own later steps decide. Erring the
+ * other way would grey out a control that works.
+ */
+function restoreBlockedByMissingAccountDir(name, platform) {
+  const clean = create.cleanName(name);
+  const launched = (platform || process.platform) === 'win32' ? null : create.readJob(clean);
+  if (launched && launched.configDir && !fs.existsSync(launched.configDir)) return launched.configDir;
+  return null;
+}
+
 /** The removed agents, newest first, for the "show removed" list. */
 function removedAgents() {
   return readRemoved().slice()
@@ -1400,11 +1440,11 @@ function restoreInner(name, platform) {
      rather than incidental (readJob happens to return null on win32 for lack of a
      plist): a win32 configDir rides the Scheduled Task argv, not a plist, and needs
      its own readback (the follow-up named above). */
-  const launched = (platform || process.platform) === 'win32' ? null : create.readJob(clean);
-  if (launched && launched.configDir && !fs.existsSync(launched.configDir)) {
+  const goneDir = restoreBlockedByMissingAccountDir(clean, platform);
+  if (goneDir) {
     return {
       outcome: OUTCOME.REFUSED,
-      because: `${shown} ran on an account whose folder is gone (${launched.configDir}), so restoring it now would start it pointing at a directory that no longer exists. Add that account back under the same name first, then restore.`,
+      because: `${shown} ran on an account whose folder is gone (${goneDir}), so restoring it now would start it pointing at a directory that no longer exists. Add that account back under the same name first, then restore.`,
       steps: [],
     };
   }
@@ -1722,6 +1762,7 @@ module.exports = {
   isRemoved,
   removedNames,
   removedAgents,
+  restoreBlockedByMissingAccountDir,   // #2615: the screen and the refusal read ONE predicate
   jobFor,
   jobOps,   // #570: exported so the win32 job-act dispatch is assertable from a Mac
   sessionOps, // #570: same, for the session-ending dispatch both remove and restart share
