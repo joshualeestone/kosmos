@@ -205,3 +205,26 @@ decision out of existence on the strength of a ratio that cannot support it).
 
 Plan renamed to `.claude/plans/provider-qualifier-2612-20260909T2331.md`, the timestamp taken from
 the file's own add-commit rather than from the clock at rename time.
+
+### The `providersByKey` refactor is behaviour-identical, MEASURED
+
+NIT (b) moved the provider set out of a per-row `rows.filter()` into the existing one-pass
+precompute. That is a performance change that must not be a behaviour change, and "it is obviously
+equivalent" is exactly the kind of claim this branch has been wrong about five times. So it was
+swept rather than reasoned: both versions of `accountQualifiers` were extracted (the new one from
+the working tree, the old one from `git show 65167cc2:web/index.html`) and run against the same
+fixtures over the axes that matter (provider x label x email x isDefault, two rows).
+
+```
+combinations swept:                12544
+DIFFERENCES old vs new:                0
+CONTROL (mutant vs old) differences: 168   <- the sweep CAN see a difference
+```
+
+⭐ The control is the load-bearing half. A sweep reporting 0 differences and a sweep that is
+structurally blind produce the identical line, so the same harness was re-run against a mutant
+(`providerDistinguishes` forced false) and found 168 differences. Without that arm the 0 above
+would mean nothing.
+
+Probe kept at `/tmp` deliberately: it compares against a sha that will not survive a rebase, so it
+is a measurement of this moment rather than a test worth committing.
