@@ -490,3 +490,58 @@ meets.** Two of the six comment defects on this card were this exact shape.
 State: 44 arms, `tools/run-tests.sh` rc=0 with 5587 tests, 0 fail, 0 skipped, browser check green.
 Iteration 9 ran 14 mutations, 13 red, the only survivor the documented unpinnable one. **Not
 converged**; iteration 10 (sonnet) running.
+
+## Challenge-loop iteration 10 (sonnet): BLOCKER 0, WARNING 0, CONVENTION 1, NIT 1
+
+**First round of ten with nothing above CONVENTION.** Both findings were real and both are fixed.
+
+### The CONVENTION is the seventh instance of the same class, in a file the diff never touched
+
+`web.acct-picker-1917.test.js` carried the parenthetical *"(accountQualifiers uses only
+acctChosenName, not acctPrimaryName.)"*. True when written; false since the commit that repointed
+the key. **The file kept passing because that helper was already grabbed for `fillCreateAccounts`'
+own use, so nothing failed to say so.**
+
+⭐ **This is the class's worst variant: the stale claim was in a file OUTSIDE the diff, and the only
+thing that could have caught it was a person reading it.** No test, no gate, no grep for a defect
+in the changed set would ever reach it. Seven instances now, and the sub-shapes are worth listing
+because they are different failure modes wearing one label:
+  - the claim retracted in place but surviving in the SUMMARY above it (twice)
+  - the claim in a sibling file that the change invalidated at a distance (this one)
+  - the claim about ANOTHER file's structure, unverifiable by any test here (three)
+  - the count that was right for the wrong reason (once)
+
+### The NIT was the function's own invariant, reached from the last unguarded direction
+
+`distinctly('')` returned `''` straight back, so a row sharing an ambiguous key with an empty `dir`
+got the empty qualifier. **`''` is the ONE value an ambiguous row must never receive**, because it
+is the "not ambiguous, no qualifier needed" signal: the row then renders its bare name beside a
+sibling doing the same.
+
+```
+before -> [["",""],   ["/h/.b","/h/.b"]]
+after  -> [["","account"], ["/h/.b","/h/.b"]]
+```
+
+Unreachable through `/api/accounts` (`list()` always supplies a real path), so it pins a property
+rather than guarding a live path. Fixed anyway for the reason the dir-keying guard already gives:
+**the function is pure and exported, and its whole defence is that a future caller cannot break it
+from a distance.**
+
+📌 **Weakest premise, named not buried:** "unreachable today" rests on every current caller passing
+rows straight from `list()`. That is the same premise the dir-keying guard rests on, and **#2584
+already showed one of these dismissals going live** when a row gained a new field.
+
+✅ **The arm carries a control in the OTHER direction**, because the obvious wrong fix is to qualify
+everything: an UNAMBIGUOUS row must still get `''`, or every solo-account screen grows a pointless
+tag. Mutation control: reverting the guard reds the arm.
+
+### Why I am not calling this converged
+
+One quiet round after nine loud ones is weak evidence. The handoff rule from #2570 applies: **the
+NINTH pass of twelve was the highest-yield of that run.** Iteration 11 (opus) is briefed to decide
+whether this is genuinely converged **or whether ten rounds have trained my blind spot into the
+code**, and told to assume the latter until it has looked.
+
+State: 45 arms, `tools/run-tests.sh` rc=0 with 5588 tests, 0 fail, 0 skipped, browser check green,
+collision sweep 0 across 62,208 fixtures with controls at 164 and 1760.
