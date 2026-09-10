@@ -303,3 +303,91 @@ accepting the rating rather than after.**
 
 State: 37 arms (was 36), `bash tools/run-tests.sh` rc=0 with 5580 tests and 0 fail, browser check
 green under real playwright. **Not converged**; iteration 7 (opus) running.
+
+## Challenge-loop iteration 7 (opus): no BLOCKERs, 2 WARNINGs, 1 NIT, all three real
+
+### W1: I closed the CASE arm of a class and left the MISSING arm open
+
+The empty-string provider inflated the group's provider set exactly as a case-variant did. Iteration
+6 fixed one half of one class and I recorded it as if the class were closed.
+
+```
+provider-less row beside a real Anthropic one -> ["main", "Claude"]   <- provider name in a
+                                                                        one-real-provider group
+control, both rows named anthropic            -> ["main", "/h/.claude-w"]
+```
+
+An absent provider is not evidence of a SECOND provider, so it no longer votes; it still falls to
+`dir` at the ternary, which is right for a row we cannot name.
+
+⚠️ **This one is reachable FROM THE TESTS though not from `/api/accounts`:** `DEFAULT_ROW`,
+`SECOND_ROW` and `OTHER` at the top of the test file all omit `provider`, so mixing one with a
+provider-bearing row is a fixture any future author would write without thinking about it.
+
+### W2: the arm I added in iteration 6 to cover this fix covered HALF of it
+
+Iteration 6 added **two** normalisations (the group's provider set, and `provId` at the ternary) and
+pinned **one**. Reverting the ternary's `.toLowerCase()` left all 37 arms green, because the
+case-variant fixture was all-Anthropic, so `providerDistinguishes` is false and **the ternary is
+never reached there**.
+
+⭐ **An arm written to cover a fix can cover half of it and read as complete.** Same class as the
+duplicate iteration 6 found, one level in: there the comment overclaimed against the fixture, here
+the fixture underreached against the fix.
+
+The shape that reaches the ternary needs the case-variant row **not** to be the first default (or it
+takes `main` and never falls through) **and** the group to genuinely span providers (or the provider
+step is skipped): an OpenAI default first, then a case-variant Anthropic row.
+Measured: `["main","Claude"]` unmutated, `["main","/h/.claude"]` mutated.
+
+### The NIT, where my own measurement CORRECTED the reviewer
+
+The reviewer reported both `main` guards as individually redundant. Two sweeps, and they answer
+different questions:
+
+```
+110,592 three-row fixtures, OUTPUTS differing from unmutated:
+  M1 alone 25088     M2 alone 0      M1+M2 25088
+ 64,000 of the same fixtures, AUDIBLE COLLISIONS produced:
+  base 0   M1 alone 0   M2 alone 0   M1+M2 7680     <- the control
+```
+
+⇒ **The reviewer's conclusion holds for the INVARIANT and not for the OUTPUT.** Neither guard alone
+can break distinctness, so no arm asserting "no two qualifiers sound alike" can ever red one alone.
+But M1 is observable in 25,088 fixtures, so it **can** be pinned by asserting the chosen qualifier
+instead of the invariant. That arm now exists and M1 is caught.
+
+📌 **M2 stays genuinely unpinned (0 differences in both sweeps) and the file now says so plainly**
+rather than implying the pair-arm holds each guard. **A redundant guard that is honestly labelled
+beats a vacuous arm claiming to hold it.** Both sweeps are bounded to three-row fixtures over that
+label/provider/default space and are not proofs for all inputs.
+
+⭐ **The transferable bit: "is this guard redundant?" is two questions.** Redundant for the
+invariant, and redundant for the output. A single sweep answers whichever one it happened to
+measure, and reports it as though it answered both.
+
+### Consolidation, because the duplication had already bitten
+
+The two `provId` derivations are now one `provIdOf` helper. They were separate one-liners for
+**exactly one iteration** and drifted immediately, which is precisely what W2 was. Convention 5
+names a duplicated fact as this codebase's most-shipped defect. Breaking the single helper now reds
+**2** arms, which is the check that the consolidation kept coverage rather than merging it away.
+
+### Mutation battery, 7 single-point mutations against all 40 arms
+
+| # | mutation | before this commit | now |
+|---|---|---|---|
+| M1 | `main` compare not lowercased | SURVIVED | **caught** |
+| M2 | `takenAlready('main')` -> `used.has` | SURVIVED | SURVIVED, measured unobservable |
+| M3 | `takenAlready(qual)` -> `used.has` | caught | caught |
+| M4 | `takenAlready(prov)` -> `used.has` | caught | caught |
+| M6 | `providerDistinguishes := true` | caught | caught, 3 arms |
+| M7 | ternary `provId` not lowercased | SURVIVED | **caught** |
+| M8 | empty provider re-admitted | n/a | caught |
+
+📌 Each mutation **asserts its target is present exactly once before substituting**, so a mutation
+cannot silently no-op and report a false survival. That guard is the reason this battery is worth
+anything: a mutation that fails to apply looks exactly like a mutation the tests caught.
+
+State: 40 arms (was 37), `bash tools/run-tests.sh` rc=0 with 5583 tests and 0 fail, browser check
+green under real playwright. **Not converged**; iteration 8 (sonnet) running.
