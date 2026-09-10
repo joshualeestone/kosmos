@@ -314,7 +314,7 @@ function say(name, text, opts) {
   try { parsed = JSON.parse(String(out).trim().split('\n').pop()); } catch { parsed = undefined; }
   /* The helper RAN -- a never-started one returned above -- so it may have
      handed the message over before its verdict went wrong. Unsure, not a no. */
-  if (!parsed || typeof parsed !== 'object') {
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
     return { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' };
   }
   if (parsed.ok === true) return { ok: true };
@@ -399,7 +399,7 @@ function clientMain(name, text, opts) {
     try { reply = JSON.parse(buf.slice(0, nl)); } catch { reply = undefined; }
     /* An answer we cannot read came from a supervisor that may already have typed
        the message, so once the request is written it is unsure, never a no. */
-    if (!reply || typeof reply !== 'object') {
+    if (!reply || typeof reply !== 'object' || Array.isArray(reply)) {
       finish(wrote
         ? { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' }
         : { ok: false, because: 'we could not make sense of what came back from its channel' });
