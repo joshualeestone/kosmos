@@ -996,10 +996,11 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
  *   anything else -> COULD_NOT    nothing was typed, so re-sending is safe
  *
  * ⚠️ `unsure` IS THE CHANNEL'S OWN CLAIM, not inferred here. `win32channel`
- * sets it when the message may have reached the supervisor: an answer lost after
- * the request was written, or a helper that died without a verdict. Folding
- * those into COULD_NOT would tell somebody "not delivered" about a message that
- * may be in the agent's conversation, which is how it gets sent twice.
+ * sets it for any doubt once the request was handed over -- a lost or unreadable
+ * answer, a helper that ran and died, a supervisor write that failed part-way.
+ * Folding those into COULD_NOT would tell somebody "not delivered" about a
+ * message that may be in the agent's conversation, which is how it gets sent
+ * twice.
  *
  * ⚠️ A THROW IS UNCONFIRMED, NOT COULD_NOT. `say()` promises never to throw, so
  * one that does has broken that promise at a point we cannot see, and "nothing

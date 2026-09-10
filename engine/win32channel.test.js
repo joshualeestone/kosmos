@@ -219,6 +219,8 @@ test('#570 7c-4 a helper that RAN but left no readable verdict is unsure, not a 
     ['garbage', "process.stdout.write('not json\\n');\n"],
     ['silent', ''],
     ['array', "process.stdout.write('[]\\n');\n"],   // typeof [] is 'object'; round 4 found it slipping past
+    ['empty-object', "process.stdout.write('{}\\n');\n"],   // an object with no verdict in it (round 5)
+    ['ok-not-boolean', "process.stdout.write('{\"ok\":1}\\n');\n"],
   ]) {
     const script = path.join(SANDBOX, 'helper-' + label + '.js');
     fs.writeFileSync(script, body, 'utf8');
@@ -233,7 +235,7 @@ test('#570 7c-4 a reply we cannot read, after the request was written, is unsure
   /* The supervisor had the request and may have typed it; only its answer is
      unreadable. Reading that as "not delivered" invites a second send. */
   const net = require('node:net');
-  for (const reply of ['not json\n', 'null\n', '[]\n']) {
+  for (const reply of ['not json\n', 'null\n', '[]\n', '{}\n', '{"ok":1}\n', '{"because":"x"}\n']) {
     const at = address();
     const server = net.createServer((sock) => { sock.once('data', () => sock.end(reply)); });
     await new Promise((res) => server.listen(at, res));

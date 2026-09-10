@@ -310,20 +310,33 @@ function say(name, text, opts) {
       return { ok: false, because: 'we could not reach it to type anything (' + ((e && e.code) || 'no answer') + ')' };
     }
   }
-  let parsed;
-  try { parsed = JSON.parse(String(out).trim().split('\n').pop()); } catch { parsed = undefined; }
   /* The helper RAN -- a never-started one returned above -- so it may have
-     handed the message over before its verdict went wrong. Unsure, not a no. */
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' };
+     handed the message over before its verdict went wrong. */
+  return readVerdict(String(out).trim().split('\n').pop(), true);
+}
+
+/**
+ * Read one verdict line from the other side. The ONE reading for both places
+ * that receive one -- `clientMain` from the supervisor, `say()` from the helper
+ * -- because two copies of this guard is how a gap got fixed in one and not the
+ * other, twice (review rounds 3-5).
+ *
+ * Only two shapes are verdicts, the two this file writes: `ok === true`, and
+ * `ok === false` with a sentence, which carries its own `down` / `unsure`.
+ * Anything else did not come from us, so we cannot know what happened: once the
+ * request was handed over that is unsure, before it a definite no.
+ */
+function readVerdict(line, handedOver) {
+  let v;
+  try { v = JSON.parse(line); } catch { v = undefined; }
+  const isObject = Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  if (isObject && v.ok === true) return { ok: true };
+  if (isObject && v.ok === false && typeof v.because === 'string' && v.because) {
+    return { ok: false, because: v.because, down: v.down === true, unsure: v.unsure === true };
   }
-  if (parsed.ok === true) return { ok: true };
-  return {
-    ok: false,
-    because: (parsed && parsed.because) || 'it did not take the message',
-    down: Boolean(parsed && parsed.down),
-    unsure: Boolean(parsed && parsed.unsure),
-  };
+  return handedOver
+    ? { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' }
+    : { ok: false, because: 'we could not make sense of what came back from its channel' };
 }
 
 /**
@@ -395,24 +408,10 @@ function clientMain(name, text, opts) {
     buf += chunk.toString('utf8');
     const nl = buf.indexOf('\n');
     if (nl === -1) return;
-    let reply;
-    try { reply = JSON.parse(buf.slice(0, nl)); } catch { reply = undefined; }
-    /* An answer we cannot read came from a supervisor that may already have typed
-       the message, so once the request is written it is unsure, never a no. */
-    if (!reply || typeof reply !== 'object' || Array.isArray(reply)) {
-      finish(wrote
-        ? { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' }
-        : { ok: false, because: 'we could not make sense of what came back from its channel' });
-      return;
-    }
-    /* The supervisor's own flags travel with its sentence; dropping them here
-       would turn its "may have arrived" into our "was not delivered". */
-    finish(reply && reply.ok === true ? { ok: true } : {
-      ok: false,
-      because: (reply && reply.because) || 'it did not take the message',
-      down: Boolean(reply && reply.down),
-      unsure: Boolean(reply && reply.unsure),
-    });
+    /* The supervisor's own flags travel with its sentence; an answer we cannot
+       read, once the request is written, came from a supervisor that may already
+       have typed the message. */
+    finish(readVerdict(buf.slice(0, nl), wrote));
   });
   sock.on('close', () => finish(wrote
     ? { ok: false, unsure: true, because: 'its channel closed before it told us what happened, so we cannot tell whether it arrived' }
