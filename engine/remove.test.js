@@ -29,6 +29,9 @@ process.on('exit', () => {
 const remove = require('./remove');
 const create = require('./create');
 const status = require('./status');
+/* #2615: the shared, both-directions-tested comment stripper (#1080), so the
+   source-shape arms below judge CODE rather than the prose describing it. */
+const { codeOnly } = require('../test-support/code-only');
 const disruption = require('./disruption');
 const fleet = require('../test-support/fleet');
 
@@ -1094,7 +1097,23 @@ test('#2615 restore() calls the exported predicate rather than carrying its own 
     if (src[j] === '{') d += 1;
     else if (src[j] === '}') { d -= 1; if (d === 0) { end = j + 1; break; } }
   }
-  const body = src.slice(at, end);
+  /* 🛑 COMMENTS STRIPPED FIRST, AND BOTH ARMS NEEDED IT FOR OPPOSITE REASONS.
+     `restoreInner` carries a prose block that NAMES the mechanism, so the raw
+     text was the wrong subject for either assertion:
+       - the doesNotMatch arm was anchored ENTIRELY on prose. Measured: the only
+         `readJob(` left in this function is inside that comment (0 occurrences
+         in code), so a purely cosmetic edit to that sentence, in this file's own
+         explanatory style, flips it red on unchanged behaviour. That is the
+         "guard reds on something other than the regression it claims to catch"
+         shape, and it costs a real investigation.
+       - the match arm is the DANGEROUS direction: a comment mentioning the
+         exported name would satisfy it while the code beneath inlined a copy.
+         It happens to be honest today (1 occurrence, in code) and nothing kept
+         it that way.
+     🔑 `codeOnly` is the SHARED, both-directions-tested stripper (#1080), not a
+     local regex. Writing a second one here would be the exact defect this test
+     exists to prevent, committed inside the test that prevents it. */
+  const body = codeOnly(src.slice(at, end));
   assert.match(body, /restoreBlockedByMissingAccountDir\(/,
     'restoreInner no longer calls the exported predicate, so the screen and the refusal are two '
     + 'implementations of one fact and will drift');
