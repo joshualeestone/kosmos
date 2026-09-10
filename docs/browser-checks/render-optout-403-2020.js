@@ -84,7 +84,7 @@ function readRowCopy(pg, id) {
 async function run() {
   const browser = await chromium.launch({ headless: process.env.HEADED === '0' });
   try {
-    // ── 200 CONTROL: a readable board renders both switches with a real position ──
+    // ── 200 CONTROL: a readable board renders the switch with a real position ──
     const p1 = await browser.newPage({ viewport: { width: 1400, height: 1000 } });
     await openUpdates(p1);
     // feedback-toggle (the daily report, #2037 "baked in day one") ships ON, so

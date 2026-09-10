@@ -125,8 +125,10 @@ function stateOf(a) {
  *   CONFIRMED-delivered ask exists for this open episode; `streak` = consecutive
  *   stall ticks with no episode yet (the persistent-stall counter).
  * @returns {{toAsk: Array<{session:string,from?:string,to:string}>, next: Map}}
- *   toAsk: agents to ask NOW (fire one question-shaped notify.happened each; on
- *          CONFIRMED delivery the runner sets next.get(session).asked = true).
+ *   toAsk: agents to ask NOW. #2623: the delivery that consumed this (one
+ *          question-shaped notify.happened each, marking next.get(session).asked
+ *          = true on CONFIRMED delivery) was removed with the phone-home seam, so
+ *          server.js no longer reads toAsk; it is still computed for the record.
  *   next: the record map to carry into the following tick.
  */
 function tick(roster, prev) {
