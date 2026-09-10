@@ -62,6 +62,10 @@ async function paint(agents, opts = {}) {
        caught that: an undeclared read throws, an undeclared write does not. */
     let FOUND_SIG = ${JSON.stringify(opts.sig === undefined ? null : opts.sig)};
     let FOUND_OPEN = ${opts.open === undefined ? 'true' : JSON.stringify(opts.open)};
+    /* #2651: the panel is gated behind DISCOVERY_OPENED (an explicit "Look for agents"
+       press). Default it OPEN here so the rendering tests below exercise the panel's
+       behaviour as before; a test passes opened:false to assert the gate itself. */
+    let DISCOVERY_OPENED = ${opts.opened === undefined ? 'true' : JSON.stringify(opts.opened)};
     return paintFoundBoard();
   `);
   await run(
@@ -109,6 +113,17 @@ test('nothing to add means no panel at all', async () => {
   const { wrap, list } = await paint([KEPT]);
   assert.equal(wrap.hidden, true);
   assert.equal(list.innerHTML, '', 'the panel is hidden but still holds a list');
+});
+
+test('#2651: it stays hidden and fetches nothing until discovery is opened', async () => {
+  /* Landing on the Agents page must not auto-scan-and-show the found panel. With a
+     real candidate present, an UNOPENED panel is still hidden and no /api/found-agents
+     fetch fires; the user reveals it with the explicit "Look for agents" press
+     (DISCOVERY_OPENED). Before #2651 a candidate showed the panel on every poll. */
+  const { wrap, list, calls } = await paint([LOOSE], { opened: false });
+  assert.equal(wrap.hidden, true, 'the found panel auto-showed on load (the #2651 gate did not hold)');
+  assert.equal(list.innerHTML, '', 'the found panel rendered rows before discovery was opened');
+  assert.equal(calls.length, 0, 'the found panel fetched /api/found-agents before the user asked to look');
 });
 
 test('a look that failed leaves the panel alone rather than emptying it', async () => {
