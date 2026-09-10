@@ -117,6 +117,21 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     await waitFor(() => deleteUrl !== null, 2000);
     const aDeleteForced = typeof deleteUrl === 'string' && /\/removal\?force=(?:1|true)\b/i.test(deleteUrl);
 
+    // ---- Scenario A': the shared override button must RE-ENABLE for the NEXT
+    // untied agent. The click above disabled it, and a successful clear leaves it
+    // disabled on purpose ("do not re-enable a button that is now gone"). But
+    // #d-remove-force is ONE element reused across every panel, so opening
+    // another untied agent (a second loadRemoval) must make it clickable again,
+    // or clearing residuals one-after-another dead-ends after the first -- the
+    // exact flow this feature exists for. Regression guard for that reuse. ----
+    await waitFor(() => forceBtn() && forceBtn().disabled === true, 2000);
+    const aDisabledAfterClick = !!(forceBtn() && forceBtn().disabled === true);
+    planMode = 'untied';
+    CURRENT = { sessionName: NAME, name: NAME, isNamedOurs: false };
+    try { await loadRemoval(NAME); } catch (e) { return { error: 'loadRemoval(untied reopen) threw: ' + (e && e.message || e) }; }
+    await waitFor(() => forceBtn() && forceBtn().disabled === false, 2000);
+    const aReEnabledOnReopen = !!(forceBtn() && forceBtn().disabled === false);
+
     // ---- Scenario B: a tied, removable agent -> the override stays hidden ----
     planMode = 'tied';
     CURRENT = { sessionName: NAME, name: NAME, isNamedOurs: true };
@@ -125,7 +140,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const bStartShown = !!(startBtn() && !startBtn().hidden);
     const bOverrideHidden = !!(forceWrap() && forceWrap().hidden);
 
-    return { aOverrideShown, aNoteShown, aStartHidden, aForceAgent, distinct, aDeleteForced, bStartShown, bOverrideHidden };
+    return { aOverrideShown, aNoteShown, aStartHidden, aForceAgent, distinct, aDeleteForced, aDisabledAfterClick, aReEnabledOnReopen, bStartShown, bOverrideHidden };
   });
 
   await browser.close();
@@ -139,6 +154,8 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (r.aForceAgent !== 'mortals-orch') problems.push('the override button must carry the agent name (data-forceAgent) so it clears the right card: got "' + r.aForceAgent + '"');
     if (!r.distinct) problems.push('THE WRONG-ASSET GUARD: the override (#d-remove-force) must be a DISTINCT element from the normal Remove (#d-remove-start)');
     if (!r.aDeleteForced) problems.push('clicking the override must DELETE /api/agent/<name>/removal?force=1 (the query the server reads), but it did not');
+    if (!r.aDisabledAfterClick) problems.push('the override click did not disable the button, so the re-enable guard below cannot prove anything (the click handler must disable it while the DELETE is in flight)');
+    if (!r.aReEnabledOnReopen) problems.push('after a forced clear the shared override button stayed DISABLED for the next untied agent -- clearing residuals one-after-another dead-ends after the first (setForceOffered must re-enable it on show)');
     if (!r.bStartShown) problems.push('a tied removable agent must still offer the normal Remove (#d-remove-start)');
     if (!r.bOverrideHidden) problems.push('a tied removable agent must NOT show the untied override (#d-remove-force-wrap)');
   }

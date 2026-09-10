@@ -25248,11 +25248,23 @@ function setForceOffered(show, sessionName) {
   const btn = document.getElementById('d-remove-force');
   if (wrap) wrap.hidden = !show;
   if (note) note.hidden = !show;
-  // #2651: carry the agent name only while offered; clear it on hide so a stale
-  // name cannot linger on the hidden button (the click handler reads it).
   if (btn) {
-    if (show && sessionName) btn.dataset.forceAgent = sessionName;
-    else delete btn.dataset.forceAgent;
+    if (show && sessionName) {
+      btn.dataset.forceAgent = sessionName;
+      /* 🛑 RE-ENABLE ON EVERY OFFER. This button is ONE shared element reused for
+         whichever agent's panel is open, and the click handler deliberately
+         leaves it disabled on a successful clear ("do not re-enable a button that
+         is now gone"). Without resetting here, clearing one untied residual would
+         leave the button dead for the NEXT untied agent -- shown but permanently
+         un-clickable -- which is exactly the clear-them-one-after-another flow
+         this feature exists for. The normal-remove path resets rm-go the same way
+         on openRemoveModal. */
+      btn.disabled = false;
+    } else {
+      // Clear the agent name on hide so a stale one cannot linger on the hidden
+      // button (the click handler reads dataset.forceAgent).
+      delete btn.dataset.forceAgent;
+    }
   }
 }
 
@@ -25268,6 +25280,13 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
   if (!forAgent) return;
   btn.disabled = true;
   msg.textContent = '';
+  /* ⚠️ STALENESS GUARD, the sibling of loadRemoval's REMOVE_TOKEN check. This
+     button and #d-remove-msg are ONE shared element across every agent's panel,
+     so if the person opens agent B while A's DELETE is still in flight, A's
+     response must not write into B's panel. onPanel() is re-checked after the
+     await; the server-side removal still happened, so the board repaint runs
+     regardless of which panel is now on screen. */
+  const onPanel = () => CURRENT && CURRENT.sessionName === forAgent;
   try {
     const res = await fetch('/api/agent/' + encodeURIComponent(forAgent) + '/removal?force=1', { method: 'DELETE' });
     const done = await res.json().catch(() => null);
@@ -25278,8 +25297,10 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        tells the person we cleared the card when the server actually threw and
        nothing happened. */
     if (!res.ok || !done || done.outcome === 'refused') {
-      msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
-      btn.disabled = false;
+      if (onPanel()) {
+        msg.textContent = (done && (done.because || done.error)) || 'We could not clear that card just now. Try again in a moment.';
+        btn.disabled = false;
+      }
       return;
     }
     /* ⚠️ PARTIAL IS NOT SUCCESS ON THIS PATH, AND THE BUTTON MUST STAY ALIVE.
@@ -25290,13 +25311,15 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        forcing a dismiss-and-reopen. Same posture as the normal-remove handler
        (rm-go), which re-enables its button on a partial for the same reason. */
     if (done.outcome === 'partial') {
-      msg.textContent = done.because || 'We could not clear that card just now. Try again in a moment.';
-      btn.disabled = false;
+      if (onPanel()) {
+        msg.textContent = done.because || 'We could not clear that card just now. Try again in a moment.';
+        btn.disabled = false;
+      }
       return;
     }
     // REMOVED: the card is off the board. Do not re-enable a button that is now
     // gone; the message says what happened (including the session left running).
-    msg.textContent = done.because || 'Cleared from your board.';
+    if (onPanel()) msg.textContent = done.because || 'Cleared from your board.';
     /* ⚠️ REPAINT NOW, don't wait for the 5s poll. Same as the normal-remove
        handler (rm-go): a person who just cleared a card should see it leave the
        Agents roster and appear on the Removed list immediately, not sit there
@@ -25306,8 +25329,10 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
        "could not reach the board" (the poll will repaint within 5s anyway). */
     try { await tick(); await paintRemoved(); } catch { /* the 5s poll will catch up */ }
   } catch {
-    msg.textContent = 'We could not reach the board just now. Try again in a moment.';
-    btn.disabled = false;
+    if (onPanel()) {
+      msg.textContent = 'We could not reach the board just now. Try again in a moment.';
+      btn.disabled = false;
+    }
   }
 });
 
