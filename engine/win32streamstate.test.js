@@ -231,6 +231,20 @@ test('#570 7c-5 parseEvent answers null for a line that is not JSON', () => {
   assert.equal(ss.parseEvent('not json'), null);
 });
 
+test('#570 headless: a LEAVING supervisor\'s stop does not erase the file of the one that replaced it', () => {
+  /* Measured on the box: a restart ran the new supervisor while the old one was
+     still leaving (up to ~1s after /End). The old one's stop deleted the state
+     file BY NAME, the new agent sat idle, and its card read UNKNOWN. */
+  const oldOne = ss.publisher('overlap');
+  const newOne = ss.publisher('overlap');
+  oldOne.started(111, 'sid-old');
+  newOne.started(222, 'sid-new');            // the replacement has written its state
+  oldOne.stopped();                          // then the old one finally leaves
+  assert.equal(ss.stateFor('overlap', { sessionId: 'sid-new', pid: 222 }), 'idle', 'the new file survives');
+  newOne.stopped();                          // its own stop still clears its own file
+  assert.equal(ss.stateFor('overlap', { sessionId: 'sid-new', pid: 222 }), null);
+});
+
 test('#570 7c-5 THE FILE ROUND TRIP: the real publisher writes what stateFor reads, for THIS process only', () => {
   const pub = ss.publisher('Round Trip');
   pub.started(777, 'sid-rt');

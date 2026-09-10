@@ -252,11 +252,6 @@ function specFromArgv(argv) {
  * and tested -- it is the adoption watcher, and the measured knowledge in it is
  * worth keeping -- but nothing in production selects it.
  */
-/** How long the supervisor gives its agent to leave, once its host is gone, before
-    exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
-    is room enough without leaving a stopped agent up for long. */
-const HOST_GONE_GRACE_MS = 2000;
-
 function main(argv, deps) {
   const d = deps || {};
   const spec = specFromArgv(argv);
@@ -266,6 +261,11 @@ function main(argv, deps) {
   }
   let last = null;
   const handle = superviseStreaming(spec, {
+    /* 🛑 NEVER START AN AGENT FOR A TASK THAT WAS JUST ENDED (#570 headless). `/End`
+       kills the host at once but this process for up to a second after, and a
+       remove kills the agent right after its `/End` -- so without this check the
+       dying supervisor could relaunch the agent that was just removed. */
+    mayStart: d.hostAlive || (() => require('./win32orphan').pidAlive(process.ppid)),
     /* 🔑 THE ONE PRODUCTION PUBLISHER (7c-5): the agent's working/idle, kept in a
        file the board's capture reads. A state it could not record is said on the
        task log, where a missing card state can be traced back to it. */
@@ -301,6 +301,9 @@ function main(argv, deps) {
    */
   const channel = win32channel.serve(spec.name, {
     onSay: (text, replyWith) => { handle.send(text, replyWith); },
+    /* A listen that failed after serve() returned -- anything but the retried
+       "the previous supervisor still has it" -- is said on the task log. */
+    onProblem: (why) => process.stderr.write(new Date().toISOString() + ' ' + spec.name + ' channel-refused -- ' + why + '\n'),
   });
   if (!channel.ok) {
     process.stderr.write(new Date().toISOString() + ' ' + spec.name
@@ -381,6 +384,11 @@ const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
     flood the task log through it. */
 const STDERR_TAIL_CHARS = 500;
 
+/** How long the supervisor gives its agent to leave, once its host is gone, before
+    exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
+    is room enough without leaving a stopped agent up for long. */
+const HOST_GONE_GRACE_MS = 2000;
+
 function superviseStreaming(spec, opts) {
   const s = spec || {};
   const o = opts || {};
@@ -394,6 +402,8 @@ function superviseStreaming(spec, opts) {
      the question at a different moment than `supervise()` does and a test needs to
      drive the two independently. Defaults to the real runner. */
   const readLive = o.liveReader || (() => liveSessions(s.claudeBin));
+  /* Asked right before every launch; `main()` answers "is my host still alive". */
+  const mayStart = typeof o.mayStart === 'function' ? o.mayStart : () => true;
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -483,6 +493,12 @@ function superviseStreaming(spec, opts) {
 
   function startOnce() {
     if (!running) return;
+    let may = true;
+    try { may = mayStart() !== false; } catch { may = true; }
+    if (!may) {
+      onEvent({ action: 'not-starting', because: 'its task was ended, so it is not starting its agent again' });
+      return;
+    }
     const blocked = blockedBy();
     if (blocked) {
       /* 🔑 THE THROTTLE IS NOT BURNED BY WAITING. `lastStart` is untouched here, so

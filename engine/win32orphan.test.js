@@ -81,5 +81,14 @@ test('#570 the real check: this process is alive; a pid that is certainly gone i
 test('#570 the real default timer is unref\'d, so the watch alone never holds a process open', () => {
   const w = orphan.exitWhenParentGone({ parentPid: process.pid, onGone: () => {} });
   assert.equal(w.armed, true);
+  assert.equal(w.timer.hasRef(), false, 'the watch must not keep a stopped supervisor or board alive');
   w.stop();
+});
+
+test('#570 EPERM is ALIVE (a process we may not signal is still there); only ESRCH is gone', () => {
+  const throwing = (code) => () => { throw Object.assign(new Error(code), { code }); };
+  assert.equal(orphan.pidAlive(1, throwing('EPERM')), true);
+  assert.equal(orphan.pidAlive(1, throwing('ESRCH')), false);
+  assert.equal(orphan.pidAlive(1, throwing('EWHATEVER')), true, 'anything unreadable fails toward staying up');
+  assert.equal(orphan.pidAlive(1, () => true), true);
 });

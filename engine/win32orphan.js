@@ -27,8 +27,11 @@ const PARENT_POLL_MS = 1000;
  * it is gone. Anything else (EPERM on a process we may not touch) means it is still
  * there, so a doubt fails toward staying up, never toward leaving.
  */
-function pidAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (e) { return !(e && e.code === 'ESRCH'); }
+function aliveFromError(e) { return !(e && e.code === 'ESRCH'); }
+
+function pidAlive(pid, kill) {
+  const signal = typeof kill === 'function' ? kill : (p, s) => process.kill(p, s);
+  try { signal(pid, 0); return true; } catch (e) { return aliveFromError(e); }
 }
 
 /**
@@ -60,7 +63,7 @@ function exitWhenParentGone(opts) {
     try { onGone(parentPid); } catch { /* the watch must never throw into the process it guards */ }
   }, every);
   if (timer && typeof timer.unref === 'function') timer.unref();
-  return { armed: true, stop() { done = true; stopTimer(timer); } };
+  return { armed: true, timer, stop() { done = true; stopTimer(timer); } };
 }
 
-module.exports = { exitWhenParentGone, pidAlive };
+module.exports = { exitWhenParentGone, pidAlive, aliveFromError };

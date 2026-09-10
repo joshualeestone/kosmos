@@ -123,12 +123,24 @@ function writeState(name, record) {
   }
 }
 
-/* Returns whether the file is gone. After a death a leftover is harmless -- it
-   names a pid that is no longer listed -- but when the publisher clears a LIVE
-   process's older state, a failed delete leaves that state readable, so the
-   caller reports it. */
-function clearState(name) {
-  try { fs.rmSync(statePath(name), { force: true }); return true; } catch { return false; }
+/* Returns whether the file is gone (or is no longer ours). After a death a leftover
+   is harmless -- it names a pid that is no longer listed -- but when the publisher
+   clears a LIVE process's older state, a failed delete leaves that state readable,
+   so the caller reports it.
+
+   🛑 WITH AN OWNER, ONLY THE OWNER'S FILE IS DELETED (#570 headless). A restart can
+   briefly run two supervisors for one agent: the old one leaves up to a second
+   after `/End`, while the new one has already written its state. Deleting by NAME
+   let the old one's stop erase the new one's file, and an idle new agent then read
+   UNKNOWN until its next message (measured on the box). */
+function clearState(name, ownerPid) {
+  const at = statePath(name);
+  if (Number.isInteger(ownerPid)) {
+    let rec = null;
+    try { rec = JSON.parse(fs.readFileSync(at, 'utf8')); } catch (e) { if (e && e.code === 'ENOENT') return true; }
+    if (rec && typeof rec === 'object' && rec.pid !== ownerPid) return true;
+  }
+  try { fs.rmSync(at, { force: true }); return true; } catch { return false; }
 }
 
 /**
@@ -158,7 +170,7 @@ function stateFor(name, live) {
 function publisher(name, opts) {
   const o = opts || {};
   const write = o.write || ((rec) => writeState(name, rec));
-  const clear = o.clear || (() => clearState(name));
+  const clear = o.clear || ((ownerPid) => clearState(name, ownerPid));
   const timer = o.setTimer || ((fn, ms) => setTimeout(fn, ms));
   const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
 
@@ -183,7 +195,7 @@ function publisher(name, opts) {
          than one that says it cannot tell. The next transition starts over. */
       retrying = false;
       written = null;
-      if (clear() === false) onProblem('we could not clear its older state either, so its card may be out of date until it next changes');
+      if (clear(current.pid) === false) onProblem('we could not clear its older state either, so its card may be out of date until it next changes');
       return;
     }
     retrying = true;
@@ -212,11 +224,13 @@ function publisher(name, opts) {
     },
     /** The agent process is gone. */
     stopped() {
+      const was = current;
       generation += 1;
       current = null;
       written = null;
       retrying = false;
-      clear();
+      /* Only this process's own file: a newer supervisor may already own it. */
+      clear(was ? was.pid : undefined);
     },
   };
 }

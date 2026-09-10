@@ -68,6 +68,13 @@ const MAX_REQUEST_BYTES = 128 * 1024;
    a wedged supervisor cannot hold the board. */
 const SAY_TIMEOUT_MS = 8000;
 
+/** How often, and for how long, a supervisor retries a pipe the PREVIOUS one still
+    holds. Under `conhost --headless`, `/End` kills only the host; the old supervisor
+    keeps the pipe until its host watch fires, about a second, and a restart's `/Run`
+    lands inside that window. 30s is far past that and still bounded. */
+const LISTEN_RETRY_MS = 250;
+const LISTEN_RETRY_LIMIT = 120;
+
 /* ⚠️ SAME KEY THE REST OF THE STORE USES. `store.safeKey` lowercases and strips,
    so two names that differ only in case or punctuation share one pipe -- which is
    exactly as true of their profile, their token and their avatar, and the create
@@ -228,12 +235,40 @@ function serve(name, opts) {
     });
   });
 
-  server.on('error', () => { /* reported through the listen callback below */ });
+  /* 🛑 A LISTEN THAT FAILS ARRIVES AS AN 'error' EVENT, NOT A THROW (measured), and
+     this used to swallow it: the supervisor ran its whole life with no channel,
+     answering nobody, and said nothing. A pipe the previous supervisor still holds
+     (EADDRINUSE, the restart case above) is retried until it frees; anything else
+     is reported, because a supervisor that cannot be reached must say so. */
+  const onProblem = typeof o.onProblem === 'function' ? o.onProblem : () => {};
+  let closed = false;
+  let retries = 0;
+  let retryTimer = null;
+  server.on('error', (e) => {
+    if (closed) return;
+    if (e && e.code === 'EADDRINUSE' && retries < LISTEN_RETRY_LIMIT) {
+      retries += 1;
+      retryTimer = setTimeout(() => {
+        retryTimer = null;
+        if (closed) return;
+        try { server.listen(at); } catch (err) { onProblem('we could not open its channel (' + ((err && err.code) || 'unknown') + ')'); }
+      }, LISTEN_RETRY_MS);
+      return;
+    }
+    onProblem('we could not open its channel (' + ((e && e.code) || 'unknown') + ')');
+  });
 
   try { server.listen(at); }
   catch (e) { return { ok: false, because: 'we could not open its channel (' + ((e && e.code) || 'unknown') + ')' }; }
 
-  return { ok: true, pipe: at, close() { try { server.close(); } catch { /* already gone */ } }, server };
+  return {
+    ok: true, pipe: at, server,
+    close() {
+      closed = true;
+      if (retryTimer) { clearTimeout(retryTimer); retryTimer = null; }
+      try { server.close(); } catch { /* already gone */ }
+    },
+  };
 }
 
 /* ── the client half ────────────────────────────────────────────────────────── */

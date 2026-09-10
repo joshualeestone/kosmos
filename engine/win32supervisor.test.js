@@ -396,6 +396,29 @@ test('#570 7c-5 a flush that lands after its child was REPLACED does not mark th
   h.stop();
 });
 
+test('#570 headless: a supervisor whose task was ended never starts the agent again', () => {
+  /* Remove runs /End (killing the host) and then kills the agent. The supervisor
+     outlives its host by up to a second, sees its agent die, and used to relaunch
+     it: a removed agent briefly back, owned by nobody. mayStart is asked right
+     before every launch. */
+  const kids = [];
+  const events = [];
+  let hostAlive = true;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    mayStart: () => hostAlive,
+    onEvent: (e) => events.push(e.action),
+    launch: () => { const c = streamingChild(1); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  assert.equal(kids.length, 1, 'a live host starts its agent');
+  hostAlive = false;                 // /End killed the host
+  kids[0].die(1);                    // then the remove killed the agent
+  assert.equal(kids.length, 1, 'no relaunch for a task that was ended');
+  assert.ok(events.includes('not-starting'), 'and it says so on the task log');
+  h.stop();
+});
+
 test('#570 7c-5 a failed write does not mark the agent busy', () => {
   const kids = [];
   const sink = streamSink();
@@ -509,9 +532,11 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
      parent, and its exit would end the whole suite. */
   const watches = [];
   const exits = [];
+  let hostChecks = 0;
   const handle = sup.main(['entry', cwd, '-', '-', 'claude'], {
     watchHost: (opts) => { const w = { opts, stopped: false, stop() { this.stopped = true; } }; watches.push(w); return w; },
     exitLater: (ms) => exits.push(ms),
+    hostAlive: () => { hostChecks += 1; return true; },
   });
   /* 🛑 CLEANUP RUNS HOWEVER THE ASSERTIONS GO. main() opens the agent's pipe
      server, and a failed assertion that skipped handle.stop() left it listening,
@@ -535,6 +560,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
     /* #570 headless: main() watches its host, and when the host is gone (what
        `/End` does to a headless task) it stops its agent and leaves. */
     assert.equal(watches.length, 1, 'main() arms exactly one host watch');
+    assert.ok(hostChecks >= 1, 'main() asks whether its host is alive before it starts an agent');
     assert.equal(spawned[0].child.stdin.destroyed, false);
     watches[0].opts.onGone(1234);
     assert.equal(spawned[0].child.stdin.destroyed, true, 'the host going stops the agent (its stdin is closed)');
