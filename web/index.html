@@ -16720,11 +16720,22 @@ async function paintAccounts() {
                halves carried different verbs. On that path the server's sentence
                is the instruction and ours contributes only the way back. */
             const already = !!(out && out.consentStale === true);
+            /* 🛑 COUNT-NEUTRAL ON THE STALE PATH, ON PURPOSE. The server's
+               consent-stale sentence is phrased around the agents that NEWLY
+               appeared, and this clause was phrased around the whole current set,
+               so one agreed agent plus one newcomer read: "...you were not asked
+               about it. Press again to ... stop it too. You can put THEM back
+               ...". Two adjacent sentences, two different sets, each correct
+               alone. The page cannot borrow the server's count without
+               re-deriving which agents are new, and nothing here has been stopped
+               yet anyway, so the clause is about a future stop and does not need
+               a number at all.
+               📌 The non-stale path keeps its singular/plural, because there the
+               page owns the whole sentence and the set is unambiguous. */
             const wayBack = isRemove
-              ? ' ' + (one ? 'It' : 'They') + ' will need a different account before '
-                + (one ? 'it' : 'they') + ' can start again.'
-              : ' You can put ' + (one ? 'it' : 'them')
-                + ' back from the removed list once you add this account again under the same name.';
+              ? ' Any agents stopped this way will need a different account before they can start again.'
+              : ' Anything stopped this way can be put back from the removed list, '
+                + 'once you add this account again under the same name.';
             msg.textContent = String((out && out.error) || 'agents are set up to run on this account')
               + (already ? wayBack : (isRemove
                 ? ' Press again to delete this account for good and stop ' + (one ? 'it' : 'them')

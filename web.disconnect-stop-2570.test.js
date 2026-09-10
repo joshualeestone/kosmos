@@ -113,6 +113,24 @@ test('#2570: the second confirm takes its verb from the ROW, not from this featu
    again, and if the latch survives, the NEXT ordinary two-press cycle sends
    stopAgents behind a plain "Disconnect?" confirm. Blur would clear it, but the
    catch calls btn.focus(), so no blur ever comes. */
+/* 🛑 THE STALE-PATH CLAUSE CARRIES NO COUNT. The server's consent-stale sentence
+   is phrased around the agents that newly appeared; this clause is appended to
+   it and was phrased around the whole current set, so one agreed agent plus one
+   newcomer produced "...stop it too." followed by "You can put them back...".
+   Two adjacent sentences about two different sets. */
+test('#2570: the consent-stale clause does not disagree with the server about how many', () => {
+  const fn = handler();
+  const i = fn.indexOf('const wayBack');
+  assert.ok(i > 0, 'the stale-path clause moved; restate this pin');
+  const clause = fn.slice(i, fn.indexOf(';', fn.indexOf("can start again", i)) + 1);
+  assert.ok(clause.length > 80, 'the extracted clause looks too short');
+  assert.doesNotMatch(clause, /\bone \?/,
+    'the stale clause derives a singular/plural from the whole set again, which is the set the '
+    + "server's sentence is NOT about");
+  assert.match(fn, /Any agents stopped this way will need a different account/);
+  assert.match(fn, /Anything stopped this way can be put back from the removed list/);
+});
+
 test('#2570: a failed stop does not leave the offer latched behind a plain confirm', () => {
   const fn = handler();
   const cat = fn.slice(fn.lastIndexOf('} catch (err) {'));
