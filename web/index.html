@@ -4911,9 +4911,14 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    posted (the agent's side is read live off the pane, not stored), so it takes
    the same faint royal-blue wash as the to-agent bubble above -- 10% light,
    15% dark. Fill ONLY, no stroke (Josh: "no strokes around the box at all,
-   either in light or dark, just the color"); the base border is dropped. The
-   failed/unsure states re-declare their OWN border below so their cue survives
-   that removal. */
+   either in light or dark, just the color"); the base border is dropped. Two
+   state cues survive that removal, but NOT the same way: `.pj-msg.failed`
+   re-declares a full 0.5px dashed border below (its "did not go through" box),
+   while `.pj-msg.unsure` keeps only its own pre-existing warn-ink LEFT rule --
+   which was always its real cue -- and, like the normal box, no longer carries
+   the surrounding hairline it used to inherit. Dropping unsure's incidental
+   frame is consistent with the no-stroke intent; its left rule still marks it
+   as needing a look. */
 .pj-msg { padding: var(--space-4) var(--space-5);
   border-radius: var(--radius-control); background: rgba(65,113,227,.10); }
 /* ⚠️ `overflow-wrap: anywhere` on BOTH message spans (round 21, measured): a
