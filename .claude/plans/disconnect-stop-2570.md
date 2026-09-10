@@ -75,7 +75,15 @@ whenever a runner is injected, which is exactly when the commands DO run.
 
 ## Residuals, named rather than left to be found
 
-- **kosmos#2609, filed.** The removed list renders a Restore control for every record with no
+- **kosmos#2609, filed, and the deferral is a DECISION rather than an oversight.**
+  A reviewer asked that it be confirmed before merge rather than after, which is fair, so
+  stating it plainly: this card ships with the hazard open. The copy on the delete door is honest
+  about it ("needs a different one before it can start again"), the affordance that contradicts it
+  lives on another screen, and closing it means changing what Restore does for every removed
+  agent. **Weakest premise in that call:** somebody who stops-and-deletes will more likely visit
+  the removed list than read the sentence, so the honest copy may be doing less work than I am
+  crediting it with.
+- **The original filing note:** The removed list renders a Restore control for every record with no
   check that the account directory still exists, and the record carries nothing distinguishing a
   restorable stop from an unrestorable one. It pre-dates this card; what this card changes is that
   the state now takes one guided click instead of two separate acts. Not fixed here because

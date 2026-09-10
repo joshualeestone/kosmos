@@ -445,6 +445,54 @@ test('#2570: when the account operation fails AFTER the stop, the answer says th
   assert.ok(fs.existsSync(dir), 'the account is still connected, which is what the refusal says');
 });
 
+/* 🛑 THE MIXED CASE, which is the only shape the failure sentence has when one
+   agent stops and one does not, and it was the one sentence of the four with no
+   test at all. It also read "Put the stopped ones back ... or stop the rest
+   yourself" with exactly one agent on each side. */
+test('#2570: one stopped and one not names BOTH agents, singular', async () => {
+  installRunner();
+  const dir = claudeAccount('mixed');
+  registeredNotRunning('watson', dir, 'claude');        // stops cleanly
+  agentOn('mycroft', dir, 'claude', 'another-machine'); // not ours: the primitive refuses
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, ['watson']);
+  assert.deepEqual(r.json.notStopped.map((x) => x.name), ['mycroft']);
+  assert.equal(String(r.json.error),
+    'We stopped watson but could not stop mycroft, so this account was left connected. '
+    + 'Put watson back from the removed list, or stop mycroft yourself and try again.',
+    'the mixed-case sentence is not what a person would read');
+  assert.ok(fs.existsSync(dir), 'an agent may still be live on it, so it stays connected');
+});
+
+/* 🔑 A PIN ON AN ORDERING THE ROUTE DEPENDS ON, IN ANOTHER MODULE. The
+   disconnect-and-stop pre-flight learns the engine's non-agents refusals by
+   calling it with a NON-EMPTY `usedBy`, which means it can only ever see checks
+   that run BEFORE the agents guard. The OpenAI reauth refusal used to sit after
+   it, so a stopAgents request against an account with a sign-in in flight
+   stopped every agent and only then refused.
+
+   ⚠️ ASSERTED ON THE SOURCE, and the reason is worth stating rather than hiding:
+   reserving a reauth dir means driving `startChatgptLogin`, which launches a real
+   sign-in. A behavioural arm is the better test and is not worth a live login in
+   this suite, so this pins the ORDER instead and says so. It goes red if anybody
+   moves either guard back. */
+test('#2570: every OpenAI refusal that ignores the agents runs BEFORE the agents guard', () => {
+  const src = fs.readFileSync(nodePath.join(__dirname, 'engine', 'openaiaccounts.js'), 'utf8');
+  for (const fn of ['function forgetAccount(dir, usedBy) {', 'function removeAccount(dir, usedBy) {']) {
+    const start = src.indexOf(fn);
+    assert.ok(start > 0, `${fn} moved or was renamed; restate this pin`);
+    const body = src.slice(start, start + 6000);
+    const reauth = body.indexOf('activeChatgptDirs.has(clean)');
+    const agents = body.indexOf('const agents = (Array.isArray(usedBy)');
+    assert.ok(reauth > 0 && agents > 0, `${fn}: could not find both guards, so this pin proves nothing`);
+    assert.ok(reauth < agents,
+      `${fn}: the sign-in-in-progress refusal sits AFTER the agents guard, so #2570's `
+      + 'pre-flight cannot see it and will stop every agent on the account before learning '
+      + 'the operation was refused');
+  }
+});
+
 /* ── the other three doors ───────────────────────────────────────────────── */
 
 /* #2264 put DELETE behind the same route. It is strictly more dangerous than a
