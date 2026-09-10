@@ -1360,7 +1360,8 @@ function restoreInner(name, platform) {
         account dir replaced by a stray same-named file would pass here and fail
         later. `dirForLabel`/`prepare` always mkdir the directory and removal always
         operates on the whole dir, so the lifecycle never produces this.
-     🛑 The `platform === 'win32'` guard below makes the MAC-ONLY scope STRUCTURAL
+     🛑 The `(platform || process.platform) === 'win32'` guard below (the file's own
+     idiom, as in jobFor) makes the MAC-ONLY scope STRUCTURAL
      rather than incidental (readJob happens to return null on win32 for lack of a
      plist): a win32 configDir rides the Scheduled Task argv, not a plist, and needs
      its own readback (the follow-up named above). */
