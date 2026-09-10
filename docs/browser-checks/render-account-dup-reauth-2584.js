@@ -132,10 +132,29 @@ const ACCOUNTS = [
        and only one of them was pinned.
        ⚠️ Checked on the RENDERED aria-label rather than on the helper's return,
        because that is the string a person actually hears, and the render path
-       interpolates it. */
+       interpolates it.
+
+       🛑 THE SLASH TEST RUNS ON THE QUALIFIER, NOT ON THE WHOLE LABEL. An
+       earlier version tested the entire aria-label, which is a wider region
+       than the claim its own message makes ("announces a filesystem path" is a
+       statement about the QUALIFIER). It passed only because the seeded `who`
+       is an email with no slash; the day a name, label or email carries one,
+       the check fails and blames the qualifier for a character that was never
+       in it. The aria-label shape is `Sign in again as <who> (<qual>)`, so the
+       qualifier is the trailing parenthetical and that is what gets tested. */
     for (let i = 0; i < names.length; i++) {
-      if (/[/\\]/.test(names[i])) {
-        problems.push('reauth control ' + i + ' announces a filesystem path: ' + JSON.stringify(names[i])
+      const m = /\(([^()]*)\)\s*$/.exec(names[i]);
+      if (!m) {
+        /* Every row in this fixture shares one email, so `accountQualifiers`
+           counts the key ambiguous and both rows MUST carry a qualifier. A
+           missing parenthetical here is the qualifier coming back empty. */
+        problems.push('reauth control ' + i + ' carries no qualifier parenthetical: ' + JSON.stringify(names[i])
+          + ' -- #2612: two same-email defaults must both be qualified');
+        continue;
+      }
+      if (/[/\\]/.test(m[1])) {
+        problems.push('reauth control ' + i + ' announces a filesystem path as its qualifier: '
+          + JSON.stringify(m[1]) + ' in ' + JSON.stringify(names[i])
           + ' -- #2612: a second default with no label fell through to its dir');
       }
     }
@@ -154,5 +173,10 @@ const ACCOUNTS = [
     for (const p of problems) console.error('  FAIL  ' + p);
     process.exit(1);
   }
-  console.log('render-account-dup-reauth-2584: two cross-provider defaults sharing an email render two DISTINCT reauth accessible names.');
+  /* The pass line names all THREE properties this check now asserts. It used to
+     claim only "two DISTINCT names", which was the original #2584 assertion and
+     stopped being the whole story when #2612 added the no-path and
+     provider-qualified arms. A pass line that under-reports is how a later
+     reader deletes an arm believing it was never covered. */
+  console.log('render-account-dup-reauth-2584: two cross-provider defaults sharing an email render two reauth accessible names that are DISTINCT, carry no filesystem path as their qualifier, and use the provider name.');
 })();
