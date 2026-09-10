@@ -58,6 +58,11 @@ const ROW = {
 
   const r = await page.evaluate(async (account) => {
     const sent = [];
+    /* The stubbed board keeps state, so the repaint after a successful
+       disconnect reflects what the route actually did. Without this the account
+       list answers the same row forever and "did the row go away?" is a question
+       the fixture, not the page, decides. */
+    let gone = false;
     const realFetch = window.fetch;
     /* The board is stubbed, not running: /api/accounts paints the row, and the
        DELETE answers the way the route does -- refusing and NAMING the agent
@@ -69,6 +74,7 @@ const ROW = {
         try { body = JSON.parse(opts.body || 'null'); } catch { body = null; }
         sent.push(body);
         if (body && body.stopAgents === true) {
+          gone = true;
           return Promise.resolve({ ok: true, json: async () => ({
             forgotten: true,
             because: 'That account is off the list. marlowe was stopped first. You can restore it from the removed list if you sign back in.',
@@ -81,7 +87,7 @@ const ROW = {
         }) });
       }
       if (url.indexOf('/api/accounts') !== -1) {
-        return Promise.resolve({ ok: true, json: async () => ({ accounts: [account] }) });
+        return Promise.resolve({ ok: true, json: async () => ({ accounts: gone ? [] : [account] }) });
       }
       return realFetch(u, opts);
     };
@@ -105,8 +111,13 @@ const ROW = {
     btn.click();                       // 3: accept the offer
     await settle();
     await settle();
+    await settle();
+    /* The success half is the half the person actually sees, and no source
+       test can reach it: it lands after a repaint that only a real DOM runs. */
+    const afterSaid = ((document.getElementById('set-accounts-msg') || {}).textContent || '').trim();
+    const rowsAfter = document.querySelectorAll('#set-accounts [data-forget]').length;
 
-    return { resting, armed, offered, offeredLabel, said, sent };
+    return { resting, armed, offered, offeredLabel, said, sent, afterSaid, rowsAfter };
   }, ROW);
 
   await browser.close();
@@ -135,6 +146,16 @@ const ROW = {
     'the armed accessible name does not start with the visible text: ' + JSON.stringify(r.offeredLabel));
   ok(/restore/i.test(r.said),
     'the offer sentence does not say the agents can be restored: ' + JSON.stringify(r.said));
+
+  /* After the third press: the person is told what happened. A page that sent
+     the right request and then said nothing would satisfy every assertion
+     above, and would be a page that appears to do nothing. */
+  ok(/marlowe was stopped first/.test(r.afterSaid),
+    'the success sentence naming who was stopped never reached the page: ' + JSON.stringify(r.afterSaid));
+  ok(/restore it from the removed list/.test(r.afterSaid),
+    'the success sentence does not tell the person the way back: ' + JSON.stringify(r.afterSaid));
+  ok(r.rowsAfter === 0,
+    'the disconnected row is still on the page after a successful disconnect (' + r.rowsAfter + ' left)');
 
   if (fails.length) {
     console.error('FAIL  render-disconnect-stop-2570');

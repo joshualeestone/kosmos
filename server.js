@@ -4978,17 +4978,44 @@ const server = http.createServer((req, res) => {
         /* A throw is not a stop. It is also not evidence the agent is still
            running, and saying either would be a guess: the honest verdict is
            that we do not know, which fails closed the same way PARTIAL does. */
-        results.push({ name, outcome: 'failed', because: String((err && err.message) || err) });
+        results.push({ name, outcome: 'failed', verified: false, because: String((err && err.message) || err) });
         continue;
       }
+      /* 🛑 A DRY-RUN REMOVED IS NOT A STOP, AND IT IS THE ONE OUTCOME THAT LIES.
+         `engine/remove.js` short-circuits every command under dry-run and
+         `recordRemoval` returns true without writing, so `remove()` answers
+         REMOVED having done nothing at all. Its own docblock says the `dryRun`
+         marker exists precisely so "a screen or a route cannot pass it off as
+         work". This route would pass it off as work in the worst possible way:
+         it would clear `usedBy` and go on to a REAL rename or rmSync, taking the
+         account out from under agents that are still running, with no removal
+         record, and then tell the person they can restore them.
+         ⚠️ Production is unaffected: server.js opts into live execution at
+         startup, so `dryRun` is never set there. This is the guard for the day
+         that opt-in is missed, which remove.js warns about rather than prevents. */
+      const dry = !!(done && done.dryRun === true);
       results.push({
         name,
+        /* The primitive's own word, reported verbatim even when we reject it.
+           Rewriting a dry-run REMOVED to "failed" would hide WHICH state we
+           refused, and the person reading this needs the difference between
+           "it would not stop" and "we would not believe the stop". */
         outcome: (done && done.outcome) || 'failed',
-        because: (done && done.because) || '',
+        /* 🛑 THE VERDICT IS ITS OWN FIELD, NOT A RE-READING OF `outcome`. The
+           first version of this guard computed exactly this condition and then
+           wrote the primitive's raw outcome back into `outcome`, which the
+           filter below keys on: `clean` was false and the agent still counted as
+           stopped. A guard that computes the right answer and does not act on it
+           is worse than none, because it reads as protection. Caught by a
+           mutation control: deleting the dryRun test changed nothing. */
+        verified: !!(done && done.outcome === removal.OUTCOME.REMOVED) && !dry,
+        because: dry && done.outcome === removal.OUTCOME.REMOVED
+          ? 'the removal ran in dry-run, so nothing was actually stopped'
+          : ((done && done.because) || ''),
       });
     }
-    const stopped = results.filter((r) => r.outcome === removal.OUTCOME.REMOVED).map((r) => r.name);
-    const notStopped = results.filter((r) => r.outcome !== removal.OUTCOME.REMOVED);
+    const stopped = results.filter((r) => r.verified).map((r) => r.name);
+    const notStopped = results.filter((r) => !r.verified);
     return { ok: notStopped.length === 0, results, stopped, notStopped };
   }
 
@@ -5005,15 +5032,26 @@ const server = http.createServer((req, res) => {
    * what the Restore control reads. If that ever stops being true this sentence
    * becomes the lie, and `engine/remove.js` is where it would be told.
    */
-  function withStopNote(payload, stopReport) {
+  function withStopNote(payload, stopReport, restorable) {
     if (!stopReport || !stopReport.stopped.length) return payload;
     const names = stopReport.stopped;
     const one = names.length === 1;
+    /* 🛑 THE WAY BACK IS NOT THE SAME ON BOTH DOORS, AND SAYING IT WAS WOULD BE A
+       FALSE PROMISE ON THE WORSE ONE. Disconnect RENAMES the account directory
+       aside, so signing back in and pressing Restore genuinely returns the agent
+       to a directory that exists. Delete REMOVES it: restoring the agent there
+       re-enables a launchd job whose config dir is gone, which is the
+       working-agent-behaving-like-a-blank-one state #1659 exists to prevent, and
+       a fresh sign-in makes a differently-named directory anyway. So the delete
+       door says what is true of it instead. */
+    const way = restorable
+      ? ` You can restore ${one ? 'it' : 'them'} from the removed list if you sign back in.`
+      : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
     return {
       ...payload,
       stopped: names,
       because: `${payload.because} ${one ? names[0] + ' was' : names.length + ' agents were'} stopped first`
-        + `${one ? '' : ' (' + names.join(', ') + ')'}. You can restore ${one ? 'it' : 'them'} from the removed list if you sign back in.`,
+        + `${one ? '' : ' (' + names.join(', ') + ')'}.${way}`,
     };
   }
 
@@ -5186,7 +5224,7 @@ const server = http.createServer((req, res) => {
               ? 'That account is deleted from this computer. Its sign-in file is gone.'
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
-          }, stopReport));
+          }, stopReport, false));
           return;
         }
 
@@ -5229,7 +5267,7 @@ const server = http.createServer((req, res) => {
                 + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           accounts: openaiAccounts.list(),
-        }, stopReport));
+        }, stopReport, true));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -5456,7 +5494,7 @@ const server = http.createServer((req, res) => {
               ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
-          }, stopReport));
+          }, stopReport, false));
           return;
         }
 
@@ -5516,7 +5554,7 @@ const server = http.createServer((req, res) => {
              through GET /api/accounts, which uses listLive(), so no caller
              reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
-        }, stopReport));
+        }, stopReport, true));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

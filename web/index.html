@@ -16652,9 +16652,18 @@ async function paintAccounts() {
           stopFor = blocking;
           armed = true;
           btn.disabled = false;
+          /* 🛑 THE VERB COMES FROM THE ROW, NOT FROM THIS FEATURE. One handler
+             serves BOTH controls, and the delete row's own confirm is "Delete
+             for good?" precisely because that act is irreversible. A hardcoded
+             "Disconnect and stop ..." here would put the softer word on the
+             button that rmSyncs the account, drop the "for good" this file
+             reserves for delete, and compose an accessible name carrying two
+             contradictory verbs -- the WCAG 2.5.3 mismatch the armLabel change
+             in this same diff exists to fix, re-introduced one state over. */
+          const stopVerb = isRemove ? 'Delete for good and stop ' : 'Disconnect and stop ';
           btn.textContent = blocking.length === 1
-            ? 'Disconnect and stop ' + blocking[0] + '?'
-            : 'Disconnect and stop ' + blocking.length + ' agents?';
+            ? stopVerb + blocking[0] + '?'
+            : stopVerb + blocking.length + ' agents?';
           btn.classList.add('armed');
           armLabel(true);
           /* The server's own sentence names the agents and is the thing to read
@@ -16670,10 +16679,20 @@ async function paintAccounts() {
              line. The rule is real either way; this is where it is checkable. */
           if (msg) {
             acctCancelSay();
+            /* Same split as the button, and for the same reason: after a DELETE
+               the account directory is gone, so "restore them" would be a
+               promise the product cannot keep. Restoring an agent onto a
+               deleted config dir is the working-agent-behaving-like-a-blank-one
+               state #1659 exists to prevent. */
+            const one = blocking.length === 1;
             msg.textContent = String((out && out.error) || 'agents are set up to run on this account')
-              + ' Press again to disconnect and stop '
-              + (blocking.length === 1 ? 'it' : 'them') + '; you can restore '
-              + (blocking.length === 1 ? 'it' : 'them') + ' from the removed list if you sign back in.';
+              + (isRemove
+                ? ' Press again to delete this account for good and stop ' + (one ? 'it' : 'them')
+                  + '; ' + (one ? 'it' : 'they') + ' will need a different account before '
+                  + (one ? 'it' : 'they') + ' can start again.'
+                : ' Press again to disconnect and stop ' + (one ? 'it' : 'them')
+                  + '; you can restore ' + (one ? 'it' : 'them')
+                  + ' from the removed list if you sign back in.');
             if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
           }
           btn.focus({ preventScroll: true });
@@ -16739,8 +16758,14 @@ async function paintAccounts() {
           if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
         }
         /* Restore the resting label, or a refused remove leaves the button
-           reading "Disconnect?" and the NEXT single click acts. */
-        armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
+           reading "Disconnect?" and the NEXT single click acts.
+           🛑 `stopFor = null` IS PART OF THE DISARM, NOT TIDYING. Without it a
+           failed stop leaves the offer latched: the button reads "Disconnect"
+           again, and the next ordinary two-press cycle silently sends
+           `stopAgents` behind a plain "Disconnect?" confirm, stopping agents
+           nobody was asked about. The blur handler already clears it, and this
+           path calls btn.focus() below, so no blur ever comes to save it. */
+        armed = false; stopFor = null; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false);
         /* 🛑 AND FOCUS COMES BACK TO THE BUTTON, WHICH THE SUCCESS PATH GETS AND
            THIS ONE DID NOT. `btn.disabled = true` at the top of this handler
            dropped focus to `<body>` before the request went out, so without this a

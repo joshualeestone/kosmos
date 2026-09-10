@@ -22,16 +22,36 @@ const fs = require('node:fs');
 
 const PAGE = fs.readFileSync(process.env.STOP_PAGE || 'web/index.html', 'utf8');
 
-/* The row handler, bounded by two anchors that are part of the feature rather
-   than line numbers: the loop header that builds it, and the removed-list door
-   that follows it. */
+/* The row handler, bounded by BRACE MATCHING from the loop header rather than
+   by a trailing text anchor.
+
+   🛑 THE TEXT-ANCHOR VERSION WAS 457,000 CHARACTERS, roughly a third of the
+   page. Its closing anchor ("the removed list's door") sits far below the loop,
+   so every assertion below was really searching most of web/index.html: a match
+   proved the string existed SOMEWHERE, not that it was in this handler, and
+   `lastIndexOf('} catch')` landed in an unrelated function 400KB later. Measured
+   when the catch-block arm went red against a fix that was demonstrably present.
+   Brace matching cannot drift that way: it ends where the loop ends. */
 function handler() {
   const start = PAGE.indexOf("for (const btn of box.querySelectorAll('[data-forget], [data-remove]'))");
   assert.ok(start >= 0, 'the account-row loop moved or was renamed; restate this pin');
-  const end = PAGE.indexOf("/* The removed list's door", start);
-  assert.ok(end > start, 'the closing anchor moved; restate this pin');
+  const open = PAGE.indexOf('{', start);
+  assert.ok(open > start, 'the loop body brace is gone; restate this pin');
+  let depth = 0, end = -1;
+  for (let i = open; i < PAGE.length; i++) {
+    const c = PAGE[i];
+    if (c === '{') depth++;
+    else if (c === '}') { depth--; if (depth === 0) { end = i + 1; break; } }
+  }
+  assert.ok(end > open, 'could not find the end of the loop body, so the window is unbounded');
   const fn = PAGE.slice(start, end);
-  assert.ok(fn.length > 2000, 'the extracted handler looks too short; the slice bounds probably moved');
+  /* Braces inside strings, regexes and comments are counted too, so this is a
+     heuristic bound rather than a parse. It is checked, not assumed: the window
+     must be big enough to hold the handler and small enough not to be the page. */
+  assert.ok(fn.length > 2000 && fn.length < 40000,
+    `the extracted handler is ${fn.length} chars, which is not a handler-sized window`);
+  assert.ok(fn.indexOf('data-forget') > 0 && fn.indexOf('stopFor') > 0,
+    'the window does not contain the handler it claims to');
   return fn;
 }
 
@@ -55,6 +75,36 @@ test('#2570: the second confirm is offered only after the server names the agent
   assert.match(fn, /if \(blocking\.length && !stopFor\)/,
     'the guard against re-offering after a failed stop is gone, so a person can be looped against a failure');
   assert.match(fn, /Disconnect and stop/, 'the second confirm lost its wording');
+});
+
+/* 🛑 ONE HANDLER SERVES BOTH CONTROLS. The delete row's own confirm is "Delete
+   for good?" precisely because that act is irreversible, so a hardcoded
+   "Disconnect and stop ..." would put the softer verb on the button that
+   rmSyncs the account, and armLabel would then compose an accessible name
+   carrying two contradictory verbs. */
+test('#2570: the second confirm takes its verb from the ROW, not from this feature', () => {
+  const fn = handler();
+  assert.match(fn, /const stopVerb = isRemove \?/,
+    'the second confirm no longer branches on isRemove, so the delete row says "Disconnect"');
+  assert.match(fn, /'Delete for good and stop '/, 'the delete row lost its own wording');
+  /* And the sentence under it splits the same way: after a delete there is no
+     account directory left, so "you can restore them" would be a promise the
+     product cannot keep. */
+  assert.ok(fn.indexOf("' Press again to delete this account for good and stop '") > 0,
+    'the offer sentence promises the same way back on both doors');
+});
+
+/* Reachable: press 1 arms, press 2 is refused and latches the offer, press 3
+   hits a partial-stop 400 and lands in the catch. The button reads "Disconnect"
+   again, and if the latch survives, the NEXT ordinary two-press cycle sends
+   stopAgents behind a plain "Disconnect?" confirm. Blur would clear it, but the
+   catch calls btn.focus(), so no blur ever comes. */
+test('#2570: a failed stop does not leave the offer latched behind a plain confirm', () => {
+  const fn = handler();
+  const cat = fn.slice(fn.lastIndexOf('} catch (err) {'));
+  assert.ok(cat.length > 200, 'the catch block moved; restate this pin');
+  assert.match(cat, /armed = false; stopFor = null;/,
+    'the catch disarms the button but keeps stopFor, so the next cycle stops agents unasked');
 });
 
 /* 🛑 WCAG 2.5.3, Label in Name. The armed accessible name used to be built from
