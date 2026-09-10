@@ -39742,6 +39742,19 @@ function frActions(primary, alt) {
     if (!el) return;
     el.textContent = text || '';
     el.hidden = !text;
+    /* 🛑 AND TIE THE BUTTON TO IT, because the move COST this control its
+       adjacency. The hint used to sit inside pane 3, directly under the two gate
+       rows it refers to, so proximity did the explaining. It now lives in a
+       footer shared by nine screens, and the common screen-reader modes (rotor,
+       NVDA's B, tab) land on a button whose entire accessible name is "Check
+       again", with nothing saying check WHAT. Reading order alone does not fix
+       that; a programmatic tie does.
+       ⚠️ Toggled BOTH ways, like every other token on this shared element: left
+       on, it points at an empty hidden span from a screen that has no hint. */
+    if (other) {
+      if (text) other.setAttribute('aria-describedby', 'fr-alt-hint');
+      else other.removeAttribute('aria-describedby');
+    }
   };
   /* 🔑 NO PRIMARY MEANS NO ACTION YET, which the flow needs now that one screen
      is WORKING rather than waiting on a person: the search for agents already on

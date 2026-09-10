@@ -343,8 +343,19 @@ async function fresh(browser) {
     await page.route('**/api/a11y-status', (r) => { a11yHits += 1; return r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }); });
     await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(300);
-    const btn = await page.$('#fr-pane-3 .fr-recheck');
-    ok(!!btn, 'the S3 "Check again" button is present');
+    /* 🛑 #2647 MOVED THIS CONTROL OUT OF THE PANE and this selector was left
+       pointing at where it used to be. `#fr-pane-3 .fr-recheck` matches nothing
+       now (zero markup hits on the shipped page), so `ok(!!btn)` reddened, the
+       label arm compared against '', and `if (btn) await btn.click()` silently
+       no-opped -- which turned the a11yHits arm below from a real signal into a
+       coin flip on whether a 750ms poll tick landed in its 80ms window.
+       ⭐ The card that moved the control shipped a NEW check for the new home
+       and left this existing, wired one aimed at the old one. Writing a check
+       for a thing you moved is not the same as finding the checks that already
+       watched it. */
+    const btn = await page.$('#fr-alt');
+    ok(!!btn, 'the S3 "Check again" control is present in the nav');
+    ok(btn ? !(await btn.isHidden()) : false, 'the nav Check-again control is visible on S3');
     const label = btn ? (await btn.textContent()).trim() : '';
     ok(/check again/i.test(label), `the button reads "Check again" (got: ${JSON.stringify(label)})`);
     ok(await nextDisabled(page), 'Next is disabled while the grant has not landed');

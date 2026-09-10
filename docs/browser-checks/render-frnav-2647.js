@@ -119,12 +119,29 @@ const HINT = 'Turned it on? Tap to check.';
     window.frRecheckGates = real;
     out.pressFiredRecheck = fired > 0;
 
+    /* 🛑 AND IT MUST STILL BE PRESSABLE AFTERWARDS. The control's whole purpose
+       is "flip the switch, press again", so a ONE-SHOT button that disables
+       itself and never comes back is the realistic regression here, and the
+       press arm above cannot see it: it only asks whether the first press did
+       anything. Measured against a mutant that drops the re-enable from
+       frRecheckPress's finally: baseline re-enables, mutant stays disabled
+       forever, and without this arm the check passed on BOTH. */
+    await new Promise((r2) => setTimeout(r2, 250));
+    out.altReenabled = !alt.disabled;
+
+    /* The hint must be tied to the button programmatically, not merely adjacent:
+       the move cost this control the proximity that used to do the explaining. */
+    out.altDescribedBy = alt.getAttribute('aria-describedby');
+
     /* NEGATIVE ARM: a screen that passes no hint must not inherit this one's.
        `.fr-acts` is shared by nine screens, so a sentence left on reappears
        under a different screen's buttons describing an action that is not there. */
     frGo(1);
     await new Promise((r2) => setTimeout(r2, 60));
     out.hintOnOtherScreen = !!(hint && !hint.hidden && (hint.textContent || '').trim());
+    /* and the tie must go with it, or the button on a hintless screen points at
+       an empty hidden span belonging to a different screen's action. */
+    out.staleDescribedBy = document.getElementById('fr-alt').getAttribute('aria-describedby');
     return out;
   }, { TOP_COPY, HINT });
 
@@ -163,8 +180,21 @@ const HINT = 'Turned it on? Tap to check.';
         + 'and focuses correctly and does nothing, which is worse than not moving it. The old handler '
         + 'is delegated on #fr-pane-3 and this button is outside every pane');
     }
+    if (r.altReenabled === false) {
+      problems.push('the Check-again control stayed disabled after one press, so "flip the switch and '
+        + 'press again" works exactly once');
+    }
+    if (r.altDescribedBy !== 'fr-alt-hint') {
+      problems.push('the Check-again control is not tied to its hint (aria-describedby='
+        + JSON.stringify(r.altDescribedBy) + '), so a screen-reader user reaching it in the shared '
+        + 'footer hears only "Check again" with nothing saying check what');
+    }
     if (r.hintOnOtherScreen) {
       problems.push('the hint survived onto another screen, describing a control that is not there');
+    }
+    if (r.staleDescribedBy) {
+      problems.push('aria-describedby survived onto a screen with no hint (' + r.staleDescribedBy
+        + '), pointing the button at an empty hidden span from a different screen');
     }
   }
 
