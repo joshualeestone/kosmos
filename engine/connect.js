@@ -1351,8 +1351,13 @@ async function start(opts) {
      reading the old live one (the iter-7 BLOCKER guard). This site handles the reauth arm where the
      binary is usable at start; the arm with no usable binary at start (checkLive is UNKNOWN here --
      nothing on disk, or a launcher that later fails the --version probe) is handled AFTER the
-     install, by the `!haveBinary && owner.needsLogin` block in runFlow -- between the two, every
-     reauth-of-a-dead-credential path sets deadCredential. Before
+     install, by the `!haveBinary && owner.needsLogin` block in runFlow. Between the two, every
+     reauth-of-a-dead-credential path WHERE THE LIVE CHECK REACHED A VERDICT sets deadCredential. If
+     checkLive returns UNKNOWN at both points (a timeout or non-JSON chatter with the binary present
+     the whole time), deadCredential stays false on purpose -- UNKNOWN is not proof of a dead
+     credential, so we do not claim a dead->live transition we cannot support; the cost is that such
+     a reauth, if its login-done screen is also missed on a pane-death, falls to becomeStuck (a
+     recoverable false-stick with an actionable message, never a false success). Before
      the driver claim below, so a concurrent start that claims during this await is caught by the
      `if (driver) return state()` guard (deadCredential is a local, unused until the owner literal). */
   if (reauth && haveBinary) {
@@ -2618,22 +2623,31 @@ async function tickBody(owner) {
         // a late-flipping config finished on the next tick and killed the
         // session mid-onboarding, skipping the walk-forward this comment
         // promises.
-        /* #1937: the THIRD file-outranks-screen finish, and the same stale-file
-           hazard as the two arms above. `repl` is a live, logged-in session -- a
-           genuine completion signal, safe to finish on even for a needsLogin flow. But
-           the `settleTicks` path also fires on `press-enter`, which this file's own
-           note (below, on the second `press-enter` handler) says is NOT login
-           evidence: a pre-login notice screen carries no login. For a needsLogin flow
-           (a re-auth OR a present-but-dead credential, #2645) the config is
-           stale-CONNECTED from flow start, so finishing on a pre-login press-enter
-           after settleTicks would be the exact false success the two arms above were
-           hardened against. Require login evidence for a needsLogin settle finish --
-           owner.sawLoginDone is set whenever a real "Login successful" (login-done)
-           screen appears, including this tick. The repl path and any flow with no login
-           to run are unchanged. A needsLogin flow stuck on a pre-login press-enter
-           instead falls to the never-moves becomeStuck. */
-        if (seen.kind === 'repl'
-          || ((owner.settleTicks || 0) > 4 && (!owner.needsLogin || owner.sawLoginDone))) {
+        /* #1937/#2645: the THIRD file-outranks-screen finish, and the same stale-file
+           hazard as the two arms above -- and BOTH its disjuncts must require login
+           evidence for a needsLogin flow, not just the settleTicks one.
+           - `repl`: for a flow with NO login to run (a fresh sign-in that landed, or a
+             signed-in person who only needed the install and runs a BARE `claude`), a
+             "? for shortcuts" REPL is a live, logged-in session and finishing is right.
+             But for a needsLogin flow (a re-auth OR a present-but-dead credential, #2645)
+             the launch is `claude auth login --claudeai`, which EXITS on success (the pane
+             then closes and the #1922 capture-fail rescue -- keyed on a live check -- is
+             what finishes it). So a REPL appearing in a needsLogin flow is NOT a completed
+             login: it is auth-login failing/erroring back to a bare "Not logged in" REPL
+             (the #1937 measured shape) while the config is still stale-CONNECTED from flow
+             start. Finishing off that stale file would be the exact dead-credential false
+             success this PR exists to kill -- connected reported over a credential that is
+             still dead, and the agent then will not start.
+           - `settleTicks` also fires on `press-enter`, which this file's own note (below,
+             on the second `press-enter` handler) says is NOT login evidence: a pre-login
+             notice screen carries no login.
+           So gate the WHOLE finish on `(!owner.needsLogin || owner.sawLoginDone)`.
+           owner.sawLoginDone is set whenever a real "Login successful" (login-done) screen
+           appears. A flow with no login to run is unchanged (the guard is vacuously true);
+           a needsLogin flow with no login evidence does not finish here and falls to the
+           never-moves becomeStuck / the abandoned-signin timeout rather than false-finishing. */
+        if ((seen.kind === 'repl' || (owner.settleTicks || 0) > 4)
+          && (!owner.needsLogin || owner.sawLoginDone)) {
           await finishConnected(owner, sub);
           return;
         }

@@ -1941,6 +1941,62 @@ test('#1922: a reauth with NO binary at start still finishes a landed login on a
     + 'closed, must report connected via the post-install deadCredential set: ' + connect.state().because);
 });
 
+// #1937/#2645 (repl false-success guard): the repl completion arm reads the FILE, which is
+// stale-CONNECTED for a present-but-dead credential. `claude auth login` EXITS on success, so a
+// "? for shortcuts" REPL appearing in a needsLogin flow is auth-login failing back to a bare
+// "Not logged in" REPL while the credential is still dead -- NOT a completed login (sawLoginDone
+// never set). Finishing off the stale file would report connected over a dead credential, the
+// exact false success this PR kills. The gate must NOT finish here without login evidence.
+driverTest('#1937: a needsLogin flow that lands on a REPL without a login-done never false-finishes off the stale file', async () => {
+  const term = fakeTerminal();
+  let showRepl = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    if (args[0] === 'capture-pane' && showRepl) {
+      return { ok: true, stdout: ' > try "help"\n ? for shortcuts' };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  writeClaudeConfig(CONNECTED_CONFIG);           // file says CONNECTED (present-but-dead)
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null })); // stays DEAD
+  try {
+    await connect.start();                        // present-but-dead -> needsLogin + deadCredential, launches auth login
+    await until(() => String(connect.state().phase).startsWith('signin'), 5000);
+    showRepl = true;                              // auth-login errors back to a bare REPL; login never lands
+    // The pre-fix code finishes on the first repl tick; the fix must NOT (no sawLoginDone, cred dead).
+    await new Promise((r) => setTimeout(r, 600));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'a needsLogin flow must not report connected off the stale file when a REPL appears without a '
+      + 'completed login (dead-credential false success): ' + JSON.stringify(connect.state()));
+  } finally { subscription.setRunner(null); }
+});
+
+// #1937 CONTROL: a flow with NO login to run (needsLogin false) that lands on a signed-in REPL with
+// a readable CONNECTED config STILL finishes -- the repl guard above must not over-reach and break
+// the legitimate signed-in-person-runs-bare-claude finish (the non-vacuous positive control).
+driverTest('#1937 CONTROL: a non-needsLogin REPL with a readable subscription still finishes connected', async () => {
+  const term = fakeTerminal();
+  let showRepl = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    if (args[0] === 'capture-pane' && showRepl) {
+      return { ok: true, stdout: ' > try "help"\n ? for shortcuts' };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  // Fresh machine at start (config cleared by driverTest) -> check() NONE -> needsLogin false.
+  await connect.start();
+  await until(() => String(connect.state().phase).startsWith('signin'), 5000);
+  writeClaudeConfig(CONNECTED_CONFIG);            // signed in; config readable + CONNECTED
+  showRepl = true;                                // a signed-in person's bare-claude REPL
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+  assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+    'a non-needsLogin signed-in REPL with a readable config must still finish connected: '
+    + connect.state().because);
+});
+
 driverTest('a code is refused while nothing is asking for one', async () => {
   const refusedCold = connect.submitCode('abCD1234#efGH5678');
   assert.equal(refusedCold.ok, false);
