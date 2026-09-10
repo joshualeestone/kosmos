@@ -2,7 +2,7 @@
 pre_challenge: true
 method: challenge-loop
 branch: restore-dircheck-2615
-diff_hash: 7c78073d5a06ba407f31d7cedbb236b18242f25ef191ad93dcfb25d2444d7779
+diff_hash: 58d84b66fd60bbd653a95f9185d541abd9efc06ed795014bf18a32a0e120acf8
 timestamp: 2026-09-10T14:15:29Z
 iterations: 7
 converged: true
@@ -48,7 +48,10 @@ No test could have caught any of those, which is the argument for the blind roun
 
 ## Verification at convergence
 
-- `bash tools/run-tests.sh`: **exit 0, 5610 tests, 5610 pass, 0 fail, 0 skipped.**
+- `bash tools/run-tests.sh`: **exit 0, 5724 tests, 5724 pass, 0 fail, 0 skipped**, re-run AFTER the
+  rebase onto `origin/main`. The pre-rebase run (5610 tests) is orphaned and is not cited: a rebase
+  rewrites the shas every recorded run was measured against, and a results table does not change
+  appearance when that happens.
 - `render-restore-dircheck-2615.js` under real Playwright: **exit 0.**
 - Browser-check controls, all MEASURED against an isolated copy, never asserted:
 
@@ -141,4 +144,4 @@ No issues found. The round traced the state machine across all four write sites 
 
 ### Final Ledger
 
-7 iterations, converged. 3 BLOCKER (one an independent duplicate), 5 WARNING, 1 CONVENTION, 6 NIT, 2 STRENGTH. All findings addressed or explicitly accepted with reasons above. Product-affecting defects were found in rounds 1 through 4; rounds 5 and 6 found defects only in prose and instrumentation; round 7 found nothing. Suite at convergence: exit 0, 5610 tests, 5610 pass, 0 fail, 0 skipped. Browser check exit 0 under real Playwright with nine measured mutation controls.
+7 iterations, converged. 3 BLOCKER (one an independent duplicate), 5 WARNING, 1 CONVENTION, 6 NIT, 2 STRENGTH. All findings addressed or explicitly accepted with reasons above. Product-affecting defects were found in rounds 1 through 4; rounds 5 and 6 found defects only in prose and instrumentation; round 7 found nothing. Suite at convergence, re-measured after the rebase: exit 0, 5724 tests, 5724 pass, 0 fail, 0 skipped. Browser check exit 0 under real Playwright with nine measured mutation controls.
