@@ -26,6 +26,11 @@ Kosmos targets a non-technical person, but two agent-page strings use undefined 
   prompt each time."
 - Re-anchor the five copy pins in `web.made-before.test.js` to the new phrasing (update the literal
   text; the count-of-two and the two region-scoped checks are preserved, not weakened).
+- Update the ONE browser-check that pins this copy: `docs/browser-checks/render-made-before.js:112`
+  (`/no launch file to change/` -> `/its model cannot change here/`). This check is not in the PR's
+  CI allowlist but runs in the full 63-check suite at release-cut step 3b, so leaving it stale would
+  red the 0.6.56 cut (the stale-render-check failure mode). It is the reason the plan should say the
+  Terminal-hint string has no pin but the picker admission DOES.
 
 ## Decisions (made, per the never-idle ruling) + weakest premise
 - **Keep the "Trust & Restart" button label.** The card flagged both the button and the hint, but
