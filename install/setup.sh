@@ -1102,8 +1102,22 @@ _kosmos_data_root() {
       # returns, and the literal is the right answer for that install. An ABSOLUTE
       # answer without the leaf is refused below instead, because that is a store.js
       # answering with a different contract, and guessing past it steers a delete.
+      # #2439: the store leaf is 'Kosmos' now (engine/store.js APP), migrated from the
+      # legacy 'AgentWorkforce' leaf by maybeMigrateLegacyStore() on the board's first
+      # access. This fallback runs ONLY when store.js could not be consulted (no installed
+      # runtime), so the migration may not have run -- match this file's own write-side
+      # pattern (~line 3522): the legacy leaf only when it exists and the new one does not,
+      # else the new leaf. A fresh or sandboxed home (neither leaf present) resolves to
+      # /Kosmos, agreeing with what the consult path (dataRootFor's APP default) returns --
+      # before this, the fallback hardcoded /AgentWorkforce and so failed to match the
+      # current-named jobs a post-rename install writes, orphaning them on a partial uninstall.
       _kdr="$(printf '%s' "${AGENT_WORKFORCE_DATA:-$HOME/Library/Application Support}" | /usr/bin/tr -s '/')"
-      _kdr="${_kdr%/}/AgentWorkforce" ;;
+      _kdr="${_kdr%/}"
+      if [ -d "$_kdr/AgentWorkforce" ] && [ ! -d "$_kdr/Kosmos" ]; then
+        _kdr="$_kdr/AgentWorkforce"
+      else
+        _kdr="$_kdr/Kosmos"
+      fi ;;
   esac
   # 🛑 THE REFUSALS ARE ON THE RESULT, AND THERE ARE FIVE. IF YOU ADD A SIXTH, CHANGE
   # THE WORD FIVE. Every one is a delete that a bad input would have steered, and
