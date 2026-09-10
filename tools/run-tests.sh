@@ -23,6 +23,26 @@ set -uo pipefail
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
 
+# #708: label a live board's cwd as the main checkout / a worktree / neither.
+# Sourced HERE rather than beside the cut-guard source below, because
+# seen_before() runs before that point. Fail-open exactly like that one: if the
+# lib is missing the function is undefined and the caller falls back to the bare
+# path, which is what this file printed before #708.
+. "$REPO/tools/lib/board-origin.sh" 2>/dev/null || true
+
+# #2439 fleet-safety: disable the one-time AgentWorkforce -> Kosmos migration for the
+# WHOLE suite. That migration is triggered by store.root(), so ANY test that reaches
+# store.root() without first setting its own sandbox would RENAME the operator's REAL
+# store (measured: it split the live fleet store, and a re-merge was undone by the next
+# test run). This opt-out (honored by engine/store.js maybeMigrateLegacyStore) stops the
+# destructive rename during tests while a real end-user install, which never sets it,
+# still migrates. It is the migration only -- it does not sandbox DATA/PROJECTS/WORKERS
+# etc., so it does not trip the board's #634 "half-sandboxed" refusal. The migration
+# test clears it per-arm so its sandboxed arms still exercise the rename; tests that
+# seed a fixture do so under the CURRENT leaf (store.APP) rather than relying on the
+# migration to relocate a legacy seed.
+export KOSMOS_NO_LEGACY_MIGRATION=1
+
 # --- what the machine was doing, taken before the first test ---------------
 seen_before() {
   local lines=()
@@ -31,7 +51,35 @@ seen_before() {
   local pid cwd
   for pid in $(lsof -nP -iTCP:16180 -sTCP:LISTEN -t 2>/dev/null); do
     cwd="$(lsof -a -p "$pid" -d cwd -Fn 2>/dev/null | sed -n 's/^n//p' | head -1)"
-    lines+=("a live board on :16180, pid $pid, running from ${cwd:-an unknown directory}")
+    # #2515: the board's CODE tree, not its cwd, is what #708 exists to name. The
+    # installed board runs `node server.js` with cwd $HOME, so keying on cwd
+    # reported the single most consequential main-checkout board as an ordinary
+    # $HOME directory. Resolve the code tree from the process argv (`ps -o args=`;
+    # `lsof -d txt` gives the node interpreter, not the script -- measured), and
+    # classify THAT. Empty when the argv names no .js script (an installed-bundle
+    # `kosmos start` shape), so the label falls back to the cwd rather than guess.
+    local codedir=""
+    if command -v board_code_dir_from_args >/dev/null 2>&1; then
+      codedir="$(board_code_dir_from_args "$(ps -p "$pid" -o args= 2>/dev/null)" "$cwd")"
+    fi
+    # 🛑 `local where` on its own line is an ANCHOR: tools/test-board-origin.sh
+    # extracts this guard block with awk between /^ *local where$/ and /^ *fi$/ and
+    # executes it, so the fail-open path is tested against these bytes rather than
+    # a copy. The block keys on ${codedir:-$cwd} and the test drives it with both
+    # vars set; the codedir resolution above stays OUTSIDE the extracted range.
+    # It fails loudly rather than silently, but it is a real coupling.
+    local where
+    if command -v board_origin_label >/dev/null 2>&1; then
+      where="$(board_origin_label "${codedir:-$cwd}")"
+    else
+      where="${codedir:-${cwd:-an unknown directory}}"
+    fi
+    # The cwd is worth printing only when it is a DIFFERENT tree than the code:
+    # on this machine they disagree (code = the checkout, cwd = $HOME), and that
+    # disagreement is itself the interesting fact. board_cwd_note handles the
+    # empty/equal cases (returns nothing), so append it unconditionally.
+    command -v board_cwd_note >/dev/null 2>&1 && where="$where$(board_cwd_note "$codedir" "$cwd")"
+    lines+=("a live board on :16180, pid $pid, running from $where")
   done
   # Page gates running beside this: each holds a kosmos-bc.* dir in TMPDIR
   # that it touches as it goes. Counted by RECENT modification, not by
@@ -172,6 +220,14 @@ fi
 # empty or unreadable and the gate passes.
 if [ "$NODE_STATUS" -eq 0 ]; then
   ( . "$(dirname "$0")/lib/browser-check-gate.sh" && kosmos_browser_check_gate )
+  NODE_STATUS=$?
+fi
+# #2518: the SURFACE-SPECIFIC companion -- refuses a web/index.html change that touches
+# a token a browser-check asserts (its `// Browser-check-surface:` annotation) without
+# updating that check, catching the specific staleness the coarse gate above lets through.
+# Same subshell isolation + fail-soft contract.
+if [ "$NODE_STATUS" -eq 0 ]; then
+  ( . "$(dirname "$0")/lib/browser-check-surface-gate.sh" && kosmos_browser_check_surface_gate )
   NODE_STATUS=$?
 fi
 

@@ -1,3 +1,4 @@
+// Browser-check-surface: create-account-row
 /**
  * Step two of Create an agent, as Josh reshaped it on 2026-08-22.
  *
@@ -78,10 +79,9 @@ function check(name, pass, detail) {
         .sort((a, b) => box(a).top - box(b).top);
       const form = step.getBoundingClientRect();
       const btn = box('create-go');
-      /* #2020: the created-ping checkbox was restored to this step on
-         2026-09-05, reversing the 08-26 removal. Measured on the RENDERED page
-         (a display:none row would satisfy a markup check but not this one). */
-      const tellPresent = !!(id('create-tell') && box('create-tell') && box('create-tell').height > 0);
+      /* #2623: the created-ping checkbox was DELETED (Josh, 2026-09-09, "invasion
+         of privacy"). Assert it is gone from the rendered step. */
+      const tellGone = !id('create-tell');
       const acct = box('create-account');
       const model = box('create-model');
       const prov = box('create-provider');
@@ -223,7 +223,7 @@ function check(name, pass, detail) {
             return Math.round(bottom - (cr.top + cr.height / 2));
           }).filter((n) => n !== null);
         })(),
-        tellPresent,
+        tellGone,
         btnPresent: !!btn,
         labelGap: (() => {
           const l = document.querySelector('label[for="create-name"]');
@@ -291,6 +291,14 @@ function check(name, pass, detail) {
        left the wrapping `.mstep` drawing an orphan connector at the absent account
        (this cut). The CSS `:has(> #create-account-row[hidden])` drops it; assert the
        stub is gone whenever the row is hidden, so the regression cannot come back. */
+    /* #2548 fail-closed precondition: acctRowHidden is null exactly when
+       #create-account-row is absent (renamed/removed). Without this, the orphan-elbow
+       assertion below falls to its `: true` default on a null and passes on a real
+       regression. Assert the element renders so a rename reds the check (and so the
+       id can be surface-annotated for #2518). */
+    check(`[${engine}] the account row element renders (#create-account-row present)`,
+      seen.acctRowHidden !== null,
+      `#create-account-row ${seen.acctRowHidden === null ? 'MISSING' : 'present'}`);
     check(`[${engine}] a hidden account rung draws no orphan elbow`,
       seen.acctRowHidden ? seen.acctElbowPainted === false : true,
       `row ${seen.acctRowHidden ? 'hidden' : 'shown'}, elbow painted ${seen.acctElbowPainted}`);
@@ -348,10 +356,10 @@ function check(name, pass, detail) {
     /* 🛑 THIS HAS ASSERTED THE CHECKBOX, THEN ITS ABSENCE, AND NOW ITS PRESENCE
        AGAIN. Josh removed the created-ping setting on 2026-08-26, then reversed
        that on 2026-09-05 ("we need that back in for sure"), so the rendered
-       create step carries the checkbox again (#2020).
+       create step no longer carries the checkbox (#2623).
        📌 The button half is kept as the control: without it, "the checkbox is
-       present" would still pass on a step that had lost its Create button. */
-    check(`[${engine}] the created-ping checkbox is on this step`, seen.tellPresent === true);
+       gone" would still pass on a step that had lost its Create button. */
+    check(`[${engine}] the created-ping checkbox is gone from this step (#2623)`, seen.tellGone === true);
     check(`[${engine}] and the Create button is still on it`, seen.btnPresent === true);
 
     check(`[${engine}] no page errors`, errors.length === 0, errors.join(' | ').slice(0, 160));

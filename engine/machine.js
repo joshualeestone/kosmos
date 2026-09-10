@@ -28,8 +28,31 @@ const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const create = require('./create');
 const runners = require('./runners');
+/* #2397: the from-source detector, borrowed rather than re-derived, so the
+   board-autostart check agrees with the updater about what "an installed
+   bundle" is. update.js does not require machine.js, so this pulls in no
+   cycle (verified). */
+const update = require('./update');
 
 const STATE = { OK: 'ok', ATTENTION: 'attention', UNKNOWN: 'unknown' };
+
+/* #2397: the board's own login-job label. Bare for every real install -- the
+   #883 hash suffix is added ONLY for a non-default KOSMOS_HOME (a sandbox/walk
+   convention that must never touch launchd), so a real user's board is always
+   this literal, the same assumption boardrestart.js's BOARD_LABEL makes. */
+const BOARD_LABEL = 'com.kosmos.board';
+
+/* #2397: the macOS LaunchAgents dir, honouring the #332 launch-dir seam (a
+   sandboxed suite sets AGENT_WORKFORCE_LAUNCH so a check reads ITS dir, never
+   the operator's real LaunchAgents). ONE definition, shared by labelTruthCheck
+   and boardAutostartCheck, so the `process.env.HOME` fallback (a macOS-only
+   branch -- HOME is USERPROFILE on Windows) lives in a single place: the #1732
+   Windows-coupling audit counts it once, and there is no second site to drift.
+   Both callers are macOS-only paths (launchd has no Windows analogue). */
+function launchAgentsDir() {
+  return process.env.AGENT_WORKFORCE_LAUNCH
+    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+}
 
 /**
  * ⚠️ Injectable so the tests never depend on the power settings of whatever
@@ -140,6 +163,14 @@ function sleepCheck(text) {
      * mirrored, in the same function.
      */
     if (battFirst !== null && battFirst > 0) {
+      // #2587: DELIBERATELY no battOnly here (a documented exclusion, not an oversight).
+      // The advisory sleep step's honest note promises "plugged in it keeps working", which
+      // needs a CONFIRMED acSleep===0. This branch could not read the AC section at all, so
+      // we cannot make that promise honestly -- and unlike the battery-only case, the row
+      // keeps its "Turn On" (the Energy pane may still hold a real AC fix). A user here
+      // resolves the unreadable-AC first; if a battery-only sleep then remains, the
+      // acSleep===0 branch below shows the note. Rare in practice (pmset almost always
+      // prints a readable AC section); the note on an unconfirmable premise would be worse.
       return {
         key: 'sleep',
         state: STATE.ATTENTION,
@@ -233,6 +264,13 @@ function sleepCheck(text) {
     return {
       key: 'sleep',
       state: STATE.ATTENTION,
+      // #2587: the ONE sleepCheck state macOS offers no GUI switch to clear -- a
+      // laptop always sleeps on battery, and the Energy pane the "Turn On" button
+      // opens has no "never sleep on battery" toggle. The advisory first-run sleep
+      // step shows its honest laptop note on this flag (replacing the useless Turn
+      // On), so the note appears ONLY here, never for a fixable desktop (the
+      // acSleep>0 branch above, which Turn On can still set to Never).
+      battOnly: true,
       title: 'This computer keeps working plugged in, and sleeps on battery',
       detail: `Plugged in it never sleeps. On battery it sleeps after ${batterySleep} `
         + `${batterySleep === 1 ? 'minute' : 'minutes'}, and your agents stop with it. `
@@ -264,18 +302,23 @@ function sleepCheck(text) {
  *
  * The mapping from sleepCheck's STATE is direct and positive-only:
  *   OK        -> prevented:true   (it does not sleep)
- *   ATTENTION -> prevented:false  (it sleeps somewhere -- THE state that gates)
+ *   ATTENTION -> prevented:false  (it sleeps somewhere -- the honest reading; the
+ *                                  first-run step shows this but no longer GATES on it, #2587)
  *   UNKNOWN   -> checkable:false  (we could not read it -- fail-safe, never gate)
  * pmset is a shell reading the engine runs itself, so -- unlike a11y and
  * file-access -- this gate needs no native writer and functions at launch.
  *
- * ⚠️ WEAKEST PREMISE (flagged for Josh, not decided here): a LAPTOP that never
- * sleeps plugged in but sleeps on battery is STATE.ATTENTION, so it GATES. That
- * is the spec's "no silently-broken Kosmos" intent (unplug it and the agents
- * stop), but it means a laptop user who will not prevent battery sleep is
- * blocked at S3 with no skip. The launch target is desktop Macs (Mac mini
- * prints AC-only and maps cleanly to OK/ATTENTION); the laptop-on-battery policy
- * is a product call to confirm, not a detection bug.
+ * ⚠️ THE LAPTOP-ON-BATTERY CASE (#2587, DECIDED): a LAPTOP that never sleeps
+ * plugged in but sleeps on battery is STATE.ATTENTION (prevented:false), and macOS
+ * offers NO GUI switch to prevent battery sleep -- so when the first-run step gated
+ * Next on it, a laptop user was walled with no door (Nick, first outside tester,
+ * 2026-09-09). Josh's ruling: the SLEEP STEP IS ADVISORY -- it never gates Next.
+ * This engine reading is UNCHANGED and stays honest (prevented:false = it sleeps
+ * somewhere); the web (FR_GATES.sleep gatesNext:false) simply no longer lets a
+ * not-prevented sleep row disable Next, and shows an honest note keyed on the
+ * battOnly flag this branch sets, so the note replaces the useless "Turn On" only on
+ * the laptop-battery case. Accessibility/file-access STAY real gates -- those are
+ * satisfiable, and letting a user past them lands them in broken agents.
  */
 function sleepGate(opts) {
   const runner = (opts && opts.runner) || run;
@@ -287,7 +330,7 @@ function sleepGate(opts) {
   }
   const row = sleepCheck(pm.stdout);
   if (row.state === STATE.OK) return { checkable: true, prevented: true };
-  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title };
+  if (row.state === STATE.ATTENTION) return { checkable: true, prevented: false, because: row.title, battOnly: row.battOnly === true };
   return { checkable: false, because: row.title };
 }
 
@@ -568,6 +611,23 @@ function installedCheck(opts) {
    * from whatever is in each bucket, rather than picking a winner and
    * returning.
    */
+  /* #2304 defect-2: the two FAILURE arms below carried macOS-only copy that a
+     win32 user meets first once `platform.js` SUPPORTED includes win32. Three
+     phrases read wrong on Windows and are platform-gated on the same injected
+     `platform`/`isWin` the required-part list uses (both branches assertable
+     from a Mac, the #570/#2312 pattern):
+       - the forbidden-character summary lists "a backslash", but on win32 a
+         backslash is the path SEPARATOR and `create.unusablePath` allows it
+         (#1889), so naming it would tell every Windows user their normal path is
+         the fault;
+       - "the parts of macOS that start an agent" names the wrong OS;
+       - the missing-remedy's "Download for macOS" points a Windows user at the
+         wrong build.
+     Josh owns the final Windows wording (copy is reversible, his ruling); this
+     ships the best honest platform-correct default. darwin is byte-identical. */
+  const badChars = isWin ? 'A quote or a line break' : 'A quote, a backslash or a line break';
+  const badCharsLower = isWin ? 'no quotes or line breaks' : 'no quotes, backslashes or line breaks';
+  const agentStarter = isWin ? 'the part of this computer that starts an agent' : 'the parts of macOS that start an agent';
   const problems = missing.length || unusable.length;
   const parts_ = [];
   if (missing.length) {
@@ -576,8 +636,8 @@ function installedCheck(opts) {
   if (unusable.length) {
     parts_.push('The path set for '
       + unusable.map((u) => `${u.label} is ${u.bin}`).join(', and the one for ')
-      + '. A quote, a backslash or a line break in a path is something we will not pass on to '
-      + 'the parts of macOS that start an agent, whatever is at the end of it.');
+      + '. ' + badChars + ' in a path is something we will not pass on to '
+      + agentStarter + ', whatever is at the end of it.');
   }
   if (unreadable.length) {
     parts_.push(`We could not check ${unreadable.map((u) => u.label).join(' or ')} at all.`);
@@ -622,11 +682,29 @@ function installedCheck(opts) {
      there would be advice that cannot work, which is the defect this card is
      about wearing different clothes. */
   const remedy = missing.length && !unusable.length
-    ? 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
-      + 'macOS. Your agents and settings stay on this computer; installing again does '
-      + 'not remove them.'
-    : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
-      + 'folder with no quotes, backslashes or line breaks in its name is what fixes this.';
+    ? (isWin
+      /* TODO(#2304/#570): the Windows install/download TARGET is a product
+         decision -- does installkosmos.com serve a Windows build yet? Until it
+         does, the honest remedy is framed around the runner, NOT a Kosmos
+         re-download: on win32 the required "part that runs agents" IS the runner
+         (Claude Code), so pointing a Windows user at a Kosmos reinstall would not
+         put back a missing runner. Josh owns the final Windows phrasing. */
+      ? 'Install the part that runs agents, then open Kosmos again. Your agents and '
+        + 'settings stay on this computer.'
+      : 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
+        + 'macOS. Your agents and settings stay on this computer; installing again does '
+        + 'not remove them.')
+    /* The UNUSABLE-path remedy is gated on the same reasoning as the missing one:
+       on win32 the part whose path is unusable is the RUNNER (the required part is
+       the runner, not tmux), so "reinstall Kosmos to a clean folder" would not move
+       the runner's path -- the same Kosmos-centric dishonesty the missing arm
+       avoids. darwin keeps the exact existing wording (its unusable part is the
+       installer's private tmux copy, so "reinstall Kosmos" is honest there). */
+    : (isWin
+      ? 'The part that runs agents is installed somewhere Kosmos cannot start it from. '
+        + 'Installing it again to a folder with ' + badCharsLower + ' in its name is what fixes this.'
+      : 'Kosmos is installed somewhere it cannot start agents from. Installing it again to a '
+        + 'folder with ' + badCharsLower + ' in its name is what fixes this.');
   return {
     key: 'installed',
     state: STATE.ATTENTION,
@@ -966,7 +1044,13 @@ function sleepPaneUrl(runner, lister) {
   let names;
   try {
     names = list(EXTENSIONS_DIR)
-      .filter((n) => n.endsWith('.appex') && /power|energy|battery/i.test(n));
+      /* Match on STEMS, not whole words: a macOS that ships the pane appex as
+         `Batteries.appex`, `EnergySaver.appex` or `PowerManagement.appex`
+         would slip past `/battery|energy|power/` (none of those contains the
+         whole word). The closed id set below is what actually decides
+         correctness, so a wider net here only feeds it more candidates -- it
+         cannot make us claim a wrong pane. */
+      .filter((n) => n.endsWith('.appex') && /power|energ|batter/i.test(n));
   } catch {
     return remember(null);
   }
@@ -986,7 +1070,12 @@ function sleepPaneUrl(runner, lister) {
     arbitrary URLs on the machine. */
 function openSleepSettings(runner, lister) {
   const url = sleepPaneUrl(runner, lister);
-  if (!url) return { ok: false, because: 'we could not find the sleep settings screen on this computer' };
+  /* When we cannot pinpoint the pane, the honest answer is not a dead button:
+     it is telling the person exactly where to do it themselves, so the step is
+     still completable on a macOS whose pane we do not recognise. The leading
+     phrase is kept ("could not find the sleep settings screen") because a test
+     pins it. */
+  if (!url) return { ok: false, because: 'we could not find the sleep settings screen on this computer automatically. Open System Settings, choose Battery (or Energy Saver on older Macs), and turn off automatic sleep' };
   const r = runner || run;
   const res = r('/usr/bin/open', [url]);
   return res.ok
@@ -1104,12 +1193,10 @@ function openFileAccessSettings(runner, lister) {
    OTHER than the one in the real LaunchAgents folder". Reads only; fails
    soft to unknown, never to a false alarm. */
 function labelTruthCheck(runner) {
-  /* The product's own launch-dir seam, the same one the installer honours:
-     a sandboxed suite sets AGENT_WORKFORCE_LAUNCH and this check then reads
-     ITS dir, never the operator's real LaunchAgents (#332's law: a test must
-     not be green or red by what the operator's machine happens to hold). */
-  const launchDir = process.env.AGENT_WORKFORCE_LAUNCH
-    || path.join(process.env.HOME || '', 'Library', 'LaunchAgents');
+  /* The product's own launch-dir seam, the same one the installer honours
+     (#332's law: a test must not be green or red by what the operator's machine
+     happens to hold). Shared with boardAutostartCheck via launchAgentsDir(). */
+  const launchDir = launchAgentsDir();
   let labels = [];
   try {
     labels = fs.readdirSync(launchDir)
@@ -1155,6 +1242,133 @@ function labelTruthCheck(runner) {
       + 'Restarting this computer puts the real one back; if this keeps happening, tell us.' };
 }
 
+/* #2397: does the board's OWN login job exist, and will it come back after a
+   restart? Josh 2026-09-07: "make sure we remember that we do that so it
+   doesn't later on get accidentally deleted and screw white-collar workers who
+   are wondering why it didn't start up."
+
+   THIS IS THE ARM labelTruthCheck DELIBERATELY OMITS. That row asks "does any
+   registered label point at the WRONG file" (an impostor) and returns OK when a
+   job is simply GONE -- the exact `a-guard-that-only-checks-too-many-cannot-see-
+   zero` failure class this card is about. This row asks the zero question: is
+   com.kosmos.board's login job present, and is it enabled.
+
+   THE FORK IS REAL AND MUST NOT COLLAPSE (Josh 2026-09-07, folding #2395):
+     - plist FILE missing (accidental deletion) -> a fault we name plainly.
+     - plist present but the login item TURNED OFF (a standing `disable`
+       override -- exactly what the System Settings > Login Items toggle writes)
+       -> the user's own choice. Surfaced plainly, NEVER fought: force-re-enabling
+       every launch is user-hostile and can get Kosmos flagged by Background Task
+       Management. Two states, two rows.
+
+   WHY PRESENCE (not "loaded right now") IS THE SIGNAL. The board plist carries
+   RunAtLoad, so macOS loads it at the next login from the file's mere presence,
+   UNLESS a standing `disable` override says otherwise. So "present + not
+   disabled" already answers "will it come back": yes. A board that is present
+   but not currently loaded (started by hand this session, or run from source
+   with a plist beside it) still RunAtLoads next login and must not alarm -- which
+   is why the only runtime probe here is `print-disabled`, not `print`.
+
+   DETECTION ONLY, BY DESIGN. Re-creating a deleted plist is safe in the abstract
+   (Josh's comment #1), but at the file layer a deleted file and a user-disabled
+   job are two different faults with two different right answers, and this check
+   never mutates launchd (the same conservatism boardrestart.js is built on). A
+   heal/notify arm is a deliberate follow-up, tracked on #2397.
+
+   Returns null on non-darwin (no launchd login-job concept); check() filters it.
+   @returns {{key,state,title,detail}|null} */
+function boardAutostartCheck(runner, opts) {
+  const platform = opts && opts.platform || process.platform;
+  if (platform !== 'darwin') return null;
+
+  /* A consistency mirror of restartCheck/labelTruthCheck's uid guard. On the
+     darwin path this early-returns above, process.getuid is always a function,
+     so this branch is not reachable here today -- kept (not dropped) so the
+     three launchd-reading checks read identically, and so it stays correct if
+     the platform gate above is ever relaxed. */
+  const uid = typeof process.getuid === 'function' ? process.getuid() : null;
+  if (uid === null) {
+    return { key: 'autostart', state: STATE.UNKNOWN,
+      title: 'We could not check whether Kosmos starts at login',
+      detail: 'Not the same as it being wrong. We could not tell which user this computer runs Kosmos as.' };
+  }
+
+  /* The product's launch-dir seam (#332), shared with labelTruthCheck via
+     launchAgentsDir(): a sandboxed suite sets AGENT_WORKFORCE_LAUNCH so this
+     reads ITS dir, never the operator's real LaunchAgents. */
+  const launchDir = launchAgentsDir();
+  /* ⚠️ statSync + an ENOENT split, NOT fs.existsSync. existsSync NEVER throws, so
+     it collapses "the LaunchAgents dir is unreadable" (EACCES, or a stat error
+     that is not "not found") into "the file is not there" -- turning a
+     could-not-look into a checked negative that would render ATTENTION "Kosmos
+     will not start". So a NON-ENOENT error fails SOFT to unknown here, the same
+     could-not-look discipline installedCheck (ENOENT-vs-EACCES) and
+     labelTruthCheck (unreadable dir -> unknown/OK) already keep.
+     A genuine ENOENT is a real absence and is treated as "no login job" (below),
+     which is deliberately NOT what labelTruthCheck does with a missing
+     LaunchAgents dir (it reports unknown): for "will the board autostart", a
+     missing plist -- whether the file or its whole dir is gone -- is the honest
+     answer that it will not, so this check reports it rather than declining to. */
+  let present;
+  try {
+    fs.statSync(path.join(launchDir, `${BOARD_LABEL}.plist`));
+    present = true;
+  } catch (e) {
+    if (e && e.code === 'ENOENT') {
+      present = false; // genuinely absent (the file, or a parent dir, does not exist)
+    } else {
+      return { key: 'autostart', state: STATE.UNKNOWN,
+        title: 'We could not check whether Kosmos starts at login',
+        detail: 'Not the same as it being wrong. We could not read the folder this computer keeps login jobs in.' };
+    }
+  }
+
+  if (!present) {
+    /* A from-source checkout legitimately has no login job and must not alarm
+       (matching labelTruthCheck's fresh-machine OK). update.installedRoot() is
+       the codebase's own from-source detector; opts.installedRoot overrides it
+       for tests without mutating update's global seam. */
+    const installed = (opts && 'installedRoot' in opts) ? opts.installedRoot : update.installedRoot();
+    if (!installed) {
+      return { key: 'autostart', state: STATE.OK,
+        title: 'Kosmos is running from source',
+        detail: 'There is no login job to check: a from-source checkout is started by hand, not by macOS at login.' };
+    }
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos will not start itself when you log in',
+      detail: 'The login job that brings Kosmos back after a restart is missing, so your agents will not '
+        + 'come back on their own until it is restored. Reinstalling Kosmos puts it back.' };
+  }
+
+  /* File present. The only thing that stops RunAtLoad from bringing it back is a
+     standing `disable` override, whose `launchctl print-disabled` line reads
+     `"com.kosmos.board" => disabled` (the format launchctl prints on current
+     macOS; a label with no override does not appear and defaults to enabled). A
+     read failure here is not a disable -- fall through to OK, since
+     the file's presence is the reboot-bearing fact and we simply could not read
+     the toggle.
+     ⚠️ MATCH BOTH TOKENS. Current macOS prints `=> disabled`/`=> enabled`, but
+     older `print-disabled` emitted `=> true`/`=> false` (true == disabled). If a
+     supported-floor macOS uses the older token, matching only `disabled` would
+     let a genuinely disabled board fall through to OK -- a false reassurance in
+     exactly the cannot-see-zero direction this check exists to fight. `true`
+     never means enabled in print-disabled (the value IS the disabled boolean),
+     so matching both is safe; the trailing boundary keeps `disabledx`/`truex`
+     from matching. The closing quote after the label still blocks a suffixed
+     `com.kosmos.board.<hash>` from matching the bare label. */
+  const dis = runner('/bin/launchctl', ['print-disabled', `gui/${uid}`]);
+  const disabledRe = new RegExp('"' + BOARD_LABEL.replace(/\./g, '\\.') + '"\\s*=>\\s*(?:disabled|true)\\b');
+  if (dis && dis.ok && typeof dis.stdout === 'string' && disabledRe.test(dis.stdout)) {
+    return { key: 'autostart', state: STATE.ATTENTION,
+      title: 'Kosmos is set up to start at login, but it is turned off',
+      detail: 'Its login job is on this computer but switched off right now, so Kosmos will not start on its '
+        + 'own after a restart. You can turn it back on in System Settings, under General then Login Items.' };
+  }
+  return { key: 'autostart', state: STATE.OK,
+    title: 'Kosmos starts itself when you log in',
+    detail: 'Its login job is in place, so Kosmos and your agents come back on their own after this computer restarts.' };
+}
+
 function check(opts) {
   const runner = (opts && opts.runner) || run;
 
@@ -1180,7 +1394,10 @@ function check(opts) {
     sleepRow,
     restartCheck(runner),
     labelTruthCheck(runner),
-  ];
+    // #2397: the board's own login job -- present + enabled? Returns null on
+    // non-darwin (no launchd), so filter falsy rather than render an empty row.
+    boardAutostartCheck(runner, opts),
+  ].filter(Boolean);
 
   return {
     checks,
@@ -1201,4 +1418,4 @@ function check(opts) {
   };
 }
 
-module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };
+module.exports = { check, parsePmset, sleepCheck, sleepGate, installedCheck, appLocationCheck, appLocationUnknown, findAppHint, restartCheck, labelTruthCheck, boardAutostartCheck, sleepPaneUrl, openSleepSettings, resetSleepPaneCache, a11yPaneUrl, openAccessibilitySettings, resetA11yPaneCache, fileAccessPaneUrl, openFileAccessSettings, revealApp, setAppRevealRunner, STATE };

@@ -42,12 +42,29 @@
 
 _lw_launchctl() { "${LAUNCHD_WITNESS_LAUNCHCTL:-launchctl}" "$@"; }
 
-# Every com.kosmos.* label in the gui domain, one "label<TAB>path" line each,
-# path read immediately. A label whose job answers no path prints "(gone)".
+# Every com.kosmos.* label in the gui domain, one "label<TAB>path<TAB>life" line
+# each, path read immediately. A label whose job answers no path prints "(gone)".
+# The third field is the LIFETIME axis (#1163): "persist" when the job carries a
+# persistence key (RunAtLoad / KeepAlive), so it survives a logout; "-" otherwise.
+# Read from the same `launchctl print` the path comes from, so the same test seam
+# drives both and neither can race the other.
 lw_snapshot() {
   for _lw_l in $(_lw_launchctl list 2>/dev/null | grep -o 'com\.kosmos[^"[:space:]]*' | sort); do
-    _lw_p="$(_lw_launchctl print "gui/$(id -u)/$_lw_l" 2>/dev/null | sed -n 's/.*path = //p' | head -1)"
-    printf '%s\t%s\n' "$_lw_l" "${_lw_p:-(gone)}"
+    _lw_out="$(_lw_launchctl print "gui/$(id -u)/$_lw_l" 2>/dev/null)"
+    _lw_p="$(printf '%s\n' "$_lw_out" | sed -n 's/.*path = //p' | head -1)"
+    # launchctl prints persistence keys on a `properties = ... | runatload | ...`
+    # line. Absent line or absent tokens => not persistent (fails toward "-",
+    # the same best-effort posture as an unreadable path). The match is not
+    # anchored to the TOP-LEVEL properties line, so a nested section carrying one
+    # of these tokens could over-classify a transient job as persist. That is
+    # fail-safe: a false persist only upgrades a SANDBOX note to a non-failing
+    # warning (and a sweep annotation) - never a missed leak, false reap, or fail.
+    if printf '%s\n' "$_lw_out" | sed -n 's/.*properties = //p' | head -1 | grep -qiE 'runatload|keepalive'; then
+      _lw_life=persist
+    else
+      _lw_life=-
+    fi
+    printf '%s\t%s\t%s\n' "$_lw_l" "${_lw_p:-(gone)}" "$_lw_life"
   done
 }
 
@@ -56,19 +73,49 @@ lw_snapshot() {
 # Prints one line per changed job:
 #   REAL <label> <path>       a job under the real dir appeared or vanished
 #   OURS <label> <path>       this sandbox's own job is still registered
-#   SANDBOX <label> <path>    somebody else's sandboxed create; ignorable
+#   PERSIST <label> <path>    somebody else's sandboxed create that carries a
+#                             persistence key, so it survives a logout (#1163):
+#                             the LIFETIME axis a plain SANDBOX class cannot see.
+#                             Escalated, not silently ignored.
+#   SANDBOX <label> <path>    somebody else's transient sandboxed create; ignorable
 #   UNKNOWN <label>           listed but gone before its path could be read
 # Prints nothing when the snapshots agree. The CALLER decides what fails;
-# this only names what happened, so the test and the harness cannot drift.
+# this only names what happened, so the test and the harness cannot drift. A
+# snapshot line with no third field (a hand-written 2-field line) reads as
+# non-persistent, so the SANDBOX/REAL/OURS arms are unchanged by the new axis.
+#
+# KNOWN, DELIBERATE SCOPE of the lifetime axis (not oversights):
+#   - PERSIST covers only the RunAtLoad / KeepAlive properties launchctl prints.
+#     A job that persists via StartCalendarInterval / StartInterval / WatchPaths
+#     / StartOnMount is NOT in the `properties =` line and reads non-persistent.
+#     That is the exact incident shape (#1163) and warns-only, so it is no worse
+#     than the pre-change status quo; it is not fixable from the properties line.
+#   - Because the before/after diff (uniq -u) now includes the life field, a job
+#     present at both BEFORE and AFTER whose life field DIFFERS between the two
+#     reads survives the diff on both lines and is reported twice, once PERSIST
+#     once SANDBOX. The usual cause is a real mid-run persistence flip; it would
+#     also fire on transient read variance if `launchctl print` returned the
+#     properties line inconsistently for an otherwise-unchanged job (unlikely, as
+#     print is deterministic for a stable job). Cosmetic only: the escalation
+#     still fires (no miss) and warns-only (no false fail), and it needs a job
+#     that already existed at BEFORE. Left as a double-note rather than adding a
+#     dedup pass to a security-hygiene lib.
+#   - Like #566 itself, this only surfaces jobs that DIFFER between before/after; a
+#     persistent leak already present at BEFORE and unchanged is dropped by uniq -u.
+#     Detection works for the run that CREATES the leak, not a later audit run.
 lw_judge() {
   _lw_real="$3"; _lw_sb="$4"
-  printf '%s\n%s\n' "$1" "$2" | grep -v '^$' | sort | uniq -u | while IFS="$(printf '\t')" read -r _lw_label _lw_path; do
+  printf '%s\n%s\n' "$1" "$2" | grep -v '^$' | sort | uniq -u | while IFS="$(printf '\t')" read -r _lw_label _lw_path _lw_life; do
     [ -n "$_lw_label" ] || continue
     case "$_lw_path" in
       "(gone)")        printf 'UNKNOWN %s\n' "$_lw_label" ;;
       "$_lw_real"/*)   printf 'REAL %s %s\n' "$_lw_label" "$_lw_path" ;;
       "$_lw_sb"/*)     printf 'OURS %s %s\n' "$_lw_label" "$_lw_path" ;;
-      *)               printf 'SANDBOX %s %s\n' "$_lw_label" "$_lw_path" ;;
+      *)               if [ "$_lw_life" = persist ]; then
+                         printf 'PERSIST %s %s\n' "$_lw_label" "$_lw_path"
+                       else
+                         printf 'SANDBOX %s %s\n' "$_lw_label" "$_lw_path"
+                       fi ;;
     esac
   done | sort -u
 }

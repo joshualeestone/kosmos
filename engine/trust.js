@@ -42,6 +42,32 @@ const path = require('node:path');
 function homeDir() { return os.homedir(); }
 
 /**
+ * The ON-DISK canonical spelling of a path -- the exact case (and unicode
+ * normalization) the filesystem stores. This is what the RUNNER looks up: both
+ * Claude Code (via process.cwd() = getcwd()) and codex (via
+ * std::fs::canonicalize) resolve their working directory to the on-disk spelling
+ * before matching the trust key.
+ *
+ * 🛑 fs.realpathSync (the JS variant) IS NOT THIS, and #2129's first fix wrongly
+ * assumed it was. Measured on macOS: `fs.realpathSync('~/work/x')` on a disk
+ * holding '~/Work/x' returns the INPUT case '~/work/x'. `fs.realpathSync.native`
+ * -- the OS realpath(3) -- returns '~/Work/x'. That is the SAME OS call the runner
+ * uses (getcwd / std::fs::canonicalize), so keying on it matches the runner's
+ * lookup BY CONSTRUCTION, in one syscall, folding case AND unicode exactly as the
+ * filesystem does (a hand-rolled JS toLowerCase/normalize only approximates it).
+ * Verified: realpathSync.native(lowercase) === process.cwd()-after-chdir. The repo
+ * already proved this property in `projects.js` resolveReal (measured 2026-08-13).
+ * So an agent launched in the lowercase spelling (workersDir hardcodes 'work')
+ * looks up the capital one; a plain-realpath key missed it and the runner's
+ * trust menu fired on a fresh macOS user (Josh's 0.6.42 re-test, both runners).
+ * Falls back to path.resolve on an absent path so callers never throw.
+ */
+function canonicalOnDisk(p) {
+  try { return fs.realpathSync.native(p); }
+  catch { return path.resolve(String(p)); }
+}
+
+/**
  * ⚠️ The SAME override `subscription.js` uses, deliberately — both read the one
  * file, and a test that pointed only one of them at a fixture would read the
  * operator's real account through the other.
@@ -175,17 +201,47 @@ function trustFolder(dir, opts) {
     return { ok: false, because: 'that is not an absolute folder path' };
   }
 
-  // The key is the path Claude Code will use, and it uses the resolved one:
-  // ⚠️ measured rather than assumed — every entry on this machine whose folder
-  // still exists equals its own realpath, and NONE differ. (Stated as the
-  // property, not as a count: the first version of this comment said "all 22",
-  // and the number was stale within a day while the claim it supported stayed
-  // true.) Writing the unresolved spelling on a Mac where `~/work` is a symlink
-  // would leave a trusted entry nothing ever reads, and nothing would report a
-  // failure.
+  // The key is the path the RUNNER will look up: the ON-DISK canonical spelling
+  // (case + unicode as the filesystem stores it), which fs.realpathSync.native
+  // -- the OS realpath(3) -- returns exactly, being the same call the runner uses
+  // (process.cwd() / std::fs::canonicalize). See canonicalOnDisk. #2129/#5: the
+  // plain fs.realpathSync did NOT case-fold, so a lowercase-launch key missed the
+  // runner's capital lookup and the trust menu fired on a fresh macOS user. One
+  // call does both the existence check (it throws on an absent/unreachable dir)
+  // and the key, closing the check-then-resolve TOCTOU.
   let key;
-  try { key = fs.realpathSync(dir); }
+  /* ⚠️ realpathSync.native DIRECTLY, not through canonicalOnDisk: that helper
+     SWALLOWS a missing folder and falls back to path.resolve, and THIS call
+     site's refusal ("that folder is not there") depends on the throw. Routing it
+     through the helper while fixing the separator bug below would have quietly
+     accepted a folder that is not on disk -- a regression introduced by a
+     cleanup, which is the shape this file has already been bitten by. */
+  try { key = fs.realpathSync.native(dir); }
   catch { return { ok: false, because: 'that folder is not there' }; }
+  /* 🛑 AND THE SEPARATORS ARE CLAUDE CODE'S, NOT THIS HOST'S. Everything above
+     reasons about the exact SPELLING of this key -- symlinks, then case-folding
+     via realpathSync.native -- because a key Claude Code does not read is a
+     trusted entry that does nothing and reports success. This is the third axis
+     of the same concern, and the only one that is invisible on macOS: on Windows
+     `realpathSync.native` returns `C:\Users\...`, and Claude Code spells its own
+     project keys with FORWARD SLASHES.
+
+     MEASURED ON THE WINDOWS BOX 2026-09-07, both arms, same config, same Claude
+     version (2.1.263), one variable:
+       key "C:/Users/joshu/trust-test-fwd"  -> no dialog, straight to the prompt
+       key "C:\Users\joshu\trust-test-back" -> THE TRUST DIALOG, "No, exit" preselected
+     The control is what makes it decisive: pre-accepting trust works, and only
+     the backslashed spelling fails to be read.
+
+     ⚠️ SO THIS FUNCTION SILENTLY DID NOTHING ON WINDOWS, in the worst way
+     available: it wrote, returned ok, and left every Kosmos-created agent facing
+     the prompt with `No, exit` preselected -- which is the agent dying at birth,
+     the exact catastrophic first-run failure the #2129 comment below describes,
+     reached by an axis nobody had checked.
+
+     📌 Inert on POSIX, where `path.sep` is already '/' and this is the identity —
+     which is also why no test on this fleet could ever have caught it. */
+  key = key.split(path.sep).join('/');
 
   // ⚠️ A SYMLINKED CONFIG IS SOMEBODY'S ARRANGEMENT. Renaming over it replaces
   // the link with a file — the same severing the installer refuses for
@@ -655,4 +711,4 @@ function preacceptBypass(configDir, agentDefaultAccount) {
    direction (see the rollback comment in create.js). An undo would need forgetFolder's
    "only if it still says what we wrote" window guard AND could still delete a shared key. */
 
-module.exports = { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings };
+module.exports = { trustFolder, forgetFolder, preacceptBypass, KEY, BYPASS_KEY, recordWrite, recordedWrite, dropRecord, defaultAgentConfig, defaultAgentSettings, canonicalOnDisk };

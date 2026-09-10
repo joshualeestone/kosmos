@@ -6,7 +6,7 @@
  * flip, with the interval saving on change and hidden while off (the lim pattern). The
  * real paintHeartbeat is lifted (with the real paintSwitch) and run against a stub: it
  * loads the in-force setting into the toggle and interval select, renders the interval
- * choices the server names, defaults to on/17 (#2013), and, as a STATUS control, HIDES
+ * choices the server names, defaults to on/15 (#2013, #1843), and, as a STATUS control, HIDES
  * the knob on a could-not-read read rather than show a false Off.
  *
  * ⭐ #2054 ACCEPTANCE (Mona Lisa): a moved setting must keep its stored VALUE. The value
@@ -45,7 +45,6 @@ function dom() {
     'hb-interval': { value: '', innerHTML: '' },
     'hb-interval-row': { hidden: false },
     'hb-msg': { textContent: '' },
-    'hb-needs-notify': { hidden: false }, // default visible, so a test proves paint HIDES it when notify is on
   };
   return {
     els,
@@ -57,17 +56,16 @@ function dom() {
 }
 
 /**
- * paintHeartbeat, the REAL one (with the real paintSwitch), wired to a URL-aware stub
- * fetch: `/api/notify-setting` returns `{on: notifyOn, ok: true}` (the master switch),
- * everything else returns `served` with `ok`. `calls` records every fetch so a test can
- * assert paint never WRITES. `notifyOn` defaults to true (notifications on).
+ * paintHeartbeat, the REAL one (with the real paintSwitch), wired to a stub fetch that
+ * returns `served` with `ok`. `calls` records every fetch so a test can assert paint
+ * never WRITES. (#2623: paintHeartbeat no longer reads /api/notify-setting -- the
+ * notify-off hint was removed with the phone-home seam.)
  */
-function makePaint(served, notifyOn = true, ok = true) {
+function makePaint(served, ok = true) {
   const d = dom();
   const calls = [];
   const fetchStub = async (url, opts) => {
     calls.push({ url: String(url), method: (opts && opts.method) || 'GET' });
-    if (String(url).indexOf('notify-setting') !== -1) return { ok: true, json: async () => ({ on: notifyOn, ok: true }) };
     return { ok, json: async () => served };
   };
   const body = 'let HB_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
@@ -76,7 +74,7 @@ function makePaint(served, notifyOn = true, ok = true) {
 }
 
 test('kosmos#1722: the in-force setting LOADS, and the interval choices come from the server', async () => {
-  const { paint, els } = makePaint({ on: true, intervalMinutes: 60, intervals: [5, 10, 17, 60], ok: true });
+  const { paint, els } = makePaint({ on: true, intervalMinutes: 60, intervals: [5, 10, 15, 30, 60], ok: true });
   await paint();
   assert.equal(els['hb-toggle'].getAttribute('aria-checked'), 'true', 'the toggle reflects the in-force on');
   assert.equal(els['hb-toggle'].hidden, false, 'the toggle is shown once its position is known');
@@ -86,40 +84,39 @@ test('kosmos#1722: the in-force setting LOADS, and the interval choices come fro
   assert.equal(els['hb-interval-row'].hidden, false, 'the interval row shows while on');
 });
 
-test('kosmos#1722: renders off and 17 minutes when the server says the heartbeat is off', async () => {
-  const { paint, els } = makePaint({ on: false, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true });
+test('kosmos#1722: renders off and 15 minutes when the server says the heartbeat is off', async () => {
+  const { paint, els } = makePaint({ on: false, intervalMinutes: 15, intervals: [5, 10, 15, 30, 60], ok: true });
   await paint();
   assert.equal(els['hb-toggle'].getAttribute('aria-checked'), 'false', 'a served off renders the toggle off');
-  assert.equal(els['hb-interval'].value, '17', 'the interval is the fleet-cadence default');
+  assert.equal(els['hb-interval'].value, '15', 'the interval reflects the served value');
   assert.equal(els['hb-interval-row'].hidden, true, 'the interval row hides while off');
 });
 
 test('#2054 ACCEPTANCE: a NON-default stored value paints as itself, and paint writes nothing', async () => {
-  // on:false / interval:60 is not the on/17 default, so a control that "silently reset"
-  // on the move would show on/17 here.
-  const { paint, els, calls } = makePaint({ on: false, intervalMinutes: 60, intervals: [5, 10, 17, 60], ok: true });
+  // on:false / interval:60 is not the on/15 default, so a control that "silently reset"
+  // on the move would show on/15 here.
+  const { paint, els, calls } = makePaint({ on: false, intervalMinutes: 60, intervals: [5, 10, 15, 30, 60], ok: true });
   await paint();
   assert.equal(els['hb-toggle'].getAttribute('aria-checked'), 'false', 'the stored OFF survived the move');
-  assert.equal(els['hb-interval'].value, '60', 'the stored interval survived the move (not the default 17)');
+  assert.equal(els['hb-interval'].value, '60', 'the stored interval survived the move (not the default 15)');
   const writes = calls.filter((c) => c.method !== 'GET' && c.method !== 'HEAD');
   assert.deepEqual(writes, [], 'paint issued a write (' + JSON.stringify(writes) + '); a paint that saves can reset a stored value');
 });
 
 test('#2054 (executable): flipping a LOADED toggle PUTs the flipped value and repaints from the server echo', async () => {
-  // The post-load save path, executed. Start loaded (toggle off, interval 17), flip it,
+  // The post-load save path, executed. Start loaded (toggle off, interval 15), flip it,
   // assert one PUT with the flipped on + current interval, then a repaint from the echo.
   const d = dom();
   d.els['hb-toggle'].setAttribute('aria-checked', 'false');
   d.els['hb-toggle'].hidden = false;
-  d.els['hb-interval'].value = '17';
-  d.els['hb-interval'].options = [{ value: '5' }, { value: '17' }, { value: '60' }]; // hbToggleClick guards on options.length
+  d.els['hb-interval'].value = '15';
+  d.els['hb-interval'].options = [{ value: '5' }, { value: '15' }, { value: '60' }]; // hbToggleClick guards on options.length
   const calls = [];
   const fetchStub = async (url, opts) => {
     const method = (opts && opts.method) || 'GET';
-    if (String(url).indexOf('notify-setting') !== -1) return { ok: true, json: async () => ({ on: true, ok: true }) };
     const bodyObj = opts && opts.body ? JSON.parse(opts.body) : null;
     calls.push({ url: String(url), method, body: bodyObj });
-    return { ok: true, json: async () => ({ on: bodyObj.on, intervalMinutes: bodyObj.intervalMinutes, intervals: [5, 17, 60], ok: true }) };
+    return { ok: true, json: async () => ({ on: bodyObj.on, intervalMinutes: bodyObj.intervalMinutes, intervals: [5, 15, 60], ok: true }) };
   };
   const body = 'let HB_SAVING=false;\nlet HB_EPOCH=0;\n'
     + lift(SCRIPT, 'paintSwitch') + '\n'
@@ -132,33 +129,29 @@ test('#2054 (executable): flipping a LOADED toggle PUTs the flipped value and re
   const puts = calls.filter((c) => c.method === 'PUT');
   assert.equal(puts.length, 1, 'exactly one PUT fired for the flip');
   assert.equal(puts[0].url, '/api/heartbeat-setting');
-  assert.deepEqual(puts[0].body, { on: true, intervalMinutes: 17 },
+  assert.deepEqual(puts[0].body, { on: true, intervalMinutes: 15 },
     'the PUT carries the flipped on (off->on) and the current interval');
   assert.equal(d.els['hb-toggle'].getAttribute('aria-checked'), 'true', 'the toggle repainted to the saved on, from the server echo');
   assert.equal(d.els['hb-interval-row'].hidden, false, 'the interval row shows once on');
 });
 
 test('#2054: a stale in-flight paint cannot repaint over a newer one (HB_EPOCH guard)', async () => {
-  // Same race as the autohandoff epoch test. The notify-setting GET auto-resolves so
-  // only the heartbeat-setting GET is controllable; without the guard the late stale
-  // paint (on/17) would land last and win.
+  // Same race as the autohandoff epoch test: the heartbeat-setting GET is controllable
+  // and without the guard the late stale paint (on/15) would land last and win.
   const d = dom();
   const fetchResolvers = [];
-  const fetchStub = (url) => {
-    if (String(url).indexOf('notify-setting') !== -1) return Promise.resolve({ ok: true, json: async () => ({ on: true, ok: true }) });
-    return new Promise((resolve) => { fetchResolvers.push(resolve); });
-  };
+  const fetchStub = () => new Promise((resolve) => { fetchResolvers.push(resolve); });
   const body = 'let HB_EPOCH=0;\n' + lift(SCRIPT, 'paintSwitch') + '\n' + lift(SCRIPT, 'paintHeartbeat') + '\nreturn paintHeartbeat;';
   const paintHeartbeat = new Function('document', 'fetch', body)(d.document, fetchStub);
   const p1 = paintHeartbeat(); // mine=1 (older/stale)
   const p2 = paintHeartbeat(); // mine=2 (newer)
-  fetchResolvers[1]({ ok: true, json: async () => ({ on: false, intervalMinutes: 60, intervals: [5, 10, 17, 60], ok: true }) });
+  fetchResolvers[1]({ ok: true, json: async () => ({ on: false, intervalMinutes: 60, intervals: [5, 10, 15, 30, 60], ok: true }) });
   await p2;
   assert.equal(d.els['hb-toggle'].getAttribute('aria-checked'), 'false', 'sanity: the newer paint set the toggle off');
-  fetchResolvers[0]({ ok: true, json: async () => ({ on: true, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true }) });
+  fetchResolvers[0]({ ok: true, json: async () => ({ on: true, intervalMinutes: 15, intervals: [5, 10, 15, 30, 60], ok: true }) });
   await p1;
   assert.equal(d.els['hb-toggle'].getAttribute('aria-checked'), 'false', 'the stale paint repainted over the newer one -- HB_EPOCH guard missing/ineffective');
-  assert.equal(d.els['hb-interval'].value, '60', 'the stale interval (17) overwrote the newer 60');
+  assert.equal(d.els['hb-interval'].value, '60', 'the stale interval (15) overwrote the newer 60');
 });
 
 test('#2054 ACCEPTANCE (executable): an interval change BEFORE the setting loads writes nothing', async () => {
@@ -190,40 +183,27 @@ test('kosmos#1722/#2054: a could-not-read read HIDES the knob (status control), 
   assert.match(d.els['hb-msg'].textContent, /could not read/i, 'and it says the read failed');
 
   // 403 on an enforcing board: a NON-OK response is could-not-read, not a position.
-  const gated = makePaint({ on: true, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true }, true, false);
+  const gated = makePaint({ on: true, intervalMinutes: 15, intervals: [5, 10, 15, 30, 60], ok: true }, false);
   await gated.paint();
   assert.equal(gated.els['hb-toggle'].hidden, true, 'a non-ok GET (403) hides the knob rather than painting a position from it');
   assert.equal(gated.els['hb-toggle'].hasAttribute('aria-checked'), false, 'a 403 draws no aria-checked');
 });
 
-test('kosmos#1722: the notify-off hint (Mona\'s edit 5) shows ONLY when the notify master switch is off', async () => {
-  const settingOn = { on: true, intervalMinutes: 17, intervals: [5, 10, 17, 60], ok: true };
-  const off = makePaint(settingOn, false); // notifications OFF
-  await off.paint();
-  assert.equal(off.els['hb-needs-notify'].hidden, false, 'notify off => the hint is shown');
-
-  const on = makePaint(settingOn, true); // notifications ON
-  await on.paint();
-  assert.equal(on.els['hb-needs-notify'].hidden, true, 'notify on => the hint is hidden');
-});
-
-test('kosmos#1722: the notify-off hint is a DEDICATED element with Mona\'s exact string, not hb-msg', () => {
-  assert.ok(PAGE.includes('id="hb-needs-notify"'), 'the dedicated hint element exists');
-  assert.ok(PAGE.includes('Notifications are off, so this cannot reach you. Turn them on and Kosmos will let you know when an agent has stopped.'),
-    'the hint carries Mona\'s exact voice string');
-  // it ships hidden by default (shown only when notify is off, set in paintHeartbeat)
-  assert.match(PAGE, /id="hb-needs-notify"[^>]*hidden/, 'the hint is hidden by default in the markup');
-});
+/* #2623: the two "notify-off hint" tests were deleted with the hint itself -- the
+   phone-home notify seam (engine/notify.js) and its /api/notify-setting master
+   switch are gone, so paintHeartbeat no longer shows a "notifications are off" hint. */
 
 test('kosmos#1722/#2054: the control is wired -- section, slider + interval, painted on open, saved on interact', () => {
   assert.ok(PAGE.includes('id="s-sec-automation"'), 'the Automation section is in the page');
-  for (const id of ['hb-toggle', 'hb-interval', 'hb-interval-row', 'hb-msg', 'hb-needs-notify']) {
+  for (const id of ['hb-toggle', 'hb-interval', 'hb-interval-row', 'hb-msg']) {
     assert.ok(PAGE.includes('id="' + id + '"'), id + ' is present');
   }
+  // #2623: hb-needs-notify was deleted with the notify seam; assert it stays gone.
+  assert.ok(!PAGE.includes('id="hb-needs-notify"'), 'the notify-off hint should be gone (#2623: phone-home deleted)');
   // No Save button any more: the slider commits on flip.
   assert.ok(!PAGE.includes('id="hb-save"'), 'the hb-save button should be gone (#2054: sliders commit on flip)');
   const paint = lift(SCRIPT, 'paintHeartbeat');
-  assert.match(paint, /fetch\('\/api\/notify-setting'/, 'paintHeartbeat reads the notify master state for the hint');
+  assert.doesNotMatch(paint, /fetch\('\/api\/notify-setting'/, 'paintHeartbeat should no longer read notify-setting (#2623)');
   const paintSettings = lift(SCRIPT, 'paintSettings');
   assert.match(paintSettings, /paintHeartbeat\(\)/, 'paintSettings calls paintHeartbeat');
   assert.match(SCRIPT, /getElementById\('hb-toggle'\)[\s\S]{0,40}addEventListener\('click', hbToggleClick\)/, 'the toggle click is wired to hbToggleClick');

@@ -37,11 +37,11 @@ const put = async (p, body) => {
   return { status: res.status, json: await res.json() };
 };
 
-test('GET defaults: ON (Josh 2026-09-03, #2013), interval 17, and the closed interval choices', async () => {
+test('GET defaults: ON (Josh 2026-09-03, #2013), interval 15 (#1843), and the closed interval choices', async () => {
   const r = await getJson('/api/heartbeat-setting');
   assert.equal(r.on, true, 'an unconfigured heartbeat is on by default');
-  assert.equal(r.intervalMinutes, 17);
-  assert.deepEqual(r.intervals, [5, 10, 17, 60]);
+  assert.equal(r.intervalMinutes, 15);
+  assert.deepEqual(r.intervals, [5, 10, 15, 30, 60]);
   assert.equal(r.ok, true);
 });
 
@@ -69,12 +69,12 @@ test('PUT a non-choice interval is a 400 and does NOT change the stored value', 
 });
 
 test('PUT is atomic: a valid on beside an invalid interval persists NEITHER, and reports failure', async () => {
-  await put('/api/heartbeat-setting', { on: false, intervalMinutes: 17 }); // known baseline
+  await put('/api/heartbeat-setting', { on: false, intervalMinutes: 30 }); // known baseline
   const w = await put('/api/heartbeat-setting', { on: true, intervalMinutes: 7 });
   assert.equal(w.status, 400, 'the invalid interval is rejected');
   const r = await getJson('/api/heartbeat-setting');
   assert.equal(r.on, false, 'the valid on was NOT persisted alongside the rejected interval');
-  assert.equal(r.intervalMinutes, 17, 'the interval is unchanged');
+  assert.equal(r.intervalMinutes, 30, 'the interval is unchanged');
 });
 
 test('PUT can set on and interval together', async () => {

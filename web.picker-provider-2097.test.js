@@ -27,6 +27,10 @@ function defaultFor(accounts) {
   // #2140: resetCreateProvider also clears the remembered Claude pick on a form reset.
   // eslint-disable-next-line no-unused-vars, prefer-const
   let LAST_CLAUDE_MODEL = 'stale';
+  // #2453 follow-up: resetCreateProvider also clears the OpenAI-import default flag;
+  // declare it so the strict eval does not throw a ReferenceError.
+  // eslint-disable-next-line no-unused-vars, prefer-const
+  let IMPORT_OPENAI_DEFAULT = false;
   // eslint-disable-next-line no-unused-vars
   const applyCreateProviderUI = () => {};
   // eslint-disable-next-line no-eval

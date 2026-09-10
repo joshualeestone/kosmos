@@ -148,7 +148,7 @@ async function assertSandboxed() {
   fs.mkdirSync(probe, { recursive: true });
   const made = await post('/api/projects', { name: 'kosmos sandbox probe', folder: probe });
   try {
-    const store = path.join(SANDBOX, 'data', 'AgentWorkforce', 'projects.json');
+    const store = path.join(SANDBOX, 'data', 'Kosmos', 'projects.json');
     if (!fs.existsSync(store)) {
       throw new Error(`the server at ${BASE} did not write to ${store} -- it is NOT running against the sandbox you passed. Refusing to touch it.`);
     }
@@ -582,7 +582,7 @@ async function main() {
      they are not measured HERE, a recorded acceptance, not an
      oversight.) */
   {
-    const logFile = path.join(SANDBOX, 'data', 'AgentWorkforce', 'messages.jsonl');
+    const logFile = path.join(SANDBOX, 'data', 'Kosmos', 'messages.jsonl');
     const at = new Date().toISOString();
     const seeded = [
       { kind: 'post', id: 'm9001', project: 'hendersonlease', from: agents[0],
@@ -599,7 +599,7 @@ async function main() {
        has something to show. Seeded as a profile role (profileRole reads the
        profile file live per request, so it lands before the room fetch below),
        and the operator post keeps none -- "You" carries no title by design. */
-    const profDir = path.join(SANDBOX, 'data', 'AgentWorkforce', 'profiles');
+    const profDir = path.join(SANDBOX, 'data', 'Kosmos', 'profiles');
     fs.mkdirSync(profDir, { recursive: true });
     fs.writeFileSync(path.join(profDir, agents[0] + '.json'), JSON.stringify({ role: 'Project manager' }));
     await shot('3b-room', async (page) => {

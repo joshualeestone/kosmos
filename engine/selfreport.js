@@ -9,13 +9,12 @@
  * `kosmos reply` records into a thread; this is the record for STATE:
  * `kosmos report <state>` appends one line here and delivers nothing.
  *
- * 🔑 SIX WORDS, A CLOSED LIST, exactly like notify.js's KINDS: started,
- * working, idle, needs_you, blocked, stopped. Four are already the board's
- * words (status.js STATE) and needs_you is already the phone's word
- * (notify.js KINDS), so a report teaches the board and the phone the same
- * fact with no translation layer. An unknown word is a writer's typo and is
- * skipped with one line to stderr on read, notify.js's posture for the same
- * mistake.
+ * 🔑 SIX WORDS, A CLOSED LIST: started, working, idle, needs_you, blocked,
+ * stopped. Four are already the board's words (status.js STATE), so a report
+ * teaches the board the same fact with no translation layer. An unknown word is
+ * a writer's typo and is skipped with one line to stderr on read. (#2623: this
+ * used to be shared with engine/notify.js's KINDS, the phone-home seam; that
+ * module was deleted, so the board's STATE is now the only shared vocabulary.)
  *
  * ⚠️ THIS MODULE RECORDS AND READS; IT NEVER DECIDES STATE. What a fresh
  * report outranks, what a stale one decays to, and what the pane reader is
@@ -51,8 +50,7 @@ const DIR = path.join(store.ROOT, 'selfreports');
 const TAIL_BYTES = 64 * 1024;
 
 /* Field caps, so one runaway caller cannot turn the record into a dump.
-   `because` is a sentence, not a transcript: the words live on this Mac
-   (unlike notify.js's payload, which strips them before anything leaves),
+   `because` is a sentence, not a transcript: the words live on this Mac,
    but a report is still a claim about state, not a place to store output. */
 const CAPS = { because: 1000, on: 200, owner: 200, until: 100, project: 120, instance: 40 };
 
@@ -105,6 +103,19 @@ function cappedSentence(value, cap) {
  * only ever report as itself. That property is what makes this record
  * evidence rather than something anyone on the machine can forge.
  */
+/* 🛑 SECURITY BOUNDARY (#2575). `entry.by === 'operator'` is honored by this
+   function for ANY caller that passes it -- record() cannot know who is calling,
+   so it does not police the field. The invariant "only a person, via the
+   operator-only clear route, may set operator provenance" is therefore enforced
+   ONE LAYER UP, at the HTTP boundary: routes build `entry` field-by-field and
+   never spread an untrusted `req.body` into it. In particular /api/report
+   (server.js) copies state/project/because/on/owner/until/instance/auto and
+   deliberately NOT `by`, so an agent cannot stamp its own report `operator` and
+   bypass the #900 auto-guard. That boundary is red-guarded by the FORGERY GUARD
+   test in server.clear-selfreport-2575.test.js (a /api/report with body
+   by:'operator' must still store by:'agent'). ⚠️ Any NEW caller of record() must
+   keep building entry explicitly -- spreading a request body here silently
+   reopens the operator-provenance forgery. */
 function record(sessionName, entry) {
   let file;
   try { file = fileFor(sessionName); } catch {
@@ -210,18 +221,32 @@ function record(sessionName, entry) {
        field records what the rule SAW, never a re-derivation of it, so the two
        cannot drift.
 
-       ⚠️ THREE VALUES, NOT A BOOLEAN, and that is the whole reason it is not
-       `auto: true`. A line written before this field existed carries no `by`
-       and reads as null -- unknown provenance, which is the honest answer
-       rather than a manufactured one, and the same posture `instance` takes
-       two fields up. An omitted boolean would collapse "the agent typed it"
-       into "we do not know", which is the ambiguity this exists to remove.
+       ⚠️ THREE WRITTEN VALUES, NOT A BOOLEAN, and that is the whole reason it
+       is not `auto: true`. 'auto' (a lifecycle hook), 'agent' (the agent chose
+       to say it), and 'operator' (a person cleared a stale self-report on the
+       agent's behalf, via the operator-only clear route -- #2575). A line
+       written before this field existed carries no `by` and reads as null --
+       unknown provenance, which is the honest answer rather than a manufactured
+       one, and the same posture `instance` takes two fields up. An omitted
+       boolean would collapse "the agent typed it" into "we do not know", which
+       is the ambiguity this exists to remove.
+
+       🔑 #2575: 'operator' is the ONE value a caller may assert on the entry
+       (`entry.by === 'operator'`), and only the operator-only clear route sets
+       it. An operator clear has `auto` falsey, so the #900 guard above does NOT
+       refuse it -- it lands and supersedes a standing needs_you. It is safe
+       because the cleared state RE-DERIVES on the next poll (a scraped working
+       outranks a reported idle, #1995; a genuine on-screen prompt re-raises
+       needs_you; the agent's own next report re-raises), so an operator-clear
+       removes the STICKY reported red, it does not permanently silence a real
+       need. That re-derivation is why letting a person report AS the agent here
+       does not break the evidence model the rest of this file keeps.
 
        Append-only, so no migration and no rewrite of history. `v` stays 1:
        read() picks fields by name and no reader asserts a key set, so a bump
        would make every reader handle two shapes for a change none of them has
        to handle. */
-    by: entry.auto === true ? 'auto' : 'agent',
+    by: entry.by === 'operator' ? 'operator' : (entry.auto === true ? 'auto' : 'agent'),
     at,
   };
   try {
@@ -316,10 +341,12 @@ function read(sessionName) {
     /* Null for a pane-derived report, which is most of them: the pane arm has
        no notion of a run. Null means "not known", never "only one run". */
     instance: latest.instance || null,
-    /* #1453: 'auto' (a lifecycle hook wrote it), 'agent' (the agent chose to
-       say it), or null for a line written before the field existed. Null is
-       "not known", never "an agent typed it" -- a caller that treats absence
-       as agent-typed reintroduces exactly the miscount this field removes. */
+    /* #1453 + #2575: 'auto' (a lifecycle hook wrote it), 'agent' (the agent
+       chose to say it), 'operator' (a person cleared a stale self-report on the
+       agent's behalf), or null for a line written before the field existed.
+       Null is "not known", never "an agent typed it" -- a caller that treats
+       absence as agent-typed reintroduces exactly the miscount this field
+       removes. */
     by: latest.by || null,
     project,
     /* Whether the project came from the latest report itself (stated) or from

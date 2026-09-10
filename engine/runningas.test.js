@@ -10,6 +10,16 @@ const { runningAs, everyone, claudeUnder } = require('./runningas');
  * module that can only run against the real machine cannot have one.
  */
 
+/* 🪟 #570: THE ARM IS NAMED, not inherited from whatever box runs the suite. These
+   are the DARWIN arm's tests -- panes and a process tree -- and `runningAs` now
+   picks its arm from `deps.platform || process.platform`. Left implicit they
+   would pass on a Mac and silently exercise the win32 reader on Windows, where
+   they would fail for a reason that has nothing to do with what they assert.
+   Naming it is also what lets the fleet's Macs assert the win32 arm and this
+   Windows box assert the darwin one -- the same control-that-can-return-the-other-
+   value bar #1304 set for every reader in this module. */
+const DARWIN = 'darwin';
+
 /* A pane whose direct child is the bun discord plugin and whose claude process is
    a GRANDCHILD. This is the real shape on this machine and it is trap 1: reading
    the direct child gives "no --model flag" for every agent, uniformly, which
@@ -23,7 +33,7 @@ const PANES = () => new Map([['pigeonpete-discord', 100]]);
 
 test('#1304: reports the model from the claude process, not the pane child', () => {
   const r = runningAs('pigeonpete-discord', {
-    panes: PANES(), procs: REAL_SHAPE(),
+    platform: DARWIN, panes: PANES(), procs: REAL_SHAPE(),
     envOf: () => 'CLAUDE_CONFIG_DIR=/Users/x/.claude-account-d /Users/x/.local/bin/claude',
     identityOf: () => ({ email: 'agent@example.com', organization: 'Example' }),
   });
@@ -37,7 +47,7 @@ test('#1304: with no CLAUDE_CONFIG_DIR in the env it falls back to the default d
   /* Trap 3: the variable is in the ENVIRONMENT, never the cmdline, so an agent on
      the default account shows nothing here and must not be reported as unknown. */
   const r = runningAs('pigeonpete-discord', {
-    panes: PANES(), procs: REAL_SHAPE(),
+    platform: DARWIN, panes: PANES(), procs: REAL_SHAPE(),
     envOf: () => '/Users/x/.local/bin/claude --model claude-opus-5',
     identityOf: (d) => (d.endsWith('.claude') ? { email: 'default@example.com' } : null),
   });
@@ -50,7 +60,7 @@ test('#1304 CONTROL: the two accounts come back DIFFERENT, so the reader discrim
   /* Without this the assertions above pass against a reader that returns one
      hardcoded answer. */
   const mk = (dir) => runningAs('pigeonpete-discord', {
-    panes: PANES(), procs: REAL_SHAPE(),
+    platform: DARWIN, panes: PANES(), procs: REAL_SHAPE(),
     envOf: () => `CLAUDE_CONFIG_DIR=${dir} claude`,
     identityOf: (d) => ({ email: d.includes('account-d') ? 'agent@example.com' : 'someone@else.com' }),
   });
@@ -59,7 +69,7 @@ test('#1304 CONTROL: the two accounts come back DIFFERENT, so the reader discrim
 
 test('#1304: an unreadable account is NULL, never a guess', () => {
   const r = runningAs('pigeonpete-discord', {
-    panes: PANES(), procs: REAL_SHAPE(), envOf: () => 'claude', identityOf: () => null,
+    platform: DARWIN, panes: PANES(), procs: REAL_SHAPE(), envOf: () => 'claude', identityOf: () => null,
   });
   assert.equal(r.ok, true, 'an unreadable account is not a failure to look');
   assert.equal(r.account, null);
@@ -70,7 +80,7 @@ test('#1304: a pane with no claude under it says so, and does not say "no accoun
   /* 🛑 "we could not tell" and "it is running on nothing" are different answers
      and only one of them is ever true. */
   const r = runningAs('pigeonpete-discord', {
-    panes: PANES(),
+    platform: DARWIN, panes: PANES(),
     procs: new Map([[100, { ppid: 1, command: '/bin/zsh' }]]),
     envOf: () => '', identityOf: () => ({ email: 'nobody@example.com' }),
   });
@@ -80,7 +90,7 @@ test('#1304: a pane with no claude under it says so, and does not say "no accoun
 });
 
 test('#1304: an unknown session says so', () => {
-  const r = runningAs('not-a-session', { panes: PANES(), procs: REAL_SHAPE(), envOf: () => '' });
+  const r = runningAs('not-a-session', { platform: DARWIN, panes: PANES(), procs: REAL_SHAPE(), envOf: () => '' });
   assert.equal(r.ok, false);
   assert.match(r.because, /no pane called not-a-session/);
 });
@@ -114,7 +124,7 @@ test('#1304: everyone() answers for each pane and sorts by name', () => {
     [100, { ppid: 1, command: '/Users/x/.local/bin/claude --model claude-opus-5' }],
     [200, { ppid: 1, command: '/bin/zsh' }],
   ]);
-  const all = everyone({ panes, procs, envOf: () => '', identityOf: () => ({ email: 'a@b.c' }) });
+  const all = everyone({ platform: DARWIN, panes, procs, envOf: () => '', identityOf: () => ({ email: 'a@b.c' }) });
   assert.deepEqual(all.map((a) => a.session), ['a-discord', 'b-discord']);
   assert.equal(all[0].ok, true);
   assert.equal(all[1].ok, false, 'a pane with no agent was reported as answering');

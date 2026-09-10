@@ -24,6 +24,7 @@
  */
 
 const test = require('node:test');
+const store = require('./engine/store');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
@@ -36,7 +37,7 @@ const page = require('./test-support/page');
 
 function boardWithStoppedAgent({ job, named = true }) {
   const sb = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-nm-'));
-  const profiles = nodePath.join(sb, 'data', 'AgentWorkforce', 'profiles');
+  const profiles = nodePath.join(sb, 'data', store.APP, 'profiles');
   const launch = nodePath.join(sb, 'launch');
   fs.mkdirSync(profiles, { recursive: true });
   fs.mkdirSync(launch, { recursive: true });

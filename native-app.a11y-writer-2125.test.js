@@ -28,14 +28,22 @@ test('imports ApplicationServices (AXIsProcessTrusted lives there)', () => {
 
 test('the writer path MATCHES the engine reader path (the cross-language seam agrees)', () => {
   // engine/a11ystatus.js: FILE = path.join(store.ROOT, 'a11y-status.json'), and
-  // store.ROOT is <app-support-base>/AgentWorkforce. The Swift writer resolves the
-  // SAME base and MUST append the SAME "AgentWorkforce/a11y-status.json", or the
-  // writer and reader miss each other silently (the two-copies-of-one-fact defect).
+  // store.ROOT is <app-support-base>/<store.APP> = <base>/Kosmos (#2439 renamed the leaf
+  // from AgentWorkforce, with a one-time migration). The Swift writer resolves the SAME
+  // base and MUST append the SAME "<store-leaf>/a11y-status.json", or the writer and
+  // reader miss each other silently (the two-copies-of-one-fact defect). Swift resolves
+  // the leaf via storeLeaf(), which returns the CURRENT leaf (legacy pre-migration, else
+  // Kosmos) so it never pre-creates Kosmos and orphans the legacy store on an update.
   assert.match(ENGINE, /path\.join\(store\.ROOT,\s*'a11y-status\.json'\)/,
     'the engine reader no longer reads a11y-status.json under store.ROOT; the writer assertion below is checking a stale contract');
+  const STORE_JS = fs.readFileSync('engine/store.js', 'utf8');
+  assert.match(STORE_JS, /const APP = 'Kosmos'/,
+    'engine/store.js APP is no longer Kosmos; the Swift leaf below must track store.APP or the cross-language seam diverges');
   assert.ok(SRC.includes('func a11yStatusURL()'), 'a11yStatusURL() moved or was renamed');
-  assert.ok(SRC.includes('appendingPathComponent("AgentWorkforce/a11y-status.json")'),
-    'the writer does not append "AgentWorkforce/a11y-status.json"; it would write where the engine does not read');
+  assert.ok(SRC.includes('appendingPathComponent("\\(storeLeaf(base: base))/a11y-status.json")'),
+    'the writer does not append "\\(storeLeaf(base: base))/a11y-status.json"; it would write where the engine does not read');
+  assert.match(SRC, /func storeLeaf\(base: URL\) -> String \{[\s\S]*?return "Kosmos"\n\}/,
+    'storeLeaf() no longer defaults to the "Kosmos" leaf that store.APP uses; the Swift writer and JS reader would resolve different dirs');
   // The base resolution mirrors boardTokenValue()/relaunchHandoffURL(): the DATA
   // override first (so a moved data dir is followed), else HOME + Library/Application
   // Support, else the OS app-support dir. Pin the override arm -- getting it wrong is
@@ -75,11 +83,19 @@ test('the --kosmos-app-axprompt hatch shows the system prompt (adds Tmux to the 
     'axprompt does not call AXIsProcessTrustedWithOptions with the prompt option, so it neither prompts nor adds the process to the list');
 });
 
-test('the runtime wiring spawns the axcheck UNDER tmux, on launch and on a timer', () => {
+test('the runtime wiring spawns the axcheck UNDER tmux (launch + timer) and does NOT prompt at launch (#2347)', () => {
   assert.ok(SRC.includes('func startA11yTrustChecks()'), 'startA11yTrustChecks moved or was renamed');
-  const fn = SRC.slice(SRC.indexOf('func startA11yTrustChecks()'), SRC.indexOf('func currentlyTrusted()'));
+  const fn = SRC.slice(SRC.indexOf('func startA11yTrustChecks()'), SRC.indexOf('func startPromptRequestWatcher()'));
   assert.ok(fn.includes('--kosmos-app-axcheck'), 'the runtime wiring never spawns the axcheck, so the verdict is never refreshed and the gate is permanently inert');
   assert.ok(fn.includes('Timer.scheduledTimer'), 'there is no repeating refresh; a one-shot reading would go stale and the gate would fall back to fail-safe forever');
+  // #2347 (Josh's 0.6.41 fresh-install re-test): the a11y PROMPT must NOT fire at
+  // launch -- only on-demand via startPromptRequestWatcher (the Access-screen tmux
+  // Turn-On POSTs /api/a11y-prompt). Assert the CALL form is gone, not the bare
+  // string: the explanatory comment mentions "axprompt" in prose, so matching the
+  // spawn call form (hatch: "--kosmos-app-axprompt") avoids the guard-tripped-by-its-
+  // own-documentation trap.
+  assert.ok(!fn.includes('hatch: "--kosmos-app-axprompt"'),
+    'startA11yTrustChecks still fires the a11y prompt at launch; #2347 requires it to fire only on-demand (before the Access screen is the bug Josh hit)');
   // The under-tmux spawn is the whole attribution design: the AX read must be tmux's,
   // not the app's. Pin the private-socket spawn so a refactor to a bare spawn (which
   // would read the APP's trust -- a false reading) reds here.
@@ -96,20 +112,8 @@ test('applicationDidFinishLaunching starts the Accessibility checks', () => {
     'launch does not start the Accessibility checks, so nothing writes the verdict and the gate stays inert');
 });
 
-test('the one-shot prompt only fires when NOT already trusted (no repeated prompts)', () => {
-  const fn = SRC.slice(SRC.indexOf('func startA11yTrustChecks()'), SRC.indexOf('func currentlyTrusted()'));
-  assert.match(fn, /!a11yPromptFired\s*&&\s*!currentlyTrusted\(\)/,
-    'the prompt is not guarded by both the one-shot flag AND a not-trusted reading; an already-trusted user would be prompted, or it would prompt every launch');
-});
-
-test('currentlyTrusted requires a FRESH trusted reading (a stale trusted:true does not suppress the prompt)', () => {
-  const fn = SRC.slice(SRC.indexOf('func currentlyTrusted()'), SRC.indexOf('func spawnAxHatchUnderTmux('));
-  // Must gate on trusted === true AND a fresh timestamp, mirroring a11ystatus.STALE_AFTER_MS
-  // (300s). Without the freshness bound a days-old trusted:true from a prior run would
-  // suppress the launch prompt even when the current state is unknown -- and the engine
-  // already treats a reading that old as uncheckable, so trusting it here would trust
-  // data the reader has discarded.
-  assert.match(fn, /as\?\s*Bool,\s*t,/, 'currentlyTrusted does not require trusted === true (the `t,` guard)');
-  assert.match(fn, /ISO8601DateFormatter\(\)\.date\(from: at\)/, 'currentlyTrusted does not parse the reading timestamp for a staleness check');
-  assert.match(fn, /timeIntervalSince\(when\)\s*<=\s*300/, 'currentlyTrusted does not bound the reading freshness to 300s (a11ystatus.STALE_AFTER_MS); a stale trusted:true would suppress the prompt');
-});
+// #2347: the launch-time one-shot prompt and its currentlyTrusted() freshness guard
+// were REMOVED (the a11y prompt fires only on-demand now), so the two tests that
+// asserted their internals are gone with them. The on-demand axprompt firing is
+// covered by native-app.perm-prompts-2189.test.js (the watcher consumes the a11y
+// request and fires the axprompt hatch under tmux).

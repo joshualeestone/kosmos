@@ -234,3 +234,62 @@ test('edit applies name and parent atomically: an invalid parent refuses the who
   assert.equal(seen.name, 'Alpha', 'the name did not move because the parent was invalid');
   assert.equal(seen.parent, null);
 });
+
+// create({ parent }) -- grouping AT CREATION (#2458). The same cleanParent that
+// edit uses, so these arms mirror the edit arms above. A brand-new id is
+// referenced by nothing, so the self-parent and cycle arms are structurally
+// unreachable at create; the parent-must-exist and type checks are the live ones.
+function mkUnder(name, parent) {
+  seq += 1;
+  const dir = path.join(SANDBOX, `folder-${seq}`);
+  fs.mkdirSync(dir, { recursive: true });
+  return projects.create({ name, folder: dir, parent });
+}
+
+test('#2458: create({parent}) groups a project at creation, not only via a later edit', () => {
+  reset();
+  const parent = mk('Parent');
+  const child = mkUnder('Child', parent.id);
+  assert.equal(child.parent, parent.id, 'the new project is grouped the moment it is created');
+  assert.equal(projects.get(child.id, null).parent, parent.id, 'and it persisted that way');
+});
+
+test('#2458: create with a parent that does not exist is refused, and writes no project row', () => {
+  reset();
+  const before = projects.readAll().length;
+  seq += 1;
+  const dir = path.join(SANDBOX, `folder-${seq}`);
+  fs.mkdirSync(dir, { recursive: true });
+  assert.throws(() => projects.create({ name: 'Orphan', folder: dir, parent: 'no-such-project-id' }),
+    /no project to group this one under/);
+  assert.equal(projects.readAll().length, before, 'validated before the write, so no row was created');
+});
+
+test('#2458: create with a non-string parent is a type error (never a silent ungroup)', () => {
+  reset();
+  seq += 1;
+  const dir = path.join(SANDBOX, `folder-${seq}`);
+  fs.mkdirSync(dir, { recursive: true });
+  assert.throws(() => projects.create({ name: 'Typed', folder: dir, parent: [] }), /a project id, or null/);
+});
+
+test('#2458: create with a blank, null, or absent parent starts ungrouped', () => {
+  reset();
+  assert.equal(mkUnder('Blank', '').parent, null, 'blank parent = top-level');
+  assert.equal(mkUnder('Nulled', null).parent, null, 'null parent = top-level');
+  assert.equal(mk('Absent').parent, null, 'no parent given = top-level, unchanged from before #2458');
+});
+
+test('#2458: create naming its OWN derived id as parent trips self-parent (idFor is deterministic)', () => {
+  reset();
+  // idFor('Alpha', {}) === 'alpha', so creating 'Alpha' with parent 'alpha'
+  // (no such project yet) hits parentId === childId: a correct refusal, as
+  // self-parent rather than parent-missing. Documents the one create-time edge
+  // where the self-parent arm is reachable.
+  seq += 1;
+  const dir = path.join(SANDBOX, `folder-${seq}`);
+  fs.mkdirSync(dir, { recursive: true });
+  const before = projects.readAll().length;
+  assert.throws(() => projects.create({ name: 'Alpha', folder: dir, parent: 'alpha' }), /own sub-project/);
+  assert.equal(projects.readAll().length, before, 'the refused create wrote no row');
+});

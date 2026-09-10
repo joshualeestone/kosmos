@@ -30,6 +30,7 @@ process.on('exit', () => { try { fs.rmSync(SANDBOX, { recursive: true, force: tr
 
 const connect = require('./connect');
 const subscription = require('./subscription');
+const store = require('./store');
 
 /* ── fixture pane text ─────────────────────────────────────────────────────
    ⚠️ FIXTURE-DISCIPLINE: every screen below is CAPTURED text from a real
@@ -197,7 +198,7 @@ test('a checksum mismatch is refused, and nothing runnable is kept', async (t) =
 
   await assert.rejects(() => connect.download(), /did not match its checksum/);
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
     .filter((f) => f.includes('9.9.8'));
   assert.deepEqual(leftovers, [], `the unverified download survived: ${leftovers.join(', ')}`);
@@ -264,7 +265,7 @@ test('#875: a stuck install KEEPS the verified download so a retry reuses it', a
   assert.match(connect.state().because, /did not finish setting itself up/,
     `because=${JSON.stringify(connect.state().because)} tail=${JSON.stringify(connect.state().tail)}`);
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const kept = (() => { try { return fs.readdirSync(dir); } catch { return []; } })()
     .filter((f) => f.includes('9.9.7'));
   assert.deepEqual(kept, [`claude-9.9.7-${connect.platformKey()}`],
@@ -432,7 +433,7 @@ test('cancel mid-download aborts the stream and leaves nothing behind', async (t
   await new Promise((r) => setTimeout(r, 400));
   assert.equal(connect.state().phase, connect.PHASE.IDLE,
     'something overwrote the cancel after the fact');
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const leftovers = (() => { try { return fs.readdirSync(dir); } catch { return []; } })();
   assert.deepEqual(leftovers, [], `the cancelled download left: ${leftovers.join(', ')}`);
 });
@@ -502,7 +503,7 @@ test('cancel while the part-file open is still queued leaves nothing behind (#45
     return st.phase === connect.PHASE.DOWNLOADING && st.progress && st.progress.got > 0;
   }, 10000);
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   const listing = () => {
     try { return fs.readdirSync(dir); } catch { return []; }
   };
@@ -541,7 +542,7 @@ test('a fresh download sweeps other versions\' leftovers', async (t) => {
   process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.5', binary, checksum });
   t.after(() => { delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE; });
 
-  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'downloads');
+  const dir = nodePath.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'downloads');
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(nodePath.join(dir, `claude-0.0.1-${connect.platformKey()}`), 'stale corpse');
   fs.writeFileSync(nodePath.join(dir, 'claude-0.0.2-x.part'), 'stale partial');
@@ -651,6 +652,272 @@ function driverTest(name, fn) {
     await fn(t);
   });
 }
+
+/**
+ * #1922: THE DEFAULT-ACCOUNT LAUNCH MUST UNSET `CLAUDE_CONFIG_DIR`, NOT MERELY
+ * DECLINE TO SET IT.
+ *
+ * 🛑 THE HOLE. A launch that merely OMITS the assignment still lets an ambient
+ * `CLAUDE_CONFIG_DIR` reach the CLI. ⚠️ It arrives from the TMUX SERVER **when
+ * one is already running** -- `tools/witness-pane-env.sh` records as measured on
+ * tmux 3.6a that tmux does not hand a client's environment to a session on an
+ * already-running server, and this launch uses the shared socket with no `-e`.
+ * **On a COLD server it arrives from THIS process instead**, because
+ * `new-session` starts the server and a fresh server inherits its launching
+ * client's environment. The witness seeds a server first, so it measures only
+ * the warm case. **The cold case is plausibly the first-run path, and that too is
+ * unmeasured** -- nobody here has counted how often a Kosmos machine has no tmux
+ * server when this launch runs.
+ * ⚠️ THAT WITNESS RUNS ON A **PRIVATE** SOCKET WITH `-f /dev/null`, deliberately
+ * (its header says a config extending `update-environment` would hide the
+ * mechanism), so applying it to this launch's SHARED socket is an INFERENCE from
+ * the mechanism, not a second measurement. The same qualifier is on the source
+ * comment in `engine/connect.js`; it was added there first and not here, which
+ * is the partial-sweep shape this branch keeps producing.
+ * So on a warm server the pane inherits whichever account started it, and the
+ * sign-in would write the refreshed credential there instead of into the default
+ * account the person asked to repair. ⚠️ An earlier version ended this paragraph
+ * "routinely a DIFFERENT one on a Kosmos machine". **Two problems: on the COLD
+ * path the server was started by this very process, so it is not a different
+ * account at all; and "routinely" was an unmeasured claim about typical machine
+ * state, asserted flatly inside a comment whose whole subject is the
+ * measured/unmeasured distinction.** The correction had been applied to the
+ * premise paragraph above and not to the paragraph drawing the conclusion from
+ * it, three lines later, in the same comment.
+ *
+ * ⭐ `env -u` is the right instrument precisely BECAUSE it runs inside the pane:
+ * it strips the variable whatever its source, so it does not depend on knowing
+ * which layer leaked it.
+ *
+ * ⭐ `subscription.checkLive` already defends the READ side and states the rule:
+ * it builds its env and `delete env.CLAUDE_CONFIG_DIR` "rather than trusting it
+ * to be unset". These arms are the WRITE side of the same guarantee.
+ *
+ * 🔑 WHY THIS SITS HERE AND NOT IN THE ROUTE SUITE, STATED AS A HARNESS FACT
+ * RATHER THAN AN IMPOSSIBILITY. `server.connect.test.js` sets
+ * `AGENT_WORKFORCE_DRY_RUN = '1'` at MODULE SCOPE, so `start()` returns at the
+ * install-confirm guard and never reaches a launch decision **as that harness is
+ * currently configured**.
+ *
+ * 🛑 IT IS NOT AN IMPOSSIBILITY, AND TWO EARLIER VERSIONS OF THIS PARAGRAPH SAID
+ * IT WAS, IN THE SAME WAY, ONE ROUND APART:
+ *   1. "both route harnesses SET `AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`" -- wrong
+ *      (12 of 44 `server.*.test.js` files set THAT variable, which is NOT the
+ *      dry-run seam named above; the two were both called "the seam" here and
+ *      that collision is the whole reason this row was misread. **The ratio goes
+ *      stale silently, so re-count rather than trusting it:**
+ *      `find . -maxdepth 1 -name 'server.*.test.js' -exec grep -l AGENT_WORKFORCE_CLAUDE_CONFIG_DIR {} + | wc -l`),
+ *      not the blocker, and self-defeating, since THIS ARM DELETES THAT VARIABLE
+ *      (see the `delete process.env...` below).
+ *   2. "a launch arm CANNOT live there whatever the seam does" -- **carries the
+ *      identical flaw**. `connect.setDryRun` is exported and the arm below
+ *      escapes the dry run with it; the route suite already requires the same
+ *      module and calls `resetForTests()`, so it could do exactly that.
+ * ⇒ **Each replacement diagnosed its predecessor's absolute and then asserted a
+ * new one.** The honest form names the configuration, not a law.
+ *
+ * ⚠️ WHAT THAT FORECLOSES, SO THE GAP IS VISIBLE RATHER THAN IMPLIED: **nothing
+ * exercises the route's `known.isDefault ? null : known.dir` through to the
+ * launch argv.** Route arms stop at the install-confirm guard; these engine arms
+ * call `connect.start()` directly. Both halves are covered, their composition is
+ * not. ⚠️ THAT MADE THIS LOOK UNGUARDABLE, AND
+ * IT WAS NOT -- but not for the reason an earlier version of this docblock gave.
+ * It said the fix was to observe the ARGV "rather than to remove the condition
+ * that hides it". **This arm DOES remove it** (`delete
+ * process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR`, below), and must: the `else`
+ * branch is unreachable while the seam is set. What was actually wrong was the
+ * belief that removing it would not be ENOUGH. It is enough, once the
+ * observation point is the launch ARGV via `connect.setRunner` rather than a
+ * config file. **"Unguardable" was "I picked the harder observation point."**
+ */
+driverTest('#1922: a DEFAULT-account sign-in unsets CLAUDE_CONFIG_DIR for the CLI', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  /* `setDryRun(false)` is this file's universal convention for `driverTest`.
+     ⚠️ NOT because "a dry run does not make a launch" -- with an injected runner
+     it would: `run()` returns `runner(...)` BEFORE it consults DRY_RUN, so the
+     `new-session` is recorded either way. `driverTest` clears the config, so
+     `start()` falls through rather than taking the connected early exit. */
+  connect.setDryRun(false);
+  /* 🛑 THE WARNING IS CAPTURED AND ASSERTED, NOT LEFT TO PRINT. Removing the
+     DIR seam while AGENT_WORKFORCE_CLAUDE_CONFIG stays set is exactly the
+     mismatch launchSignin warns about, and this file's header says a warning
+     firing on every green run trains people to ignore it. Deleting BOTH seams
+     was tried and breaks the arm (the flow never reaches a launch), so the
+     warning is turned into coverage instead: it MUST fire here, and asserting
+     that also guards the warning itself against silent removal.
+
+     📌 KEPT DELIBERATELY, THOUGH IT COUPLES A #1922 ARM TO A WARNING THAT IS NOT
+     #1922's SUBJECT (so a legitimate future removal of that warning reddens this
+     arm). The coupling is load-bearing rather than incidental: deleting the DIR
+     seam is HOW this arm reaches the no-launch-dir branch at all, and the
+     warning firing is the only observable proving it got there. Without it the
+     arm could silently start exercising the assignment branch and still pass its
+     other assertions. If the warning is ever removed, replace this assertion
+     with another positive signal that the branch was taken -- do not simply
+     delete it. */
+  const saved = process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  delete process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR;
+  const warned = [];
+  const realWarn = console.warn;
+  /* Records and RE-EMITS: replacing console.warn globally while the driver tick
+     is running would otherwise swallow any unrelated warning in this window. */
+  console.warn = (...a) => {
+    const line = a.join(' ');
+    warned.push(line);
+    /* Swallow ONLY the mismatch warning this arm deliberately provokes and
+       asserts below; anything else still reaches the run, so replacing a global
+       here cannot hide an unrelated warning. */
+    if (!line.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')) realWarn.apply(console, a);
+  };
+  try {
+    await connect.start();
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'no session was made, so this arm asserts nothing about the launch');
+    const i = made.indexOf('env');
+    assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form this assertion reads');
+    /* Order-independent for DETECTION, and the `-u` SEARCH is bounded to the
+       `env` slice like its sibling in the control: an unrelated `-u` elsewhere
+       in the tmux invocation is not this card's business. (The
+       no-re-assignment assertion below deliberately scans the WHOLE argv, not
+       the slice. ⚠️ An earlier version justified that with "a tmux-level
+       `-e CLAUDE_CONFIG_DIR=...` would put the value back". **It would not:**
+       `-e` populates the SESSION environment and the `env -u` runs INSIDE the
+       pane afterwards, so the key is still stripped before `claude` is exec'd.
+       The wider scan is kept because it is fail-safe and costs nothing, not
+       because that shape defeats the fix.)
+
+       🛑 BUT ORDER IS NOT FREE, AND THE VERSION OF THIS COMMENT THAT SHIPPED
+       FIRST SAID IT WAS -- it called an assignment ahead of `-u` a reddening
+       "for a reason unrelated to this card". That is measurably false. `env`
+       stops option parsing at its first operand, so an assignment pushed AHEAD
+       of `-u` does not reorder the launch, it KILLS it. Measured, three arms:
+
+         env -u LEAK sh -c ...        -> LEAK=[UNSET]                  exit 0
+         env FOO=1 -u LEAK sh -c ...  -> env: -u: No such file or dir  exit 127
+         env -u LEAK FOO=1 sh -c ...  -> LEAK=[UNSET] FOO=[1]          exit 0
+
+       The middle arm is the one that matters: WITHOUT the ordering assertion
+       below, this test passes on an argv that cannot launch at all. */
+    const envSlice = made.slice(i);
+    /* 📌 FIRST `-u` ONLY. `indexOf` stops at the first, so the
+       "order-independent" claim above holds while the slice carries at most one
+       `-u`; `['env','-u','OTHER','-u','CLAUDE_CONFIG_DIR',bin]` reddens this arm.
+       The launch emits one, and the direction is fail-safe (false red, never
+       false pass) -- same convention as the grammar walk's unrecognised
+       options. */
+    const u = envSlice.indexOf('-u');
+    assert.ok(u >= 0 && envSlice[u + 1] === 'CLAUDE_CONFIG_DIR',
+      'the default-account launch did not UNSET CLAUDE_CONFIG_DIR, so an ambient value '
+      + '(from the tmux server, which this arm cannot see) reaches the CLI and the '
+      + 'credential lands on another account');
+    assert.ok(!made.some((a) => typeof a === 'string' && a.startsWith('CLAUDE_CONFIG_DIR=')),
+      'the default launch both unsets and re-assigns CLAUDE_CONFIG_DIR, so the unset is undone');
+    /* The ordering half of the pair above: `-u` must precede EVERY assignment in
+       the `env` slice, or `env` treats it as a file to execute and exits 127. */
+    const firstAssign = envSlice.findIndex(
+      (a) => typeof a === 'string' && /^[A-Za-z_][A-Za-z0-9_]*=/.test(a));
+    assert.ok(firstAssign === -1 || u < firstAssign,
+      'an assignment sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
+      + '`env` stops option parsing at its first operand, so this launch exits 127 with '
+      + '"env: -u: No such file or directory" instead of signing anyone in');
+    /* 🛑 THE ASSIGNMENT IS NOT THE ONLY OPERAND, AND THE OTHER ONE FAILS SILENTLY. The binary
+       path is an operand too, so `['env', <bin>, '-u', 'CLAUDE_CONFIG_DIR']` satisfies every
+       assertion above -- `-u` is present, followed by the right name, and there is no `NAME=`
+       token anywhere -- while doing the opposite of what this arm exists to check.
+
+       ⚠️ AND IT IS WORSE THAN THE ASSIGNMENT CASE, WHICH IS WHY IT NEEDS ITS OWN ASSERTION.
+       Measured, both bad forms:
+         env FOO=1 -u LEAK sh -c ...   -> "env: -u: No such file..."   exit 127   LOUD
+         env sh -c '...' -u LEAK       -> LEAK=[present]               exit 0     SILENT
+       The operand form LAUNCHES. `claude` receives `-u CLAUDE_CONFIG_DIR` as junk argv and the
+       variable is never stripped, so the sign-in runs and writes to the leaked account -- exactly
+       the #1922 defect, wearing a green test. */
+    /* 🔑 WALK `env`'s ARGUMENT GRAMMAR TO FIND THE FIRST OPERAND, rather than assuming
+       the operand is the last element. An earlier version asserted
+       `u + 1 < envSlice.length - 1`, which says "the `-u` pair is not the final two
+       elements". That equals the property we want ONLY while the launch pushes exactly
+       one operand and pushes it last -- and **kosmos#1937's stated remedy is to add a
+       login argument after the binary**, which would break that invariant and leave this
+       arm passing on `['env', bin, '-u', 'CLAUDE_CONFIG_DIR', '<arg>']` while it leaks.
+       Assert the property directly instead. ⚠️ THE WALK RECOGNISES EXACTLY TWO
+       TOKEN KINDS: `-u NAME` and `NAME=value`. Any other legal `env(1)` option
+       (`-i`, `-0`, `-v`, `-C`, `-P`, `-S`, `--`; macOS's synopsis is
+       `env [-0iv] [-C workdir] [-P utilpath] [-S string]`) is classified as the OPERAND, so an
+       argv using one would redden this arm. **The launch emits neither today, and
+       the direction is fail-safe** (a false red, never a false pass), so this is
+       a maintenance signal rather than a hole: whoever adds such an option must
+       teach the walk about it. */
+    let opIdx = 1;
+    while (opIdx < envSlice.length) {
+      const tok = envSlice[opIdx];
+      if (tok === '-u') { opIdx += 2; continue; }
+      if (/^[A-Za-z_][A-Za-z0-9_]*=/.test(tok)) { opIdx += 1; continue; }
+      break;
+    }
+    assert.ok(u < opIdx,
+      'the command operand sits ahead of `-u` in the `env` slice (' + JSON.stringify(envSlice) + '): '
+      + '`env` stops option parsing at its first operand, so this argv EXITS 0, launches the CLI '
+      + 'with `-u CLAUDE_CONFIG_DIR` as junk flags, and never unsets the variable -- the defect '
+      + 'this arm exists to catch, passing silently');
+    assert.ok(warned.some((w) => w.includes('AGENT_WORKFORCE_CLAUDE_CONFIG is set without')),
+      'the config/dir mismatch warning did not fire, so either the arm is no longer '
+      + 'exercising the no-launch-dir path or the warning has been removed');
+  } finally {
+    console.warn = realWarn;
+    if (saved !== undefined) process.env.AGENT_WORKFORCE_CLAUDE_CONFIG_DIR = saved;
+  }
+});
+
+/**
+ * ⭐ THE CONTROL. Without it the arm above is satisfied by pushing `-u` on EVERY
+ * launch, which would strip a labelled account's own directory and send its
+ * sign-in to the ambient default -- a worse bug than the one being fixed.
+ */
+driverTest('#1922 CONTROL: a LABELLED-account sign-in still sets CLAUDE_CONFIG_DIR to that account', async () => {
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  const dir = nodePath.join(SANDBOX, 'labelled-acct');
+  await connect.start({ configDir: dir });
+  await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+  const made = term.all.find((a) => a[0] === 'new-session');
+  assert.ok(made, 'no session was made, so this control asserts nothing');
+  const i = made.indexOf('env');
+  assert.ok(i >= 0, 'the launch is not the measured multi-arg `env` form');
+  assert.equal(made[i + 1], `CLAUDE_CONFIG_DIR=${dir}`,
+    'a labelled account lost its own config dir, so its sign-in would write to the ambient default');
+  /* ⚠️ PRESENCE IS NOT ENOUGH: `env CLAUDE_CONFIG_DIR=<dir> -u CLAUDE_CONFIG_DIR
+     <bin>` satisfies the assertion above. Assert nothing follows it.
+
+     🛑 AND THE MECHANISM IS NOT WHAT THIS COMMENT SAID FOR SIX ITERATIONS. It
+     claimed that argv "still strips the variable". It does not strip anything:
+     `env` stops option parsing at its first operand, so `-u` after an assignment
+     is read as a FILE TO EXECUTE. Measured, `env FOO=dir -u FOO /bin/sh -c ...`
+     -> `env: -u: No such file or directory`, **exit 127**. The launch dies before
+     `claude` is exec'd. Same table as the sibling arm above; the assertion was
+     always right and only its reason was wrong. */
+  /* Bounded to the `env` slice, like its sibling in the default arm: an
+     unrelated `-u` elsewhere in the tmux invocation is not this card's business.
+
+     📌 WHY THIS ARM IS POSITIONAL (`made[i + 1]`) WHILE ITS SIBLING IS NOT.
+     ⚠️ An earlier rationale here said "an assignment MAY sit first, so pinning it
+     at i+1 costs nothing". **That argues for PERMITTING other assignments, not
+     for pinning THIS one**, and the sibling arm was deliberately made
+     order-independent against exactly that hypothetical. The honest reason is
+     narrower: this control exists to prove the labelled account's OWN directory
+     is passed, the launch emits it as the first token after `env`, and pinning
+     the position is the strictest available statement of that. If the launch
+     ever emits another assignment first, this arm goes RED and a red here is
+     fail-safe -- it is a false alarm, never a false pass. */
+  assert.ok(!made.slice(i).includes('-u'),
+    'a `-u` follows the assignment in the labelled launch\'s `env` slice. `env` stops option '
+    + 'parsing at its first operand, so BOTH shapes are broken and they fail DIFFERENTLY: '
+    + '`env VAR=x -u OTHER <bin>` exits 127 ("env: -u: No such file or directory") and opens '
+    + 'nothing, while `env VAR=x <bin> -u OTHER` exits 0 and hands `-u OTHER` to the CLI as '
+    + 'junk argv. This assertion catches both; do not assume the loud one');
+});
 
 driverTest('the driver walks the measured flow end to end', async () => {
   const term = fakeTerminal();
@@ -1545,6 +1812,194 @@ driverTest('#1560 CONTROL: an UNVERIFIABLE live check keeps the old behaviour ra
     const st = await connect.start();
     assert.equal(st.phase, connect.PHASE.CONNECTED,
       'an unverifiable check must not be read as positive evidence the file is wrong');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937: an EXPLICIT re-auth must run a REAL login, even when the file AND
+ * `claude auth status` both say connected.
+ *
+ * 🛑 THE DANGEROUS ANSWER THIS ARM REJECTS. Ben's state was: the local file
+ * names a paid plan (`check()` -> CONNECTED) and `claude auth status` reports
+ * `loggedIn: true`. That status is expiry-blind (#874/#1916): it says a login
+ * EXISTS, never that it WORKS, so it answers connected for a DEAD credential.
+ * With that state and no reauth flag, `start()` takes the already-connected
+ * short-circuit and never launches a sign-in -- so the one button that repairs
+ * the account (its "Sign in again") does nothing, which is the lockout the card
+ * is about. The CONTROL below is exactly that state without the flag, proving the
+ * flag is the discriminant: before this fix, THIS arm behaved like the control.
+ *
+ * 🔑 THE SEAM IS `subscription.setRunner`, the same one #1560's tests use: without
+ * a live runner `checkLive()` answers UNKNOWN in the sandbox and the CONNECTED
+ * arm is never entered, so replacing the reauth bypass with `if (false)` would
+ * leave every OTHER test green. This arm drives the runner to `loggedIn: true` so
+ * the short-circuit is live and the bypass is actually exercised.
+ */
+driverTest('#1937: an EXPLICIT re-auth runs a REAL login even when file + auth-status say connected', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start({ reauth: true });
+    assert.notEqual(st.phase, connect.PHASE.CONNECTED,
+      'an explicit re-auth was answered "already connected" and never ran the sign-in -- the #1937 lockout');
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'the re-auth launched no sign-in session at all, so nothing repairs the credential');
+    /* The launch must run a REAL login. `launchSignin` pushes the login
+       subcommand LAST, as three bare argv elements (multi-arg, never a quoted
+       string -- the tmux 3.6a invariant this file's #1922 arms measure), so the
+       final three tokens of the new-session argv are the login command. A bare
+       `claude` (the pre-fix launch) would end at the binary and re-read the same
+       config that already said CONNECTED. */
+    assert.deepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      're-auth did not launch `claude auth login --claudeai`; argv was ' + JSON.stringify(made.slice(-6)));
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * ⭐ THE CONTROL. Without it the arm above is satisfied by a change that simply
+ * stops short-circuiting for EVERYONE -- which would drag every genuinely
+ * connected person through a needless sign-in. Same connected state, no reauth
+ * flag: the short-circuit must still hold and nothing may open.
+ */
+driverTest('#1937 CONTROL: WITHOUT the reauth flag, a connected account still short-circuits and opens nothing', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    const st = await connect.start();
+    assert.equal(st.phase, connect.PHASE.CONNECTED,
+      'a normal start on a connected account must still report connected, not run a sign-in');
+    assert.equal(term.made, 0,
+      'a sign-in session was opened for somebody already signed in -- the non-reauth path must be byte-identical');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * ⭐ THE SECOND CONTROL, on the LAUNCH rather than the gate. The login arguments
+ * are scoped to `owner.reauth`, so an ordinary (non-reauth) sign-in that DOES
+ * launch -- the first-run path, reached here by a signed-out world -- must remain
+ * a bare `claude` with no login subcommand appended. Without this, a change that
+ * appended the login args unconditionally would pass the arm above.
+ */
+driverTest('#1937 CONTROL: a NON-reauth sign-in launch does NOT append the login subcommand', async () => {
+  // World says signed out, so start() falls through and launches the first-run
+  // sign-in -- the byte-identical bare-`claude` path.
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
+  const term = fakeTerminal();
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start();
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const made = term.all.find((a) => a[0] === 'new-session');
+    assert.ok(made, 'the first-run sign-in launched no session, so this control asserts nothing');
+    assert.notDeepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      'a non-reauth launch appended the login subcommand -- the change is meant to be scoped to an explicit re-auth');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937 END-TO-END: the fix cannot stop at start() + the launch argv. Once the
+ * re-auth launches, the driver's tick loop meets the "config outranks screen"
+ * guards (browser-open/awaiting-code and the unknown-escalation arm). Both call
+ * the FILE-based `subscription.check()`, which is stale-CONNECTED for Ben's
+ * account from the first tick -- so before the tick-loop fix the flow finished
+ * instantly off the stale file and `killSession()`'d the still-running
+ * `claude auth login`, reporting success with nothing repaired. This arm drives
+ * the real tick loop and proves the re-auth WAITS for login-done.
+ */
+driverTest('#1937 END-TO-END: a re-auth waits for login-done, not the stale file, before finishing', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  /* Measurement B: `claude auth login --claudeai` opens straight on the browser
+     screen (no theme/login-method chooser). Hold there -- the person has not yet
+     finished authenticating -- while the file keeps reading its stale CONNECTED. */
+  term.screen = SCREEN_SPINNER;
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    const killsAfterLaunch = term.killed;
+    /* Let the tick loop run many times on the browser screen with the stale
+       file. Before the fix, the FIRST browser-open tick finished off the file. */
+    await new Promise((resolve) => setTimeout(resolve, 15 * 15));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'the re-auth finished off the STALE file before login-done -- the #1937 blocker, moved into the tick loop');
+    assert.equal(term.killed, killsAfterLaunch,
+      'the re-auth tore down the running `claude auth login` session before the login completed');
+    /* Now the browser auth completes and the CLI prints "Login successful". */
+    term.screen = SCREEN_LOGIN_DONE;
+    await until(() => connect.state().phase === connect.PHASE.CONNECTED, 5000);
+    assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+      'after a genuine login-done the re-auth still did not finish');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937: the SECOND file-outranks-screen arm -- the unknown-escalation path --
+ * carries the identical stale-file hazard and its own gate. This arm covers it
+ * so a future refactor that drops the `(!owner.reauth || owner.sawLoginDone)`
+ * condition there reds instead of silently re-opening the blocker. Without the
+ * gate, a re-auth that sits on an UNRECOGNISED screen past the unknown grace
+ * finishes off the stale-CONNECTED file; with it, and no login-done evidence, it
+ * becomes stuck with an honest "we do not recognise" rather than a false success.
+ */
+driverTest('#1937 CONTROL: an UNRECOGNISED screen with no login-done makes a re-auth stuck, not falsely connected', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  // An unrecognised screen throughout -- the login-done signal never appears.
+  term.screen = 'Something entirely new that no version has shown before';
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    // Drive past the unknown grace (UNKNOWN_GRACE / TICK) into the escalation arm.
+    await until(() => connect.state().phase === connect.PHASE.STUCK, 5000);
+    assert.equal(connect.state().phase, connect.PHASE.STUCK,
+      'a re-auth on an unrecognised screen with no login-done finished off the STALE file (unknown-escalation arm) instead of becoming stuck -- #1937, second arm');
+    assert.match(connect.state().because, /do not recognise/,
+      'the re-auth became stuck for the wrong reason');
+  } finally { subscription.setRunner(null); }
+});
+
+/**
+ * #1937: the THIRD file-outranks-screen arm (the login-done/press-enter/repl
+ * switch case). `login-done`/`repl` are genuine login evidence, but `press-enter`
+ * is not -- a PRE-login notice screen ("Press Enter to continue" with no "Login
+ * successful") carries no login. This arm covers that gap: a re-auth sitting on a
+ * pre-login press-enter with the file stale-CONNECTED must NOT finish off it via
+ * the settleTicks path, because sawLoginDone was never set. Without the arm-3
+ * gate it finishes after ~5 settle ticks -- the same false success as the other
+ * two arms.
+ */
+driverTest('#1937 CONTROL: a re-auth on a PRE-login press-enter screen does NOT finish off the stale file', async () => {
+  writeClaudeConfig(CONNECTED_CONFIG);
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  const term = fakeTerminal();
+  // Classifies as press-enter (NOT login-done: no "Login successful"), so the
+  // login-evidence flag owner.sawLoginDone is never set. File stays stale-CONNECTED.
+  term.screen = 'A security notice you should read first.\n\n Press Enter to continue';
+  connect.setRunner(term.runner);
+  connect.setDryRun(false);
+  try {
+    await connect.start({ reauth: true });
+    await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
+    // Run the tick loop well past settleTicks>4. Before the arm-3 gate, the
+    // re-auth finished off the stale file after ~5 settle ticks with no login-done.
+    await new Promise((resolve) => setTimeout(resolve, 15 * 18));
+    assert.notEqual(connect.state().phase, connect.PHASE.CONNECTED,
+      'a re-auth finished off the STALE file on a PRE-login press-enter screen (no login-done seen) -- #1937 arm 3');
   } finally { subscription.setRunner(null); }
 });
 

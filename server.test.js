@@ -71,6 +71,7 @@ const nodePath = require('node:path');
 const { mkTemp } = require('./test-support/tmpdir.js');
 const SANDBOX = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-'));
 process.env.AGENT_WORKFORCE_DATA = SANDBOX;
+const store = require('./engine/store');
 const WORKERS = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-srv-workers-'));
 process.env.AGENT_WORKFORCE_WORKERS = WORKERS;
 
@@ -190,6 +191,11 @@ const fleet = require('./test-support/fleet');
 
 let base;
 test.before(async () => {
+  // #2454: pin the installed-board self-restart probe to "not installed" so the
+  // world-switch route's restarting:false assertion cannot be flaked by a
+  // coincidental bin/kosmos+app/server.js layout in a parent directory. The test
+  // process is neither the dev KeepAlive job nor an installed board.
+  try { require('./engine/boardrestart').setInstalledCli(() => null); } catch { /* older tree */ }
   await start(0); // 0 = let the OS pick, so tests never collide with a real board
   base = `http://127.0.0.1:${server.address().port}`;
 });
@@ -289,11 +295,23 @@ test('#1704 2b-ii: POST /api/worlds/active switches the active world and reports
     assert.equal(body.ok, true);
     assert.equal(body.world.id, targetId, 'the response reports the now-active world');
     assert.equal(body.restartRequired, true, 'the switch takes effect on the next board start, so restartRequired is honest');
+    /* #2238: restarting is FALSE here, and it MUST be: the test process is not the
+       com.kosmos.board launchd job (pid mismatch in canSelfRestart), so the route
+       neither reports a self-restart nor fires one. This is the fail-safe guard AND
+       what keeps the suite from stopping the operator's real dev board mid-test. */
+    assert.equal(body.restarting, false, 'a non-board process never self-restarts (fail-safe)');
 
     // The registry now reports the switch (GET reads it fresh) even though the
     // running board still serves the previous world's roots until it restarts.
     const after = JSON.parse((await req('/api/worlds')).body);
     assert.equal(after.activeWorldId, targetId, 'GET /api/worlds reflects the switch');
+    /* #2454b: bootedWorldId reports the world the LIVE board booted into, which does
+       NOT move on a switch (the test process never restarted) -- so the pointer and
+       the booted world DIVERGE here, and the switcher UI marks current by the booted
+       one. This is the server half of the "no restart demanded for the Kosmos you are
+       already on" fix. */
+    assert.equal(after.bootedWorldId, 'default', 'GET /api/worlds reports the still-booted world, not the flipped pointer');
+    assert.notEqual(after.bootedWorldId, after.activeWorldId, 'the pointer flipped but the booted world did not -- the divergence the marker must key on');
   } finally {
     // Leave the sandbox on the default world so later tests that assume it are unaffected.
     const back = await postJson('/api/worlds/active', { id: 'default' });
@@ -313,6 +331,37 @@ test('#1704 2b-ii: POST /api/worlds/active is 404 for an unknown id and 400 for 
 
   // The failures did not move the active world off default.
   assert.equal(JSON.parse((await req('/api/worlds')).body).activeWorldId, 'default', 'a failed switch left the active world untouched');
+});
+
+test('#1704 14.1: POST /api/worlds/rename renames a named world; default reserved, unknown 404, missing id 400', async () => {
+  const made = await postJson('/api/worlds', { name: 'Rename Me' });
+  assert.equal(made.status, 200);
+  const id = JSON.parse(made.body).world.id;
+
+  const ok = await postJson('/api/worlds/rename', { id, name: 'Renamed' });
+  assert.equal(ok.status, 200, 'a valid rename succeeds');
+  assert.equal(JSON.parse(ok.body).world.name, 'Renamed', 'the response reports the new name');
+  const after = JSON.parse((await req('/api/worlds')).body);
+  const w = after.worlds.find((x) => x.id === id);
+  assert.ok(w, 'the id is unchanged by the rename (the world resolves under its original id)');
+  assert.equal(w.name, 'Renamed', 'GET /api/worlds reflects the rename');
+
+  const def = await postJson('/api/worlds/rename', { id: 'default', name: 'Nope' });
+  assert.equal(def.status, 400, 'the default world cannot be renamed');
+  assert.match(JSON.parse(def.body).because, /first Kosmos keeps its name/);
+
+  const empty = await postJson('/api/worlds/rename', { id, name: '   ' });
+  assert.equal(empty.status, 400, 'an empty/whitespace name is refused');
+
+  const unknown = await postJson('/api/worlds/rename', { id: 'no-such-world-xyz', name: 'X' });
+  assert.equal(unknown.status, 404, 'a well-formed id naming no world is not-found');
+
+  const missing = await postJson('/api/worlds/rename', { name: 'X' });
+  assert.equal(missing.status, 400, 'a missing id is a malformed request');
+
+  // The refusals did not corrupt the valid rename.
+  assert.equal(JSON.parse((await req('/api/worlds')).body).worlds.find((x) => x.id === id).name, 'Renamed',
+    'the world kept its valid renamed name through the refused attempts');
 });
 
 test('#1704 2b-ii: POST /api/worlds/active surfaces a held registry lock as a retryable 409', async () => {
@@ -1778,7 +1827,7 @@ test('a borrowed name is refused by every name-keyed read, including its alias s
   // test asserted an absence that was already absent.
   const fsx = require('node:fs');
   const nodePathx = require('node:path');
-  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fsx.mkdirSync(avatarDir, { recursive: true });
   fsx.writeFileSync(nodePathx.join(avatarDir, 'angel.png'), 'seeded', 'utf8');
 
@@ -1973,7 +2022,7 @@ test('a stranger cannot fetch the real agent’s picture under the stranger’s 
   const status = require('./engine/status');
   const fsx = require('node:fs');
   const nodePathx = require('node:path');
-  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, 'AgentWorkforce', 'avatars');
+  const avatarDir = nodePathx.join(process.env.AGENT_WORKFORCE_DATA, store.APP, 'avatars');
   fsx.mkdirSync(avatarDir, { recursive: true });
   fsx.writeFileSync(nodePathx.join(avatarDir, 'angel.png'), 'seeded', 'utf8');
 
@@ -2596,8 +2645,10 @@ test('a write another website could send is refused, whatever route it names', a
       headers: { 'content-type': 'application/json', origin: new URL(base).origin },
       /* A name the engine still refuses, so the 400 proves the request
          reached the route. 'BAD NAME' stopped being one in #740 (a space
-         between words is a name now); a dot is still refused, never stripped. */
-      body: JSON.stringify({ name: 'BAD.NAME', role: 'pm' }),
+         between words is a name now) and 'BAD.NAME' stopped being one in #2605
+         (a period folds to a hyphen the way a space does); a comma still fails
+         NAME_RE, so it is the refusal that proves the route was reached. */
+      body: JSON.stringify({ name: 'BAD,NAME', role: 'pm' }),
     });
     assert.equal(ours.status, 400,
       'the board can no longer write to itself, so this guard has broken the product');
@@ -2886,7 +2937,15 @@ test('the suggested default role is the project manager, by name and not by posi
   assert.match(script, /PICKED = \(roleByKey\('pm'\)/,
     'the default assignment no longer picks by name; a positional default '
     + 'silently changes what Continue accepts when the catalogue reorders');
-  assert.match(script, /pickMode\('pm'\)/,
+  // #1652: the create mode is now threaded through loadRoles(initialMode) so the
+  // first-run "look in my Documents/Downloads" link can open the form straight on
+  // 'import'. The DEFAULT is still 'pm', pinned by the ternary's else, and
+  // pickMode(mode) arms it. Both halves are asserted so that neither a changed
+  // default (the mutation this test exists to stop) nor a dropped pickMode passes.
+  assert.match(script, /const mode = initialMode === 'import' \? 'import' : 'pm';/,
+    'the create-form default mode is no longer pinned to pm; a changed default '
+    + 'silently changes what mode the form opens on');
+  assert.match(script, /pickMode\(mode\)/,
     'nothing arms the recommended mode by default any more, so the screen '
     + 'opens on whatever mode survived the last edit');
 });
@@ -3542,7 +3601,7 @@ test('the board renderers hold the pack grammar: thresholds, states, parity, esc
   // branch below is real: safeKey() strips the hostile characters, so an
   // avatar stored under the stripped key is reachable from the hostile
   // name (the collision path -- another agent whose name strips the same).
-  const avatarsDir = nodePath.join(SANDBOX, 'AgentWorkforce', 'avatars');
+  const avatarsDir = nodePath.join(SANDBOX, store.APP, 'avatars');
   fs.mkdirSync(avatarsDir, { recursive: true });
   fs.writeFileSync(nodePath.join(avatarsDir, 'xonloadalert1.png'), 'not-a-real-png', 'utf8');
   const board = fleet.install([
@@ -4995,41 +5054,44 @@ test('the machine route always answers, with renderable checks and never an erro
     'present is keyed on display labels again, so a copy edit renames a wire field');
 });
 
-test('leaving the return step really retires its pane (the bumps exist in production code)', () => {
-  // The leave scenarios move the counter through t5.leave(), so they pin
-  // the GUARD; these pins hold the TRIGGERS -- round 7 deleted both
-  // production bumps and the suite stayed green, which silently restores
-  // the round-6 state (a guard no production path ever moves).
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(raw, /if \(step > FR_STEPS\) step = FR_STEPS;[\s\S]{0,600}?if \(step !== FR_STEP_RETURN\) FR_RETURN_GEN \+= 1;/,
-    'frGo no longer bumps the return generation AFTER both clamps (a text-only pin could not see the placement, and the round-7 record claimed a position the code did not have)');
-  const closeFn = raw.slice(raw.indexOf('function frClose'), raw.indexOf('function frClose') + 400);
-  assert.match(closeFn, /FR_RETURN_GEN \+= 1;/,
-    'frClose no longer bumps the return generation on the way out');
-});
-
-test('the return-step live region is static markup with its announcement attributes', () => {
-  // The unit harness's DOM stub auto-creates any id, so without this pin
-  // the region (and both its ARIA attributes) could be deleted from the
-  // page while every return-step test stayed green -- and the announcement,
-  // the whole reason the region was restructured, would silently stop.
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  assert.match(raw, /<div id="fr-return-row" role="status" aria-live="polite"><\/div>/,
-    'the return-step live region must exist in the STATIC markup, before anything fills it');
-  assert.match(raw, /<div id="fr-return-msg" role="status" aria-live="polite"><\/div>/,
-    'the reveal button\u2019s refusal must land in a live region, or a screen-reader user never hears it');
-  /* ⚠️ AND THE DOCK LINE IS NOT ON THIS STEP ANY MORE. It moved to the last
-     step on 2026-08-22: you drag something to your Dock because you expect to
-     want it again, and before a person has used the app they do not know that
-     yet. Pinned in the static markup because the id it used to live under was
-     RENAMED in the same change, so a revert that restored the old paint would
-     find no element and fail silently rather than loudly. */
-  /* 🛑 INVERTED 2026-08-27 ON JOSH'S RULING, not deleted. The line this
-     element carried is gone from the ending, and a deleted assertion would
-     let it return unnoticed; an inverted one refuses it. */
+test('the Success screen is static markup with the verbatim copy and no reveal subsystem (#12, 0.6.39)', () => {
+  // #12 (0.6.39): the app-location reveal subsystem was removed from the Success
+  // screen (fr-pane-7). The unit harness DOM stub auto-creates any id, so a unit
+  // test alone cannot see a markup regression; these read the raw markup.
+  const raw = fs.readFileSync(nodePath.join(__dirname, "web", "index.html"), "utf8");
+  const pane = raw.slice(raw.indexOf('id="fr-pane-7"'), raw.indexOf('id="fr-pane-8"'));
+  assert.ok(pane.length > 0 && pane.indexOf('id="fr-pane-8"') === -1, "could not isolate the fr-pane-7 markup");
+  // The verbatim copy from Josh, exactly.
+  assert.match(pane, /<h2>Kosmos is installed and configured\.<\/h2>/,
+    "the Success headline is not the verbatim copy");
+  assert.match(pane, /Kosmos is now in your applications folder, and you will see Kosmos in your dock\./,
+    "the body paragraph is not the verbatim copy");
+  assert.match(pane, /Drag the Kosmos icon to the far left so it stays there and is easy to find later\./,
+    "the drag paragraph is not the verbatim copy");
+  // The REAL app icon is in the dock tile, not the gold "K" placeholder.
+  assert.match(pane, /<span class="s7-app s7-k"><img class="fc-k"/,
+    "the dock tile does not carry the real fc-k app icon");
+  assert.ok(!/<span class="s7-app s7-k"><span>K<\/span>/.test(pane),
+    "the gold K placeholder tile came back");
+  // The reveal subsystem must be gone from the whole page: the two Show-me-where
+  // affordances, the injected #fr-return live regions, and the painter + state.
+  for (const gone of ["fr-s7-showwhere", "fr-return-intro", "fr-return-row", "fr-return-msg", "fr-return-keep"]) {
+    assert.ok(!new RegExp('id="' + gone + '"').test(raw) && !new RegExp('getElementById\\([\x27"]' + gone + '[\x27"]\\)').test(raw),
+      "the reveal region left " + gone + " behind");
+  }
+  for (const gone of ["frPaintReturn", "frRevealSay", "FR_MACHINE_LOOK", "FR_RETURN_GEN", "FR_STEP_RETURN"]) {
+    assert.ok(!new RegExp("function " + gone + "\\b").test(raw) && !new RegExp("\\b(?:let|const|var)\\s+" + gone + "\\b").test(raw),
+      "the reveal machinery left " + gone + " defined");
+  }
+  // The injected reveal button id is gone as a live selector (a CSS mention or a
+  // prose comment is allowed; a live element or handler is not).
+  assert.ok(!/id="fr-reveal"/.test(raw) && !/getElementById\(['"]fr-reveal['"]\)/.test(raw),
+    "the injected fr-reveal button came back");
+  // Stale-id guards kept: neither the renamed dock region nor the last-step dock
+  // id may ever appear (a revert that restored an old paint would fail loudly).
+  assert.ok(!/fr-return-dock/.test(raw), "the renamed region left a stale id behind");
   assert.ok(!/<div id="fr-fleet-dock">/.test(raw),
-    'the Dock line came back to the last step, which Josh ruled out on 2026-08-27');
-  assert.ok(!/fr-return-dock/.test(raw), 'the renamed region left a stale id behind');
+    "the Dock line came back to the last step, which Josh ruled out on 2026-08-27");
 });
 
 test('the degraded machine answer publishes the ENGINE\u2019S could-not-look row', () => {
@@ -5290,8 +5352,6 @@ function firstRunHarness(name, state, opts = {}) {
     const esc = ${realEsc.toString()};
     ${tables}
     const frCheckRow = ${realRow.toString()};
-    ${pageFnSource('frIsMac')}
-    ${pageFnSource('frFindAppHint')}
     const __els = {};
     const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
     let FR = ${JSON.stringify(state.FR)};
@@ -5320,8 +5380,26 @@ function firstRunHarness(name, state, opts = {}) {
        docs/browser-checks/render-scan-board.js and render-first-run.js. */
     let FR_SCAN = ${JSON.stringify(state.FR_SCAN === undefined ? { ok: true, candidates: [] } : state.FR_SCAN)};
     let FR_SCAN_GEN = 0;
+    /* #2389: frPaintFleet's adopt arm now reads FR_SCAN_INFLIGHT to hold the "checking"
+       copy while a granted two-phase scan is mid-flight (so it never flashes the verbatim
+       "nothing to import" over a scanning:true partial). Default false (settled), so every
+       existing ending assertion reads its usual branch; a caller wanting the in-flight
+       state passes it explicitly. Without this declaration the adopt arm throws a
+       ReferenceError, exactly as the frImportOffer note below warns. */
+    let FR_SCAN_INFLIGHT = ${JSON.stringify(state.FR_SCAN_INFLIGHT === undefined ? false : state.FR_SCAN_INFLIGHT)};
     function frScanAgents() {}
+    /* #3/#4(a): frPaintFleet's create AND unknown arms now call frArmRescanOnGrant() (arms
+       the S9 grant-flip re-scan poll). Stubbed here like frScanAgents -- this harness tests
+       the painter's branch logic, not the poll (covered by render-firstrun-scan-on-grant-1652.js);
+       without the stub any render path that reaches the create or unknown arm throws a
+       ReferenceError (the adopt-with-count arm returns before it, so it alone would survive). */
+    function frArmRescanOnGrant() {}
     const frScanOffer = ${pageFunction('frScanOffer').toString()};
+    /* #4 (0.6.42): frPaintFleet's create-arm gate and frPaintScan now also read
+       frImportOffer (the loose agent FILES the scan found). Lift it as the REAL
+       function too -- another pure read of FR_SCAN -- or frPaintFleet throws a
+       ReferenceError and every first-run render path errors instead of asserting. */
+    const frImportOffer = ${pageFunction('frImportOffer').toString()};
     ${name === 'frPaintScan' ? '' : 'function frPaintScan() {}'}
     /* frPaintSubscription closes the install confirm on every repaint, so a
        verdict flipping to connected while the panel is open cannot leave a live
@@ -5454,10 +5532,10 @@ test('the way back is on the last step, on every ending a person can get', () =>
   /* 🛑 THIS LOOP USED TO REQUIRE THE DOCK LINE ON EVERY ENDING. Josh ruled it
      off the ending on 2026-08-27: "I still don't want the ending of the
      install to talk about putting it in the dock."
-     ⚠️ HIS REASON DOES NOT HOLD OF THE BUILD and is recorded rather than
-     repeated: he said it is already on the first step. It is not. The Dock line now also sits on the SUCCESS screen (#fr-return-keep), moved there by his 16:08 ruling in the same change that removed it from here; Settings has a separate copy of its own. So this
-     asserts ABSENCE on all three endings, which is what the ruling means,
-     and says nothing about where else the app may mention the Dock. */
+     The dock guidance lives on the Success screen (fr-pane-7), which #12
+     (0.6.39) rewrote into fixed static markup. So this asserts ABSENCE on all
+     three fleet endings, which is what the ruling means, and says nothing about
+     where else the app may mention the Dock. */
   for (const [name, FR] of Object.entries(endings)) {
     const got = firstRunHarness('frPaintFleet', { FR });
     assert.equal(got.els['fr-fleet-dock'], undefined,
@@ -5468,15 +5546,18 @@ test('the way back is on the last step, on every ending a person can get', () =>
   }
 });
 
-test('the fleet screen renders every path, and a broken payload lands on "we could not see"', () => {
+test('#2497: the fleet screen lands on Giddy Up on every path, including a broken payload', () => {
   const adopt = firstRunHarness('frPaintFleet', {
     FR: { path: 'adopt', fleetCount: 13, fleetNames: ['Splinter', 'Angel'] },
   });
-  assert.match(adopt.els['fr-fleet-title'].textContent, /13 agents/);
-  // No name chips, at Josh's word (2026-08-17): the heading's count is the
-  // claim, and a 600-agent fleet must not become a 600-chip screen.
-  assert.ok(!/fr-name/.test(adopt.els['fr-fleet'].innerHTML), 'the chip list came back');
-  assert.match(adopt.els['fr-fleet'].innerHTML, /nothing to import/i);
+  // #2497: even an adopt machine (13 running agents) lands on the no-agent create / Giddy Up
+  // screen. Onboarding no longer counts a fleet or offers to import it (Josh, watching Ben/Nacho:
+  // a dev's tmux Claude Code sessions filled first run with garbage agents). Real agents come in
+  // later via the manual Import Agent (#1652) on the Create Agent screen.
+  assert.match(adopt.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.match(adopt.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.ok(!/already have|nothing to import|fr-name/.test(adopt.els['fr-fleet'].innerHTML),
+    'onboarding still counts or offers the fleet on the adopt path');
 
   const create = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
@@ -5485,8 +5566,11 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   // The endings ARE this screen's actions now, buttons verbatim from the
   // pack (spec ed29b78): adopt and create carry ONE action each; only the
   // unknown ending gets two, asserted in the broken-payload loop below.
-  assert.equal(adopt.actions.primary, 'Take me to my agents', JSON.stringify(adopt.actions));
-  assert.equal(adopt.actions.alt, undefined, 'the adopt ending grew a second button');
+  // #2497: frPaintFleet renders the Giddy Up action directly on every path now, not the
+  // path-specific ending. (frForkActions' own per-path buttons are still asserted below - it is
+  // retained machinery, just no longer reached from the bypassed frPaintFleet arms.)
+  assert.equal(adopt.actions.primary, 'Giddy Up', JSON.stringify(adopt.actions));
+  assert.equal(adopt.actions.alt, undefined, 'the Giddy Up ending grew a second button');
   /* Josh, 2026-08-27 20:31 CT: "Instead of the button saying 'Create my first
      agent,' I want it to say 'Giddy Up.'"
      ⚠️ THIS ASSERTION WAS PINNED TO THE PACK ("buttons verbatim from the pack,
@@ -5499,9 +5583,11 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   assert.equal(create.actions.alt, undefined, 'the create ending grew a second button');
 
   /**
-   * ⚠️ EVERY MALFORMED SHAPE LANDS ON "we could not see", never on a fork. The
-   * board is built from `tmux`, and guessing "make your first agent" at somebody
-   * with a running fleet is the version of this mistake that looks broken.
+   * ⚠️ #2497: EVERY MALFORMED SHAPE LANDS ON THE CREATE / GIDDY UP SCREEN. Onboarding no longer
+   * reads the payload's path/count before rendering (the forced return precedes the fork), so a
+   * bad payload can neither crash into a placeholder nor drop the person onto a "we could not see"
+   * two-way fork; it lands on the same no-agent create screen every first run gets. (Before #2497
+   * this loop asserted "we could not see" for these shapes; that fork no longer runs on first run.)
    */
   for (const FR of [
     null,
@@ -5522,18 +5608,18 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
      * malformed shape lands on "we could not see"; nothing tested it, and one
      * of the shapes in its own list did not.
      */
-    assert.match(title, /could not see/i,
-      `payload ${JSON.stringify(FR)} rendered a fork rather than "we could not see": "${title}"`);
+    // #2497: onboarding renders the create / Giddy Up screen for EVERY payload, including a
+    // malformed one -- the forced return runs before the path fork, so a bad payload never
+    // crashes into a placeholder and never drops the person onto a two-way "we could not see" fork.
+    assert.match(title, /Create your first agent/i,
+      `payload ${JSON.stringify(FR)} did not land on the create screen: "${title}"`);
     assert.ok(!/undefined|NaN|null/.test(title + body),
       `payload ${JSON.stringify(FR)} put a placeholder on screen: "${title}"`);
     assert.ok(body.length > 0, `payload ${JSON.stringify(FR)} rendered an empty screen`);
-    // Every malformed shape lands on the pack's ending C, the one screen
-    // in the flow with TWO actions -- it refuses to choose because either
-    // single guess would be a lie (spec ed29b78, pack ENDINGS verbatim).
-    assert.equal(got.actions && got.actions.primary, 'Show me my agents',
-      `payload ${JSON.stringify(FR)} left the person short of a way onward: ${JSON.stringify(got.actions)}`);
-    assert.equal(got.actions.alt, 'Create an agent',
-      `payload ${JSON.stringify(FR)} lost ending C's second door: ${JSON.stringify(got.actions)}`);
+    assert.equal(got.actions && got.actions.primary, 'Giddy Up',
+      `payload ${JSON.stringify(FR)} did not render the Giddy Up action: ${JSON.stringify(got.actions)}`);
+    assert.equal(got.actions.alt, undefined,
+      `payload ${JSON.stringify(FR)} grew a second button: ${JSON.stringify(got.actions)}`);
   }
 
   // The pack's endings' buttons, per path: adopt and create carry ONE,
@@ -5570,197 +5656,22 @@ test('the fleet screen renders every path, and a broken payload lands on "we cou
   }
 });
 
-test('the return step paints a look in progress, then the engine answer, and could-not-ask on failure', async () => {
-  // The Success screen's ruled dock line (first-run spec, pack copy) names
-  // no folder, so ONE sentence is true in every app-location state -- the
-  // per-state variants died with the redesign, and every case asserts the
-  // same ruled line.
-  const cases = [
-    [{ key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it from there.' },
-      /Kosmos is already in your Dock, the strip of icons/],
-    [{ key: 'app-location', state: 'attention', title: 'We could not find the Kosmos icon', detail: 'Not the same as it not being there.' },
-      /Kosmos is already in your Dock, the strip of icons/],
-    [{ key: 'app-location', state: 'unknown', title: 'We could not check where the Kosmos icon is', detail: 'Nothing is wrong.' },
-      /Kosmos is already in your Dock, the strip of icons/],
-  ];
-  const PRELUDE_VARS = `
-    let FR_RETURN_GEN = 0;
-    let FR_MACHINE_LOOK = null;
-  `;
-  for (const [row, dockRe] of cases) {
-    const h = firstRunHarness('frPaintReturn', { FR: {} }, {
-      prelude: PRELUDE_VARS + `
-        const fetch = async () => ({ ok: true, json: async () => ({ appLocation: ${JSON.stringify(row)} }) });
-      `,
-    });
-    // The pre-paint is a look IN PROGRESS -- not the completed "could not
-    // check" it used to claim before any look had happened, and not
-    // byte-identical to the engine's real unknown row. Asserted on the ROW
-    // itself: the region is static markup now and the placeholder is written
-    // straight into it, so this stub really is overwritten by the upgrade
-    // (the old wrapper-level assertion could not fail).
-    assert.match(h.els['fr-return-row'].innerHTML, /fr-check checking/);
-    assert.match(h.els['fr-return-row'].innerHTML, /Checking where the Kosmos icon is/);
-    await h.done;
-    assert.match(h.els['fr-return-row'].innerHTML, new RegExp(row.title));
-    assert.match(h.els['fr-return-row'].innerHTML, new RegExp('fr-check ' + row.state));
-    assert.ok(!new RegExp(dockRe.source).test(h.els['fr-return-msg'].innerHTML),
-      'the way-back line came back to the first step, where a person has no motive for it yet');
-    assert.ok(!/Checking where the Kosmos icon is/.test(h.els['fr-return-row'].innerHTML),
-      'the placeholder survived the fetch');
-  }
-
-  // Could not ASK: its own wording ("right now"), distinct from the engine's
-  // own could-not-check row -- and the DOCK moves with the row, so a
-  // folder-pointing instruction cannot outlive the answer that named it.
-  const broken = firstRunHarness('frPaintReturn', { FR: {} }, {
-    prelude: PRELUDE_VARS + `
-      const fetch = async () => { throw new Error('down'); };
-    `,
-  });
-  await broken.done;
-  assert.match(broken.els['fr-return-row'].innerHTML, /could not check where the Kosmos icon is right now/);
-  assert.match(broken.els['fr-return-row'].innerHTML, /fr-check unknown/);
-  assert.ok(!/Kosmos is already in your Dock, the strip of icons/.test(broken.els['fr-return-msg'].innerHTML),
-    'the way-back line came back to the first step on the failure path');
-
-  // A payload WITHOUT the appLocation field (an old server, a shape drift)
-  // lands on could-not-ask too, never on the placeholder forever.
-  const shapeless = firstRunHarness('frPaintReturn', { FR: {} }, {
-    prelude: PRELUDE_VARS + `
-      const fetch = async () => ({ ok: true, json: async () => ({ checks: [] }) });
-    `,
-  });
-  await shapeless.done;
-  assert.match(shapeless.els['fr-return-row'].innerHTML, /right now/);
-
-  // An answer with nothing to SAY is not an answer: {state:'ok'} with no
-  // title rendered a confident tick over a blank box, above a dock pointing
-  // at a folder the screen never named.
-  const blank = firstRunHarness('frPaintReturn', { FR: {} }, {
-    prelude: PRELUDE_VARS + `
-      const fetch = async () => ({ ok: true, json: async () => ({ appLocation: { key: 'app-location', state: 'ok' } }) });
-    `,
-  });
-  await blank.done;
-  assert.match(blank.els['fr-return-row'].innerHTML, /right now/,
-    'a contentless ok payload rendered as a confident blank tick');
-  assert.ok(!/out of that folder/.test(blank.els['fr-return-msg'].innerHTML),
-    'the dock pointed at a folder no row named');
-
-  // A wire row claiming the LOCAL state renders as unknown, never as a
-  // permanent look-in-progress.
-  for (const sneaky of [
-    { key: 'app-location', state: 'checking', title: 'sneaky', detail: 'x' },
-    // The row claiming local-ness ITSELF: trust is the caller's argument,
-    // never a field the wire can set.
-    { key: 'app-location', state: 'checking', local: true, title: 'sneakier', detail: 'x' },
-  ]) {
-    const wireChecking = firstRunHarness('frPaintReturn', { FR: {} }, {
-      prelude: PRELUDE_VARS + `
-        const fetch = async () => ({ ok: true, json: async () => ({ appLocation: ${JSON.stringify(sneaky)} }) });
-      `,
-    });
-    await wireChecking.done;
-    assert.match(wireChecking.els['fr-return-row'].innerHTML, /fr-check unknown/,
-      `a wire state of "checking" (${JSON.stringify(sneaky)}) must fall back to unknown`);
-  }
-});
-
-test('the return step: entries share one in-flight look, and a stale look cannot repaint a newer entry', async () => {
-  // One module state, two overlapping entries, a fetch we resolve by hand.
-  const realEsc = pageFunction('esc');
-  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
-  const script = raw.match(/<script>([\s\S]*?)<\/script>/)[1];
-  const tables = ['FR_SAY', 'FR_GLYPH', 'FR_SAY_LOCAL', 'FR_GLYPH_LOCAL'].map((n) => {
-    const m = script.match(new RegExp('const ' + n + ' = \\{[^}]*\\};'));
-    assert.ok(m, n + ' vanished from the page');
-    return m[0];
-  }).join('\n');
-  const realRow = pageFunction('frCheckRow', 'const esc = ' + realEsc.toString() + ';\n' + tables);
-  const prelude = `
-    const esc = ${realEsc.toString()};
-    ${tables}
-    const frCheckRow = ${realRow.toString()};
-    ${pageFnSource('frIsMac')}
-    ${pageFnSource('frFindAppHint')}
-    const __els = {};
-    const document = { getElementById: (id) => (__els[id] = __els[id] || { innerHTML: '', textContent: '' }) };
-    let FR_RETURN_GEN = 0;
-    let FR_MACHINE_LOOK = null;
-    let __calls = 0; let __resolve = null;
-    const fetch = () => { __calls += 1; return new Promise((res) => { __resolve = res; }); };
-    globalThis.__t5 = { els: __els, calls: () => __calls, resolve: (v) => __resolve(v), leave: () => { FR_RETURN_GEN += 1; } };
-  `;
-  const fn = pageFunction('frPaintReturn', prelude);
-  const t5 = globalThis.__t5;
-  const e1 = fn();
-  const e2 = fn();
-  assert.equal(t5.calls(), 1,
-    'the second entry re-fired the route instead of joining the in-flight look');
-  t5.resolve({ ok: true, json: async () => ({ appLocation: { key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it.' } }) });
-  await e1; await e2;
-  // The NEWEST entry's paint is what stands; the stale continuation returned
-  // without touching the pane (both write the same answer here, so the
-  // observable pin is: the answer landed exactly, and the dock matches it).
-  assert.match(t5.els['fr-return-row'].innerHTML, /You will find it in your Applications folder/);
-
-  // Second scenario: entries 3 and 4 SHARE one look (asserted by call
-  // count), the shared look fails, and both continuations paint the same
-  // could-not-ask -- what this proves is the failure path repaints the dock
-  // alongside the row, and that a settled look really cleared for a fresh
-  // entry. (It deliberately does NOT prove the generation guard: shared
-  // looks mean live entries always paint identical content. The guard's
-  // one reachable job is tested in the LEAVE scenario below.)
-  const e3 = fn();
-  assert.equal(t5.calls(), 2, 'the settled look was not cleared for the next entry');
-  const e4 = fn();
-  assert.equal(t5.calls(), 2, 'entry 4 should join entry 3\u2019s in-flight look');
-  t5.resolve({ ok: false });
-  await e3; await e4;
-  assert.match(t5.els['fr-return-row'].innerHTML, /right now/,
-    'the failure path did not paint could-not-ask');
-
-
-  // ⚠️ THE GUARD'S JOB, and the scenarios that red when the guard lines are
-  // deleted (round 5 proved the shared-look scenarios above pass without
-  // them): the person LEAVES the return step while the look is in flight, and the
-  // late settlement must not repaint the pane. In production the bump IS
-  // performed by frGo(step !== FR_STEP_RETURN) and frClose (round 6 made the premise
-  // real); here t5.leave() performs the same mutation those perform.
-  // Success copy of the guard:
-  const e5 = fn();
-  assert.equal(t5.calls(), 3);
-  const before = t5.els['fr-return-row'].innerHTML; // this entry's placeholder
-  t5.leave();
-  t5.resolve({ ok: true, json: async () => ({ appLocation: { key: 'app-location', state: 'ok', title: 'You will find it in your Applications folder', detail: 'Open it.' } }) });
-  await e5;
-  assert.equal(t5.els['fr-return-row'].innerHTML, before,
-    'a look resolving after the person left the step repainted the pane');
-  // Failure copy of the guard (the catch's own gen check, which the
-  // shared-look failure scenario cannot exercise):
-  const e6 = fn();
-  assert.equal(t5.calls(), 4);
-  const before6 = t5.els['fr-return-row'].innerHTML;
-  t5.leave();
-  t5.resolve({ ok: false });
-  await e6;
-  assert.equal(t5.els['fr-return-row'].innerHTML, before6,
-    'a look FAILING after the person left the step repainted the pane');
-
-});
-
-test('the fork step does not promise a working agent over a check screen that disagreed', () => {
+test('#2497: the fleet step makes no machine-state promise (now the unconditional Giddy Up screen)', () => {
   /**
-   * ⚠️ THREE CASES, and the first version of this collapsed them to two. "We
-   * never checked" is not "we checked and it was fine", and an `unknown` row is
-   * not a clean one — filtering only `attention` dropped three "we could not
-   * check" findings and made the promise anyway.
+   * ⚠️ #2497 STRENGTHENS this test's concern by construction: the fleet step (frPaintFleet) now
+   * ALWAYS renders the no-agent "Create your first agent." / Giddy Up screen, whatever the machine
+   * state, so it can never repeat a check-screen finding NOR promise a working agent. Each case
+   * below anchors on that positive render (so the absence assertions are NOT vacuous -- they only
+   * pass because the Giddy Up screen genuinely rendered and carries no machine copy), then keeps
+   * the original absence guards. FR_MACHINE is now ignored by this screen (retired from the create
+   * arm; the machine check lives one step earlier).
    */
   const clean = firstRunHarness('frPaintFleet', {
     FR: { path: 'create', fleetCount: 0, fleetNames: [] },
     FR_MACHINE: { checks: [{ key: 'sleep', state: 'ok', title: 'fine', detail: 'fine' }], attention: 0, unknown: 0 },
   });
+  assert.match(clean.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'the fleet step no longer lands on the Giddy Up screen');
   assert.ok(!/still outstanding|did not get to look/.test(clean.els['fr-fleet'].innerHTML),
     'warned about a machine that checked out clean');
 
@@ -5776,6 +5687,8 @@ test('the fork step does not promise a working agent over a check screen that di
     },
   });
   const out = snagged.els['fr-fleet'].innerHTML;
+  assert.match(snagged.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'a snagged machine no longer lands on the Giddy Up screen (would make the absence checks vacuous)');
   /* 🛑 JOSH OVERRULED THIS ON 2026-08-26 22:05, having read the sentence on his
      own screen: "I'm still seeing this: this computer goes to sleep after 1
      minute. An agent made now may not run until I sort. Let's delete that whole
@@ -5802,6 +5715,8 @@ test('the fork step does not promise a working agent over a check screen that di
      claim at all, so there is nothing to caveat. Asserting the absence of the
      claim is the stronger form -- it fails if anyone puts an "everything is
      ready" back, which a confession-shaped test never could. */
+  assert.match(never.els['fr-fleet-title'].textContent, /create your first agent/i,
+    'a person who never saw the check screen no longer lands on the Giddy Up screen');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /everything is (connected|in place|ready)/i,
     'a person who never saw the check screen is being told everything is in place');
   assert.doesNotMatch(never.els['fr-fleet'].innerHTML, /did not get to look/,
@@ -9773,7 +9688,7 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     getAttribute(k) { return this.attrs[k]; },
     removeAttribute(k) { delete this.attrs[k]; },
   });
-  for (const id of ['tell-toggle', 'tell-msg', 'notify-toggle', 'notify-msg', 'auto-toggle', 'auto-msg']) {
+  for (const id of ['auto-toggle', 'auto-msg']) {
     const e = el(id); e.classList._s = e.classes;
   }
   const raw3 = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
@@ -9804,20 +9719,12 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
     return new Function('document', helper + '\n' + sc3.slice(at, end) + '\nreturn ' + name + ';')({ getElementById: el });
   };
 
-  /* 📌 THE TELL AND NOTIFY SWITCHES ARE BACK (#2020, Josh 2026-09-03: "on, and
-     they can turn it off" needs the opt-out controls he removed 08-26). They are
-     restored as controls; the create-ping (tell) default has SINCE been flipped
-     ON (#2020/#2013, Josh 2026-09-05) while notify stays OFF - so ping is an
-     on-by-default opt-out and notify an off-by-default opt-in. They are tested
-     here on the SAME three-state rule as autoPaint - and it matters MORE for
-     these two: they are the telemetry opt-outs, so an unread setting drawing a
-     confident Off would tell a person nothing is sent while the engine may be
-     (#2047). engine/notify.test.js pins the rows present + each send's default
-     (ping ON, notify OFF). */
+  /* #2623: the tell and notify telemetry switches were DELETED (Josh, 2026-09-09,
+     "invasion of privacy"), so only autoPaint remains on this three-state rule.
+     autoPaint still matters: an unread auto-update setting drawing a confident Off
+     would misreport the switch Josh relies on to protect a demo (#2047/#229). */
   for (const [paint, toggle, msg] of [
     ['autoPaint', 'auto-toggle', 'auto-msg'],
-    ['tellPaint', 'tell-toggle', 'tell-msg'],
-    ['notifyPaint', 'notify-toggle', 'notify-msg'],
   ]) {
     const p = lift(paint);
 
@@ -9856,18 +9763,12 @@ test('a switch that has not been read says so, rather than showing OFF', () => {
    * they drive the painter directly. The defect lives in the seam between the
    * two, which is exactly where a test that only exercises one half cannot see.
    */
-  /* #2020: refreshTell and refreshNotify are restored, so this seam test now covers
-     ALL THREE refreshers (it previously ran only refreshAutoUpdate, and the earlier
-     ternary scaffolding for refreshTell was never activated and had no arm for
-     refreshNotify). The painter and epoch are carried in the tuple rather than
-     derived by a ternary, so a fourth refresher is one row, not another branch.
-     🛑 AND ALL THREE ARE RUN: the previous version `return`ed inside the loop, so
-     only the first tuple was ever exercised - a second entry would have been silently
-     skipped. Promise.all runs every one. */
+  /* #2623: refreshTell and refreshNotify were deleted with the telemetry, so this
+     seam test covers refreshAutoUpdate only. The painter and epoch are carried in
+     the tuple rather than derived by a ternary, so a future refresher is one row,
+     not another branch. Promise.all runs every row. */
   const seams = [
     ['refreshAutoUpdate', 'auto-toggle', 'autoPaint', 'AUTO_EPOCH'],
-    ['refreshTell', 'tell-toggle', 'tellPaint', 'TELL_EPOCH'],
-    ['refreshNotify', 'notify-toggle', 'notifyPaint', 'NOTIFY_EPOCH'],
   ];
   return Promise.all(seams.map(([refresh, toggle, painterName, epoch]) => {
     el(toggle).setAttribute('aria-checked', 'false');   // the static markup's lie
@@ -9951,41 +9852,40 @@ test('the rows arrive one at a time, and an unrevealed row says it is working', 
   assert.doesNotMatch(globalThis.__el2.innerHTML, /class="tick working"/);
 });
 
-test('somebody who already has agents is never told they have none', () => {
+test('#2497: first run lands on Giddy Up regardless of what is on the disk (no auto-surfaced fleet)', () => {
   /**
-   * 🛑 THE SENTENCE THIS REMOVES. "There are none on this computer yet" was
-   * shown to the first person outside this team to install Kosmos, on a Mac
-   * running two of her own agents. Josh, 2026-08-22: "the most catastrophic
-   * flaw in the entire system."
+   * 🛑 #2497 (Josh, 2026-09-08, watching Ben + Nacho test) SUPERSEDES the #320/2026-08-22
+   * "look on the disk before saying anybody has nothing" behavior FOR ONBOARDING. That behavior
+   * surfaced found agents on the first-run screen; on a developer's box (many tmux Claude Code
+   * sessions) it filled the board with garbage throwaway agents. Josh ruled that first run always
+   * lands on the no-agent "Create your first agent." / Giddy Up screen, even when agents ARE found,
+   * and that the manual Import Agent (#1652) on the Create Agent screen is the way to pull real
+   * ones in later. So none of the disk states (not-looked / found-some / found-none / could-not-
+   * look) changes what the first-run screen shows now: it is always the create / Giddy Up screen.
    *
-   * The cause was that `path` is decided from tmux, which is processes running
-   * RIGHT NOW, while a person means the agents they have made. The fix looks on
-   * the disk before saying anybody has nothing.
-   *
-   * ⚠️ THREE STATES, AND THE MIDDLE ONE IS THE POINT: not looked yet, looked and
-   * found some, looked and found none. Only the third may say "none".
+   * ⚠️ The #320 concern (never tell someone with agents they have none) was real and is knowingly
+   * traded away here by Josh's explicit ruling; the mitigation is the manual Import path, and the
+   * discovery engine that reaches the disk (/api/scan-import) is kept for it - only its automatic
+   * invocation on first run is gone.
    */
   const create = { path: 'create', fleetCount: 0 };
 
-  /* Not looked yet: it must not say either thing. */
+  /* Not looked yet (FR_FOUND null): no "looking" state anymore - onboarding does not scan. */
   const looking = firstRunHarness('frPaintFleet', { FR: create, FR_FOUND: null });
-  assert.match(looking.els['fr-fleet-title'].textContent, /Looking for agents/i);
-  assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /none on this computer/i,
-    'the empty claim was made before the search had run');
+  assert.match(looking.els['fr-fleet-title'].textContent, /Create your first agent/i);
+  assert.doesNotMatch(looking.els['fr-fleet'].innerHTML, /Looking for agents|none on this computer/i,
+    'onboarding still shows a looking/empty-claim state instead of the Giddy Up screen');
 
-  /* Looked and found some: the empty state is replaced outright. */
+  /* Found agents on disk: they are NOT surfaced on first run (the #2497 reversal). */
   const found = firstRunHarness('frPaintFleet', {
     FR: create,
     FR_FOUND: { ok: true, agents: [{ dir: '/w/mike', name: 'Mike', role: 'copywriter' }] },
   });
-  assert.doesNotMatch(found.els['fr-fleet'].innerHTML || '', /none on this computer/i,
-    'somebody with agents was still told they have none');
-  assert.match(found.els['fr-fleet-title'].textContent, /found an agent on this computer/i,
-    'the title conflates being on the Mac with being in Kosmos');
-  assert.match(found.els['fr-fleet'].innerHTML, /not in Kosmos yet/i,
-    'the screen no longer says what has NOT happened, which is the whole distinction');
-  assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /<input/i,
-    'a control that cannot act is back on the row');
+  assert.match(found.els['fr-fleet-title'].textContent, /Create your first agent/i,
+    'first run surfaced found agents instead of the create / Giddy Up screen');
+  assert.match(found.els['fr-fleet'].innerHTML, /Let’s get started/i);
+  assert.doesNotMatch(found.els['fr-fleet'].innerHTML, /found an agent|not in Kosmos yet|<input/i,
+    'first run still renders a found-agents list; #2497 removed auto-import from onboarding');
 
   /* Looked and found none: says what the search did, not what the machine
      holds (#320). "None on this computer" was a claim about the computer. */
@@ -10418,85 +10318,6 @@ test('compact and clear type the bare slash command into the pane, refuse a pane
     assert.equal(nope.status, 404);
   } finally {
     chatEngine.setRunner(null);
-    board.restore();
-  }
-});
-
-/**
- * The "something happened" seam (engine/notify.js): an agent's room post and
- * an agent's reply each produce one outbound call when the switch is on,
- * carrying who and what and never the words; the person's own post does not;
- * a refused post does not; and the setting round-trips.
- */
-test('notify: an agent posting or replying sends one outbound call when on, never the words, never for the person or a refusal', async () => {
-  const notifyEngine = require('./engine/notify');
-  const messagesEngine = require('./engine/messages');
-  const chatEngine = require('./engine/chat');
-  const board = fleet.install([fleet.agent('leo', { state: 'idle', displayName: 'Leo' }), fleet.agent('mara', { state: 'idle' })]);
-  const dir = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-notify-route-'));
-  const sent = [];
-  notifyEngine.setSender(async (url, init) => { sent.push(JSON.parse(init.body)); return { ok: true }; });
-  try {
-    // The setting: off by default, round-trips.
-    assert.equal(JSON.parse((await req('/api/notify-setting')).body).on, false);
-    const put = await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: true }) });
-    assert.equal(JSON.parse(put.body).on, true);
-
-    messagesEngine.setRunner(() => ({ ok: true, session: 'leo-discord' }));
-    chatEngine.setRunner((args) => {
-      if (args[0] === 'display-message') return { ran: true, spawnFailed: false, status: 0, out: '2.1.212\t\t0\n', err: '' };
-      return { ran: true, spawnFailed: false, status: 0, out: '', err: '' };
-    });
-    chatEngine.setDryRun(false);
-    await req('/api/projects', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: 'Notify room', folder: dir, agents: ['leo', 'mara'] }) });
-
-    // An agent's post: one call, the shown name, the project's name, no words.
-    const post = await req('/api/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: 'notifyroom', text: 'the secret plan @mara', from_pane: '%3' }) });
-    assert.equal(post.status, 200, post.body);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 1, 'an agent post did not produce exactly one call: ' + JSON.stringify(sent));
-    assert.equal(sent[0].kind, 'posted');
-    assert.equal(sent[0].agent, 'Leo');
-    assert.equal(sent[0].project, 'Notify room');
-    assert.match(String(sent[0].id), /^m\d+$/, 'a post carries no message id for the coordinator to de-duplicate on');
-    assert.equal(sent[0].session, 'leo');
-    assert.ok(!JSON.stringify(sent[0]).includes('secret'), 'the words left the Mac');
-
-    // The person's own post in the room: nothing (it is not something that happened TO them).
-    const mine = await req('/api/project/notifyroom/room', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'from me' }) });
-    assert.equal(mine.status, 200, mine.body);
-    assert.notEqual(JSON.parse(mine.body).delivery.state, 'could_not', 'the person\'s post did not go, so its silence proves nothing: ' + mine.body);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 1, 'the person\'s own post produced a call');
-
-    // A refused post: nothing.
-    const refused = await req('/api/post', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ project: 'no-such-room', text: 'x', from_pane: '%3' }) });
-    assert.match(JSON.parse(refused.body).delivery.because, /no project/);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 1, 'a refused post produced a call');
-
-    // An agent's reply to the person: one call, kind replied, no project.
-    const reply = await req('/api/reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'my secret answer', from_pane: '%3' }) });
-    assert.equal(reply.status, 200, reply.body);
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 2, 'a reply did not produce exactly one more call: ' + JSON.stringify(sent));
-    assert.equal(sent[1].kind, 'replied');
-    assert.equal(sent[1].agent, 'Leo');
-    assert.equal(sent[1].project, null);
-    assert.match(String(sent[1].id), /^reply:leo:\d{4}-/, 'a reply carries no key');
-    assert.ok(!JSON.stringify(sent[1]).includes('secret'));
-
-    // Off again: silence.
-    await req('/api/notify-setting', { method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ on: false }) });
-    await req('/api/reply', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ text: 'again', from_pane: '%3' }) });
-    await new Promise((r) => setTimeout(r, 20));
-    assert.equal(sent.length, 2, 'a call went out with the switch off');
-  } finally {
-    notifyEngine.setSender(null);
-    fs.rmSync(notifyEngine.FILE, { force: true });
-    messagesEngine.resetForTests();
-    chatEngine.resetForTests();
-    try { fs.rmSync(messagesEngine.LOG, { force: true }); } catch { /* sandboxed */ }
     board.restore();
   }
 });
@@ -12075,39 +11896,6 @@ test('the report route refuses an unknown state word with the closed list, and a
     assert.equal(who.recorded, false);
     assert.match(who.because, /which agent/, 'an unidentifiable caller was not refused in a sentence');
   } finally {
-    messagesEngine.resetForTests();
-    board.restore();
-  }
-});
-
-test('a reported needs_you reaches the phone seam in the same word, with zero translation', async () => {
-  const messagesEngine = require('./engine/messages');
-  const selfreportEngine = require('./engine/selfreport');
-  const notifyEngine = require('./engine/notify');
-  const board = fleet.install([fleet.agent('peteworker', { state: 'idle' })]);
-  const pinged = [];
-  try {
-    messagesEngine.setRunner(() => ({ ok: true, session: 'peteworker-discord' }));
-    notifyEngine.setSender((url, init) => { pinged.push(JSON.parse(init.body)); return Promise.resolve({ ok: true }); });
-    assert.equal(notifyEngine.setOn(true).ok, true, 'could not switch the notify seam on in the sandbox');
-
-    const r = await req('/api/report', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ state: 'needs_you', text: 'Which domain should the relay use?', from_pane: '%7' }),
-    });
-    assert.equal(JSON.parse(r.body).recorded, true);
-    assert.equal(pinged.length, 1, 'the needs_you transition did not reach notify');
-    assert.equal(pinged[0].kind, 'needs_you', 'the report word and the notify word are not the same word');
-    assert.equal(pinged[0].session, 'peteworker');
-    /* The payload rule notify.js states: never the words. The question stays
-       on the Mac, in the record; the ping carries who and what kind and when. */
-    assert.equal(JSON.stringify(pinged[0]).includes('Which domain'), false,
-      'the question text left the Mac through the ping');
-  } finally {
-    fs.rmSync(selfreportEngine.fileFor('peteworker'), { force: true });
-    notifyEngine.setOn(false);
-    notifyEngine.setSender(null);
     messagesEngine.resetForTests();
     board.restore();
   }

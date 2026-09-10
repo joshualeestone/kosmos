@@ -52,19 +52,229 @@ const { chromium } = require('playwright');
  * here is exactly the fixture that made six rounds of review pass against a
  * world that does not exist. This asks `status.snapshot()` for a card off this
  * machine and renames it, so the shape is whatever the board really serves.
- *
- * If the machine is running no agents there is no card, and the reopen check
- * SAYS SO rather than quietly not running.
  */
-function realCard() {
+function liveCard() {
+  /* 🛑 AN ERROR IS NOT AN EMPTY BOARD, and collapsing them turned a loud red into a
+     quiet green. The first version of this returned null for BOTH, so on a POPULATED
+     box where status.js failed to load or snapshot() threw, the fallback quietly took
+     over, printed a note saying "no live agent on this box" -- a claim nothing had
+     measured -- and the cut passed. Before this branch that case FAILED 3b, correctly.
+     So: a thrown error is re-thrown for the caller to turn into a failure, and `null`
+     means no PANE card of ours was selectable.
+     🛑 NOT "the board really has no card of ours", which is what this line said and which
+     the same comment block contradicts twenty lines down. Null also arrives when every
+     card of ours is PANELESS, and it would arrive if `isNamedOurs` itself regressed to
+     false for all of them. In both of those the recording drives the arm on a POPULATED
+     box, where the old code drove it with a live card. That is visible (source `golden`,
+     the fallback NOTE prints) but it is not "no card of ours exists". */
+  const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
+  const board = status.snapshot();
+  /* 🛑 A PANE CARD, matching what the fixture records. status.js emits PANELESS cards
+     too and they also carry `isNamedOurs: true`, but their shape legitimately differs:
+     a smaller `context`, and null session/target/runner/model.
+     ⚠️ THE REASON IS SHAPE, NOT THE DRIFT GUARD. An earlier version of this comment
+     justified the preference by "it made the drift guard report board COMPOSITION as
+     drift" -- and this same change DELETES that guard, so the stated reason went stale
+     in its own commit. The preference still earns its place: `openDetail` is driven with
+     this card and the recording is pane-shaped, so a paneless card would exercise the
+     reopen path with null session/target that the fallback never produces.
+     ⚠️ THIS IS A BEHAVIOUR CHANGE ON A POPULATED BOX and it is deliberate. The old code
+     was a bare find over `isNamedOurs`, taking whichever card status.js listed first.
+     🛑 IT NARROWS THE ORDERING DEPENDENCE, IT DOES NOT REMOVE IT, and an earlier version
+     of this sentence said "it now depends on shape" full stop. `find` still takes the
+     FIRST pane card the board lists, so on a board with several pane cards the input is
+     still pane-ordered; what changed is that a paneless card can no longer win. The
+     capture tool has an evidence preference for exactly this reason (`chooseCard` prefers
+     a card whose stateConfidence is not 'none'); `liveCard` has none, and adding one here
+     would be a second, differently-ordered selection over the same board. Left as is and
+     stated, rather than half-fixed.
+     ⚠️ AND THE EDGE CASE THAT FOLLOWS FROM IT: on a board where EVERY card of ours is
+     paneless (agents configured, none running in a pane), this returns null and the
+     RECORDING drives the arm, where the old code drove it with a paneless card. That is
+     the better of the two -- openDetail gets the shape it is written for instead of null
+     session/target -- and it is not silent: realCard reports `golden` and the run prints
+     the fallback NOTE, so the log distinguishes it from a live run. */
+  const ourCards = (board.agents || []).filter((a) => a && a.isNamedOurs === true);
+  const card = ourCards.find((a) => a.paneless !== true) || null;
+  return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;
+}
+
+/**
+ * #2519: the same card, RECORDED from the real producer, for a box with no agents.
+ *
+ * 🛑 THIS IS A CAPTURE, NOT A LITERAL, AND THE DIFFERENCE IS THE WHOLE POINT.
+ * `fixtures/agent-card.json` was produced by `tools/capture-agent-card.js` on a machine
+ * with live agents. Every KEY is the producer's and each field's TYPE is preserved.
+ * ⚠️ NOT "only identifying string content is neutralised". That sentence was wrong here,
+ * and it is the THIRD copy of it: the same claim was corrected in the capture tool, then
+ * in the plan, then in the README, and missed here each time.
+ *
+ * THE FULL PIN SET, WHICH AN ARM CHECKS AGAINST THE CODE. PIN-LIST-BEGIN
+ * `because`, `context.because`, `context.ceiling`, `context.ceilingAssumed`, `context.confidence`, `context.notYet`, `context.overCeiling`, `context.percent`, `context.tokens`, `disruption.cause`, `disruption.startedAt`, `disruption.timedOut`, `hasAvatar`, `model`, `modelName`, `name`, `role`, `session`, `sessionName`, `stateConflict`, `stateEvidence`, `stateProject`, `target`, `task`
+ * PIN-LIST-END
+ * (Paths, not names: `because` is pinned BOTH top-level and under `context`, and a list
+ * of bare names could not say so.)
+ * Separately RE-PINNED from the raw card because status.js enum-bounds them: `state`,
+ * `stateConfidence`, `runner`.
+ *
+ * 🛑 THE PINS DO NOT MAKE A RE-CAPTURE BYTE-IDENTICAL, and the sentence claiming they do
+ * stood here after the same sentence had been struck in the tool's own header. A file
+ * asserting a thing and its negation is worse than either answer, which is the rule this
+ * very header states twenty lines down. `state`, `stateConfidence` and `runner` come from
+ * the RAW card, the structural booleans pass through as captured, and role, task,
+ * stateEvidence, stateProject, stateConflict and disruption each vary between null and a
+ * value. The recording holds `state: "working"`, a fact about one capture. What the pins
+ * buy is that the volatile MEASUREMENTS do not move.
+ *
+ * ⚠️ "AND TWO PROFILE TIMESTAMPS" WAS WRONG TWICE OVER and sat in three copies. No pin
+ * touches a profile timestamp. What exists is `scrubStrings`' date branch, which rewrites
+ * ANY string matching an ISO date, at any depth, anywhere in the card, to one constant.
+ * That is a SCRUB, not a pin, and it is neither two fields nor profile-specific.
+ *
+ * It scrubs EVERY value under `profile` (strings and numbers and booleans, at any depth)
+ * rather than a listed subset, because `profile` is free-form and an allowlist there
+ * rests on what the tree happens to write today: `profile.doctrineVersion` is a producer
+ * number that reached the recording before this was structural.
+ * ⚠️ AN EARLIER VERSION OF THAT SENTENCE ENDED "not the two ids", left dangling by an
+ * edit, which read as though `id` and `idInstall` were EXEMPT from the scrub. They are
+ * scrubbed to constants like everything else, and an arm exists to prove it.
+ *
+ * ⚠️ THAT PIN LIST HAS GONE STALE TWICE, in all four copies at once each time. If you add
+ * a pin, grep for one of these field names before you finish; an arm now reds if a
+ * document omits one.
+ *
+ * ⚠️ A capture rots, and ONE guard notices, not two. The TOP-LEVEL key set is compared
+ * box-independently in `yarn test` (render-talk-goldencard-2519.test.js), using
+ * test-support/fleet.js, which drives the real `status.snapshot()` over a fake pane
+ * source.
+ * 🛑 NESTED CONTEXT DRIFT IS NOW CHECKED TOO (#2553), box-independently and in `yarn test`,
+ * NOT here in the cut. An earlier version of this header claimed a second guard "HERE, in
+ * the reopen arm below", comparing the full nested shape live against live. That guard was
+ * REMOVED nine hundred lines below (see the block at the reopen arm) because it fired on
+ * board composition rather than drift: measured on an 18-agent board, two distinct
+ * `profile` shapes among our pane cards, one of them empty.
+ * ⇒ THE GAP IT LEFT: a rename inside `context` leaves the top-level key set identical,
+ * the top-level anti-rot arm green, and this recording driving a shape the producer no
+ * longer emits, on exactly the quiet boxes the fallback exists for. `openDetail` reads
+ * `context.percent` (through the guarded `pctOf`), so that is not hypothetical.
+ * ⇒ HOW #2553 CLOSES IT WITHOUT RE-ADDING THE REMOVED BUG: the COMPOSITION-AWARE DRIFT
+ * GUARD arm in render-talk-goldencard-2519.test.js derives the SET of context key-sets
+ * `status.js` can emit and asserts the recording matches one of them. It reads no board,
+ * so composition cannot fire it; only a producer change that was not re-captured reds. It
+ * lives in the unit test, not this check, so a false red costs a test run and never a cut.
+ * `profile` is deliberately NOT guarded that way: it is free-form and every page read of it
+ * is guarded, so a missing profile key is composition, never drift. */
+function goldenCard(fixturePath) {
+  /* `fixturePath` is a test seam, defaulted to the real fixture. Without it the shape
+     floor below is unreachable from a test: with the committed fixture in place the
+     floor never fires, so deleting it reds nothing and it would ship unarmed. That is
+     the defect this tree keeps finding in its own guards. */
   try {
-    const status = require(path.join(__dirname, '..', '..', 'engine', 'status.js'));
-    const board = status.snapshot();
-    const card = (board.agents || []).find((a) => a && a.isNamedOurs === true);
-    return card ? { ...card, sessionName: 'april', name: 'April', state: 'needs_you' } : null;
+    const raw = fs.readFileSync(fixturePath || path.join(__dirname, 'fixtures', 'agent-card.json'), 'utf8');
+    const card = JSON.parse(raw);
+    if (!card || typeof card !== 'object' || Array.isArray(card)) {
+      /* 🛑 SAY WHY HERE TOO. This branch returned SILENTLY, one line above the floor whose
+         own comment says a cause that explains nothing is worse than a delete. Valid JSON
+         that is an array, a number, a string or null is a FOURTH cause, outside the three
+         the catch block enumerates, and it produced no diagnostic at all. */
+      process.stdout.write('  NOTE  render-talk: the recorded card fixture parsed but is '
+        + (Array.isArray(card) ? 'an array' : card === null ? 'null' : 'a ' + typeof card)
+        + ', which is not a card object, so it is being ignored'
+        + ' -- with no live agent card this FAILS the reopen arm below\n');
+      return null;
+    }
+    /* 🛑 A SHAPE FLOOR, HERE AND NOT ONLY IN THE NODE SUITE. "An object that is not an
+       array" accepts `{}`: openDetail would still run, the reopen arm would still pass,
+       and the box the fallback exists for would get a hollow coverage claim. Anyone
+       invoking tools/browser-checks.sh directly never reaches the node suite's floor,
+       so it has to be enforced where the card is produced. A real card carries ~30
+       fields; a trimmed one is the hand-built literal arriving by another door. */
+    /* ⚠️ THE RENAME BELOW LEAVES THE CARD INTERNALLY INCONSISTENT, and it is inherited
+       rather than introduced here: the reopen arm drives `{...card, state: 'needs_you'}`
+       while `because` still reads "it is mid-task" and `stateEvidence` still reads
+       "✽ Working…". The live path has always done the same to a live card, so this is
+       main's behaviour, not a regression from the fallback.
+       ⇒ Named rather than fixed, deliberately. This branch argued at length that a
+       fixture contradicting itself is worse than a stale one and made `context` coherent
+       on that basis, so leaving this unnamed would be the same overstatement the branch
+       keeps correcting. Fixing it means changing what the arm feeds `openDetail` in a
+       check that CANNOT be run from here, which trades an unverifiable rendering change
+       for a consistency the arm does not read. */
+    if (Object.keys(card).length < 20) {
+      /* 🛑 SAY WHY HERE TOO. The catch below explains a missing, corrupt or unreadable
+         fixture, and this branch used to be the one cause that explained nothing: a
+         readable, valid-JSON, TRIMMED fixture returned null silently, so downstream it
+         was indistinguishable from a delete while being harder to diagnose than one.
+         An operator on a quiet box saw only "no agent card and no usable fixture". */
+      process.stdout.write('  NOTE  render-talk: the recorded card fixture has only '
+        + Object.keys(card).length + ' top-level fields, below the floor of 20, so it is'
+        + ' being ignored as a trimmed or hand-built stand-in'
+        + ' -- with no live agent card this FAILS the reopen arm below\n');
+      return null;
+    }
+    return { ...card, sessionName: 'april', name: 'April', state: 'needs_you' };
   } catch (err) {
+    /* Say WHY on the log the cut streams. A corrupt fixture, a missing one and an
+       unreadable one all surface downstream as the same "no usable fixture" line, so an
+       operator on a quiet box cannot tell rot from a delete without opening the file. */
+    /* Say the CONSEQUENCE too. This returns null, and on the only path that reaches
+       here at runtime (no live pane card of ours) that makes realCard report `none`,
+       which pushes a problem and FAILS the arm. A bare NOTE reads as benign for
+       something that is about to red the cut. */
+    /* ⚠️ err.message ONLY, NEVER String(err). A native Error's toString() prepends the
+       literal word "Error: ", and the release gate's reason grep matches `Error`
+       UNANCHORED anywhere in a line (tools/browser-checks.sh:730), so the fallback would
+       have turned this NOTE into a quotable failure reason. Unreachable today, since
+       readFileSync and JSON.parse both carry a non-empty message, but the whole point of
+       the NOTE channel is that it cannot be read as a failure, and a residual that
+       depends on every future thrower having a message is not that guarantee. */
+    /* 🛑 THE INTERPOLATED HALF HAS TO BE NEUTRALISED, NOT JUST THE LITERALS. The release
+       gate quotes any output line matching Error|Timeout|REFUS|refus, UNANCHORED
+       (tools/browser-checks.sh:730), and a thrown message is not ours to choose: Node
+       embeds the PATH in it, so `readFileSync` on a path containing any of those words
+       puts the word straight into this NOTE. Measured: reading '/tmp/x-Timeout-y.json'
+       yields "ENOENT: no such file or directory, open '/tmp/x-Timeout-y.json'".
+       ⇒ A hyphen is inserted into each trigger word. The diagnostic stays readable and
+       the line cannot be quoted as the cause of a red. Note `refus` matches as a
+       SUBSTRING, so "refused" triggers it too and a bracketing scheme would not help.
+       ⚠️ RESIDUAL, NAMED RATHER THAN LEFT OFF THIS LIST: the four WORDS are covered, the
+       gate's other alternative `^\s*(FAIL|✖)` is not. A thrown message containing a
+       newline followed by FAIL would still be quotable. Not reachable with today's
+       throwers (readFileSync and JSON.parse messages are single-line) and the runtime arm
+       drives only single-line messages, so this is stated, not fixed. */
+    const neutralise = (t) => String(t)
+      .replace(/Error/g, 'Err-or').replace(/Timeout/g, 'Time-out')
+      .replace(/REFUS/g, 'REF-US').replace(/refus/g, 'ref-us');
+    const why = neutralise((err && typeof err.message === 'string' && err.message) || 'no message on the thrown value');
+    process.stdout.write('  NOTE  render-talk: the recorded card fixture could not be read: '
+      + why
+      + ' -- with no live agent card this FAILS the reopen arm below\n');
     return null;
   }
+}
+
+/**
+ * The card the reopen arm drives, and WHERE IT CAME FROM.
+ *
+ * Returns `{ card, source }` rather than a bare card, deliberately: the caller has
+ * to be able to say which it used. A silent fallback would make a quiet box and a
+ * populated box print identical output while exercising different inputs, and this
+ * file has corrected that class three times already.
+ */
+function realCard() {
+  let live;
+  try {
+    live = liveCard();
+  } catch (err) {
+    /* The producer itself is broken. That is a real failure on any box and must not be
+       masked by the fallback: report it as its own source so the caller fails rather
+       than quietly substituting a recording. */
+    return { card: null, source: 'error', error: String((err && err.message) || err) };
+  }
+  if (live) return { card: live, source: 'live' };
+  const golden = goldenCard();
+  if (golden) return { card: golden, source: 'golden' };
+  return { card: null, source: 'none' };
 }
 
 const PAGE = 'file://' + path.join(path.resolve(__dirname, '..', '..'), 'web', 'index.html');
@@ -358,6 +568,9 @@ function unreachableStates() {
     ignoreDefaultArgs: ['--hide-scrollbars'],
   });
   const problems = unreachableStates();
+  /* #2519: findings that are NOT failures. Kept separate from `problems` so they
+     cannot reach the exit code or the gate's FAIL anchor. */
+  const notes = [];
   for (const theme of ['light', 'dark']) {
     const page = await browser.newPage({
       viewport: { width: 1100, height: 900 },
@@ -943,9 +1156,63 @@ function unreachableStates() {
       // opens an agent again, and its clear is where a cache can be left
       // speaking for markup that no longer exists. Clearing by hand here would
       // be testing this script's idea of the clear.
-      const card = realCard();
+      const { card, source: cardSource, error: cardError } = realCard();
+      if (cardSource === 'error') {
+        // The producer threw. Before #2519 this failed 3b, and it still must.
+        /* ⚠️ KNOWN AND DELIBERATELY NOT COLLAPSED: one broken producer pushes THREE
+           problems per theme (here, the clear-path line, and the stranded-box line), and
+           tools/browser-checks.sh quotes only `head -3` of the reason, so a producer
+           failure fills the operator's quoted reason with restatements of itself and
+           hides any other red. Collapsing them means changing control flow in a
+           release-gating check that CANNOT be run from here (it needs a browser), to
+           improve a log line. That trades an unverifiable regression risk for an
+           ergonomic gain, so it is recorded rather than done. Each line is true and
+           names a different unchecked path; the cost is noise, not a wrong verdict. */
+        problems.push(`[${theme}] reopen: status.snapshot() failed (${cardError}), so the card path is BROKEN, not merely empty`);
+      }
+      if (cardSource === 'golden') {
+        // #2519: covered, but say so. A quiet box and a populated box must not print
+        // identical output while driving different inputs.
+        notes.push(`[${theme}] reopen: no PANE-based agent card of ours was available, so the RECORDED card fixture drove the clear path`);
+      }
+      /* 🛑 THERE IS NO LIVE-VS-FIXTURE DRIFT GUARD HERE, AND REMOVING IT WAS THE FIX.
+         TRACKED AS kosmos#2553, so this gap is open work rather than only a comment.
+         An earlier version of this branch compared the live card's nested key paths
+         against the recording and pushed a PROBLEM on any difference. It was unsound,
+         and it would have redded release cuts on ordinary board composition.
+         MEASURED on an 18-agent board: TWO distinct `profile` shapes among pane cards
+         of ours -- 17 carrying id/idInstall/instructionsWrite/updatedAt and ONE empty,
+         because store.readProfile() returns {} for an agent with no profile file. So
+         one card in eighteen made the guard fire. `profile` is a free-form operator
+         record and `context` has FOUR distinct key sets in status.js, counted rather than asserted: the NONE_BASE family (ELEVEN objects share that one key set, derived by the arm; an earlier version said six by counting only readContext and missing readCodexContext and the two inline card literals), neverRecordedResult (adds `neverRecorded`), measuredResult (adds `overCeiling`, `ceiling`, `ceilingAssumed`) and noCeilingResult (adds `ceiling`, `ceilingSource`, `noCeiling`) (an earlier version said FIVE) depending on
+         whether that agent has a readable transcript and a known ceiling, so no two
+         cards are guaranteed to share a nested shape at all.
+         ⚠️ AND WHICH CARD IS COMPARED WAS ARBITRARY: liveCard() takes the first pane
+         card tmux lists, while the capture tool deliberately prefers one with real
+         evidence. The guard was comparing an arbitrary card against a recording of a
+         hand-picked one, so whether a cut went red depended on pane ordering, and
+         "re-capture it" would only have moved which card failed.
+         ⇒ The fixture's anti-rot check lives in `yarn test` instead
+         (render-talk-goldencard-2519.test.js), where it compares the TOP-LEVEL key set
+         only. That set comes from status.js's PANE card literal, so it is the same for
+         every pane card. ⚠️ AN EARLIER VERSION ADDED "a paneless card has its own literal
+         and its own KEY SET, which is why liveCard prefers a pane card". Measured: the
+         paneless literal emits the SAME 30 top-level keys, and status.js:5883 keeps it
+         that way ON PURPOSE, calling it SHAPE PARITY "so a consumer sees one card shape
+         rather than two". That sentence asserted a top-level difference the producer
+         designed away, while doing duty as the justification for this top-level-only
+         comparison. The comparison is still the right one (a false red on nested
+         composition costs a release), and liveCard's pane preference is still right, but
+         the reason is the NESTED difference this file states correctly at its head: null
+         session/target/runner/model and a smaller context. A false red here costs a test
+         run rather than a release. A guard that reds a cut on board composition is worse than no guard. */
       if (!card) {
-        problems.push(`[${theme}] reopen: no real agent card on this machine, so the clear path is UNCHECKED`);
+        /* Worded from the SOURCE: on `error` the fixture was never consulted at all
+           (realCard returns before goldenCard runs), so claiming "no usable fixture"
+           there would assert something nothing measured. */
+        problems.push(cardSource === 'error'
+          ? `[${theme}] reopen: the card producer failed, so the clear path is UNCHECKED`
+          : `[${theme}] reopen: no agent card and no usable fixture, so the clear path is UNCHECKED`);
       } else {
         const reopened = await page.evaluate((c) => {
           try { window.__card = c; LAST = [c]; openDetail(c.sessionName); return true; }
@@ -982,7 +1249,9 @@ function unreachableStates() {
         return { before, after: document.getElementById('d-dmthread').textContent.slice(0, 40) };
       }, STATES['2-answered-placed']) : null;
       if (!threadAfterReopen) {
-        problems.push(`[${theme}] reopen: no real agent card on this machine, so the STRANDED-BOX path is UNCHECKED`);
+        problems.push(cardSource === 'error'
+          ? `[${theme}] reopen: the card producer failed, so the STRANDED-BOX path is UNCHECKED`
+          : `[${theme}] reopen: no agent card and no usable fixture, so the STRANDED-BOX path is UNCHECKED`);
       } else if (threadAfterReopen.after !== threadAfterReopen.before) {
         problems.push(`[${theme}] reopen: the thread box is stranded after a reopen `
           + `(${JSON.stringify(threadAfterReopen.before)} -> ${JSON.stringify(threadAfterReopen.after)})`);
@@ -1730,6 +1999,18 @@ function unreachableStates() {
     await page.close();
   }
   await browser.close();
+  /* #2519: NOTES are not failures and must never read as one. They print on their own
+     lines with a NOTE prefix and take no part in the exit code.
+     ⚠️ AND THE GATE'S PATTERN IS WIDER THAN THE ANCHOR. An earlier version of this
+     comment said the gate "anchors on `^\s*(FAIL|✖)`". tools/browser-checks.sh actually
+     greps `'^\s*(FAIL|✖)|Error|Timeout|REFUS|refus'` when quoting a reason, so a note
+     containing the word Error or refused would be quoted as the cause of an unrelated
+     red. Today's note text matches none of those; whoever adds the next one should
+     check against the real pattern rather than this sentence. */
+  if (notes.length) {
+    console.log('\n=== notes ===');
+    console.log(notes.map((n) => `  NOTE  ${n}`).join('\n'));
+  }
   console.log('\n=== problems ===');
   // Prefix each finding with FAIL at the PRINT site so the release gate's
   // anchored `grep -E '^\s*(FAIL|✖)|...'` can quote the reason (kosmos#1836).

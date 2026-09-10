@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # post-release-notes.sh - kosmos#2159. On a PROD release, generate the release-notes social
 # posts (X @installkosmos + LinkedIn company page) and, ONLY under a deliberate multi-gate
-# enable, publish them. Called from the prod-release success paths: release.sh (a prod cut)
-# and promote-channel.sh (a staging->prod pointer flip).
+# enable, publish them. Called from the prod-release success paths: release.sh (a prod cut) and
+# deploy-site.sh --promote (a staging->prod go-live deploy) both live-post on success; and
+# promote-channel.sh (the staging->prod pointer flip, before the go-live deploy) previews only.
 #
 #   bash tools/post-release-notes.sh <version> [--publish]
 #

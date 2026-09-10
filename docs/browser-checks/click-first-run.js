@@ -77,25 +77,74 @@ async function activeHead(page) {
    a fixed click count (identity, not index -- an inserted/removed step is walked
    through, never mis-counted; kosmos#1801). With the gates mocked uncheckable, no
    step before the target disables Next; a disabled Next on a non-target step means
-   an intermediate step grew a required-answer gate this walk does not handle. */
+   an intermediate step grew a required-answer gate this walk does not handle.
+
+   🛑 THE PRIMARY IS NOT ALWAYS #fr-next, AND ASSUMING SO TIMED OUT ON A CLEAN
+   MACHINE (kosmos#2445). The Model step (S5) HIDES #fr-next and offers only
+   "Skip connecting a model" as #fr-alt whenever nothing is connected --
+   frPaintSubscription's non-`connected` arm calls frActions(null, { alt }), so
+   `next.hidden = true`. A machine signed into Claude reports subscription
+   `connected` and shows a #fr-next "Next"; a CLEAN machine (every CI runner, and
+   a real fresh install) reports not-connected and shows only the #fr-alt Skip
+   link. A walk that only ever clicks #fr-next therefore passed on the signed-in
+   build box and timed out for the full 30s on the headless macos-latest runner
+   ("<button hidden id=fr-next>Next</button> ... element is not visible"). It read
+   as a SwiftShader paint weakness; it is not -- `hidden` is a DOM attribute, and
+   the button is deterministically hidden by the not-connected arm. The fix is to
+   click whatever control is ACTUALLY forward: #fr-next when it is usable, else the
+   sole forward #fr-alt link a "no primary" step offers instead. #fr-next is
+   preferred, so the connected arm (whose #fr-alt is "Check again", NOT forward) is
+   still driven by its Next; #fr-alt is used only when #fr-next is unusable, which
+   in a straight walk to #fr-success is only ever the S5 Skip. */
 async function advanceToAnchor(page, anchorSel, max = 12) {
   for (let i = 0; i < max; i += 1) {
+    // Let the step SETTLE into an actionable state before reading it: the target
+    // pane is showing, or a forward control (#fr-next, else #fr-alt) is usable.
+    await page.waitForFunction((sel) => {
+      const el = document.querySelector(sel);
+      const pane = el && el.closest('.fr-pane');
+      if (pane && !pane.hidden) return true;
+      const usable = (b) => !!(b && !b.hidden && !b.disabled);
+      return usable(document.getElementById('fr-next')) || usable(document.getElementById('fr-alt'));
+    }, anchorSel, { timeout: 6000 }).catch(() => {});
     const state = await page.evaluate((sel) => {
       const el = document.querySelector(sel);
       const pane = el && el.closest('.fr-pane');
       const next = document.getElementById('fr-next');
-      return { atTarget: !!(pane && !pane.hidden), nextDisabled: !!(next && next.disabled) };
+      const alt = document.getElementById('fr-alt');
+      const usable = (b) => !!(b && !b.hidden && !b.disabled);
+      return {
+        atTarget: !!(pane && !pane.hidden),
+        nextUsable: usable(next),
+        nextDisabled: !!(next && next.disabled),
+        altUsable: usable(alt),
+      };
     }, anchorSel);
     if (state.atTarget) return;
-    if (state.nextDisabled) {
+    if (state.nextUsable) {
+      await page.click('#fr-next');
+    } else if (state.nextDisabled) {
+      // #1801: a DISABLED Next (present but disabled) means an intermediate step
+      // grew a required-answer gate this walk does not handle. Diagnose it BEFORE
+      // falling to #fr-alt -- a gated step that ALSO exposes a usable alt would
+      // otherwise be silently walked via the alt and this signal lost. The S5 Skip
+      // case is Next HIDDEN, not disabled, so it does not reach here (gates are
+      // mocked uncheckable, so a disabled Next is unexpected; kosmos#1801).
       throw new Error(`Continue is disabled on a step before ${anchorSel} -- an `
         + 'intermediate step grew a required-answer gate this walk does not handle '
         + '(gates are mocked uncheckable, so this is unexpected; kosmos#1801).');
+    } else if (state.altUsable) {
+      // #fr-next is hidden (the S5 not-connected arm), and the step's sole
+      // forward action is the #fr-alt "Skip connecting a model" link. Reached only
+      // when Next is neither usable nor disabled -- i.e. genuinely hidden, not gated.
+      await page.click('#fr-alt');
+    } else {
+      throw new Error(`no forward control (neither #fr-next nor #fr-alt is usable) `
+        + `on a step before ${anchorSel} -- the step painted no way onward.`);
     }
-    await page.click('#fr-next');
     await page.waitForTimeout(150);
   }
-  throw new Error(`never reached ${anchorSel} in ${max} Next clicks`);
+  throw new Error(`never reached ${anchorSel} in ${max} advances`);
 }
 
 async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
@@ -137,21 +186,25 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     console.log('   ...clicking through every step, in the pack\'s order');
     ok(/Get Started/.test(await page.locator('#fr-next').textContent()), 'the Welcome primary is Get Started');
 
-    // Walk to the Success screen (step 7) by content and prove the LIVE
-    // app-location route paints there (the reveal + the ruled Dock line).
-    await advanceToAnchor(page, '#fr-return');
-    ok((await activeHead(page)) === 'Kosmos is now installed and configured.', 'reached the Success screen (S7)');
-    await page.waitForSelector('#fr-return-row .fr-check:not(.checking)', { timeout: 5000 });
-    const successText = await page.locator('#fr-return').textContent();
-    /* 🔑 THE DOCK LINE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
+    // Walk to the Success screen (step 7) by content. #12 (0.6.39): it is now a
+    // FIXED STATIC screen -- no app-location look, no reveal button, no machine
+    // dependency. Assert the ruled copy and the ABSENCE of the removed subsystem.
+    await advanceToAnchor(page, '#fr-success');
+    ok((await activeHead(page)) === 'Kosmos is installed and configured.', 'reached the Success screen (S7)');
+    const successText = await page.locator('#fr-pane-7').textContent();
+    /* 🔑 THE DOCK GUIDANCE IS ON SUCCESS, at Josh's ruling of 2026-08-27 16:08.
        render-first-run asserts it ABSENT on the fleet ending; this asserts it
        PRESENT here, and the pair is what stops it drifting or vanishing. */
-    ok(/Kosmos is already in your Dock, the strip of icons/.test(successText),
-      'the Success screen says the icon is already in the Dock (it auto-opened)');
-    ok(/Drag its icon to the far left/.test(successText),
-      'the Dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
-    ok(!/Checking where the Kosmos icon is/.test(successText), 'the live answer replaced the checking placeholder');
-    ok(!/right now/.test(successText), 'and it is the route\'s answer, not the could-not-ask fallback');
+    ok(/you will see Kosmos in your dock\./.test(successText),
+      'the Success screen tells the person they will see Kosmos in their dock');
+    ok(/Drag the Kosmos icon to the far left so it stays there and is easy to find later\./.test(successText),
+      'the dock drag line is on the Success screen (Josh asked for it back 2026-08-27)');
+    // The removed reveal subsystem must not be on the Success screen.
+    ok((await page.locator('#fr-s7-showwhere').count()) === 0, 'no static Show-me-where button');
+    ok((await page.locator('#fr-reveal').count()) === 0, 'no injected reveal button');
+    ok(!/Checking where the Kosmos icon is/.test(successText), 'no app-location check row');
+    // The real Kosmos app icon is in the dock illustration, not a gold placeholder.
+    ok((await page.locator('#fr-pane-7 img.fc-k').count()) >= 1, 'the real Kosmos app icon renders in the dock tile');
 
     // On to About-you (step 8), reached by content. The gate IS the design (no
     // skip): Continue WAITS on the two required answers.
@@ -167,18 +220,22 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
     // Continue SAVES before it advances (a real PUT), so wait for the About-you
     // pane to LEAVE rather than reading the head mid-flight.
     await waitAnchorLeft(page, '#fr-you');
-    // The Your-agents fork (step 9). Against this real machine any of adopt /
-    // create / unknown is legitimate; what must be true is the fork rendered a
-    // real heading and a single onward action.
+    // The Your-agents fork (step 9). #2497 (Josh, 2026-09-08): onboarding no longer
+    // auto-scans/auto-imports, so this step ALWAYS lands on the no-agent "Create your
+    // first agent." / Giddy Up screen, even on a fleet-present (rich) board. What must
+    // be true is it rendered a real heading and a single onward action (Giddy Up).
     ok((await activeHead(page)).length > 0, 'the Your-agents fork rendered a heading');
     ok((await page.locator('#fr-next').textContent()).trim().length > 0, 'and a single onward action');
-    console.log('   ...and out the front door, through the fork ending');
+    console.log('   ...and out the front door, through the Giddy Up create ending');
     await page.click('#fr-next');
     await page.waitForTimeout(600);
+    // #2497: the Giddy Up action is frFinish(openCreate) -- it closes the overlay and
+    // opens the Create-your-first-agent panel (showTab('agents')), so the surface is
+    // #panel-create, not the board grid. The board is un-inert behind it either way.
     ok(await page.isHidden('#firstrun'), 'the overlay closed');
-    ok(await page.isVisible('#grid'), 'the board is there');
+    ok(await page.isVisible('#panel-create'), 'the Create-your-first-agent panel is there (#2497 Giddy Up ending)');
     ok(await page.evaluate(() => document.querySelector('.apphead').inert === false),
-      'the board is interactive again');
+      'the app behind is interactive again');
     ok(fs.existsSync(FLAG), 'the flag was written, so it will not reappear');
     ok(JSON.parse(fs.readFileSync(FLAG, 'utf8')).completedAt, 'and the flag has a timestamp in it');
     await ctx.close();
@@ -284,18 +341,18 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
   /* ------------------------------------------------------------------ */
   console.log('\n6. The S3 automation gate BLOCKS Next until a measured grant, then unblocks (fail-safe otherwise)');
   {
-    // A measured NOT-granted reading on either S3 gate must disable Next; the
-    // uncheckable/failure paths must NOT (fail-safe). This is the walk-through's
-    // view of the gate; render-gated-next pins the poll mechanics.
+    // A measured NOT-granted reading on the ACCESSIBILITY (tmux) gate disables Next; the
+    // uncheckable/failure paths must NOT (fail-safe). Sleep is advisory (#2587) and does NOT
+    // gate -- render-gated-next pins that contract; here tmux drives the disable.
     const { ctx, page } = await fresh(browser, { gates: false });
-    // Both S3 gates measured-not-granted -> Next disabled on S3.
+    // Accessibility (tmux) measured-not-granted -> Next disabled on S3 (sleep does not gate).
     await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
     await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
     await advanceToAnchor(page, '.s3-gate-row');       // S2 file-access is granted, so we can reach S3
     await page.waitForTimeout(400);
-    ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is disabled while sleep + tmux are measured-not-granted');
-    // Grant both -> the 1.5s poll re-enables Next.
+    ok(await page.locator('#fr-next').isDisabled(), 'S3 Next is disabled while Accessibility (tmux) is measured-not-granted (sleep is advisory)');
+    // Grant both -> the gate poll (FR_GATE_POLL_MS, 750ms) re-enables Next.
     await page.unroute('**/api/sleep-status');
     await page.unroute('**/api/a11y-status');
     await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: true } }));
@@ -471,6 +528,83 @@ async function waitAnchorLeft(page, anchorSel, timeout = 5000) {
       }
       ok(out === null, `step ${step}: Tab stays inside` + (out ? ' (escaped onto ' + out + ')' : ''));
     }
+    await ctx.close();
+  }
+
+  /* ------------------------------------------------------------------ */
+  console.log('\n12. The open-settings buttons actually POST (S2 Allow Access, S3 Turn On)');
+  // The challenge review flagged that nothing clicked these open-settings buttons
+  // end to end -- a labelled primary that silently did nothing on the S2 button was
+  // exactly the class of defect that shipped once. This clicks each and asserts the
+  // POST fires, and that a refusal is SPOKEN in the pane's own message line, not
+  // swallowed. The endpoints are mocked so no real System Settings opens.
+  {
+    // #1: S2 "Allow Access" FIRES the native prompt (/api/file-access-prompt), and
+    // only falls back to open-file-access-settings when the trigger is unavailable.
+    const { ctx, page } = await fresh(browser);
+    let promptPosts = 0; let settingsPosts = 0;
+    await page.route('**/api/file-access-prompt', (r) => { promptPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-file-access-settings', (r) => { settingsPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s2-allow');
+    await page.click('.s2-allow');
+    await page.waitForTimeout(250);
+    ok(promptPosts === 1, `#1: S2 "Allow Access" fires the native file-access-prompt (saw ${promptPosts})`);
+    ok(settingsPosts === 0, `#1: a fired prompt does NOT also open Settings (saw ${settingsPosts} settings POSTs)`);
+    // Trigger unavailable ({ok:false}) -> fall back to opening Settings.
+    await page.unroute('**/api/file-access-prompt');
+    await page.route('**/api/file-access-prompt', (r) => r.fulfill({ json: { ok: false, because: 'no native mechanism' } }));
+    await page.click('.s2-allow');
+    await page.waitForTimeout(250);
+    ok(settingsPosts === 1, `#1: when the native trigger is unavailable, S2 falls back to open-file-access-settings (saw ${settingsPosts})`);
+    // A fallback failure (409) must speak in the pane's own line, not fail silently.
+    await page.unroute('**/api/open-file-access-settings');
+    await page.route('**/api/open-file-access-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
+    await page.click('.s2-allow');
+    await page.waitForFunction(
+      () => /could not open/i.test((document.getElementById('fr-s2-msg') || {}).textContent || ''),
+      null, { timeout: 3000 }).catch(() => {});
+    ok(/could not open/i.test(await page.locator('#fr-s2-msg').textContent()),
+      'a refused S2 fallback is spoken in #fr-s2-msg, not swallowed');
+    await ctx.close();
+  }
+  {
+    // #1: S3 tmux "Turn On" FIRES the native a11y prompt (/api/a11y-prompt); the
+    // sleep row is programmatic and opens Energy settings (no trigger).
+    // The two S3 gates must be mocked CHECKABLE-not-granted, not the walk-through's
+    // uncheckable default: since #2085 an uncheckable gate row is `data-checking`,
+    // which hides .s3-req (the "Turn On" button) behind a "Checking..." state, so a
+    // click on .s3-on can never become visible. "Turn On" is only shown to a real
+    // user when the gate is checkable and not granted, which is exactly what this
+    // section clicks. The S2 file-access gate is mocked granted so the walk can
+    // advance past it to reach the S3 anchor.
+    const { ctx, page } = await fresh(browser, { gates: false });
+    await page.route('**/api/file-access-status', (r) => r.fulfill({ json: { checkable: true, granted: true } }));
+    await page.route('**/api/sleep-status', (r) => r.fulfill({ json: { checkable: true, prevented: false } }));
+    await page.route('**/api/a11y-status', (r) => r.fulfill({ json: { checkable: true, trusted: false } }));
+    let sleepPosts = 0; let a11yPromptPosts = 0; let a11ySettingsPosts = 0;
+    await page.route('**/api/open-sleep-settings', (r) => { sleepPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/a11y-prompt', (r) => { a11yPromptPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await page.route('**/api/open-accessibility-settings', (r) => { a11ySettingsPosts += 1; r.fulfill({ json: { ok: true } }); });
+    await advanceToAnchor(page, '.s3-gate-row');
+    await page.click('[data-gate="sleep"] .s3-on');
+    await page.waitForTimeout(150);
+    await page.click('[data-gate="tmux"] .s3-on');
+    await page.waitForTimeout(250);
+    ok(sleepPosts === 1, `S3 sleep "Turn On" POSTs open-sleep-settings (no prompt; saw ${sleepPosts})`);
+    ok(a11yPromptPosts === 1, `#1: S3 tmux "Turn On" fires the native a11y-prompt (saw ${a11yPromptPosts})`);
+    ok(a11ySettingsPosts === 0, `#1: a fired a11y prompt does NOT also open Settings (saw ${a11ySettingsPosts})`);
+    // A 409 on the tmux FALLBACK (native trigger unavailable) must SPEAK in
+    // #fr-s3-msg, the same not-swallowed contract S2 has.
+    await page.unroute('**/api/a11y-prompt');
+    await page.route('**/api/a11y-prompt', (r) => r.fulfill({ json: { ok: false, because: 'no native mechanism' } }));
+    await page.unroute('**/api/open-accessibility-settings');
+    await page.route('**/api/open-accessibility-settings', (r) => r.fulfill({ status: 409, json: { error: 'we could not open System Settings' } }));
+    await page.click('[data-gate="tmux"] .s3-on');
+    await page.waitForFunction(
+      () => /could not open/i.test((document.getElementById('fr-s3-msg') || {}).textContent || ''),
+      null, { timeout: 3000 }).catch(() => {});
+    ok(/could not open/i.test(await page.locator('#fr-s3-msg').textContent()),
+      'a refused S3 "Turn On" is spoken in #fr-s3-msg, not swallowed');
     await ctx.close();
   }
 

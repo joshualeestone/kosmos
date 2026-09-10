@@ -520,7 +520,14 @@ cmd_agents() {
   # tmux says "no server running on <socket>" or "error connecting to
   # <socket> (No such file or directory)" for a genuinely absent server; any
   # other refusal is blindness, and is said as blindness.
-  _ls="$("$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>&1)"; _rc=$?
+  # #2321: `|| _rc=$?`, NOT a bare `_ls=$(...); _rc=$?`. Under /bin/bash 3.2 and
+  # `set -euo pipefail` a failing command substitution in a bare assignment aborts
+  # the whole process at that line -- and `list-sessions` exits NON-ZERO exactly
+  # when there is no server, which is the case the branches below exist to narrate.
+  # The bare form aborted `kosmos agents` silently (empty output, exit 1) at the
+  # "find your agents" moment, killing the #728 "None"/"Could not see" messages.
+  local _ls _rc=0
+  _ls="$("$AGENT_WORKFORCE_TMUX_BIN" list-sessions 2>&1)" || _rc=$?
   if [ "$_rc" -eq 0 ]; then
     printf '%s\n' "$_ls"
     return 0
@@ -760,10 +767,17 @@ cmd_post() {
   # the misdiagnosis cmd_msg's own comment warns about, and it invites
   # the re-post the unconfirmed state exists to stop.
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
+  # rc via `|| rc=$?`, NOT a bare `body=$(...); rc=$?`: the shebang is /bin/bash
+  # 3.2 under `set -euo pipefail`, where a failing command substitution in a bare
+  # assignment aborts the whole process at that line. The bare form killed `kosmos
+  # post` silently on a post-healthy curl failure -- a -m 120 delivery timeout or a
+  # mid-delivery reset -- so the exit-28 "still delivering, do not re-post" branch
+  # below never ran, the very branch that exists to stop a duplicate post, and the
+  # unreachable message regressed to a silent abort. (#2321; same fix cmd_react took.)
+  local rc=0
   body=$(kosmos_curl "$_bt" "" -sS -m 120 -X POST "$URL/api/post" \
     -H 'content-type: application/json' \
-    --data "{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null)
-  rc=$?
+    --data "{\"project\":\"$esc_project\",\"text\":\"$esc_text\",\"from_pane\":\"$esc_pane\"}" 2>/dev/null) || rc=$?
   if [ "$rc" -eq 28 ]; then
     say "Kosmos is still delivering that post and we stopped waiting. Do not re-post; the room screen shows who got it."
     exit 3

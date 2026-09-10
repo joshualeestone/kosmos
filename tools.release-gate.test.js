@@ -299,7 +299,19 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
   const site = fs.mkdtempSync(path.join(os.tmpdir(), 'kosmos-gitgate-site-'));
   fs.mkdirSync(path.join(site, 'dist'), { recursive: true });
 
+  /* #1455: mirror the real repo's ignore of the pending entry file, committed BEFORE
+     the base commit so a later fixture write leaves the tree clean. Without it the
+     pending-entry arms die on "main is dirty" at step 1 -- a refusal from a guard that
+     has nothing to do with what they test, which is exactly the trap the site-outside-
+     the-repo comment above documents for the versions fixture.
+     ⭐ It is also a real coupling worth having in a fixture: the new flow asks the
+     operator to leave a file in their checkout, so the .gitignore entry is load-bearing
+     and not housekeeping: delete it in the real repo and a cut BY AN OPERATOR WHO WROTE
+     A PENDING FILE refuses at step 1 on "main is dirty". A hand-stamped cut leaves no
+     such file and is unaffected -- an earlier version of this comment said "every cut",
+     which is broader than true. */
   spawnSync('git', ['init', '-b', 'main', dir], { encoding: 'utf8' });
+  fs.writeFileSync(path.join(dir, '.gitignore'), '.release-entry.html\n');
   git('config', 'user.email', 'gate@example.invalid');
   git('config', 'user.name', 'gate');
   git('add', '-A');
@@ -337,7 +349,19 @@ function git_sandbox(version, { diverge = 'none' } = {}) {
   return { dir, remote, home, site };
 }
 
-function run_git(dir, version, home, site, { staleBy = 0, entry = true } = {}) {
+function run_git(dir, version, home, site, { staleBy = 0, entry = true, pending = null } = {}) {
+  /* #1455: the pending-entry shape. The operator may leave the entry as a FILE
+     carrying TIMESTAMP instead of hand-stamping the page, and step 1 accepts that as a
+     second valid state. Written into the REPO (not the site) because that is where
+     KOSMOS_ENTRY_FILE defaults, and expanded before $REPO is reassigned to the frozen
+     build tree. `pending: 'malformed'` writes one that is a fragment rather than an
+     entry, which is the shape that used to pass step 1 and die after the build. */
+  if (pending) {
+    const body = pending === 'malformed'
+      ? `  <article class="rel" id="v${version.replace(/\./g, '-')}">\n    <p class="rel-d">TIMESTAMP</p>\n  </article>\n`
+      : `    <article class="rel" id="v${version.replace(/\./g, '-')}">\n      <p class="rel-d">TIMESTAMP</p>\n    </article>\n`;
+    fs.writeFileSync(path.join(dir, '.release-entry.html'), body);
+  }
   /* ⚠️ SINCE #1463 THE VERSIONS ENTRY IS A STEP 1 PRECONDITION, so an arm that
      means to reach step 2 needs one or it stops here instead, refusing with the
      versions page rather than with the guard under test. It is written HERE
@@ -380,6 +404,11 @@ function run_git(dir, version, home, site, { staleBy = 0, entry = true } = {}) {
          documented escape hatch makes the cut die red at step 3, after the
          freeze, on a failure unrelated to the tree. Measured: exporting
          KOSMOS_STEP1_PAST_BOUND=30 turned the 12-minute arm red. */
+      /* #1455: KOSMOS_ENTRY_FILE joins the documented-overridable set, so it belongs in
+         this strip for the same reason as the bounds. An operator or CI job with it
+         exported would redirect the pending arms away from the sandbox fixture and they
+         would go red as if the guard were broken rather than the harness. */
+      KOSMOS_ENTRY_FILE: undefined,
       KOSMOS_STEP1_PAST_BOUND: undefined,
       KOSMOS_LATE_PAST_BOUND: undefined,
       KOSMOS_FUTURE_BOUND: undefined,
@@ -533,6 +562,61 @@ test('a clean tree in step with origin gets past the guard', () => {
   const r = run_git(dir, '0.6.03', home, site);
   assert.ok(!/local main has commits origin\/main does not/.test(r.said), r.said.slice(0, 400));
   assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the guard');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// #1455: the pending-entry shape, driven through the REAL release.sh
+// ---------------------------------------------------------------------------
+
+/* 🛑 THESE ARE BEHAVIOURAL, AND THAT IS THE POINT. The sibling suite
+   (tools/test-pending-entry-1455.sh) drives the library function directly and greps
+   release.sh for the call sites. Both are useful and neither can see what the SCRIPT
+   does with the wrapper's answer -- which is exactly where the first blind review found
+   a blocker: an unreadable page plus a valid pending file passed step 1 and the cut
+   died after the whole build. A fixture here would have caught it, so here it is. */
+
+test('#1455: a version with NO page entry but a valid pending FILE gets past step 1', () => {
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { entry: false, pending: true });
+  assert.match(r.said, /is pending as an entry file/, r.said.slice(0, 600));
+  assert.match(r.said, /== 2\. the version, in one place ==/, 'it did not reach the step after the gate');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#1455 CONTROL: the same missing entry with NO pending file still refuses at step 1', () => {
+  /* Without this the arm above could be passing because the gate stopped checking,
+     rather than because the pending file was accepted. */
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { entry: false });
+  assert.match(r.said, /has no entry in/, r.said.slice(0, 600));
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a version with no entry reached step 2');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#1455 BLOCKER: an UNREADABLE versions page is not excused by a pending file', () => {
+  /* The finding a grep-based wiring check could never make. Before the fix this
+     returned 0 at step 1 and the cut spent the suite, the browser gate, the install
+     gate and the build before dying at 7a on a raw node ENOENT. */
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { entry: 'missing-file', pending: true });
+  assert.match(r.said, /cannot read/, r.said.slice(0, 600));
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'an unreadable page reached step 2');
+  fs.rmSync(dir, { recursive: true, force: true });
+  fs.rmSync(site, { recursive: true, force: true });
+});
+
+test('#1455: a MALFORMED pending entry is refused at step 1, not after the build', () => {
+  /* A 2-space-indented fragment passes a substring check and then kills the cut at 7b,
+     because reinsert-versions-entry.js anchors on the 4-space shape. Step 1 is three
+     seconds; 7b is after everything. */
+  const { dir, home, site } = git_sandbox('0.6.02');
+  const r = run_git(dir, '0.6.03', home, site, { entry: false, pending: 'malformed' });
+  assert.match(r.said, /is not usable for/, r.said.slice(0, 600));
+  assert.doesNotMatch(r.said, /== 2\. the version, in one place ==/, 'a malformed pending entry reached step 2');
   fs.rmSync(dir, { recursive: true, force: true });
   fs.rmSync(site, { recursive: true, force: true });
 });

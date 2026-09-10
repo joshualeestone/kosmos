@@ -97,12 +97,16 @@ test('kosmos#1656: the way out is a non-primary button (#1438) and reuses the on
 });
 
 test('kosmos#1656: closeAcctAdd puts the modal back to its form state on the way out (run)', () => {
-  const dom = fakeDom([...IDS, 'acct-add-open']);
+  // #2338: closeAcctAdd now also resets the ChatGPT-subscription sub-step's live
+  // affordances and stops its poll, so the stub must carry those ids and the
+  // acctOpenaiSubStop helper (the stub throws on anything it does not carry).
+  const dom = fakeDom([...IDS, 'acct-add-open',
+    'acct-openai-sub-open-row', 'acct-openai-sub-cancel-row', 'acct-openai-sub-code', 'acct-openai-sub-go']);
   // start from a success state: success shown, the form pieces and title hidden, dialog renamed
   dom.els.get('acct-success').hidden = false;
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) dom.els.get(id).hidden = true;
   dom.els.get('acct-add-dialog').attrs['aria-labelledby'] = 'acct-success-t';
-  const close = new Function('document', 'acctAddConfirmReset', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {});
+  const close = new Function('document', 'acctAddConfirmReset', 'acctOpenaiSubStop', 'acctOpenaiSubReset', lift(SCRIPT, 'closeAcctAdd') + '\nreturn closeAcctAdd;')(dom.document, () => {}, () => {}, () => {});
   close();
   assert.equal(dom.els.get('acct-success').hidden, true, 'the success panel is hidden on close');
   for (const id of ['acct-add-t', 'acct-add-in', 'acct-provider-field', 'acct-add-acts']) {

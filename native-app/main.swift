@@ -286,7 +286,7 @@ func logLine(_ s: String) {
 // This mirrors store.ROOT's macOS branch (`dataRootFor`): the base is
 // `AGENT_WORKFORCE_DATA` when that override is set (so an operator who moved the
 // data dir is followed rather than silently read at the default), otherwise the
-// OS Application Support dir; the `AgentWorkforce/` subpath is the APP constant.
+// OS Application Support dir; the store-leaf subpath is APP (see storeLeaf()).
 // Swift cannot require the node store module, so this is a faithful re-derivation
 // of that one formula, not the single source itself -- the shipped app sets no
 // override, so the two agree.
@@ -304,10 +304,43 @@ func boardTokenValue() -> String? {
     } else {
         return nil
     }
-    let file = base.appendingPathComponent("AgentWorkforce/board.token")
+    let file = base.appendingPathComponent("\(storeLeaf(base: base))/board.token")
     guard let raw = try? String(contentsOf: file, encoding: .utf8) else { return nil }
     let tok = raw.trimmingCharacters(in: .whitespacesAndNewlines)
     return tok.isEmpty ? nil : tok
+}
+
+// #2439: the on-disk store leaf. engine/store.js renamed its APP constant from
+// 'AgentWorkforce' to 'Kosmos', with a one-time migration (maybeMigrateLegacyStore)
+// that renames the whole legacy dir to the new leaf on the JS board's first store access
+// and NEVER clobbers an existing new leaf. This native app resolves the same store dir
+// independently, and several of its writers create the dir (writeA11yStatus,
+// writeFileAccessStatus, the scan hatch, writeRelaunchHandoffToken). If it wrote to
+// 'Kosmos' before the JS migration ran, it would pre-create the new leaf, make the
+// migration skip on never-clobber, and ORPHAN the person's entire legacy store. So
+// resolve the CURRENT leaf: legacy 'AgentWorkforce' when it exists and 'Kosmos' does not
+// yet (the pre-migration update case), else 'Kosmos'. The JS migration then relocates the
+// legacy dir -- with anything this app wrote into it -- to 'Kosmos', and later reads here
+// resolve 'Kosmos'. Mirrors the same legacy-vs-new choice install/setup.sh's
+// source-channel write makes, for the same reason. Swift cannot require the node store
+// module, so this re-derives the one formula rather than being the single source itself.
+//
+// Residual, accepted: there is no lock across the language boundary, so a TOCTOU window
+// exists during the one-time migration -- if this resolves the legacy leaf (Kosmos absent)
+// and the JS renameSync(legacy -> Kosmos) completes before the caller's write lands, the
+// write (which mkdir's first) re-creates base/AgentWorkforce/ holding one stale coordination
+// file the board (now reading Kosmos) never sees. It is NOT data loss (the user's store was
+// already relocated to Kosmos), the window is milliseconds and only during a migrating
+// update, the file is an ephemeral status/handoff that is rewritten, and the next write here
+// resolves Kosmos. Left as-is rather than adding cross-process locking for a self-correcting
+// millisecond race.
+func storeLeaf(base: URL) -> String {
+    let fm = FileManager.default
+    var isDir: ObjCBool = false
+    let kosmosExists = fm.fileExists(atPath: base.appendingPathComponent("Kosmos").path, isDirectory: &isDir) && isDir.boolValue
+    let legacyExists = fm.fileExists(atPath: base.appendingPathComponent("AgentWorkforce").path, isDirectory: &isDir) && isDir.boolValue
+    if legacyExists && !kosmosExists { return "AgentWorkforce" }
+    return "Kosmos"
 }
 
 // MARK: - #2125 slice 3: the native Accessibility trust writer
@@ -322,10 +355,36 @@ func boardTokenValue() -> String? {
 // other silently (the two-copies-of-one-fact defect). Resolved the SAME way
 // boardTokenValue() / relaunchHandoffURL() resolve their dir -- AGENT_WORKFORCE_DATA
 // override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
-// app-support dir -- plus the shared "AgentWorkforce/" subpath. A cross-language seam
+// app-support dir -- plus the shared store-leaf subpath (storeLeaf()). A cross-language seam
 // is INHERENTLY two copies (Swift here, JS there), so the guard is not code-sharing
 // (impossible across languages) but a test that the two agree: a11ystatus.test.js
 // pins the reader path, and the native-writer test pins THIS one against store.ROOT.
+// One resolution of the shared store dir (engine/store.js's ROOT), so every file
+// the native app and engine pass between them -- file-access-status.json and the
+// prompt-request files -- lands in the SAME place: a new shared file names itself here
+// rather than re-implementing (and risk mis-copying) the resolution. AGENT_WORKFORCE_DATA
+// override, else AGENT_WORKFORCE_HOME + Library/Application Support, else the OS
+// app-support dir -- plus the shared store-leaf subpath (storeLeaf()). Mirrors engine/store.js;
+// the seam is cross-language so the guard is a test that the two agree, not code-sharing.
+//
+// a11yStatusURL predates this helper and keeps its OWN inline copy of the same
+// resolution: its #2125 writer test pins that inline body, so it is a grandfathered
+// exception, not a pattern to copy. New code uses storeFileURL.
+func storeFileURL(_ name: String) -> URL? {
+    let env = ProcessInfo.processInfo.environment
+    let base: URL
+    if let dataOverride = env["AGENT_WORKFORCE_DATA"], !dataOverride.isEmpty {
+        base = URL(fileURLWithPath: dataOverride)
+    } else if let homeOverride = env["AGENT_WORKFORCE_HOME"], !homeOverride.isEmpty {
+        base = URL(fileURLWithPath: homeOverride).appendingPathComponent("Library/Application Support")
+    } else if let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first {
+        base = dir
+    } else {
+        return nil
+    }
+    return base.appendingPathComponent("\(storeLeaf(base: base))/\(name)")
+}
+
 func a11yStatusURL() -> URL? {
     let env = ProcessInfo.processInfo.environment
     let base: URL
@@ -338,7 +397,7 @@ func a11yStatusURL() -> URL? {
     } else {
         return nil
     }
-    return base.appendingPathComponent("AgentWorkforce/a11y-status.json")
+    return base.appendingPathComponent("\(storeLeaf(base: base))/a11y-status.json")
 }
 
 // The Accessibility trust reading. AXIsProcessTrusted() is the real source; the
@@ -378,6 +437,361 @@ func writeA11yStatus(trusted: Bool) -> Bool {
         return true
     } catch {
         logLine("axcheck: could not write a11y-status (\(error.localizedDescription))")
+        return false
+    }
+}
+
+func fileAccessStatusURL() -> URL? {
+    storeFileURL("file-access-status.json")
+}
+
+// The bundled tmux the agents run under, resolved the SAME way the rest of the
+// system resolves it. The bundle stages tmux at <kosmosHome>/tmux/bin/tmux
+// (install/kosmos exports PATH="$KOSMOS_HOME/tmux/bin"; build-tmux-bundle.sh
+// stages the binary at <bundle>/bin/tmux, and that bundle is $KOSMOS_HOME/tmux).
+// An explicit AGENT_WORKFORCE_TMUX_BIN wins, matching how agent creation and the
+// first-run machine check pick their tmux, so a test seam or a non-default layout
+// is honoured identically for the app and the agents. Returns the first executable
+// candidate, or nil (the caller stays fail-safe: no reading rather than a crash).
+//
+// 🛑 #2189 / #2347 REOPEN, and the whole cascade of Josh's 0.6.40 fresh-install
+// re-test. This used to be the hardcoded bare bin/tmux path (kosmosHome plus
+// slash-bin-slash-tmux), a path that exists on NO real install -- the bundle puts
+// tmux at tmux/bin/tmux, and <kosmosHome>/bin holds only `kosmos`. (The literal is
+// spelled out in prose here, not as code, so the regression guard in the test --
+// which forbids that exact code literal anywhere in the source -- is not tripped by
+// this comment.) So spawnAxHatchUnderTmux's guard was FALSE
+// on every real install and EVERY under-tmux hatch silently skipped: the a11y
+// prompt never fired (so nothing landed in the Accessibility list -> "no Tmux to
+// enable"; note that even when it DOES fire it registers the kosmos-app, not tmux, per
+// the #2125 attribution correction in startA11yTrustChecks, so "no Tmux to enable" has
+// that second cause too), a11y-status.json was never written (-> promptrequest.nativePresent()
+// false -> the on-demand a11y/file-access fires fell back to opening Settings), and
+// the file-access prompt never fired on Allow Access. Meanwhile the AGENTS resolve
+// tmux correctly (tmux/bin via PATH / AGENT_WORKFORCE_TMUX_BIN), so the prompt still
+// fired later at Import -- exactly Josh's "prompts only appear at Import" symptom.
+// Measured on a real install: <home>/bin/tmux ABSENT, <home>/tmux/bin/tmux PRESENT.
+// Masked on dev boxes (a11y granted broadly) and by tests using a controlled home
+// with tmux placed where they expect it. The path MUST match the bundle's real
+// layout, not a path no install has.
+func resolveBundledTmux(kosmosHome: String) -> String? {
+    let fm = FileManager.default
+    var candidates: [String] = []
+    let env = ProcessInfo.processInfo.environment
+    if let override = env["AGENT_WORKFORCE_TMUX_BIN"], !override.isEmpty {
+        candidates.append(override)
+    }
+    candidates.append(kosmosHome + "/tmux/bin/tmux")
+    for c in candidates where fm.isExecutableFile(atPath: c) { return c }
+    return nil
+}
+
+// The file-access reading (#1/#2189, kosmos#2336's sibling seam). "Does the process
+// macOS holds responsible for agent file access -- tmux, this hatch's parent -- hold
+// the folder grants Screen 2 asks for?" We answer by ATTEMPTING to enumerate the
+// protected folders; the attempt is also what makes macOS show the "would like to
+// access" prompt on the first undecided access, so one operation both triggers the
+// prompt and reads the verdict. Granted only if EVERY probed folder enumerates.
+//
+// 🛑 THE SAME LOAD-BEARING UNKNOWN AS THE a11y WRITER, and it must not promote to
+// prod until the deferred fresh-install verify measures it. On a dev box the terminal
+// already holds Full Disk Access, so contentsOfDirectory SUCCEEDS whether or not tmux
+// itself holds the grant -- the DENIED arm (a real EPERM on a fresh install) cannot be
+// observed here, so "granted:true on this Mac" is not evidence the fresh-install path
+// works. The honest reading is emitted unconditionally (no bias default) precisely so
+// Josh's fresh-account test CAN verify it. The KOSMOS_FILEACCESS_FORCE_GRANTED override
+// exists ONLY for tests, to exercise the granted:false downstream (writer -> engine ->
+// gate) without a fresh install. The shipped app never sets it.
+//
+// 🛑 A SECOND UNKNOWN FOR THE SAME VERIFY: TIMING/REFRESH. This assumes the enumerate
+// BLOCKS until the user answers the TCC prompt (the usual behaviour for file-APIs, and
+// unlike AXIsProcessTrustedWithOptions, which returns immediately). If it blocks, the
+// one probe captures the grant and writes the true verdict. If instead it returns
+// immediately while the prompt is async, this writes granted:false at probe time and
+// there is NO periodic file-access refresh to correct it later -- unlike a11y, whose
+// 60s axcheck timer catches an eventual grant. A re-click recovers (macOS remembers the
+// answer, so the second probe reads the settled verdict without re-prompting), but the
+// pill would stay red until then. The refresh is deliberately absent: the file-access
+// probe IS the prompt, so running it periodically/at-launch would reintroduce the
+// fresh-install prompt burst that permflood-2125 (#2125 slice 1) fixed. The correct
+// hardening, IF the verify shows the call is async, is a bounded POST-CLICK re-probe
+// (never launch-time) with the measured timing -- deferred until the verify says it is
+// needed, because building it now needs that same fresh-Mac measurement.
+func fileAccessReading() -> Bool {
+    if let forced = ProcessInfo.processInfo.environment["KOSMOS_FILEACCESS_FORCE_GRANTED"] {
+        let v = forced.lowercased()
+        if v == "1" || v == "true" { return true }
+        if v == "0" || v == "false" { return false }
+    }
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    // The three folders Screen 2's dialogs govern. Desktop/Documents/Downloads are the
+    // TCC-protected trio agent files live in; enumerating each triggers ITS OWN prompt
+    // and measures ITS grant -- they are three separate TCC services.
+    var allGranted = true
+    for folder in ["Documents", "Downloads", "Desktop"] {
+        let dir = home.appendingPathComponent(folder)
+        do {
+            _ = try FileManager.default.contentsOfDirectory(atPath: dir.path)
+        } catch {
+            // Not granted (or unreadable). Record it but KEEP PROBING the rest: each
+            // enumerate is what fires that folder's prompt, so a single grant-button
+            // click must attempt all three or the user sees only the first folder's
+            // prompt and has to click again for each remaining one -- the opposite of
+            // Josh's #1 ("fire the prompts one after another to hit Allow"). An early
+            // return here would surface exactly one of three prompts per click.
+            allGranted = false
+        }
+    }
+    return allGranted
+}
+
+// Write {"granted":<bool>,"at":<ISO8601>} where fileaccessstatus.js reads it. Same
+// shape and staleness contract as writeA11yStatus: a fresh `at` keeps the Screen 2
+// gate live while the first-run screen polls.
+func writeFileAccessStatus(granted: Bool) -> Bool {
+    guard let url = fileAccessStatusURL() else {
+        logLine("fileaccess: could not resolve the file-access-status path")
+        return false
+    }
+    let at = ISO8601DateFormatter().string(from: Date())
+    let json = "{\"granted\":\(granted),\"at\":\"\(at)\"}\n"
+    do {
+        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(),
+                                                withIntermediateDirectories: true)
+        try json.write(to: url, atomically: true, encoding: .utf8)
+        return true
+    } catch {
+        logLine("fileaccess: could not write file-access-status (\(error.localizedDescription))")
+        return false
+    }
+}
+
+// MARK: - #3 / #2125 follow-up: the import-scan TCC-root walk, done by the APP identity
+//
+// The find-agents import scan must read the TCC-protected roots (~/Documents deep,
+// ~/Downloads + ~/Desktop shallow). Doing that in the ENGINE (node) re-prompts, because
+// the S2 grant was taken for the APP-EXE identity, not the engine's. So the ENGINE drops a
+// `scan-request.json` and this hatch -- the SAME app-exe spawned under tmux that
+// `--kosmos-app-fileaccessprompt` uses (the proven S2 grant path) -- does the readdir + head
+// reads under the granted identity and writes `scan-result.json`. It emits RAW MATERIAL only
+// (paths + head bytes); ALL agent-detection + dedup stays single-sourced in engine/discover.js
+// so there is no Swift/Node divergence. See .claude/plans/scan-tcc-hatch-2125b.md for the
+// contract. This walk mirrors the engine's SCAN_SKIP / depth / budget semantics.
+
+// Folder NAMES never descended -- the engine's SCAN_SKIP, kept in sync deliberately (the
+// engine still owns detection; this is only the walk shape). Documents/Downloads/Desktop are
+// here because a NESTED occurrence during descent is skipped; they still walk as explicit ROOTS.
+private let kScanSkip: Set<String> = [
+    "node_modules", "target", "vendor", "dist", "build",
+    "Library", "Applications", "Music", "Movies", "Pictures", "Downloads",
+    "Public", "Desktop", "Documents", "Photos Library.photoslibrary",
+]
+private struct ScanBudgets {
+    var maxDirs = 6000   // matches the engine's SCAN.MAX_DIRS; only used if a request omits budgets
+    var maxMdPerDir = 40
+    var maxMdReads = 3000
+    var readCap = 4000
+}
+
+// Read the first `cap` bytes of a file as a UTF-8 string (lossy), never allocating the whole
+// file (an agent .md is small, but a mis-placed huge file must not be slurped). Returns nil if
+// unreadable (which, for a TCC root before the grant, is exactly the not-granted signal).
+private func headBytes(_ path: String, cap: Int) -> String? {
+    // O_NOFOLLOW closes the lstat->open TOCTOU atomically: a symlink swapped into a user-writable
+    // TCC root between the lstatType check and this open is refused here (open fails with ELOOP)
+    // rather than followed. O_NONBLOCK stops a fifo swapped into that same window from blocking.
+    // (Parity with the engine's /api/agent-import-file read hardening.)
+    let fd = open(path, O_RDONLY | O_NOFOLLOW | O_NONBLOCK)
+    if fd < 0 { return nil }
+    defer { close(fd) }
+    var buf = [UInt8](repeating: 0, count: cap)
+    let n = read(fd, &buf, cap)
+    if n <= 0 { return nil }
+    return String(decoding: buf[0..<n], as: UTF8.self)
+}
+
+/* #3/#2125 -- THE NO-SYMLINK-ESCAPE GUARD (engine parity, discover.js). The TCC roots
+   (~/Documents, ~/Downloads, ~/Desktop) are USER-WRITABLE, so a symlink dropped there could
+   steer this privileged walk out of the tree -- a symlinked dir into /etc or another user's
+   home, or a symlinked `foo.md` pointing at an arbitrary readable file whose first bytes would
+   surface as a find-agents preview. The engine refuses exactly this with `lstat` (a symlinked
+   dir reports isDirectory()===false and is not descended; readClaudeHead lstat-refuses a
+   symlinked file). `attributesOfItem` does NOT follow a final symlink (lstat semantics), so it
+   reports `.typeSymbolicLink` for a link; we descend only a real directory and read only a real
+   regular file. This is the escape "this module family has shipped six times"; do not relax it. */
+private func lstatType(_ path: String) -> FileAttributeType? {
+    guard let attrs = try? FileManager.default.attributesOfItem(atPath: path) else { return nil }
+    return attrs[.type] as? FileAttributeType
+}
+
+// Walk the requested roots under the granted app identity and write scan-result.json.
+// Returns true on a written result (even an empty one); false only if the request/result
+// paths cannot be resolved. Never throws out: a per-entry failure is recorded, not fatal --
+// an unreadable TCC root simply yields no rows (the grant is not there), which is a valid
+// answer, not an error.
+func scanUnderGrant() -> Bool {
+    // The watcher has already atomically renamed scan-request.json -> scan-request.inflight
+    // (the consume, so successive 1.5s ticks cannot launch a second walk). This hatch reads
+    // the claimed file and removes it when done.
+    guard let reqURL = storeFileURL("scan-request.inflight"),
+          let outURL = storeFileURL("scan-result.json") else {
+        logLine("scan: could not resolve scan-request/scan-result paths")
+        return false
+    }
+    // Parse the request. A missing/garbage request is not a crash: write a bounded-empty
+    // result so the engine's poll never hangs waiting on a hatch that had nothing to do.
+    var roots: [[String: Any]] = []
+    var budgets = ScanBudgets()
+    var nonce = ""
+    if let data = try? Data(contentsOf: reqURL),
+       let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] {
+        roots = (obj["roots"] as? [[String: Any]]) ?? []
+        nonce = (obj["req"] as? String) ?? ""
+        if let b = obj["budgets"] as? [String: Any] {
+            if let v = b["maxDirs"] as? Int { budgets.maxDirs = v }
+            if let v = b["maxMdPerDir"] as? Int { budgets.maxMdPerDir = v }
+            if let v = b["maxMdReads"] as? Int { budgets.maxMdReads = v }
+            if let v = b["readCap"] as? Int { budgets.readCap = v }
+        }
+    } else {
+        logLine("scan: no readable scan-request.json; writing bounded-empty result")
+    }
+
+    let fm = FileManager.default
+    var dirsOut: [[String: Any]] = []
+    var looseOut: [[String: Any]] = []
+    var visited = Set<String>()      // canonical realpaths already walked
+    var dirCount = 0
+    var mdReads = 0
+    var boundedDirs = false
+    var boundedImportable = false
+
+    // Resolve to a canonical realpath so three aliases of one physical dir are walked once
+    // (the engine dedups by realpath for the same reason): $HOME re-reaching a curated parent,
+    // a case-variant on the case-insensitive default FS, and a symlinked root.
+    func canon(_ p: String) -> String { URL(fileURLWithPath: p).resolvingSymlinksInPath().path }
+
+    // One directory: read its instruction-file heads (folder-agent material) and, when the
+    // root is importOnly, its loose .md heads (importable material). Then descend, honouring
+    // SCAN_SKIP, dotdirs, depth and budgets.
+    func walk(_ dir: String, depth: Int, importOnly: Bool) {
+        if dirCount >= budgets.maxDirs { boundedDirs = true; return }
+        let real = canon(dir)
+        if visited.contains(real) { return }
+        visited.insert(real)
+        dirCount += 1
+
+        let entries: [String]
+        do { entries = try fm.contentsOfDirectory(atPath: dir) }
+        catch { return }   // unreadable (e.g. TCC not granted) -> no rows from here
+
+        // Folder-agent material: the folder's CLAUDE.md head (engine parity -- the connect
+        // scan's byDir path reads CLAUDE.md only; AGENTS.md/GEMINI.md folder-agents are owned
+        // by found()/foundCodex/foundGemini, which do NOT walk here). Non-importOnly roots
+        // only, matching the engine's `!cur.importOnly` gate.
+        if !importOnly {
+            let file = (dir as NSString).appendingPathComponent("CLAUDE.md")
+            // Regular file ONLY (lstat, not fileExists which follows symlinks): a symlinked
+            // CLAUDE.md must not have an out-of-tree file's bytes read into a preview.
+            // NO detected-equivalent row cap here: DETECTION is single-sourced in the engine, so a
+            // raw-emission cap (counting non-agent CLAUDE.mds too) would drop real agents enumerated
+            // after the cap. Emission is bounded by the READ budgets (maxDirs folders, one CLAUDE.md
+            // read each) -- the same bound the engine walk uses -- and the engine merge caps the
+            // DETECTED rows.
+            if lstatType(file) == .typeRegular, let head = headBytes(file, cap: budgets.readCap) {
+                dirsOut.append(["dir": dir, "instr": ["file": file, "head": head]])
+            }
+        }
+
+        // Importable loose agent FILES -- runs on BOTH normal and importOnly roots (engine
+        // parity, #1652). `.md`/`.markdown`, excluding the folder-agent markers claude.md and
+        // agents.md (lowercased), bounded per-dir and by the global head-read budget.
+        var perDir = 0
+        for name in entries {
+            let lower = name.lowercased()
+            guard lower.hasSuffix(".md") || lower.hasSuffix(".markdown") else { continue }
+            if lower == "claude.md" || lower == "agents.md" { continue }
+            if perDir >= budgets.maxMdPerDir { boundedImportable = true; break }
+            if mdReads >= budgets.maxMdReads { boundedImportable = true; break }
+            // NO detected-equivalent looseOut cap: emission is bounded by maxMdReads (the engine's
+            // own loose-read budget); a raw cap counting non-agent .md files would drop real agent
+            // files sorted after it (readdir order is arbitrary). The engine merge caps DETECTED rows.
+            let file = (dir as NSString).appendingPathComponent(name)
+            // Regular file ONLY (lstat) -- refuse a symlinked .md, same no-escape guard.
+            guard lstatType(file) == .typeRegular else { continue }
+            if let head = headBytes(file, cap: budgets.readCap) {
+                mdReads += 1
+                perDir += 1
+                looseOut.append(["file": file, "head": head])
+            }
+        }
+
+        // Descend.
+        if depth <= 0 { return }
+        for name in entries {
+            if name.hasPrefix(".") { continue }          // every dotdir skipped by rule
+            if kScanSkip.contains(name) { continue }     // build/vendor output + macOS homes
+            let child = (dir as NSString).appendingPathComponent(name)
+            // lstat, NOT fileExists: refuse a symlinked directory so the walk cannot be steered
+            // OUT of the TCC tree by a symlink in a user-writable folder (engine parity). Only a
+            // REAL directory is descended.
+            guard lstatType(child) == .typeDirectory else { continue }
+            walk(child, depth: depth - 1, importOnly: importOnly)
+        }
+    }
+
+    // CONFUSED-DEPUTY GUARD: this hatch holds the app's broad Files-and-Folders grant, so it must
+    // only ever walk the THREE expected TCC roots. scan-request.json lives in the user's own
+    // Application Support, but a same-user process WITHOUT a Documents grant could still write one
+    // naming arbitrary paths and harvest the head bytes from the world-of-same-user-readable
+    // scan-result.json -- a within-user privilege escalation. Clamp to ~/Documents, ~/Downloads,
+    // ~/Desktop (canonicalised), refusing anything else, so a forged request cannot redirect the
+    // grant. The engine only ever sends these three.
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    // Test seam, mirroring the engine's AGENT_WORKFORCE_SCAN_ROOTS override: a path-delimited list
+    // REPLACES the allowlist so a fixture tree can be walked under test. Unset in production ->
+    // exactly the three TCC roots.
+    let allowedRoots: Set<String>
+    if let override = ProcessInfo.processInfo.environment["AGENT_WORKFORCE_SCAN_ALLOW_ROOTS"], !override.isEmpty {
+        allowedRoots = Set(override.split(separator: ":").map {
+            URL(fileURLWithPath: String($0)).resolvingSymlinksInPath().path
+        })
+    } else {
+        allowedRoots = Set(["Documents", "Downloads", "Desktop"].map {
+            home.appendingPathComponent($0).resolvingSymlinksInPath().path
+        })
+    }
+    for r in roots {
+        guard let dir = r["dir"] as? String else { continue }
+        let canonDir = URL(fileURLWithPath: dir).resolvingSymlinksInPath().path
+        guard allowedRoots.contains(canonDir) else {
+            logLine("scan: refusing non-TCC-root \(dir) (confused-deputy guard)")
+            continue
+        }
+        let maxDepth = (r["maxDepth"] as? Int) ?? 4
+        let importOnly = (r["importOnly"] as? Bool) ?? false
+        walk(canonDir, depth: maxDepth, importOnly: importOnly)
+    }
+
+    let result: [String: Any] = [
+        "ok": true,
+        "req": nonce,
+        "dirs": dirsOut,
+        "loose": looseOut,
+        "bounded": ["dirs": boundedDirs, "count": false, "importable": boundedImportable, "visited": dirCount],
+    ]
+    do {
+        let data = try JSONSerialization.data(withJSONObject: result, options: [])
+        try fm.createDirectory(at: outURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try data.write(to: outURL, options: .atomic)   // atomic: the engine never reads a torn result
+        // Remove the claimed request AFTER the result lands, not before: in the window between a
+        // remove and the write, defaultTccScan would see no result AND no pending request/inflight
+        // and drop a fresh scan-request.json -> a redundant second walk. (Non-fatal if it fails:
+        // the watcher only ever renames a fresh scan-request.json into .inflight.)
+        try? fm.removeItem(at: reqURL)
+        return true
+    } catch {
+        logLine("scan: could not write scan-result.json (\(error.localizedDescription))")
         return false
     }
 }
@@ -436,7 +850,7 @@ func relaunchHandoffURL() -> URL? {
     } else {
         return nil
     }
-    return base.appendingPathComponent("AgentWorkforce/relaunch-handoff")
+    return base.appendingPathComponent("\(storeLeaf(base: base))/relaunch-handoff")
 }
 
 // Called by the EXITING instance right before it opens the fresh copy. Best-effort: a
@@ -572,10 +986,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // -- an abandoned start leaks its blocked drain thread and an orphan
     // child per attempt. Main-thread only, like every flag above.
     private var inFlightStart: (generation: Int, process: Process)?
-    // #2125 slice 3: the repeating Accessibility-refresh timer (held so it survives)
-    // and the one-shot guard for the launch-time Accessibility prompt.
+    // #2125 slice 3: the repeating Accessibility-refresh timer (held so it survives).
     private var a11yTimer: Timer?
-    private var a11yPromptFired = false
+    // #1 / #2189: the watcher that turns a webview grant-button POST into a real,
+    // under-tmux macOS prompt (see startPromptRequestWatcher).
+    private var promptRequestTimer: Timer?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // #2124: single-instance. A fresh install could run this app from two bundle
@@ -621,6 +1036,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         // gate (spawned under the bundled tmux; see startA11yTrustChecks). Best-effort
         // and non-fatal -- if it cannot run, the gate stays fail-safe (Continue enabled).
         startA11yTrustChecks()
+        // #1 / #2189: notice a webview grant-button's prompt request and fire the real
+        // macOS prompt under tmux on demand. Best-effort, non-fatal.
+        startPromptRequestWatcher()
         // #965 test seam, same testing-only contract as KOSMOS_APP_TEST_HOME:
         // fire reloadBoard() once after N seconds, so a harness can drive the
         // reload decision path end to end without Accessibility permission for
@@ -645,23 +1063,32 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // The engine cannot read Accessibility trust (#1344); the native app does it via
     // AXIsProcessTrusted and writes the verdict where engine/a11ystatus.js reads it,
     // and the first-run Continue gate consumes it (fail-safe: it only ever BLOCKS on a
-    // positive checkable:true+trusted:false). For that verdict to reflect TMUX's trust
-    // -- the responsible process that owns the folder-TCC grant, and the process the
-    // copy already tells the user to grant ("Turn on Tmux in Accessibility") -- the AX
-    // read must run UNDER tmux, not as the kosmos-app (whose own trust is a false
-    // reading). So the hatches are spawned under the bundled tmux.
+    // positive checkable:true+trusted:false). The hatches are spawned under the bundled
+    // tmux on the BELIEF that this would make the verdict reflect TMUX's trust -- tmux
+    // being the responsible process that owns the folder-TCC grant, and the process the
+    // copy tells the user to grant ("Turn on Tmux in Accessibility"). ⚠️ THAT BELIEF IS
+    // VERIFIED WRONG (see the correction below): accessibility is keyed on the CALLING
+    // BINARY, so the under-tmux read reports the kosmos-APP's trust, not tmux's. The
+    // spawn-under-tmux is retained only because the axPROMPT is the mechanism that
+    // surfaces an Accessibility entry at all -- but by the SAME calling-binary rule that
+    // entry is the kosmos-APP's, NOT tmux's, which is exactly why #2189 sees "no Tmux to
+    // enable" when the pane opens Accessibility. The axCHECK's verdict likewise does not
+    // describe tmux and must not be read as if it does. Check and prompt use the same AX
+    // API family in the same binary; neither can be attributed to tmux.
     //
-    // 🛑 THE ONE WAY THIS CAN FALSE-BLOCK A USER, STATED PLAINLY. The frontend gate is
-    // fail-safe for every UNCHECKABLE state (browser/no-file/stale/malformed/fetch-error
-    // all leave Continue live). The single exception is a POSITIVE checkable:true +
-    // trusted:false, which BLOCKS -- correctly if it is tmux's real trust, but a
-    // FALSE-BLOCK if the under-tmux attribution reads the APP's trust instead (app
-    // ungranted, tmux granted -> trusted:false -> the user grants Tmux as the pane says
-    // and Continue stays stuck). Whether an under-tmux re-exec reports tmux's trust or
-    // the app's is the LOAD-BEARING UNKNOWN of #2125, UNVERIFIED on a dev box (a11y
-    // granted broadly -> AXIsProcessTrusted true either way). #2189 confirms the
-    // under-tmux surface has real fresh-install trouble (the Open-Accessibility button
-    // surfaces no Tmux to enable), which is the axprompt half of exactly this seam.
+    // 🛑 THE ATTRIBUTION IS VERIFIED WRONG (2026-09-06, #2125), AND THE HARM WAS THE
+    // OPPOSITE DIRECTION FROM WHAT THIS COMMENT ORIGINALLY ANTICIPATED. It read: the
+    // one risk is a FALSE-BLOCK (app ungranted, tmux granted -> trusted:false ->
+    // Continue stuck). Josh's 0.6.42 fresh-account re-test showed the real failure is a
+    // FALSE-GREEN: the under-tmux AXIsProcessTrusted reports the APP's trust (accessibility
+    // is keyed on the CALLING BINARY, not the responsible process), so on a fresh account
+    // the tmux gate read ACTIVATED on arrival while tmux was ungranted and absent from the
+    // Accessibility list. So the LOAD-BEARING UNKNOWN of #2125 is now resolved: an
+    // under-tmux re-exec reports the APP's trust, NOT tmux's. This verdict therefore does
+    // not describe tmux at all. #2189 (Open-Accessibility surfaces no Tmux to enable) is
+    // the same seam. Fix = the pending #2125 keep/drop fork (KEEP: one-identity routing;
+    // DROP: remove the ask, no synthetic-input API is used). Do not re-assume the tmux
+    // attribution. Root: ~/work/Josh-Brain/Projects/kosmos-tcc-identity-root-2378-1-3-2026-09-06.md
     //
     // ⚠️ THE PROTECTION IS THE RELEASE PROCESS, NOT THIS CODE. There is no in-code guard
     // here (no feature flag, no channel check, no bias-to-trusted default): this writer
@@ -682,14 +1109,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
             logLine("a11y: could not resolve the install home; skipping Accessibility checks (gate stays fail-safe)")
             return
         }
-        // One prompt per launch, and only when we are not already trusted, so Tmux
-        // appears in the Accessibility list -- otherwise the Open-Accessibility button
-        // opens a list with nothing to enable (Josh's bug #2). The prompt itself is
-        // system-managed and non-blocking.
-        if !a11yPromptFired && !currentlyTrusted() {
-            a11yPromptFired = true
-            spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axprompt")
-        }
+        // #2347 (Josh's 0.6.41 fresh-install re-test): NO a11y PROMPT at launch. #2371
+        // fixed the bundled-tmux path so spawnAxHatchUnderTmux now actually fires; that
+        // turned this once-at-launch axprompt into the FIRST thing a user saw on
+        // install, before the Access screen -- and it activated accessibility at install
+        // time, so the later Access-screen tmux step read "Activated" and the person
+        // skipped the Turn-On flow. The prompt must fire ONLY on-demand: the Access
+        // screen's tmux Turn-On POSTs /api/a11y-prompt and startPromptRequestWatcher
+        // (below) fires the axprompt hatch then. So the launch-time axprompt is removed;
+        // the on-demand watcher owns it. (File-access already fires on-demand only.)
+        //
+        // The axCHECK stays at launch + on a timer: it only READS trust
+        // (AXIsProcessTrusted, no prompt) and writes a11y-status.json for the first-run
+        // Continue gate to poll. Reading is not prompting.
         // Refresh now, then on a repeating timer well inside a11ystatus's staleness
         // window (5 min) so the first-run screen always polls a fresh verdict.
         spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
@@ -698,26 +1130,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
         }
     }
 
-    // The current on-file verdict, read synchronously to decide the one-shot prompt.
-    // Absent / unreadable / not-trusted / STALE all count as "not trusted" -- the
-    // prompt is only skipped on a POSITIVE and FRESH trusted reading, so a missing
-    // file, or a days-old trusted:true from a prior run whose state is now unknown,
-    // still prompts. The 300s freshness bound mirrors a11ystatus.STALE_AFTER_MS (5
-    // min): past it the engine treats the reading as uncheckable anyway, so trusting
-    // it here to suppress the prompt would trust data the reader has already
-    // discarded. Erring toward prompting is safe (an extra prompt is benign; a
-    // skipped one when actually not-trusted is not).
-    private func currentlyTrusted() -> Bool {
-        guard let url = a11yStatusURL(),
-              let data = try? Data(contentsOf: url),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let t = obj["trusted"] as? Bool, t,
-              let at = obj["at"] as? String,
-              let when = ISO8601DateFormatter().date(from: at),
-              Date().timeIntervalSince(when) <= 300
-        else { return false }
-        return true
-    }
+    // (currentlyTrusted() was removed with the launch-time axprompt in #2347: it existed
+    // only to decide that one-shot launch prompt, which no longer fires. The on-demand
+    // axprompt is benign if the user is already trusted -- macOS no-ops it -- so no
+    // pre-check is needed on that path.)
 
     // Spawn a native hatch UNDER the bundled tmux via a PRIVATE tmux server socket
     // (-L kosmos-axcheck), so this never touches the user's own tmux sessions. The
@@ -726,14 +1142,149 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
     // Not waited on: the hatch is detached and blocking the main thread on it would
     // beachball launch -- the reading lands within a moment and the poll picks it up
     // (fail-safe until it does).
+    // MARK: On-demand permission prompts (#1 / #2189)
+    //
+    // The permission screens' grant buttons must fire the REAL macOS prompts on demand,
+    // not just open Settings (Josh's 0.6.39 #1: "clicking the grant button ... didn't
+    // actually ask for the correct permission"). The webview button POSTs to the engine
+    // (server.js), which drops a request file in the shared store dir; this watcher --
+    // running in the APP, the process that can spawn under the bundled tmux -- notices it
+    // and fires the matching hatch under tmux, using the SAME under-tmux spawn the
+    // launch-time axcheck uses. Firing through the app rather than letting the engine
+    // spawn tmux keeps the spawn tree IDENTICAL to the proven launch (axcheck) path,
+    // adding no new attribution assumption to the #2125 seam. (The attribution the
+    // Accessibility API actually reports is now RESOLVED, not an open question: the AX
+    // call is labelled by the calling binary, the kosmos-app, not tmux -- verified by
+    // Josh's 0.6.42 fresh-account re-test, see the startA11yTrustChecks correction. This
+    // watcher's job is only the on-demand FIRING, timing fixed in #2347.)
+    private func startPromptRequestWatcher() {
+        checkPromptRequests()
+        checkScanRequest()
+        // 1.5s: fast enough that a grant button feels like it fired the prompt, cheap
+        // enough (a fileExists on two paths) to run continuously.
+        promptRequestTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: true) { [weak self] _ in
+            self?.checkPromptRequests()
+            self?.checkScanRequest()
+        }
+    }
+
+    // #3 / #2125 follow-up: the import-scan TCC-root walk. The engine drops scan-request.json;
+    // this claims it by an ATOMIC rename to scan-request.inflight (so two 1.5s ticks cannot
+    // both launch a walk) and fires --kosmos-app-scan under tmux -- the SAME spawn path as the
+    // file-access hatch, so the walk runs under the APP identity that holds the S2 grant and
+    // fires no fresh Documents prompt. The hatch reads the .inflight file, writes
+    // scan-result.json (atomic, nonce-tagged) and removes the .inflight file.
+    private func checkScanRequest() {
+        guard let req = storeFileURL("scan-request.json"),
+              FileManager.default.fileExists(atPath: req.path),
+              let inflight = storeFileURL("scan-request.inflight") else { return }
+        // A request older than 60s is abandoned (the engine's poll times out well before
+        // then); drop it rather than fire a walk nobody is waiting on.
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: req.path),
+           let mtime = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mtime) > 60 {
+            try? FileManager.default.removeItem(at: req)
+            logLine("scan-request: dropped stale request (older than 60s)")
+            return
+        }
+        guard let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome else { return }
+        // The rename IS the consume: exactly one tick wins it, and a failure (already claimed,
+        // or gone) means another tick got there first -- so bail without firing.
+        do {
+            // Replace any leftover .inflight from a crashed prior walk, then claim.
+            try? FileManager.default.removeItem(at: inflight)
+            try FileManager.default.moveItem(at: req, to: inflight)
+        } catch {
+            return
+        }
+        spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-scan")
+    }
+
+    private func checkPromptRequests() {
+        // Steady state is cheap: only a fileExists per request name. Resolve the install
+        // (config load + disk path resolution) ONLY when a request is actually pending,
+        // rather than every 1.5s tick for the app's whole idle lifetime.
+        let names = ["a11y-prompt-request", "file-access-prompt-request"]
+        let pending = names.contains { name in
+            guard let u = storeFileURL(name) else { return false }
+            return FileManager.default.fileExists(atPath: u.path)
+        }
+        guard pending else { return }
+        // kosmosHome carries the bundled tmux; a failure to resolve means we cannot spawn
+        // under tmux, so there is nothing to do (the button's Settings fallback covers it).
+        guard let home = try? resolveInstall(config: KosmosInstallConfig.load()).kosmosHome else { return }
+        consumeRequest(named: "a11y-prompt-request") { [weak self] in
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axprompt")
+            // Refresh the verdict now. Accessibility is granted asynchronously (the user
+            // toggles tmux in System Settings), so this does NOT flip the pill by itself
+            // -- it just keeps the reading fresh; the 60s timer or a later re-request
+            // captures the eventual grant. (Contrast the file-access hatch, where the TCC
+            // prompt is synchronous and the one hatch can capture the grant.)
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-axcheck")
+        }
+        consumeRequest(named: "file-access-prompt-request") { [weak self] in
+            // One hatch both fires the Files-and-Folders prompt and writes the verdict
+            // (see fileAccessReading / --kosmos-app-fileaccessprompt).
+            self?.spawnAxHatchUnderTmux(kosmosHome: home, hatch: "--kosmos-app-fileaccessprompt")
+        }
+    }
+
+    // If a fresh request file is present, consume it (delete) and fire the hatch. A
+    // request older than 30s is dropped unfired (it is from a previous run), and the
+    // hatch fires only if the delete actually succeeded, so a failed delete cannot
+    // re-fire the prompt every tick.
+    private func consumeRequest(named name: String, fire: () -> Void) {
+        guard let url = storeFileURL(name),
+              FileManager.default.fileExists(atPath: url.path) else { return }
+        // Drop a request older than 30s rather than fire it. Such a request reflects a
+        // click from a PREVIOUS run: the app was up when the engine wrote it (so
+        // nativePresent passed), then quit before this watcher's next tick consumed it,
+        // and the file persisted to this launch. Firing a TCC prompt the user did not
+        // just ask for is surprising -- and unlike the live case there is no button
+        // click to explain it. 30s comfortably covers the POST -> 1.5s-tick latency of a
+        // real click. (#2347: this now matters EQUALLY for both requests -- neither a11y
+        // nor file-access fires at launch any more, so a leftover request of either kind
+        // would be the only way an un-asked-for prompt could appear; the 30s drop is what
+        // prevents it.)
+        if let attrs = try? FileManager.default.attributesOfItem(atPath: url.path),
+           let mtime = attrs[.modificationDate] as? Date,
+           Date().timeIntervalSince(mtime) > 30 {
+            // Log by what actually happened: an unconditional "dropped" would lie when
+            // the delete failed (the file survives and the next tick retries).
+            do {
+                try FileManager.default.removeItem(at: url)
+                logLine("prompt-request: dropped stale \(name) (older than 30s)")
+            } catch {
+                logLine("prompt-request: could not drop stale \(name) (\(error.localizedDescription)); will retry next tick")
+            }
+            return
+        }
+        // Delete before firing, and fire ONLY if the delete succeeded. The delete is
+        // the consume: a hatch that takes a moment cannot be launched twice by
+        // successive ticks -- but that guarantee holds only when the file is actually
+        // gone. A best-effort `try?` that failed while still firing would leave the
+        // request on disk and re-fire a real TCC prompt every 1.5s until the staleness
+        // guard drops it (prompt spam). So on a delete failure we log and bail; the next
+        // tick retries the delete, and staleness is the backstop. (A transient SPAWN
+        // failure still loses the one request, but the gate poll never flips, so a
+        // re-click re-requests it -- recovery without a double-prompt.)
+        do {
+            try FileManager.default.removeItem(at: url)
+        } catch {
+            logLine("prompt-request: could not consume \(name) (\(error.localizedDescription)); not firing to avoid a re-fire loop")
+            return
+        }
+        logLine("prompt-request: consumed \(name); firing under tmux")
+        fire()
+    }
+
     private func spawnAxHatchUnderTmux(kosmosHome: String, hatch: String) {
         guard let exe = Bundle.main.executableURL?.path else {
             logLine("a11y: no executable path; cannot spawn \(hatch)")
             return
         }
-        let tmux = kosmosHome + "/bin/tmux"
-        guard FileManager.default.isExecutableFile(atPath: tmux) else {
-            logLine("a11y: no bundled tmux at \(tmux); skipping \(hatch) (gate stays fail-safe)")
+        guard let tmux = resolveBundledTmux(kosmosHome: kosmosHome) else {
+            logLine("a11y: no bundled tmux under \(kosmosHome) (looked at AGENT_WORKFORCE_TMUX_BIN and tmux/bin/tmux); skipping \(hatch) (gate stays fail-safe)")
             return
         }
         let p = Process()
@@ -2207,7 +2758,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, WKNa
              polling /api/status every two seconds and repainting a hidden
              panel. Pressing ⌘, mid-agent-creation would reintroduce that
              through a new door the existing guard does not cover.
-           · `burgerClose()` — on the narrow layout the burger nav otherwise
+           · `burgerClose()` -- on the narrow layout the burger nav otherwise
              stays open over the Settings screen.
 
            The page states the rule itself: go through the real control "so
@@ -2749,28 +3300,63 @@ if CommandLine.arguments.contains("--kosmos-app-stale-selftest") {
 //
 // --kosmos-app-axcheck: read AXIsProcessTrusted() (or the KOSMOS_AXCHECK_FORCE_TRUSTED
 // mock) and write the verdict where engine/a11ystatus.js reads it. Spawned UNDER the
-// bundled tmux (see applicationDidFinishLaunching) so macOS attributes the AX read to
-// tmux -- the responsible process that owns the folder-TCC grant -- not to the
-// kosmos-app, whose own trust would be a FALSE reading.
+// bundled tmux (see applicationDidFinishLaunching) on the BELIEF that macOS would then
+// attribute the AX read to tmux -- the responsible process that owns the folder-TCC
+// grant -- not to the kosmos-app.
 //
-// 🛑 THE ATTRIBUTION IS THE LOAD-BEARING UNKNOWN (#2125). Whether an under-tmux re-exec
-// reports TMUX's trust or the APP's is UNVERIFIED on a dev box (Accessibility granted
-// broadly -> AXIsProcessTrusted true either way, so it cannot be discriminated here).
-// It MUST be verified on a fresh macOS install -- that granting Tmux flips this to
-// trusted and unblocks Continue -- BEFORE this gates for real. See the deferred
-// verification gate flagged on #2125. The FORCE-mock exercises the trusted:false
-// path's downstream (writer -> engine -> gate) without needing that fresh install.
+// 🛑 THE ATTRIBUTION IS VERIFIED WRONG (2026-09-06, #2125). It was the load-bearing
+// UNKNOWN; Josh's 0.6.42 fresh-account re-test resolved it the WRONG way. An under-tmux
+// re-exec does NOT report tmux's trust -- accessibility is keyed on the CALLING BINARY,
+// so AXIsProcessTrusted here reports the kosmos-APP's trust regardless of the tmux
+// parent. Observed harm is the OPPOSITE of the false-BLOCK the startA11yTrustChecks
+// comment anticipated: it FALSE-GREENED -- the tmux gate read ACTIVATED on arrival on a
+// fresh account while tmux was ungranted and absent from the Accessibility list (writing
+// trusted:true = the app's state). So this hatch cannot answer "is tmux trusted"; the
+// verdict it writes is the app's. Do not re-assume the tmux attribution. The fix is the
+// pending #2125 fork: KEEP -> route the AX check + grant through one identity; DROP ->
+// remove the accessibility ask (no synthetic-input API is used anywhere; agents run on
+// tmux send-keys IPC). Root writeup:
+// ~/work/Josh-Brain/Projects/kosmos-tcc-identity-root-2378-1-3-2026-09-06.md
+// The FORCE-mock still exercises the trusted:false downstream (writer -> engine -> gate).
 if CommandLine.arguments.contains("--kosmos-app-axcheck") {
     exit(writeA11yStatus(trusted: axTrustReading()) ? 0 : 1)
 }
-// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds the
-// responsible process to the Accessibility list -- so the Open-Accessibility button
-// then "gives something to enable" (Josh's bug #2). Fired once (under tmux) when the
-// last reading is not-trusted/absent, so it is Tmux that lands in the list.
+// --kosmos-app-axprompt: show the system Accessibility prompt, which ALSO adds an entry
+// to the Accessibility list -- so the Open-Accessibility button then "gives something to
+// enable" (Josh's bug #2). Fired once (under tmux) when the last reading is
+// not-trusted/absent. ⚠️ CORRECTED (#2125, 2026-09-06): the entry it adds is the CALLING
+// BINARY's (the kosmos-app), NOT tmux's -- accessibility is keyed on the calling binary,
+// not the responsible process, and this prompt uses the same AX API family as the
+// axcheck. That is exactly #2189's "no Tmux to enable": the prompt registers the app, so
+// no tmux row appears to toggle.
 if CommandLine.arguments.contains("--kosmos-app-axprompt") {
     let opts = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
     _ = AXIsProcessTrustedWithOptions(opts)
     exit(0)
+}
+// --kosmos-app-fileaccessprompt: attempt to enumerate the protected folders, which
+// fires the Files-and-Folders prompt for tmux (this hatch's responsible process) on
+// the first undecided access, and write the resulting grant verdict where
+// fileaccessstatus.js reads it. Spawned UNDER the bundled tmux (see the prompt-request
+// watcher) so the grant is attributed to tmux -- the responsible process the running
+// agents use -- not to the kosmos-app. One hatch does both the prompt and the verdict,
+// exactly as attempting the access does both in macOS. (Folder-TCC uses the
+// responsible-process model, which is why the under-tmux spawn works HERE. The
+// Accessibility seam does NOT -- it is keyed on the calling binary, so its under-tmux
+// read reports the app, not tmux; see the startA11yTrustChecks correction. Do not read
+// this file-access attribution as evidence the a11y seam attributes to tmux too.)
+if CommandLine.arguments.contains("--kosmos-app-fileaccessprompt") {
+    exit(writeFileAccessStatus(granted: fileAccessReading()) ? 0 : 1)
+}
+// --kosmos-app-scan: the import-scan TCC-root walk, done by the APP identity (#3 / #2125
+// follow-up). The engine drops scan-request.json; the prompt-request watcher claims it (rename
+// -> scan-request.inflight) and fires this hatch UNDER tmux -- the SAME spawn path as
+// --kosmos-app-fileaccessprompt, so the readdir runs under the app identity that holds the S2
+// grant and fires no fresh Documents prompt. This walk emits RAW MATERIAL only (paths + head
+// bytes) to scan-result.json; ALL agent detection + dedup stays in engine/discover.js so there
+// is no Swift/Node divergence. Contract: .claude/plans/scan-tcc-hatch-2125b.md.
+if CommandLine.arguments.contains("--kosmos-app-scan") {
+    exit(scanUnderGrant() ? 0 : 1)
 }
 
 let app = NSApplication.shared

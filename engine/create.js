@@ -175,6 +175,28 @@ function modelsFor(provider) {
 function modelFor(provider, modelKey) {
   return modelsFor(provider).find((m) => m.key === String(modelKey)) || null;
 }
+
+/**
+ * The KEY of a provider's default model, or null (#2453).
+ *
+ * The `default: true` model of the provider -- the same one the create form
+ * pre-selects. Used to give an IMPORTED agent a model to land on, so it is not
+ * created model-less and shown as 'unknown model' + not reachable (Josh, 0.6.47
+ * re-test). Anthropic returns 'sonnet'; OpenAI has no static models (codex picks
+ * its own), so it answers null -- an openai import carries no model key, which is
+ * the intended 'let codex choose' state. A null/absent provider means anthropic
+ * (modelsFor's own default), the connected-Claude case the re-test hit. Single
+ * source, so the import default cannot drift from the picker's default.
+ *
+ * NOTE (#2453): this only supplies the model. The model is downstream of the
+ * PROVIDER: the import-prefilled form must still submit a RUNNABLE provider
+ * ('anthropic', not the 'claude' display hint) to POST /api/agents, or
+ * createAgentInner refuses the create before the model key is ever consulted.
+ */
+function defaultModelKeyFor(provider) {
+  const m = modelsFor(provider).find((x) => x.default);
+  return m ? m.key : null;
+}
 // ⚠️ The ROSTER, from the module that defines what an agent name is. A second
 // reading of tmux here would be a second definition of "who is already
 // running", and this codebase's worst defects have all been two definitions of
@@ -236,6 +258,18 @@ function supportDir() {
   // AGENT_WORKFORCE_HOME still applies, and the running platform + env so the
   // sandbox var and the Windows roaming var are honoured. The sandbox and mac
   // results are byte-identical to before; win32 is the only change, to correct.
+  //
+  // #2439: DELIBERATELY a PURE resolver, NOT store.ROOT. store.ROOT routes through
+  // root() -> maybeMigrateLegacyStore(), which fires the one-time rename on the FIRST
+  // access. supportDir() is called in read-only contexts too (path assembly, tests that
+  // only compare the resolved string), so routing it through the migration would give a
+  // pure resolve a real-store mutation side-effect -- which on a shared dev box migrates
+  // the operator's LIVE store from any un-sandboxed test call (this happened, #2439). The
+  // migration seam is instead protected by call ordering: the board touches store.ROOT at
+  // boot (sourceChannelNow / boardauth.ensureToken) before any create path runs, so the
+  // rename always happens before recordBirth()'s mkdirSync(supportDir()) could pre-create
+  // the new leaf. A future early-writer that runs a create BEFORE boot would need to touch
+  // store.ROOT first; the migrate test + review guard that, and it is not reachable today.
   return store.dataRootFor(process.platform, homeDir(), process.env);
 }
 const OUTCOME = { CREATED: 'created', REFUSED: 'refused', PARTIAL: 'partial' };
@@ -427,14 +461,25 @@ function spokenName(clean) {
  */
 function slugFor(raw) {
   /* #740 (Josh, 2026-08-24 21:17: "I've got to be able to have capitals.
-     I've got to be able to have spaces... first name, last name"): a run of
-     whitespace becomes ONE hyphen, and that is the only thing besides case
-     that changes. Still not safeKey: nothing is stripped, so `Ca.sey` is
-     still refused rather than silently becoming `casey`. "Kira Knightley"
-     is shown as typed and is `kira-knightley` to the machinery; if an agent
-     already holds that machine name, createAgent refuses by name, so two
-     spellings can never land on one folder in silence. */
-  return cleanName(raw).toLowerCase().replace(/\s+/g, '-');
+     I've got to be able to have spaces... first name, last name") and #2605
+     (Josh, 2026-09-09: a title like "Dr." must be allowed, "blocking me from
+     making this agent's name Doctor"): a run of whitespace OR periods becomes
+     ONE hyphen, and case is the only other thing that changes.
+     🛑 STILL NOT safeKey, AND THAT DISTINCTION IS THE WHOLE SAFETY ARGUMENT.
+     safeKey STRIPS, so `Ca.sey` would become `casey` -- a DIFFERENT agent's
+     name, arrived at silently, the exact hole this repo has closed three times.
+     This REPLACES a period with a hyphen (the same as whitespace) rather than
+     removing it, so `Ca.sey` is `ca-sey`, DISTINCT from `casey`, never a silent
+     collision. The change is a NO-OP for any name without a period (`[\s.]+`
+     matches exactly what `\s+` did), so its whole blast radius is the period.
+     "Dr. Maya Okafor" is shown as typed and is `dr-maya-okafor` to the
+     machinery; if an agent already holds that machine name, createAgent refuses
+     by name, so two spellings can never land on one folder in silence.
+     ⚠️ A LEADING period is still refused, not silently dropped: it folds to a
+     leading hyphen, which NAME_RE rejects, so `.Net` is refused rather than
+     becoming `net`. Only the period joins whitespace here; every other
+     character still survives unchanged to be caught by NAME_RE. */
+  return cleanName(raw).toLowerCase().replace(/[\s.]+/g, '-');
 }
 
 function nameProblem(raw) {
@@ -1412,7 +1457,13 @@ function trustCodexFolder(dir, home, agentDefaultAccount) {
   const cfg = path.join(codexHome, 'config.toml');
   let text = '';
   try { text = fs.readFileSync(cfg, 'utf8'); } catch { /* first entry ever */ }
-  const key = `[projects."${dir}"]`;
+  // #2129/#5: key on the ON-DISK canonical spelling, which is what codex looks
+  // up (std::fs::canonicalize resolves its cwd to the stored case), NOT the raw
+  // `dir` the code hands us (workersDir hardcodes lowercase 'work'). On a fresh
+  // macOS user where the on-disk dir is '~/Work', the raw-cased key we used to
+  // write never matched codex's capital-cased lookup and the trust menu fired.
+  // See trust.js canonicalOnDisk (realpathSync alone does NOT case-fold on macOS).
+  const key = `[projects."${require('./trust').canonicalOnDisk(dir)}"]`;
   if (text.includes(key)) return;
   fs.mkdirSync(codexHome, { recursive: true });
   fs.appendFileSync(cfg, `${text && !text.endsWith('\n') ? '\n' : ''}${key}\ntrust_level = "trusted"\n`);
@@ -1452,37 +1503,55 @@ function forgetCodexFolder(dir, home, agentDefaultAccount) {
   let text;
   try { text = fs.readFileSync(cfg, 'utf8'); }
   catch { return { ok: true, removed: false, because: 'there is no codex config to change' }; }
-  const key = `[projects."${dir}"]`;
-  if (!text.includes(key)) return { ok: true, removed: false, because: 'no entry for that folder' };
-  /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
-     RegExp: a folder path can contain characters a regex would read as
-     syntax, and this must match literally or not at all. */
-  const block = `${key}
+  // #2129/#5: match BOTH spellings of the folder -- the ON-DISK canonical one
+  // trustCodexFolder now writes (canonicalOnDisk, resolved when the folder exists,
+  // which it does at every normal removal since remove.js deletes nothing on disk),
+  // AND the raw path. The raw covers an entry an OLDER build wrote before this
+  // change (migration cleanup) and the fallback spelling. Removing whichever block
+  // is present cleans up the normal case, migrates an old raw-keyed entry, and
+  // cannot strand a spelling we can still name.
+  // ⚠️ THE ONE CASE WE CANNOT RECOVER, stated rather than hidden: a native-cased
+  // entry whose worker folder was MANUALLY DELETED before the agent was removed --
+  // canonicalOnDisk can no longer read the stored case, so the raw fallback will
+  // not match the capital entry, and it is left (inert, pointing at a folder that
+  // is gone). The honest alternative is trust.js's recordWrite provenance; this
+  // stays the content-match tradeoff the docblock above names.
+  const trust = require('./trust');
+  const canon = trust.canonicalOnDisk(dir);
+  const raw = path.resolve(String(dir));
+  const spellings = canon === raw ? [canon] : [canon, raw];
+  let removed = false;
+  let handEdited = false;
+  for (const spelling of spellings) {
+    const key = `[projects."${spelling}"]`;
+    if (!text.includes(key)) continue;
+    /* The exact two lines `trustCodexFolder` writes. A String pattern, not a
+       RegExp: a folder path can contain characters a regex would read as syntax,
+       and this must match literally or not at all. */
+    const block = `${key}
 trust_level = "trusted"
 `;
-  if (!text.includes(block)) {
-    return { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' };
+    if (!text.includes(block)) { handEdited = true; continue; } // changed by hand: leave theirs
+    /* 🛑 TIDY ONLY THE SEAM THE REMOVAL LEAVES, NEVER THE WHOLE DOCUMENT
+       (PigeonPete, cross-review). A global `.replace(/\n{3,}/,'\n\n')` once
+       reformatted the person's OWN tables; the removal's job is to take back OUR
+       two lines and touch nothing else -- only the join it leaves is ours. */
+    const at = text.indexOf(block);
+    const before = text.slice(0, at);
+    const after = text.slice(at + block.length);
+    const lead = /\n*$/.exec(before)[0];
+    const trail = /^\n*/.exec(after)[0];
+    const joined = lead + trail;
+    const tidy = joined.length > 2 ? '\n\n' : joined;
+    text = before.slice(0, before.length - lead.length) + tidy + after.slice(trail.length);
+    removed = true;
   }
-  /* 🛑 THE TIDY-UP IS SCOPED TO THE SEAM, NOT THE DOCUMENT (PigeonPete,
-     cross-review). The first version ran `.replace(/\n{3,}/g, '\n\n')`
-     GLOBALLY, so removing one agent's entry also reformatted unrelated
-     sections the person had written themselves. Measured by him: a config
-     with a deliberate three-blank-line run between two of their own tables
-     came back with it collapsed.
-     ⚠️ Same "never clobber what is theirs" line as the permission bug in the
-     same function: the removal's job is to take back OUR two lines and touch
-     nothing else. Only the join left behind by the removal is ours to tidy. */
-  const at = text.indexOf(block);
-  const before = text.slice(0, at);
-  const after = text.slice(at + block.length);
-  /* The seam is the boundary between what came before the entry and what came
-     after it. Collapsing is bounded to the newline run that MEETS at that
-     point: trailing newlines of `before` plus leading newlines of `after`. */
-  const lead = /\n*$/.exec(before)[0];
-  const trail = /^\n*/.exec(after)[0];
-  const joined = lead + trail;
-  const tidy = joined.length > 2 ? '\n\n' : joined;
-  const next = before.slice(0, before.length - lead.length) + tidy + after.slice(trail.length);
+  if (!removed) {
+    return handEdited
+      ? { ok: false, removed: false, because: 'that folder\'s trust entry was changed by hand, so it was left alone' }
+      : { ok: true, removed: false, because: 'no entry for that folder' };
+  }
+  const next = text;
   const tmp = `${cfg}.tmp-${process.pid}`;
   /* 🛑 THE RENAME CARRIES THE TEMP FILE'S MODE, NOT THE TARGET'S, AND THIS
      REALLY HAPPENED. Caught in cross-review after the first version of this
@@ -1515,7 +1584,10 @@ trust_level = "trusted"
     try { fs.unlinkSync(tmp); } catch { /* the rename never happened */ }
     return { ok: false, removed: false, because: 'we could not update the codex config' };
   }
-  return { ok: true, removed: true, because: null };
+  // #2129/#5: if the OTHER spelling's block was present but hand-edited, we removed
+  // the clean one and (correctly) left theirs -- say so rather than reporting a
+  // plain "took it back" that hides the residue.
+  return { ok: true, removed: true, because: handEdited ? 'one entry for that folder had been changed by hand, so it was left alone; the rest was taken back' : null };
 }
 
 /**
@@ -2031,6 +2103,56 @@ function runningJobs() {
   } catch { return new Set(); }
 }
 
+/**
+ * The win32 launch pair, in ONE place, because there are two entry points into
+ * starting an agent and they must not grow two versions of this.
+ *
+ * 🛑 THE SCOPE MISTAKE THIS EXISTS TO CLOSE (#570, found 2026-09-08 by running a
+ * real create rather than a test). All of the win32 create work went into
+ * `installJob` -- which has NO production caller; it is the adopt/connect entry.
+ * The path a person actually presses is `createAgent` -> `createAgentInner`,
+ * which carries its own launchd block and had no platform branch at all. So every
+ * win32 test in this lane passed while the button on the board could not make an
+ * agent: it got as far as writing a `.plist` ON WINDOWS and then failed at
+ * `launchctl bootstrap`.
+ *
+ * ⚠️ THE FIX IS SHARED CONSTRUCTION, NOT A COPIED BLOCK. Copying the win32 arm
+ * into createAgentInner would be this repo's most expensive recurring defect --
+ * the duplicated data-root formula (supportdir-win32-2039), and "tmux is
+ * required" written in three places, each found separately and live. What is
+ * shared is the SPEC and the two acts; what stays local to each caller is the
+ * ORDER and the GATING, because those genuinely differ:
+ *
+ *   installJob ......... launch, then register. The agent may already be running
+ *                        (it is an adoption), and a failed registration must not
+ *                        fail a live agent -- it only changes the sentence.
+ *   createAgentInner ... launch, then register, each as its own visible STEP,
+ *                        with a rollback behind them. A creation can be undone;
+ *                        an adoption cannot.
+ */
+function win32AgentSpec(name, o) {
+  const s = o || {};
+  return {
+    name,
+    cwd: workerDir(name),
+    runner: s.runner || 'claude',
+    claudeBin: s.runnerBin,
+    configDir: s.configDir || null,
+    model: s.model || null,
+    platform: 'win32',
+  };
+}
+
+/** Start it NOW -- the `launchctl bootstrap` analog. */
+function win32LaunchAgent(name, o) {
+  return require('./win32launch').launch(win32AgentSpec(name, o));
+}
+
+/** Bring it back at every logon -- the RunAtLoad half of the plist. */
+function win32RegisterJob(name, o) {
+  return require('./win32job').install(win32AgentSpec(name, o));
+}
+
 function installJob(name, opts) {
   const clean = String(name == null ? '' : name);
   if (!NAME_RE.test(clean)) {
@@ -2068,6 +2190,101 @@ function installJob(name, opts) {
     return { ok: false, because: runner === 'codex'
       ? 'we could not find Codex on this computer, so a job made now would never start'
       : 'we could not find Claude on this computer, so a job made now would never start' };
+  }
+  const modelArgWin = (opts && typeof opts.model === 'string' && opts.model.trim()) ? opts.model.trim() : null;
+  const configDirWin = (opts && typeof opts.configDir === 'string' && opts.configDir) ? opts.configDir : null;
+  /* 🛑 #570: WINDOWS HAS NO LAUNCHD, SO EVERYTHING BELOW THIS POINT IS MAC-ONLY.
+     The rest of this function installs the supervisor script, writes a `.plist`,
+     `launchctl enable`s the label and `bootstrap`s it. None of those exist on
+     win32. `engine/win32launch.js` is that substrate for this platform -- it
+     writes the trust entry, mints the session id + ownership record + sender
+     token through win32create.prepareSession, and spawns an interactive,
+     TOP-LEVEL, hidden-console agent pinned to the recorded id.
+
+     ⚠️ IT RETURNS THE SAME SHAPE, deliberately, so every caller and every
+     `steps` record above reads identically on both platforms. What differs is
+     only `because`, and it is now EARNED rather than hedged: the keep-alive half
+     landed (`engine/win32job.js` registers the at-logon Scheduled Task,
+     `engine/win32supervisor.js` is the KeepAlive loop), so a Windows agent does
+     come back at every login. The sentence still tracks the truth per agent --
+     if the job could not be registered the launch stands and the `because` says
+     plainly that it will not survive a restart, because promising a durability
+     we did not get is the one failure nobody discovers until a reboot.
+
+     📌 DRY_RUN still spawns nothing: it short-circuits before the launch, the
+     same way it skips the plist write and lets the stubbed `run` stand in for
+     launchctl. */
+  /* ⚠️ THE PLATFORM IS INJECTED, not read, and that is not decoration. A branch
+     that hard-reads `process.platform` cannot be asserted from the fleet's Macs,
+     which is precisely how every defect in this lane survived -- the win32 arm
+     stays unexercised and a green suite says nothing about it. `opts.platform`
+     defaults to the real one, so production is unchanged and a Mac can still
+     drive both sides. Same shape as store.dataRootFor and platform.isSupported. */
+  const jobPlatform = (opts && opts.platform) || process.platform;
+  if (jobPlatform === 'win32') {
+    if (DRY_RUN) {
+      return { ok: true, started: true, model: modelArgWin,
+        guessed: { model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
+          account: configDirWin ? null : 'it will run on your main Claude account' },
+        because: 'set up and started now' };
+    }
+    const launched = win32LaunchAgent(clean, {
+      runner, runnerBin, configDir: configDirWin, model: modelArgWin,
+    });
+    if (!launched.ok) return { ok: false, because: launched.because };
+    /* 🔑 THE KEEP-ALIVE HALF, and it is a SEPARATE act from the launch because
+       the two answer different questions: `win32launch` starts it NOW,
+       `win32job` brings it back at every future logon (launchd's RunAtLoad, with
+       KeepAlive living in engine/win32supervisor.js). The Mac gets both from one
+       plist write, which is why they read as one step there and as two here.
+
+       ⚠️ A FAILED JOB DOES NOT FAIL THE CREATE, and that asymmetry is deliberate.
+       The agent is ALREADY RUNNING by this line -- returning ok:false would tell
+       a person their agent was not created while it sits there working, and the
+       only route back would be the manual recipe this product exists to spare
+       them. So the launch decides ok, the job decides only WHAT WE PROMISE: the
+       `because` below is the one sentence that changes, and it never claims a
+       durability we did not get. */
+    const job = win32RegisterJob(clean, {
+      runner, runnerBin, configDir: configDirWin, model: modelArgWin,
+    });
+    return {
+      ok: true,
+      started: true,
+      model: modelArgWin,
+      atLogin: job.ok,
+      guessed: {
+        model: modelArgWin ? null : 'we do not know which model it was set to run on, so it will start on the default',
+        account: configDirWin ? null : 'it will run on your main Claude account',
+      },
+      because: job.ok
+        ? 'set up and started now, and it will start again at every login'
+        : 'started now, but it will not come back by itself after a restart (' + job.because + ')',
+    };
+  }
+  /* 🛑 THE tmux PREFLIGHT SITS BELOW THE win32 RETURN, AND THE ORDER IS THE WHOLE
+     POINT (#570 x #1185, resolved on merge). Windows has no tmux and needs none:
+     the win32 arm above runs agents through the Claude CLI and returns before
+     this line. Hoisting this check above that branch -- which is what a
+     mechanical merge does, since #1185 landed exactly where the win32 arm sits --
+     would refuse EVERY Windows create with "we could not find the terminal
+     program Kosmos runs agents in", a program that platform does not use.
+
+     ⚠️ THAT IS NOT HYPOTHETICAL, IT IS THIS LANE'S RECURRING DEFECT. #2304 was
+     the same shape one function over: `installedCheck` required tmux on every
+     platform, so a healthy Windows box permanently reported that it could not run
+     agents. A tmux requirement belongs to the launchd/tmux path, never above it. */
+  /* #1185: SYMMETRY WITH THE RUNNER CHECK ABOVE. The runner is existence-checked
+     (runnerRunnable), tmux was only injection-checked (unusablePath), so a MISSING
+     tmux wrote a plist naming a binary that is not there, `launchctl bootstrap`
+     failed, and the adoption reported the opaque "could not start it just now" with
+     no cause -- the exact class the creation path already pre-flights (#1616's
+     `runnerRunnable, not existsSync, for the runner AND for tmux`). A job that names
+     an absent tmux can never start, so refuse before writing rather than write a
+     doomed one. Named the way installJob names the other program above -- not the
+     word "tmux", which a person who installed Kosmos has no reason to know. */
+  if (!DRY_RUN && !runnerRunnable(tmuxBin)) {
+    return { ok: false, because: 'we could not find the terminal program Kosmos runs agents in on this computer, so a job made now would never start' };
   }
   const installed = DRY_RUN ? { ok: true } : installSupervisor();
   if (!installed.ok) {
@@ -2514,7 +2731,11 @@ function createAgentInner(opts) {
     }
   }
   const problem = nameProblem(shown);
-  if (problem) return { outcome: OUTCOME.REFUSED, because: problem, steps };
+  // #2606: `field` names WHICH field the refusal is about, so the create page can
+  // put the reason beside that field (red border + message) instead of only in the
+  // after-the-button slot the person has scrolled past. The sentence still comes
+  // from the server (no client-side copy of the rule); this only says where it goes.
+  if (problem) return { outcome: OUTCOME.REFUSED, because: problem, field: 'name', steps };
 
   const role = roles.byKey(roleKey);
   if (!role) {
@@ -2713,6 +2934,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `${shown} is on your removed list. Put that one back from "Show removed agents" at the bottom of the Agents tab, delete what was left of it there to free the name, or pick a different name.`,
+      field: 'name', // #2606: a name collision is a name refusal; land it at the name field
       steps,
     };
   }
@@ -2738,6 +2960,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `there is already an agent called ${shown}. If it never came up, it is half made rather than missing. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -2745,6 +2968,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is still set to start on this computer, though there is no folder for it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -2752,6 +2976,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `there is already a folder for an agent called ${shown}. If you removed that agent, its folder was left behind. Pick another name, or delete what was left of it, from its page under Agents or from "Show removed agents" at the bottom of the Agents tab, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -2791,6 +3016,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -2819,6 +3045,10 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: 'we could not check which agents are already running, so we will not risk making a second one with the same name',
+      // #2606: deliberately left UNtagged (no field marker). This is a fail-closed SYSTEM
+      // refusal (tmux could not be queried), not a name that is known to be taken -- flagging
+      // the name field red would assert the name is wrong when it may be fine. It stays in the
+      // below-button #create-msg, where "we could not check" reads honestly.
       steps,
     };
   }
@@ -2842,6 +3072,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already running on this computer${also}`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -2920,7 +3151,32 @@ function createAgentInner(opts) {
    * engine-side `alternative`, never the person's sentence.
    */
   const runnerLabel = runner === 'codex' ? 'the OpenAI runner' : 'Claude Code';
-  for (const [what, bin] of [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]]) {
+  /**
+   * 🛑 tmux IS NOT A REQUIRED PROGRAM ON win32, AND REQUIRING IT HERE REFUSED
+   * EVERY WINDOWS CREATE (#570). Measured, not reasoned: the first real
+   * end-to-end create on this platform came back "we could not find tmux on this
+   * computer, so an agent made now would never start" -- about a program Windows
+   * neither has nor needs, from a board whose whole win32 substrate was green.
+   *
+   * ⚠️ THIS IS THE SAME CALL #2304 ALREADY MADE ONE FUNCTION OVER, and finding it
+   * a third time is the point worth recording. `machine.installedCheck` required
+   * tmux on every platform, so a healthy Windows box permanently reported it
+   * could not run agents; #2304 fixed that by making the required part the
+   * RUNNER on win32 and not probing tmux at all. `installJob`'s own tmux
+   * preflight (#1185) is the second instance -- it sits BELOW the win32 return
+   * for exactly this reason. This is the third, and it is the one a person
+   * actually hits, because it fires before anything is written.
+   *
+   * 🔑 THE RUNNER IS STILL REQUIRED, on both platforms. What changes is only that
+   * the win32 agent path runs through the Claude CLI (win32launch + a Scheduled
+   * Task) rather than through a tmux pane under launchd, so tmux's absence says
+   * nothing about whether an agent can start.
+   */
+  const jobPlatform = (opts && opts.platform) || process.platform;
+  const required = jobPlatform === 'win32'
+    ? [[runnerLabel, runnerBin], ['the agents folder', workerDir(name)]]
+    : [[runnerLabel, runnerBin], ['tmux', tmuxBin], ['the agents folder', workerDir(name)]];
+  for (const [what, bin] of required) {
     if (unusablePath(bin)) {
       return { outcome: OUTCOME.REFUSED, because: `we cannot use that path for ${what}`, steps };
     }
@@ -2987,6 +3243,10 @@ function createAgentInner(opts) {
    * just made. The `steps` list still records which half failed, which is where
    * the diagnostic value actually lives.
    */
+  /* What the win32 launch handed back, so a rollback can stop the process it
+     started. Null on darwin and until the start step runs. */
+  let win32Launched = null;
+
   function rollBack({ unload = false } = {}) {
     /* ⚠️ `unload` is for a failed START, and only then.
      *
@@ -3002,6 +3262,43 @@ function createAgentInner(opts) {
      * overreach.
      */
     if (DRY_RUN) return;
+    /* 🔑 THE win32 ARM UNDOES THE TWO THINGS win32 ACTUALLY DID, which are not
+       the two things launchd did. There is no plist to unlink and no service to
+       boot out; there is a Scheduled Task, and -- unlike the Mac -- an agent
+       process this function spawned DIRECTLY rather than through the job.
+       Deleting the task alone would leave that process running under a name the
+       rollback has just told the person does not exist.
+
+       ⚠️ THE TASK GOES FIRST. A task deleted after the process is killed is a
+       window in which a logon would start it straight back up; and win32job's own
+       header makes the same point in reverse -- stopping is a job-level act, so
+       the job must stop being a job before anything else is undone. */
+    if (jobPlatform === 'win32') {
+      try { require('./win32job').remove(name); } catch { /* never registered is the common case */ }
+      /* 🛑 THE PID THE LAUNCH RETURNS IS NOT THE AGENT'S, which is why this used
+         to roll back over a still-running agent. `win32launch` starts the session
+         through `cmd /c start` (the only way to give it its own console), so the
+         spawned process is CMD, and cmd exits the moment `start` has handed off.
+         Measured on the box: a live agent's parent pid is already dead. So
+         `process.kill(launcherPid)` killed nothing -- or, once Windows had reused
+         that number, something else entirely -- and the rollback then deleted the
+         worker folder and the task while the agent it had just started kept
+         running, with its ownership record intact and its folder gone.
+
+         🔑 ADDRESSED BY SESSION ID, NOT BY PID OR NAME. We know exactly which
+         session we started, and `win32stop.endSession` waits for it to appear
+         before concluding it is not there -- an agent takes ~5s to register, and
+         a rollback can easily run inside that window. `end(name)` would be the
+         wrong call here: an empty look is a legitimate "nothing running" for an
+         open question, and this is a closed one. It also forgets the ownership
+         record, so no row outlives the folder this is about to delete. */
+      if (win32Launched && win32Launched.sessionId) {
+        try { require('./win32stop').endSession(win32Launched.sessionId); }
+        catch { /* best effort: a rollback must finish even if the kill throws */ }
+      }
+      try { fs.rmSync(workerDir(name), { recursive: true, force: true }); } catch { /* best effort */ }
+      return;
+    }
     if (unload) {
       try { run('/bin/launchctl', ['bootout', `gui/${process.getuid()}/${serviceLabel(name)}`]); }
       catch { /* it was probably never registered, which is the common case */ }
@@ -3283,7 +3580,14 @@ function createAgentInner(opts) {
   // written at all.
   let supervisorMissing = false;
   let supervisorMissingFile = null;
-  const installedSupervisor = step('put the script that starts agents in place', () => {
+  /* 🔑 NO STEP AT ALL ON win32, rather than a step that reports success for work
+     nobody did. `installSupervisor` copies `bin/agent-supervisor.sh` -- a shell
+     script launchd runs, which this platform has no launchd to run. Its win32
+     counterpart is the anchor (engine/win32anchor.js), and that is written by the
+     job registration below, where it can be reported honestly. A step saying "put
+     the script that starts agents in place: ok" when nothing was put anywhere is
+     the kind of true-looking line this file spends most of its comments avoiding. */
+  const installedSupervisor = jobPlatform === 'win32' ? true : step('put the script that starts agents in place', () => {
     if (DRY_RUN) return true;
     const done = installSupervisor();
     supervisorMissing = done.missing === true;
@@ -3327,11 +3631,19 @@ function createAgentInner(opts) {
       return true;
     }));
 
-  const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder) && step('set it up to keep running', () => {
-    if (DRY_RUN) return true;
-    fs.mkdirSync(agentsDir(), { recursive: true });
-    fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
-  });
+  /* ⚠️ ON win32 THERE IS NOTHING TO WRITE HERE, and writing it was the bug. Before
+     this branch existed a Windows create reached this line and put a real `.plist`
+     into a `Library/LaunchAgents` tree on an NTFS disk -- a file nothing on the
+     machine reads -- reported "set it up to keep running: ok", and then failed at
+     the `launchctl bootstrap` below. The win32 equivalent is a Scheduled Task, and
+     it is registered AFTER the launch, as its own step, mirroring installJob's
+     proven order. */
+  const wroteJob = (wroteInstructions && installedSupervisor && trustedFolder)
+    && (jobPlatform === 'win32' || step('set it up to keep running', () => {
+      if (DRY_RUN) return true;
+      fs.mkdirSync(agentsDir(), { recursive: true });
+      fs.writeFileSync(plistPath(name), plistFor(name, runnerBin, tmuxBin, modelArg, configDir, runner), 'utf8');
+    }));
 
   /**
    * ⚠️ STOP BEFORE LOADING A JOB THAT CANNOT WORK.
@@ -3465,8 +3777,32 @@ function createAgentInner(opts) {
   }
 
   const started = step('started it', () => {
+    /* 🔑 THE SAME TWO ACTS THE MAC GETS FROM ONE `bootstrap`, split because this
+       platform splits them: `win32LaunchAgent` starts it now, and the step below
+       makes it come back. Both go through the shared constructors above, so this
+       is a second CALL SITE and never a second copy. */
+    if (jobPlatform === 'win32') {
+      if (DRY_RUN) return true;
+      win32Launched = win32LaunchAgent(name, { runner, runnerBin, configDir, model: modelArg });
+      return win32Launched.ok === true;
+    }
     const r = run('/bin/launchctl', ['bootstrap', `gui/${process.getuid()}`, plistPath(name)]);
     return r && r.ok !== false;
+  });
+
+  /**
+   * The at-logon registration -- launchd's RunAtLoad, which the Mac already got
+   * when the plist was written.
+   *
+   * ⚠️ IT DOES NOT GATE THE CREATION, matching installJob's deliberate asymmetry.
+   * The agent is running by this line; rolling the creation back would kill a
+   * working agent to punish a registration failure. So it is a visible STEP that
+   * can be false -- the person sees exactly which half did not happen -- and the
+   * outcome sentence downstream is what changes, never the fact of the agent.
+   */
+  const atLogin = (jobPlatform === 'win32' && started) && step('set it up to start again at every login', () => {
+    if (DRY_RUN) return true;
+    return win32RegisterJob(name, { runner, runnerBin, configDir, model: modelArg }).ok === true;
   });
 
   /* #169: what the failed-start rollback below knows in memory, persisted
@@ -3585,7 +3921,16 @@ function createAgentInner(opts) {
   }
   return {
     outcome: OUTCOME.CREATED,
-    because: `${shown} is set up and starting`,
+    /* ⚠️ THE SENTENCE NEVER PROMISES A DURABILITY WE DID NOT GET (#570). On win32
+       the at-logon registration is a separate act that does not gate the
+       creation, so it can fail behind a perfectly good agent. `SELF_STARTS` --
+       "it starts itself when this computer is on" -- is exactly what would be
+       false in that case, and a reboot is how somebody would find out. Every
+       other path is unchanged. */
+    because: (jobPlatform === 'win32' && started && !atLogin)
+      ? `${shown} is set up and starting, but it will not come back by itself after a restart`
+      : `${shown} is set up and starting`,
+    atLogin: jobPlatform === 'win32' ? Boolean(atLogin) : undefined,
     steps,
     firstAction: role.firstAction,
     // Where it actually is, so no screen has to rebuild this path and be wrong
@@ -3629,13 +3974,15 @@ module.exports = {
   // exists because two definitions of one fact is where its worst defects came
   // from. The menu, the create check and the change check now all read one.
   modelsFor,
+  defaultModelKeyFor,
   modelFor,
   SELF_STARTS,
   createdLog, createdLogFile, disabledJobs, runningJobs,
 
-  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` only lowercases — it
-     is a converter, not a gate — so anything asking "is this a name we can
-     act on" has to reach this, or it grows a weaker second copy. */
+  /* ⚠️ Exported as the ONE machine-name rule. `slugFor` lower-cases and folds
+     whitespace and periods to hyphens — it is a converter, not a gate — so
+     anything asking "is this a name we can act on" has to reach this, or it
+     grows a weaker second copy. */
   NAME_RE,
   /* The disk roots themselves, for #500's stray walk: the walk must read
      these directly, because workerDir() consults recorded folders and

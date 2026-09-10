@@ -37,6 +37,29 @@ const DETAIL_MAX = 2000;
 
 const WHO_MAX = 80;
 
+/* #768: a task can carry a DUE DATE (a calendar date, YYYY-MM-DD, or null).
+   Josh's #768 asks for "if there's a due date assigned" shown on the task page,
+   which reverses the earlier deliberate "no due date" deferral on purpose: that
+   deferral's own condition was "it belongs here the day something reads it", and
+   #768 IS that day -- the task page now reads and shows it. Stored as the date
+   string (or null); nothing SCHEDULES on it yet, so it is information a person and
+   a picking-up agent read, never a promise the product silently breaks. */
+const DUE_RE = /^\d{4}-\d{2}-\d{2}$/;
+function dueProblem(dueDate) {
+  if (dueDate === undefined || dueDate === null || dueDate === '') return null; // none / clear
+  if (typeof dueDate !== 'string' || !DUE_RE.test(dueDate)) {
+    return 'a due date has to be a calendar date (YYYY-MM-DD), or empty to clear it';
+  }
+  // A well-FORMED string can still be an impossible date (2026-02-31); reject it by
+  // round-tripping through UTC so a nonsense date never lands on a task.
+  const [y, m, d] = dueDate.split('-').map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) {
+    return 'that is not a real date';
+  }
+  return null;
+}
+
 function taskProblem({ sentence, detail, who } = {}) {
   if (typeof sentence !== 'string' || !sentence.trim()) {
     return 'say what needs doing';
@@ -102,6 +125,9 @@ function create(projectId, { sentence, detail, who, made: origin } = {}, roster)
       addedVia: (origin && origin.via === 'process') ? 'process' : 'screen',
       createdAt: new Date().toISOString(),
       closedAt: null,
+      // #768: every task carries the field so a consumer never has to guess
+      // whether it exists; null means no due date, set later via setDue.
+      dueDate: null,
     };
     return {
       ...p,
@@ -371,6 +397,38 @@ function setClosed(projectId, n, closedAt) {
 }
 
 /**
+ * #768: set or clear a task's due date. `dueDate` is a YYYY-MM-DD string, or
+ * null/'' to clear it. Validated whole-or-not-at-all BEFORE the write (a nonsense
+ * date is refused, never stored), and records a lifecycle event so the change
+ * shows in the task's activity. No-op-safe: setting the same value the task
+ * already has records nothing, the same discipline setClosed uses for a re-close.
+ */
+function setDue(projectId, n, dueDate) {
+  const problem = dueProblem(dueDate);
+  if (problem) throw new Error(problem);
+  const next = (dueDate === undefined || dueDate === '' ) ? null : dueDate;
+  let changed;
+  let didChange = false;
+  projects.mutate(projectId, (p) => {
+    const t = byNumber(p, n);
+    if (!t) throw new Error('there is no task by that number on this project');
+    const before = t.dueDate || null;
+    didChange = before !== next;
+    changed = { ...t, dueDate: next };
+    return {
+      ...p,
+      tasks: (p.tasks || []).map((x) => (x.number === changed.number ? changed : x)),
+    };
+  });
+  if (didChange) {
+    taskchat.record(projectId, changed.number, next
+      ? { kind: 'due-set', dueDate: next }
+      : { kind: 'due-cleared' });
+  }
+  return changed;
+}
+
+/**
  * A task's PARTS: the assignable things it is made of.
  *
  * 🔑 THE PARENT HAS NO ASSIGNEE OF ITS OWN. Mona Lisa's spec: a real job splits
@@ -613,6 +671,6 @@ function claimFor(task, reading, opts) {
 }
 
 module.exports = { create, close, reopen, byNumber, columnTasks, allTasks, claimFor, claimPatterns, taskProblem,
-  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed,
+  partsOf, progressOf, whoOf, addPart, assignPart, setPartClosed, setDue, dueProblem,
   partValve, processPartWrites, agePartWritesForTests, PARTS_PER_HOUR,
   SENTENCE_MAX, DETAIL_MAX, WHO_MAX };

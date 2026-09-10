@@ -150,15 +150,16 @@ function worldBaseDir(base, world) {
  * The AGENT_WORKFORCE_* env overrides for a world. EMPTY for the default world
  * (the migration guarantee -- legacy roots, untouched). For a named world, the
  * three data roots point under its base, matching each root function's own
- * semantics: AGENT_WORKFORCE_DATA has `AgentWorkforce` appended by dataRootFor,
- * while AGENT_WORKFORCE_PROJECTS / _WORKERS are used verbatim.
+ * semantics: AGENT_WORKFORCE_DATA has the store leaf (`store.APP`, `Kosmos`
+ * since #2439) appended by dataRootFor, while AGENT_WORKFORCE_PROJECTS /
+ * _WORKERS are used verbatim.
  * AGENT_WORKFORCE_LAUNCH is deliberately NOT overridden (see SCOPE above).
  */
 function envOverridesFor(base, world) {
   const dir = worldBaseDir(base, world);
   if (!dir) return {};
   return {
-    AGENT_WORKFORCE_DATA: dir, // dataRootFor appends AgentWorkforce -> <dir>/AgentWorkforce
+    AGENT_WORKFORCE_DATA: dir, // dataRootFor appends store.APP -> <dir>/Kosmos (#2439)
     AGENT_WORKFORCE_PROJECTS: path.join(dir, 'projects'),
     AGENT_WORKFORCE_WORKERS: path.join(dir, 'workers'),
   };
@@ -238,7 +239,10 @@ function createWorld(base, name) {
     if (reg.worlds.some((w) => w.id === id)) throw new Error(`a world "${id}" already exists`);
     const dir = path.join(base, WORLDS_SUBDIR, id);
     // Make the world's subtrees up front so a switch never lands on a missing dir.
-    fs.mkdirSync(path.join(dir, 'AgentWorkforce'), { recursive: true });
+    // #2439: the store leaf MUST match what dataRootFor appends for this world
+    // (envOverridesFor sets AGENT_WORKFORCE_DATA=dir -> dataRootFor -> <dir>/store.APP),
+    // so derive it from store.APP rather than hardcoding, or create and read drift.
+    fs.mkdirSync(path.join(dir, store.APP), { recursive: true });
     fs.mkdirSync(path.join(dir, 'projects'), { recursive: true });
     fs.mkdirSync(path.join(dir, 'workers'), { recursive: true });
     // `base` is INFORMATIONAL (what worldBaseDir derives from the id); it is never
@@ -270,7 +274,56 @@ function setActiveWorld(base, id) {
     }
     reg.activeWorldId = id;
     writeRegistry(base, reg);
+    // #2528: a deliberate switch to a world gives it a FRESH set of boot attempts.
+    // Clear any residual failed-boot count so a retry (after fixing what was wrong, or a
+    // switch-back following an auto-fallback) is judged on new tries, never stale ones.
+    // Inline require avoids any load-order coupling; worldbootguard pulls in only fs/path.
+    // #2528 fast-follow note: the abandon-on-first-failed-boot fast path keys on whether the
+    // world has EVER served (the guard's `confirmed` marker, set by server.js onListening),
+    // NOT on this switch -- so setActiveWorld deliberately does NO pending bookkeeping here.
+    // That avoids the pointer-vs-booted divergence a switch-time marker would have (a no-op
+    // or unmanaged-board switch-back must never re-arm the fast path on a healthy world).
+    try { require('./worldbootguard').clear(base, id); } catch (_) { /* fail-open */ }
     return activeWorld(base);
+  });
+}
+
+/*
+ * #1704 item 14.1 (Josh, 2026-09-05): rename a Kosmos WITHOUT breaking its
+ * file/folder/project/document structure. It changes ONLY the display `name`; the
+ * world's id and base are immutable (a world resolves BY id, never by name -- see
+ * worldBaseDir), so nothing on disk moves and every project/document keeps its home.
+ * That is the whole reason the rename is safe and does not need the fallback Josh
+ * offered ("you can't change the name once created").
+ *
+ * The DEFAULT world is refused: its display name is the fixed "Kosmos 1" constant
+ * (item 14.2 / DEFAULT_NAME, re-applied by readRegistry), so a rename could not
+ * persist anyway; refusing gives a clear reason instead of a silent no-op. Errors are
+ * TYPED (like setActiveWorld) so the route classifies on the code, not the message.
+ */
+function renameWorld(base, id, newName) {
+  if (id === DEFAULT_ID) {
+    const err = new Error('the default world cannot be renamed');
+    err.code = 'ERESERVED';
+    throw err;
+  }
+  const name = String(newName == null ? '' : newName).trim();
+  if (!name) {
+    const err = new Error('a world needs a name');
+    err.code = 'EBADNAME';
+    throw err;
+  }
+  return withRegistryLock(base, () => {
+    const reg = readRegistry(base);
+    const world = reg.worlds.find((w) => w.id === id);
+    if (!world) {
+      const err = new Error(`no such world "${id}"`);
+      err.code = 'ENOWORLD';
+      throw err;
+    }
+    world.name = name;
+    writeRegistry(base, reg);
+    return world;
   });
 }
 
@@ -301,6 +354,7 @@ module.exports = {
   worldBaseDir,
   envOverridesFor,
   createWorld,
+  renameWorld,
   setActiveWorld,
   applyActiveWorldEnv,
 };

@@ -12,8 +12,8 @@
  * not-running agent does not have, so a single stopped agent took the whole
  * board down to "we cannot read your agents" while every markup test passed.
  *
- *   SB=$(mktemp -d); mkdir -p "$SB/data/AgentWorkforce/profiles" "$SB/workers/ghosty"
- *   echo '{"role":"Copywriter","displayName":"Ghosty"}' > "$SB/data/AgentWorkforce/profiles/ghosty.json"
+ *   SB=$(mktemp -d); mkdir -p "$SB/data/Kosmos/profiles" "$SB/workers/ghosty"
+ *   echo '{"role":"Copywriter","displayName":"Ghosty"}' > "$SB/data/Kosmos/profiles/ghosty.json"
  *   AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_DATA="$SB/data" \
  *     AGENT_WORKFORCE_WORKERS="$SB/workers" PORT=17421 node server.js &
  *   NODE_PATH="$HOME/work/pw-runtime/node_modules" node docs/browser-checks/render-not-running.js

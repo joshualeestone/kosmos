@@ -29,8 +29,8 @@
  * script cannot be trusted to notice: it did not, until the occlusion assertion
  * below was added. Seed the flag before starting the server --
  *
- *   mkdir -p "$SB/data/AgentWorkforce"
- *   echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/AgentWorkforce/first-run.json"
+ *   mkdir -p "$SB/data/Kosmos"
+ *   echo '{"completedAt":"2026-01-01T00:00:00.000Z"}' > "$SB/data/Kosmos/first-run.json"
  *
  * Run: see the README in this directory.
  */

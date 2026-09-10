@@ -68,9 +68,14 @@ set -eu
 SITE="${KOSMOS_SITE:-$HOME/work/chaoskosmos-site}"
 REPO="${KOSMOS_REPO:-$HOME/work/agent-workforce}"
 HOST="${KOSMOS_SITE_URL:-https://installkosmos.com}"
-# The Windows zip has no latest-win.json yet, so its name is a parameter with the current
-# default. Baron: a latest-win.json manifest (like latest.json) would remove this hardcode
-# and let the script learn the current Windows artifact the same way it learns the tarball.
+# The Windows zip name. #2571: dist/latest-win.json NOW EXISTS (tracked + served), written by
+# tools/publish-kosmos-windows.sh, so the current versioned name is DERIVED from it below (after
+# $H and the ptr_* helpers), the same way the tarball name is learned from latest.json. This line
+# is now the FALLBACK: an explicit KOSMOS_WIN_ZIP overrides the derivation, and this hardcoded
+# default is used only when latest-win.json cannot be read (an older checkout). It is left at the
+# old 0.6.24 name on purpose, so an ancient checkout REFUSES loudly at the carry check rather than
+# guessing a name that happens to match. (#2580 also honest-marker-checks the UNVERSIONED alias
+# kosmos-win-x64.zip separately, which never goes stale; that stays, alongside this derivation.)
 WINZIP="${KOSMOS_WIN_ZIP:-kosmos-0.6.24-win-x64.zip}"
 
 PUBLISH=0
@@ -92,6 +97,12 @@ git -C "$SITE" rev-parse --verify HEAD >/dev/null 2>&1 || { echo "deploy-site: $
 [ -f "$REPO/tools/lib/site-deploy.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/site-deploy.sh"; exit 1; }
 [ -f "$REPO/tools/lib/pkg-inputs.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/pkg-inputs.sh (defines pkg_upload_filter_excludes)"; exit 1; }
 [ -f "$REPO/tools/verify-served.sh" ]  || { echo "deploy-site: cannot find $REPO/tools/verify-served.sh"; exit 1; }
+# #1667: served-verify helpers (negative control + content-type tell). Sourced HERE, in the
+# preconditions, and not just before the post-deploy checks, because the negative control now runs
+# BEFORE the first 200 from $HOST is trusted. See the call site above the latest.json read.
+[ -f "$REPO/tools/lib/served-verify.sh" ] || { echo "deploy-site: cannot find $REPO/tools/lib/served-verify.sh (the #1667 negative control and content-type tell)"; exit 1; }
+# shellcheck source=/dev/null
+. "$REPO/tools/lib/served-verify.sh"
 # sha256-name.sh is sourced ONLY on the --promote path (it derives the alias sidecar). Check it here,
 # guarded on PROMOTE, so the failure is a clear up-front precondition rather than a cryptic set-e
 # abort mid-run when the source fails -- matching the checks above for the other sourced libs.
@@ -130,6 +141,26 @@ H=$(git -C "$SITE" rev-parse HEAD 2>/dev/null) || { echo "deploy-site: cannot re
 # the trap the guard below closes. Tracked artifacts are NEVER fetched into the shared checkout
 # (that would leave dirty tracked files a later `git commit -a` could sweep up); only the gitignored
 # set is fetched, and every fetched byte is sha-verified.
+# 🛑 #1667: PROVE THE HOST DISCRIMINATES BEFORE THE FIRST 200 IS TRUSTED, NOT ONLY AFTER THE DEPLOY.
+# This control used to run ONLY at the end of the script, which made it unreachable in the exact
+# shape the card measured. On a host-wide-blind $HOST (302 to an SSO page answering 200 text/html
+# for EVERY path) the read below returns that page with a 200, `curl -f` does not fire, ptr_artifact
+# finds no "artifact" field, and the script refuses with "latest.json names no artifact" -- a
+# symptom, and precisely the wrong diagnosis this card exists to eliminate. Running it here costs
+# one request, names the mechanism, and refuses BEFORE `vercel deploy --prod` rather than after, so
+# it PREVENTS rather than reports.
+# 📌 The post-deploy call stays and is not redundant: it asks a different question (is the host
+# still sound now that we have published), and a host can go blind between the two.
+# The two non-zero codes mean different things and the refusal should not conflate them: 1 is a
+# BLIND host (the #1667 shape, a real finding), 2 is "the probe could not run" (a network blip, and
+# the caller cannot conclude either way). Both refuse, because refusing before a deploy on an
+# unprovable host is the safe direction, but they are named apart.
+# 📌 AND ONLY HERE, DELIBERATELY, WHICH IS WORTH SAYING BECAUSE THE ASYMMETRY LOOKS LIKE AN
+# OVERSIGHT. This is the one call where the distinction changes what the operator DOES: nothing has
+# been deployed, so a blip means retry and a blind host means stop. The two post-deploy calls both
+# mean "the deploy already ran, investigate" whichever code came back, and the library's own stderr
+# line already says "failed at the transport layer" when it was a blip.
+served_verify_host_discriminates "$HOST" || { _svrc=$?; if [ "$_svrc" -eq 2 ]; then echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control could not RUN against $HOST (transport error, see above), so nothing about this host is proven either way. Nothing has been deployed."; else echo "deploy-site: refusing BEFORE any deploy -- the served-verify negative control FAILED against $HOST (see the reason above): the host answered 200 for a path that cannot exist. Nothing has been deployed."; fi; exit 1; }
 LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo "deploy-site: cannot read $HOST/dist/latest.json -- refusing"; exit 1; }
 # The COMMITTED pointer (git archive of $H) is what a deploy actually SERVES, because dist/latest.json
 # is TRACKED. Read it once here for both the site-copy guard and the promote path. A git-show failure
@@ -137,8 +168,54 @@ LJ=$(curl -fsSL -H 'Cache-Control: no-cache' "$HOST/dist/latest.json") || { echo
 CJ=$(git -C "$SITE" show "$H:dist/latest.json" 2>/dev/null) || CJ=""
 # Pull artifact/sha out of a pointer JSON. Tolerant of an optional space after the colon in case
 # latest.json is ever pretty-printed; an empty result still refuses at the guards below (fail-safe).
-ptr_artifact() { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
-ptr_sha()      { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_artifact()  { printf '%s' "$1" | sed -n 's/.*"artifact":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_sha()       { printf '%s' "$1" | sed -n 's/.*"sha256":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_version()   { printf '%s' "$1" | sed -n 's/.*"version":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+ptr_versioned() { printf '%s' "$1" | sed -n 's/.*"versioned":[[:space:]]*"\([^"]*\)".*/\1/p'; }
+
+# #2571: DERIVE the current Windows versioned zip name from latest-win.json, the same way ART is
+# learned from latest.json above -- replacing the stale hardcoded $WINZIP (kosmos-0.6.24, while
+# latest-win.json names the current version). latest-win.json is TRACKED, so git archive ships the
+# COMMITTED copy; read that one ($H), matching what the deploy actually serves.
+#
+# 🔑 AND IT IS AN INSTRUMENT, not just a name lookup. The derived name is trusted ONLY when the
+# committed latest-win.json's sha256 EQUALS the hash of the ACTUAL committed versioned-zip BYTES
+# (git show | shasum, below) -- a pointer-vs-committed-BYTES AGREEMENT check. A drifted pointer (a
+# partial publish-kosmos-windows.sh run, or a hand-edited manifest/blob) REFUSES here rather than
+# silently deriving a name whose bytes do not match.
+#
+# ⚠️ SCOPE, stated precisely so the guarantee is not over-read: this closes INTERNAL
+# pointer-vs-bytes drift WITHIN the committed checkout. It does NOT compare the committed
+# latest-win.json against LIVE the way the tarball's CJ-vs-LJ guard does, and that is deliberate:
+# there is no --promote-style intentional-move flag for the Windows pointer, so a committed-vs-live
+# win check would FALSE-REFUSE a legitimate win-publish deploy (publish-kosmos-windows.sh commits a
+# new win pointer that differs from live BEFORE it is deployed). Checkout FRESHNESS (is $SITE at
+# origin/main?) is the deploy's own site-freshness precondition, not this block's job. The residual
+# is therefore: a checkout current for the mac pointer but stale specifically for the win side
+# derives an internally-consistent but stale win name -- bounded by keeping $SITE fresh before a
+# deploy, not by this check. An explicit KOSMOS_WIN_ZIP overrides everything (operator escape hatch).
+if [ -z "${KOSMOS_WIN_ZIP:-}" ]; then
+  CJW=$(git -C "$SITE" show "$H:dist/latest-win.json" 2>/dev/null) || CJW=""
+  if [ -n "$CJW" ]; then
+    WV=$(ptr_versioned "$CJW"); WPS=$(ptr_sha "$CJW")
+    [ -n "$WV" ] && [ -n "$WPS" ] || { echo "deploy-site: committed dist/latest-win.json names no versioned/sha256 -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest is complete."; exit 1; }
+    # The committed versioned zip must EXIST as a tracked blob at $H (git archive ships it).
+    git -C "$SITE" cat-file -e "$H:dist/$WV" 2>/dev/null || { echo "deploy-site: latest-win.json names $WV, which is not committed in the site checkout at $H -- refusing (#2571). Re-run tools/publish-kosmos-windows.sh so the manifest and the zip agree."; exit 1; }
+    # Hash the ACTUAL committed zip BYTES (git show streams the blob), not just the string recorded
+    # in the .sha256 sidecar -- so a zip whose bytes were altered without touching the manifest OR
+    # the sidecar (a bad rebase / hand-edit of the tracked blob) is still caught. This is the TRUE
+    # pointer-vs-committed-bytes agreement; comparing to the sidecar alone would only prove
+    # pointer-vs-sidecar and miss a bytes-only divergence. The pipe's exit is awk's (the last stage,
+    # always 0), so a git-show failure does not abort under set -e -- but cat-file -e above has
+    # already proven the blob exists.
+    WSC=$(git -C "$SITE" show "$H:dist/$WV" 2>/dev/null | shasum -a 256 | awk '{print $1}')
+    [ "$WPS" = "$WSC" ] || { echo "deploy-site: latest-win.json (sha $WPS) DISAGREES with the committed bytes of $WV (got ${WSC:-none}) -- refusing (#2571). The Windows pointer and its versioned zip are out of sync; re-run tools/publish-kosmos-windows.sh so latest-win.json and the zip agree."; exit 1; }
+    WINZIP="$WV"
+    echo "deploy-site: derived the Windows zip $WINZIP from dist/latest-win.json (sha-verified against the committed zip's bytes)." >&2
+  else
+    echo "deploy-site: no committed dist/latest-win.json -- using the fallback \$WINZIP=$WINZIP, which may be stale (#2008/#2571). Land latest-win.json (tools/publish-kosmos-windows.sh) so the current name is derived." >&2
+  fi
+fi
 
 if [ "$PROMOTE" = 1 ]; then
   # 🛑 A PROMOTE MOVES THE POINTER ON PURPOSE (#2195), so the committed-vs-live guard must NOT fire,
@@ -247,9 +324,8 @@ echo "deploy-site: fetched and verified the current live GITIGNORED artifacts in
 # "command not found" that the release path never hits because it sources pkg-inputs.sh first.
 # shellcheck source=/dev/null
 . "$REPO/tools/lib/pkg-inputs.sh"
-# #1667: served-verify helpers (negative control + content-type tell) for the post-deploy checks.
-[ -f "$REPO/tools/lib/served-verify.sh" ] || { echo "deploy-site: $REPO/tools/lib/served-verify.sh is missing -- refusing (the post-deploy served-verify cannot run)"; exit 1; }
-. "$REPO/tools/lib/served-verify.sh"
+# (served-verify.sh is sourced up in the preconditions, because the negative control runs before
+# the first read of $HOST as well as after the deploy.)
 EXPORT=$(mktemp -d "${TMPDIR:-/tmp}/deploy-site.XXXXXX")
 site_deploy_export "$SITE" "$EXPORT" "$H" || { echo "deploy-site: site_deploy_export failed -- nothing deployed"; rm -rf "$EXPORT"; exit 1; }
 
@@ -269,6 +345,20 @@ done
 # means the committed win-zip name no longer matches the hardcoded $WINZIP after a version bump
 # (#2008), NOT a genuine carry failure.
 [ -f "$EXPORT/dist/$WINZIP" ]    || { echo "deploy-site: the export has no $WINZIP -- refusing. If the Windows build was bumped, the committed zip name changed and the hardcoded default is stale (#2008); set KOSMOS_WIN_ZIP to the current name or land the unversioned alias."; rm -rf "$EXPORT"; exit 1; }
+# ...and its sidecar, which had no PRE-deploy check while all four gitignored pairs above did. The
+# post-deploy served-verify catches a missing one, but only AFTER `vercel deploy --prod` has run,
+# which is the same "reports rather than prevents" shape #1667 is about. MEASURED before adding
+# this, so it cannot refuse on a file the export never carries: dist/$WINZIP.sha256 is TRACKED in
+# the site checkout (`git ls-files 'dist/*win*'`), so git archive carries it exactly like the zip.
+# 🛑 THE UNVERSIONED WINDOWS ALIAS, which is what latest-win.json names as the download and what
+# does NOT go stale on a version bump, unlike $WINZIP above. It was checked by nothing: this branch
+# was about to ship a "check the pair" guard for a zip thirteen versions old while the artifact
+# users actually fetch had no check at all. MEASURED before adding it, so it cannot refuse on
+# something absent: dist/kosmos-win-x64.zip and its .sha256 are both TRACKED in the site checkout
+# and both serve 200 (application/zip and application/octet-stream) from production.
+[ -f "$EXPORT/dist/kosmos-win-x64.zip" ] || { echo "deploy-site: the export has no kosmos-win-x64.zip -- refusing (the unversioned Windows alias is the download latest-win.json names)"; rm -rf "$EXPORT"; exit 1; }
+[ -f "$EXPORT/dist/kosmos-win-x64.zip.sha256" ] || { echo "deploy-site: the export has no kosmos-win-x64.zip.sha256 -- refusing (the installer verifies the alias against it)"; rm -rf "$EXPORT"; exit 1; }
+[ -f "$EXPORT/dist/$WINZIP.sha256" ] || { echo "deploy-site: the export has no $WINZIP.sha256 -- refusing (the installer verifies the zip against it). Same cause as the line above if the Windows build was bumped: set KOSMOS_WIN_ZIP to the current name."; rm -rf "$EXPORT"; exit 1; }
 [ -f "$EXPORT/.kosmos-release-export" ] || { echo "deploy-site: the export has no .kosmos-release-export marker -- refusing"; rm -rf "$EXPORT"; exit 1; }
 
 # --- 4) the .vercelignore guard, exactly as the release runs it ---------------
@@ -303,6 +393,13 @@ served_matches() {  # <path-under-dist> <local-verified-file>
   ll=$(shasum -a 256 < "$2" | awk '{print $1}')
   [ "$ss" = "$ll" ] || { echo "deploy-site: SERVED dist/$1 does not match what was deployed (served '$ss' local '$ll') -- wrong bytes on the live site. Investigate."; exit 1; }
 }
+# 🛑 #1667, POST-DEPLOY, AND THE SAME ORDERING MISTAKE AS BEFORE: this control used to sit at the
+# BOTTOM of this block, after served_matches and the pointer check. If the host goes blind BETWEEN
+# the pre-flight control and here (which is the only reason the second call exists), `curl -fsSL`
+# succeeds with a 200 on the SSO page and the first refusal is "SERVED dist/$ART does not match what
+# was deployed -- wrong bytes on the live site". A symptom, and the wrong diagnosis, exactly as the
+# pre-deploy case was. A guard placed after the checks it would explain is not a guard.
+served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
 # each gitignored installer artifact AND its .sha256 sidecar: the installer fetches both and verifies
 # one against the other, so a sidecar-only serve drop would break new-install verification while the
 # tarball still serves. Check the pair.
@@ -324,8 +421,63 @@ printf '%s' "$sj" | grep -q "\"$ART\"" || { echo "deploy-site: the served latest
 # trusting any 200 here rather than assuming the alias is still sound. served_verify_host_discriminates
 # refuses if a path that cannot exist returns 200; served_verify_asset_ok also rejects a 200 carrying
 # text/html. (tools/lib/served-verify.sh, sourced above.)
-served_verify_host_discriminates "$HOST" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed (see above); the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/dist/$WINZIP" "the Windows zip $WINZIP" || { echo "deploy-site: the Windows zip $WINZIP failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+# 🛑 THE SIDECAR, BECAUSE THE LOOP ABOVE SAYS "CHECK THE PAIR" AND THIS ONE PAIR WAS UNCHECKED. The
+# rationale twenty lines up is that a sidecar-only serve drop breaks new-install verification while
+# the artifact still serves; the win zip was the only served pair with no sidecar check.
+# MEASURED against production before adding this, so it cannot be a refusal on an asset that was
+# never served: installkosmos.com/dist/$WINZIP -> 200 application/zip, and its .sha256 -> 200
+# application/octet-stream (not text/html, so the content-type tell passes it).
+served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip" "the unversioned Windows alias" || { echo "deploy-site: the unversioned Windows alias kosmos-win-x64.zip failed served-verify (see the reason above); the deploy already ran -- investigate. This is the download latest-win.json names, and it does not go stale on a version bump the way \$WINZIP does."; exit 1; }
+served_verify_asset_ok "$HOST/dist/kosmos-win-x64.zip.sha256" "the unversioned Windows alias checksum" || { echo "deploy-site: kosmos-win-x64.zip.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
+served_verify_asset_ok "$HOST/dist/$WINZIP.sha256" "the Windows zip checksum $WINZIP.sha256" || { echo "deploy-site: the Windows zip checksum $WINZIP.sha256 failed served-verify (see the reason above); the deploy already ran -- investigate. A sidecar-only drop breaks new-install verification while the zip still serves."; exit 1; }
+# #2565: /setup is at the site ROOT, not under /dist, so the /dist control above does NOT prove a
+# 200 at $HOST/setup is meaningful -- a route-scoped blindness (a catch-all / rewrite / SPA fallback
+# at the root) discriminates under /dist and is blind at the root. Prove the ROOT route discriminates
+# before trusting the /setup 200, aiming the control at the route this line is about to trust.
+# ⚠️ OPERATIONAL: this is a live, fail-closed GATE ADDITION -- the deploy now also requires the site
+# ROOT to 404 a nonexistent path. INTENDED: if the root soft-404s (serves 200 for unknown paths, e.g.
+# a custom 404 page or landing redirect), a 200 at /setup is genuinely unverifiable, so refusing is
+# correct rather than a false-refuse. #1667 established the production alias discriminates host-wide
+# and /setup is a real text/plain route, so the root should discriminate; a refusal here means the
+# host's root routing changed and wants investigation, not that this gate is wrong.
+served_verify_host_discriminates "$HOST" "/" || { echo "deploy-site: refusing to certify the deploy -- the served-verify negative control failed for the ROOT route that serves /setup (see above), so a 200 at /setup would be meaningless; the deploy already ran, investigate."; exit 1; }
 served_verify_asset_ok "$HOST/setup"        "/setup"                   || { echo "deploy-site: /setup failed served-verify (see the reason above); the deploy already ran -- investigate."; exit 1; }
 
 echo "deploy-site: published and verified -- the site is live and the installers are still served."
+
+# #2159: a --promote that moves the prod pointer FORWARD is a new release going live to users, so
+# generate the release-notes social posts, exactly as a prod CUT does (release.sh's #2159 hook). A
+# plain --publish is a same-version site-copy re-deploy (no new release), so it does NOT post -- only
+# the PROMOTE path does. Like the cut hook, post-release-notes.sh is DRY-RUN by default and CANNOT
+# auto-publish without the deliberate multi-gate (--publish AND KOSMOS_SOCIAL_AUTOPOST=1 AND live
+# @installkosmos creds in the secrets map), so a promote PREVIEWS the notes and a bad note can never
+# auto-publish. This closes the gap where a staging->prod promote (the launch flow) shipped a release
+# to users but never announced it, while a direct prod cut did. Best-effort: the release has already
+# shipped and been verified above, so a hook non-zero must never fail the promote.
+#
+# 🛑 A --promote can also be a ROLLBACK to a PRIOR pointer (see the --promote docs at the top). A
+# rollback must NEVER announce "Kosmos <older> is out". So the hook fires only when the just-served
+# version ($sj) is strictly NEWER than the version that was live BEFORE this deploy ($LJ, fetched at
+# the top). A same-version re-point and a rollback both skip. `sort -V` is the version compare already
+# used in tools/dist-retention.sh. If $LJ's version is unreadable (an anomaly the top-of-script fetch
+# would normally have refused on), we SKIP rather than announce: without the prior version a rollback
+# cannot be told from a forward move, and the whole point of this gate is that a rollback must not
+# announce -- a missed announcement is safer than a wrong public one.
+if [ "$PROMOTE" = 1 ]; then
+  _pv="$(ptr_version "$sj")"   # the version this promote just made live
+  _lv="$(ptr_version "$LJ")"   # the version that was live BEFORE this deploy
+  if [ -z "$_pv" ]; then
+    echo "post-release-notes: could not read the promoted version from the served latest.json -- skipping the notes hook (the promote still shipped and was verified)."
+  elif [ -z "$_lv" ]; then
+    echo "post-release-notes: could not read the previously-live version, so this cannot be confirmed a FORWARD promote rather than a rollback -- skipping the notes hook (a rollback must not announce; a missed announcement is safer than a wrong public one)."
+  elif [ "$_pv" = "$_lv" ]; then
+    echo "post-release-notes: promoted version $_pv matches the previously-live version -- not a new release, skipping the notes hook."
+  elif [ "$(printf '%s\n%s\n' "$_lv" "$_pv" | sort -V | tail -1)" != "$_pv" ]; then
+    echo "post-release-notes: promoted version $_pv is not newer than the previously-live $_lv (a rollback) -- skipping the notes hook (a rollback must not announce)."
+  else
+    echo ""
+    KOSMOS_RELEASE_IS_PROD=1 KOSMOS_SITE="$SITE" bash "$REPO/tools/post-release-notes.sh" "$_pv" --publish \
+      || echo "post-release-notes: hook returned non-zero (the promote still shipped; this is best-effort)"
+  fi
+fi

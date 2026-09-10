@@ -35,7 +35,15 @@ const os = require('node:os');
 const path = require('node:path');
 const status = require('./status');
 const codexsession = require('./codexsession');
+const geminisession = require('./geminisession');
 const store = require('./store');
+// #8: the SAME best-effort H1-name extraction the import parse uses, so the
+// found-files list and the import form agree on a role-first-under-`# Name` file
+// (agentfile requires no engine module, so this is a clean one-way dependency).
+const agentfile = require('./agentfile');
+// #3/#2125: nativePresent() (a11y-status freshness) tells defaultTccScan whether a native app is
+// there to answer the hatch request. No circular require -- promptrequest pulls a11ystatus, not this.
+const promptrequest = require('./promptrequest');
 
 /* "Dismiss this forever" (Josh, 2026-08-24 17:06): the board's found-agents
    block can be sent away for good. The flag lives on disk beside the app's
@@ -45,7 +53,7 @@ const store = require('./store');
    cannot read is one that exists, so the person's answer stands.
    ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
    AGENT_WORKFORCE_DATA (it joins the env var with the app's own
-   'AgentWorkforce' subfolder when set). `process.env.AGENT_WORKFORCE_DATA
+   store leaf (store.APP, 'Kosmos') when set). `process.env.AGENT_WORKFORCE_DATA
    || store.ROOT` looked like the identical fallback but short-circuits
    PAST that join whenever the env var is set, landing this file one
    directory above every sibling it is meant to sit beside -- unnoticed
@@ -364,6 +372,70 @@ function foundCodex(roster) {
   return { agents: kept, unreadable };
 }
 
+/* #2243: Gemini agents already on this computer, the third provider path and the
+   analogue of foundCodex. Gemini keeps its project cwds in a JSON MAP at
+   <GEMINI_CLI_HOME>/projects.json, and a project's instructions live in
+   <cwd>/GEMINI.md, the disk sibling of CLAUDE.md and AGENTS.md. So a directory
+   listed in projects.json whose GEMINI.md INTRODUCES somebody ("You are
+   <name>...") IS a discoverable Gemini agent, read with the same identityFromText
+   the CLAUDE.md arm uses. The ~/.gemini resolution and the projects.json read
+   live in geminisession, the way foundCodex delegates to codexsession (which also
+   keeps found() out of check-frozen-roots' #1432 resolver set).
+
+   🛑 SAME SANDBOX REFUSAL AS foundCodex (#1500): geminisession reaches ~/.gemini
+   directly, OUTSIDE configRoots, so a fixture that sandboxed the Claude half would
+   otherwise read the operator's real machine here. sandboxIsInconsistent() gives a
+   fixture the empty answer a fixture should get, and geminisession.HOME honours
+   AGENT_WORKFORCE_GEMINI_HOME so a test can point it at a sandbox.
+
+   ⚠️ SAME RETURN SHAPE and rules as found()/foundCodex. Claude then Codex WIN a
+   dir collision (they merge first in found()): a folder reachable more than one
+   way is one agent, and connect already knows how to act on the Claude/Codex
+   record. No ghost-collapse is needed here (unlike foundCodex): projects.json is
+   a current map, so a moved agent's old cwd simply fails the GEMINI.md read rather
+   than surviving as a second row. #2243 part 3 added a SECOND cwd source in
+   geminisession.projects(), <home>/history/<name>/.project_root, which is NOT a
+   current map and may retain a stale cwd -- the same read-fails-and-skips reasoning
+   still holds (a stale history cwd whose GEMINI.md is gone is skipped, not offered),
+   so no ghost-collapse is needed for it either. */
+function foundGemini(roster) {
+  if (status.sandboxIsInconsistent()) return { agents: [], unreadable: 0 };
+
+  const byDir = new Map();
+  let unreadable = 0;
+  for (const cwd of geminisession.projects()) {
+    if (byDir.has(cwd)) continue;
+    let text;
+    /* No GEMINI.md is NOT an unreadable agent: it is a Gemini project that is not
+       an agent (the common case, a plain repo Gemini ran in once, like a node
+       package with no GEMINI.md). Skip it silently, exactly as found() skips a
+       folder with no CLAUDE.md; do not count it. */
+    try { text = fs.readFileSync(path.join(cwd, 'GEMINI.md'), 'utf8').slice(0, 4000); }
+    catch { continue; }
+    const id = status.identityFromText(text);
+    if (!id || !id.displayName) {
+      /* A GEMINI.md that INTRODUCES somebody ("You are ...") but names nobody the
+         parser can read is an agent we could not NAME, not a non-agent: count it
+         unreadable so the board surfaces the skip rather than silently dropping an
+         agent (#1527), exactly as foundCodex counts an unreadable rollout. A file
+         that introduces nobody ("You are an expert in Rust", or no such line at
+         all) is genuinely not an agent and is skipped silently: the same split
+         found() makes, and the same rule as the CLAUDE.md arm, never guess a name. */
+      if (INTRODUCES.test(text)) unreadable += 1;
+      continue;
+    }
+    byDir.set(cwd, {
+      dir: cwd,
+      name: id.displayName,
+      role: id.role,
+      instructions: path.join(cwd, 'GEMINI.md'),
+      runner: 'gemini',
+      already: alreadyIn(cwd, roster),
+    });
+  }
+  return { agents: [...byDir.values()], unreadable };
+}
+
 function found() {
   let roots;
   try { roots = status.configRoots(); } catch (err) {
@@ -552,13 +624,17 @@ function found() {
        knows how to act on. */
     const codex = foundCodex(roster);
     for (const a of codex.agents) if (!byDir.has(a.dir)) byDir.set(a.dir, a);
+    /* #2243: Gemini agents last, so a folder Claude or Codex already knows wins the
+       collision (connect acts on that record); a Gemini-only folder is added. */
+    const gemini = foundGemini(roster);
+    for (const a of gemini.agents) if (!byDir.has(a.dir)) byDir.set(a.dir, a);
 
   /* Stable and human: by the name a person would look for. */
   const agents = [...byDir.values()].sort((a, b) => a.name.localeCompare(b.name));
     return {
     ok: true,
     agents,
-    unreadable: unreadable + codex.unreadable,
+    unreadable: unreadable + codex.unreadable + gemini.unreadable,
     /* Named rather than summed: the three mean different things to a person and
        the remedy differs by bucket. One "we skipped 17" would be the same shape
        of unhelpful as the empty screen it replaces. */
@@ -646,10 +722,11 @@ const SCAN = Object.freeze({
   /* Candidates we will return before stopping. A person cannot act on hundreds of
      rows, and an offer that never ends is its own defect. */
   MAX_CANDIDATES: 100,
-  /* $HOME itself is scanned SHALLOW: its direct children and grandchildren, enough
-     to reach `~/<name>/CLAUDE.md` and `~/<name>/<sub>/CLAUDE.md` without wading
-     into the deep noise a home directory holds. */
-  HOME_DEPTH: 2,
+  /* #2414: $HOME itself is read at depth 0 (its own `~/CLAUDE.md` + loose `~/*.md`),
+     never descended -- its children are covered further by the discovered deep roots
+     (defaultScanRoots). Before #2414 $HOME was walked SHALLOW at depth 2; that walk
+     is gone, superseded by candidate-parent discovery, so there is no HOME_DEPTH
+     constant any more. */
   /* The curated project parents are scanned DEEP, enough for nested worktrees. */
   DEEP_DEPTH: 5,
   /* #1652: loose importable agent FILES (an agent .md a person downloaded or was
@@ -682,12 +759,45 @@ const SCAN = Object.freeze({
    vendor output, and the standard macOS home directories that never hold an agent. */
 const SCAN_SKIP = new Set([
   'node_modules', 'target', 'vendor', 'dist', 'build',
+  // #2414: heavyweight dependency/toolchain trees that essentially never hold an
+  // agent -- same rationale as node_modules. Promoting every top-level $HOME folder
+  // to a DEEP root (discoverHomeParents) means a huge cache (`~/go/pkg/mod` is
+  // routinely tens of thousands of dirs; conda installs are large) could otherwise
+  // exhaust MAX_DIRS before a later arbitrary-named agent folder is reached.
+  // ⚠️ NAME-BASED AND AT EVERY LEVEL (like build/target/dist): a folder named `go`
+  // (case-insensitively) is skipped anywhere in the tree, not just ~/go. `go` is a
+  // more collision-prone name than the others, so a legacy GOPATH agent under
+  // ~/go/src, or any folder literally named `go`, is now missed. Judged acceptable
+  // (rare; the modern Go layout is arbitrary project dirs, which discovery covers).
+  'go', 'anaconda3', 'miniconda3',
   'Library', 'Applications', 'Music', 'Movies', 'Pictures', 'Downloads',
-  // #2125: Documents is skipped by the shallow $HOME walk too (HOME_DEPTH would
-  // otherwise descend into it), not just dropped from SCAN_DEEP_NAMES -- entering
-  // ~/Documents at all fires the macOS Documents-access prompt on a fresh install.
+  // #2125: Documents must never be walked by the auto scan -- entering ~/Documents
+  // at all fires the macOS Documents-access prompt on a fresh install. It is kept
+  // off both discovery (isScanSkip filters it out of the promoted roots) and the
+  // child-descent skip, not just dropped from SCAN_DEEP_NAMES. It re-enters a scan
+  // only via the explicit importScan TCC hatch.
   'Public', 'Desktop', 'Documents', 'Photos Library.photoslibrary',
 ]);
+
+/* 🛑 #2414/#2125: MATCH SCAN_SKIP CASE-INSENSITIVELY. The target volume is
+   case-INSENSITIVE (the macOS default), so `~/downloads` and `~/Downloads` are the
+   SAME physical directory, and a case-sensitive `SCAN_SKIP.has(name)` would MISS a
+   non-canonically-cased TCC folder -- letting `~/downloads` through as a scan root or
+   a descended child and firing the exact macOS access prompt #2125 removed. Case is
+   the fleet's most-repeated false-zero, and the TCC invariant this guards is
+   load-bearing, so the skip is lower-cased on both sides.
+   ⚠️ TRADEOFF, STATED HONESTLY: this also case-folds the build/vendor and macOS
+   names, so a folder whose name CASE-COLLIDES with a skip word (e.g. an agent folder
+   literally named `Build` or `Dist`) is now skipped where an exact match would have
+   walked it. That is a real, if tiny, narrowing against #2414's widen-coverage goal
+   -- accepted because those names are build/system output that essentially never hold
+   an agent, and a single case-insensitive set is a more robust guard than a two-set
+   split that could let case-sensitivity creep back into the TCC subset that must have
+   it. It is NOT true that this "only ever skips more" -- it can skip a case-variant
+   legit folder; the judgement is that the probability is negligible and the TCC
+   correctness is not. */
+const SCAN_SKIP_LOWER = new Set(Array.from(SCAN_SKIP, (n) => n.toLowerCase()));
+function isScanSkip(name) { return SCAN_SKIP_LOWER.has(name.toLowerCase()); }
 
 /* The curated project parents under $HOME, scanned deep. Names only; only those
    that actually exist become roots. This is the "sensible roots" set, and it is
@@ -730,17 +840,86 @@ function scanRootsFromEnv() {
   return roots.length ? roots : null;
 }
 
+/* #2414: DISCOVER candidate parents under $HOME rather than trusting ONLY the
+   fixed SCAN_DEEP_NAMES list. Josh's requirement, verbatim: "look in ALL the
+   possible places ... it could have been called anything." An agent under an
+   arbitrary-named top-level folder (his "Work", or any name not in
+   SCAN_DEEP_NAMES) was reached only by the shallow $HOME walk (HOME_DEPTH=2),
+   which misses anything nested deeper than a grandchild. Promoting every real
+   top-level home folder to a DEEP root reaches those agents wherever they live,
+   without a fixed name list to fall through.
+
+   🛑 #2125 PRESERVED. SCAN_SKIP still filters out the TCC-protected folders
+   (Documents, Downloads, Desktop) and the macOS home noise, and every dotdir is
+   skipped, so discovery never turns one of those into a deep root: the AUTO scan
+   still fires no macOS access prompt. The TCC folders reach a scan only through
+   the explicit importScan tcc-root path below, unchanged.
+
+   ⚠️ REAL DIRECTORIES ONLY (lstat, not stat). A curated root NAME is trusted, so
+   a symlinked `~/work` is followed once (the external-volume case the scan-root
+   symlink policy exists for). A DISCOVERED name is ARBITRARY and untrusted, so a
+   top-level symlink is NOT followed here -- an arbitrary `~/x -> /` must never
+   become a deep root. That is the no-symlink-escape rule this module family has
+   had to relearn repeatedly; discovery holds to the conservative side of it. */
+function discoverHomeParents(home) {
+  const out = [];
+  let names;
+  try { names = fs.readdirSync(home); } catch { return out; }   // never throws (module contract)
+  /* 🔑 NO name-based curated skip. It is tempting to skip a name already in
+     SCAN_DEEP_NAMES (it is added as a curated root above), but that skip is wrong on
+     a case-SENSITIVE fs: there `~/Work` is a DISTINCT directory from the curated
+     `~/work` (which may not exist), so skipping `Work` by name would leave it covered
+     by NEITHER -- the exact "it could have been called anything" miss this card fixes.
+     Redundancy on a case-INSENSITIVE fs (`~/work` reached as both a curated and a
+     discovered root) is collapsed correctly and cheaply by seenDirs (dev+ino) in
+     scan(), at the cost of one extra statSync that is then skipped. Let the physical-
+     identity dedup handle it; do not second-guess it by name. */
+  for (const name of names) {
+    if (name.startsWith('.')) continue;          // every dotdir: .config, .cache, .Trash…
+    if (isScanSkip(name)) continue;              // TCC folders + build/vendor + macOS noise (#2125), case-insensitive
+    const dir = path.join(home, name);
+    let st;
+    /* lstat, so a symlink reports isDirectory()===false and is skipped -- an
+       arbitrary top-level symlink is never followed out of $HOME. */
+    try { st = fs.lstatSync(dir); } catch { continue; }
+    if (!st.isDirectory()) continue;
+    out.push({ dir, maxDepth: SCAN.DEEP_DEPTH });
+  }
+  return out;
+}
+
 function defaultScanRoots(opts) {
   const importScan = !!(opts && opts.importScan);
   const home = os.homedir();
-  /* 🔑 THE DEEP CURATED PARENTS FIRST, `$HOME` LAST. Agents live under `work`,
-     `projects` and the like; `$HOME` is a shallow catch-all. Ordering them first,
-     plus the shared visited-set in `scan()`, means the directory-visit budget is
-     spent where agents actually are before the shallow home walk (which re-reaches
-     those same parents) can consume it. */
   const roots = [];
+  /* 🔑 #2414: $HOME ITSELF FIRST, AT DEPTH 0. (Before #2414 this function put the
+     curated parents first and a SHALLOW $HOME walk LAST; that ordering is gone --
+     see below.) This reads `~/CLAUDE.md` and the loose `~/*.md` import files at the
+     top of $HOME (one directory visit) BEFORE any deep root can spend the MAX_DIRS
+     budget. The user home root is one of Josh's seeded locations, and promoting every
+     top-level folder to a deep root (below) means a single heavyweight non-agent tree
+     (`~/go/pkg/mod`, `~/anaconda3`) could exhaust the budget before a $HOME-last walk
+     ever ran -- so the home root is read up front and never starved. maxDepth 0 =
+     read this folder, do not descend: the descent the old shallow walk did (two
+     levels of grandchildren) is now fully covered by the discovered deep roots, which
+     reach FURTHER (DEEP_DEPTH), so nothing is lost and the redundant shallow re-walk
+     is dropped.
+     ⚠️ RESIDUAL, bounded not eliminated: starvation is fixed for the home root, and
+     the common heavyweight non-agent trees are now skipped (SCAN_SKIP carries
+     go/anaconda3/miniconda3 alongside node_modules), but among the remaining
+     discovered deep roots (walked in arbitrary readdirSync order) a large early tree
+     could still consume MAX_DIRS before a later arbitrary-named agent folder is
+     reached. That is bounded by MAX_DIRS and surfaced honestly via bounded.dirs
+     ("there may be more"), which is why the tail is accepted rather than chased with
+     a per-root fairness scheme. */
+  roots.push({ dir: home, maxDepth: 0 });
   for (const name of SCAN_DEEP_NAMES) roots.push({ dir: path.join(home, name), maxDepth: SCAN.DEEP_DEPTH });
-  roots.push({ dir: home, maxDepth: SCAN.HOME_DEPTH });
+  /* #2414: arbitrary-named top-level folders, discovered and walked DEEP -- so an
+     agent under a folder Josh could have "called anything" is reached at full depth,
+     not just the old shallow grandchild walk. Runs on BOTH scan types: these are
+     non-TCC folders that need no grant, so they belong on the auto scan too. The
+     shared seenDirs set collapses the overlap with the curated roots above. */
+  for (const r of discoverHomeParents(home)) roots.push(r);
   /* 🛑 #2125: the TCC-protected home folders are reached ONLY under importScan.
      The AUTO first-run scan (discover.scan() with no importScan) never names them,
      so a brand-new user is not bombarded with macOS Documents/Downloads/Desktop
@@ -751,14 +930,19 @@ function defaultScanRoots(opts) {
      re-adds exactly the roots #1938 (Documents, deep) and #1652 (Downloads/Desktop,
      import-only) contributed, but gated behind the explicit action.
      ⚠️ ~/Documents is added as an explicit ROOT even though it is in SCAN_SKIP:
-     SCAN_SKIP filters CHILDREN during descent, so it keeps ~/Documents out of the
-     $HOME walk (path 2), but a root is its own walk start and is not self-skipped.
+     isScanSkip keeps ~/Documents out of the AUTO scan (it filters discovery's
+     promoted roots and the descent children), but a root is its own walk start and
+     is not self-skipped, so naming it here still walks it under importScan.
      Downloads/Desktop are import-only (loose FILES only; nobody RUNS an agent
      there), which is why they carry importOnly + the shallow DROP_DEPTH. */
   if (importScan) {
-    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH });
+    // #3/#2125: these three are the TCC-protected roots. `tcc: true` marks them so scan()
+    // routes their walk through the app-identity hatch (--kosmos-app-scan) instead of walking
+    // them in the engine (a different TCC subject, which re-prompts). The in-engine walk seeds
+    // its stack from the NON-tcc roots only; the tcc roots are handled by the hatch merge.
+    roots.push({ dir: path.join(home, 'Documents'), maxDepth: SCAN.DEEP_DEPTH, tcc: true });
     for (const name of ['Downloads', 'Desktop']) {
-      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true });
+      roots.push({ dir: path.join(home, name), maxDepth: SCAN.DROP_DEPTH, importOnly: true, tcc: true });
     }
   }
   return roots;
@@ -798,6 +982,138 @@ function readClaudeHead(file) {
  *   env-or-default roots and the SCAN bounds.
  * @returns {{ok: boolean, candidates: Array, bounded: object, because: string|null}}
  */
+/* #3/#2125: default TCC-root scanner -- the file-based, NON-BLOCKING bridge to the app-identity
+   hatch (native-app --kosmos-app-scan). scan() is synchronous and must never block the event loop
+   polling, so this NEVER waits: it returns a fresh scan-result.json if the app has already produced
+   one, else it drops a scan-request.json (so the app produces one) and returns null -- scan() then
+   reports scanning:true and the caller retries /api/scan-import shortly. FRESHNESS, not a nonce,
+   matches result->request: only one find-agents scan runs at a time (one user, one screen), so a
+   scan-result.json newer than TCC_RESULT_FRESH_MS is the answer to the current session's request;
+   it is consumed on read so a later unrelated session cannot pick up a stale answer. Best-effort
+   throughout -- any fs failure yields null (scanning:true), never a throw. Overridable via
+   opts.tccScan for tests. */
+const TCC_RESULT_FRESH_MS = 30 * 1000;
+const TCC_REQUEST_PENDING_MS = 15 * 1000;   // MUST stay >= TCC_GIVE_UP_MS: the give-up check runs
+                                            // first, so a request older than GIVE_UP_MS never reaches
+                                            // the pending/re-drop block anyway.
+/* #3/#2125: the "never hangs" bound. If the native app is present but our request goes unanswered
+   this long (a crashed/failed hatch), give up and COMPLETE the scan without TCC rows rather than
+   report scanning:true forever. The plan required a give-up; this is it. */
+const TCC_GIVE_UP_MS = 12 * 1000;
+// A resolved-but-empty TCC result: the scan is COMPLETE (scanning:false) with no TCC rows. Used
+// when no native app can answer (headless/browser) or when the app never answered in time.
+const TCC_UNAVAILABLE = Object.freeze({ dirs: [], loose: [], bounded: { tccUnavailable: true } });
+/* #3/#2125: the nonce + time of the last scan-request THIS process dropped. A result is accepted
+   only when it echoes this nonce -- so two overlapping find-agents sessions cannot cross results
+   (freshness alone could not tell them apart). Module-scoped: the engine is one process; a restart
+   forgets it and simply drops a fresh request, which the app answers with a new nonce. */
+let tccPendingReq = null;
+function defaultTccScan(tccRoots, budgets) {
+  // No native app to answer means the hatch cannot run (a headless `kosmos start` board opened in
+  // a plain browser, or the app not running). We must NOT hang on scanning:true, and must NOT walk
+  // the TCC roots in-engine (that is the re-prompt this whole change removes). So COMPLETE the scan
+  // with no TCC rows: a resolved-empty result -> scanning:false. (nativePresent = a11y-status is
+  // fresh, i.e. the app is maintaining its status writer.)
+  let nativeUp = false;
+  try { nativeUp = promptrequest.nativePresent(); } catch { nativeUp = false; }
+  if (!nativeUp) return TCC_UNAVAILABLE;
+
+  let reqPath, resPath;
+  try {
+    reqPath = path.join(store.ROOT, 'scan-request.json');
+    resPath = path.join(store.ROOT, 'scan-result.json');
+  } catch {
+    // Resolve failure -> COMPLETE the scan empty, never null: a null here returns before
+    // tccPendingReq is set, so the give-up branch could never fire and scanning:true would persist
+    // across every retry. Resolved-empty preserves the never-hangs guarantee.
+    return TCC_UNAVAILABLE;
+  }
+
+  // A fresh result that answers OUR request (nonce match), consumed on read so a later unrelated
+  // session cannot pick up a stale answer.
+  let res = null;
+  try {
+    const st = fs.statSync(resPath);
+    if (Date.now() - st.mtimeMs < TCC_RESULT_FRESH_MS) {
+      const parsed = JSON.parse(fs.readFileSync(resPath, 'utf8'));
+      if (parsed && parsed.ok && tccPendingReq && parsed.req === tccPendingReq.nonce) {
+        res = parsed;
+        try { fs.unlinkSync(resPath); } catch { /* best effort */ }
+        tccPendingReq = null;
+      }
+    }
+  } catch { /* no result yet */ }
+  if (res) return { dirs: res.dirs || [], loose: res.loose || [], bounded: res.bounded || {} };
+
+  // GIVE UP: the app is present but our request has gone unanswered too long (a crashed/failed
+  // hatch). Stop reporting scanning:true forever -- complete the scan without TCC rows. getImportScan
+  // then caches this complete result, so the front-end's retry stops rather than polling endlessly.
+  // The threshold is overridable (read at call time) so a test can reach this branch without a
+  // 12s wait; an empty/absent value keeps the real bound.
+  const rawGiveUp = process.env.AGENT_WORKFORCE_TCC_GIVEUP_MS;
+  const giveUpMs = rawGiveUp !== undefined && rawGiveUp !== '' ? Number(rawGiveUp) : TCC_GIVE_UP_MS;
+  if (tccPendingReq && (Date.now() - tccPendingReq.at) > giveUpMs) {
+    tccPendingReq = null;
+    return TCC_UNAVAILABLE;
+  }
+
+  // No matching result. Drop a request so the app produces one, unless ours is still pending.
+  const pending = tccPendingReq && (Date.now() - tccPendingReq.at < TCC_REQUEST_PENDING_MS);
+  if (!pending) {
+    const nonce = String(Date.now()) + '-' + Math.random().toString(16).slice(2);
+    try {
+      // Write tmp+rename so a reader (the app watcher) never sees a torn request (parity with the
+      // store's other writers). rename is atomic within the same dir.
+      const tmp = reqPath + '.tmp';
+      fs.writeFileSync(tmp, JSON.stringify({
+        roots: tccRoots.map((r) => ({ dir: r.dir, maxDepth: r.maxDepth, importOnly: r.importOnly === true })),
+        budgets,
+        req: nonce,
+      }));
+      fs.renameSync(tmp, reqPath);
+      tccPendingReq = { nonce, at: Date.now() };
+    } catch { /* best effort; the retry re-attempts */ }
+  }
+  return null;
+}
+
+/* #3/#2125: single-sourced detection + row construction, called by BOTH the in-engine walk and
+   the app-identity hatch merge, so a folder/loose row is built the SAME way regardless of which
+   process read the head bytes. The walk keeps its own counter/cap logic; these are pure. The
+   content gate is the exact `found()` signal: names somebody (identityFromText) OR addresses
+   somebody without a readable name (INTRODUCES) -- a template ("You are an expert in Rust") stays
+   out. Returns the row or null. */
+function folderRow(dir, text) {
+  if (text == null) return null;
+  const id = status.identityFromText(text);
+  if (!((id && id.displayName) || INTRODUCES.test(text))) return null;
+  return { dir, name: (id && id.displayName) || '', role: (id && id.role) || null, preview: text };
+}
+function looseRow(file, text) {
+  if (text == null) return null;
+  const id = status.identityFromText(text);
+  if (!((id && id.displayName) || INTRODUCES.test(text))) return null;
+  /* #2452: a Gemini-format file (identity in YAML front-matter, not a "You are <Name>"
+     line) dropped as a LOOSE file OUTSIDE the known gemini home (Documents/Downloads/a
+     Work folder -- the real import spread) is reached by the walk, not by the gemini
+     merge below (which only reads geminisession.agentFiles()). Without this it matched
+     INTRODUCES on its "You are a helpful assistant ..." body and was offered with an
+     EMPTY name. Read the SAME front-matter identity the merge uses (agentfile.geminiIdentity)
+     so a Gemini agent keeps its name wherever it is found -- ranked below a real
+     "You are <Name>" line (id.displayName) but above the #8 H1 heading, because the
+     front-matter name is authoritative where it exists and the heading is a last-resort
+     guess. A non-gemini file yields null here and is unchanged. */
+  const g = agentfile.geminiIdentity(text);
+  // #8: fall back to the H1 heading when nothing above names the agent, so the row
+  // shows the same name the import form prepopulates.
+  return {
+    file,
+    name: (id && id.displayName) || (g && g.displayName) || agentfile.headingName(text) || '',
+    role: (id && id.role) || (g && g.role) || null,
+    preview: text,
+  };
+}
+
 function scan(opts) {
   const o = opts || {};
   const explicit = Array.isArray(o.roots) ? o.roots : scanRootsFromEnv();
@@ -836,21 +1152,29 @@ function scan(opts) {
   for (const d of declined()) known.add(d);
 
   const byDir = new Map();
-  /* Directories already read, across ALL roots, keyed by CANONICAL REALPATH rather
-     than the literal path. Three different aliases resolve to one physical directory
-     and must not be walked twice:
-       - `$HOME` (walked last, shallow) re-reaches the curated parents (walked first,
-         deep) that live directly under it;
+  /* Directories already read, across ALL roots, keyed by PHYSICAL-DIRECTORY IDENTITY
+     (`st.dev + ':' + st.ino`) rather than any path string. Three different aliases
+     resolve to one physical directory and must not be walked twice:
+       - #2414: a curated parent and a DISCOVERED parent naming the same folder (e.g.
+         `~/work` in SCAN_DEEP_NAMES and also found by discoverHomeParents) are two
+         root entries for one directory; discovery deliberately does NOT skip curated
+         names (that skip breaks case-sensitive coverage), so this dedup is what
+         collapses the overlap;
        - on a CASE-INSENSITIVE filesystem (the macOS default, and the target), the two
          case variants in the root set (`projects`/`Projects`, `Kosmos`/`kosmos`) are the
-         SAME directory, and `$HOME`'s readdir returns the on-disk case, which need not
-         match the fixed case a curated root used;
+         SAME directory, reached as two differently-cased paths;
        - a symlinked root (now followed) can point at a place another root also reaches.
-     Keying on the literal string missed all three and emitted one agent as two rows
-     with differently-cased or differently-aliased paths, double-spending the visit
-     budget. `realpathSync` collapses them; it falls back to the literal path if the
-     directory has just vanished (TOCTOU), and children are never symlinks (they are
-     `lstat`-refused on descent), so this cannot follow a link out of the tree. */
+     🛑 #2408: this was keyed on `fs.realpathSync(dir)` and a comment here CLAIMED that
+     "realpathSync collapses" the case variants. It does NOT: `realpathSync` on macOS
+     resolves symlinks but PRESERVES the input path's case, so `realpathSync('~/projects')`
+     and `realpathSync('~/Projects')` return two differently-cased strings and the case
+     variants were emitted as two rows (measured: one agent, two candidates). The device+
+     inode pair IS the physical identity: it collapses case variants AND symlink aliases on
+     a case-insensitive fs, and correctly keeps `~/projects` and `~/Projects` DISTINCT on a
+     case-sensitive fs (where they genuinely are two directories). `fs.statSync` follows the
+     symlink to the target's inode (same collapse `realpathSync` gave for links); a dir
+     hardlink is forbidden by the OS, so dev+ino is unique per directory. If statSync throws
+     (TOCTOU, the dir just vanished), the dir is skipped -- it cannot be walked anyway. */
   const seenDirs = new Set();
   let visited = 0;
   let hitDirs = false;
@@ -858,22 +1182,39 @@ function scan(opts) {
   let hitDepth = false;
 
   /* #1652: loose importable agent FILES, keyed by canonical realpath so the same file
-     reached through two aliased roots is offered once. Bounded by MAX_IMPORTABLE (rows)
-     and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
+     reached through two aliased roots is offered once. #2408: kept on realpath (NOT switched
+     to dev+ino like seenDirs), for two reasons. (1) The CASE-variant alias is already
+     collapsed upstream by seenDirs (dev+ino), which skips the re-walk of a case-variant root
+     entirely, so a loose file under it is never re-collected. (2) realpath here is
+     load-bearing in its own right: it collapses a SYMLINKED loose .md reached via two paths.
+     The only alias realpath misses that dev+ino would catch is a HARDLINKED .md across two
+     distinct real dirs, which is not a shape agent files occur in. Bounded by MAX_IMPORTABLE
+     (rows) and MAX_MD_READS (total head-reads), independent of the connect scan's dir budget. */
   const byFile = new Map();
   const seenFiles = new Set();
   let mdReads = 0;
   let hitImportable = false;
 
+  /* #3/#2125: the TCC-protected roots (Documents/Downloads/Desktop, marked tcc:true by
+     defaultScanRoots under importScan) are walked by the app-identity hatch, NOT the engine --
+     an engine walk of them is a different TCC subject and re-prompts. Partition them out of the
+     in-engine walk and merge them from the hatch after the walk. */
+  const tccRoots = roots.filter((r) => r && r.tcc === true);
+
   outer:
   for (const root of roots) {
+    if (root && root.tcc === true) continue;   // #3/#2125: handled by the hatch merge below
     let rootStat;
     /* 🔑 `stat`, NOT `lstat`, FOR THE ROOT: a scan root is a CURATED, TRUSTED location
-       (the fixed set under $HOME, or an explicit test override), and a person whose
-       `~/work` is a symlink to an external volume keeps their agents there on purpose --
-       dropping a symlinked root would hide that whole population and reintroduce the
-       "Create your first agent" defect this card exists to fix. So the root symlink is
-       FOLLOWED once, to enter the place the person chose.
+       (the fixed set under $HOME, a #2414 DISCOVERED top-level $HOME folder, or an
+       explicit test override), and a person whose `~/work` is a symlink to an external
+       volume keeps their agents there on purpose -- dropping a symlinked root would
+       hide that whole population and reintroduce the "Create your first agent" defect
+       this card exists to fix. So the root symlink is FOLLOWED once, to enter the place
+       the person chose. (#2414: a DISCOVERED root is safe to follow-once here because
+       discoverHomeParents already lstat-proved it is a real directory, never a symlink,
+       so this statSync only re-resolves a dir; a curated/test root is trusted by
+       construction as before.)
        ⚠️ THE NO-ESCAPE GUARD IS ON THE DESCENDED CHILDREN, NOT THE ROOT. Every child
        below is `lstat`ed and a symlink is refused, so the walk never follows a link OUT
        of the root's real tree -- the escape this module family has shipped six times.
@@ -890,10 +1231,16 @@ function scan(opts) {
       if (byDir.size >= maxCandidates) { hitCount = true; break outer; }
       if (visited >= maxDirs) { hitDirs = true; break outer; }
       const cur = stack.pop();
-      let real;
-      try { real = fs.realpathSync(cur.dir); } catch { real = cur.dir; }
-      if (seenDirs.has(real)) continue;   // already read via an earlier root, a case variant, or a symlink alias
-      seenDirs.add(real);
+      /* #2408: key on the physical-directory identity (dev+ino), NOT realpathSync -- see
+         the seenDirs comment. statSync follows a symlinked dir to its target's inode; a
+         dir that just vanished (TOCTOU) throws and is skipped (it cannot be walked).
+         `bigint:true` so dev/ino are exact 64-bit values: a de-dup key that lost precision
+         (a numeric ino past 2^53) could stringify-collide and mis-collapse two DISTINCT
+         directories -- the exact mis-dedup class this card removes. */
+      let idkey;
+      try { const st = fs.statSync(cur.dir, { bigint: true }); idkey = st.dev.toString() + ':' + st.ino.toString(); } catch { continue; }
+      if (seenDirs.has(idkey)) continue;   // already read via an earlier root, a case variant, or a symlink alias
+      seenDirs.add(idkey);
       visited += 1;
 
       let names;
@@ -905,34 +1252,15 @@ function scan(opts) {
          there, so a folder-connect row would be wrong; only loose importable FILES below
          are collected from those locations. */
       if (!cur.importOnly && !byDir.has(cur.dir) && !known.has(cur.dir)) {
-        const text = readClaudeHead(path.join(cur.dir, 'CLAUDE.md'));
-        if (text != null) {
-          const id = status.identityFromText(text);
-          /* 🔑 THE EXACT SIGNAL `found()` USES, and BOTH arms of it. A file that
-             names somebody (`identityFromText`) OR one that addresses somebody
-             without a readable name (`INTRODUCES`) is an agent -- the same union
-             `found()` draws its named agents and its unnamed-intro adoptable rows
-             from. It is NOT widened past that: "You are an expert in Rust" is a
-             template and stays out, which is the false-positive class `found()`
-             already refuses. */
-          if ((id && id.displayName) || INTRODUCES.test(text)) {
-            if (!alreadyIn(cur.dir, roster)) {
-              byDir.set(cur.dir, {
-                dir: cur.dir,
-                /* Empty when the file introduces somebody but names nobody: the
-                   screen asks rather than guesses, exactly as the adopt rows do. */
-                name: (id && id.displayName) || '',
-                role: (id && id.role) || null,
-                /* The bytes the screen SHOWS. Bounded to READ_CAP, and it is the
-                   whole point of this card: a list that ASSERTS is the defect
-                   discover.js warns about ("a wrong list is used"); a list that
-                   SHOWS the file moves the judgement to the person. */
-                preview: text,
-              });
-            } else {
-              known.add(cur.dir);
-            }
-          }
+        /* folderRow is THE EXACT SIGNAL `found()` uses (names somebody OR INTRODUCES), the
+           row built identically here and in the hatch merge below (#3/#2125). `preview` is
+           the bytes the screen SHOWS -- a list that ASSERTS is the defect discover.js warns
+           about; a list that SHOWS the file moves the judgement to the person. `name` is
+           empty when the file introduces somebody but names nobody: the screen asks. */
+        const row = folderRow(cur.dir, readClaudeHead(path.join(cur.dir, 'CLAUDE.md')));
+        if (row) {
+          if (!alreadyIn(cur.dir, roster)) byDir.set(cur.dir, row);
+          else known.add(cur.dir);
         }
       }
 
@@ -967,27 +1295,25 @@ function scan(opts) {
           seenFiles.add(freal);
           perDir += 1;
           mdReads += 1;
-          const text = readClaudeHead(file);   // regular-file + symlink-safe + byte-bounded, same as CLAUDE.md
-          if (text == null) continue;
-          const id = status.identityFromText(text);
-          if ((id && id.displayName) || INTRODUCES.test(text)) {
-            byFile.set(freal, {
-              file,
-              name: (id && id.displayName) || '',
-              role: (id && id.role) || null,
-              preview: text,
-            });
-          }
+          // regular-file + symlink-safe + byte-bounded, same as CLAUDE.md; looseRow applies
+          // the identical detection + row shape the hatch merge uses (#3/#2125, #8).
+          const row = looseRow(file, readClaudeHead(file));
+          if (row) byFile.set(freal, row);
         }
       }
 
       /* Do not descend past the cap. The CLAUDE.md above was still read, so a
-         folder at the cap is offered; only its children are out of reach. */
-      if (cur.depth >= maxDepth) { hitDepth = true; continue; }
+         folder at the cap is offered; only its children are out of reach.
+         #2414: hitDepth means "a root meant to descend was truncated, so deeper
+         agents may be unreached". A maxDepth:0 root is read-ONLY by design (the
+         $HOME depth-0 read, whose children are covered by the discovered deep
+         roots), NOT a truncation -- so it must not raise bounded.depth, which
+         would otherwise become a permanent false "there may be more" signal. */
+      if (cur.depth >= maxDepth) { if (maxDepth > 0) hitDepth = true; continue; }
 
       for (const name of names) {
         if (name.startsWith('.')) continue;   // every dotdir: .git, .Trash, .config, .cache…
-        if (SCAN_SKIP.has(name)) continue;     // build/vendor output + macOS home noise
+        if (isScanSkip(name)) continue;        // build/vendor output + macOS home noise (case-insensitive, #2414)
         const child = path.join(cur.dir, name);
         let cst;
         /* `lstat`: a symlinked directory reports isDirectory()===false here, so it
@@ -998,6 +1324,111 @@ function scan(opts) {
         stack.push({ dir: child, depth: cur.depth + 1, importOnly: cur.importOnly });
       }
     }
+  }
+
+  /* #3/#2125: merge the TCC roots the app-identity hatch walked (--kosmos-app-scan), so those
+     folders are scanned WITHOUT the engine touching them. `tccScan` is injectable (tests pass a
+     stub); the default drops the request and reads a ready result NON-BLOCKING (scan() is sync and
+     must never block the event loop polling). A null return means the hatch result is not ready
+     yet -> `scanning:true`, and the caller retries /api/scan-import shortly. Rows are built by the
+     SAME folderRow/looseRow the walk uses, so the hatch path cannot diverge from the engine path.
+     Dedup: skip a dir/file already found by the walk, found(), alreadyIn or declined (known). */
+  let scanning = false;
+  let tccUnavailable = false;   // #3/#2125: the TCC roots could not be scanned (no app / hatch gave up)
+  if (tccRoots.length) {
+    const tccScan = typeof o.tccScan === 'function' ? o.tccScan : defaultTccScan;
+    let hatch = null;
+    try {
+      // The hatch emission is bounded by the READ budgets (maxDirs folder reads, maxMdReads loose
+      // reads) -- the same bound the engine walk uses -- NOT by the DETECTED-row caps: capping raw
+      // emission on a detected-equivalent would drop real agents enumerated after non-agent files.
+      // The DETECTED-row caps (maxCandidates/MAX_IMPORTABLE) are applied HERE, on the merge, below.
+      hatch = tccScan(tccRoots, { maxDirs, maxMdPerDir: SCAN.MAX_MD_PER_DIR, maxMdReads, readCap: SCAN.READ_CAP });
+    } catch { hatch = null; }
+    if (!hatch) {
+      scanning = true;
+    } else {
+      for (const d of (hatch.dirs || [])) {
+        // Same row caps the in-engine walk enforces (#1652): a huge Documents tree must not push
+        // candidates past maxCandidates without the screen saying "there may be more".
+        if (byDir.size >= maxCandidates) { hitCount = true; break; }
+        if (!d || !d.dir || byDir.has(d.dir) || known.has(d.dir)) continue;
+        const row = folderRow(d.dir, d.instr && d.instr.head);
+        if (row) { if (!alreadyIn(d.dir, roster)) byDir.set(d.dir, row); else known.add(d.dir); }
+      }
+      for (const l of (hatch.loose || [])) {
+        if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
+        // 🔑 Keyed on the LITERAL l.file, not a canonical realpath like the in-engine walk's byFile.
+        // This is correct ONLY because the tcc:true roots are partitioned OUT of the in-engine walk
+        // (above), so the hatch population and the walk population never overlap -- there is no
+        // realpath alias to collide. Do NOT realpath l.file here: it is a path under a TCC folder
+        // the ENGINE is not granted, so resolving it could itself touch/prompt (the whole reason the
+        // hatch does the reading). The hatch already realpath-dedups its own walk. If that partition
+        // invariant ever changes, revisit this dedup basis.
+        if (!l || !l.file || byFile.has(l.file)) continue;
+        const row = looseRow(l.file, l.head);
+        if (row) byFile.set(l.file, row);
+      }
+      if (hatch.bounded) {
+        if (hatch.bounded.dirs) hitDirs = true;
+        if (hatch.bounded.importable) hitImportable = true;
+        // The TCC roots could not be scanned (no native app, or the hatch never answered). Surface
+        // it so the screen can say "we couldn't scan your Documents/Downloads/Desktop" rather than
+        // present a TCC-less list as complete (which, cached for SCAN_CACHE_MS, would silently hide
+        // those agents on a transient failure).
+        if (hatch.bounded.tccUnavailable) tccUnavailable = true;
+        if (Number.isFinite(hatch.bounded.visited)) visited += hatch.bounded.visited;
+      }
+    }
+  }
+
+  /* #2410: the Gemini CLI's custom-agent DEFINITION files (<gemini-home>/agents/*.md).
+     They sit under a dotdir the walk above skips (`name.startsWith('.')`), and their
+     identity is in YAML front-matter, not a "You are <Name>" line -- so the walk both
+     never reaches them and, if it did, would offer them with an EMPTY name.
+     geminisession.agentFiles() reads the known location DIRECTLY (as foundGemini reads
+     ~/.gemini/projects.json), so the dotdir skip does not apply; agentfile.geminiIdentity
+     names them from the front-matter. Merged into the loose importable list because a
+     Gemini agent is a FILE (imported by-file through the create form -> createAgent), not
+     a work FOLDER. Keyed by realpath into the same byFile map, honoring the same
+     MAX_IMPORTABLE / maxMdReads budgets as the walk. Runs only where the walk itself
+     would: the `!explicit && sandboxIsInconsistent()` early-return above already gives a
+     fixture-inconsistent machine an empty answer before this point, and a test points
+     AGENT_WORKFORCE_GEMINI_HOME at a sandbox exactly as the foundGemini tests do. A file
+     whose front-matter is not the Gemini shape falls back to the generic looseRow. */
+  /* 🛑 ONLY REACH THE GEMINI HOME ON THE REAL SCAN PATH, OR WHEN A TEST HAS EXPLICITLY
+     POINTED IT AT A SANDBOX. The scan's sandbox early-return only guards `!explicit`, so
+     an EXPLICIT-roots caller (every scan test) would otherwise read the operator's real
+     ~/.gemini/agents here -- which both breaks those tests' importable counts on a machine
+     that has Gemini agents and falsifies discover.import-1652's "os.homedir() is never
+     walked" contract. Guarding on sandboxIsInconsistent() alone is wrong in the other
+     direction: it is TRUE in a tmp-sandbox test that legitimately points the Gemini home
+     at a fixture (AGENT_WORKFORCE_DATA under /tmp), so it would skip the very merge such a
+     test exercises. The correct signal is: the REAL run passes no explicit roots, and a
+     test that means to exercise this merge sets one of the Gemini-home overrides (the same
+     ones geminisession.HOME() honours). An explicit-roots test that set neither is not
+     testing Gemini and must not read a real home. */
+  const geminiHomeOverridden = !!(process.env.AGENT_WORKFORCE_GEMINI_HOME
+    || process.env.GEMINI_CLI_HOME || process.env.AGENT_WORKFORCE_HOME);
+  let geminiAgentFiles = [];
+  if (!explicit || geminiHomeOverridden) {
+    try { geminiAgentFiles = geminisession.agentFiles(); } catch { geminiAgentFiles = []; }
+  }
+  for (const file of geminiAgentFiles) {
+    if (byFile.size >= SCAN.MAX_IMPORTABLE) { hitImportable = true; break; }
+    if (mdReads >= maxMdReads) { hitImportable = true; break; }
+    let freal;
+    try { freal = fs.realpathSync(file); } catch { freal = file; }
+    if (seenFiles.has(freal)) continue;   // already collected by the walk (an aliased root reached it)
+    seenFiles.add(freal);
+    mdReads += 1;
+    const head = readClaudeHead(file);
+    if (head == null) continue;   // unreadable, or not a regular file (a symlinked dir)
+    const g = agentfile.geminiIdentity(head);
+    const row = g
+      ? { file, name: g.displayName, role: g.role || null, preview: head }
+      : looseRow(file, head);
+    if (row) byFile.set(freal, row);
   }
 
   const candidates = [...byDir.values()].sort((a, b) => String(a.name || a.dir).localeCompare(String(b.name || b.dir)));
@@ -1029,7 +1460,12 @@ function scan(opts) {
        is gated on the two that signal a real early stop. `importable` is the #1652
        loose-file-read wall, surfaced like the others so the screen can say "and there may
        be more files". */
-    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable },
+    bounded: { depth: hitDepth, dirs: hitDirs, count: hitCount, visited, importable: hitImportable, tccUnavailable },
+    /* #3/#2125: true only when a TCC-root hatch result is not ready yet -- the caller (the
+       /api/scan-import route + getImportScan cache) treats a scanning:true result as PARTIAL
+       (non-TCC rows only) and does NOT cache it, so a retry shortly after picks up the TCC rows
+       the hatch has since written. Absent/false on the auto scan (no TCC roots) and once merged. */
+    scanning,
     because: null,
   };
 }
@@ -1460,6 +1896,7 @@ function disconnect(name) {
 
 module.exports = { alreadyIn,
   foundCodex,
+  foundGemini,
   codexIdentity,
   runningUnderName, found, scan, connect, disconnect, dismissed, dismiss, DISMISS_FILE,
   declined, decline, undecline, DECLINED_FILE,

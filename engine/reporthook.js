@@ -115,13 +115,40 @@ function entryFor(scriptPath, opts) {
  * literal, so they cannot start a command -- and `( )` in particular MUST be
  * allowed, because `C:\Program Files (x86)\...` is a completely ordinary install
  * path and refusing it would break the common case to defend against a hazard
- * the quotes already neutralize. We do not yet know which shell Claude Code uses
- * to run a hook on Windows, so this is the conservative superset of the two
- * plausible DOUBLE-QUOTED contexts (cmd.exe: `"`,`%`; PowerShell: `"`,`` ` ``,`$`);
- * the box's real-win32 verify confirms the shell, and the set relaxes to `["%]`
- * if it is cmd.exe only. A backslash is excluded (the ordinary Windows
- * separator; the posix `\\` would refuse every real path). Type-safe: a
- * non-string is unsafe rather than throwing on `.test`.
+ * the quotes already neutralize.
+ *
+ * 🔑 THE SHELL IS NOW MEASURED, AND IT IS NEITHER OF THE TWO THIS SET WAS BUILT
+ * FOR. This comment used to say the shell was unknown, offer cmd.exe ∪ PowerShell
+ * as the conservative superset, and invite relaxing to `["%]` "if it is cmd.exe
+ * only". Measured on the Windows box 2026-09-07 by walking the hook's own parent
+ * chain:
+ *
+ *     node.exe (the hook)
+ *       <- bash.exe   C:\Program Files\Git\bin\bash.exe
+ *       <- claude.exe
+ *
+ * Claude Code runs a Windows hook through BASH, which it locates externally (Git
+ * Bash here) rather than bundling. So the context is a bash double-quoted string.
+ *
+ * ⚠️ DO NOT TAKE THE RELAXATION THIS COMMENT USED TO OFFER. Dropping to `["%]`
+ * would remove `$` and `` ` ``, both of which bash expands inside double quotes --
+ * the invitation was written against the wrong shell, and following it would open
+ * exactly the hole this function exists to close.
+ *
+ * Re-derived against bash, the set below is CORRECT AS IT STANDS: `"` ends the
+ * quoting, `$` and `` ` `` expand, CR/LF start a new command -- all refused. `%`
+ * is harmless in bash and stays refused, which is an over-refusal in the safe
+ * direction and costs nothing real. And a backslash is safely ALLOWED (the
+ * ordinary Windows separator; the posix `\\` would refuse every real path)
+ * precisely BECAUSE the four characters that would give a preceding backslash any
+ * meaning are themselves refused, so the dangerous pair cannot occur.
+ *
+ * 📌 STILL OPEN, and it is a bigger question than this guard: if Claude Code
+ * needs an external bash to run ANY hook command, a stock Windows box without Git
+ * for Windows may run no hooks at all -- including this node entry. Measured only
+ * with Git Bash present; a clean VM would settle it. See #570.
+ *
+ * Type-safe: a non-string is unsafe rather than throwing on `.test`.
  *
  * A raw CR/LF is refused on BOTH platforms: cmd.exe parses a command line
  * line-by-line before quote state is considered, so an embedded newline could

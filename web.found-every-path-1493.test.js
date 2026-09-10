@@ -1,32 +1,25 @@
 'use strict';
 
 /**
- * #1493: the disk was only ever read for somebody Kosmos thought had NO agents.
+ * #2497 (Josh, 2026-09-08, watching Ben + Nacho test): onboarding no longer auto-scans or
+ * auto-imports. First run ALWAYS lands on the no-agent "Create your first agent." / "Giddy Up"
+ * screen, whatever the engine's path (adopt/create/unknown) or fleetCount, and fires NO discovery.
  *
  *   node --test web.found-every-path-1493.test.js
  *
- * 🛑 THE DEFECT. `frFindAgents()` was called from inside the `create` arm of
- * `frPaintFleet`, and `path` comes from `firstrun.js:165`:
+ * 🛑 THIS FILE SUPERSEDES #1493/#1938/#2389's "look on the disk on every path" behavior.
+ * frPaintFleet used to fork on `path` and, on every arm, auto-fire the disk scan (frScanAgents ->
+ * /api/scan-agents or the granted /api/scan-import) and render a found/Add-Skip list when
+ * candidates existed. Josh reversed that for onboarding: a developer's many tmux Claude Code
+ * sessions filled first run with garbage throwaway agents. frPaintFleet now short-circuits to the
+ * create/Giddy Up empty state at the top, before any discovery, so none of the old per-path scan
+ * behavior runs during onboarding. The discovery ENGINE is intact (the arms are kept-but-bypassed;
+ * the manual Import Agent path #1652 reaches the disk via /api/scan-import), only its automatic
+ * invocation on first run is gone.
  *
- *     const path_ = !here.known ? 'unknown' : (here.count > 0 ? 'adopt' : 'create');
- *
- * ⇒ Two whole populations never had their disk read at all:
- *
- *     adopt     at least one agent running. Screen: "There is nothing to
- *               import and nothing to wait for." SAID WHILE FALSE.
- *     unknown   the roster could not be read. Screen: "We could not see what
- *               is on this computer."
- *
- * ⭐ AND THE SECOND IS THE PERVERSE ONE: `unknown` means tmux could not be
- * asked, and the disk is exactly the source that does not need tmux. The one
- * state where reading the disk is most valuable was the state that skipped it.
- *
- * 🔑 `found()` IS INNOCENT and that was measured separately: the real function
- * against a five-arm fixture returns the agent with `already = false`. The loss
- * was downstream, in the screen never asking.
- *
- * These RUN the real lifted functions rather than matching the source, because
- * every assertion here is about which branch is taken.
+ * These RUN the real lifted frPaintFleet (not a source match), because the claim is about which
+ * branch is taken: the forced create/Giddy Up render, and NO discovery call, on every path.
+ * The real first-run screen is additionally covered on the wired page by render-first-run.js.
  */
 
 const test = require('node:test');
@@ -35,107 +28,75 @@ const fs = require('node:fs');
 const { scriptOf, lift } = require('./test-support/page');
 
 const SCRIPT = scriptOf(fs.readFileSync('web/index.html', 'utf8'));
-/* #1938: frPaintFleet now also references the disk-scan state (FR_SCAN) and helpers.
-   frScanOffer is lifted (it is a pure read of FR_SCAN, so the real function is what we
-   want to exercise); frScanAgents and frPaintScan are injected as stubs, the same way
-   frFindAgents and frPaintFound are. */
-const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') + '\n' + lift(SCRIPT, 'frPaintFleet');
+/* frPaintFleet references the disk-scan state (FR_SCAN) and helpers even in the kept-but-bypassed
+   arms below its early return; the pure reads (frFoundOffer/frScanOffer/frImportOffer) are lifted
+   so the lifted body parses, and the impure helpers (frFindAgents/frScanAgents/frPaintFound/
+   frPaintScan/frArmRescanOnGrant/frActions/frForkActions) are injected as call-recording stubs.
+   The #2497 forced return runs before any of them, so on the new behavior only frActions fires. */
+const BODY = lift(SCRIPT, 'frFoundOffer') + '\n' + lift(SCRIPT, 'frScanOffer') + '\n' + lift(SCRIPT, 'frImportOffer') + '\n' + lift(SCRIPT, 'frPaintFleet');
 
-/* ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE AND CANNOT SEE AN INTEGRATION
-   DEFECT (Splinter, 2026-09-02): a test of an extracted copy measures the branch logic,
-   not the wired page. The new scan behaviour on the REAL page is covered by
-   docs/browser-checks/render-scan-board.js and render-first-run.js's
-   `firstrun-fleet-scan-offer` shot, which drive the actual document. FR_SCAN defaults
-   to an empty-but-loaded answer here, so every pre-#1938 assertion below reads the same
-   branch it always did; the scan-offer branch is exercised by the one test that passes a
-   non-empty FR_SCAN. */
-function paint(FR, FR_FOUND, FR_SCAN) {
+/* ⚠️ THIS HARNESS LIFTS frPaintFleet OUT OF ITS MODULE (Splinter, 2026-09-02): it measures the
+   branch logic, not the wired page. The real first-run landing is covered on the actual document
+   by render-first-run.js. `frActions`'s `go` closure (() => frFinish(openCreate)) is created but
+   never invoked here, so frFinish/openCreate need not be injected. */
+function paint(FR, FR_FOUND, FR_SCAN, FR_SCAN_INFLIGHT) {
   const scan = FR_SCAN === undefined ? { ok: true, candidates: [] } : FR_SCAN;
+  const inflight = FR_SCAN_INFLIGHT === undefined ? false : FR_SCAN_INFLIGHT;
   const els = {};
   const mk = (id) => (els[id] = { id, textContent: '', innerHTML: '', hidden: false, focus() {} });
   const calls = [];
   const fn = new Function('document', 'FR', 'FR_FOUND', 'FR_SCAN', 'FR_MACHINE', 'FR_STEP', 'FR_STEP_YOU',
-    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'esc', 'pjSentence',
+    'frPaintFound', 'frPaintScan', 'frActions', 'frForkActions', 'frFindAgents', 'frScanAgents', 'frArmRescanOnGrant', 'esc', 'pjSentence', 'FR_SCAN_INFLIGHT',
     BODY + '\nreturn frPaintFleet();');
   fn({ getElementById: (id) => els[id] || mk(id) }, FR, FR_FOUND, scan, null, 6, 3,
     () => calls.push('PAINT-FOUND'), () => calls.push('PAINT-SCAN'), () => calls.push('actions'),
-    () => calls.push('fork'), () => calls.push('SEARCH'), () => calls.push('SCAN-SEARCH'), String, String);
-  // install-flow-9screen: the fleet painters now write the heading into the
-  // pane-9 head (#fr-fleet-title), not the retired shell #fr-title.
-  return { calls, title: (els['fr-fleet-title'] || {}).textContent || '' };
+    () => calls.push('fork'), () => calls.push('SEARCH'), () => calls.push('SCAN-SEARCH'),
+    () => calls.push('ARM-RESCAN'), String, String, inflight);
+  return {
+    calls,
+    title: (els['fr-fleet-title'] || {}).textContent || '',
+    box: (els['fr-fleet'] || {}).innerHTML || '',
+  };
 }
 
-const onDisk = { ok: true, agents: [{ name: 'Hers', dir: '/Users/x/work/hers' }] };
-
-test('🛑 the adopt path offers agents on the disk instead of saying there is nothing to import', () => {
-  const r = paint({ path: 'adopt', fleetCount: 2 }, onDisk);
-  assert.ok(r.calls.includes('PAINT-FOUND'),
-    'somebody with a running agent is still never shown the agents on their own disk');
-  assert.doesNotMatch(r.title, /already have/,
-    'the screen still claims the fleet is complete while an agent on the disk is not in it');
-});
-
-test('🛑 the unknown path reads the disk, which is the one source that does not need tmux', () => {
-  const r = paint({ path: 'unknown', fleetCount: null }, onDisk);
-  assert.ok(r.calls.includes('PAINT-FOUND'),
-    'when the roster could not be read we still refuse to look at the disk');
-});
-
-test('the search runs on every path, not only on create', () => {
-  for (const path of ['create', 'adopt', 'unknown']) {
-    const r = paint({ path, fleetCount: path === 'adopt' ? 2 : 0 }, null);
-    assert.ok(r.calls.includes('SEARCH'), 'the ' + path + ' path never looks on the disk');
+/** Every discovery/found stub the onboarding auto-import used; NONE may fire on first run now. */
+const DISCOVERY = ['SEARCH', 'SCAN-SEARCH', 'PAINT-FOUND', 'PAINT-SCAN', 'ARM-RESCAN'];
+function assertGiddyUpNoScan(r, where) {
+  assert.equal(r.title, 'Create your first agent.', `${where}: first run did not land on the create heading`);
+  assert.match(r.box, /Let’s get started\./, `${where}: the Giddy Up copy is gone`);
+  assert.ok(r.calls.includes('actions'), `${where}: the Giddy Up action was not rendered (calls: ${r.calls})`);
+  for (const d of DISCOVERY) {
+    assert.ok(!r.calls.includes(d), `${where}: onboarding still runs discovery (${d}) on first run (calls: ${r.calls})`);
   }
+}
+
+/* A machine that DOES have agents, on disk and as scan candidates: before #2497 this rendered the
+   found/Add-Skip list; now it must still land on Giddy Up with nothing pulled in. */
+const onDisk = { ok: true, agents: [{ name: 'Hers', dir: '/Users/x/work/hers' }] };
+const withCandidates = { ok: true, candidates: [{ name: 'Garbage', dir: '/Users/x/Downloads/garbage' }] };
+
+test('#2497: the ADOPT path (a running fleet) lands on Giddy Up, no auto-scan, no found list', () => {
+  assertGiddyUpNoScan(paint({ path: 'adopt', fleetCount: 13, fleetNames: ['Splinter', 'Angel'] }, onDisk, withCandidates), 'adopt');
 });
 
-test('the search is started ONCE, not once per arm', () => {
-  const r = paint({ path: 'create', fleetCount: 0 }, null);
-  assert.equal(r.calls.filter((c) => c === 'SEARCH').length, 1,
-    'two fetches for one answer; the generation guard hides it rather than making it right');
+test('#2497: the CREATE path (no fleet) lands on Giddy Up, no auto-scan', () => {
+  assertGiddyUpNoScan(paint({ path: 'create', fleetCount: 0, fleetNames: [] }), 'create');
 });
 
-test('an agent Kosmos ALREADY holds is not offered again', () => {
-  /* An "Add to Kosmos" button on an agent Kosmos already holds is an action
-     that means nothing, and on the adopt path most rows are that. */
-  const held = { ok: true, agents: [{ name: 'Held', dir: '/d', already: true }] };
-  const r = paint({ path: 'adopt', fleetCount: 2 }, held);
-  assert.ok(!r.calls.includes('PAINT-FOUND'), 'an already-held agent was offered as if it were new');
-  assert.match(r.title, /already have 2 agents/, 'the honest adopt screen was lost');
+test('#2497: the UNKNOWN path (roster unreadable) lands on Giddy Up, no auto-scan', () => {
+  assertGiddyUpNoScan(paint({ path: 'unknown', fleetCount: null, fleetNames: [] }, onDisk, withCandidates), 'unknown');
 });
 
-test('unknown is UNKNOWN, not a no', () => {
-  /* found() leaves `already` undefined when the roster could not be read, and
-     that is exactly the unknown path. Treating undefined as "already in" would
-     hide every agent in the case this card is about. */
-  const noFlag = { ok: true, agents: [{ name: 'Hers', dir: '/d' }] };
-  assert.ok(paint({ path: 'unknown', fleetCount: null }, noFlag).calls.includes('PAINT-FOUND'),
-    'an agent whose already-flag could not be determined was treated as already held');
+test('#2497: even with agents on disk AND scan candidates, the found list is never shown on first run', () => {
+  // The whole point: a dev box full of throwaway agents used to fill this screen. It must not.
+  const r = paint({ path: 'adopt', fleetCount: 5 }, onDisk, withCandidates);
+  assert.ok(!r.calls.includes('PAINT-SCAN') && !r.calls.includes('PAINT-FOUND'),
+    `first run rendered a found/scan list from real candidates (calls: ${r.calls})`);
+  assertGiddyUpNoScan(r, 'adopt-with-candidates');
 });
 
-test('#1938: when found() has nothing but the disk scan does, the create path shows the scan', () => {
-  /* The whole point of #1938: found() reaches only folders Claude has a record of, so
-     a person's agent that never ran is invisible to it and they land on "create your
-     first agent". The disk scan is the complementary population, and the create path
-     shows it instead of the empty state. (Branch-level; the wired page is covered by
-     docs/browser-checks/render-scan-board.js.) */
-  const scan = { ok: true, candidates: [{ dir: '/Users/x/work/hers', name: 'Hers', preview: 'You are **Hers**.' }] };
-  const r = paint({ path: 'create', fleetCount: 0 }, { ok: true, agents: [] }, scan);
-  assert.ok(r.calls.includes('PAINT-SCAN'),
-    'found() empty but the disk had an agent, and the create screen still said "create your first"');
-});
-
-test('#1938: the scan runs on the unknown path too, the one source that does not need tmux', () => {
-  const r = paint({ path: 'unknown', fleetCount: null }, { ok: true, agents: [] }, null);
-  assert.ok(r.calls.includes('SCAN-SEARCH'),
-    'the unknown path never scanned the disk, which is exactly the source tmux failure does not touch');
-});
-
-test('CONTROLS: the honest empty answers are untouched', () => {
-  const none = { ok: true, agents: [] };
-  assert.match(paint({ path: 'adopt', fleetCount: 2 }, none).title, /already have 2 agents/,
-    'the adopt screen changed for somebody who genuinely has nothing to add');
-  assert.match(paint({ path: 'unknown', fleetCount: null }, none).title, /could not see/,
-    'the honest could-not-see answer was replaced by a guess');
-  assert.match(paint({ path: 'create', fleetCount: 0 }, { ok: false, agents: [] }).title, /Create your first agent/,
-    'a search that could not run now paints something else');
+test('#2497: malformed/absent payloads still land on Giddy Up rather than crashing or scanning', () => {
+  for (const FR of [null, {}, { path: 'adopt' }, { path: 'nonsense', fleetCount: 3 }, { path: 'unknown', fleetCount: 'lots' }]) {
+    assertGiddyUpNoScan(paint(FR), 'malformed:' + JSON.stringify(FR));
+  }
 });

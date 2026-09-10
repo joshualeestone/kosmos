@@ -21,12 +21,17 @@ const path = require('node:path');
    a claim someone can check; do not add names to quiet the test without one. */
 const EXCUSED = {
   setRunner: 'test seam: injects the tmux runner',
+  setAnchorer: 'test seam (#570): injects engine/win32job.js\'s anchor step, so a suite never copies the 92 MB interpreter and a Mac is never asked to write a Windows path -- both of which happen the moment installJob is driven with platform:"win32", which is exactly how this branch is asserted. Named here rather than passing by luck: "setAnchorer" is unique to that file, while its sibling setRunner escapes only by colliding with every other file\'s runner seam.',
+  readPointer: 'engine/win32anchor.js (#570): the readable counterpart of the engine-path pointer. The generated supervisor-boot shim CANNOT call it -- the shim exists precisely to bootstrap before the engine is locatable, so it inlines its own readFileSync -- and the production reader that would use this is the recorded follow-up "refresh the engine pointer at server start on win32" (step 8 in .claude/plans/win32-keepalive-570.md), which is not this slice. Dormant with a named card, not orphaned.',
   setChecker: 'test seam (#1930): injects the live claude-auth checker so authprobe tests do not spawn a real subprocess',
   resetForTest: 'test seam (#1930): clears the authprobe per-account cache between tests',
   setPauser: 'test seam: observes the codex Enter gap without sleeping (#571)',
   setDryRun: 'test seam: keeps suites off real panes',
   setClaudeProbe: 'test seam: injects the claude -p liveness probe so tests do not spawn a real claude (#1916)',
   resetForTests: 'test seam',
+  dispatch: 'test-only export (#988): engine/updating.js exports its real protocol dispatch so an arm can cover it. Named here rather than passing by luck: it otherwise survives only by colliding with boardauth/server, which is what the setRelay excuse warns against',
+  underTest: 'test-only export (#988): engine/updating.js exports its test-context predicate for its own arms; production inlines the check. Named here rather than passing by luck: it otherwise survives only by colliding with ping/feedbacksend (notify.js, a third definer, was deleted in #2623)',
+  setRequestFactory: 'test seam (#988): replaces the coordinator TRANSPORT only, so enrolment, the certificate read and the URL derivation still run under test',
   agePartWritesForTests: 'test seam: ages the parts records instead of shortening the hour (#803)',
   ageMemberChangesForTests: 'test seam: ages the membership records instead of shortening the hour (#803)',
   setPaneSource: 'test seam: keeps status reads off the real machine',
@@ -39,6 +44,7 @@ const EXCUSED = {
   setFreshnessForTests: 'test seam',
   setProbeTtlForTests: 'test seam: ages the willInstall probe cache instead of sleeping 60s (#1556)',
   setUnansweredAfterForTests: 'test seam (#185 unanswered constant)',
+  setChatgptTimers: 'test seam (#2338): shrinks the ChatGPT-subscription sign-in watchdog + reap TTL so the abandoned-child and session-reap tests run in ms instead of minutes (never wired to a screen)',
   setBase: 'test seam (update feed base url)',
   setInstallRunner: 'test seam (update installer)',
   setInstalledRoot: 'test seam (update root)',
@@ -46,9 +52,21 @@ const EXCUSED = {
   projectsFor: 'superseded reader: list()/get() carry the same join; kept for its tests until they migrate (#265 sweep)',
   currentChildPid: 'test seam: reads the tunnel supervisor child pid to assert its lifetime deterministically',
   setRelay: 'engine/remote.js: dormant until the Kosmos-team Settings surface wires the self-host relay field; validated here so garbage is refused at set time. Its siblings (setOn, status, ...) escape this sweep only because their names collide with words in other files; setRelay is unique, so it is named here rather than passing by luck.',
-  setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file (feedbacksend.js\'s equivalent, setSender, escapes only by a name-collision); production pull() uses the default fetch transport.',
+  setTransport: 'test seam (#2296): injects the blob list/get transport so engine/feedbackpull.js tests never hit the network or the real secrets map. Named here because "setTransport" is unique to this file; production pull() uses the default fetch transport.',
+  setSender: 'test seam (#2037): engine/feedbacksend.js injects a fake sender so the daily-report send tests never hit the network; production uses global fetch. Named here from #2623 onward: it used to escape this sweep by a name-collision with engine/notify.js and engine/ping.js, both of which had a setSender -- #2623 deleted notify.js and ping.js\'s sender, so feedbacksend.js is now the sole definer and the collision cover is gone. A test seam, not an orphan.',
   // setActiveWorld's excuse was removed in slice 2b-ii: POST /api/worlds/active
   // (server.js) is now a real caller, so the #265 orphan guard protects it again.
+  // checkLive's excuse was removed in the #2420 listing slice because it is no longer
+  // TRUE, not because the guard gained coverage. accounts.listLiveNow() now calls
+  // claudeaccounts.checkLive for an api-key Claude row (the live-badge reader for a
+  // stored api-key account), so it is no longer "genuinely dormant" -- and an excuse
+  // is a claim, so a discharged one is removed to keep the EXCUSED set honest.
+  // ⚠️ The #265 sweep does NOT independently re-verify this: "checkLive" collides by
+  // name with subscription.js/openaiaccounts.js, so it could never have been flagged
+  // as an orphan anyway (the old excuse said exactly this), and it could not flag a
+  // future regression that dropped the real caller either. What protects it is the
+  // genuine caller existing, not the sweep. (forgetKey and unwireApiKeyHelper were
+  // already reachable via server.js's failed-store cleanup.)
 };
 
 const engineDir = path.join(__dirname, 'engine');

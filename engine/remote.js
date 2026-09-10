@@ -68,7 +68,7 @@ const store = require('./store');
 // #1848: route through store.ROOT (= store.dataRootFor(platform, home, env)) rather
 // than reading AGENT_WORKFORCE_DATA directly. The direct read bypassed both #1820's
 // p.isAbsolute refusal (a relative override scattered this file's state to a
-// cwd-relative path) and the `AgentWorkforce` leaf the rest of the store appends, so
+// cwd-relative path) and the `Kosmos` leaf the rest of the store appends, so
 // under an override remote.json landed in a DIFFERENT directory than avatars/profiles.
 // It is also the #1704 prerequisite: under a multi-Kosmos switcher AGENT_WORKFORCE_DATA
 // is the switch, and every data-root read must go through the one derivation, not
@@ -612,6 +612,12 @@ module.exports = { secondReset, forget, DEFAULT_RELAY, DEFAULT_COORDINATOR, conf
   deviceAllow,
   deviceDeny,
   deviceRemove,
+  /* #988: ONE derivation of each of these, for the same reason the #790 comment
+     above gives. engine/updating.js speaks to the coordinator directly and must
+     not re-derive either, or the two disagree the moment one of them learns
+     something. */
+  coordinator: COORDINATOR,
+  stateDir: STATE_DIR,
   /* test seam: stops the supervised child between cases (the name is the
      one the reachability sweep excuses for exactly this job) */
   resetForTests: stopChild,

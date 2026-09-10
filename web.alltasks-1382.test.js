@@ -38,8 +38,12 @@ test('#1382: the door is unconditional and carries no count', () => {
   const OLD = "    door.textContent = 'View all tasks (' + all.length + ') →';";
   assert.match(OLD, /door\.textContent = 'View all tasks \(' \+/,
     'the forbidden pattern cannot match the line it came from, so the assertion below is vacuous');
+  /* #2498 scoped the destination to the current project, so a per-project count
+     could now agree with it - but adding one was out of this card's scope, so
+     the door still carries no count. This still guards the #1346 rule: no count
+     was reintroduced on the door. */
   assert.doesNotMatch(PAGE, /door\.textContent = 'View all tasks \(' \+/,
-    'a per-project count is back on a control whose destination spans every project');
+    'a per-project count is back on the door');
 });
 
 /**
@@ -70,11 +74,28 @@ test('#1382: an unreadable answer is SAID, never shown as an empty list', () => 
   assert.match(body, /catch \(err\) \{[\s\S]*msg\.textContent = String/,
     'a failed read no longer says anything, so it will render as "no tasks"');
   assert.match(body, /if \(!rows\.length\)/, 'the genuinely-empty case is gone');
-  assert.match(body, /No tasks on any project yet/, 'the empty state lost its words');
-  const emptyAt = body.indexOf('No tasks on any project yet');
+  /* #2498 scoped this door to the current project, so the empty copy reads
+     "on this project" rather than "on any project yet". The guarantee is
+     unchanged: the empty state SAYS something and is reachable only AFTER the
+     error catch, so a failed read never renders as "no tasks". */
+  assert.match(body, /No tasks on this project yet/, 'the empty state lost its words');
+  const emptyAt = body.indexOf('No tasks on this project yet');
   const catchAt = body.indexOf('catch (err)');
   assert.ok(catchAt > -1 && emptyAt > catchAt,
     'the empty state is reachable before the error is handled, so a failed read can render as "no tasks"');
+});
+
+test('#2498: the door carries the current project into its fetch, not the global set', () => {
+  const fn = PAGE.slice(PAGE.indexOf('async function openAllTasksView'));
+  const body = fn.slice(0, fn.indexOf('\n}\n'));
+  assert.match(body, /\?project=' \+ encodeURIComponent\(PJ_CURRENT\)/,
+    'the door no longer scopes its fetch to the current project, so it lists every project again (#2498)');
+  /* CONTROL: the pre-fix unscoped fetch, which must be gone. It can match the
+     line it came from, so the negative below is not vacuous. */
+  const OLD = "    const r = await fetch('/api/tasks', { cache: 'no-store' });";
+  assert.match(OLD, /fetch\('\/api\/tasks', \{/, 'the forbidden pattern cannot match its origin line, so the assertion below is vacuous');
+  assert.doesNotMatch(body, /fetch\('\/api\/tasks', \{/,
+    'the door fetches the UNSCOPED /api/tasks again, which is the #2498 bug');
 });
 
 test('#1382: a row opens its task on ITS OWN project, not the one we came from', () => {

@@ -32,7 +32,56 @@ const status = require('./status');
 const disruption = require('./disruption');
 const fleet = require('../test-support/fleet');
 
-const BINS = { claudeBin: '/bin/echo', tmuxBin: '/bin/echo' };
+/* ── #570: this suite describes a Mac, from either kind of box ───────────────
+ *
+ * 🛑 WHY THIS BLOCK EXISTS. Everything below asserts a launchd + tmux world:
+ * plists on disk, `launchctl bootout`, `tmux kill-session`. That is the world
+ * `remove.js` has to get right, and none of these assertions is being softened.
+ * What was wrong is that the FIXTURE read the host — `/bin/echo` for both
+ * binaries, and `process.platform` for every dispatch — so a Windows box could
+ * not build the world the assertions are about and 49 of 61 tests failed for a
+ * reason that had nothing to do with removal. `remove.win32-job-570.test.js`
+ * had to pin the win32 arms separately because of it.
+ *
+ * 🔑 THE FIX IS INJECTION, NOT SKIPPING, which is this lane's standing answer:
+ * the platform is stated (`MAC`) instead of inherited, and the two binaries are
+ * whatever the HOST can actually stat and run. On a Mac both values are exactly
+ * what they were, so the suite is byte-equivalent there; on Windows the same
+ * launchd/tmux assertions now run, driven rather than skipped.
+ *
+ * ⚠️ FORWARD SLASHES IN THE WINDOWS PATH ON PURPOSE. `create.unusablePath`
+ * rejects a backslash when the job platform is darwin, so a native
+ * `C:\Windows\...` would be refused as an injection attempt by the very arm we
+ * are trying to exercise. The path only has to be a real, runnable file — it is
+ * never spawned, because `create.setRunner` is stubbed for every fixture.
+ */
+const MAC = 'darwin';
+const HOST_BIN = process.platform === 'win32' ? 'C:/Windows/System32/cmd.exe' : '/bin/echo';
+const BINS = { claudeBin: HOST_BIN, tmuxBin: HOST_BIN };
+
+/* ⚠️ `process.getuid` DOES NOT EXIST ON WIN32, and the darwin arm of `jobOps`
+   builds a `gui/<uid>/...` label out of it. Stub it for the whole file rather
+   than skipping the tests that reach it — same trade `remove.win32-job-570.test.js`
+   makes in its darwin control arm, and for the same reason: a Mac assertion that
+   disappears on half the fleet is how every defect in this lane survived. The
+   value is arbitrary; only the label's shape is ever asserted. */
+if (typeof process.getuid !== 'function') process.getuid = () => 501;
+
+/**
+ * The module's platform-taking entry points, with the platform already stated.
+ *
+ * ⚠️ EVERY ONE OF THESE ALREADY TOOK A PLATFORM — `remove.js` was built that way
+ * so its win32 branch could be asserted from a Mac. The suite simply never
+ * passed one, which left it reading `process.platform` and therefore Mac-only.
+ * Going through `mac.*` is what makes each call site say which world it means.
+ */
+const mac = {
+  remove: (name, opts) => remove.remove(name, { platform: MAC, ...opts }),
+  restore: (name, opts) => remove.restore(name, { platform: MAC, ...opts }),
+  restart: (name, cause, opts) => remove.restart(name, cause, { platform: MAC, ...opts }),
+  plan: (name) => remove.plan(name, MAC),
+  jobFor: (name) => remove.jobFor(name, MAC),
+};
 
 // Arm dry-run at load, before any test can run.
 remove.setRunner(null);
@@ -88,7 +137,11 @@ function madeAgent(name) {
   create.setRunner(() => ({ ok: true, stdout: '' }));
   create.setDryRun(false);
   status.setPaneSource(() => '');
-  const r = create.createAgent({ ...BINS, name, role: 'pm' });
+  /* #570: the same statement the removals make. Without it `createAgent` takes
+     its win32 arm on a Windows box -- which registers a Scheduled Task and
+     writes no plist, so every assertion below about the job file would be about
+     a world the fixture never built. */
+  const r = create.createAgent({ ...BINS, name, role: 'pm', platform: MAC });
   assert.equal(r.outcome, create.OUTCOME.CREATED, `fixture ${name} was not created: ${r.because}`);
   create.setRunner(null);
   /* #1794: leave an EMPTY board armed, not null. Resetting to null pointed the
@@ -114,6 +167,81 @@ function foreignAgent(name) {
 function boardShows(name, session) {
   const claim = session.endsWith('-discord') ? '' : name;
   status.setPaneSource(() => fleet.line({ session, claim, title: '✳ Claude Code' }));
+}
+
+/* ── #570: a removed list that cannot be written, from either kind of box ─────
+ *
+ * 🛑 `fs.chmodSync(dir, 0o500)` IS A NO-OP ON WINDOWS. Node documents chmod
+ * there as toggling the read-only bit on FILES only; a directory's write access
+ * is an ACL, which chmod does not touch. So the five fixtures below built a
+ * perfectly writable directory, the write they exist to fail succeeded, and the
+ * tests failed on their own controls -- loudly, which is the one good thing
+ * about how they were written.
+ *
+ * ⚠️ THE SUBSTITUTE HAS TO BLOCK THE MODULE'S REAL WRITE, NOT A NEIGHBOURING
+ * ONE. `writeRemoved` does not write `removed.json` directly: it writes a
+ * sibling temp and renames, because a half-written list read as "nothing is
+ * removed" would put every stopped agent back on screen. Blocking the final
+ * path would therefore block nothing. Putting a DIRECTORY at the temp path
+ * makes the write throw EISDIR -- on the exact call the containment is around,
+ * and while the list itself stays readable, which is the whole distinction
+ * these tests draw against the read-refusal path.
+ *
+ * 📌 IT COUPLES TO writeRemoved's TEMP NAME, and that is the safe direction: if
+ * the scheme changes, the block stops blocking, and `assertBlocked` -- which
+ * probes the module's own path rather than a stand-in -- goes red rather than
+ * silently passing. The old `probe.tmp` control could not have said that.
+ *
+ * 🔑 POSIX KEEPS chmod. The Mac's behaviour here is not being re-derived on a
+ * box that cannot run it; the mode bits stay exactly what they were, and only
+ * the arm that never worked is new.
+ */
+const WIN32 = process.platform === 'win32';
+function blockListWrites() {
+  const dir = nodePath.dirname(remove.REMOVED_FILE);
+  fs.mkdirSync(dir, { recursive: true });
+  // The path `writeRemoved` writes beside the list before renaming it into place.
+  const moduleTmp = `${remove.REMOVED_FILE}.${process.pid}.new`;
+  if (WIN32) fs.mkdirSync(moduleTmp, { recursive: true });
+  else fs.chmodSync(dir, 0o500);   // r-x: readable, not writable
+  return {
+    /* ⚠️ CONTROL: the write really is impossible. On a machine running as root
+       chmod 500 does not deny the owner, and on either host a fixture that fails
+       to fail is how the previous version of this looked like coverage. */
+    assertBlocked() {
+      assert.throws(() => fs.writeFileSync(moduleTmp, 'x'),
+        'the removed list is still writable, so the containment is never tested');
+    },
+    undo() {
+      if (WIN32) fs.rmSync(moduleTmp, { recursive: true, force: true });
+      else fs.chmodSync(dir, 0o700);
+      fs.rmSync(remove.REMOVED_FILE, { force: true });
+    },
+  };
+}
+
+/* And the other half: a list that is THERE and cannot be READ, which is a
+ * different refusal (`readRemovedForWrite` returns UNREADABLE rather than []).
+ * `chmodSync(file, 0o000)` does deny reads on POSIX; on Windows the read-only
+ * bit is all chmod can set and reading stays allowed, so the file is moved aside
+ * and a directory left in its place -- readFileSync then throws EISDIR, which is
+ * the same "there is a file here and I could not read it" the module branches on.
+ * The content is restored byte-for-byte because the caller asserts on it after. */
+function blockListRead() {
+  const file = remove.REMOVED_FILE;
+  const aside = `${file}.aside`;
+  if (WIN32) {
+    fs.renameSync(file, aside);
+    fs.mkdirSync(file);
+  } else {
+    fs.chmodSync(file, 0o000);
+  }
+  return {
+    undo() {
+      if (WIN32) { fs.rmSync(file, { recursive: true, force: true }); fs.renameSync(aside, file); }
+      else fs.chmodSync(file, 0o600);
+    },
+  };
 }
 
 /* #1794: default every test to an empty, readable board through BOTH existing
@@ -151,7 +279,7 @@ test('removing an agent deletes nothing at all', () => {
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  const r = remove.remove(name);
+  const r = mac.remove(name);
 
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.deepEqual(fs.readdirSync(create.workerDir(name)).sort(), folderBefore,
@@ -177,7 +305,7 @@ test('an agent another tool created can be removed, and ITS job is the one stopp
   const calls = world();
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
 
   const disable = calls.find(([, a]) => a && a[0] === 'disable');
@@ -200,7 +328,7 @@ test('the job label is recorded at removal, so restoring cannot guess wrong', ()
   boardShows(name, `${name}-discord`);
   world();
   remove.setDryRun(false);
-  remove.remove(name);
+  mac.remove(name);
 
   const [record] = remove.removedAgents().filter((r) => r.name === name);
   assert.ok(record, 'nothing was recorded, so the agent is stopped and invisible with no way back');
@@ -222,12 +350,12 @@ test('restore re-enables exactly the job that was disabled, and puts the agent b
   boardShows(name, `${name}-discord`);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
   assert.equal(remove.isRemoved(name), true, 'it was not recorded as removed');
 
   const back = world();
   remove.setDryRun(false);
-  const r = remove.restore(name);
+  const r = mac.restore(name);
 
   assert.equal(r.outcome, remove.OUTCOME.RESTORED, r.because);
   assert.equal(remove.isRemoved(name), false, 'it is still hidden after being restored');
@@ -239,7 +367,7 @@ test('restore re-enables exactly the job that was disabled, and puts the agent b
 });
 
 test('restoring something that was never removed is refused', () => {
-  const r = remove.restore('never-removed');
+  const r = mac.restore('never-removed');
   assert.equal(r.outcome, remove.OUTCOME.REFUSED);
   assert.match(r.because, /not on the removed list/);
 });
@@ -249,9 +377,9 @@ test('a removed agent is refused a second removal, and says why', () => {
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
-  const again = remove.plan(name);
+  const again = mac.plan(name);
   assert.equal(again.ok, false);
   assert.match(again.because, /already been removed/);
 });
@@ -269,7 +397,7 @@ test('the confirmation names the agent, and answers the only fear it should', ()
   // is talking to. An unnamed "are you sure?" is the same dialog for a demo
   // agent and for their project manager.
   const name = madeAgent('asked-about');
-  const p = remove.plan(name);
+  const p = mac.plan(name);
 
   assert.equal(p.ok, true, p.because);
   assert.match(p.question, new RegExp(`remove ${name} from Kosmos`),
@@ -295,7 +423,7 @@ test('a job that will not stop leaves everything alone', () => {
   });
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.PARTIAL, 'a job that could not be stopped was reported as removed');
   assert.match(r.because, /Nothing has changed/);
   assert.ok(!calls.some(([, a]) => a && a[0] === 'kill-session'),
@@ -323,7 +451,7 @@ test('a tmux we cannot ask stops the removal, rather than reading as "nothing is
    * than after `disable` and `bootout`, so an unaskable tmux costs the person a
    * retry instead of leaving an agent half-removed.
    */
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REFUSED, 'a removal ran commands without knowing whose name it was acting on');
   assert.match(r.because, /could not check which agent/);
   assert.match(r.because, /Try again in a moment/, 'it does not tell them this is retryable');
@@ -334,7 +462,7 @@ test('a tmux we cannot ask stops the removal, rather than reading as "nothing is
   status.setPaneSource(() => '');
   remove.setRunner(() => ({ ok: true, stdout: '' }));
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED,
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED,
     'an agent that is not running cannot be removed at all');
 });
 
@@ -344,7 +472,7 @@ test('a session that survives the kill is not reported as removed', () => {
   world({ killWorks: false });
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.PARTIAL, 'a surviving session was reported as removed');
   assert.match(r.because, /still going/);
   assert.equal(remove.isHidden(name), false, 'it was taken off the board while still running');
@@ -373,7 +501,7 @@ test('a session the board does not tie to this agent is left alone', () => {
    * live Remove button and `jobFor('claudebot')` resolves to the REAL agent's
    * plist. The gate now runs before the first command.
    */
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.deepEqual(calls, [],
     'it disabled, stopped or killed something on the strength of a name the board will not vouch for');
 
@@ -409,7 +537,7 @@ test('the untied check is still made at the session step, for a roster that chan
   const calls = world();
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.ok(asked > 1, 'the roster was only consulted once, so the second check does not exist');
   assert.ok(!calls.some(([, a]) => a && a[0] === 'kill-session'),
     'it killed a session that stopped being this agent between the two checks');
@@ -448,7 +576,7 @@ test('a name that could escape a path is refused before anything runs', () => {
     ['-rf', /not a name we can act on safely/],
     ['x'.repeat(400), /too long/],
   ]) {
-    const r = remove.remove(bad);
+    const r = mac.remove(bad);
     assert.equal(r.outcome, remove.OUTCOME.REFUSED, `'${bad}' was accepted`);
     // ⚠️ The REASON, not just the enum: every one of these would also be refused
     // for having no job, so asserting the outcome alone leaves the name rule
@@ -475,7 +603,7 @@ test('a session the product did not name is still removable', () => {
     fs.mkdirSync(create.workerDir(odd), { recursive: true });
     fs.writeFileSync(nodePath.join(create.workerDir(odd), 'CLAUDE.md'), `You are **${odd}**.\n`, 'utf8');
     status.setPaneSource(() => fleet.line({ session: odd, claim: odd, title: '✳ Claude Code' }));
-    const ask = remove.plan(odd);
+    const ask = mac.plan(odd);
     assert.equal(ask.ok, true, `'${odd}' cannot be removed: ${ask.because}`);
     assert.match(ask.question, new RegExp(odd.replace('.', '\\.')), `'${odd}' is not named in its own confirmation`);
   }
@@ -503,13 +631,13 @@ test('a name that was never an agent cannot be removed', () => {
    * showing no card and nothing on screen to explain where it went.
    */
   status.setPaneSource(() => '');
-  const p = remove.plan('never-existed');
+  const p = mac.plan('never-existed');
   assert.equal(p.ok, false, 'a name with no folder, no job and no session was offered a removal');
   assert.match(p.because, /cannot find an agent/);
 
   world();
   remove.setDryRun(false);
-  const r = remove.remove('never-existed');
+  const r = mac.remove('never-existed');
   assert.equal(r.outcome, remove.OUTCOME.REFUSED, r.because);
   assert.ok(!remove.removedAgents().some((x) => x.name === 'never-existed'),
     'a name that was never an agent is now on the removed list, where it will hide a real one later');
@@ -517,7 +645,7 @@ test('a name that was never an agent cannot be removed', () => {
   // ⚠️ THE CONTROL. A real agent must still pass the same gate, or this test
   // would be satisfied by a guard that refuses everything.
   const real = madeAgent('really-here');
-  assert.equal(remove.plan(real).ok, true, 'the guard refuses agents that do exist');
+  assert.equal(mac.plan(real).ok, true, 'the guard refuses agents that do exist');
 });
 
 test('a half-removed agent is recoverable, retryable, and still visible', () => {
@@ -539,7 +667,7 @@ test('a half-removed agent is recoverable, retryable, and still visible', () => 
   world({ killWorks: false });
   remove.setDryRun(false);
 
-  const first = remove.remove(name);
+  const first = mac.remove(name);
   assert.equal(first.outcome, remove.OUTCOME.PARTIAL, first.because);
   assert.equal(remove.isRemoved(name), true, 'not recorded: there is no way to put it back');
   assert.equal(remove.isHidden(name), false, 'hidden while it may still be running');
@@ -547,19 +675,19 @@ test('a half-removed agent is recoverable, retryable, and still visible', () => 
     'nothing tells the person there is a way back');
 
   // RETRYABLE: the same removal, offered again rather than refused.
-  const again = remove.plan(name);
+  const again = mac.plan(name);
   assert.equal(again.ok, true, 'a half-removed agent cannot be removed again, so it is stuck: ' + again.because);
 
   // And when the kill works the second time, it completes and goes.
   world({ killWorks: true });
   remove.setDryRun(false);
-  const second = remove.remove(name);
+  const second = mac.remove(name);
   assert.equal(second.outcome, remove.OUTCOME.REMOVED, second.because);
   assert.equal(remove.isHidden(name), true, 'a completed retry still leaves it on the board');
 
   // ⚠️ AND RESTORE WORKS FROM THE HALF STATE TOO — the record was written by
   // the partial, so this is the path a person actually reaches from that row.
-  const back = remove.restore(name);
+  const back = mac.restore(name);
   assert.equal(back.outcome, remove.OUTCOME.RESTORED, back.because);
   assert.equal(remove.isRemoved(name), false, 'restoring left the record behind');
 });
@@ -578,7 +706,7 @@ test('a removed name cannot be created into invisibility', () => {
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
   assert.equal(remove.isHidden(name), true, 'the fixture is not hidden, so nothing below can fail');
 
   create.setRunner(() => ({ ok: true, stdout: '' }));
@@ -599,7 +727,7 @@ test('a removed name cannot be created into invisibility', () => {
 
   // ⚠️ THE CONTROL. Putting it back frees the name, or this refusal would be a
   // permanent tax on every name ever removed.
-  assert.equal(remove.restore(name).outcome, remove.OUTCOME.RESTORED);
+  assert.equal(mac.restore(name).outcome, remove.OUTCOME.RESTORED);
   create.setRunner(() => ({ ok: true, stdout: '' }));
   create.setDryRun(false);
   status.setPaneSource(() => '');
@@ -649,13 +777,13 @@ test('every sentence about a removal speaks the name on the card, not the one on
   world();
   remove.setDryRun(false);
 
-  const ask = remove.plan(name);
+  const ask = mac.plan(name);
   assert.match(ask.question, /Spoken/, 'the question does not use the name on the card');
   assert.doesNotMatch(ask.question, /spoken-session/, 'the question uses the machine name');
   assert.equal(ask.label, 'Spoken', 'the buttons have nothing to name the agent with');
   assert.equal(ask.name, 'spoken-session', 'the machine name did not reach the field the removal acts on');
 
-  const gone = remove.remove(name);
+  const gone = mac.remove(name);
   assert.equal(gone.outcome, remove.OUTCOME.REMOVED, gone.because);
   // ⚠️ The ANSWER, not just the question. This is the half that was missed: the
   // confirmation said "Remove Spoken" and the outcome came back about
@@ -669,7 +797,7 @@ test('every sentence about a removal speaks the name on the card, not the one on
   assert.equal(rec.shownAs, 'Spoken', 'the removed list has nothing recognisable to show');
   assert.equal(rec.name, 'spoken-session', 'the record lost the name Restore has to act on');
 
-  const back = remove.restore(name);
+  const back = mac.restore(name);
   assert.equal(back.outcome, remove.OUTCOME.RESTORED, back.because);
   assert.match(back.because, /Spoken/, 'the restore message uses the machine name');
   assert.doesNotMatch(back.because, /spoken-session/, 'the restore message uses the machine name');
@@ -685,7 +813,7 @@ test('a removed agent is still named recognisably after its instruction file cha
   boardShows(name, `${name}-discord`);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), 'no name line at all\n', 'utf8');
   assert.equal(status.readIdentity(name).displayName, name,
@@ -741,7 +869,7 @@ test('a removed list that cannot be written reports a partial rather than crashi
     assert.throws(() => fs.readFileSync(remove.REMOVED_FILE, 'utf8'),
       'the fixture did not actually block the read, so this proves nothing');
 
-    const gone = remove.remove(name);
+    const gone = mac.remove(name);
     assert.equal(gone.outcome, remove.OUTCOME.PARTIAL,
       'an unwritable removed list crashed the removal instead of reporting it');
 
@@ -770,7 +898,7 @@ test('a partial that DID record still points at the removed list', () => {
     : { ok: true, stdout: '' }));
   remove.setDryRun(false);
 
-  const gone = remove.remove(name);
+  const gone = mac.remove(name);
   assert.equal(gone.outcome, remove.OUTCOME.PARTIAL);
   assert.match(gone.because, /put it back from the removed list/,
     'an ordinary partial stopped telling people how to undo it');
@@ -795,7 +923,7 @@ test('restore says so when the startup file has gone, rather than claiming it st
   boardShows(name, `${name}-discord`);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
   const plist = remove.removedAgents().find((r) => r.name === name).plist;
   assert.ok(fs.existsSync(plist), 'the control failed: the fixture never had a plist to delete');
@@ -803,7 +931,7 @@ test('restore says so when the startup file has gone, rather than claiming it st
 
   const calls = world();
   remove.setDryRun(false);
-  const r = remove.restore(name);
+  const r = mac.restore(name);
 
   assert.equal(r.outcome, remove.OUTCOME.RESTORED, r.because);
   assert.ok(calls.some(([, a]) => a && a[0] === 'enable'),
@@ -823,12 +951,80 @@ test('restore says so when the startup file has gone, rather than claiming it st
     'it still claims the startup job will bring the agent back');
 });
 
+/* #2609: the launch file names the agent's account dir by absolute path
+   (CLAUDE_CONFIG_DIR). Delete that account after the agent is removed -- which
+   #2570 turned into one guided click -- and Restore used to re-enable a launchd
+   job pointing at a directory that is gone (the #1659 "blank agent" state), with
+   nothing checking. `restoreInner` now REFUSES that case with an actionable
+   sentence, and -- crucially -- runs NOTHING, so the job is not re-pointed at a
+   deleted dir. Fixtures build a plist that names the account dir (madeAgent is a
+   default-account agent with no configDir, foreignAgent writes a stub plist, so
+   neither exercises this on its own). */
+function acctAgent(name) {
+  foreignAgent(name);
+  // Under SANDBOX (not os.tmpdir) so it is co-located with the test's other
+  // sandbox files; the CONTROL leaves it in place, so this keeps the leak inside
+  // the test's own tree rather than scattering one /tmp dir per run.
+  const acctDir = fs.mkdtempSync(nodePath.join(SANDBOX, 'kosmos-acct-2609-'));
+  fs.writeFileSync(create.plistPath(name),
+    create.plistFor(name, BINS.claudeBin, BINS.tmuxBin, null, acctDir, 'claude'), 'utf8');
+  assert.equal(create.readJob(name).configDir, acctDir,
+    'the fixture plist must name the account dir, or this tests the wrong thing');
+  return acctDir;
+}
+
+test('#2609 restore REFUSES when the account directory the agent ran on is gone, and runs nothing', () => {
+  const name = 'acct-deleted';
+  const acctDir = acctAgent(name);
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+
+  // The account is deleted while the agent is off the board (#2570's delete-for-good).
+  fs.rmSync(acctDir, { recursive: true, force: true });
+  assert.ok(!fs.existsSync(acctDir), 'control: the account dir must actually be gone');
+
+  const calls = world();
+  remove.setDryRun(false);
+  const r = mac.restore(name);
+
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, r.because);
+  assert.match(r.because, /folder is gone/, 'the refusal must name the gone-account cause');
+  assert.match(r.because, /Add that account back under the same name first/,
+    'the refusal must say what makes it work, not just that it failed');
+  // ⚠️ THE STRONGER HALF: nothing ran. A re-enable here re-points a launchd job at a
+  // deleted directory -- the #1659 blank-agent state this refusal exists to prevent.
+  assert.ok(!calls.some(([, a]) => a && a[0] === 'enable'),
+    'it re-enabled a job pointing at a deleted account instead of refusing');
+  assert.equal(remove.isRemoved(name), true, 'a refused restore must leave it on the removed list');
+});
+
+test('#2609 CONTROL: restore proceeds normally when the account directory still EXISTS', () => {
+  // The check must not over-refuse: a removed agent whose account is still there
+  // restores exactly as before. This is what makes the REFUSE above mean something.
+  const name = 'acct-present';
+  acctAgent(name);   // acctDir left in place
+  boardShows(name, `${name}-discord`);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+
+  const calls = world();
+  remove.setDryRun(false);
+  const r = mac.restore(name);
+
+  assert.equal(r.outcome, remove.OUTCOME.RESTORED, r.because);
+  assert.ok(calls.some(([, a]) => a && a[0] === 'enable'),
+    'the present-account restore must actually re-enable the job (the check must not fire)');
+});
+
 test('a job that will not re-enable is reported, not reported as restored', () => {
   const name = madeAgent('stuck-enable');
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
   // launchctl refuses the enable. The record still has to come off the list --
   // leaving it would hide an agent nobody is hiding -- but the person must be
@@ -837,7 +1033,7 @@ test('a job that will not re-enable is reported, not reported as restored', () =
     ? { ok: false, code: 2 }
     : { ok: true, stdout: '' }));
   remove.setDryRun(false);
-  const r = remove.restore(name);
+  const r = mac.restore(name);
 
   assert.equal(r.outcome, remove.OUTCOME.PARTIAL,
     'a failed re-enable was reported as a completed restore');
@@ -855,13 +1051,13 @@ test('an already-loaded job is a success, not a failure', () => {
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
   remove.setRunner((file, args) => (args && args[0] === 'bootstrap'
     ? { ok: false, code: 5 }
     : { ok: true, stdout: '' }));
   remove.setDryRun(false);
-  assert.equal(remove.restore(name).outcome, remove.OUTCOME.RESTORED,
+  assert.equal(mac.restore(name).outcome, remove.OUTCOME.RESTORED,
     'launchd saying the job is already loaded was read as a failure to load it');
 });
 
@@ -873,16 +1069,16 @@ test('an agent that had no startup job is not told one was turned back on', () =
   const name = 'jobless';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
-  assert.equal(remove.jobFor(name), null, 'the control failed: the fixture has a job after all');
+  assert.equal(mac.jobFor(name), null, 'the control failed: the fixture has a job after all');
 
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
   const calls = world();
   remove.setDryRun(false);
-  const r = remove.restore(name);
+  const r = mac.restore(name);
   assert.equal(r.outcome, remove.OUTCOME.RESTORED, r.because);
   assert.match(r.because, /nothing to turn back on/,
     'it claims a startup job was re-enabled for an agent that never had one');
@@ -902,7 +1098,7 @@ test('an env-driven dry run cannot pass itself off as a real removal', () => {
   const name = madeAgent('dry-marker');
   boardShows(name, name);
   remove.setRunner(null);   // re-arms dry-run, with no runner installed
-  const r = remove.remove(name);
+  const r = mac.remove(name);
 
   /**
    * ⚠️ CONTROL: it took a path that DESCRIBES WORK, or "it is marked" is true of
@@ -940,21 +1136,19 @@ test('a removed list that reads but cannot be WRITTEN is a partial, not a crash'
     : { ok: true, stdout: '' }));
   remove.setDryRun(false);
 
-  const dir = nodePath.dirname(remove.REMOVED_FILE);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
   fs.rmSync(remove.REMOVED_FILE, { recursive: true, force: true });
   fs.writeFileSync(remove.REMOVED_FILE, '[]\n', 'utf8');
-  fs.chmodSync(dir, 0o500);   // r-x: readable, not writable
+  const blocked = blockListWrites();
   try {
     // ⚠️ CONTROL 1: the list really is still readable, or this is the sibling
     // test in disguise and proves nothing new.
     assert.equal(fs.readFileSync(remove.REMOVED_FILE, 'utf8'), '[]\n',
       'the fixture blocked the read too, so this exercises the wrong branch');
     // ⚠️ CONTROL 2: and the write really is impossible.
-    assert.throws(() => fs.writeFileSync(nodePath.join(dir, 'probe.tmp'), 'x'),
-      'the directory is still writable, so the containment is never tested');
+    blocked.assertBlocked();
 
-    const gone = remove.remove(name);
+    const gone = mac.remove(name);
     assert.equal(gone.outcome, remove.OUTCOME.PARTIAL,
       'a write that threw escaped the removal and would take the process with it');
     assert.match(gone.because, /will not appear there/,
@@ -962,8 +1156,7 @@ test('a removed list that reads but cannot be WRITTEN is a partial, not a crash'
     assert.match(gone.because, /com\.kosmos\.agent\.unwritable-dir/,
       'it does not name the startup job, which is the only remaining way back');
   } finally {
-    fs.chmodSync(dir, 0o700);
-    fs.rmSync(remove.REMOVED_FILE, { force: true });
+    blocked.undo();
   }
 });
 
@@ -993,13 +1186,13 @@ test('an agent stopped but never recorded is told where its way back is', () => 
     : { ok: true, stdout: '' }));
   remove.setDryRun(false);
 
-  const dir = nodePath.dirname(remove.REMOVED_FILE);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
   fs.rmSync(remove.REMOVED_FILE, { recursive: true, force: true });
   fs.writeFileSync(remove.REMOVED_FILE, '[]\n', 'utf8');
-  fs.chmodSync(dir, 0o500);
+  const blocked = blockListWrites();
   try {
-    const gone = remove.remove(name);
+    blocked.assertBlocked();
+    const gone = mac.remove(name);
 
     // ⚠️ CONTROL: it really did get all the way to the record, or this is one
     // of the earlier partials wearing the same outcome.
@@ -1021,8 +1214,7 @@ test('an agent stopped but never recorded is told where its way back is', () => 
     assert.match(gone.because, /set to start on its own as/,
       'the job-carrying recovery route no longer names the job at all');
   } finally {
-    fs.chmodSync(dir, 0o700);
-    fs.rmSync(remove.REMOVED_FILE, { force: true });
+    blocked.undo();
   }
 });
 
@@ -1060,7 +1252,7 @@ test('a case-variant spelling cannot report a live agent removed while touching 
   assert.ok(fs.existsSync(create.workerDir('CASED')),
     'this volume is case-sensitive, so this test is not exercising the hazard it was written for');
 
-  const r = remove.remove('CASED');
+  const r = mac.remove('CASED');
 
   assert.equal(r.outcome, remove.OUTCOME.REFUSED, `an alias spelling was accepted: ${r.because}`);
   assert.match(r.because, /cannot find an agent called CASED/,
@@ -1088,29 +1280,26 @@ test('a restore that cannot clear the removed list says so, and says which half 
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
-  const dir = nodePath.dirname(remove.REMOVED_FILE);
   remove.setRunner(() => ({ ok: true, stdout: '' }));   // the enable succeeds
   remove.setDryRun(false);
-  fs.chmodSync(dir, 0o500);
+  const blocked = blockListWrites();
   try {
     // ⚠️ CONTROL: the list really cannot be rewritten, and it really is still
     // readable — or this is the read-refusal path in disguise.
     assert.ok(fs.readFileSync(remove.REMOVED_FILE, 'utf8').includes(name),
       'the record is not there to be cleared, so this proves nothing');
-    assert.throws(() => fs.writeFileSync(nodePath.join(dir, 'probe.tmp'), 'x'),
-      'the directory is writable, so the failure under test cannot occur');
+    blocked.assertBlocked();
 
-    const r = remove.restore(name);
+    const r = mac.restore(name);
     assert.equal(r.outcome, remove.OUTCOME.PARTIAL,
       'a restore that could not clear the removed list reported success, leaving a dead undo button');
     assert.match(r.because, /may still be hidden/,
       'it does not say the agent is still hidden, which is the visible symptom');
     assert.equal(remove.isRemoved(name), true, 'the control failed: the record went away after all');
   } finally {
-    fs.chmodSync(dir, 0o700);
-    fs.rmSync(remove.REMOVED_FILE, { force: true });
+    blocked.undo();
   }
 });
 
@@ -1123,24 +1312,23 @@ test('when BOTH halves of a restore fail, it does not claim the agent was starte
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
-  const dir = nodePath.dirname(remove.REMOVED_FILE);
   remove.setRunner((file, args) => (args && args[0] === 'enable'
     ? { ok: false, code: 2 }
     : { ok: true, stdout: '' }));
   remove.setDryRun(false);
-  fs.chmodSync(dir, 0o500);
+  const blocked = blockListWrites();
   try {
-    const r = remove.restore(name);
+    blocked.assertBlocked();
+    const r = mac.restore(name);
     assert.equal(r.outcome, remove.OUTCOME.PARTIAL, r.because);
     assert.doesNotMatch(r.because, /we started .* again/,
       'it claims the agent was started by code that had just watched the start fail');
     assert.match(r.because, /could not start/, 'it does not say the start failed');
     assert.match(r.because, /stays hidden and stopped/, 'it does not say what state the agent is left in');
   } finally {
-    fs.chmodSync(dir, 0o700);
-    fs.rmSync(remove.REMOVED_FILE, { force: true });
+    blocked.undo();
   }
 });
 
@@ -1185,7 +1373,7 @@ test('an unreadable removed list is refused, not used as an empty starting point
   boardShows(keep, keep);
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(keep).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(keep).outcome, remove.OUTCOME.REMOVED);
 
   // ⚠️ CONTROL: the record we are protecting is really there, with the fields
   // that make Restore possible, before anything is made unreadable.
@@ -1194,7 +1382,7 @@ test('an unreadable removed list is refused, not used as an empty starting point
     'the control failed: there is no populated record to lose, so this proves nothing');
 
   const raw = fs.readFileSync(remove.REMOVED_FILE, 'utf8');
-  fs.chmodSync(remove.REMOVED_FILE, 0o000);
+  const unreadable = blockListRead();
   try {
     // ⚠️ CONTROL: it really is unreadable now. On a machine running as root
     // chmod 000 does not deny the owner, and this test would silently stop
@@ -1206,12 +1394,12 @@ test('an unreadable removed list is refused, not used as an empty starting point
     boardShows(other, other);
     world();
     remove.setDryRun(false);
-    const second = remove.remove(other);
+    const second = mac.remove(other);
     assert.equal(second.outcome, remove.OUTCOME.PARTIAL,
       'it removed an agent while unable to read the list, so it was about to rewrite the list from nothing');
     assert.match(second.because, /will not appear there/);
   } finally {
-    fs.chmodSync(remove.REMOVED_FILE, 0o600);
+    unreadable.undo();
   }
 
   // ⚠️ THE ASSERTION THAT MATTERS: the other agent's way back is still intact.
@@ -1240,7 +1428,7 @@ test('a removed list that parses to something that is not a list is corrupt, not
   assert.doesNotThrow(() => JSON.parse(fs.readFileSync(remove.REMOVED_FILE, 'utf8')),
     'the fixture is unparseable, so it exercises the wrong branch');
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.PARTIAL,
     'it overwrote a file it could not understand, which is how a corrupt list becomes a silent data loss');
   assert.equal(fs.readFileSync(remove.REMOVED_FILE, 'utf8').trim(), '{"not":"a list"}',
@@ -1267,7 +1455,7 @@ test('a kill that reports success over a session that is STILL THERE is not a re
   const calls = world({ killWorks: true, sessionSurvives: true });
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
 
   // ⚠️ CONTROL: the kill really was attempted and really did report success,
   // or this is the kill-failed path in disguise.
@@ -1299,7 +1487,7 @@ test('bootout answering "no such service" is the end state we wanted, not a fail
   });
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED,
     'a job that was already unloaded was treated as a job that would not unload');
   assert.equal(remove.isHidden(name), true);
@@ -1316,20 +1504,20 @@ test('what the detail screen is told about removing an agent comes from here, an
   const withJob = madeAgent('has-a-job');
   boardShows(withJob, withJob);
   // ⚠️ CONTROL: the two fixtures really do differ in the property under test.
-  assert.ok(remove.jobFor(withJob), 'the control failed: the with-job fixture has no job');
+  assert.ok(mac.jobFor(withJob), 'the control failed: the with-job fixture has no job');
   const jobless = 'no-job-at-all';
   fs.mkdirSync(create.workerDir(jobless), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(jobless), 'CLAUDE.md'), 'You are **Jobless**.\n', 'utf8');
-  assert.equal(remove.jobFor(jobless), null, 'the control failed: the jobless fixture has a job');
+  assert.equal(mac.jobFor(jobless), null, 'the control failed: the jobless fixture has a job');
 
-  const a = remove.plan(withJob);
+  const a = mac.plan(withJob);
   assert.ok(a.hint, 'the detail screen is given nothing to say about what removing does');
   assert.match(a.hint, /stops it starting again/);
   assert.match(a.hint, /Removing is not deleting/,
     'it does not answer the one thing they might fear');
 
   boardShows(jobless, jobless);
-  const b = remove.plan(jobless);
+  const b = mac.plan(jobless);
   assert.match(b.hint, /not set to start on its own/,
     'it promises to stop something starting again for an agent that nothing was going to start');
   assert.doesNotMatch(b.hint, /stops it starting again/,
@@ -1343,7 +1531,7 @@ test('a partial about an agent with no startup job does not claim one was turned
   const name = 'jobless-partial';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
-  assert.equal(remove.jobFor(name), null, 'the control failed: this fixture has a startup job');
+  assert.equal(mac.jobFor(name), null, 'the control failed: this fixture has a startup job');
 
   boardShows(name, name);
   // The kill reports success and the session is still there: a partial, reached
@@ -1351,7 +1539,7 @@ test('a partial about an agent with no startup job does not claim one was turned
   world({ killWorks: true, sessionSurvives: true });
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.PARTIAL, r.because);
   assert.doesNotMatch(r.because, /we stopped .* from starting again/,
     'it reported stopping a startup job that does not exist');
@@ -1368,13 +1556,13 @@ test('an agent with no folder is not reassured about a folder', () => {
   fs.writeFileSync(create.plistPath(name), '<plist/>', 'utf8');
   // ⚠️ CONTROL: no folder, and there IS something to remove.
   assert.equal(fs.existsSync(create.workerDir(name)), false, 'the control failed: this fixture has a folder');
-  assert.ok(remove.jobFor(name), 'the control failed: nothing exists to remove');
+  assert.ok(mac.jobFor(name), 'the control failed: nothing exists to remove');
 
   status.setPaneSource(() => '');
   world();
   remove.setDryRun(false);
 
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.doesNotMatch(r.because, /Its folder/,
     'it reassured somebody about a folder the agent never had');
@@ -1409,7 +1597,7 @@ test('the two partials a person actually hits still record, so Restore is there'
     if (asked <= 1) return fleet.line({ session: a, claim: a, title: '✳ Claude Code' });
     throw new Error('tmux went away');
   });
-  const r1 = remove.remove(a);
+  const r1 = mac.remove(a);
   assert.equal(r1.outcome, remove.OUTCOME.PARTIAL, r1.because);
   assert.match(r1.because, /could not check whether it is still running/, 'this is a different partial than the one under test');
   assert.equal(remove.isRemoved(a), true,
@@ -1431,7 +1619,7 @@ test('the two partials a person actually hits still record, so Restore is there'
   });
   world();
   remove.setDryRun(false);
-  const r2 = remove.remove(b);
+  const r2 = mac.remove(b);
   assert.equal(r2.outcome, remove.OUTCOME.PARTIAL, r2.because);
   assert.match(r2.because, /cannot confirm it is this agent/, 'this is a different partial than the one under test');
   assert.equal(remove.isRemoved(b), true,
@@ -1454,7 +1642,7 @@ test('the startup job is disabled BEFORE it is booted out', () => {
   boardShows(name, name);
   const calls = world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
 
   const seq = calls.map(([, a]) => a && a[0]);
   const iDisable = seq.indexOf('disable');
@@ -1482,20 +1670,20 @@ test('a partial for an agent with no startup job does not name a job that is not
   const name = 'no-job-recovery';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
-  assert.equal(remove.jobFor(name), null, 'the control failed: this fixture has a startup job');
+  assert.equal(mac.jobFor(name), null, 'the control failed: this fixture has a startup job');
 
   boardShows(name, name);
   world({ killWorks: true, sessionSurvives: true });
   remove.setDryRun(false);
 
   // Make the record fail, so the recovery sentence is the one that renders.
-  const dir = nodePath.dirname(remove.REMOVED_FILE);
-  fs.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(nodePath.dirname(remove.REMOVED_FILE), { recursive: true });
   fs.rmSync(remove.REMOVED_FILE, { recursive: true, force: true });
   fs.writeFileSync(remove.REMOVED_FILE, '[]\n', 'utf8');
-  fs.chmodSync(dir, 0o500);
+  const blocked = blockListWrites();
   try {
-    const r = remove.remove(name);
+    blocked.assertBlocked();
+    const r = mac.remove(name);
     assert.equal(r.outcome, remove.OUTCOME.PARTIAL, r.because);
     // ⚠️ CONTROL: it really is the recovery sentence being rendered.
     assert.match(r.because, /will not appear there/, 'the record succeeded, so no recovery route is offered');
@@ -1513,8 +1701,7 @@ test('a partial for an agent with no startup job does not name a job that is not
     assert.match(r.because, /Nothing will start it again on its own/,
       'it does not say what is actually true, which is that nothing will bring it back');
   } finally {
-    fs.chmodSync(dir, 0o700);
-    fs.rmSync(remove.REMOVED_FILE, { force: true });
+    blocked.undo();
   }
 });
 
@@ -1526,12 +1713,12 @@ test('the steps report what was done, including when nothing was', () => {
   const name = 'jobless-steps';
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
-  assert.equal(remove.jobFor(name), null, 'the control failed: this fixture has a startup job');
+  assert.equal(mac.jobFor(name), null, 'the control failed: this fixture has a startup job');
 
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
 
   const labels = r.steps.map((s) => s.label);
@@ -1600,13 +1787,13 @@ test('the success sentence checks the folder by its exact spelling', () => {
     'this volume is case-sensitive, so the hazard under test cannot occur here');
   assert.ok(!fs.readdirSync(nodePath.dirname(create.workerDir(asked))).includes(asked),
     'the fixture accidentally has a folder under the asked-for spelling');
-  assert.ok(remove.jobFor(asked), 'the control failed: nothing exists to remove');
+  assert.ok(mac.jobFor(asked), 'the control failed: nothing exists to remove');
 
   status.setPaneSource(() => '');
   world();
   remove.setDryRun(false);
 
-  const r = remove.remove(asked);
+  const r = mac.remove(asked);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.doesNotMatch(r.because, /Its folder/,
     'it promised a folder that belongs to a different agent with a similar name');
@@ -1630,9 +1817,9 @@ test('an agent Kosmos cannot restart is not promised that Kosmos will put it bac
   fs.mkdirSync(create.workerDir(name), { recursive: true });
   fs.writeFileSync(nodePath.join(create.workerDir(name), 'CLAUDE.md'), `You are **${name}**.\n`, 'utf8');
   // ⚠️ CONTROL: it really has no job, and it really is removable.
-  assert.equal(remove.jobFor(name), null, 'the control failed: this fixture has a startup job');
+  assert.equal(mac.jobFor(name), null, 'the control failed: this fixture has a startup job');
   boardShows(name, name);
-  const ask = remove.plan(name);
+  const ask = mac.plan(name);
   assert.equal(ask.ok, true, `it cannot be removed at all: ${ask.because}`);
 
   assert.doesNotMatch(ask.hint, /you can put it back/,
@@ -1642,8 +1829,8 @@ test('an agent Kosmos cannot restart is not promised that Kosmos will put it bac
 
   world();
   remove.setDryRun(false);
-  assert.equal(remove.remove(name).outcome, remove.OUTCOME.REMOVED);
-  const back = remove.restore(name);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+  const back = mac.restore(name);
   assert.equal(back.outcome, remove.OUTCOME.RESTORED, back.because);
   assert.doesNotMatch(back.because, /is back on the board/,
     'it says the agent is back on a board that will not show it until something starts it');
@@ -1668,7 +1855,7 @@ test('restart closes the window and lets launchd bring the agent back', () => {
   boardShows(name, name);
   const calls = world();
   try {
-    const out = remove.restart(name);
+    const out = mac.restart(name);
     assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
 
     const killed = calls.find((c) => c[1][0] === 'kill-session');
@@ -1707,7 +1894,7 @@ test('restart refuses on a window it cannot tie to the agent, and on one that is
   status.setPaneSource(() => fleet.line({ session: name, claim: '', title: '✳ Claude Code' }));
   const calls = world();
   try {
-    const out = remove.restart(name);
+    const out = mac.restart(name);
     assert.equal(out.outcome, remove.OUTCOME.REFUSED, 'an untied window was restarted anyway');
     assert.match(out.because, /cannot confirm it is this agent/);
     assert.equal(calls.filter((c) => c[1][0] === 'kill-session').length, 0,
@@ -1716,7 +1903,7 @@ test('restart refuses on a window it cannot tie to the agent, and on one that is
     /* Nothing running at all is a refusal too, and a different sentence: there
        is nothing to restart, and the agent starts itself. */
     status.setPaneSource(() => '');
-    const none = remove.restart(name);
+    const none = mac.restart(name);
     assert.equal(none.outcome, remove.OUTCOME.REFUSED);
     assert.match(none.because, /not running/);
   } finally {
@@ -1739,7 +1926,7 @@ test('#2019: a successful restart records a fresh disruption carrying the cause'
   const calls = world();
   try {
     disruption.clear(name); // start from a known-empty state
-    const out = remove.restart(name, 'model');
+    const out = mac.restart(name, 'model');
     assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
     // The board would misread the dead pane as "gone" without this record.
     const rec = disruption.active(name);
@@ -1759,7 +1946,7 @@ test('#2019: a restart that defaults its cause records "restart"', () => {
   world();
   try {
     disruption.clear(name);
-    const out = remove.restart(name); // no cause -> the generic
+    const out = mac.restart(name); // no cause -> the generic
     assert.equal(out.outcome, remove.OUTCOME.RESTARTED, out.because);
     assert.equal(disruption.active(name).cause, 'restart');
   } finally {
@@ -1778,7 +1965,7 @@ test('#2019: a restart whose kill FAILS (PARTIAL) leaves NO record -- a still-li
   world({ sessionSurvives: true });
   try {
     disruption.clear(name);
-    const out = remove.restart(name, 'provider');
+    const out = mac.restart(name, 'provider');
     assert.equal(out.outcome, remove.OUTCOME.PARTIAL, out.because);
     assert.equal(disruption.active(name), null, 'a failed kill left a stale disruption record');
     assert.equal(disruption.read(name).found, false, 'the record was written but not cleared');
@@ -1796,7 +1983,7 @@ test('#2019: a restart REFUSED on an untied window records nothing (never reache
   world();
   try {
     disruption.clear(name);
-    const out = remove.restart(name, 'restart');
+    const out = mac.restart(name, 'restart');
     assert.equal(out.outcome, remove.OUTCOME.REFUSED, out.because);
     assert.equal(disruption.active(name), null, 'a refused restart wrote a disruption record');
   } finally {
@@ -1832,7 +2019,7 @@ test('removal restores the trust line creation wrote, and drops the record (#169
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.ok(r.steps.some((s) => s.label === 'took back the folder trust' && s.ok === true),
     'the take-back is not in the steps, so nobody can see it happened');
@@ -1850,7 +2037,7 @@ test('no record means the line is left alone, which is the person-owned directio
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.ok(!r.steps.some((s) => s.label === 'took back the folder trust'),
     'a removal with no record still touched another tool’s config');
@@ -1870,7 +2057,7 @@ test('a dry-run removal leaves the line AND the record exactly as found (#169)',
   remove.setRunner(null);
   remove.setDryRun(true);
   const before = fs.readFileSync(CLAUDE_CONFIG, 'utf8');
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.dryRun, true, 'the fixture did not actually dry-run');
   assert.equal(fs.readFileSync(CLAUDE_CONFIG, 'utf8'), before,
     'a dry-run removal edited another tool\u2019s config for real');
@@ -1891,7 +2078,15 @@ test('a creation that did not record drops a stale record for its name (#169)', 
      so the key is predicted: the workers root's realpath plus the name is
      exactly what trustFolder will resolve once creation makes the folder. */
   fs.mkdirSync(process.env.AGENT_WORKFORCE_WORKERS, { recursive: true });
-  const wdKey = nodePath.join(fs.realpathSync(process.env.AGENT_WORKFORCE_WORKERS), name);
+  /* #570: ...spelled the way `trustFolder` spells it. Its key is FORWARD-SLASHED
+     on every host, deliberately -- Claude Code writes its own project keys that
+     way and does not read a backslashed one (trust.js measures this on Windows,
+     both arms). A fixture that predicts `C:\...\name` seeds an answer under a key
+     nothing looks up, so creation finds no prior answer, writes its own, and the
+     ghost record correctly survives -- the test fails describing a defect that is
+     in the fixture. Inert on POSIX, where sep is already '/'. */
+  const wdKey = nodePath.join(fs.realpathSync(process.env.AGENT_WORKFORCE_WORKERS), name)
+    .split(nodePath.sep).join('/');
   /* The person's own answer, in place BEFORE the creation, and the ghost
      of an earlier incarnation's record. */
   fs.writeFileSync(CLAUDE_CONFIG, JSON.stringify({
@@ -1920,9 +2115,55 @@ test('a value the person changed in the gap is left, and the record retires (#16
   boardShows(name, name);
   world();
   remove.setDryRun(false);
-  const r = remove.remove(name);
+  const r = mac.remove(name);
   assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
   assert.equal(readTrustValue(name), false, 'the person’s own later answer was overwritten');
   assert.equal(trust.recordedWrite(name), null,
     'the record survived although nothing ours remains, so a future removal would act again');
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// #2323: removing an agent must REVOKE its sender token, so a removed agent that
+// is still beating (guaranteed for a REMOTE agent, whose process removal cannot
+// stop) can no longer authenticate via resolveAgentSender's paneless arm.
+// End-to-end so it proves the revoke keys on the SAME name the token is minted
+// under (a key mismatch would silently leave the token live).
+// ─────────────────────────────────────────────────────────────────────────────
+const sendertoken = require('./sendertoken');
+
+test('#2323: removing an agent revokes its sender token (a removed agent stops resolving)', () => {
+  const name = madeAgent('revoke-on-remove');
+  boardShows(name, name);
+  const minted = sendertoken.mint(name);
+  assert.equal(minted.ok, true, 'precondition: token minted');
+  assert.equal(sendertoken.resolveName(minted.token).ok, true,
+    'precondition: the token resolves to the agent before removal');
+
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED, 'precondition: the agent was removed');
+
+  // The fix: the token no longer resolves. If removal did not revoke it (or
+  // revoked the wrong key), resolveName would still return ok:true here.
+  assert.equal(sendertoken.resolveName(minted.token).ok, false,
+    'the removed agent\'s token still resolves -- removal did not revoke it, or revoked the wrong key');
+});
+
+test('#2323: restoring after removal is unaffected (a fresh token is minted on relaunch; revoke-on-remove does not break reversibility)', () => {
+  const name = madeAgent('revoke-then-restore');
+  boardShows(name, name);
+  const minted = sendertoken.mint(name);
+  world();
+  remove.setDryRun(false);
+  assert.equal(mac.remove(name).outcome, remove.OUTCOME.REMOVED);
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the old token was revoked on removal');
+
+  const back = world();
+  remove.setDryRun(false);
+  assert.equal(mac.restore(name).outcome, remove.OUTCOME.RESTORED, 'restore still works after a revoking removal');
+  assert.equal(remove.isRemoved(name), false, 'the agent is back');
+  // A fresh mint (what a relaunch does) resolves; the revoked one stays dead.
+  const fresh = sendertoken.mint(name);
+  assert.equal(sendertoken.resolveName(fresh.token).ok, true, 'a freshly minted token resolves after restore');
+  assert.equal(sendertoken.resolveName(minted.token).ok, false, 'the pre-removal token stays revoked');
 });

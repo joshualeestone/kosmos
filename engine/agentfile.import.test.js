@@ -98,6 +98,67 @@ test('#1939 RED-CAPABLE CONTROL: the same file with a Kosmos export header still
   assert.equal(out.recognizedFromContent, undefined, 'the export path does not set the instructions flag');
 });
 
+test('#4: a file that introduces an agent with an UNPARSEABLE name is recognized, to be named', () => {
+  // Josh's 0.6.39 test: seed files whose intro the strict name-parser could not read
+  // (a lowercase name, or a role-first intro) were rejected as "not a Kosmos agent".
+  // Import now recognizes the intro and lets the person name the agent (offer-to-name),
+  // rather than rejecting a real agent for a format nit. Claude AND OpenAI files that
+  // introduce with "You are ..." are covered.
+  for (const src of ['You are angel, a project manager.\n', 'You are a senior engineer named Krang.\n']) {
+    const out = agentfile.importAgent(src, deps);
+    assert.equal(out.ok, true, 'an introduced agent must be recognized even with an unparseable name: ' + JSON.stringify(src) + ' -> ' + out.because);
+    assert.equal(out.recognizedFromContent, true, 'recognized as instructions, so the form can prompt for a name');
+    assert.equal(out.displayName, '', 'no name was parseable, so the form asks (offer-to-name)');
+  }
+});
+
+test('#4 CONTROL: a file that introduces NOBODY is still rejected (never accept arbitrary markdown)', () => {
+  // The loosening is gated on an intro line, not "any markdown": a file with no
+  // "You are ..." line and no header is genuinely not an agent and stays refused, so
+  // the loosening cannot over-accept a random note.
+  const out = agentfile.importAgent('# Project setup\n\nRun npm install, then npm test.\n', deps);
+  assert.equal(out.ok, false, 'a non-agent markdown file must not be accepted as an agent');
+});
+
+test('#8: an unparseable intro under a `# Name` H1 PREPOPULATES the heading as the detected name', () => {
+  // Josh's 0.6.40 re-test imported a file (a CLAUDE.md whose intro is role-first, name in
+  // the H1) and the create form's name input was left BLANK. When the "You are ..." line
+  // names nobody the strict parser can read, the name is almost always the H1, so import
+  // now prepopulates it (still offer-to-name -- the person confirms).
+  const roleFirstUnderHeading = '# Pip\n\nYou are a helpful assistant that manages the calendar.\n';
+  const out = agentfile.importAgent(roleFirstUnderHeading, deps);
+  assert.equal(out.ok, true, out.because);
+  assert.equal(out.displayName, 'Pip', 'the H1 heading is prepopulated as the detected display name, not left blank');
+  assert.equal(out.name, 'pip', 'the machine name is the slug of the heading, so the create form is not blank');
+  assert.equal(out.recognizedFromContent, true);
+  // A multi-word H1 slugs the whole heading.
+  const multi = agentfile.importAgent('# Pip the Pigeon\n\nYou are a messenger.\n', deps);
+  assert.equal(multi.displayName, 'Pip the Pigeon');
+  assert.equal(multi.name, 'pip-the-pigeon');
+});
+
+test('#8 CONTROL: an unparseable intro with NO H1 heading stays offer-to-name (empty), unchanged', () => {
+  // The heading fallback must not manufacture a name where none exists: the #4 cases
+  // (bare lowercase, role-first "named X") have no H1, so they still return an empty
+  // name for the form to ask -- the fix is additive, not a change to those.
+  for (const src of ['You are angel, a project manager.\n', 'You are a senior engineer named Krang.\n']) {
+    const out = agentfile.importAgent(src, deps);
+    assert.equal(out.ok, true, out.because);
+    assert.equal(out.name, '', 'no H1 and no clean intro name -> still empty (offer-to-name): ' + JSON.stringify(src));
+    assert.equal(out.displayName, '');
+  }
+});
+
+test('#8 CONTROL: a `# You are X` H1 is not leaked as the name (it is an intro line, not a name)', () => {
+  // identityFromText already reads "# You are Pip" as the name; the heading fallback must
+  // NOT also fire and (wrongly) treat the whole "You are Pip" heading text as a name.
+  const out = agentfile.importAgent('# You are Pip\n\nHelps out.\n', deps);
+  assert.equal(out.ok, true, out.because);
+  assert.equal(out.displayName, 'Pip', 'the name comes from the parser, not the raw heading text');
+  assert.equal(out.name, 'pip');
+  assert.doesNotMatch(out.displayName, /You are/, 'the raw "You are ..." heading text must never become the display name');
+});
+
 test('#1939: a display name that slugs to nothing returns an empty name for the form', () => {
   /* The create form requires a name; when the display name has no [a-z0-9] to slug
      (a non-Latin name here), import returns name:'' and lets the form ask, rather

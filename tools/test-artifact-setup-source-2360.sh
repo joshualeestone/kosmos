@@ -1,0 +1,88 @@
+#!/bin/bash
+# test-artifact-setup-source-2360.sh - kosmos#2360.
+#
+# The 9e outside-audit's "served /setup matches the repo" check used to compare the served /setup
+# against the LOCAL working-tree chaoskosmos-site/setup. But the deploy ships from origin/main (via
+# the #2286 fresh-origin-main mechanism), so a shared checkout that lagged origin by a /setup commit
+# made 9e FALSE-RED "served /setup DIFFERS" -> release-exit=1, though the served bytes were correct.
+# The fix compares served vs origin/main:setup (the deploy source), which cannot false-fail on a stale
+# local checkout. This test locks that in: STATIC (the check reads origin/main, not the bare local
+# file) + BEHAVIOURAL (in a real repo where origin != local -- the exact #2360 condition -- the fix's
+# derivation reads the deploy source, discriminating origin from a stale local).
+set -uo pipefail
+cd "$(dirname "$0")/.." || exit 1
+CHECK=tools/kosmos-artifact-check.sh
+FAILS=0; ok(){ echo "PASS  $1"; }; bad(){ echo "FAIL  $1"; FAILS=$((FAILS+1)); }
+
+# ---- STATIC: the fix is in place (regression guard) -----------------------------------------
+grep -q 'git -C "\$SITE_CO" show origin/main:setup' "$CHECK" \
+  && ok "the /setup check derives the source sha from origin/main:setup (the deploy source)" \
+  || bad "the /setup check does not read origin/main:setup -- it may have regressed to the local working tree (#2360)"
+# it must NOT hard-FAIL on a bare local-working-tree comparison as the PRIMARY path (that is the bug).
+# The local file may still appear on the guarded fallback, but only as UNPROVEN, never a primary bad.
+grep -q 'served /setup DIFFERS from origin/main:setup' "$CHECK" \
+  && ok "a served-vs-origin/main difference is the hard FAIL (a real served-vs-source mismatch)" \
+  || bad "the hard FAIL no longer names origin/main:setup as the reference"
+# the empty-guard is load-bearing: `git show` of a missing path prints nothing, and shasum of empty
+# input is a FIXED non-file hash that would silently mis-compare. The behavioural half below carries its
+# OWN copy of this guard, so it cannot catch the SCRIPT losing it -- pin it statically here too.
+grep -q '\[ -s "\$WORK/origin-setup" \]' "$CHECK" \
+  && ok "the derivation guards on a non-empty git-show result ([ -s ] -- shasum-of-empty cannot mis-compare)" \
+  || bad "the derivation lost its non-empty ([ -s ]) empty-guard -- shasum of empty input is a fixed hash that mis-compares (#2360)"
+# lock the COMPARISON DIRECTION, not just the reference strings: the behavioural half below re-implements
+# the derivation, so a `=`->`!=` inversion or an ok/bad swap in the SCRIPT would pass it undetected.
+# Pin that equality (served == deploy source) leads to `ok`, so an inverted operator/branch reds here.
+grep -q '\[ "\$LIVE_SHA" = "\$SRC_SHA" \] && ok' "$CHECK" \
+  && ok "the primary comparison is equality-then-ok (served == source PASSES; an inverted =/!= or ok/bad swap would red this)" \
+  || bad "the primary comparison is no longer '[ \$LIVE_SHA = \$SRC_SHA ] && ok' -- a =/!= inversion or ok/bad swap could pass silently (#2360)"
+# the DEGRADED fallback (origin/main unreadable) must report UNPROVEN, never `ok`, on a local-tree
+# MATCH: matching a possibly-stale local does not confirm the deploy source, so an `ok` there is a
+# silent-pass. POSITIVELY pin that the fallback match verdict IS `unp` (a negative absence-grep would
+# pass vacuously -- origin/main's pre-fix `ok` uses different wording, so it would miss both the old
+# bug and a future unp->ok flip). This positive pin reds against origin/main (no such `unp` line there).
+grep -q 'unp "served /setup matches the LOCAL' "$CHECK" \
+  && ok "the degraded fallback reports UNPROVEN (not ok) on a local match -- it cannot green an unconfirmed served artifact" \
+  || bad "the degraded fallback no longer reports UNPROVEN on a local match -- passing (ok) on a stale-local match is a silent-pass (#2360)"
+
+# ---- BEHAVIOURAL: the derivation reads the deploy source, not a stale local -------------------
+# Reproduce the exact #2360 condition in a real repo: origin/main:setup = A, local working /setup = B.
+T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+git init -q --bare "$T/origin.git"
+git clone -q "$T/origin.git" "$T/site" 2>/dev/null
+printf 'ORIGIN-SETUP-BYTES-A\n' > "$T/site/setup"
+git -C "$T/site" add setup && git -C "$T/site" commit -qm "setup A"
+git -C "$T/site" push -q origin HEAD:main 2>/dev/null
+# now make the LOCAL working tree stale/different from origin/main (the shared-checkout-lag condition)
+printf 'LOCAL-STALE-BYTES-B\n' > "$T/site/setup"
+
+SHA_A="$(printf 'ORIGIN-SETUP-BYTES-A\n' | shasum -a 256 | awk '{print $1}')"
+SHA_B="$(shasum -a 256 "$T/site/setup" | awk '{print $1}')"
+[ "$SHA_A" != "$SHA_B" ] || bad "test setup invalid: A and B hash the same, so the test cannot discriminate"
+
+# a faithful re-implementation of the fix's origin-vs-local derivation (the fetch here omits the
+# script's http.lowSpeedLimit/Time flags -- irrelevant to this local file:// fetch and to what this
+# discriminates; the script's real derivation is pinned by the static greps above):
+git -C "$T/site" fetch -q origin 2>/dev/null || true
+if git -C "$T/site" show origin/main:setup > "$T/origin-setup" 2>/dev/null && [ -s "$T/origin-setup" ]; then
+  DERIVED="$(shasum -a 256 "$T/origin-setup" | awk '{print $1}')"
+else
+  DERIVED=""
+fi
+[ "$DERIVED" = "$SHA_A" ] \
+  && ok "the fix's derivation reads origin/main:setup (A), NOT the stale local working tree (B)" \
+  || bad "the derivation returned '$DERIVED', expected origin/main sha $SHA_A -- it did not read the deploy source"
+# red-capability of the discrimination: the OLD (buggy) approach would have read the local file (B).
+OLD_DERIVED="$(shasum -a 256 "$T/site/setup" | awk '{print $1}')"
+[ "$OLD_DERIVED" = "$SHA_B" ] && [ "$OLD_DERIVED" != "$DERIVED" ] \
+  && ok "control: the OLD local-working-tree read would have returned B ($SHA_B) -- the bug the fix removes" \
+  || bad "control did not discriminate old(local) from new(origin) -- the test is vacuous"
+
+# guard: a missing origin/main:setup yields empty (the fallback path), not a bogus fixed hash.
+if git -C "$T/site" show origin/main:no-such-file > "$T/none" 2>/dev/null && [ -s "$T/none" ]; then
+  bad "git show of a missing path produced non-empty output -- the empty-guard is unsound"
+else
+  ok "guard: git show of a missing origin/main path yields empty (falls back, not a bogus hash)"
+fi
+
+[ "$FAILS" -eq 0 ] && echo "artifact setup-source (#2360): all hold" || { echo "artifact setup-source (#2360): $FAILS failed"; exit 1; }

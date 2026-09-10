@@ -1,3 +1,4 @@
+// Browser-check-surface: pj-post-go
 /* #1303 group C: the composer goes back to ONE LINE after a send.
  *
  * Josh, 2026-08-28: "if it expands to two lines for the message that I'm
@@ -17,6 +18,10 @@
  * READS TEXT, and the rendered height is the one thing only a browser can
  * observe. This types real characters into a real textarea, lets the real
  * `input` handler grow it, and measures the box.
+ *
+ * It ALSO reads the composer's FOCUS style (#1303 D reversed by Josh 0.6.47):
+ * a focused text composer must show no dark focus ring -- another thing only a
+ * real browser can compute, so it rides here beside the height check.
  *
  * 🔑 THE SETUP CONTROL IS THE WHOLE TEST. If the box never grew, then "it is one
  * line after the send" is true of a box that was one line all along, and every
@@ -100,6 +105,40 @@ const say = (n, cond, note) => (cond ? ok(n, note) : bad(n, note || 'assertion f
 
     const base = await boxH();
     say('the composer is present and has a height', base > 0, 'base=' + base);
+
+    /* FOCUS BEHAVIOUR (#1303 D reversed by Josh 0.6.47, item 6.01.26; Mona's (a)).
+       The text composer must show NO dark focus stroke when it has focus -- the
+       blinking caret is the "box is on" signal. Only a real browser can read the
+       CONTAINER's computed focus style, which is why this lives here rather than
+       in the JSDOM source-regex test. Focus the box, then read `.composerbox`. */
+    const focusStyle = await p.evaluate(() => {
+      const ta = document.getElementById('pj-post');
+      if (!ta) return null;
+      ta.focus();
+      const box = ta.closest('.composerbox');
+      if (!box) return { noBox: true };
+      const cs = getComputedStyle(box);
+      return { focused: document.activeElement === ta, boxShadow: cs.boxShadow,
+        borderColor: cs.borderColor, caret: getComputedStyle(ta).caretColor };
+    });
+    say('the composer text box takes focus', !!(focusStyle && focusStyle.focused), JSON.stringify(focusStyle));
+    /* Forbid the near-black RING specifically, not every box-shadow. Josh's ask
+       was to remove the dark stroke; the JSDOM guard deliberately leaves room for
+       a future SOFT non-dark focus treatment, so this layer must too or it would
+       false-red one. The re-added #1303 D ring computes as `rgba(74, 79, 87, .12)
+       0px 0px 0px 3px`, so the near-black token is the discriminating substring:
+       'none' passes, a soft non-near-black halo passes, the dark ring FAILS. */
+    say('a focused composer shows NO near-black focus ring',
+      !!(focusStyle && typeof focusStyle.boxShadow === 'string' && focusStyle.boxShadow.indexOf('74, 79, 87') === -1),
+      'box-shadow=' + (focusStyle && focusStyle.boxShadow));
+    /* the near-black --k-ink-2 = rgb(74, 79, 87); focus must NOT repaint the
+       border that colour (it stays the resting --k-rule). */
+    say('a focused composer does not repaint its border near-black',
+      !!(focusStyle && focusStyle.borderColor !== 'rgb(74, 79, 87)'), 'border-color=' + (focusStyle && focusStyle.borderColor));
+    /* the caret is the focus indicator, so it must not be hidden. */
+    say('the composer caret is not hidden (it is the focus signal)',
+      !!(focusStyle && focusStyle.caret !== 'transparent' && focusStyle.caret !== 'rgba(0, 0, 0, 0)'),
+      'caret=' + (focusStyle && focusStyle.caret));
 
     /* 🛑 TYPED, NOT FILLED, AND THE DIFFERENCE IS THE WHOLE CHECK.
        `p.fill()` sets the value and fires one `input` event, which I had taken

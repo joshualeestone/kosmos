@@ -218,6 +218,26 @@ function share(dir) {
   return { ok: true, already: false };
 }
 
+/**
+ * #2420: does this directory hold a stored api-key Claude account? An api-key
+ * account writes NO `oauthAccount` -- only a mode-600 key file
+ * (claudeaccounts.KEY_BASENAME) and a settings.json `apiKeyHelper` pointer -- so
+ * `identityOf()` is null for it and `list()` would skip it. The key file is the
+ * marker that makes such a directory an account, exactly as an `oauthAccount` is
+ * the marker for a subscription one (and exactly the marker `nextWorkDir` already
+ * treats as "occupied").
+ *
+ * Lazy require, matching `nextWorkDir`: claudeaccounts -> subscription ->
+ * (lazy) accounts, so a top-level require here could re-enter this module
+ * mid-load. Fails CLOSED (false) if the module cannot load or the stat throws:
+ * a directory we cannot confirm holds a key is never surfaced as an account.
+ */
+function apiKeyStored(dir) {
+  let keyFile = null;
+  try { keyFile = require('./claudeaccounts').keyFile(dir); } catch { return false; }
+  try { return fs.existsSync(keyFile); } catch { return false; }
+}
+
 function list() {
   const out = [];
   const seen = new Set();
@@ -225,13 +245,32 @@ function list() {
     if (seen.has(dir)) return;
     seen.add(dir);
     const who = identityOf(dir);
-    if (!who) return;
+    /* #2420: a directory with a stored api-key but NO oauthAccount is a
+       first-class api-key Claude account that `identityOf` (which reads
+       oauthAccount only) cannot see. The default account is never one of these
+       -- it is the subscription account Claude Code uses with no override -- and
+       the `!who` guard means a directory somehow carrying BOTH markers is
+       surfaced as its subscription account: the more informative identity. That
+       dual-marker state is now prevented at CREATION from both directions -- the
+       create route's taken-label guard blocks a key over an existing oauth, and
+       (added with this slice, because making api-key dirs visible here is what
+       made it reachable) the /api/connect/start guard blocks an OAuth reauth over
+       an existing key. `apiKeyStored` is only reached when `identityOf` is null,
+       so the fast 5-second tick pays no extra stat for a real oauth account. */
+    const apiKey = !who && isDefault !== true && apiKeyStored(dir);
+    if (!who && !apiKey) return;
     out.push({
       dir,
       label: isDefault ? null : path.basename(dir).replace(/^\.claude-/, ''),
       isDefault: isDefault === true,
-      email: who.email,
-      organization: who.organization,
+      email: who ? who.email : null,
+      organization: who ? who.organization : null,
+      /* #2420: whether this account runs on a pasted API key rather than an
+         OAuth subscription login. `listLiveNow` reads it to pick the right
+         live-badge reader (claudeaccounts.checkLive vs subscription.checkLive);
+         it is `false` on every subscription row so the field is present with one
+         meaning across the list, never absent-vs-false. */
+      apiKey: apiKey === true,
       /* Whether a memory reading taken on this account can be FOUND. See the
          naming note at the top: `status.configRoots` only looks at `~/.claude`
          and `~/.claude-*`, and only when a `projects` directory is there. */
@@ -281,6 +320,10 @@ async function listLiveNow() {
   // inside check() -- these two modules require each other, and a
   // top-level require on either side would deadlock on load order.
   const subscription = require('./subscription');
+  // #2420: the live-badge reader for an api-key Claude row. Lazy, same load-order
+  // reason as the require in `apiKeyStored`; cached, so this costs nothing after
+  // the first call.
+  const claudeaccounts = require('./claudeaccounts');
   const rows = list();
   const checked = await Promise.all(rows.map(async (row) => {
     try {
@@ -299,9 +342,26 @@ async function listLiveNow() {
          to catch it. Omitting configDir for the default row lets `claude
          auth status` use its own built-in default resolution instead,
          which this machine confirms lands on the real account. */
-      const connection = row.isDefault
-        ? await subscription.checkLive()
-        : await subscription.checkLive({ configDir: row.dir });
+      let connection;
+      if (row.isDefault) {
+        connection = await subscription.checkLive();
+      } else if (row.apiKey) {
+        /* #2420: an api-key account has no OAuth subscription to query -- its
+           liveness is whether the STORED KEY still authenticates. checkLive
+           reads the mode-600 key file and asks Anthropic, keeping the same
+           asymmetry every reader here keeps: only a positive rejection is NONE,
+           unreachable is UNKNOWN. Shape-matched with `plan: null` so every row's
+           connection carries the same fields (the subscription arm and the catch
+           arm below both do), and the badge overlay in server.js reads one
+           vocabulary regardless of how the row was checked. `plan: null` is
+           written AFTER the spread on purpose: an api-key account has no
+           subscription plan, so plan is null regardless of anything checkLive
+           might one day return. */
+        const c = await claudeaccounts.checkLive(row.dir);
+        connection = { ...c, plan: null };
+      } else {
+        connection = await subscription.checkLive({ configDir: row.dir });
+      }
       return { ...row, connection };
     } catch {
       // ⚠️ ONE ACCOUNT'S CHECK FAILING NEVER SINKS THE WHOLE LIST. `unknown`,
@@ -348,10 +408,25 @@ async function listLiveNow() {
  * `status.configRoots()` scans, so a directory named anything else is invisible
  * to the memory reading even with the tree shared.
  */
-function prepare(label) {
+/**
+ * The sanitized label and the config dir it maps to, WITHOUT any side effect
+ * (#2420). `prepare` uses this and then creates the dir; a caller that must
+ * decide something about the dir BEFORE creating it (e.g. refuse a taken label
+ * without prepare's hooks-merge touching an existing account) uses it alone.
+ * Returns `{ ok:true, clean, dir }` or `{ ok:false, because }`, the same label
+ * validation prepare has always applied.
+ */
+function dirForLabel(label) {
   const clean = String(label == null ? '' : label).trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
   if (!clean) return { ok: false, because: 'that is not a name we can use for an account' };
-  const dir = path.join(homeDir(), `.claude-${clean}`);
+  return { ok: true, clean, dir: path.join(homeDir(), `.claude-${clean}`) };
+}
+
+function prepare(label) {
+  const named = dirForLabel(label);
+  if (!named.ok) return { ok: false, because: named.because };
+  const clean = named.clean;
+  const dir = named.dir;
   const shared = path.join(homeDir(), '.claude', 'projects');
 
   try { fs.mkdirSync(dir, { recursive: true }); }
@@ -400,6 +475,15 @@ function prepare(label) {
  * would then refuse forever.
  */
 function nextWorkDir() {
+  /* #2420: the basename an api-key Claude account stores its key under. Resolved
+     ONCE (require caches, but hoisting reads cleaner than a per-iteration call) and
+     runtime, so claudeaccounts -> subscription -> (lazy) accounts never re-enters
+     this module mid-load. If the module cannot load, this is null and the occupancy
+     check below is skipped -- failing OPEN, which is SAFE here: a claudeaccounts that
+     will not load means the api-key feature never ran, so no key files exist to
+     contaminate a reused slot. */
+  let apiKeyBasename = null;
+  try { apiKeyBasename = require('./claudeaccounts').KEY_BASENAME; } catch { apiKeyBasename = null; }
   for (let n = 1; n <= 500; n += 1) {
     const label = `work${n}`;
     const dir = path.join(homeDir(), `.claude-${label}`);
@@ -422,6 +506,15 @@ function nextWorkDir() {
       } catch { cfgFree = false; }
     } catch (err) { cfgFree = Boolean(err && err.code === 'ENOENT'); }
     if (!cfgFree) continue;
+    /* #2420: an api-key Claude account writes NO oauthAccount -- only a
+       settings.json apiKeyHelper and a mode-600 key file -- so the cfg check
+       above reads it as free. It is NOT free: handing its slot to a
+       subscription "add another account" would leave both an apiKeyHelper and
+       an oauthAccount in the dir, and Claude Code prefers apiKeyHelper, so the
+       subscription's billing would silently switch to the stored key (the
+       inverse of the taken-label guard the api-key connect route applies). A
+       stored key file means occupied. */
+    if (apiKeyBasename && fs.existsSync(path.join(dir, apiKeyBasename))) continue;
     /* And freeness demands exactly what preparability demands, or a
        half-formed spot is offered forever while prepare refuses it
        forever: the projects entry must be absent, or a symlink that
@@ -594,14 +687,19 @@ function forgetAccount(dir, usedBy) {
   /* 🛑 THE NAME IS NOT THE ACCOUNT, AND THIS FUNCTION IS THE ONE PLACE THAT
      MATTERED. The docblock at the top of this module states the invariant and
      `list()` enforces it: a `.claude-*` directory is an account only if it
-     carries a `.claude.json` with an `oauthAccount`. Measured on the fleet
-     machine, `.claude-workers` carries none and is the workers/inbox tree.
-     Without this check `forgetAccount` renamed it, because every guard above
-     keys on the NAME.
+     carries a `.claude.json` with an `oauthAccount` OR a stored api-key file.
+     Measured on the fleet machine, `.claude-workers` carries neither and is the
+     workers/inbox tree. Without this check `forgetAccount` renamed it, because
+     every guard above keys on the NAME.
+     📌 #2420: an api-key account is invisible to `identityOf` (which reads
+     `oauthAccount` only), so the guard also accepts a dir carrying the stored
+     key file -- the same `apiKeyStored` marker `list()` surfaces it by. Keying
+     both on that one helper means the removable set matches the listed set.
      ⚠️ AFTER the existence check on purpose: `identityOf` answers null for a
      missing directory too, so checking earlier would turn "already gone" into
      "not an account" and lose the quiet-success arm. */
-  if (!identityOf(clean)) {
+  const hadKey = apiKeyStored(clean);
+  if (!identityOf(clean) && !hadKey) {
     return { ok: false, forgotten: false, because: 'that is not a Claude account on this computer' };
   }
 
@@ -618,6 +716,40 @@ function forgetAccount(dir, usedBy) {
   }
   try { fs.renameSync(clean, target); }
   catch { return { ok: false, forgotten: false, because: 'we could not move that account out of the way' }; }
+
+  /* #2420: an api-key account's credential is a raw key on disk, not an OAuth
+     token inside .claude.json. Forgetting it must take the key back the way
+     forgetCodexFolder takes back the codex trust it wrote -- otherwise the
+     renamed-aside dir keeps a live, mode-0600 raw key that no account uses.
+     🛑 AFTER the rename, not before, and best-effort: erasing before the rename
+     would destroy the credential on a rename FAILURE (the arm above returns an
+     error while the key is already gone) -- the oauth path destroys nothing on
+     that arm, and this must match it. So the rename is the commit point; the key
+     erase and pointer unwire are cleanup on the moved dir that cannot un-forget
+     the account if they fail.
+     📌 A swallowed erase failure therefore leaves the raw key in the aside dir,
+     and that residual is accepted rather than surfaced: the rename we just made
+     proves write access to the dir, so a forgetKey throw here is near-impossible.
+     Surfacing it would also mean logging around a credential, which this module
+     family avoids on purpose -- openaiaccounts' codex login drops stdout/stderr so
+     a pasted key cannot echo into a log.
+     📌 Only when the account HAD a key (`hadKey`), and the gate is PROTECTIVE
+     rather than cosmetic. forgetKey on an oauth dir would rm a nonexistent key
+     file (a no-op), but unwireApiKeyHelper strips ANY `apiKeyHelper` -- so running
+     the erase unconditionally would clobber a hand-set apiKeyHelper an oauth
+     account may legitimately carry, a setting this slice never wrote. Gating on
+     hadKey is what keeps that oauth path unchanged; the CONTROL test builds exactly
+     that oauth-with-a-hand-set-helper case and reds if the gate is removed. A
+     dual-marker dir (both an oauth token and a stray key -- prevented at creation
+     now, per list()'s comment) has hadKey true, so its stray key is still swept. */
+  if (hadKey) {
+    let ca = null;
+    try { ca = require('./claudeaccounts'); } catch { ca = null; }
+    if (ca) {
+      try { ca.forgetKey(target); } catch { /* best effort: the account is already forgotten */ }
+      try { ca.unwireApiKeyHelper(path.join(target, 'settings.json')); } catch { /* best effort */ }
+    }
+  }
 
   /* `wasDefault` is a constant here and there is no branch that sets it true:
      the default is refused above, so it can never reach this line. Kept so the
@@ -673,7 +805,13 @@ function removeAccount(dir, usedBy) {
   if (!fs.existsSync(clean)) {
     return { ok: true, removed: false, because: 'that account is already gone from this computer' };
   }
-  if (!identityOf(clean)) {
+  /* Same identity guard as forgetAccount, and the same #2420 relaxation: an
+     api-key account (a `.claude-*` dir with the stored key file but no
+     oauthAccount) is a real account and must be deletable, while a name-shaped
+     dir that is NEITHER (`.claude-workers`) is still refused. `rmSync` below
+     takes the whole dir, key file included, so unlike forget there is no separate
+     erase step -- only the guard needs relaxing. */
+  if (!identityOf(clean) && !apiKeyStored(clean)) {
     return { ok: false, removed: false, because: 'that is not a Claude account on this computer' };
   }
   try { fs.rmSync(clean, { recursive: true, force: true }); }
@@ -681,5 +819,5 @@ function removeAccount(dir, usedBy) {
   return { ok: true, removed: true, because: null };
 }
 
-module.exports = { list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
+module.exports = { list, listLive, forgetAccount, removeAccount, FORGOTTEN_PREFIX, identityOf, prepare, dirForLabel, share, sharesMemory, nextWorkDir, configFile, isDefaultDir, /* lazy, so it cannot re-freeze what homeDir() unfroze */
   get HOME_FOR_TEST() { return homeDir(); } };

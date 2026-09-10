@@ -114,7 +114,13 @@ function workerFolder(name) {
 // boolean the key holds.
 function readTrust(fileAbs, workKey) {
   const d = JSON.parse(fs.readFileSync(fileAbs, 'utf8'));
-  const e = (d.projects || {})[workKey];
+  /* #2281: trust.js normalises the key's separators, because Claude Code spells
+     its project keys with forward slashes and does not read a backslashed one
+     (measured on Windows, against a forward-slash control). Callers hand this a
+     host-spelled path, which is the same string on macOS and the wrong one on
+     Windows -- where every arm in this file then read ENTRY-ABSENT and the leak
+     this card exists to reproduce stopped being reproduced at all. */
+  const e = (d.projects || {})[String(workKey).split(path.sep).join('/')];
   return e === undefined ? 'ENTRY-ABSENT' : (KEY in e ? e[KEY] : 'KEY-ABSENT');
 }
 

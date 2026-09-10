@@ -114,6 +114,14 @@ test('no launchctl call escapes a sandboxed run into the real gui domain', () =>
   for (let i = 0; i < lines.length; i += 1) {
     if (!/launchctl (enable|bootout|bootstrap|kickstart)/.test(lines[i])) continue;
     if (/^\s*#/.test(lines[i])) continue;
+    /* A launchctl INSIDE a plist <string> (a login-agent's own program, e.g. the
+       com.kosmos.open-once one-shot booting itself out at login, #2151) is not run
+       by the installer; it runs at login. Its safety comes from the plist WRITE
+       being sandbox-gated (the enclosing pkg-mode `if` requires AGENT_WORKFORCE_LAUNCH
+       unset), not from a gate in the 12 lines around this data line -- which the
+       long plist heredoc pushes out of reach. A real install-path launchctl is a
+       bare command, never an XML line, so skipping `^\s*<tag` cannot hide one. */
+    if (/^\s*<[a-z?!/]/i.test(lines[i])) continue;
     /* The gate must appear in the enclosing 12 lines: either arm of it. */
     const above = lines.slice(Math.max(0, i - 12), i).join('\n');
     const gated = /-z "\$\{AGENT_WORKFORCE_LAUNCH:-\}"/.test(above)

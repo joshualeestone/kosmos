@@ -545,10 +545,187 @@ test('the restart check asks launchctl about THIS login session', () => {
 });
 
 /* ---------------------------------------------------------------------------
+   The board's own login job (#2397): the cannot-see-zero arm labelTruthCheck
+   deliberately omits. Presence + the standing disable override, never "loaded
+   right now" (RunAtLoad reloads a present plist at the next login on its own).
+--------------------------------------------------------------------------- */
+
+const nodeOs = require('node:os');
+const nodePath2 = require('node:path');
+const nodeFs = require('node:fs');
+
+/* A launch-dir seam with the board plist present or absent. Returns a cleanup. */
+function withLaunchDir(withBoard, fn) {
+  const dir = nodeFs.mkdtempSync(nodePath2.join(nodeOs.tmpdir(), 'kosmos-autostart-'));
+  if (withBoard) nodeFs.writeFileSync(nodePath2.join(dir, 'com.kosmos.board.plist'), '<plist/>');
+  const orig = process.env.AGENT_WORKFORCE_LAUNCH;
+  process.env.AGENT_WORKFORCE_LAUNCH = dir;
+  try { return fn(dir); }
+  finally {
+    if (orig === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = orig;
+    nodeFs.rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+const DISABLED_BLOCK = `disabled services = {
+\t"io.tailscale.ipn.macsys" => enabled
+\t"com.kosmos.board" => disabled
+\t"com.kosmos.agent.somebody" => enabled
+}`;
+const ENABLED_BLOCK = `disabled services = {
+\t"io.tailscale.ipn.macsys" => enabled
+\t"com.kosmos.agent.somebody" => enabled
+}`;
+
+test('#2397: a missing board login job on an INSTALLED machine is attention, not silence', () => {
+  withLaunchDir(false, () => {
+    const got = machine.boardAutostartCheck(okRunner, { platform: 'darwin', installedRoot: '/opt/kosmos' });
+    assert.equal(got.state, machine.STATE.ATTENTION,
+      'a deleted board login job read as OK -- the exact cannot-see-zero hole this card closes');
+    assert.match(got.title, /will not start itself/);
+    assert.match(got.detail, /missing/);
+  });
+});
+
+test('#2397: no board login job when running FROM SOURCE is benign, not a false alarm', () => {
+  withLaunchDir(false, () => {
+    const got = machine.boardAutostartCheck(okRunner, { platform: 'darwin', installedRoot: null });
+    assert.equal(got.state, machine.STATE.OK, 'a from-source checkout must not be told its login job is missing');
+    assert.match(got.title, /from source/);
+  });
+});
+
+test('#2397: a present-but-turned-off login item is surfaced plainly, never fought', () => {
+  withLaunchDir(true, () => {
+    // The disable override is exactly what the System Settings Login Items
+    // toggle writes; it, not "loaded right now", is what stops a reboot start.
+    const disabledRunner = (cmd, args) => {
+      if (cmd === '/bin/launchctl' && args[0] === 'print-disabled') return { ok: true, stdout: DISABLED_BLOCK };
+      return { ok: true, stdout: '' };
+    };
+    const got = machine.boardAutostartCheck(disabledRunner, { platform: 'darwin' });
+    assert.equal(got.state, machine.STATE.ATTENTION);
+    assert.match(got.title, /turned off/);
+    // Josh 2026-09-07: do not fight the user -- point them at the toggle, do not
+    // promise to flip it back for them.
+    assert.match(got.detail, /Login Items/);
+    assert.doesNotMatch(got.detail, /we (?:will|have) (?:turned|switched) it (?:on|back)/i);
+  });
+});
+
+test('#2397: the OLDER macOS disable token (=> true) is also read as turned off, not a false OK', () => {
+  // Older `launchctl print-disabled` emitted `=> true`/`=> false` (true == disabled)
+  // instead of `=> disabled`/`=> enabled`. Matching only `disabled` would let a
+  // genuinely disabled board fall through to OK -- the cannot-see-zero direction.
+  withLaunchDir(true, () => {
+    const OLD_TOKEN_BLOCK = 'disabled services = {\n\t"com.kosmos.board" => true\n\t"com.other" => false\n}';
+    const oldRunner = (cmd, args) => {
+      if (cmd === '/bin/launchctl' && args[0] === 'print-disabled') return { ok: true, stdout: OLD_TOKEN_BLOCK };
+      return { ok: true, stdout: '' };
+    };
+    const got = machine.boardAutostartCheck(oldRunner, { platform: 'darwin' });
+    assert.equal(got.state, machine.STATE.ATTENTION, 'a `=> true` disabled board fell through to a false OK');
+    assert.match(got.title, /turned off/);
+  });
+});
+
+test('#2397: an UNREADABLE launch dir is unknown (could-not-look), not a false "will not start"', () => {
+  // fs.existsSync would collapse an EACCES/ENOTDIR into "the file is not there"
+  // and render ATTENTION. A non-ENOENT stat error is a read we could not make, so
+  // the row must fail SOFT to unknown -- matching installedCheck / labelTruthCheck.
+  // Simulated with a launch path that is a FILE, so stat of <file>/...plist throws
+  // ENOTDIR (not ENOENT).
+  const os2 = require('node:os');
+  const p2 = require('node:path');
+  const fs2 = require('node:fs');
+  const f = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-notdir-'));
+  const asFile = p2.join(f, 'launch-as-file');
+  fs2.writeFileSync(asFile, 'x'); // a regular file where a dir is expected
+  const orig = process.env.AGENT_WORKFORCE_LAUNCH;
+  process.env.AGENT_WORKFORCE_LAUNCH = asFile;
+  try {
+    const got = machine.boardAutostartCheck(okRunner, { platform: 'darwin', installedRoot: '/opt/kosmos' });
+    assert.equal(got.state, machine.STATE.UNKNOWN, 'an unreadable launch dir was rendered as a checked negative');
+    assert.match(got.title, /could not check/i);
+  } finally {
+    if (orig === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = orig;
+    fs2.rmSync(f, { recursive: true, force: true });
+  }
+});
+
+test('#2397: a present, enabled board login job is a pass', () => {
+  withLaunchDir(true, () => {
+    const enabledRunner = (cmd, args) => {
+      if (cmd === '/bin/launchctl' && args[0] === 'print-disabled') return { ok: true, stdout: ENABLED_BLOCK };
+      return { ok: true, stdout: '' };
+    };
+    const got = machine.boardAutostartCheck(enabledRunner, { platform: 'darwin' });
+    assert.equal(got.state, machine.STATE.OK);
+    assert.match(got.title, /starts itself/);
+  });
+});
+
+test('#2397: a present job whose disable-state we could not read still passes (presence is the signal)', () => {
+  // RunAtLoad brings a present plist back at the next login unless a standing
+  // disable override says otherwise. If we could not read that override, the
+  // file's presence is the reboot-bearing fact -- do not manufacture an alarm.
+  withLaunchDir(true, () => {
+    const got = machine.boardAutostartCheck(deadRunner, { platform: 'darwin' });
+    assert.equal(got.state, machine.STATE.OK);
+  });
+});
+
+test('#2397: not currently loaded is NOT "turned off" -- only a disable override is', () => {
+  // A present plist with no disable override (started by hand this session, or
+  // run from source beside a plist) still RunAtLoads next login. print-disabled
+  // simply does not list it -> enabled by default -> must read OK, not attention.
+  withLaunchDir(true, () => {
+    const notListedRunner = (cmd, args) => {
+      if (cmd === '/bin/launchctl' && args[0] === 'print-disabled') return { ok: true, stdout: ENABLED_BLOCK };
+      return { ok: false };
+    };
+    const got = machine.boardAutostartCheck(notListedRunner, { platform: 'darwin' });
+    assert.equal(got.state, machine.STATE.OK, 'present-but-not-loaded was misread as the user turning it off');
+  });
+});
+
+test('#2397: the check never mutates launchd -- it only ever reads print-disabled', () => {
+  withLaunchDir(true, () => {
+    const calls = [];
+    const spy = (cmd, args) => { calls.push([cmd, ...(args || [])]); return { ok: true, stdout: ENABLED_BLOCK }; };
+    machine.boardAutostartCheck(spy, { platform: 'darwin' });
+    // Non-vacuous: on the present-path the check MUST probe launchctl at least
+    // once, so a future refactor that short-circuits the runner cannot let this
+    // guard pass by making zero calls.
+    assert.ok(calls.length >= 1, 'the check made no launchctl call, so the never-mutates loop below is vacuous');
+    for (const c of calls) {
+      const verb = c[1];
+      assert.equal(verb, 'print-disabled', `a health check must not run a mutating launchctl verb: ${c.join(' ')}`);
+      assert.ok(!/^(enable|disable|bootstrap|bootout|stop|start|load|unload|kickstart)$/.test(verb),
+        `mutating verb reached the board-autostart check: ${verb}`);
+    }
+  });
+});
+
+test('#2397: non-macOS has no launchd login job, so the row is omitted (null), not a false state', () => {
+  const got = machine.boardAutostartCheck(okRunner, { platform: 'win32' });
+  assert.equal(got, null);
+  // And check() must filter it rather than render an empty row.
+  const os2 = require('node:os');
+  const p2 = require('node:path');
+  const fs2 = require('node:fs');
+  const empty = fs2.mkdtempSync(p2.join(os2.tmpdir(), 'kosmos-win-'));
+  const got2 = machine.check({ pmset: DESKTOP_AWAKE, claudeBin: REAL_BIN, tmuxBin: REAL_BIN, runner: okRunner, appDirs: [empty, empty], platform: 'win32' });
+  fs2.rmSync(empty, { recursive: true, force: true });
+  assert.ok(got2.checks.every((c) => c && c.key && c.state), 'a null row leaked into checks');
+  assert.ok(!got2.checks.some((c) => c.key === 'autostart'), 'the autostart row rendered on a platform with no launchd');
+});
+
+/* ---------------------------------------------------------------------------
    The whole screen
 --------------------------------------------------------------------------- */
 
-test('four checks come back, and the two kinds of not-ok are counted apart', () => {
+test('five checks come back, and the two kinds of not-ok are counted apart', () => {
   // app-location gets DETERMINISTIC dirs: without appDirs this test would
   // read this machine's real /Applications and pass or fail by whether the
   // machine running the suite happens to have Kosmos installed.
@@ -567,12 +744,18 @@ test('four checks come back, and the two kinds of not-ok are counted apart', () 
     tmuxBin: REAL_BIN,
     runner: okRunner,
     appDirs: [sb, sb],
+    // #2397: pin platform so the autostart row is present cross-platform, and
+    // installedRoot null so the empty-sandbox board absence reads as
+    // from-source (OK, benign) rather than a missing-job attention -- keeping
+    // the attention/unknown counts below about the rows this test is measuring.
+    platform: 'darwin',
+    installedRoot: null,
   });
   fs.rmSync(sb, { recursive: true, force: true });
   if (origLaunch === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch;
-  // Four since the label-truth row joined (the sandbox-hijack detector).
-  assert.equal(got.checks.length, 4);
-  assert.deepEqual(got.checks.map((c) => c.key), ['installed', 'sleep', 'restart', 'labels']);
+  // Five since the board-autostart row joined (#2397, the cannot-see-zero arm).
+  assert.equal(got.checks.length, 5);
+  assert.deepEqual(got.checks.map((c) => c.key), ['installed', 'sleep', 'restart', 'labels', 'autostart']);
   assert.equal(got.attention, 1);
   assert.equal(got.unknown, 0);
   // Beside the rows, never among them: where the app sits has no bearing on
@@ -587,6 +770,17 @@ test('four checks come back, and the two kinds of not-ok are counted apart', () 
    * person go looking for a problem that does not exist.
    */
   const sb2 = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-check2-'));
+  // #1794: the `labels` check also reads the launch-dir seam (machine.js
+  // launchDir(): AGENT_WORKFORCE_LAUNCH else $HOME/Library/LaunchAgents), so
+  // the mixed call needs the SAME empty sandbox `got` used above. Without it,
+  // the restore two lines up leaves the real value in place, `labels` reads the
+  // operator's real ~/Library/LaunchAgents, and this test passes on a box that
+  // has a com.kosmos.board job (e.g. Agent1s) but fails on a clean runner where
+  // it does not (`labels` -> unknown, unknown count 1 -> 2). Set/restore mirrors
+  // `got` above so a failing assertion below cannot leak the env either.
+  const origLaunch2 = process.env.AGENT_WORKFORCE_LAUNCH;
+  const launchSb2 = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'kosmos-launch2-'));
+  process.env.AGENT_WORKFORCE_LAUNCH = launchSb2;
   const mixed = machine.check({
     pmset: 'nonsense',
     // tmuxBin is the missing one (#979): Claude Code no longer makes this row
@@ -600,8 +794,14 @@ test('four checks come back, and the two kinds of not-ok are counted apart', () 
     // in is exactly how the wizard came to state a false cause on the
     // fresh-install path.
     appDirs: [sb2, sb2],
+    // #2397: keep the autostart row OK (from-source) so it does not perturb the
+    // attention/unknown counts this block measures.
+    platform: 'darwin',
+    installedRoot: null,
   });
   fs.rmSync(sb2, { recursive: true, force: true });
+  fs.rmSync(launchSb2, { recursive: true, force: true });
+  if (origLaunch2 === undefined) delete process.env.AGENT_WORKFORCE_LAUNCH; else process.env.AGENT_WORKFORCE_LAUNCH = origLaunch2;
   assert.equal(mixed.attention, 1);
   assert.equal(mixed.unknown, 1);
   assert.equal(mixed.appLocation.state, machine.STATE.ATTENTION,
@@ -671,6 +871,15 @@ test('an unreadable AC section does not throw away a readable battery one', () =
   const bothJunk = 'Battery Power:\n sleep                y\n\nAC Power:\n sleep                x\n';
   assert.equal(machine.sleepCheck(bothJunk).state, 'unknown',
     'invented a finding out of two unreadable sections');
+
+  // #2587: this AC-unreadable branch is the DOCUMENTED exclusion (machine.js:165) -- the
+  // note's most important NEGATIVE case. It must NOT carry battOnly, because the advisory
+  // sleep step's honest note promises "plugged in it keeps working" and an unreadable AC
+  // cannot confirm that; the row keeps "Turn On" instead. Pin the flag's absence at both
+  // layers so a later edit that shows the note on an unconfirmable premise fails loudly.
+  assert.ok(!got.battOnly, 'the AC-unreadable branch must not set battOnly (its plugged-in state is unconfirmed)');
+  assert.equal(machine.sleepGate({ pmset: acJunk }).battOnly, false,
+    'sleepGate must not flag the AC-unreadable branch as the laptop-note (battOnly) case');
 });
 
 test('when both power sources sleep, the shorter one is not left unsaid', () => {
@@ -938,6 +1147,47 @@ test('the sleep-pane capability: derived from disk by id, refusing honestly, nev
   }
 });
 
+test('the sleep-pane filter matches STEM names a whole-word filter misses (0.6.41 robustness)', () => {
+  const machine = require('./machine');
+  try {
+    // The discriminating case is `Batteries.appex`: it contains `batter` but NOT
+    // the whole word `battery`, so the OLD `/power|energy|battery/` dropped it
+    // before the id check ever ran -- exactly how a real macOS could leave the
+    // button unable to find its pane. `PowerManagement.appex` (has `power`) and
+    // `EnergySaver.appex` (has `energy`) already matched the old substring filter;
+    // they stay here as belt-and-suspenders coverage, not as proof of the widening.
+    for (const name of ['Batteries.appex', 'PowerManagement.appex', 'EnergySaver.appex']) {
+      machine.resetSleepPaneCache();
+      const url = machine.sleepPaneUrl(
+        () => ({ ok: true, stdout: 'com.apple.Battery-Settings.extension\n' }),
+        () => [name]);
+      assert.equal(url, 'x-apple.systempreferences:com.apple.Battery-Settings.extension',
+        'a stem-named power pane (' + name + ') was not probed');
+    }
+
+    // The wider net still cannot claim a WRONG pane: the closed id set decides.
+    machine.resetSleepPaneCache();
+    assert.equal(
+      machine.sleepPaneUrl(() => ({ ok: true, stdout: 'com.apple.batteryui.BatterySettingsIntents\n' }),
+        () => ['BatterySettingsIntentsExtension.appex']),
+      null, 'a battery-named appex with an unrecognised id produced a URL');
+
+    // The refusal now tells the person how to do it by hand, so an unrecognised
+    // macOS is completable rather than a dead button.
+    machine.resetSleepPaneCache();
+    const refused = machine.openSleepSettings((cmd) => {
+      if (cmd === '/usr/bin/defaults') return { ok: false, stdout: '' };
+      return { ok: true, stdout: '' };
+    }, () => ['FakePowerPane.appex']);
+    assert.equal(refused.ok, false);
+    assert.match(refused.because, /Open System Settings/);
+    assert.match(refused.because, /automatic sleep/);
+    assert.doesNotMatch(refused.because, /\u2014/, 'failure copy must not contain an em dash');
+  } finally {
+    machine.resetSleepPaneCache();
+  }
+});
+
 test('the sleep row carries the settings flag from the same probe', () => {
   const machine = require('./machine');
   try {
@@ -1184,16 +1434,68 @@ test('#2304 Windows: a missing runner is attention and names the runner, never t
     'the Windows failure must not name tmux or a Homebrew path (tmux is not probed on win32)');
   assert.match(text, /the part that runs agents/,
     'the failure names the substrate a Windows box actually needs');
-  // KNOWN FOLLOW-UP (#2304 defect 2, macOS product copy on BOTH failure arms):
-  // the missing-runner remedy still reads "Download for macOS", and the
-  // unusable-path arm's detail names "the parts of macOS" and lists "a
-  // backslash" as forbidden (wrong on win32, where a backslash is a normal
-  // separator). Fixing either needs a platform branch in the copy PLUS the
-  // Windows download target (a #570 / product decision, and Josh owns the final
-  // phrasing), so both are flagged, not invented. The reported bug (runner
-  // PRESENT -> ok) is fixed without touching them, and threading `platform` into
-  // create.unusablePath below means a NORMAL win32 backslash path no longer even
-  // reaches the unusable arm (see the backslash test).
+  // #2304 defect 2 (NOW FIXED, was a KNOWN FOLLOW-UP): the missing-runner remedy
+  // must not point a Windows user at the macOS build, and it is framed around
+  // installing the runner rather than reinstalling Kosmos.
+  assert.doesNotMatch(text, /Download for macOS|macOS/,
+    'the Windows missing-runner remedy must not name the macOS download');
+  assert.doesNotMatch(text, /Reinstalling Kosmos/,
+    'win32 does not tell the user to reinstall Kosmos (that would not put back a missing runner)');
+  assert.match(text, /Install the part that runs agents, then open Kosmos again\./,
+    'win32 frames the remedy around installing the runner');
+});
+
+test('#2304 defect-2 CONTROL: the macOS missing-runner remedy is byte-unchanged (full string, not a substring)', () => {
+  // The fix is win32-scoped; darwin must keep Josh's existing wording verbatim.
+  // Assert the WHOLE remedy sentence, so an edit to any part of it (not only the
+  // "Download for macOS" clause) reds -- the test name claims byte-unchanged, so
+  // the assertion pins the full bytes rather than a substring of them.
+  const DARWIN_MISSING_REMEDY = 'Reinstalling Kosmos puts it back: open installkosmos.com and click Download for '
+    + 'macOS. Your agents and settings stay on this computer; installing again does '
+    + 'not remove them.';
+  // (On darwin, Claude Code is informational, not required, so a missing claude is
+  // still OK -- #979. The remedy string only appears on a REAL macOS failure; assert
+  // it via a genuinely-missing REQUIRED part: tmux.)
+  const tmuxGone = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/definitely/not/here/tmux' });
+  assert.equal(tmuxGone.state, 'attention');
+  assert.ok(tmuxGone.detail.includes(DARWIN_MISSING_REMEDY),
+    'macOS keeps the exact existing remedy wording, in full');
+  const gpt = machine.installedCheck({ platform: 'darwin', claudeBin: '/definitely/not/here/claude', tmuxBin: REAL_BIN });
+  assert.equal(gpt.state, 'ok', 'a darwin GPT-only box is unaffected (#979 control)');
+});
+
+test('#2304 defect-2 Windows: the unusable-path arm names no macOS and no backslash', () => {
+  // A win32 path carrying a QUOTE still reaches the unusable arm (create.unusablePath
+  // forbids a quote on every platform; only the backslash is POSIX-only, #1889). Its
+  // detail must not say "the parts of macOS" and must not list "a backslash" as
+  // forbidden -- on win32 a backslash is the normal separator.
+  const got = machine.installedCheck({ platform: 'win32', claudeBin: 'C:\\Program Files\\cl"aude\\claude.exe', tmuxBin: REAL_BIN });
+  assert.equal(got.state, 'attention', 'a quoted path is unusable on every platform');
+  assert.match(got.detail, /The path set for/, 'it is the unusable-path arm');
+  assert.doesNotMatch(got.detail, /the parts of macOS|a backslash|macOS/,
+    'the win32 unusable-path detail must not name macOS or forbid a backslash');
+  assert.match(got.detail, /the part of this computer that starts an agent/,
+    'the win32 noun is platform-correct');
+  assert.match(got.detail, /A quote or a line break/,
+    'the win32 forbidden-character list omits the backslash');
+  // The unusable-path REMEDY is also runner-framed on win32, not Kosmos-framed:
+  // an unusable path on win32 is the RUNNER's path, so "reinstall Kosmos" would
+  // not move it (the same reasoning as the missing arm).
+  assert.doesNotMatch(got.detail, /Kosmos is installed somewhere it cannot start agents from/,
+    'the win32 unusable remedy is not the Kosmos-centric macOS sentence');
+  assert.match(got.detail, /The part that runs agents is installed somewhere Kosmos cannot start it from/,
+    'the win32 unusable remedy names the runner, whose path is the one that is unusable');
+});
+
+test('#2304 defect-2 CONTROL: the macOS unusable-path arm is byte-unchanged (full detail + remedy)', () => {
+  const got = machine.installedCheck({ platform: 'darwin', claudeBin: REAL_BIN, tmuxBin: '/opt/home"brew/bin/tmux' });
+  assert.equal(got.state, 'attention', 'a quoted path is unusable on macOS too');
+  // Full trailing clause pinned (not a substring): the detail sentence AND the
+  // Kosmos-framed remedy that a macOS user still correctly sees.
+  assert.ok(got.detail.includes('A quote, a backslash or a line break in a path is something we will not pass on to the parts of macOS that start an agent, whatever is at the end of it.'),
+    'macOS keeps the exact existing unusable-path detail, in full');
+  assert.ok(got.detail.includes('Kosmos is installed somewhere it cannot start agents from. Installing it again to a folder with no quotes, backslashes or line breaks in its name is what fixes this.'),
+    'macOS keeps the exact existing Kosmos-framed unusable remedy');
 });
 
 test('#2304 Windows: a backslash runner path is classified MISSING, not UNUSABLE (unusablePath is injected)', () => {
@@ -1249,20 +1551,30 @@ test('sleepGate: a desktop that does not sleep -> checkable:true, prevented:true
   assert.deepEqual(machine.sleepGate({ pmset: DESKTOP_AWAKE }), { checkable: true, prevented: true });
 });
 
-test('sleepGate: a desktop that sleeps -> checkable:true, prevented:false (THE state that gates)', () => {
+test('sleepGate: a desktop that sleeps -> checkable:true, prevented:false (it sleeps)', () => {
   const got = machine.sleepGate({ pmset: DESKTOP_SLEEPS });
   assert.equal(got.checkable, true);
   assert.equal(got.prevented, false);
+  // #2587: a fixable desktop is NOT battOnly -- "Turn On" can set Sleep to Never, so it is
+  // not the laptop-note case; the row shows the ordinary "Not activated" + Turn On (advisory;
+  // the sleep step never gates Next either way).
+  assert.equal(got.battOnly, false);
 });
 
 test('sleepGate: a laptop awake on both power sources -> prevented:true', () => {
   assert.deepEqual(machine.sleepGate({ pmset: LAPTOP_ALWAYS_AWAKE }), { checkable: true, prevented: true });
 });
 
-test('sleepGate: a laptop that sleeps on battery -> prevented:false (gates, per the flagged policy)', () => {
+test('sleepGate: a laptop that sleeps on battery -> prevented:false + battOnly:true (the laptop-note case)', () => {
   const got = machine.sleepGate({ pmset: LAPTOP_SLEEPS_ON_BATTERY });
   assert.equal(got.checkable, true);
-  assert.equal(got.prevented, false, 'a machine that can sleep somewhere gates -- no silently-broken Kosmos');
+  assert.equal(got.prevented, false, 'a machine that can sleep somewhere reads prevented:false -- honest');
+  // #2587: THIS is the one state macOS gives no GUI switch to clear (a laptop always
+  // sleeps on battery), so it carries battOnly:true and the advisory first-run sleep step
+  // shows its honest note keyed on it (in place of the useless Turn On). The verdict stays
+  // prevented:false (the engine never claims the Kosmos is safe); the web does not gate Next
+  // on the sleep step at all (#2587 pivot).
+  assert.equal(got.battOnly, true);
 });
 
 test('sleepGate: THE DISCRIMINATOR -- not-prevented and uncheckable are different answers', () => {

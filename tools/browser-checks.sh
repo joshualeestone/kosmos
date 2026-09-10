@@ -275,6 +275,14 @@ FAKE_TMUX="$REPO/test-support/fake-tmux.sh"
 FAILED=()
 RAN=()
 RETRIED=()
+# #2445: the CI allowlist bookkeeping. SKIPPED = checks run_one was asked to run
+# but skipped because KOSMOS_BC_CI_ALLOWLIST was set and did not name them.
+# CI_MATCHED = allowlisted names that actually reached run_one and ran, so the
+# summary can HARD-FAIL if an allowlisted name never ran (a typo, or a check
+# gated out behind a board that did not boot) -- a filter that matches nothing
+# must not exit 0 green (test-filter-matching-nothing-exits-zero).
+SKIPPED=()
+CI_MATCHED=()
 # #1079: how many RICH boards booted this run. The card's hypothesis is that this
 # fifth concurrent server is what makes the heaviest check retry, so it is the
 # one variable the run log has to carry.
@@ -509,11 +517,11 @@ write_fleet_rich() {
   # the check. Seeding only one made render-survival fail IN THE RUNNER after
   # passing on a board booted by hand: the exact fresh-board-versus-in-sequence
   # gap this whole card is about, reproduced in the fix for it.
-  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
+  mkdir -p "$sb/data/Kosmos/profiles" "$sb/workers/ghosty" "$sb/workers/brigitte"
   printf '%s\n' '{"role":"Copywriter","displayName":"Ghosty"}' \
-    > "$sb/data/AgentWorkforce/profiles/ghosty.json"
+    > "$sb/data/Kosmos/profiles/ghosty.json"
   printf '%s\n' '{"role":"helper"}' \
-    > "$sb/data/AgentWorkforce/profiles/brigitte.json"
+    > "$sb/data/Kosmos/profiles/brigitte.json"
 }
 # 🛑 THE BOARD SCANS THE OPERATOR'S REAL $HOME UNLESS THIS IS SET.
 # `status.configRoots()` (engine/status.js:56) returns [CONFIG_ROOT] when the
@@ -560,7 +568,7 @@ boot_board_rich() {
 # board would take that check red. This board is separate for that reason.
 write_fleet_org() {
   local sb="$1"
-  mkdir -p "$sb/data/AgentWorkforce/profiles" "$sb/workers"
+  mkdir -p "$sb/data/Kosmos/profiles" "$sb/workers"
   SB_ORG="$sb" node -e '
     const f = require("./test-support/fleet");
     const fs = require("fs");
@@ -571,7 +579,7 @@ write_fleet_org() {
     for (const [a, to] of tree) {
       lines.push(f.line({ session: a + "-discord" }));
       fs.mkdirSync(sb + "/workers/" + a, { recursive: true });
-      fs.writeFileSync(sb + "/data/AgentWorkforce/profiles/" + a + ".json",
+      fs.writeFileSync(sb + "/data/Kosmos/profiles/" + a + ".json",
         JSON.stringify({ role: "Worker", reportsTo: to, dir: sb + "/workers/" + a }, null, 2) + "\n");
     }
     fs.writeFileSync(sb + "/panes.txt", lines.join("\n") + "\n");
@@ -663,6 +671,34 @@ wait_up() {
 REASONS=()
 run_one() {
   local label="$1"; shift
+  # #2445: CI ALLOWLIST. When KOSMOS_BC_CI_ALLOWLIST is set (a space- or comma-
+  # separated list of check names), run ONLY the named checks and skip the rest.
+  # It exists so the per-PR CI gate runs the timing-INSENSITIVE DOM-state class
+  # (the #2085 gate class: element present / hidden / clickable / labeled) and
+  # leaves the timing/animation/paint checks -- which on the slow, headless
+  # runner are both fragile (a "within 20s" assertion flakes) and low-confidence
+  # (SwiftShader software rendering) -- to the headed cut-time 3b, where a real
+  # compositor makes them reliable. A green under this env is the DOM-state gate,
+  # NOT full 3b coverage. Unset (the release cut, a dev run) => every check runs,
+  # exactly as before. The case pattern is unquoted on purpose so the globs bind;
+  # the label is wrapped in literal spaces for a whole-word match.
+  #
+  # SCOPE (#2445): this gates run_one ONLY, not the board boots above each check
+  # group. So in CI mode a board is still booted for a group even when only some of
+  # its checks are allowlisted (cheap: an idle node HTTP server), and on the FAILURE
+  # path a board that does not boot still appends its WHOLE group to FAILED,
+  # off-allowlist names included. That is a safe false-RED, not a scope hole: an
+  # allowlisted check that could not run is independently caught by the summary's
+  # never-ran guard, so the run reds correctly; the extra names are noise on an
+  # already-failing run. Gating the ~12 board-boot branches too would cut that noise
+  # but is not worth the risk on this cut-critical driver -- boards boot on a clean
+  # runner and the direction is safe.
+  if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
+    case " ${KOSMOS_BC_CI_ALLOWLIST//,/ } " in
+      *" $label "*) CI_MATCHED+=("$label") ;;   # allowlisted -- fall through and run it
+      *) SKIPPED+=("$label"); log "SKIP  $label (not in KOSMOS_BC_CI_ALLOWLIST)"; return 0 ;;
+    esac
+  fi
   local cap; cap="$(mktemp "${TMPDIR:-/tmp}/kosmos-bc-out.XXXXXX")"
   RAN+=("$label")
   sec "$label"
@@ -1172,6 +1208,14 @@ fi
 # fail -- the exact #1915 regression class, detailRing intact but nothing reaching the
 # page); a fixed non-reading arc reds the "arc changes with the reading" arm. That is
 # what makes the green mean anything.
+# render-org-rings-2576 joins the same way (#2576/#2577, the org-chart node ring):
+# own mktemp roots, OS-chosen port via srv.start(0), server.js in-process, fleet.install
+# (one needs_you agent + two others), runs bare. It sets known readings on each agent's
+# LAST entry and re-drives the real paintOrg, then reads every #orgmap .onode: a context
+# gauge on EVERY node with an arc tracking its reading, a corner badge on the needs-you
+# node ONLY, and NO ::after state arc on any node. Proven RED by reverting the node
+# render to the old `class="onode' + ring` + `.onode.attn::after` (the badge-only and
+# no-::after arms fail); a fixed non-reading arc reds the arc-tracks-reading arm.
 # render-worlds-switcher-1704 joins the same way (#1704 slice-3, the multiple-Kosmos
 # switcher): own mktemp roots, OS-chosen port via srv.start(0), server.js in-process,
 # fleet.install, runs bare. It drives GET /api/worlds (the switcher lists worlds, one
@@ -1200,7 +1244,7 @@ fi
 # rejected account is excluded as a run target, an unchecked one stays offered+labelled). Proven RED
 # on the pre-fix page by observed behavior ("3 accounts connected", no move prompt for a rejected
 # account, rejected offered at create); no server, so it sits in this no-URL loop.
-for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-account-name-2095 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-detail-ring-1915 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-openai-connectbox-2241 render-settings-openai-goldbox render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-firstrun-s6-2037 render-tophead-consolidated-2282 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-alltasks emoji-picker-2254 render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-subprojects-1994 render-worlds-switcher-1704 render-worldswitch-2238; do
+for n in live-connect render-agent-nav render-busy-line render-reauth-reach-1918 render-account-badge-1921 render-disconnect-stop-2570 render-account-name-2095 render-account-dup-reauth-2584 render-observed-consumers-1959 render-workchip-zero-2157 render-createnav-2190 render-head-row render-room-scroll render-talk-anchor-1926 render-made-before render-detail-header-1841 render-detail-ring-1915 render-org-rings-2576 render-agentpage-fullwidth-2012 render-engmode-gate-2131 render-firstrun-namestep-1994wiz render-firstrun-enter-2186 render-firstrun-connect-box-2187 render-firstrun-connect-fires render-firstrun-access-onebox render-firstrun-stepcap-gear-0640 render-firstrun-openai-connectbox-2241 render-settings-openai-goldbox render-claude-connect-choice-2433 render-sound-master-2436 render-build-marker-2066 render-openai-only-2096 render-picker-provider-2097 render-create-openai-model-2140 render-detail-openai-model-2140 render-firstrun-model-continue-2134 render-firstrun-s6-2037 render-tophead-consolidated-2282 render-memory-words render-org-drag render-pjsettings render-settings-nav render-plus-gate-1615 render-prompter-label-1843 render-restarting-2019 render-talk-search render-talk render-tasks render-url-state render-memory-controls render-model-change render-model-restart-interstitial render-alltasks emoji-picker-2254 render-composer-reset render-agent-lines render-long-title render-project-rows render-richtext-2067 render-richtext-room-2239 render-reactions-2255 render-firstrun-import-1652 render-firstrun-scan-on-grant-1652 render-firstrun-wizard-flow render-import-add-inplace-2419 render-addmem-flash-2429 render-bubblepop-2407 render-subprojects-1994 render-projects-map render-worlds-switcher-1704 render-worldswitch-2238 render-worldrename-1704 render-worldsw-height-2350 render-emoji-mute-2357 render-pjmsg-prewrap-2294 render-model-spinners-2365 render-workindicator-2146 render-plus-blue-1615 render-trust-restart-0644 render-open-terminal-0644 render-provider-combobox-1040 render-inline-field-errors-2606; do
   run_one "$n" node "docs/browser-checks/$n.js"
 done
 # --- the rich board: four checks that could not be wired for want of a fixture
@@ -1269,7 +1313,7 @@ run_one "render-update-toast" env SHOT_DIR="$RUN_DIR/shots-toast" node docs/brow
 sbc="$(new_sandbox)"
 if boot_board_rich "$sbc" "$P12"; then
   run_one "click-first-run" env KOSMOS_URL="http://127.0.0.1:$P12" HEADED=0 \
-    node docs/browser-checks/click-first-run.js "$sbc/data/AgentWorkforce/first-run.json"
+    node docs/browser-checks/click-first-run.js "$sbc/data/Kosmos/first-run.json"
 else
   FAILED+=("click-first-run (board did not boot)")
 fi
@@ -1497,6 +1541,26 @@ browser_run_log_append \
 RUN_COMPLETED=1
 log "ran:     ${RAN[*]:-none}"
 [ "${#RETRIED[@]}" -gt 0 ] && log "retried: ${RETRIED[*]}  (repeated retries are a flake to fix, not to accept)"
+
+# #2445: in CI allowlist mode, verify the allowlist actually selected checks.
+# An allowlisted name that never ran is a HARD failure, not a silent coverage
+# gap: it means the name is misspelled or its check was gated out behind a board
+# that failed to boot, so the gate would go green having asserted LESS than it
+# was told to. A filter that matches nothing must never exit 0 green
+# (test-filter-matching-nothing-exits-zero; a-guard-that-only-checks-too-many
+# -cannot-see-zero). This runs BEFORE the FAILED gate below so a bad allowlist
+# lands in FAILED and reddens the run.
+if [ -n "${KOSMOS_BC_CI_ALLOWLIST:-}" ]; then
+  [ "${#SKIPPED[@]}" -gt 0 ] && log "skipped: ${#SKIPPED[@]} checks not in KOSMOS_BC_CI_ALLOWLIST (CI runs the DOM-state subset; timing/animation/paint stay at the headed cut 3b)"
+  for _want in ${KOSMOS_BC_CI_ALLOWLIST//,/ }; do
+    _seen=0
+    for _m in ${CI_MATCHED[@]+"${CI_MATCHED[@]}"}; do [ "$_m" = "$_want" ] && { _seen=1; break; }; done
+    [ "$_seen" = 0 ] && FAILED+=("$_want (in KOSMOS_BC_CI_ALLOWLIST but never ran -- misspelled name, or its check was gated out behind a board that did not boot)")
+  done
+  if [ "${#CI_MATCHED[@]}" -eq 0 ]; then
+    FAILED+=("KOSMOS_BC_CI_ALLOWLIST matched no checks at all -- refusing to report a green from zero checks")
+  fi
+fi
 
 if [ "${#FAILED[@]}" -gt 0 ]; then
   log "FAILED:  ${FAILED[*]}"

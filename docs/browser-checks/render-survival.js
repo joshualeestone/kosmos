@@ -13,8 +13,8 @@
  * AGENT_WORKFORCE_DRY_RUN=1: the button writes launchd jobs and starts
  * processes, and launchd has no sandbox root to point somewhere harmless.
  *
- *   SB=$(mktemp -d); mkdir -p "$SB/data/AgentWorkforce/profiles" "$SB/workers/brigitte"
- *   echo '{"role":"helper"}' > "$SB/data/AgentWorkforce/profiles/brigitte.json"
+ *   SB=$(mktemp -d); mkdir -p "$SB/data/Kosmos/profiles" "$SB/workers/brigitte"
+ *   echo '{"role":"helper"}' > "$SB/data/Kosmos/profiles/brigitte.json"
  *   AGENT_WORKFORCE_DRY_RUN=1 AGENT_WORKFORCE_DATA="$SB/data" \
  *     AGENT_WORKFORCE_WORKERS="$SB/workers" AGENT_WORKFORCE_LAUNCH="$SB/launch" \
  *     PORT=17351 node server.js &

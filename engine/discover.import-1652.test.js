@@ -174,3 +174,26 @@ test('#1652: the connect candidates array still works and is not polluted by loo
   assert.ok(!dirs(r).includes(loose), 'the loose file itself leaked into the connect candidates');
   assert.ok(files(r).includes(loose), 'the loose file was not importable');
 });
+
+test('#8: a role-first-under-`# Name` loose file shows the H1 name in the list (matches the import form)', () => {
+  // Josh's 0.6.40 shape: the name is the H1, the intro is role-first, so identityFromText
+  // reads no name. The found-files LIST derives its name from identityFromText, so before
+  // #8 this row read "an agent file with no name in it" while clicking Import prepopulated
+  // "Pip" -- a cross-surface disagreement in the same feature. The list now falls back to
+  // the same H1 extraction the import parse uses, so the row and the form agree.
+  const root = path.join(SB, 'hname');
+  fs.mkdirSync(root, { recursive: true });
+  const f = path.join(root, 'pip.md');
+  fs.writeFileSync(f, '# Pip\n\nYou are a helpful assistant that manages the calendar.\n');
+  const r = scan([{ dir: root, maxDepth: 2 }]);
+  const row = (r.importable || []).find((c) => c.file === f);
+  assert.ok(row, 'the role-first-under-heading file was not found as importable');
+  assert.equal(row.name, 'Pip', 'the list did not fall back to the H1 name, so it disagrees with what Import prepopulates');
+  // CONTROL: a role-first file with NO heading still shows no name (offer-to-name), unchanged.
+  const g = path.join(root, 'krang.md');
+  fs.writeFileSync(g, 'You are a senior engineer named Krang.\n');
+  const r2 = scan([{ dir: root, maxDepth: 2 }]);
+  const grow = (r2.importable || []).find((c) => c.file === g);
+  assert.ok(grow, 'the headingless role-first file was not found as importable');
+  assert.equal(grow.name, '', 'a headingless file must not manufacture a name (stays offer-to-name)');
+});

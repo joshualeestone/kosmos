@@ -1,12 +1,17 @@
 'use strict';
 /**
- * PR-C2 (#2037 + #2020): install-flow Screen 6 "self-improving" consent switches.
- * Renet's install-flow ships the Screen 6 MARKUP (two s6-sw pill SPANS,
- * #fr-s6-feedback / #fr-s6-createping, role=switch, aria-checked default-ON). This
- * pins the BEHAVIOR PR-C2 wires in.
+ * #2037 (+ #11, 0.6.39): install-flow Screen 6 "self-improving" consent switch.
+ * The install-flow ships the Screen 6 MARKUP (an s6-sw pill SPAN, #fr-s6-feedback,
+ * role=switch, aria-checked default-ON). This pins the BEHAVIOR wired in.
+ *
+ * #11 (0.6.39) removed the SECOND switch (#fr-s6-createping, "Let Kosmos know when
+ * you create an agent") from this screen per Josh; it belongs on the
+ * Create-an-Agent screen (#2020). #2623: that create-agent telemetry, and its
+ * /api/ping-setting backend, were later deleted entirely (Josh, 2026-09-09,
+ * "invasion of privacy"), so the ping assertions that used to live here are gone.
  *
  * Two layers:
- *  - STRUCTURE (source-grep): the markup is default-ON, the copies are present, and
+ *  - STRUCTURE (source-grep): the markup is default-ON, the copy is present, and
  *    the frGo step-6 branch refreshes on show.
  *  - BEHAVIOR (runtime): the real handlers, lifted out of the page and run against a
  *    DOM stub + a mocked fetch, so the subtle control flow is actually exercised, not
@@ -30,33 +35,38 @@ const PAGE = codeOnly(RAW);
 
 /* ---- structure ---------------------------------------------------------- */
 
-test('Screen 6 ships the two consent switches as default-ON role=switch spans', () => {
+test('Screen 6 ships the feedback consent switch as a default-ON role=switch span', () => {
   assert.match(PAGE, /id="fr-s6-feedback"[^>]*role="switch"[^>]*aria-checked="true"/, 'feedback switch missing or not default-ON');
-  assert.match(PAGE, /id="fr-s6-createping"[^>]*role="switch"[^>]*aria-checked="true"/, 'create-ping switch missing or not default-ON');
 });
 
-test('Screen 6 carries the signed-off eyebrow, headline and both switch copies', () => {
+test('Screen 6 has exactly ONE switch (#11 removed the create-ping switch)', () => {
+  assert.doesNotMatch(PAGE, /id="fr-s6-createping"/, 'the create-ping switch was removed from this screen (#11); it must not be back');
+  const rows = (PAGE.match(/class="s6-switch-row"/g) || []).length;
+  assert.equal(rows, 1, 'Screen 6 should have exactly one switch row after #11; found ' + rows);
+});
+
+test('Screen 6 carries the signed-off eyebrow, headline and the feedback switch copy', () => {
   assert.match(PAGE, /Self improving/i, 'the eyebrow is missing');
-  assert.match(PAGE, /Help make Kosmos work better for everyone/, 'the headline is missing');
-  assert.match(PAGE, /Have an agent send a daily report with any bugs or improvement suggestions\./, 'the feedback copy is missing');
-  assert.match(PAGE, /Let Kosmos know when you create an agent\./, 'the create-ping copy is missing');
+  assert.match(PAGE, /Help make Kosmos better/, 'the headline is missing or not the #11 copy');
+  assert.match(PAGE, /Send daily diagnostic information, bug reports, and improvement recommendations\./, 'the feedback body copy is missing or not the #11 copy');
+  assert.doesNotMatch(PAGE, /Let Kosmos know when you create an agent\./, 'the removed create-ping copy is still present');
 });
 
-test('the frGo step-6 branch refreshes both switches on show (so default-ON paints)', () => {
+test('the frGo step-6 branch refreshes the feedback switch on show (so default-ON paints)', () => {
   const frGo = lift('frGo');
   const s6 = frGo.slice(frGo.indexOf('step === 6'));
   const nextBranch = s6.indexOf('step === 7');
   const branch = nextBranch > -1 ? s6.slice(0, nextBranch) : s6;
   assert.match(branch, /frRefreshFeedback\(\)/, 'frGo step 6 does not call frRefreshFeedback');
-  assert.match(branch, /frRefreshPing\(\)/, 'frGo step 6 does not call frRefreshPing');
+  assert.doesNotMatch(branch, /frRefreshPing\(\)/, 'frGo step 6 still calls the removed frRefreshPing');
 });
 
 /* ---- behavior (runtime) -------------------------------------------------
- * Lift the S6 block (the six functions + the top-level bind IIFE) and run it
- * against a DOM stub, the way web.add-project.test.js runs painters. `document`
- * and `fetch` are injected as new-Function params, so the handlers close over
- * the stubs. Each load() re-evals fresh, resetting the module-level epoch/saving
- * state, so arms cannot leak into each other.
+ * Lift the S6 block (frSwOn/frSwSet + the feedback functions + the top-level bind
+ * IIFE) and run it against a DOM stub, the way web.add-project.test.js runs
+ * painters. `document` and `fetch` are injected as new-Function params, so the
+ * handlers close over the stubs. Each load() re-evals fresh, resetting the
+ * module-level epoch/saving state, so arms cannot leak into each other.
  * ---------------------------------------------------------------------- */
 
 function mkEl(checked) {
@@ -72,7 +82,6 @@ function mkEl(checked) {
 function load(opts = {}) {
   const els = {
     'fr-s6-feedback': mkEl(opts.fb === undefined ? 'true' : opts.fb),
-    'fr-s6-createping': mkEl(opts.ping === undefined ? 'true' : opts.ping),
   };
   const documentStub = { getElementById: (id) => els[id] || null };
   const calls = [];
@@ -80,19 +89,19 @@ function load(opts = {}) {
   const fetchStub = (...a) => { calls.push(a); return impl(...a); };
   const setFetch = (fn) => { impl = fn; };
   const a = SCRIPT.indexOf('function frSwOn');
-  const b = SCRIPT.indexOf('})();', SCRIPT.indexOf("wire('fr-s6-createping'")) + 5;
+  const b = SCRIPT.indexOf('})();', SCRIPT.indexOf("wire('fr-s6-feedback'")) + 5;
   assert.ok(a >= 0 && b > 4, 'the S6 behavior block was found in the page (region markers held)');
   const region = SCRIPT.slice(a, b);
   // eslint-disable-next-line no-new-func
   const api = new Function('document', 'fetch',
-    region + '\nreturn { frFeedbackToggle, frPingToggle, frRefreshFeedback, frRefreshPing };')(documentStub, fetchStub);
+    region + '\nreturn { frFeedbackToggle, frRefreshFeedback };')(documentStub, fetchStub);
   return { els, calls, setFetch, api };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 function deferred() { let resolve; const promise = new Promise((r) => { resolve = r; }); return { promise, resolve }; }
 
-test('toggle: ON -> off flips aria-checked and PUTs {on:false} to its own backend', async () => {
+test('toggle: ON -> off flips aria-checked and PUTs {on:false} to /api/feedback-setting', async () => {
   const { els, calls, setFetch, api } = load();
   setFetch(async () => ({ ok: true, json: async () => ({ on: false, ok: true }) }));
   await api.frFeedbackToggle();
@@ -100,14 +109,6 @@ test('toggle: ON -> off flips aria-checked and PUTs {on:false} to its own backen
   const put = calls.find((c) => c[0] === '/api/feedback-setting' && c[1] && c[1].method === 'PUT');
   assert.ok(put, 'a PUT reached /api/feedback-setting');
   assert.deepEqual(JSON.parse(put[1].body), { on: false }, 'the PUT body carries the new state');
-});
-
-test('toggle: the ping switch targets /api/ping-setting, not the feedback one', async () => {
-  const { calls, setFetch, api } = load();
-  setFetch(async () => ({ ok: true, json: async () => ({ on: false }) }));
-  await api.frPingToggle();
-  assert.ok(calls.some((c) => c[0] === '/api/ping-setting' && c[1] && c[1].method === 'PUT'), 'ping PUT hit /api/ping-setting');
-  assert.ok(!calls.some((c) => c[0] === '/api/feedback-setting'), 'the ping toggle did not touch the feedback backend');
 });
 
 test('never a false Off: a non-ok PUT is attempted, then reverts to the default-ON position', async () => {
@@ -121,9 +122,9 @@ test('never a false Off: a non-ok PUT is attempted, then reverts to the default-
 test('never a false Off: a thrown PUT is attempted, then reverts to the default-ON position', async () => {
   const { els, calls, setFetch, api } = load();
   setFetch(async () => { throw new Error('network down'); });
-  await api.frPingToggle();
-  assert.ok(calls.some((c) => c[0] === '/api/ping-setting' && c[1] && c[1].method === 'PUT'), 'a PUT was actually attempted');
-  assert.equal(els['fr-s6-createping'].getAttribute('aria-checked'), 'true', 'a thrown PUT left it ON, never a false Off');
+  await api.frFeedbackToggle();
+  assert.ok(calls.some((c) => c[0] === '/api/feedback-setting' && c[1] && c[1].method === 'PUT'), 'a PUT was actually attempted');
+  assert.equal(els['fr-s6-feedback'].getAttribute('aria-checked'), 'true', 'a thrown PUT left it ON, never a false Off');
 });
 
 test('refresh: a backend on:false paints the switch Off; a non-ok GET leaves the default-ON', async () => {
@@ -134,8 +135,8 @@ test('refresh: a backend on:false paints the switch Off; a non-ok GET leaves the
 
   const bad = load();
   bad.setFetch(async () => ({ ok: false, json: async () => ({}) }));
-  await bad.api.frRefreshPing();
-  assert.equal(bad.els['fr-s6-createping'].getAttribute('aria-checked'), 'true', 'a non-ok GET never paints a false Off');
+  await bad.api.frRefreshFeedback();
+  assert.equal(bad.els['fr-s6-feedback'].getAttribute('aria-checked'), 'true', 'a non-ok GET never paints a false Off');
 });
 
 test('keyboard: Space fires the toggle and prevents default scroll (role=switch is keyboard-operable)', async () => {
@@ -153,20 +154,19 @@ test('keyboard: Space fires the toggle and prevents default scroll (role=switch 
 test('keyboard: Enter fires the toggle too; a non-toggle key does nothing', async () => {
   const ctx = load();
   ctx.setFetch(async () => ({ ok: true, json: async () => ({ on: false }) }));
-  const kd = ctx.els['fr-s6-createping'].listeners.keydown;
-  assert.ok(kd && kd.length, 'a keydown listener was bound to the ping switch');
+  const kd = ctx.els['fr-s6-feedback'].listeners.keydown;
+  assert.ok(kd && kd.length, 'a keydown listener was bound to the feedback switch');
   kd[0]({ key: 'a', preventDefault() {} });
   await flush();
-  assert.equal(ctx.els['fr-s6-createping'].getAttribute('aria-checked'), 'true', 'a non-toggle key did not toggle');
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'true', 'a non-toggle key did not toggle');
   kd[0]({ key: 'Enter', preventDefault() {} });
   await flush();
-  assert.equal(ctx.els['fr-s6-createping'].getAttribute('aria-checked'), 'false', 'Enter toggled the switch');
+  assert.equal(ctx.els['fr-s6-feedback'].getAttribute('aria-checked'), 'false', 'Enter toggled the switch');
 });
 
-test('both switches bind a click listener (mouse-operable)', () => {
+test('the feedback switch binds a click listener (mouse-operable)', () => {
   const { els } = load();
   assert.ok((els['fr-s6-feedback'].listeners.click || []).length, 'the feedback switch has a click listener');
-  assert.ok((els['fr-s6-createping'].listeners.click || []).length, 'the ping switch has a click listener');
 });
 
 test('epoch guard: a superseded slow response does not repaint over a newer one', async () => {

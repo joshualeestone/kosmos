@@ -1,3 +1,4 @@
+// Browser-check-surface: s-sec-connect
 'use strict';
 /**
  * The GitHub, Vercel and Cloudflare doors on the Connections tab (#529), driven in a real browser: absent gh offers the no-install road (#620) first, the install road beside it; present gh

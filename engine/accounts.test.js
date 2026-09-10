@@ -243,6 +243,129 @@ test('#248: nextWorkDir finds the first free spot, reuses unclaimed leftovers, s
   assert.equal(accounts.nextWorkDir().label, 'work5');
 });
 
+test('#2420: nextWorkDir skips a slot already holding an api-key Claude account (no oauthAccount, but a stored key)', () => {
+  const home = accounts.HOME_FOR_TEST;
+  // Clean the work slots so this test is independent of earlier ones.
+  for (let n = 1; n <= 8; n += 1) { try { fs.rmSync(nodePath.join(home, `.claude-work${n}`), { recursive: true, force: true }); } catch { /* none */ } }
+  // work1 is an api-key account: NO .claude.json (so the oauthAccount check reads it
+  // "free"), but a mode-600 key file. It must be treated as OCCUPIED, or a subscription
+  // add would land on it and switch its billing to the key.
+  const w1 = nodePath.join(home, '.claude-work1');
+  fs.mkdirSync(w1, { recursive: true });
+  fs.writeFileSync(nodePath.join(w1, require('./claudeaccounts').KEY_BASENAME), 'sk-ant-stored', { mode: 0o600 });
+  /* Cleanup in finally, NOT as a trailing statement: since the listing slice,
+     list()/listLive() treat a lingering api-key dir as a first-class account, so
+     leaving one here would make the later #881 listLive tests live-check it against
+     the REAL Anthropic endpoint (they do not stub claudeaccounts.setFetcher). A
+     trailing rmSync would be SKIPPED if the assert threw, turning a unit-test
+     failure into real-network calls -- so the cleanup must run on the failing path
+     too. Restores the no-api-key-dir invariant either way. */
+  try {
+    assert.equal(accounts.nextWorkDir().label, 'work2', 'the api-key slot is skipped, not offered to a subscription');
+  } finally {
+    fs.rmSync(w1, { recursive: true, force: true });
+  }
+});
+
+/* ---- #2420: an api-key Claude account is first-class in list()/listLive() ---
+   A dir with a stored key file but NO oauthAccount is invisible to identityOf();
+   the listing slice makes it appear, with a label-derived identity, and routes
+   its badge through claudeaccounts.checkLive rather than the subscription checker. */
+test('#2420: list() surfaces an api-key Claude account (a stored key, no oauthAccount) with a label-derived identity', () => {
+  const home = accounts.HOME_FOR_TEST;
+  const claudeaccounts = require('./claudeaccounts');
+  // NO .claude.json (so identityOf is null), but a mode-600 stored key file.
+  const dir = nodePath.join(home, '.claude-keyacct');
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME), 'sk-ant-stored-key', { mode: 0o600 });
+
+  /* Cleanup in finally, not trailing: same invariant and same reason as the
+     nextWorkDir test above -- a failing assert must not leave an api-key dir for
+     the later unstubbed listLive tests to live-check against the real endpoint. */
+  try {
+    const row = accounts.list().find((a) => a.dir === dir);
+    assert.ok(row, 'the api-key account must appear in list()');
+    assert.equal(row.apiKey, true, 'it is marked as an api-key account');
+    assert.equal(row.label, 'keyacct', 'its identity is derived from the dir label');
+    assert.equal(row.email, null, 'an api-key account has no oauth email');
+    assert.equal(row.organization, null);
+    assert.equal(row.isDefault, false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('#2420: the stored-key marker is what makes it an account -- a bare .claude- dir stays skipped, and an oauth row is not marked apiKey', () => {
+  const home = accounts.HOME_FOR_TEST;
+  fs.mkdirSync(nodePath.join(home, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'oauth-2420@example.com' } });
+  // A .claude- dir with neither an oauthAccount NOR a stored key: not an account.
+  fs.mkdirSync(nodePath.join(home, '.claude-bare2420', 'projects'), { recursive: true });
+
+  const rows = accounts.list();
+  assert.ok(!rows.some((a) => a.dir === nodePath.join(home, '.claude-bare2420')),
+    'a directory with neither an oauthAccount nor a stored key is not an account');
+  const oauth = rows.find((a) => a.email === 'oauth-2420@example.com');
+  assert.ok(oauth, 'the oauth account is present');
+  assert.equal(oauth.apiKey, false, 'an oauth (subscription) account is present-and-false, never marked apiKey');
+});
+
+test('#2420: listLive() reads an api-key row\'s badge from claudeaccounts.checkLive, not the subscription checker', async () => {
+  const home = accounts.HOME_FOR_TEST;
+  const subscription = require('./subscription');
+  const claudeaccounts = require('./claudeaccounts');
+  // A default oauth account the subscription checker will call CONNECTED.
+  fs.mkdirSync(nodePath.join(home, '.claude', 'projects'), { recursive: true });
+  write('.claude.json', { oauthAccount: { emailAddress: 'default-2420live@example.com' } });
+  // An api-key account with a stored key.
+  const dir = nodePath.join(home, '.claude-keylive2420');
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME), 'sk-ant-live-key', { mode: 0o600 });
+
+  // The subscription checker says CONNECTED for anything it is asked...
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  // ...while the api-key checker POSITIVELY REJECTS the stored key. If the row had
+  // (wrongly) gone through the subscription checker, it would read CONNECTED; NONE
+  // is the discriminator proving it went through claudeaccounts.checkLive.
+  claudeaccounts.setFetcher(async () => ({ status: 401, body: { error: { type: 'authentication_error' } } }));
+  try {
+    const got = await accounts.listLive();
+    const key = got.find((a) => a.dir === dir);
+    const def = got.find((a) => a.isDefault);
+    assert.ok(key && def, 'both rows must be found');
+    assert.equal(def.connection.state, subscription.STATE.CONNECTED, 'the oauth default still reads from the subscription checker');
+    assert.equal(key.connection.state, subscription.STATE.NONE, 'the api-key row read NONE from claudeaccounts.checkLive, not CONNECTED from the subscription checker');
+    assert.equal(key.connection.checkedLive, true);
+    assert.equal(key.apiKey, true);
+    assert.ok('plan' in key.connection, 'the connection shape matches the other rows (plan present)');
+  } finally {
+    subscription.setRunner(null); claudeaccounts.setFetcher(null);
+    fs.rmSync(dir, { recursive: true, force: true }); // no lingering api-key dir for later tests
+  }
+});
+
+test('#2420: an api-key account whose stored key still authenticates reads CONNECTED', async () => {
+  const home = accounts.HOME_FOR_TEST;
+  const subscription = require('./subscription');
+  const claudeaccounts = require('./claudeaccounts');
+  const dir = nodePath.join(home, '.claude-keyok2420');
+  fs.mkdirSync(nodePath.join(dir, 'projects'), { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, claudeaccounts.KEY_BASENAME), 'sk-ant-good', { mode: 0o600 });
+  // Stub the subscription checker too, so the default/other oauth rows in the
+  // shared sandbox never spawn a real `claude auth status`.
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: true }), err: null }));
+  claudeaccounts.setFetcher(async () => ({ status: 200, body: { data: [] } }));
+  try {
+    const key = (await accounts.listLive()).find((a) => a.dir === dir);
+    assert.ok(key, 'the api-key row is present');
+    assert.equal(key.connection.state, claudeaccounts.STATE.CONNECTED);
+    assert.equal(key.connection.checkedLive, true);
+  } finally {
+    subscription.setRunner(null); claudeaccounts.setFetcher(null);
+    fs.rmSync(dir, { recursive: true, force: true }); // no lingering api-key dir for later tests
+  }
+});
+
 /* ---- #881: listLive() ---------------------------------------------------
    Injected runner throughout (subscription.js's own test seam), never a
    real `claude auth status` call. */

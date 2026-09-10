@@ -46,9 +46,9 @@ function fakeDom(ids) {
   };
 }
 
-const IDS = ['acct-add-modal', 'acct-provider-pick', 'acct-provider-lab', 'acct-claude-flow',
-  'acct-openai-flow', 'acct-add-note', 'acct-openai-msg', 'acct-code-row', 'acct-code',
-  'acct-cancel', 'acct-add', 'acct-add-t', 'acct-add-in', 'acct-claude-warn'];
+const IDS = ['acct-add-modal', 'acct-provider-field', 'acct-provider-pick', 'acct-provider-lab',
+  'acct-claude-flow', 'acct-openai-flow', 'acct-add-note', 'acct-openai-msg', 'acct-code-row',
+  'acct-code', 'acct-cancel', 'acct-add', 'acct-add-t', 'acct-add-in', 'acct-claude-warn'];
 
 /**
  * The two doors and the chrome, lifted and run together.
@@ -79,9 +79,11 @@ test('pressing sign-in-again on a row aims the ONE flow at that account', () => 
   assert.equal(api.dir, '/Users/x/.claude-account-b', 'the flow was not aimed at the account that was pressed');
   assert.equal(dom.els.get('acct-add-modal').hidden, false, 'the dialog did not open');
   assert.deepEqual(picked[0] && picked[0][0], 'claude', 'reauth did not select the Claude flow');
-  // The provider is not a choice here: the account already has one.
-  assert.equal(dom.els.get('acct-provider-pick').hidden, true, 'the provider picker is still offered');
-  assert.equal(dom.els.get('acct-provider-lab').hidden, true, 'the provider label is still offered');
+  // The provider is not a choice here: the account already has one. The whole
+  // field container is hidden, not the <label> and native <select> alone:
+  // enhanceProviderSelect inserts the visible .pcombo widget as a sibling of
+  // the select, so hiding the container is what actually removes the chooser.
+  assert.equal(dom.els.get('acct-provider-field').hidden, true, 'the provider chooser is still offered on reauth');
   // And the dialog says which account, by name.
   assert.match(dom.els.get('acct-add-t').textContent, /Sign in again/);
   assert.match(dom.els.get('acct-add-in').textContent, /her@example\.com/, 'the dialog does not say which account this is for');
@@ -101,7 +103,7 @@ test('🛑 the stock door CLEARS the aim, so + Add a provider can never quietly 
   assert.equal(api.dir, null, 'the add-a-provider door left the dialog aimed at an existing account');
   // and the chrome came back, or the dialog would still read "Sign in again".
   assert.equal(dom.els.get('acct-add-t').textContent, 'Add a provider', 'the dialog kept the reauth title');
-  assert.equal(dom.els.get('acct-provider-pick').hidden, false, 'the provider picker stayed hidden');
+  assert.equal(dom.els.get('acct-provider-field').hidden, false, 'the provider chooser stayed hidden');
   assert.equal(dom.els.get('acct-add').textContent, 'Start the sign-in', 'the button kept the reauth label');
 });
 
@@ -123,8 +125,12 @@ test('one button, two requests, and never a plain start', () => {
   const build = new Function('ACCT_REAUTH_DIR', 'installConfirmed', 'return ' + m[1] + ';');
 
   const reauth = build('/Users/x/.claude-account-b', true);
-  assert.deepEqual(reauth, { accountDir: '/Users/x/.claude-account-b', installConfirmed: true },
-    'an aimed sign-in does not ask for that account');
+  /* #1937: the aimed ("Sign in again") arm now also carries `reauth: true`, the
+     explicit signal the server threads to connect.start so it skips the
+     already-connected short-circuit and runs a real login. The fresh/another arm
+     below deliberately does NOT carry it. */
+  assert.deepEqual(reauth, { accountDir: '/Users/x/.claude-account-b', reauth: true, installConfirmed: true },
+    'an aimed sign-in does not ask for that account, and carries the #1937 reauth flag');
 
   const fresh = build(null, true);
   assert.deepEqual(fresh, { another: true, installConfirmed: true },
@@ -149,7 +155,7 @@ test('one button, two requests, and never a plain start', () => {
   }
 });
 
-test('the row offers it on every Claude row, including a signed-in one, and never on OpenAI', () => {
+test('reauth is offered on subscription rows (Claude AND OpenAI chatgpt), never on api-key rows, and each is wired to its own flow', () => {
   /* ⭐ ON A SIGNED-IN ROW TOO, AND THAT IS THE POINT, NOT AN OVERSIGHT. #874
      measured that this badge cannot see a REJECTED token, so Josh's own case
      was a green row and a dead login. Gating the remedy on "not signed in"
@@ -158,13 +164,34 @@ test('the row offers it on every Claude row, including a signed-in one, and neve
   assert.ok(at > -1, 'the row builder moved; restate this pin');
   const row = PAGE.slice(at, PAGE.indexOf('box.innerHTML = accountGroupsHtml', at));
 
-  const reauthBit = row.slice(row.indexOf('data-reauth') - 400, row.indexOf('data-reauth') + 400);
-  assert.match(reauthBit, /isOpenai \? ''/, 'the sign-in-again button is not withheld from OpenAI rows');
-  assert.doesNotMatch(reauthBit, /connection/,
-    'the button is gated on the connection state, which hides it from the very case #874 describes');
-  assert.match(row, /data-reauth="' \+ esc\(a\.dir\)/, 'the button does not carry the account it means');
+  /* #2568/#2584: the old `isOpenai || a.apiKey ? ''` single suppression is now a
+     per-provider ternary. The Claude arm (the non-openai branch) is gated on `a.apiKey`
+     -- an api-key Claude account still cannot browser-OAuth reauth (writing OAuth into a
+     stored-key dir is refused by the connect-start guard #2432; the answer is
+     remove-and-re-add). A Claude subscription row (apiKey present-and-false) still gets it. */
+  const claudeAt = row.indexOf('data-reauth="');
+  assert.ok(claudeAt > -1, 'the Claude reauth button is gone');
+  const claudeBit = row.slice(claudeAt - 300, claudeAt + 200);
+  assert.match(claudeBit, /a\.apiKey \? ''/, 'the Claude reauth is not withheld from api-key rows');
+  assert.doesNotMatch(claudeBit, /connection/,
+    'the Claude reauth is gated on connection state, which hides the very #874 case');
+  assert.match(row, /data-reauth="' \+ esc\(a\.dir\)/, 'the Claude reauth button does not carry the account it means');
 
-  // It is wired, not decorative.
-  assert.match(PAGE, /querySelectorAll\('\[data-reauth\]'\)/, 'nothing listens to the sign-in-again buttons');
-  assert.match(PAGE, /openAcctReauth\(btn\.dataset\.reauth/, 'the click does not aim the flow at that row');
+  /* #2584 gave the OpenAI ChatGPT-subscription row a real reauth-in-place, so it now
+     offers a sign-in-again too -- via the SUBSCRIPTION flow, gated on the auth_mode SHAPE
+     so an api-key OpenAI row (no sign-in to redo) is excluded. */
+  const openaiAt = row.indexOf('data-openai-reauth="');
+  assert.ok(openaiAt > -1, 'the OpenAI chatgpt row has no reauth button (#2568/#2584)');
+  const openaiBit = row.slice(openaiAt - 300, openaiAt + 200);
+  assert.match(openaiBit, /a\.authMode === 'chatgpt'/, 'the OpenAI reauth is not gated on the chatgpt auth-mode shape');
+  assert.match(row, /data-openai-reauth="' \+ esc\(a\.dir\)/, 'the OpenAI reauth button does not carry the account it means');
+
+  // Each is wired to its OWN flow, never crossed: Claude -> browser-OAuth reauth,
+  // OpenAI -> the subscription reauth (which threads reauthDir).
+  assert.match(PAGE, /querySelectorAll\('\[data-reauth\]'\)/, 'nothing listens to the Claude sign-in-again buttons');
+  assert.match(PAGE, /openAcctReauth\(btn\.dataset\.reauth/, 'the Claude click does not aim the flow at that row');
+  assert.match(PAGE, /querySelectorAll\('\[data-openai-reauth\]'\)/, 'nothing listens to the OpenAI sign-in-again buttons');
+  assert.match(PAGE, /openAcctReauthOpenai\(btn\.dataset\.openaiReauth/, 'the OpenAI click does not aim the subscription reauth at that row');
+  // The subscription-start POST threads the reauth target so the engine refreshes in place.
+  assert.match(PAGE, /reauthDir: ACCT_OPENAI_REAUTH_DIR \|\| undefined/, 'the subscription reauth does not thread reauthDir to the engine');
 });

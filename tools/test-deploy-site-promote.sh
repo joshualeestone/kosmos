@@ -98,6 +98,12 @@ make_scenario() {  # [committed_sha_override]
   ( cd "$live/dist" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
   printf 'in\npkg:z\n' > "$live/dist/Kosmos.pkg.inputs"
   printf 'WINZIP\n' > "$live/dist/$WINZIP"
+  # the sidecar and the UNVERSIONED alias pair: deploy-site.sh honest-marker-checks both before the
+  # deploy and served-verifies both after it. Without them this fixture refuses at the export check
+  # and nine assertions below collapse for a reason unrelated to what they test.
+  ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
+  printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
+  ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   printf 'setup-script\n' > "$live/setup"
   local newsha; newsha="$(sha_of "$live/dist/$NEWART")"
   write_ptr "$live/dist/latest.json" "$OLD" "oldsha000000" "$OLDART"   # LIVE prod = OLD
@@ -111,6 +117,9 @@ make_scenario() {  # [committed_sha_override]
   local csha="${1:-$newsha}"
   write_ptr "$s/dist/latest.json" "$NEW" "$csha" "$NEWART"            # COMMITTED = NEW
   printf 'WINZIP\n' > "$s/dist/$WINZIP"                                # tracked win zip
+  ( cd "$s/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )       # ...and its tracked sidecar
+  printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"                   # the unversioned win alias
+  ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
   git -C "$s" add -A && git -C "$s" commit -q -m "site at $NEW"
   mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
   printf '%s %s' "$s" "$live"
@@ -170,6 +179,72 @@ run_deploy "$S5" "$L5" --promote
 read -r S6 L6 <<<"$(make_scenario)"
 run_deploy "$S6" "$L6"
 [ "$RC" = 1 ] && has "$out" "COMMITTED latest.json differs from LIVE" && pass "no-flag dry run: still the site-copy path, still guarded" || bad "the default path changed (rc=$RC) out=$out"
+
+# =============================================================================================
+# #2159: the release-notes auto-post hook fires ONLY on a FORWARD promote, never a rollback.
+# The hook is DRY-RUN by construction here (no KOSMOS_SOCIAL_AUTOPOST / no creds), so the assertion
+# is on which BRANCH deploy-site.sh took -- the announce branch invokes post-release-notes.sh (which
+# prints "composing release-notes posts for <V>"), the skip branches print "skipping the notes hook".
+
+# 7) FORWARD promote (committed NEW > live OLD) => the hook ANNOUNCES the new version.
+read -r S7 L7 <<<"$(make_scenario)"
+run_deploy "$S7" "$L7" --promote
+[ "$RC" = 0 ] || bad "promote(7,forward) unexpected rc=$RC out=$out"
+if has "$out" "composing release-notes posts for $NEW" && ! has "$out" "skipping the notes hook"; then
+  pass "#2159: a FORWARD promote fires the release-notes hook for the new version ($NEW)"
+else
+  bad "#2159: forward promote did not fire the announce hook (out=$out)"
+fi
+
+# 8) ROLLBACK promote (committed OLD < live NEW) => the hook SKIPS (a rollback must not announce).
+#    Build the mirror scenario: LIVE serves the NEW pointer and ALSO serves the OLD artifact
+#    (verifiable), the SITE is committed at the OLD pointer -> deploy-site --promote rolls prod back.
+make_rollback_scenario() {  # echoes "SITE LIVE"
+  local s live
+  s="$(mktemp -d "$T/rbsite.XXXXXX")"; live="$(mktemp -d "$T/rblive.XXXXXX")"
+  mkdir -p "$s/dist" "$live/dist"
+  # LIVE serves NEW; the OLD versioned artifact is ALSO present + verifiable (we roll back TO it).
+  printf 'OLD-ARTIFACT-BYTES-%s\n' "$OLD" > "$live/dist/$OLDART"
+  ( cd "$live/dist" && shasum -a 256 "$OLDART" > "$OLDART.sha256" )
+  printf 'NEW-ALIAS-BYTES-%s\n' "$NEW" > "$live/dist/kosmos-arm64.tar.gz"
+  ( cd "$live/dist" && shasum -a 256 kosmos-arm64.tar.gz > kosmos-arm64.tar.gz.sha256 )
+  printf 'TMUX-BYTES\n' > "$live/dist/tmux-arm64.tar.gz"
+  ( cd "$live/dist" && shasum -a 256 tmux-arm64.tar.gz > tmux-arm64.tar.gz.sha256 )
+  printf 'PKG-BYTES\n' > "$live/dist/Kosmos.pkg"
+  ( cd "$live/dist" && shasum -a 256 Kosmos.pkg > Kosmos.pkg.sha256 )
+  printf 'in\npkg:z\n' > "$live/dist/Kosmos.pkg.inputs"
+  printf 'WINZIP\n' > "$live/dist/$WINZIP"
+  # the sidecar and the UNVERSIONED alias pair: deploy-site.sh honest-marker-checks both before the
+  # deploy and served-verifies both after it. Without them this fixture refuses at the export check
+  # and nine assertions below collapse for a reason unrelated to what they test.
+  ( cd "$live/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
+  printf 'WINALIAS\n' > "$live/dist/kosmos-win-x64.zip"
+  ( cd "$live/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
+  printf 'setup-script\n' > "$live/setup"
+  local oldsha; oldsha="$(sha_of "$live/dist/$OLDART")"
+  write_ptr "$live/dist/latest.json" "$NEW" "newsha000000" "$NEWART"   # LIVE prod = NEW
+  git init -q "$s"
+  printf '<h1>site</h1>\n' > "$s/index.html"; printf '{}\n' > "$s/vercel.json"
+  printf 'docs/\n' > "$s/.vercelignore"
+  printf 'setup-script\n' > "$s/setup"
+  printf 'dist/*.tar.gz\ndist/*.tar.gz.sha256\ndist/*.pkg\ndist/*.pkg.sha256\ndist/*.pkg.inputs\n.vercel\n*.log\n' > "$s/.gitignore"
+  write_ptr "$s/dist/latest.json" "$OLD" "$oldsha" "$OLDART"           # COMMITTED = OLD (rollback)
+  printf 'WINZIP\n' > "$s/dist/$WINZIP"
+  ( cd "$s/dist" && shasum -a 256 "$WINZIP" > "$WINZIP.sha256" )
+  printf 'WINALIAS\n' > "$s/dist/kosmos-win-x64.zip"
+  ( cd "$s/dist" && shasum -a 256 kosmos-win-x64.zip > kosmos-win-x64.zip.sha256 )
+  git -C "$s" add -A && git -C "$s" commit -q -m "site rolled back to $OLD"
+  mkdir -p "$s/.vercel"; printf '{"projectId":"p"}\n' > "$s/.vercel/project.json"
+  printf '%s %s' "$s" "$live"
+}
+read -r S8 L8 <<<"$(make_rollback_scenario)"
+run_deploy "$S8" "$L8" --promote
+[ "$RC" = 0 ] || bad "promote(8,rollback) unexpected rc=$RC out=$out"
+if has "$out" "is not newer than" && has "$out" "skipping the notes hook" && ! has "$out" "composing release-notes posts"; then
+  pass "#2159: a ROLLBACK promote SKIPS the release-notes hook (a rollback must not announce)"
+else
+  bad "#2159: rollback promote did not skip the announce hook (out=$out)"
+fi
 
 echo ""
 if [ "$fail" = 0 ]; then echo "test-deploy-site-promote: ALL PASS"; else echo "test-deploy-site-promote: FAILURES above"; exit 1; fi

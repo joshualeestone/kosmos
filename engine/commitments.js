@@ -35,9 +35,9 @@ const store = require('./store');
  */
 // #1848/#1856: route through the ONE data-root derivation (store.ROOT = dataRootFor), not the raw
 // AGENT_WORKFORCE_DATA switch. Prod-inert when the var is unset (byte-identical). Under a
-// multi-Kosmos switcher (#1704) it inherits the AgentWorkforce leaf + #1820's isAbsolute guard.
+// multi-Kosmos switcher (#1704) it inherits the Kosmos leaf + #1820's isAbsolute guard.
 // This ALSO closes the layout gap the prior comment described: the store now lives at
-// `$DATA/AgentWorkforce/commitments`, mirroring avatars/profiles under a sandbox, not the bare
+// `$DATA/Kosmos/commitments`, mirroring avatars/profiles under a sandbox, not the bare
 // `$DATA/commitments` -- a sandboxed run mirrors the production tree.
 const BASE = store.ROOT;
 const DIR = path.join(BASE, 'commitments');

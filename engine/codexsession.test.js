@@ -77,14 +77,15 @@ test('the context LIMIT is read from the tool rather than assumed', () => {
   assert.equal(r.contextWindow, 272000);
 });
 
-test('the USED half is null, and null is the answer rather than a placeholder', () => {
+test('the USED half is null when no turn has reported usage yet, and null is the answer rather than a placeholder', () => {
   writeRollout('rollout-2026-08-21T23-47-23-ccc.jsonl', WORKDIR, [TASK_STARTED, A_MESSAGE]);
   const r = codex.read(WORKDIR);
-  /* 🛑 I have not seen a successful Codex run report token usage, and inventing
-     a field name from a failed one is how a number nobody computed reaches a
-     card. Null renders as "we could not tell", which is this product's honest
-     answer. One real completed session decides it, and THIS test is what has to
-     change when somebody has one. */
+  /* ⭐ The USED half IS measured now (#2257): a completed turn reports a
+     `token_count` event carrying `info.last_token_usage.input_tokens` -- the
+     current window occupancy. THIS fixture has no such event (only task_started +
+     a message), so `contextUsed` is correctly null -- "we could not tell", the
+     honest answer, until a turn reports usage. See `codexsession.js` and the
+     `status.openai-ring-2257.test.js` fixture that exercises a real token_count. */
   assert.equal(r.contextUsed, null);
 });
 
@@ -169,4 +170,26 @@ test('both providers say the SAME sentence about the same condition', () => {
     assert.ok(!/codex|claude|openai|anthropic/i.test(r),
       'a reason names the runtime: ' + JSON.stringify(r));
   }
+});
+
+test('#2417: a case-divergent launch folder still matches its rollout (canonicalOnDisk, not plain realpathSync)', (t) => {
+  /* The bug this guards: `want` is the folder Kosmos DERIVES to launch in; `meta.cwd` is the
+     ON-DISK spelling codex wrote via std::fs::canonicalize. Plain fs.realpathSync resolves the
+     /private twin but PRESERVES case on macOS, so a case-divergent launch folder never matched
+     its rollout and the OpenAI ring read "not yet". canonicalOnDisk (realpathSync.native) folds
+     case exactly as codex's canonicalize did, so the two match.
+
+     Only meaningful on a case-INSENSITIVE filesystem (the macOS default, and the target). On a
+     case-sensitive fs the two spellings are genuinely different directories and SHOULD NOT match,
+     so the test skips itself there -- detected by creating one case and probing the other. */
+  const base = fs.mkdtempSync(nodePath.join(os.tmpdir(), 'aw-codex-case-'));
+  const onDisk = nodePath.join(base, 'CaseVar');           // the on-disk spelling codex would record
+  fs.mkdirSync(onDisk);
+  const lower = nodePath.join(base, 'casevar');            // the spelling Kosmos might derive/hardcode
+  if (!fs.existsSync(lower)) { t.skip('case-sensitive filesystem: the two spellings are different dirs'); return; }
+
+  writeRollout('rollout-2026-08-21T23-59-00-case.jsonl', onDisk, [TASK_STARTED, A_MESSAGE, TASK_DONE]);
+  const found = codex.forWorkdir(lower);
+  assert.ok(found, 'a case-variant launch folder did not match its rollout');
+  assert.equal(found.meta.cwd, onDisk, 'matched the wrong rollout');
 });

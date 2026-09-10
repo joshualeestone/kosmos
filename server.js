@@ -55,6 +55,10 @@ const {
      dialog and Enter there picks "No, exit"; see `trustDialogHold` below. */
   trustPrompt,
   TRUST_DIALOG_SENTENCE,
+  /* #2456: the placeholder `because` string, so a route can tell a real
+     reported question from the board's generic "asking" and not offer the
+     placeholder as the question the person should answer. */
+  ASKING_GENERIC,
 } = require('./engine/status');
 const removal = require('./engine/remove');
 
@@ -137,13 +141,22 @@ function getImportScan() {
   const now = Date.now();
   if (importScanCache.result && now - importScanCache.at < SCAN_CACHE_MS) return importScanCache.result;
   let out = null;
-  try { out = discover.scan({ importScan: true }); importScanCache = { at: now, result: out }; } catch { out = null; }
+  try {
+    out = discover.scan({ importScan: true });
+    /* #3/#2125: do NOT cache a PARTIAL result. scan() returns scanning:true when the TCC-root
+       rows are not ready yet (the app-identity hatch has been asked and has not answered); caching
+       that would keep serving the TCC-less list for SCAN_CACHE_MS. Leaving it uncached means the
+       front-end's retry re-runs scan(), which picks up the scan-result.json the hatch has since
+       written and returns the complete list. A complete result (scanning falsey) caches normally. */
+    if (out && !out.scanning) importScanCache = { at: now, result: out };
+  } catch { out = null; }
   return out;
 }
 const connect = require('./engine/connect');
 const machine = require('./engine/machine');
 const a11ystatus = require('./engine/a11ystatus');
 const fileaccessstatus = require('./engine/fileaccessstatus');
+const promptrequest = require('./engine/promptrequest');
 const updates = require('./engine/update');
 const usage = require('./engine/usage');
 
@@ -277,6 +290,16 @@ const boardAuthState = { on: false, token: null };
   }
 }
 const create = require('./engine/create');
+/* #2129 fallback: the trust-and-restart route writes the Claude-side folder-trust
+   key through the same writer the create path uses (native-realpath-keyed since
+   #2382), so the one-click escape and the automatic create-time write can never
+   disagree about the spelling. The codex-side writer lives in create. */
+const trust = require('./engine/trust');
+/* #2129 companion: the launch-terminal route opens a real Terminal.app window
+   attached to a live agent's tmux session (read-only -- adds a viewer, does not
+   touch the session). Its osascript call goes through terminal.js's own runner
+   seam so tests never open a window. */
+const terminal = require('./engine/terminal');
 const team = require('./engine/team'); // #1279: the authoring seam calls createTeam (engine core merged in #2247)
 const agentfile = require('./engine/agentfile');
 const register = require('./engine/register');
@@ -303,6 +326,7 @@ const observed = require('./engine/observed');
    derivation as the fallback for an agent it cannot see. */
 const runningas = require('./engine/runningas');
 const openaiAccounts = require('./engine/openaiaccounts');
+const claudeAccounts = require('./engine/claudeaccounts');
 const codexupdate = require('./engine/codexupdate');
 const runners = require('./engine/runners');
 const github = require('./engine/github');
@@ -313,8 +337,6 @@ const tokendoors = require('./engine/tokendoors');
    board went away and came back" from a client-side fetch failure. */
 const BOOTED_AT = new Date().toISOString();
 const forget = require('./engine/forget');
-const ping = require('./engine/ping');
-const notify = require('./engine/notify');
 const feedback = require('./engine/feedback');
 const feedbacksend = require('./engine/feedbacksend'); // #2037 PR-C1: the opt-in-gated send layer
 const heartbeat = require('./engine/heartbeat');
@@ -2458,6 +2480,20 @@ const server = http.createServer((req, res) => {
            network hiccup. */
         updateLog: updates.installLog(),
         bootedAt: BOOTED_AT,
+        /* #2238: the world the LIVE board booted into (captured at boot in
+           engine/worldenv, NOT a live registry read). A world-switch reconnect
+           poll keys on this: it stays the OLD id through the restart window and
+           only flips once launchd relaunches the board onto the new world, so the
+           poll cannot false-succeed on the registry pointer (which flips the
+           instant POST /api/worlds/active writes it). Inline require is cached, so
+           this does not perturb the worldenv-require ordering the order test
+           guards. */
+        activeWorldId: require('./engine/worldenv').bootedWorld(),
+        /* #2628: if THIS boot abandoned a world that would not come up (the #2528
+           fallback landed us on the default world), name it here so the switcher's
+           reconnect can say "X could not start" instead of waiting out its full
+           timeout with no explanation. null on a normal boot. */
+        lastAbandonedWorld: require('./engine/worldenv').lastAbandonedWorld(),
         engine: engineFreshness(),
       });
     } catch (err) {
@@ -2683,7 +2719,24 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/worlds' && (req.method === 'GET' || req.method === 'HEAD')) {
     try {
       const base = worldBase(); // can throw only on a broken login env (worldRegistryBase null -> baseRoot rethrows)
-      sendJson(res, 200, { worlds: worlds.listWorlds(base), activeWorldId: worlds.activeWorld(base).id });
+      /* #2454: TWO different "active" facts, and the switcher needs both.
+         - activeWorldId is the REGISTRY POINTER (the desired world), which
+           POST /api/worlds/active flips the instant it is called.
+         - bootedWorldId is the world the LIVE board actually BOOTED into
+           (engine/worldenv.bootedWorld()), which does not change until the board
+           restarts.
+         They DIVERGE between a switch and the restart that applies it (and stay
+         diverged on a board that cannot self-restart, e.g. a from-source board).
+         The UI must mark the CURRENT world by the booted one -- otherwise the
+         world you are actually running on shows as a switchable row, and clicking
+         it demands a needless restart into the Kosmos you are already on (#2454b).
+         bootedWorldId is null only if the board never bootstrapped (a unit test);
+         the client falls back to activeWorldId there, so behaviour is unchanged. */
+      sendJson(res, 200, {
+        worlds: worlds.listWorlds(base),
+        activeWorldId: worlds.activeWorld(base).id,
+        bootedWorldId: require('./engine/worldenv').bootedWorld(),
+      });
     } catch (_e) {
       sendJson(res, 500, { because: 'the world registry is not readable on this machine' });
     }
@@ -2751,13 +2804,72 @@ const server = http.createServer((req, res) => {
           if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
           sendJson(res, 500, { ok: false, because: 'we could not switch to that Kosmos' }); return;
         }
-        // restartRequired: conservatively always true. A world's roots are applied
-        // ONCE at board startup, and this route does not track which world the
-        // RUNNING board booted with, so it cannot tell a no-op switch (the
-        // already-served world) from a real one. A redundant restart reloads the
-        // same world and is harmless, so it over-signals rather than tracking
-        // boot-world state here; a precise restartRequired is a follow-up.
-        sendJson(res, 200, { ok: true, world, restartRequired: true });
+        /* #2238: a world's roots apply ONCE at board startup, so the running board
+           keeps serving the world it BOOTED with until it restarts. worldenv now
+           captures that booted world, which makes two things possible here:
+           (1) restartRequired is precise -- a switch to the world already booted is
+               a no-op that needs no restart (the old code over-signalled always-true
+               because it could not tell a no-op from a real switch).
+           (2) restarting says whether THIS route is self-restarting the board now.
+               True only for a REAL switch AND when the board can SAFELY self-restart
+               (the com.kosmos.board KeepAlive job). A from-source / unmanaged board
+               reports restarting:false and the switcher UI asks for a MANUAL restart
+               -- never a bare exit that would brick it (engine/boardrestart is the
+               conservative, fail-safe guard; see its header). */
+        const bootedId = require('./engine/worldenv').bootedWorld();
+        // Compare against the CANONICAL id setActiveWorld returned (world.id), not the
+        // raw request `id`, so a no-op is judged on the id the board actually booted vs
+        // the one now active -- robust to any id normalization setActiveWorld may do.
+        const isNoop = bootedId != null && bootedId === world.id;
+        const restarting = !isNoop && require('./engine/boardrestart').canSelfRestart().canRestart;
+        sendJson(res, 200, { ok: true, world, restartRequired: !isNoop, restarting });
+        /* AFTER the response has been sent, restart the board so it comes back on the
+           new world. The delay lets the 200 flush to the client first, because the
+           restart kills the very connection that asked for the switch. selfRestart
+           picks the mechanism canSelfRestart chose: a `launchctl stop` for the dev
+           KeepAlive board, or (#2454) a detached `kosmos restart` for an installed
+           board (which launchd does not supervise). It re-checks the fail-safe guard,
+           so a state that changed in the interim still cannot brick the board (it
+           no-ops, and the client reconnect degrades to the manual path). */
+        if (restarting) {
+          setTimeout(() => {
+            try { require('./engine/boardrestart').selfRestart(); }
+            catch { /* best effort: a failed stop leaves the board serving the old world, still honest via restartRequired */ }
+          }, 500);
+        }
+      })
+      .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
+    return;
+  }
+  // #1704 item 14.1: rename a Kosmos. Body { id, name }. Changes only the display
+  // name; the world's id/base/data are untouched (see engine/worlds.renameWorld).
+  // Classified like the active route: missing id is a 400 (malformed request), a
+  // well-formed id naming no world is 404, the reserved default is 400, an empty name
+  // is 400, a held lock is a retryable 409. No restart is needed -- a name is display
+  // only, so the running board does not re-resolve any root.
+  if (pathname === '/api/worlds/rename' && req.method === 'POST') {
+    readBody(req)
+      .then((buf) => {
+        let body;
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { sendJson(res, 400, { ok: false, because: 'we could not read that request' }); return; }
+        const id = typeof body.id === 'string' ? body.id.trim() : '';
+        const name = typeof body.name === 'string' ? body.name : '';
+        if (!id) { sendJson(res, 400, { ok: false, because: 'say which Kosmos to rename (an id)' }); return; }
+        let base;
+        try { base = worldBase(); } catch (_e) { sendJson(res, 500, { ok: false, because: 'the world registry is not readable on this machine' }); return; }
+        let world;
+        try { world = worlds.renameWorld(base, id, name); }
+        catch (e) {
+          // Classify by the engine's typed error CODE, never its message text (see
+          // worlds.js / the active route above).
+          const code = e && e.code;
+          if (code === 'ERESERVED') { sendJson(res, 400, { ok: false, because: 'the first Kosmos keeps its name and cannot be renamed' }); return; }
+          if (code === 'EBADNAME') { sendJson(res, 400, { ok: false, because: 'give the Kosmos a name' }); return; }
+          if (code === 'ENOWORLD') { sendJson(res, 404, { ok: false, because: 'there is no Kosmos with that id on this machine' }); return; }
+          if (code === 'EWORLDLOCK') { sendJson(res, 409, { ok: false, because: 'another Kosmos operation is in progress, try again in a moment' }); return; }
+          sendJson(res, 500, { ok: false, because: 'we could not rename that Kosmos' }); return;
+        }
+        sendJson(res, 200, { ok: true, world });
       })
       .catch((err) => sendJson(res, 400, { ok: false, because: String((err && err.message) || 'we could not read that request') }));
     return;
@@ -3189,13 +3301,8 @@ const server = http.createServer((req, res) => {
           // (#323), so the addAgent below finds the block already there.
           projects: projectsToJoin,
         });
-        /* #238. Only on a real creation, and never in a way that can affect
-           one: `agentCreated` returns nothing, so this cannot be awaited, and
-           every failure inside it is swallowed. The box on the form is one
-           agent's answer; the standing setting in Settings beats it. */
-        if (result.outcome === create.OUTCOME.CREATED) {
-          ping.agentCreated({ wanted: body.tellKosmos !== false });
-        }
+        /* #2623: the create-agent telemetry ping was deleted (Josh, 2026-09-09,
+           "invasion of privacy"). A creation no longer tells anyone anything. */
         // REFUSED is the caller's fault (a bad name, a duplicate); PARTIAL is
         // ours, and it is a 200 because the thing half-happened and the caller
         // needs the detail rather than an error.
@@ -3773,6 +3880,118 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #2129 companion -- open the agent's ACTUAL terminal window.
+   *
+   * The board reads an agent by CAPTURING its tmux pane; it never attaches. So
+   * a person who wants the live session in front of them -- to answer a prompt
+   * the board cannot, or just to watch -- had no way in from the app. This
+   * opens a Terminal.app window attached to the agent's tmux session.
+   *
+   * 🔑 READ-ONLY ABOUT THE AGENT. tmux allows many clients on one session and
+   * the board's reading is capture-based (not a client), so this only ADDS a
+   * viewer: it does not restart the agent or touch what it is doing. All the
+   * resolution, refusals and the osascript seam live in engine/terminal.js; the
+   * route is the thin HTTP shell, matching the family above it. No request body
+   * is read (there is nothing to send). Response: {ok:true, session} on 200, or
+   * {ok:false, because} on 400 -- the same friendly-reason shape the restart
+   * family uses.
+   */
+  const lt = pathname.match(/^\/api\/agent\/([^/]+)\/launch-terminal$/);
+  if (lt && req.method === 'POST') {
+    const name = decodeSegment(lt[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    let out;
+    try { out = terminal.openTerminal(name); }
+    catch (err) { sendJson(res, 500, { error: 'we could not open a terminal for this agent', detail: String(err && err.message || err) }); return; }
+    /* A refusal (not running / not ours / a name we will not shell out) is a
+       400; an ENVIRONMENT failure (tmux unaskable, or osascript failing on a
+       headless board) is a 503, so a transient "try again" is not reported to
+       monitoring as a bad request. The board reads `because` either way. */
+    const code = out && out.ok ? 200 : (out && out.unavailable ? 503 : 400);
+    sendJson(res, code, out);
+    return;
+  }
+
+  /**
+   * #2129 fallback -- the one-click escape from the fresh-macOS trust menu.
+   *
+   * The keystone fix (#2382) makes a fresh agent trust its own folder
+   * automatically, by keying the trust write on the on-disk realpath the
+   * runner itself looks up. This route is the insurance for the case that fix
+   * cannot reach: a silent write failure, or a runner that changes its trust
+   * format, where the agent still lands on the terminal trust question a
+   * white-collar user cannot answer (Enter picks "No, exit" and ends it). One
+   * click writes the trust key for the agent's OWN folder and account, then
+   * restarts it so it comes back past the menu.
+   *
+   * 🔑 THE TRUST WRITE IS BEST-EFFORT AND NON-GATING, exactly as it is on the
+   * create path (create.js: "Best-effort / non-gating, as trustFolder is
+   * here"). A failed or refused write is a menu the person still has to
+   * answer, not a reason to withhold the restart -- and the restart is the
+   * half that unbricks the agent. Its result rides back in `trusted` so the
+   * screen can say what happened; the restart's outcome is the route's verdict.
+   *
+   * ⚠️ PER RUNNER, keyed off the agent's OWN launch job, never the request: a
+   * codex agent's trust lives in its CODEX_HOME's config.toml
+   * (trustCodexFolder), a claude agent's in its account's .claude.json
+   * (trustFolder). `readJob` carries the runner and the account dir. With no
+   * job there is no folder to key a trust write on, so it is skipped and
+   * `restart` gives its own friendly "not started by Kosmos" refusal -- the
+   * same shape the plain /restart route above returns.
+   *
+   * The trust WRITERS are the create path's, unchanged: the escape and the
+   * automatic write can never disagree about the on-disk spelling, which is
+   * the exact divergence #2382 was about.
+   */
+  const tr = pathname.match(/^\/api\/agent\/([^/]+)\/trust-and-restart$/);
+  if (tr && req.method === 'POST') {
+    const name = decodeSegment(tr[1]);
+    if (name === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* One cleaned spelling for all three uses below (readJob, workerDir and the
+       restart), so the trust-write target and the restart target cannot diverge
+       -- cleanName is only a trim, but keeping the three name forms identical
+       removes the one place they could drift. */
+    const clean = create.cleanName(name);
+    let trusted;
+    let job = null;
+    try { job = create.readJob(clean); } catch { job = null; }
+    if (!job) {
+      trusted = { wrote: false, because: 'this agent has no Kosmos launch job, so there was no folder to trust' };
+    } else {
+      /* A truthy job means the name passed readJob's NAME_RE, so workerDir
+         returns a real path under WORKERS -- never falsy -- and the trust
+         writers below always have a folder to key on. */
+      const folder = create.workerDir(clean);
+      if (job.runner === 'codex') {
+        try { create.trustCodexFolder(folder, job.configDir, !job.configDir); trusted = { wrote: true, runner: 'codex' }; }
+        catch (err) { trusted = { wrote: false, runner: 'codex', because: String(err && err.message || err) }; }
+      } else {
+        /* trustFolder soft-fails (returns {ok:false, because}) rather than
+           throwing, so read ok -- do not rely on a catch. createIfAbsent
+           matches the create path: on a truly fresh user the file may not
+           exist yet. */
+        let t = null;
+        try { t = trust.trustFolder(folder, { configDir: job.configDir, createIfAbsent: true, agentDefaultAccount: !job.configDir }); }
+        catch (err) { t = { ok: false, because: String(err && err.message || err) }; }
+        trusted = t && t.ok
+          ? { wrote: true, runner: 'claude', already: !!t.already }
+          : { wrote: false, runner: 'claude', because: (t && t.because) || 'the trust write did not complete' };
+      }
+    }
+    /* The restart is genuine, so it carries the honest generic 'restart'
+       cause: the board renders "Restarting agent" from it. A dedicated 'trust'
+       cause would need a matching sentence on the frontend (disruption.CAUSES
+       is a machine token the page renders copy from, #2019); adding one
+       without that copy shows a blank state, so this route stays cause-neutral
+       and leaves a nicer label as a frontend follow-up. */
+    let out;
+    try { out = removal.restart(clean, 'restart'); }
+    catch (err) { sendJson(res, 500, { error: 'we could not restart this agent', detail: String(err && err.message || err), trusted }); return; }
+    sendJson(res, out.outcome === removal.OUTCOME.REFUSED ? 400 : 200, { ...out, trusted });
+    return;
+  }
+
+  /**
    * Point an agent at a different model.
    *
    * 🛑 TWO WRITES AND THE SECOND IS NOT OPTIONAL. `setModel` rewrites the
@@ -3976,31 +4195,11 @@ const server = http.createServer((req, res) => {
   /* What "Delete your history" would remove, so the screen can say it before
      it asks. The counts come from the engine, never from the page: a control
      with no undo must not describe its own scope in its own words. */
-  /* The standing answer for #238, so Settings can turn it off for good. Same
-     shape as the other preference routes: GET to learn it, PUT to set it, and
-     the READ is echoed back after a write rather than the request body. */
-  if (pathname === '/api/ping-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { const r = ping.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
-    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
-    return;
-  }
-  if (pathname === '/api/ping-setting' && req.method === 'PUT') {
-    readBody(req)
-      .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const saved = ping.setOn(body.on);
-        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        const r = ping.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
-    return;
-  }
+  /* #2623: the /api/ping-setting route (the create-agent telemetry on/off) was
+     deleted with the telemetry itself. */
 
-  /* The daily product-feedback SEND opt-in (#2037 PR-C1). Mirrors ping-setting:
-     GET returns the switch state, PUT flips it. The send layer (scrub + the
+  /* The daily product-feedback SEND opt-in (#2037 PR-C1). GET returns the switch
+     state, PUT flips it. The send layer (scrub + the
      #2246 contract) is engine/feedbacksend.js; the board sweep fires it. Default
      is ON (Josh: "baked in day one"); the person opts out here. The install-time
      disclosure surface is the fast-follow (PR-C2). */
@@ -4064,9 +4263,6 @@ const server = http.createServer((req, res) => {
     return;
   }
 
-  /* The outbound "something happened" setting (engine/notify.js): the seam a
-     phone notification rides on, off by default. Same two routes as the
-     created ping, same shape. */
   /* ---- Plus (the relay service): the Settings tab's seam over
      engine/remote.js (#464). READ is always honest; the write routes are
      real but the page renders them only when a relay is configured,
@@ -4241,25 +4437,8 @@ const server = http.createServer((req, res) => {
       .catch(() => sendJson(res, 400, { error: 'we could not save the style' }));
     return;
   }
-  if (pathname === '/api/notify-setting' && (req.method === 'GET' || req.method === 'HEAD')) {
-    try { const r = notify.read(); sendJson(res, 200, { on: r.on, ok: r.ok }); }
-    catch { sendJson(res, 500, { error: 'that setting could not be read' }); }
-    return;
-  }
-  if (pathname === '/api/notify-setting' && req.method === 'PUT') {
-    readBody(req)
-      .then((buf) => {
-        let body;
-        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; }
-        catch { sendJson(res, 400, { error: 'we could not read that request' }); return; }
-        const saved = notify.setOn(body.on);
-        if (!saved.ok) { sendJson(res, 400, { error: saved.because }); return; }
-        const r = notify.read();
-        sendJson(res, 200, { on: r.on, ok: r.ok });
-      })
-      .catch(() => sendJson(res, 400, { error: 'we could not save that setting' }));
-    return;
-  }
+  /* #2623: the /api/notify-setting route (the "let the Kosmos team know when an
+     agent posts or answers you" phone-home on/off) was deleted with the seam. */
   /* #1722: the heartbeat setting (Settings > Automation). GET returns the value
      the runner reads each cycle -- the setting file IS the in-force value, there
      is no second copy -- plus the closed interval choices so the UI selector and
@@ -4535,6 +4714,149 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2420: connect a CLAUDE account via a pasted ANTHROPIC_API_KEY. The Claude analog
+     of POST /api/accounts/openai above. Claude Code's login chooser has no paste-a-key
+     option (both its options are OAuth account logins), so an api-key Claude account is
+     CONFIGURED: the account dir is prepared, the key is validated live with Anthropic,
+     stored in a mode-600 file, and settings.json gets an apiKeyHelper POINTER (never the
+     raw key). The subscription connect flow (/api/connect/*) is unchanged and remains the
+     SEPARATE connection type. */
+  if (pathname === '/api/accounts/claude/apikey' && req.method === 'POST') {
+    readBody(req)
+      .then(async (raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        // Runner check first, same ordering as the OpenAI route: install the runner
+        // before the credential, so a bad key with no Claude Code answers needsRunner.
+        const resolved = runners.resolveBin('claude');
+        const liveJob = (runners.status().claude || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
+          sendJson(res, 400, {
+            error: 'we could not find Claude Code on this computer, so there is nothing to sign in to',
+            needsRunner: true,
+            provider: 'claude',
+          });
+          return;
+        }
+        const shape = claudeAccounts.keyProblem(body.key);
+        if (shape) { sendJson(res, 400, { error: shape }); return; }
+        // #2420 taken-label guard, BEFORE the live check and BEFORE prepare. Before the
+        // live check so a doomed add on an existing label does not waste a round-trip
+        // sending the key to Anthropic (mirrors openaiaccounts.addWithKeyLive's label-first
+        // order); before prepare so a REFUSED add never merges hooks into an existing
+        // account's settings.json. NEVER write into an EXISTING account: a label matching a
+        // signed-in SUBSCRIPTION account (identityOf) or an existing api-key account (a
+        // stored key file) would drop a key file + apiKeyHelper into it and SILENTLY switch
+        // its billing to the pasted key (Claude Code prefers apiKeyHelper over the OAuth
+        // subscription).
+        const named = accounts.dirForLabel(body.label);
+        if (!named.ok) { sendJson(res, 400, { error: named.because }); return; }
+        if (accounts.identityOf(named.dir) || fs.existsSync(claudeAccounts.keyFile(named.dir))) {
+          sendJson(res, 400, { error: 'there is already a Claude account by that name on this computer' });
+          return;
+        }
+        // #1315 discipline: validate LIVE at ADD time. Refuse ONLY a positively-rejected
+        // key (Anthropic's authentication_error); accept CONNECTED and also UNKNOWN
+        // (unreachable / a non-attributed refusal), never blocking a good key on an
+        // answer that does not confirm the key is bad.
+        const live = await claudeAccounts.validateLive(String(body.key || '').trim());
+        if (live.state === claudeAccounts.STATE.NONE) { sendJson(res, 400, { error: live.because }); return; }
+        const prepared = accounts.prepare(body.label);
+        if (!prepared.ok) { sendJson(res, 400, { error: prepared.because }); return; }
+        const settingsPath = path.join(prepared.dir, 'settings.json');
+        try {
+          claudeAccounts.storeKey(prepared.dir, body.key);
+          claudeAccounts.wireApiKeyHelper(settingsPath, prepared.dir);
+        } catch {
+          // Anti-litter (mirrors openaiaccounts.addWithKeyLive's undo): take back the
+          // sensitive artifacts we may have written, so a failed add leaves no orphaned
+          // key file or dangling apiKeyHelper pointer behind.
+          try { claudeAccounts.forgetKey(prepared.dir); } catch { /* best effort */ }
+          try { claudeAccounts.unwireApiKeyHelper(settingsPath); } catch { /* best effort */ }
+          sendJson(res, 400, { error: 'we could not store that key on this computer' });
+          return;
+        }
+        // Never the key: the row carries the label + the live connection verdict only.
+        sendJson(res, 200, { account: { label: prepared.label, connection: { state: live.state } } });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  /* #2338: connect an OpenAI account via a ChatGPT SUBSCRIPTION (no API key). The
+     analog of POST /api/accounts/openai above, but a LONG interactive flow: `start`
+     spawns `codex login` into an isolated CODEX_HOME and returns a session the
+     switcher polls; `status` reports progress; `cancel` tears a pending one down.
+     The api-key route above is unchanged and remains the SEPARATE connection type
+     (its accounts carry a keyTail; a subscription account has authMode chatgpt and
+     no keyTail -- the durable discriminator). */
+  if (pathname === '/api/accounts/openai/subscription/start' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        if (body != null && typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+        body = body || {};
+        // Same runner resolution + structured needsRunner answer as the api-key route:
+        // no OpenAI runner installed -> tell the screen to reveal the install step.
+        const resolved = runners.resolveBin('openai');
+        const liveJob = (runners.status().openai || {}).job;
+        const midInstall = liveJob && liveJob.phase !== 'installed' && liveJob.phase !== 'failed';
+        if (!resolved.present || midInstall) {
+          sendJson(res, 400, { error: openaiAccounts.MISSING_RUNNER_SENTENCE, needsRunner: true, provider: 'openai' });
+          return;
+        }
+        // #2584: `reauthDir` signs in again AS an existing chatgpt account rather
+        // than adding a new one. startChatgptLogin.reauthTarget validates it is a
+        // real chatgpt account on this computer (an arbitrary path, or an api-key
+        // account, is refused), so passing it straight through from the body is
+        // safe; a failed reauth cannot touch the live account.
+        const out = openaiAccounts.startChatgptLogin({
+          label: body.label,
+          mode: body.mode,
+          codexBin: resolved.bin,
+          reauthDir: typeof body.reauthDir === 'string' && body.reauthDir ? body.reauthDir : undefined,
+        });
+        if (!out.ok) { sendJson(res, 400, { error: out.because }); return; }
+        // Only the session + mode are known synchronously. authUrl (the browser
+        // callback URL, or the device verification URL) and userCode (device mode
+        // only) are printed by codex AFTER this returns, so the client reads them
+        // by polling GET .../subscription/status, never from this response.
+        sendJson(res, 200, { sessionId: out.sessionId, mode: out.mode });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
+  if (pathname === '/api/accounts/openai/subscription/status' && req.method === 'GET') {
+    let sessionId = '';
+    try { sessionId = new URL(req.url, ROUTING_BASE).searchParams.get('sessionId') || ''; } catch { sessionId = ''; }
+    const out = openaiAccounts.chatgptLoginStatus(sessionId);
+    if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+    // On `state:"connected"` the account is populated (a GET /api/accounts row shape);
+    // it then also appears in /api/accounts as authMode chatgpt with no keyTail.
+    sendJson(res, 200, { state: out.state, authUrl: out.authUrl, userCode: out.userCode, account: out.account, error: out.error });
+    return;
+  }
+
+  if (pathname === '/api/accounts/openai/subscription/cancel' && req.method === 'POST') {
+    readBody(req)
+      .then((raw) => {
+        let body = null;
+        try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+        const sessionId = body && typeof body === 'object' ? String(body.sessionId || '') : '';
+        const out = openaiAccounts.cancelChatgptLogin(sessionId);
+        if (!out.ok) { sendJson(res, 404, { error: out.because }); return; }
+        // `cancelled:false` when the session had already settled (nothing pending
+        // to cancel) -- forward it rather than always claiming a cancel happened.
+        sendJson(res, 200, { cancelled: out.cancelled });
+      })
+      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+    return;
+  }
+
   /* #1026: the chat models a specific OpenAI account can run, for the create
      screen's picker. Per-account and async (a live /v1/models fetch with that
      account's key), so it cannot ride the static, account-agnostic /api/roles
@@ -4581,6 +4903,367 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #2570: stop the agents that are on an account, so DISCONNECT can proceed
+   * instead of refusing.
+   *
+   * 🔑 ONE DERIVATION, TWO ROUTES. The Claude and OpenAI DELETE routes each
+   * enumerate `usedBy` in their own copied loop, which this codebase accepted
+   * for diffability. The STOP is not copied: two spellings of "stop these
+   * agents and decide whether it worked" is the two-derivations habit
+   * engine/status.js calls the worst one here, and it would fail asymmetrically
+   * (one provider stopping an agent the other refuses to).
+   *
+   * 🛑 IT REUSES `removal.remove(name)` AND DOES NOT REIMPLEMENT THE STOP. That
+   * primitive disables the launchd job BEFORE booting it out (KeepAlive would
+   * revive it in the other order), treats "no such service" as success, and
+   * RECORDS the agent on the removed list, which is what makes this reversible:
+   * signing back in and pressing Restore brings the agent back. A hand-rolled
+   * `launchctl bootout` here would be a stop nobody can undo.
+   *
+   * ⚠️ IT ANSWERS `ok:false` ON ANY OUTCOME THAT IS NOT `REMOVED`, INCLUDING
+   * PARTIAL. A PARTIAL means the job was disabled but the boot-out failed, so
+   * the agent may still be live against an account we are about to rename out
+   * from under it. That is the exact #1659 hazard the refusal existed to
+   * prevent, so the account is left alone and the caller is told which agents
+   * stopped and which did not.
+   */
+  function stopAgentsForDisconnect(names) {
+    /* ⚠️ SYNCHRONOUS, AND THE BOUND IS WORTH STATING RATHER THAN DISCOVERING.
+       `removal.remove` shells out with execFileSync, four commands per agent
+       (disable, bootout, kill-session, has-session), each with a 20s ceiling. So
+       this loop blocks the board's event loop for as long as the launchctl and
+       tmux calls take, multiplied by the number of agents on ONE account.
+       Deliberate, for three reasons: the 20s is a HANG ceiling rather than a
+       duration (these calls return in milliseconds); the single-agent removal
+       route already calls the same primitive the same way, so a hung launchctl
+       already blocks the board today; and the person has just pressed a button
+       whose whole content is "stop these agents", so doing it before answering is
+       the expected order. If a board is ever reported wedged during a disconnect,
+       this is the loop, and the fix is to make the primitive async rather than to
+       cap N here. */
+    const results = [];
+    for (const name of names) {
+      let done = null;
+      try { done = removal.remove(name); }
+      catch (err) {
+        /* A throw is not a stop. It is also not evidence the agent is still
+           running, and saying either would be a guess: the honest verdict is
+           that we do not know, which fails closed the same way PARTIAL does. */
+        /* `detail` carries the exception, `because` stays a sentence. Every other
+           `because` on these routes is written for a person; a raw error message
+           here would be the only one carrying a stack fragment or a filesystem
+           path. Same split the agent-removal route at /api/agent/:name uses.
+           And the outcome is spelled with the module's own vocabulary rather
+           than a route-local literal, so `notStopped[].outcome` never mixes
+           engine outcomes with a string no engine produces. */
+        results.push({
+          name,
+          outcome: removal.OUTCOME.REFUSED,
+          verified: false,
+          because: 'we could not tell whether it stopped, so it is treated as still running',
+          detail: String((err && err.message) || err),
+        });
+        continue;
+      }
+      /* 🛑 A DRY-RUN REMOVED IS NOT A STOP, AND IT IS THE ONE OUTCOME THAT LIES.
+         `engine/remove.js` short-circuits every command under dry-run and
+         `recordRemoval` returns true without writing, so `remove()` answers
+         REMOVED having done nothing at all. Its own docblock says the `dryRun`
+         marker exists precisely so "a screen or a route cannot pass it off as
+         work". This route would pass it off as work in the worst possible way:
+         it would clear `usedBy` and go on to a REAL rename or rmSync, taking the
+         account out from under agents that are still running, with no removal
+         record, and then tell the person they can restore them.
+         ⚠️ Production is unaffected: server.js opts into live execution at
+         startup, so `dryRun` is never set there. This is the guard for the day
+         that opt-in is missed, which remove.js warns about rather than prevents. */
+      /* 🛑 TWO FAKE-SUCCESS PATHS, AND THE MARKER ONLY COVERS ONE. `markDryRun`
+         sets `dryRun` when AGENT_WORKFORCE_DRY_RUN is set and no runner is
+         installed. `run()` has a SECOND path (engine/remove.js:114): when live
+         execution was never authorised it warns to stderr and returns success
+         for every command, and NOTHING marks the result. For a
+         registered-but-not-running agent there is no session to end, so that
+         produces an unmarked REMOVED with a real removal record, and the account
+         would be renamed while the launchd job was never disabled.
+         ⭐ THAT IS EXACTLY THE CASE THE COMMENT BELOW CLAIMED TO GUARD -- "the
+         guard for the day that opt-in is missed" -- and the first version of it
+         did not fire there. Asking the gate directly covers both paths, because
+         a stop is only believable when live execution was actually armed. */
+      const real = (() => {
+        try { return removal.commandsAreReal() === true; }
+        catch { return false; }
+      })();
+      const dry = !!(done && done.dryRun === true) || !real;
+      results.push({
+        name,
+        /* The primitive's own word, reported verbatim even when we reject it.
+           Rewriting a dry-run REMOVED to "failed" would hide WHICH state we
+           refused, and the person reading this needs the difference between
+           "it would not stop" and "we would not believe the stop". */
+        outcome: (done && done.outcome) || removal.OUTCOME.REFUSED,
+        /* 🛑 THE VERDICT IS ITS OWN FIELD, NOT A RE-READING OF `outcome`. The
+           first version of this guard computed exactly this condition and then
+           wrote the primitive's raw outcome back into `outcome`, which the
+           filter below keys on: `clean` was false and the agent still counted as
+           stopped. A guard that computes the right answer and does not act on it
+           is worse than none, because it reads as protection. Caught by a
+           mutation control: deleting the dryRun test changed nothing. */
+        verified: !!(done && done.outcome === removal.OUTCOME.REMOVED) && !dry,
+        /* 🛑 THE TWO FAKE-SUCCESS PATHS DIFFER IN WHETHER THEY LEFT A TRACE, and
+           the outcome alone cannot tell them apart. Under DRY_RUN with no runner,
+           `recordRemoval` returns early, so nothing is written. Under a MISSED
+           live-execution opt-in it does not return early: the removed-list record
+           is written and the agent's sender token is revoked, so the agent leaves
+           the board and keeps running. Both come back REMOVED and unverified.
+           `dryRun` is the marker that separates them, and the sentence below has
+           to, or it tells half these people their agent was taken off the board
+           when it was not. */
+        recorded: !!(done && done.outcome === removal.OUTCOME.REMOVED)
+          && !real && done.dryRun !== true,
+        /* 🛑 WHEN NO COMMAND RAN, SAY SO WHATEVER THE OUTCOME WAS. Under a missed
+           live-execution opt-in every command fake-succeeds, so a RUNNING agent
+           comes back PARTIAL and the primitive's own sentence then describes a
+           disable and a kill that never happened. The account is left alone
+           either way, so this was wording only, on exactly the path the guard
+           exists for. */
+        /* ⚠️ ONLY WHEN THE PRIMITIVE CLAIMED SUCCESS. A REFUSED or PARTIAL carries
+           a real reason the engine worked out (a session it cannot tie to this
+           agent, a boot-out it could not confirm), and replacing that with a
+           sentence about the live-execution gate discards the one detail the
+           person would act on. The gate sentence belongs only where the outcome
+           says the work happened and it did not. */
+        because: (done && done.outcome === removal.OUTCOME.REMOVED)
+          ? (!real
+            ? 'no command actually ran, so nothing was stopped'
+            : (done.dryRun === true
+              ? 'the removal ran in dry-run, so nothing was actually stopped'
+              : (done.because || '')))
+          : ((done && done.because) || ''),
+      });
+    }
+    const stopped = results.filter((r) => r.verified).map((r) => r.name);
+    const notStopped = results.filter((r) => !r.verified);
+    return { ok: notStopped.length === 0, results, stopped, notStopped };
+  }
+
+  /**
+   * #2570: the sentence for a stop that did not finish.
+   *
+   * 🔑 WRITTEN ONCE, for the same reason `withStopNote` is. The success sentence
+   * was extracted so the two doors could not drift, which left the FAILURE
+   * sentence as the one written twice, and it is the harder one to get right: it
+   * has to name both halves, because the half that DID stop is what the person
+   * most needs to know about (those agents are off and their account is still
+   * connected).
+   */
+  function stopFailureSentence(stopReport) {
+    const failed = stopReport.notStopped.map((r) => r.name);
+    const done = stopReport.stopped;
+    /* 🛑 A PARTIAL IS NOT "NOTHING WAS CHANGED", AND SAYING SO WAS A LIE ABOUT
+       STATE THE PERSON CAN SEE. On a PARTIAL the removal disabled the launchd job
+       AND wrote the removed-list record before failing its post-kill look-again,
+       so the agent's card has left the board and it is on the removed list. The
+       first version of this sentence claimed nothing had changed, which is the
+       same defect `withStopDone` exists to fix, inverted one layer in.
+       ⇒ It hands over the ENGINE's own per-agent sentence, which already
+       explains the disable-but-not-confirmed state and names the way back. No
+       new copy is invented here, and the page only renders `error`, so this is
+       the only route by which that sentence reaches a screen at all. */
+    const partly = stopReport.notStopped.filter((r) => r.outcome === removal.OUTCOME.PARTIAL);
+    /* 🛑 A STOP WE REFUSED TO BELIEVE STILL CHANGED SOMETHING, AND THIS IS THE
+       PATH `commandsAreReal()` EXISTS FOR. When live execution is unarmed,
+       `run()` fake-succeeds every command, so the launchctl and tmux work never
+       happened -- but `recordRemoval` returns early only under `DRY_RUN &&
+       !runner`, so on that path it DOES write the removed-list record and revoke
+       the agent's sender token. The agent therefore leaves the board and loses
+       its token while still running. "Nothing was changed" is false about the
+       AGENT even though it is true about the account, and every non-macOS board
+       is in this state, because live execution is armed only on a supported
+       platform. Told apart by shape: the primitive claimed REMOVED and we
+       declined to believe it. */
+    const recorded = stopReport.notStopped.filter((r) => r.recorded);
+    if (!done.length) {
+      if (recorded.length) {
+        const oneRec = recorded.length === 1;
+        return 'This account was left connected. '
+          + `${recorded.map((r) => r.name).join(', ')} ${oneRec ? 'was' : 'were'} taken off the board, `
+          + `but no command actually ran, so ${oneRec ? 'it may' : 'they may'} still be running. `
+          + `Put ${oneRec ? 'it' : 'them'} back from the removed list.`
+          + (partly.length ? ' ' + partly.map((r) => `${r.name}: ${r.because}`).join(' ') : '');
+      }
+      if (!partly.length) return `We could not stop ${failed.join(', ')}, so nothing was changed.`;
+      /* 🛑 NAME THE OTHERS TOO. The first version of this branch mapped over
+         `partly` alone, so a batch with one PARTIAL and one REFUSED named the
+         partial agent and the refused one VANISHED from the only field the page
+         renders. That is the same drop this whole helper exists to prevent, one
+         subset in: `notStopped` had both, and nothing reads `notStopped`. */
+      const others = stopReport.notStopped
+        .filter((r) => r.outcome !== removal.OUTCOME.PARTIAL)
+        .map((r) => r.name);
+      return 'This account was left connected. '
+        + partly.map((r) => `${r.name}: ${r.because}`).join(' ')
+        + (others.length
+          ? ` We could not stop ${others.join(', ')} at all.`
+          : '');
+    }
+    /* 🛑 SINGULAR AND PLURAL, like every other sentence this feature adds. The
+       first version read "Put the stopped ones back ... or stop the rest
+       yourself" with ONE agent on each side, which is the only shape this
+       sentence has in the simplest mixed case. Its three siblings all branch;
+       this one did not, and it was also the only one with no test. */
+    const oneDone = done.length === 1;
+    /* 🛑 A PARTIAL IN THE MIXED BATCH IS NOT SOMETHING TO GO AND STOP YOURSELF.
+       Its launchd job is already disabled and it is already on the removed list;
+       only the shut-down could not be confirmed. Telling the person to "stop it
+       yourself and try again" describes state they can see is not true. The
+       `!done.length` branch was fixed for exactly this and handed over the
+       engine's own per-agent sentence; this branch, one subset over, still hid
+       it. Same split here: name the ones that need doing by hand, and quote the
+       engine for the ones that got partway. */
+    const partlyLeft = stopReport.notStopped.filter((r) => r.outcome === removal.OUTCOME.PARTIAL);
+    const flatlyLeft = stopReport.notStopped
+      .filter((r) => r.outcome !== removal.OUTCOME.PARTIAL)
+      .map((r) => r.name);
+    /* Named explicitly rather than as "the rest", because with two flat refusals
+       AND a partial in the same batch "the rest" reads as covering the partial
+       too, which is the instruction the split above exists to stop giving. */
+    return `We stopped ${done.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
+      + `Put ${oneDone ? done[0] : 'the stopped ones'} back from the removed list.`
+      + (flatlyLeft.length
+        ? ` Stop ${flatlyLeft.join(', ')} yourself and try again.`
+        : '')
+      + (partlyLeft.length
+        ? ' ' + partlyLeft.map((r) => `${r.name}: ${r.because}`).join(' ')
+        : '');
+  }
+
+  /**
+   * #2570: a failure that happens AFTER the agents were already stopped.
+   *
+   * 🛑 EVERY POST-STOP FAILURE PATH USED TO DROP THIS ON THE FLOOR. The engine
+   * can refuse after the stop succeeded ("could not find a free name to move
+   * that account to", "could not move that account out of the way", "could not
+   * delete that account", or a sign-in in progress), and those 400s carried only
+   * the engine's own sentence. So the person was told the account was untouched
+   * while N of their agents had just been stopped, with nothing on screen saying
+   * so. The stop-FAILURE path went to trouble to name both halves; these are the
+   * inverse case and said nothing.
+   */
+  function withStopDone(payload, stopReport, restorable) {
+    if (!stopReport || !stopReport.stopped.length) return payload;
+    const names = stopReport.stopped;
+    const one = names.length === 1;
+    /* 🛑 PUNCTUATE THE JOIN. The engine's reasons mostly do NOT end in a stop
+       ("we could not find a free name to move that account to"), so a bare
+       concatenation produced "...to move that account to lestrade was already
+       stopped", which reads as if the account were being moved TO an agent.
+       Substring assertions could not see it: both halves matched and the
+       sentence in between was never read. Only added when missing, because the
+       OpenAI sign-in refusal ends in one already. */
+    const head = /[.!?]$/.test(String(payload.error)) ? payload.error : `${payload.error}.`;
+    return {
+      ...payload,
+      stopped: names,
+      error: `${head} ${one ? names[0] + ' was' : names.length + ' agents were'} already stopped`
+        + `${one ? '' : ' (' + names.join(', ') + ')'}, and ${one ? 'it is' : 'they are'} still stopped.`
+        + (restorable
+          ? ` You can put ${one ? 'it' : 'them'} back from the removed list.`
+          /* The worst path (the account directory is gone AND the operation
+             failed) was the one saying nothing at all. Its sibling
+             `withStopNote` says this; there is no reason this one should not. */
+          : ` ${one ? 'It needs' : 'They need'} a different account before `
+            + `${one ? 'it' : 'they'} can start again.`),
+    };
+  }
+
+  /**
+   * #2570: add the "and we stopped these first" half to a success answer.
+   *
+   * 🔑 ONE SENTENCE, FOUR ANSWERS. Disconnect and delete, on two providers, are
+   * four success payloads that already differ for good reasons. What they must
+   * NOT differ on is what a person is told about their agents, so the sentence
+   * is written once and appended rather than hand-written into each.
+   *
+   * ⚠️ IT SAYS "you can restore them" BECAUSE THAT IS TRUE AND CHECKABLE:
+   * `removal.remove` records each agent on the removed list, which is exactly
+   * what the Restore control reads. If that ever stops being true this sentence
+   * becomes the lie, and `engine/remove.js` is where it would be told.
+   */
+  function withStopNote(payload, stopReport, restorable) {
+    if (!stopReport || !stopReport.stopped.length) return payload;
+    /* 🛑 NOT ON THE ALREADY-GONE BRANCH. Both engines answer
+       `{ok: true, forgotten: false}` for an account that is not there, and
+       appending the way-back sentence produced "That account was already gone
+       from this computer. x was stopped first. You can put it back once you add
+       this account again under the same name." The condition names re-adding an
+       account that was never there. Reachable when a launch file points at a
+       directory that has since gone. */
+    if (payload.forgotten === false || payload.removed === false) {
+      /* ⚠️ STILL SAY IT, JUST WITHOUT THE CONDITION. Dropping the sentence
+         entirely and leaving the fact in the `stopped` array was worse than the
+         wording it replaced: the page renders `because` and never reads
+         `stopped`, so a person whose agents had really just been stopped saw
+         only "That account was already gone from this computer." The re-add
+         condition is what was nonsense here, not the stop itself. */
+      const gone = stopReport.stopped;
+      const single = gone.length === 1;
+      /* The same join guard as the branch below it, for the same reason it gives:
+         latent today because both routes end their already-gone sentence in a
+         period, and a latent defect with a known instance next door is worth
+         closing rather than explaining twice. */
+      const head = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
+      /* ⚠️ THE NOT-RESTORABLE CLAUSE STILL BELONGS HERE; ONLY THE RE-ADD ONE DOES
+         NOT. What made the original sentence nonsense on this branch was
+         promising a way back "once you add this account again under the same
+         name" for an account that was never there. On the DELETE door the other
+         clause is about the AGENT rather than the account, and it stays true:
+         those agents were set up to run on a directory that is gone, so they
+         need a different account before they can start again. */
+      const stillNeeded = restorable
+        ? ''
+        : ` ${single ? 'It was' : 'They were'} set up to run on that account, so `
+          + `${single ? 'it needs' : 'they need'} a different one before ${single ? 'it' : 'they'} can start again.`;
+      return {
+        ...payload,
+        stopped: gone,
+        because: `${head} ${single ? gone[0] + ' was' : gone.length + ' agents were'} stopped first`
+          + `${single ? '' : ' (' + gone.join(', ') + ')'}.${stillNeeded}`,
+      };
+    }
+    const names = stopReport.stopped;
+    const one = names.length === 1;
+    /* 🛑 THE WAY BACK IS NOT THE SAME ON BOTH DOORS, AND SAYING IT WAS WOULD BE A
+       FALSE PROMISE ON THE WORSE ONE. Disconnect RENAMES the account directory
+       aside, so signing back in and pressing Restore genuinely returns the agent
+       to a directory that exists. Delete REMOVES it: restoring the agent there
+       re-enables a launchd job whose config dir is gone, which is the
+       working-agent-behaving-like-a-blank-one state #1659 exists to prevent, and
+       a fresh sign-in makes a differently-named directory anyway. So the delete
+       door says what is true of it instead. */
+    /* 🛑 THE CONDITION IS NAMED, BECAUSE THE WAY BACK HAS ONE. An agent's launch
+       file points at its account directory by ABSOLUTE PATH, and
+       `accounts.dirForLabel` derives that path from the label the person typed:
+       `.claude-<label>`. So a restore lands on a working directory only if the
+       account is added back under the SAME name. "if you sign back in" left that
+       out, which made the sentence true only for the person who happens to
+       retype the same label. */
+    /* Same join guard as `withStopDone`. Every `because` this can be appended to
+       ends in a terminal stop today, so this is latent rather than live, but the
+       run-on it prevents was found in the sibling and the fix was not carried
+       across. A latent defect with a known instance next door is worth closing. */
+    const lead = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
+    const way = restorable
+      ? ` You can put ${one ? 'it' : 'them'} back from the removed list once you add this account again under the same name.`
+      : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
+    return {
+      ...payload,
+      stopped: names,
+      because: `${lead} ${one ? names[0] + ' was' : names.length + ' agents were'} stopped first`
+        + `${one ? '' : ' (' + names.join(', ') + ')'}.${way}`,
+    };
+  }
+
+  /**
    * Forget an OpenAI account (#1372).
    *
    * 🛑 THE WAY BACK OUT THAT DID NOT EXIST. A person could add up to 500 and
@@ -4599,6 +5282,24 @@ const server = http.createServer((req, res) => {
    * common case.
    */
   if (pathname === '/api/accounts/openai' && req.method === 'DELETE') {
+    /* #2570: HOISTED OUT OF THE `.then` SO THE OUTER `.catch` CAN SEE IT.
+       That catch answers "we could not read that request" for anything thrown
+       anywhere below, INCLUDING after the stop loop has really stopped agents
+       and possibly after the account has really been renamed. Telling somebody
+       their request was unreadable at that point is the exact state
+       `withStopDone` exists to prevent, arriving through the one exit it could
+       not reach. Now it can. */
+    let stopReport = null;
+    let stopUnavailable = false;
+    /* The door, hoisted for the same reason as the two above: the outer
+       `.catch` needs it. Both catches used to pass `restorable: true`
+       unconditionally, so a throw after a successful DELETE (the success
+       payload calls `list()`, inside the same `.then`) answered "you can put
+       it back from the removed list" for an account directory that had just
+       been rmSynced. That is the false promise the measured `existsSync` on
+       the removeAccount-failure path exists to prevent, arriving through the
+       one exit that had not been given the treatment. */
+    let deleteDoor = false;
     readBody(req)
       .then((raw) => {
         let body = null;
@@ -4611,6 +5312,7 @@ const server = http.createServer((req, res) => {
         // least as dangerous as a rename - so only the final engine call and the
         // answer differ.
         const remove = !!(body && body.remove === true);
+        deleteDoor = remove;
 
         let isDefault = false;
         try { isDefault = path.resolve(dir) === path.resolve(openaiAccounts.defaultDir()); }
@@ -4702,27 +5404,254 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        /* #2570 option 2, DISCONNECT AND STOP. With no `stopAgents` in the body
+           the behaviour below is exactly what #1659 shipped: the engine refuses
+           and names the agents. With it, we stop them first and then proceed.
+
+           🛑 THE FAIL-CLOSED GATE IS THE `return` ABOVE, BY POSITION. This sits
+           after it on purpose, so an uncertain enumeration can never reach the
+           stop loop: stopping a GUESSED set is worse than refusing, because the
+           agent that was missed then runs on against an account that has been
+           renamed out from under it.
+
+           ⚠️ AND THE ENGINE'S OWN REFUSAL IS LEFT INTACT RATHER THAN BYPASSED.
+           We clear `usedBy` only after every name comes back REMOVED, which is
+           the removal primitive's own verified verdict. If a stop had silently
+           not worked, the list would still be non-empty and this would still be
+           a refusal, not a rename under a live agent. */
+        /* 🔑 FILTERED THE SAME WAY THE ENGINES FILTER IT, so the pre-flight's
+           inability to act rests on agreement rather than on luck. Both engines
+           gate their agents refusal on `usedBy` AFTER dropping anything that is
+           not a non-empty string; if this route ever disagreed with them about
+           what counts, a request carrying a falsy entry would sail through their
+           agents guard and the pre-flight below would perform a real rename or
+           rmSync. Unreachable today (the enumeration only ever pushes non-empty
+           session names), which is exactly why it is worth pinning rather than
+           relying on. */
+        const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
+        if (stoppable.length && !!(body && body.stopAgents === true)) {
+          /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
+             THE AGENTS. Which refusals those are differs by DOOR on this
+             provider, and the earlier version of this comment named only the
+             delete one while sitting above a call that is `forgetAccount`
+             whenever `remove` is false: `openaiAccounts.removeAccount` refuses
+             the default `.codex` outright, `forgetAccount` does NOT (it can
+             rename the default aside, unlike the Claude side where forget
+             refuses `.claude` too). What both share is the path guard and the
+             sign-in-in-progress guard, and all of those checks run BEFORE the
+             agents check. So without this, a request
+             naming the default account stopped every agent on it, for real, wrote
+             each to the removed list, and then answered 400 with a refusal that
+             never mentioned the stop. Deterministic, not a race. Not reachable
+             from the page (the default row renders no control) and fully
+             reachable from the board API.
+
+             📌 NOT the CLI, which an earlier version of this comment claimed.
+             Measured: `stopAgents` appears only in this file, web/index.html,
+             the two test files and the browser check, so a CLI caller reaches
+             the DELETE route but has no way to arm the stop. The route is the
+             shared surface; the flag is this page's.
+
+             🔑 THIS PRE-FLIGHT CANNOT ACT. Verified in all four engine
+             functions: every destructive step (rename, rmSync) comes AFTER the
+             agents guard, and we only reach this line with a non-empty agents
+             list, so the call stops at that guard at the latest.
+
+             🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
+             version of this comment claimed an invariant it does not have and
+             claimed it in the UNSAFE direction ("every refusal that does not
+             depend on the agents comes BEFORE the agents guard"). Three refusals
+             precede the agents guard and are therefore visible here: the path
+             guard, the default-account guard, and the OpenAI
+             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             Claude/OpenAI account on this computer") does NOT, in any of the
+             four, and it cannot be hoisted: `engine/accounts.js` states why at
+             the guard itself, that `identityOf` answers null for a missing
+             directory too, so moving it above the existence check would turn
+             "already gone" into "not an account" and lose the quiet-success arm.
+             ⇒ So that one is handled just below, by asking the engine's OWN
+             account list rather than by re-deriving its rule here.
+
+             ⚠️ THE ORDER OF THE THREE IT DOES SEE IS A PROPERTY OF THOSE FILES,
+             NOT OF THIS ONE, SO IT IS PINNED. The OpenAI sign-in-in-progress
+             refusal used to sit AFTER the agents guard, which made it invisible
+             here: a stopAgents request against an account with a reauth in
+             flight really stopped every agent and only then refused. It was
+             moved up, and `server.disconnect-stop-2570.test.js` asserts the
+             order in both OpenAI functions so it cannot drift back silently.
+
+             ⚠️ AND THE AGENTS REFUSAL IS TOLD APART BY SHAPE, NOT BY PROSE: it is
+             the one refusal that carries a `usedBy` array. Matching the sentence
+             would break the day somebody rewords it. */
+          const preflight = remove
+            ? openaiAccounts.removeAccount(dir, usedBy)
+            : openaiAccounts.forgetAccount(dir, usedBy);
+          if (!preflight.ok && !(Array.isArray(preflight.usedBy) && preflight.usedBy.length)) {
+            sendJson(res, 400, { error: preflight.because, usedBy: [] });
+            return;
+          }
+          /* 🛑 THE IDENTITY REFUSAL, WHICH THE PRE-FLIGHT ABOVE CANNOT REACH.
+             A directory that EXISTS inside home with an account-shaped name but
+             carries no credential is refused by the engine AFTER its agents
+             guard, so a stopAgents request against one would stop every agent on
+             it and only then be told it was never an account. Reachable when a
+             credential was removed out from under still-registered agents (a
+             terminal logout rewriting the config, a deleted auth file).
+
+             🔑 ASKED OF `list()`, NOT RE-DERIVED, so the identity RULE is the
+             engine's own rather than a copy of it. The models route already
+             gates on exactly this membership.
+
+             ⚠️ "CANNOT DRIFT" WOULD BE TOO STRONG, AND THE ONE PLACE IT IS NOT
+             TRUE IS WORTH NAMING. `list()` enumerates `defaultDir()` plus
+             `homeDir()/.codex-*`, while `forgetAccount` accepts any `.codex` or
+             `.codex-*` inside home. So with `CODEX_HOME` pointed at a named
+             home, a leftover credentialled `~/.codex` is absent from the list
+             while the engine would happily forget it: `dirIsAnAccount` goes
+             false and the stop is unavailable for that directory. It fails in
+             the safe direction (we decline to stop rather than stopping
+             wrongly), and it is API-reachable only, since the page never renders
+             an unlisted row.
+
+             ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
+             list either and its answer is a quiet SUCCESS rather than a refusal.
+             Refusing here would turn "already gone" into "not an account", which
+             is the exact reason the engine keeps its own identity guard late.
+
+             ⚠️ WE SKIP THE STOP AND FALL THROUGH, WHICH MEANS THE PERSON GETS
+             THE AGENTS REFUSAL RATHER THAN THE IDENTITY ONE, AND THAT TRADE IS
+             DELIBERATE. With `usedBy` still non-empty the engine stops at its
+             agents guard, so the sentence says "move these agents first" when
+             the real problem is that this was never an account: true, but the
+             less useful of the two reasons. Clearing `usedBy` here would get the
+             accurate sentence, and it would do so by relying on my reading that
+             nothing destructive sits between the engine's existence check and
+             its identity guard. That is the same reliance on guard ORDER that has
+             been wrong three times on this branch, and the failure mode if it is
+             wrong again is a real rename or rmSync under live agents. A slightly
+             worse sentence is the cheaper mistake, so this takes it knowingly
+             rather than trading it for a silent one. */
+          let dirIsThere = false;
+          try { dirIsThere = fs.existsSync(dir); } catch { dirIsThere = false; }
+          let dirIsAnAccount = true;
+          if (dirIsThere) {
+            try {
+              const want = path.resolve(dir);
+              dirIsAnAccount = openaiAccounts.list().some((a) => {
+                try { return path.resolve(a.dir) === want; } catch { return false; }
+              });
+            } catch { dirIsAnAccount = true; }   // could not look: do not invent a refusal
+          }
+          /* 🛑 THE STOP, ITS VERDICT AND THE `usedBy` CLEAR ARE ONE BLOCK, and they
+             have to be. The first version of this skip left them separate: with
+             the stop skipped `stopReport` stayed null and `!stopReport.ok` threw
+             (the route answered "we could not read that request", caught by the
+             arm that pins this case) -- and far worse, `usedBy.length = 0` ran
+             anyway, which is the one line that must never execute when nothing
+             was stopped. Clearing it is what lets the engine act. */
+          /* 🛑 THE SET THE PERSON AGREED TO IS NOT AUTOMATICALLY THE SET WE ACT ON.
+             The confirm names the agents from the FIRST refusal; this request
+             re-enumerates, so an agent created on the account between the two
+             presses would be stopped having never been named to anybody. The
+             page therefore sends the names it showed, and anything enumerated
+             beyond them is refused rather than swept along.
+
+             ⚠️ A CALLER THAT SENDS NO NAMES IS UNCHANGED, deliberately: this is a
+             board API, `stopAgents` alone is a complete request, and demanding a
+             list would break any caller that is not this page. The consent check
+             is available to whoever wants it and mandatory for nobody.
+
+             📌 NOT the same thing as iteration-1's re-offer loop: nothing has
+             been stopped at this point, and the set is DIFFERENT rather than
+             unchanged, so re-offering converges on the new set instead of
+             re-presenting a failure. */
+          const agreed = body && Array.isArray(body.stopNames)
+            ? body.stopNames.filter((n) => typeof n === 'string' && n)
+            : null;
+          if (dirIsAnAccount && agreed) {
+            const unasked = stoppable.filter((n) => !agreed.includes(n));
+            if (unasked.length) {
+              /* 🛑 THE VERB COMES FROM THE DOOR. This sentence is the one that
+                 reaches a screen on the irreversible path, and it hardcoded
+                 "disconnect": on the DELETE door the person was told "press again
+                 to disconnect and stop it too" when pressing again rmSyncs the
+                 account for good. Its three siblings all branch (the button's
+                 `stopVerb`, `withStopNote`'s `restorable`, `withStopDone`'s), and
+                 this was the one that did not. */
+              const act = remove ? 'delete this account for good' : 'disconnect';
+              sendJson(res, 400, {
+                error: unasked.length === 1
+                  ? `${unasked[0]} is also set up to run on this account now, and you were not asked about it. `
+                    + `Press again to ${act} and stop it too.`
+                  : `${unasked.length} more agents are set up to run on this account now (${unasked.join(', ')}), `
+                    + `and you were not asked about them. Press again to ${act} and stop them too.`,
+                usedBy: stoppable,
+                consentStale: true,
+              });
+              return;
+            }
+          }
+          /* Told to the page so it does not re-offer a confirm that can never
+             succeed. Without it: press 2 refuses and arms "…and stop adler?",
+             press 3 gets the byte-identical refusal, the offer disarms, and the
+             next two presses do the same thing again with nothing on screen
+             saying the stop is unavailable for this directory. */
+          if (!dirIsAnAccount) stopUnavailable = true;
+          if (dirIsAnAccount) {
+            stopReport = stopAgentsForDisconnect(stoppable);
+            if (!stopReport.ok) {
+              sendJson(res, 400, {
+                error: stopFailureSentence(stopReport),
+                usedBy,
+                stopped: stopReport.stopped,
+                notStopped: stopReport.notStopped,
+              });
+              return;
+            }
+            usedBy.length = 0;
+          }
+        }
+
         if (remove) {
           const gone = openaiAccounts.removeAccount(dir, usedBy);
-          if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
-          sendJson(res, 200, {
+          if (!gone.ok) {
+            /* 🔑 THE WAY BACK IS MEASURED HERE, NOT ASSUMED. This is the one
+               failure path where a restore genuinely works: the DELETE did not
+               happen, so the account directory is usually still there and the
+               removed-list Restore lands somewhere real. Hardcoding `false`
+               withheld the way back on the only path that has one, while the
+               disconnect-door failure below correctly offered it. Not hardcoded
+               `true` either: `rmSync` can throw partway, so the honest answer is
+               whether the directory is actually still on disk. */
+            let dirStillThere = false;
+            try { dirStillThere = fs.existsSync(dir); } catch { dirStillThere = false; }
+            sendJson(res, 400, withStopDone(
+              { error: gone.because, usedBy: gone.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+              stopReport, dirStillThere,
+            ));
+            return;
+          }
+          sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
             because: gone.removed
               ? 'That account is deleted from this computer. Its sign-in file is gone.'
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
-          });
+          }, stopReport, false));
           return;
         }
 
         const out = openaiAccounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
-          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          sendJson(res, 400, withStopDone(
+            { error: out.because, usedBy: out.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+            stopReport, true,
+          ));
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
            entitled to know which one they got. */
-        sendJson(res, 200, {
+        sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           /* 🛑 `movedTo` IS SURFACED HERE TOO, and #1659 is why. This engine has
              always computed it and this route has always dropped it, which was
@@ -4754,9 +5683,15 @@ const server = http.createServer((req, res) => {
                 + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           accounts: openaiAccounts.list(),
-        });
+        }, stopReport, true));
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      /* #2570: the stop report rides on this too. Anything thrown below the stop
+         loop lands here, and answering "we could not read that request" after N
+         agents were really stopped is the state `withStopDone` exists to
+         prevent, arriving through the one exit it could not reach. */
+      .catch(() => sendJson(res, 400, withStopDone(
+        { error: 'we could not read that request' }, stopReport, !deleteDoor,
+      )));
     return;
   }
 
@@ -4793,6 +5728,24 @@ const server = http.createServer((req, res) => {
    * below cannot silently skip an old Claude agent. That one IS load-bearing.
    */
   if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
+    /* #2570: HOISTED OUT OF THE `.then` SO THE OUTER `.catch` CAN SEE IT.
+       That catch answers "we could not read that request" for anything thrown
+       anywhere below, INCLUDING after the stop loop has really stopped agents
+       and possibly after the account has really been renamed. Telling somebody
+       their request was unreadable at that point is the exact state
+       `withStopDone` exists to prevent, arriving through the one exit it could
+       not reach. Now it can. */
+    let stopReport = null;
+    let stopUnavailable = false;
+    /* The door, hoisted for the same reason as the two above: the outer
+       `.catch` needs it. Both catches used to pass `restorable: true`
+       unconditionally, so a throw after a successful DELETE (the success
+       payload calls `list()`, inside the same `.then`) answered "you can put
+       it back from the removed list" for an account directory that had just
+       been rmSynced. That is the false promise the measured `existsSync` on
+       the removeAccount-failure path exists to prevent, arriving through the
+       one exit that had not been given the treatment. */
+    let deleteDoor = false;
     readBody(req)
       .then((raw) => {
         let body = null;
@@ -4804,6 +5757,7 @@ const server = http.createServer((req, res) => {
         // agents enumeration either way; only the final engine call and the
         // answer differ.
         const remove = !!(body && body.remove === true);
+        deleteDoor = remove;
 
         /* `=== true` because isDefaultDir answers NULL for an unresolvable path,
            which would make this boolean|null. Both are falsy at the one use
@@ -4934,22 +5888,247 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        /* #2570 option 2, DISCONNECT AND STOP. With no `stopAgents` in the body
+           the behaviour below is exactly what #1659 shipped: the engine refuses
+           and names the agents. With it, we stop them first and then proceed.
+
+           🛑 THE FAIL-CLOSED GATE IS THE `return` ABOVE, BY POSITION. This sits
+           after it on purpose, so an uncertain enumeration can never reach the
+           stop loop: stopping a GUESSED set is worse than refusing, because the
+           agent that was missed then runs on against an account that has been
+           renamed out from under it.
+
+           ⚠️ AND THE ENGINE'S OWN REFUSAL IS LEFT INTACT RATHER THAN BYPASSED.
+           We clear `usedBy` only after every name comes back REMOVED, which is
+           the removal primitive's own verified verdict. If a stop had silently
+           not worked, the list would still be non-empty and this would still be
+           a refusal, not a rename under a live agent. */
+        /* 🔑 FILTERED THE SAME WAY THE ENGINES FILTER IT, so the pre-flight's
+           inability to act rests on agreement rather than on luck. Both engines
+           gate their agents refusal on `usedBy` AFTER dropping anything that is
+           not a non-empty string; if this route ever disagreed with them about
+           what counts, a request carrying a falsy entry would sail through their
+           agents guard and the pre-flight below would perform a real rename or
+           rmSync. Unreachable today (the enumeration only ever pushes non-empty
+           session names), which is exactly why it is worth pinning rather than
+           relying on. */
+        const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
+        if (stoppable.length && !!(body && body.stopAgents === true)) {
+          /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
+             THE AGENTS. `accounts.forgetAccount` refuses the DEFAULT account outright, and
+             refuses a path that is not one of its accounts, and BOTH of those
+             checks run BEFORE its agents check. So without this, a request
+             naming the default account stopped every agent on it, for real, wrote
+             each to the removed list, and then answered 400 with a refusal that
+             never mentioned the stop. Deterministic, not a race. Not reachable
+             from the page (the default row renders no control) and fully
+             reachable from the board API.
+
+             📌 NOT the CLI, which an earlier version of this comment claimed.
+             Measured: `stopAgents` appears only in this file, web/index.html,
+             the two test files and the browser check, so a CLI caller reaches
+             the DELETE route but has no way to arm the stop. The route is the
+             shared surface; the flag is this page's.
+
+             🔑 THIS PRE-FLIGHT CANNOT ACT. Verified in all four engine
+             functions: every destructive step (rename, rmSync) comes AFTER the
+             agents guard, and we only reach this line with a non-empty agents
+             list, so the call stops at that guard at the latest.
+
+             🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
+             version of this comment claimed an invariant it does not have and
+             claimed it in the UNSAFE direction ("every refusal that does not
+             depend on the agents comes BEFORE the agents guard"). TWO refusals
+             precede the agents guard here and are therefore visible: the path
+             guard and the default-folder guard. (The OpenAI engine has a third,
+             its sign-in-in-progress guard. This one has none, and an earlier
+             version of this paragraph was a verbatim copy of the OpenAI route's
+             that claimed it did.) The IDENTITY refusal ("that is not a
+             Claude/OpenAI account on this computer") does NOT, in any of the
+             four, and it cannot be hoisted: `engine/accounts.js` states why at
+             the guard itself, that `identityOf` answers null for a missing
+             directory too, so moving it above the existence check would turn
+             "already gone" into "not an account" and lose the quiet-success arm.
+             ⇒ So that one is handled just below, by asking the engine's OWN
+             account list rather than by re-deriving its rule here.
+
+             ⚠️ THE ORDER OF THE THREE IT DOES SEE IS A PROPERTY OF THOSE FILES,
+             NOT OF THIS ONE, SO IT IS PINNED. The OpenAI sign-in-in-progress
+             refusal used to sit AFTER the agents guard, which made it invisible
+             here: a stopAgents request against an account with a reauth in
+             flight really stopped every agent and only then refused. It was
+             moved up, and `server.disconnect-stop-2570.test.js` asserts the
+             order in both OpenAI functions so it cannot drift back silently.
+
+             ⚠️ AND THE AGENTS REFUSAL IS TOLD APART BY SHAPE, NOT BY PROSE: it is
+             the one refusal that carries a `usedBy` array. Matching the sentence
+             would break the day somebody rewords it. */
+          const preflight = remove
+            ? accounts.removeAccount(dir, usedBy)
+            : accounts.forgetAccount(dir, usedBy);
+          if (!preflight.ok && !(Array.isArray(preflight.usedBy) && preflight.usedBy.length)) {
+            sendJson(res, 400, { error: preflight.because, usedBy: [] });
+            return;
+          }
+          /* 🛑 THE IDENTITY REFUSAL, WHICH THE PRE-FLIGHT ABOVE CANNOT REACH.
+             A directory that EXISTS inside home with an account-shaped name but
+             carries no credential is refused by the engine AFTER its agents
+             guard, so a stopAgents request against one would stop every agent on
+             it and only then be told it was never an account. Reachable when a
+             credential was removed out from under still-registered agents (a
+             terminal logout rewriting the config, a deleted auth file).
+
+             🔑 ASKED OF `list()`, NOT RE-DERIVED, so the identity RULE is the
+             engine's own rather than a copy of it. The models route already
+             gates on exactly this membership.
+
+             ⚠️ "CANNOT DRIFT" WOULD BE TOO STRONG, AND THE CLAUDE-SIDE
+             DIVERGENCE IS ITS OWN, NOT THE OPENAI ONE. `list()` forces `apiKey`
+             false for the DEFAULT directory (`const apiKey = !who && isDefault
+             !== true && apiKeyStored(dir)`), and then omits any row that is
+             neither an oauth account nor an api-key one. So a `~/.claude` whose
+             only credential is a stored api key is absent from the list while
+             the engine still treats it as a real directory. `dirIsAnAccount`
+             goes false, we decline to stop, and the engine then refuses it
+             anyway under its default-folder guard, so the outcome is right and
+             nothing was stopped for an operation that was never going to run.
+             It fails in the safe direction, and it is API-reachable only, since
+             the page renders no control on the default row.
+
+             ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
+             list either and its answer is a quiet SUCCESS rather than a refusal.
+             Refusing here would turn "already gone" into "not an account", which
+             is the exact reason the engine keeps its own identity guard late.
+
+             ⚠️ WE SKIP THE STOP AND FALL THROUGH, WHICH MEANS THE PERSON GETS
+             THE AGENTS REFUSAL RATHER THAN THE IDENTITY ONE, AND THAT TRADE IS
+             DELIBERATE. With `usedBy` still non-empty the engine stops at its
+             agents guard, so the sentence says "move these agents first" when
+             the real problem is that this was never an account: true, but the
+             less useful of the two reasons. Clearing `usedBy` here would get the
+             accurate sentence, and it would do so by relying on my reading that
+             nothing destructive sits between the engine's existence check and
+             its identity guard. That is the same reliance on guard ORDER that has
+             been wrong three times on this branch, and the failure mode if it is
+             wrong again is a real rename or rmSync under live agents. A slightly
+             worse sentence is the cheaper mistake, so this takes it knowingly
+             rather than trading it for a silent one. */
+          let dirIsThere = false;
+          try { dirIsThere = fs.existsSync(dir); } catch { dirIsThere = false; }
+          let dirIsAnAccount = true;
+          if (dirIsThere) {
+            try {
+              const want = path.resolve(dir);
+              dirIsAnAccount = accounts.list().some((a) => {
+                try { return path.resolve(a.dir) === want; } catch { return false; }
+              });
+            } catch { dirIsAnAccount = true; }   // could not look: do not invent a refusal
+          }
+          /* 🛑 THE STOP, ITS VERDICT AND THE `usedBy` CLEAR ARE ONE BLOCK, and they
+             have to be. The first version of this skip left them separate: with
+             the stop skipped `stopReport` stayed null and `!stopReport.ok` threw
+             (the route answered "we could not read that request", caught by the
+             arm that pins this case) -- and far worse, `usedBy.length = 0` ran
+             anyway, which is the one line that must never execute when nothing
+             was stopped. Clearing it is what lets the engine act. */
+          /* 🛑 THE SET THE PERSON AGREED TO IS NOT AUTOMATICALLY THE SET WE ACT ON.
+             The confirm names the agents from the FIRST refusal; this request
+             re-enumerates, so an agent created on the account between the two
+             presses would be stopped having never been named to anybody. The
+             page therefore sends the names it showed, and anything enumerated
+             beyond them is refused rather than swept along.
+
+             ⚠️ A CALLER THAT SENDS NO NAMES IS UNCHANGED, deliberately: this is a
+             board API, `stopAgents` alone is a complete request, and demanding a
+             list would break any caller that is not this page. The consent check
+             is available to whoever wants it and mandatory for nobody.
+
+             📌 NOT the same thing as iteration-1's re-offer loop: nothing has
+             been stopped at this point, and the set is DIFFERENT rather than
+             unchanged, so re-offering converges on the new set instead of
+             re-presenting a failure. */
+          const agreed = body && Array.isArray(body.stopNames)
+            ? body.stopNames.filter((n) => typeof n === 'string' && n)
+            : null;
+          if (dirIsAnAccount && agreed) {
+            const unasked = stoppable.filter((n) => !agreed.includes(n));
+            if (unasked.length) {
+              /* 🛑 THE VERB COMES FROM THE DOOR. This sentence is the one that
+                 reaches a screen on the irreversible path, and it hardcoded
+                 "disconnect": on the DELETE door the person was told "press again
+                 to disconnect and stop it too" when pressing again rmSyncs the
+                 account for good. Its three siblings all branch (the button's
+                 `stopVerb`, `withStopNote`'s `restorable`, `withStopDone`'s), and
+                 this was the one that did not. */
+              const act = remove ? 'delete this account for good' : 'disconnect';
+              sendJson(res, 400, {
+                error: unasked.length === 1
+                  ? `${unasked[0]} is also set up to run on this account now, and you were not asked about it. `
+                    + `Press again to ${act} and stop it too.`
+                  : `${unasked.length} more agents are set up to run on this account now (${unasked.join(', ')}), `
+                    + `and you were not asked about them. Press again to ${act} and stop them too.`,
+                usedBy: stoppable,
+                consentStale: true,
+              });
+              return;
+            }
+          }
+          /* Told to the page so it does not re-offer a confirm that can never
+             succeed. Without it: press 2 refuses and arms "…and stop adler?",
+             press 3 gets the byte-identical refusal, the offer disarms, and the
+             next two presses do the same thing again with nothing on screen
+             saying the stop is unavailable for this directory. */
+          if (!dirIsAnAccount) stopUnavailable = true;
+          if (dirIsAnAccount) {
+            stopReport = stopAgentsForDisconnect(stoppable);
+            if (!stopReport.ok) {
+              sendJson(res, 400, {
+                error: stopFailureSentence(stopReport),
+                usedBy,
+                stopped: stopReport.stopped,
+                notStopped: stopReport.notStopped,
+              });
+              return;
+            }
+            usedBy.length = 0;
+          }
+        }
+
         if (remove) {
           const gone = accounts.removeAccount(dir, usedBy);
-          if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
-          sendJson(res, 200, {
+          if (!gone.ok) {
+            /* 🔑 THE WAY BACK IS MEASURED HERE, NOT ASSUMED. This is the one
+               failure path where a restore genuinely works: the DELETE did not
+               happen, so the account directory is usually still there and the
+               removed-list Restore lands somewhere real. Hardcoding `false`
+               withheld the way back on the only path that has one, while the
+               disconnect-door failure below correctly offered it. Not hardcoded
+               `true` either: `rmSync` can throw partway, so the honest answer is
+               whether the directory is actually still on disk. */
+            let dirStillThere = false;
+            try { dirStillThere = fs.existsSync(dir); } catch { dirStillThere = false; }
+            sendJson(res, 400, withStopDone(
+              { error: gone.because, usedBy: gone.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+              stopReport, dirStillThere,
+            ));
+            return;
+          }
+          sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
             because: gone.removed
               ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
-          });
+          }, stopReport, false));
           return;
         }
 
         const out = accounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
-          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          sendJson(res, 400, withStopDone(
+            { error: out.because, usedBy: out.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+            stopReport, true,
+          ));
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
@@ -4979,7 +6158,7 @@ const server = http.createServer((req, res) => {
            STOPS DOING rather than asserting a loss that is only sometimes real,
            which is the conditional-stated-as-fact error this card already made
            once in the refusal copy. */
-        sendJson(res, 200, {
+        sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
@@ -5003,9 +6182,15 @@ const server = http.createServer((req, res) => {
              through GET /api/accounts, which uses listLive(), so no caller
              reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
-        });
+        }, stopReport, true));
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      /* #2570: the stop report rides on this too. Anything thrown below the stop
+         loop lands here, and answering "we could not read that request" after N
+         agents were really stopped is the state `withStopDone` exists to
+         prevent, arriving through the one exit it could not reach. */
+      .catch(() => sendJson(res, 400, withStopDone(
+        { error: 'we could not read that request' }, stopReport, !deleteDoor,
+      )));
     return;
   }
 
@@ -5487,6 +6672,30 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #1 / #2189: fire the REAL macOS prompts on demand. Screen 2's "Allow Access"
+     POSTs here for files/folders; Screen 3's tmux row POSTs /api/a11y-prompt. Both
+     inherit the cross-site guard above (POST). The engine cannot fire a TCC prompt
+     attributed to tmux, so it records a request and the native app's watcher fires
+     the matching hatch UNDER tmux (see engine/promptrequest.js and the native
+     startPromptRequestWatcher). Fire-and-forget: { ok:true } means the app will fire
+     it (the gate poll then flips the pill); { ok:false, because } means no native app
+     is present, and the caller falls back to opening Settings so a button is never
+     dead. Always 200 with a body -- the caller reads body.ok, not the status. */
+  if (pathname === '/api/a11y-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('a11y'); }
+    catch (err) { r = { ok: false, because: 'we could not record the accessibility prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
+  if (pathname === '/api/file-access-prompt' && req.method === 'POST') {
+    let r;
+    try { r = promptrequest.request('file-access'); }
+    catch (err) { r = { ok: false, because: 'we could not record the file-access prompt request (' + String((err && err.message) || err) + ')' }; }
+    sendJson(res, 200, r);
+    return;
+  }
+
   /* #2125 slice 3: the Accessibility trust reading, for the first-run Continue
      gate (Josh ruled: block Continue until Accessibility is actually enabled,
      verified). A STATE question -- GET, read-only, and it NEVER 500s (same
@@ -5499,6 +6708,22 @@ const server = http.createServer((req, res) => {
      supplies the reading because accessibility trust is a TCC fact the engine
      cannot read (#1344); this route only surfaces it. */
   if (pathname === '/api/a11y-status' && (req.method === 'GET' || req.method === 'HEAD')) {
+    /* #2451: serve Kosmos.app's OWN Accessibility trust (a11ystatus.read()), NOT
+       tmuxGrant(). Accessibility is keyed on the CALLING BINARY: the onboarding
+       "Turn On" registers the kosmos-app (Josh sees "Kosmos" in the Accessibility
+       list), and tmux disclaims responsibility for its children and can never hold
+       that grant -- so tmux is the WRONG subject. tmuxGrant() reads tmux's path-keyed
+       row, which is absent / path-key-mismatched on a normal box -> checkable:false
+       forever -> the pill sticks on "Checking..." and the gate fail-safes Next to
+       ENABLED (Josh's #2451 symptom: "stuck on Checking, Next already activated").
+       read() is the native app's AXIsProcessTrusted verdict (written on launch +
+       every 60s, inside STALE_AFTER_MS), so a native install gets a definite
+       trusted:true/false and the gate works; a browser (no writer) stays
+       checkable:false and fail-safe. (#2085 called the app's trust a "false TMUX
+       ACTIVATED" pill under the now-disproven belief that tmux must hold the grant;
+       #2125 resolved the subject is the app. tmuxGrant stays in the engine for a
+       possible #2125-KEEP tmux-identity path.) Same {checkable, trusted} shape, so
+       the S3 gate poll + render-gated-next consume it unchanged. */
     let reading;
     try { reading = a11ystatus.read(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the accessibility reading (' + String(err && err.message || err) + ')' }; }
@@ -5517,7 +6742,21 @@ const server = http.createServer((req, res) => {
     let reading;
     try { reading = fileaccessstatus.read(); }
     catch (err) { reading = { checkable: false, because: 'we could not read the file-access reading (' + String(err && err.message || err) + ')' }; }
-    sendJson(res, 200, reading);
+    /* #2347 item C (Josh 0.6.41: "S2 Next should gray until folder access is
+       allowed"): expose native-presence so the S2 gate can block Next when the
+       native app is present but access is not yet granted, WITHOUT a file-access
+       probe at entry. The file-access verdict alone cannot gate S2 on entry: the
+       probe IS the TCC prompt (engine reads it, native fileaccessprompt fires it),
+       so there is deliberately no entry-time reading -- on entry read() returns
+       checkable:false and the gate fail-safes to enabled, which is exactly the bug.
+       nativePresent is a PROMPT-FREE presence signal (a11y-status freshness the app
+       already maintains via axcheck, no folder access), so a probe-free entry gate
+       is possible: the front-end blocks S2 Next when nativePresent && !granted, and
+       fail-safes (enables) when there is no native app (a browser tester). Defaults
+       false on any error, so the fail-safe direction is preserved. */
+    let nativePresent = false;
+    try { nativePresent = promptrequest.nativePresent(); } catch { nativePresent = false; }
+    sendJson(res, 200, { ...reading, nativePresent });
     return;
   }
 
@@ -5840,6 +7079,17 @@ const server = http.createServer((req, res) => {
            this card is about. */
         if ('installConfirmed' in body && typeof body.installConfirmed !== 'boolean') { sendJson(res, 400, { error: 'installConfirmed must be true or false' }); return null; }
         const installConfirmed = body.installConfirmed === true;
+        /* #1937: the "Sign in again" button sends `reauth: true`, an explicit
+           signal that the person is repairing a login the file may still call
+           good. Validated like its siblings so a mangled value is a 400 rather
+           than a silent falsy, then passed to `connect.start`, where it skips the
+           already-connected short-circuit `checkLive` cannot see past.
+           📌 Threaded ONLY into the known-account (accountDir) start below; the
+           `another`/default branches deliberately never receive it, because a
+           re-auth only makes sense for an existing account. A client sending it on
+           those shapes has it ignored, not leaked into a new-account flow. */
+        if ('reauth' in body && typeof body.reauth !== 'boolean') { sendJson(res, 400, { error: 'reauth must be true or false' }); return null; }
+        const reauth = body.reauth === true;
         /* 🛑 SIGNING IN AGAIN TO AN ACCOUNT THAT ALREADY EXISTS (#1492). Without
            this the only two shapes were "the default account" and `another:true`,
            which picks a FREE spot and makes a NEW record. So a person whose login
@@ -5870,7 +7120,80 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: 'we do not know that account on this computer' });
             return null;
           }
-          return connect.start({ configDir: known.dir, requireInstallConfirm: true, installConfirmed });
+          /* 🛑 #2420: REFUSE AN OAUTH SIGN-IN INTO AN API-KEY ACCOUNT. The listing
+             slice makes an api-key Claude account (a stored key, no oauthAccount)
+             visible to list(), so `known` can now BE one -- and the per-row "Sign
+             in again" button (web/index.html, on every Claude row) reaches this
+             path. Running the OAuth flow here would write an oauthAccount BESIDE
+             the stored key + apiKeyHelper; Claude Code prefers apiKeyHelper, so
+             billing would silently STAY on the pasted key while the row
+             reclassified as a subscription (list()'s `!who` guard flips) and the
+             badge showed the OAuth email as connected. This is the MIRROR of the
+             create route's taken-label guard above (which blocks a key over an
+             existing oauth); this blocks an oauth over an existing key. Both
+             billing-contamination directions are now closed. To switch, remove
+             the account and add it again. Guarded here rather than by hiding the
+             button, because the route is the enforcement point and a UI-only
+             guard leaves the contamination reachable by any direct caller.
+             ⚠️ KEYED ON THE FILE, NOT list()'s `apiKey` FLAG. The file is the
+             ground truth: a dual-marker dir (oauth + key, which list() classifies
+             apiKey:FALSE because the oauth identity wins) still holds a key, so
+             an OAuth reauth there still muddies billing -- the file check refuses
+             it; the flag check would have let it through. */
+          if (fs.existsSync(claudeAccounts.keyFile(known.dir))) {
+            sendJson(res, 400, {
+              error: 'that account is connected with an API key. Signing in with a Claude subscription would change how it is billed, so remove it and add it again to switch.',
+            });
+            return null;
+          }
+          /* 🛑 #1922: THE DEFAULT ACCOUNT IS ADDRESSED BY OMITTING configDir, NOT
+             BY PASSING ITS DIR. Its config is `<HOME>/.claude.json`, a file
+             BESIDE `<HOME>/.claude` -- and `CLAUDE_CONFIG_DIR=<HOME>/.claude`
+             makes the real `claude` binary read and write
+             `<HOME>/.claude/.claude.json` instead, a different file holding a
+             different account. Passing `known.dir` here therefore ran the whole
+             OAuth flow and landed the refreshed credential where nothing reads
+             it. ⚠️ ON A MACHINE WHOSE DECOY READS SIGNED-OUT -- the qualifier
+             belongs on this half too, and an earlier version put it only on the
+             paragraph below. Where the decoy reads CONNECTED the flow never ran
+             at all, so the symptom differs by machine. **And the green check is
+             #1916, not evidence for this defect: it would have gone green even
+             if this write had succeeded.**
+             `accounts.listLive` and `/api/agent/:name/account-status` already
+             scope the default this way and say why; this route did not, which is
+             the asymmetry the card is about. Omitting it lets the CLI use its own
+             default resolution, which is what finds the real account.
+
+             ⚠️ WHAT THIS FIX DOES NOT DO, RECORDED HERE BECAUSE THE RESIDUAL IS
+             QUIETER THAN THE DEFECT AND WILL OTHERWISE BE RE-FILED AS A FRESH
+             REGRESSION. On a machine whose stored default reads CONNECTED, the
+             press now returns almost immediately and paints a green
+             "Successfully connected" (`acctFlowPaint` -> `acctShowSuccess` on
+             `phase: connected`), having opened nothing -- where it used to run
+             the whole OAuth flow into the wrong file. **It reports SUCCESS on a
+             dead credential; it does not merely appear to do nothing.** And the
+             population MAY widen, and pre-fix behaviour is MACHINE-DEPENDENT
+             rather than uniform: pre-fix `checkLive` read the decoy, so the flow
+             ran only where that decoy answered NONE specifically -- the gate is
+             `state === NONE`, so an UNKNOWN decoy (unparseable, ENOENT, timeout)
+             took the connected exit too. Post-fix it reads the real file,
+             `claude auth status` answers loggedIn (#874/#1916), and the #1560
+             gate holds shut WHEREVER THAT STATUS REPORTS A LOGIN EXISTS -- the
+             dead-but-present population this card is about. **Not every
+             default-account machine:** `checkLive` returns NONE on a recognised
+             `loggedIn: false`, so a genuinely signed-out user still opens the
+             gate and the flow runs (asserted by the `#1560` "world says signed
+             out" arm), and a missing binary opens it too. Both are broken; the routing is no longer
+             the reason, and the repair is #1937. **The flow
+             behind the #1560 gate still cannot repair a dead credential: the
+             launch is a bare `claude` with no login argument. That is kosmos#1937
+             and it is not fixed here.** */
+          return connect.start({
+            configDir: known.isDefault ? null : known.dir,
+            requireInstallConfirm: true,
+            installConfirmed,
+            reauth,
+          });
         }
         /* { another: true } asks for a SECOND account (#248/#324): pick the
            first free work spot, prepare it (idempotent; the shared-memory
@@ -6456,10 +7779,6 @@ const server = http.createServer((req, res) => {
         if (body.state === 'working') {
           try { activity.record(who, 'working', 1, kept.recorded === true ? kept.at : undefined); } catch { /* the report stands; the marker is best-effort */ }
         }
-        if (kept.recorded !== true) {
-          sendJson(res, 200, { recorded: false, because: kept.because });
-          return;
-        }
         /* 🛑 THE BEAT, AND WITHOUT IT NOTHING ELSE ON THIS ROUTE REACHES A
            PANELESS AGENT (#1502). `liveness.seen` had ZERO production callers
            from the day I wrote it: `panelessKeys` and the name arm of
@@ -6473,6 +7792,19 @@ const server = http.createServer((req, res) => {
            signal to keep in step with the first -- it is the same fact, written
            where the roster can read it.
 
+           🛑 #2558: BEFORE THE RECORDED-CHECK, beside the #2146 activity marker
+           and for the same reason it states. By this line the sender is already
+           AUTHENTICATED (`resolveAgentSender` refused at `!sender.ok` above), and
+           an authenticated report is proof of life whether or not its STATE was
+           recorded. Placed AFTER the early-return, a refused-state report -- a
+           #900 auto-`working` over a standing needs_you -- proved life yet never
+           beat liveness, so a PANELESS agent working under a sticky needs_you
+           (its only roster tie is `liveness.alive`, #2146's own population) could
+           go stale and drop off the board while alive and reporting, even as its
+           activity marker still said "working". It stays AUTH-gated here, so this
+           does NOT reopen the #1968 untokened-spoof surface: an unauthenticated
+           report is refused at `!sender.ok` and never reaches this line.
+
            ⚠️ AND IT IS DELIBERATELY NOT `selfreport.record`'s job. That module
            refuses anything without a valid state; a beat carries none, and
            routing liveness through it would make a timer assert `working` and
@@ -6480,15 +7812,15 @@ const server = http.createServer((req, res) => {
            The two stay apart; only the CALL is shared.
 
            ⚠️ THROW-SAFE. Liveness is an improvement to a row, never a reason to
-           refuse a report that has already been recorded. */
+           refuse a report -- recorded or refused. */
         try { liveness.seen(who); } catch { /* the report stands; the row may be thinner */ }
-        /* The phone seam, AFTER the record, and with ZERO translation: the
-           report's word IS notify's word. This is the state transition
-           notify.js:26 has been waiting for -- `needs_you` stops being a
-           pane scrape on every platform at once, because the agent said it. */
-        if (body.state === 'needs_you') {
-          notify.happened({ kind: 'needs_you', id: 'report:' + who + ':' + kept.at, agent: sender.card.name || who, session: who, project: null });
+        if (kept.recorded !== true) {
+          sendJson(res, 200, { recorded: false, because: kept.because });
+          return;
         }
+        /* #2623: the phone seam (engine/notify.js) was deleted. A reported
+           needs_you is recorded on the board as before; it no longer POSTs
+           anything off the Mac. */
         sendJson(res, 200, { recorded: true });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400, { error: String((err && err.message) || err) }));
@@ -6553,13 +7885,8 @@ const server = http.createServer((req, res) => {
           at,
           from: who,
         });
-        /* The phone seam, AFTER the record: a reply that was not kept is not
-           something the phone can fetch. The id is the thread's own key for
-           the row (agent plus time), so a coordinator can de-duplicate and a
-           phone can ask the Mac for this one. */
-        if (kept.recorded === true) {
-          notify.happened({ kind: 'replied', id: 'reply:' + who + ':' + at, agent: sender.card.name || who, session: who, project: null });
-        }
+        /* #2623: the phone seam (engine/notify.js) was deleted. The reply is
+           recorded for the person's own thread as before; nothing leaves the Mac. */
         sendJson(res, 200, {
           kept: kept.recorded === true,
           because: kept.recorded === true ? null : kept.because,
@@ -6628,6 +7955,10 @@ const server = http.createServer((req, res) => {
           name: parsed.name,
           displayName: parsed.displayName,
           provider: parsed.provider,
+          // #2453: the provider's default model KEY, so the import-prefilled create
+          // form lands the agent ON a model (not 'unknown model' + not reachable).
+          // 'sonnet' for a Claude import; null for OpenAI (codex picks its own).
+          model: create.defaultModelKeyFor(parsed.provider),
           instructions: parsed.body,
           /* #1939: true when the file was recognized as agent INSTRUCTIONS (a raw
              CLAUDE.md) rather than a Kosmos export. The form can note that and,
@@ -6751,6 +8082,10 @@ const server = http.createServer((req, res) => {
           name: parsed.name,
           displayName: parsed.displayName,
           provider: parsed.provider,
+          // #2453: the provider's default model KEY, so the import-prefilled create
+          // form lands the agent ON a model (not 'unknown model' + not reachable).
+          // 'sonnet' for a Claude import; null for OpenAI (codex picks its own).
+          model: create.defaultModelKeyFor(parsed.provider),
           instructions: parsed.body,
           recognizedFromContent: parsed.recognizedFromContent,
         });
@@ -6837,14 +8172,9 @@ const server = http.createServer((req, res) => {
           projectName: found.name,
           text: body.text,
         }, roster, members);
-        /* An agent posted in a room: the phone seam (engine/notify.js). Only
-           a post that reached the room is something that happened; a refusal
-           is not. The sender's shown name and the project's name, never the
-           words. */
-        if (delivery && delivery.state !== 'could_not') {
-          const card = roster.find((c) => c && c.sessionName === delivery.from) || null;
-          notify.happened({ kind: 'posted', id: delivery.id || null, agent: (card && card.name) || delivery.from || 'an agent', session: delivery.from || null, project: found.name });
-        }
+        /* #2623: the phone seam (engine/notify.js) was deleted. A post that
+           reached the room is delivered on the board as before; it no longer
+           POSTs anything off the Mac. */
         sendJson(res, 200, { delivery });
       })
       .catch((err) => sendJson(res, (err && err.status) || 400,
@@ -7033,10 +8363,30 @@ const server = http.createServer((req, res) => {
      * the thing rounds 19, 22 and 38 deleted three times.
      */
     const view = asking ? chat.viewport(name, roster) : null;
-    const question = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    const paneQuestion = (asking && view && view.text) ? chat.questionIn(view.text) : null;
+    /**
+     * #2456: a REPORTED needs_you handed us its question in the card's own
+     * `because` - the SAME sentence the header quotes back to the person. When
+     * the live pane no longer shows it (a report does not decay, and the TUI
+     * redrew past the marker), fall back to those reported words rather than
+     * telling the person "we cannot find the question" one line under a header
+     * that is quoting it. That three-surfaces-disagree gap is the whole card.
+     *
+     * The live pane WINS when it has one: it is the prompt standing in front of
+     * the person now and the only source that can carry a menu. The reported
+     * words are the fallback, tagged `reported` so the page can say the agent
+     * told us this rather than claim it is on screen. `ASKING_GENERIC` is the
+     * board's placeholder for a needs_you with no words of its own, so it is
+     * NOT offered as a question - falling through to the honest clause below.
+     */
+    const reportedQuestion = (asking && !paneQuestion
+      && card && card.stateReported === true
+      && card.because && card.because !== ASKING_GENERIC)
+      ? { text: card.because, reported: true } : null;
+    const question = paneQuestion || reportedQuestion;
     // The same two sentences as the project route, and they stay two: "we read
     // its screen and the question is not in the capture" is not "we could not
-    // read its screen at all".
+    // read its screen at all". Null too once a reported question stands in.
     const questionBecause = (asking && !question)
       ? ((!view || view.text == null)
         ? 'we could not read its screen just now to show the question'
@@ -7048,7 +8398,10 @@ const server = http.createServer((req, res) => {
      * degraded state — it is the screen this page shows today, the question as
      * the terminal draws it, which the person can answer by typing.
      */
-    const options = (asking && question) ? chat.optionsIn(question.text) : null;
+    // #2456: only a LIVE pane question can carry a menu. A reported question is
+    // the agent's own words with no on-screen numbers, so it never draws
+    // buttons (optionsIn would refuse the prose anyway; this states the intent).
+    const options = (asking && question && !question.reported) ? chat.optionsIn(question.text) : null;
     /**
      * ⚠️ PRESENCE IS THE SEND GATE'S OWN ANSWER, not a second derivation of it.
      * The first version of this route asked whether a tied card existed, which
@@ -7438,7 +8791,7 @@ const server = http.createServer((req, res) => {
     let seen = null;
     // ⚠️ `store.ROOT` ALONE, #891: `store.ROOT` already resolves
     // AGENT_WORKFORCE_DATA (engine/store.js joins it with the app's own
-    // 'AgentWorkforce' subfolder when the env var is set, and falls back
+    // store leaf (store.APP, 'Kosmos') when the env var is set, and falls back
     // to the real default otherwise). `process.env.AGENT_WORKFORCE_DATA ||
     // store.ROOT` looked like the same fallback but is not: when the env
     // var IS set it short-circuits PAST that join, landing this file one
@@ -7992,6 +9345,70 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  /* #2575: an OPERATOR clears a stale self-reported needs_you/blocked on an
+     agent's behalf. The Projects page surfaces a REPORTED needs_you (the agent's
+     own narrative) and a reported needs_you never decays (status.js rule 6);
+     the ONLY intended clear is the agent reporting a non-auto state itself
+     (selfreport.record's #900 guard refuses only an AUTOMATIC idle/working over
+     a standing waiting state). An agent that raised needs_you, resumed work, and
+     never self-cleared leaves a sticky red with no operator-side way to dismiss
+     it. This route is that way.
+
+     🔑 OPERATOR-ONLY, by construction: it is under /api/ so the sensitive-route
+     gate above requires the BOARD TOKEN, and it is deliberately kept OUT of
+     REMOTE_AGENT_ROUTES and LOOPBACK_AGENT_ROUTES -- a network peer and a
+     no-credential loopback caller are both refused. The target agent is taken
+     from the URL, never the pane, because a person is reporting AS the agent,
+     which the pane-derived evidence model otherwise forbids.
+
+     🔑 SAFE BECAUSE IT RE-DERIVES: clearing writes a `by:'operator'` idle, which
+     supersedes the sticky reported red -- but a scraped `working` still outranks
+     a reported idle (#1995), a genuine on-screen prompt re-raises needs_you, and
+     the agent's own next report re-raises. So this removes the STUCK reported
+     state; it cannot permanently silence a real, current need. That is the whole
+     argument for letting an operator override a self-report here. */
+  const clearSelf = pathname.match(/^\/api\/agent\/([^/]+)\/clear-selfreport$/);
+  if (clearSelf && req.method === 'POST') {
+    const name = decodeSegment(clearSelf[1]);
+    if (name === null) { sendJson(res, 404, { ok: false, because: 'that is not a name we can read' }); return; }
+    if (!knownAgent(name)) { sendJson(res, 404, { ok: false, because: 'no agent by that name' }); return; }
+    readBody(req)
+      .then((buf) => {
+        let body = {};
+        try { body = JSON.parse(buf.toString('utf8') || '{}') || {}; } catch { body = {}; }
+        const current = selfreport.read(name);
+        const waiting = current.found === true && selfreport.WAITING_ON_A_PERSON.includes(current.state);
+        if (!waiting) {
+          /* Idempotent: nothing sticky to clear (never reported, already idle,
+             or working). Not an error -- a second click, or a race with the
+             agent clearing itself, lands here and reports the fresh state. */
+          sendJson(res, 200, { ok: true, cleared: false, state: current.found ? current.state : null, by: current.by || null });
+          return;
+        }
+        const reason = typeof body.reason === 'string' && body.reason.trim()
+          ? body.reason.trim()
+          : 'operator dismissed a stale needs_you';
+        /* by:'operator' is the one provenance a caller may assert; auto is left
+           falsey so the #900 guard does NOT refuse this idle over the standing
+           needs_you -- it lands and supersedes it.
+           `name` is the raw URL segment, not a resolved card's canonical
+           `sessionName` the way /api/report uses `sender.card.sessionName` -- and
+           that is safe rather than an oversight: selfreport.fileFor re-applies
+           store.safeKey, and any `name` that passed knownAgent() above necessarily
+           safeKeys to the same file the board reads and /api/report writes. So the
+           two routes land on the identical record; do not "fix" this into a
+           card-resolution step that could key a different file. */
+        const kept = selfreport.record(name, { state: 'idle', because: reason, by: 'operator' });
+        if (!kept.recorded) {
+          sendJson(res, 400, { ok: false, because: kept.because || 'that self-report could not be cleared' });
+          return;
+        }
+        sendJson(res, 200, { ok: true, cleared: true, state: 'idle', by: 'operator', at: kept.at });
+      })
+      .catch(() => { sendJson(res, 500, { ok: false, because: 'that self-report could not be cleared' }); });
+    return;
+  }
+
   /**
    * --- projects ------------------------------------------------------------
    *
@@ -8096,7 +9513,11 @@ const server = http.createServer((req, res) => {
   }
 
   /**
-   * Every task across every project, open and finished (#1382).
+   * Tasks, open and finished (#1382). Global by default; scoped to one project
+   * when `?project=<id>` is given (#2498 - the per-project "view all tasks"
+   * door). No UI screen fetches the global set today (a test consumer,
+   * getDue in server.task-duedate-768.test.js, still relies on it), but it
+   * stays for a future global-home view.
    *
    * 🛑 AN UNREADABLE STORE IS AN ERROR, NEVER AN EMPTY LIST. Same rule as
    * `/api/projects` above, and for the same reason: "No tasks yet" is a CLAIM
@@ -8118,8 +9539,17 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    /* #2498: the project view's "view all tasks" door scopes to the project it
+       was opened from. `?project=<id>` filters allTasks() (which tags each task
+       with projectId and keeps CLOSED ones) to that project - open AND finished,
+       so the #1382 finished-work purpose is preserved per project. No param =
+       the global set, unchanged: nothing serves a global all-tasks view today,
+       but the route stays backward-compatible for one if it is ever added. */
+    let projectScope = null;
+    try { projectScope = new URL(req.url, ROUTING_BASE).searchParams.get('project') || null; } catch { projectScope = null; }
     const all = tasks.allTasks();
-    sendJson(res, 200, { tasks: all, count: all.length });
+    const rows = projectScope ? all.filter((t) => t.projectId === projectScope) : all;
+    sendJson(res, 200, { tasks: rows, count: rows.length, project: projectScope });
     return;
   }
 
@@ -8161,6 +9591,11 @@ const server = http.createServer((req, res) => {
           }
         }
         const made = projects.create({ name: body.name, folder: body.folder, agents: body.agents, roster, description: body.description,
+          // #2458: the parent chosen on the create page (blank/absent = top-level).
+          // The engine validates it through the same cleanParent the edit route
+          // uses (a missing parent or a non-string is refused), so a bad parent is
+          // a 400 like any other bad field rather than a silent ungroup.
+          parent: body.parent,
           made: { via: viaScreen ? 'screen' : 'process', by: paneCard ? paneCard.sessionName : null } });
         // ⚠️ Told AFTER the record is written, never before. If announcing it
         // failed first, a membership the person asked for would not exist at
@@ -8904,6 +10339,21 @@ const server = http.createServer((req, res) => {
     return last;
   };
 
+  /* #768/#992: a task's recorded lifecycle events, read-only, so the person can
+     "get to it as a user" IN the app, not only by opening the folder. Keyed by
+     the SAME (id, number) the record side used, so the file matches. taskchat.read
+     is fail-soft -- no file or an unreadable one both return [], which the page
+     renders as "Nothing yet" rather than an error. */
+  const taskActivity = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/activity$/);
+  if (taskActivity && (req.method === 'GET' || req.method === 'HEAD')) {
+    const id = decodeSegment(taskActivity[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    const taskchat = require('./engine/taskchat');
+    const events = taskchat.read(id, Number(taskActivity[2]));
+    sendJson(res, 200, { events, count: events.length });
+    return;
+  }
+
   const taskAct = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/(close|reopen)$/);
   if (taskAct && req.method === 'POST') {
     const id = decodeSegment(taskAct[1]);
@@ -8923,6 +10373,29 @@ const server = http.createServer((req, res) => {
         : (/no project by that name|no task by that number/.test(msg) ? 404 : 400);
       sendJson(res, code, { error: msg || 'we could not change that task' });
     }
+    return;
+  }
+
+  /* #768: set or clear a task's due date. Body { dueDate: 'YYYY-MM-DD' | null }.
+     tasks.setDue validates (a nonsense date is a 400, never stored) and records a
+     lifecycle event so the change shows in the task's activity. */
+  const taskDue = pathname.match(/^\/api\/project\/([^/]+)\/task\/(\d+)\/due$/);
+  if (taskDue && req.method === 'POST') {
+    const id = decodeSegment(taskDue[1]);
+    if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    readBody(req).then((raw) => {
+      let body = null;
+      try { body = JSON.parse(raw || 'null'); } catch { body = null; }
+      if (!body || typeof body !== 'object') { sendJson(res, 400, { error: 'we could not read that request' }); return; }
+      try {
+        const t = tasks.setDue(id, taskDue[2], body.dueDate);
+        sendJson(res, 200, { task: t });
+      } catch (err) {
+        const msg = String((err && err.message) || '');
+        sendJson(res, /no project by that name|no task by that number/.test(msg) ? 404 : 400,
+          { error: msg || 'we could not set that due date' });
+      }
+    }).catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
   }
 
@@ -9226,7 +10699,25 @@ const server = http.createServer((req, res) => {
     // measured its removal green). It stays for the day the upstream gating
     // changes; there is no route-level pin for it, on purpose recorded here.
     const asking = member.tied && member.state === STATE.NEEDS_YOU;
-    const question = asking && view.text ? chat.questionIn(view.text) : null;
+    const paneQuestion = asking && view.text ? chat.questionIn(view.text) : null;
+    /* #2456: the same reported-question fallback the agent thread uses. A
+       reported needs_you gave us its words in the card's `because` (the header
+       quote); when the live pane no longer shows the question, those reported
+       words stand in rather than the "we cannot find the question" clause that
+       contradicts a header quoting it. Pane wins when present; the generic
+       placeholder is not offered as a question.
+
+       ⚠️ Read from the FULL roster card, not from `member`. `member` is the
+       reduced project-membership projection (state + because, no
+       `stateReported`), so the reported-vs-scraped distinction the gate turns
+       on is only on the roster card the agent thread already uses. Same agent,
+       same roster read - `ourCardByName` is the one this route's sibling uses. */
+    const reportedCard = ourCardByName(roster, name);
+    const reportedQuestion = (asking && !paneQuestion
+      && reportedCard && reportedCard.stateReported === true
+      && reportedCard.because && reportedCard.because !== ASKING_GENERIC)
+      ? { text: reportedCard.because, reported: true } : null;
+    const question = paneQuestion || reportedQuestion;
     /**
      * ⚠️ TWO DIFFERENT FACTS, TWO SENTENCES. "We read its screen and the
      * question is not in the capture" and "we could not read its screen at
@@ -9690,9 +11181,41 @@ function start(port = PORT) {
     // running on 4317, which is the common case -- is an unhandled 'error'
     // event that exits with a raw stack trace. Returning a Promise implies the
     // caller can be told; this makes that true.
-    const onError = (err) => { server.removeListener('listening', onListening); reject(err); };
+    const onError = (err) => {
+      server.removeListener('listening', onListening);
+      // #2528: a BIND failure (EADDRINUSE from the restart's port overlap, EACCES, etc.)
+      // is a port/environment problem, NOT the world's board failing to serve, so it must
+      // not count toward abandoning the world -- clear this world's failed-boot counter so
+      // transient port contention can never abandon a HEALTHY world. Only a world that
+      // dies before it ever reaches start() (a genuinely broken world env) accrues.
+      // #2528 fast-follow: this clears the COUNTER but does NOT mark the world confirmed.
+      // A bind failure is transient and is NOT the world serving, so a never-served world
+      // stays unconfirmed (only a real `listening` confirms it). Clearing the counter here
+      // means a world hitting only bind errors keeps retrying rather than abandoning --
+      // correct, because a persistent bind failure is machine-wide (it would hit the default
+      // world too, since the port is per-account not per-world), not a world-specific
+      // lockout, so it is out of this guard's scope.
+      try {
+        const worldenv = require('./engine/worldenv');
+        require('./engine/worldbootguard').clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open */ }
+      reject(err);
+    };
     const onListening = () => {
       server.removeListener('error', onError);
+      // #2528: the board reached `listening`, so the world it booted into serves --
+      // clear that world's failed-boot counter. A world only accrues attempts while
+      // it fails to reach this point, so a healthy world's count returns to zero
+      // every boot and never trips the abandon-and-fall-back-to-default guard.
+      // #2528 fast-follow: also mark the world CONFIRMED -- reaching `listening` proves it
+      // can serve, so a later failure uses THRESHOLD (a confirmed world gets tolerance),
+      // not the never-served abandon-on-first-fail fast path.
+      try {
+        const worldenv = require('./engine/worldenv');
+        const guard = require('./engine/worldbootguard');
+        guard.clear(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+        guard.markConfirmed(worldenv.bootedBaseDir(), worldenv.bootedWorld());
+      } catch (_) { /* fail-open: the guard must never break a healthy boot */ }
       /* #1946: decide enforcement and provision the token HERE -- AFTER the bind,
          not at require. At require, ensureToken() would write to a real store on a
          bare `require('./server')` in a unit test. Provisioning after the bind also
@@ -9840,31 +11363,13 @@ function start(port = PORT) {
           const roster = setting.on ? safeRoster() : null;
           const outcome = heartbeat.step(heartbeatPrev, roster, setting.on);
           heartbeatPrev = outcome.next;
-          if (setting.on && outcome.toAsk.length) {
-            const shown = new Map((roster || []).map((a) => [a.sessionName, a.name]));
-            for (const ask of outcome.toAsk) {
-              /* A QUESTION, not a verdict, and delivery is UNCONFIRMED:
-                 notify.happened is fire-and-forget with no receipt, so we do NOT
-                 mark the agent asked -- the next tick re-asks until a real receipt
-                 exists (engine/heartbeat.js). The app renders the question; the
-                 payload carries who + when, never the words.
-                 ⚠️ THE ID IS STABLE ACROSS RE-ASKS OF ONE STALL ON PURPOSE (session
-                 + arrived-state), so a coordinator MAY collapse a rapid double-fire
-                 into one alert -- but it MUST NOT treat the interval-cadence re-asks
-                 as duplicates to drop, because re-asking until delivery is confirmed
-                 is the whole design (an unconfirmed ask must not be silenced). When
-                 a receipt channel exists, the runner stops re-asking on its own. */
-              try {
-                notify.happened({
-                  kind: 'check_in',
-                  id: 'check_in:' + ask.session + ':' + ask.to,
-                  agent: shown.get(ask.session) || ask.session,
-                  session: ask.session,
-                  project: null,
-                });
-              } catch { /* notify never throws; belt and braces */ }
-            }
-          }
+          /* #2623: the heartbeat's check_in nudge was delivered through the phone
+             seam (engine/notify.js), which was deleted as phone-home telemetry
+             (Josh, 2026-09-09, "invasion of privacy"). The runner still tracks
+             stalls in heartbeatPrev, but there is no off-Mac delivery: the seam
+             barely fired anyway (see engine/wouldping.js) and the app has no
+             notification relay yet. A future in-app delivery channel is a
+             separate build. */
         } catch { /* best-effort, like the nudge sweep */ }
         const delay = setting.on ? setting.intervalMinutes * 60 * 1000 : HEARTBEAT_OFF_POLL_MS;
         const t = setTimeout(heartbeatTick, delay);
