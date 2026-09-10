@@ -15925,11 +15925,23 @@ function accountQualifiers(list) {
     if (!k || (count.get(k) || 0) < 2) { out.set(dir, ''); continue; }
     let used = usedByKey.get(k);
     if (!used) { used = new Set(); usedByKey.set(k, used); }
-    /* 🛑 MEMBERSHIP IS CASE-INSENSITIVE AT BOTH `takenAlready` SITES BELOW (the
-       label lookup and the provider lookup), AND THE LABEL ONE IS EASY TO MISS.
-       The `main` comparisons stay exact, harmlessly: nothing can put a
-       case-variant of `main` into `used`, since labels are lowercase and the
-       only other members are `main`, a provider name and dirs. #2612 added the first mixed-case
+    /* 🛑 MEMBERSHIP IS CASE-INSENSITIVE EVERYWHERE IT IS TESTED, INCLUDING THE
+       RESERVED WORD `main`, AND AN EARLIER VERSION OF THIS COMMENT CLAIMED THE
+       EXACT COMPARISONS WERE HARMLESS. They were not. It said "nothing can put a
+       case-variant of `main` into `used`, since labels are lowercase", which is
+       true only of labels this app CREATES: `dirForLabel` and `cleanLabel`
+       lowercase at create time, but `list()` READS a label straight off the
+       directory basename with no normalisation (`engine/accounts.js:264`,
+       `engine/openaiaccounts.js:166`). So a `.claude-Main` directory, which is
+       trivially makeable by hand, restored from a backup or synced from another
+       machine, yields the label "Main".
+
+       ⚠️ REPRODUCED against this function before fixing it, with the reserved
+       word NOT already taken in the key-group (the default holding `main`
+       belongs to a DIFFERENT email): the group came out `["Main","main"]`, two
+       distinct strings and ONE sound. My first probe used the wrong shape and
+       showed no collision, which is why the shape is written into the arm.
+       ⇒ The comment was itself an instance of the class it warned about. #2612 added the first mixed-case
        qualifier this namespace has ever held ("OpenAI"), and every label is
        lowercase by construction: `accounts.dirForLabel` and
        `openaiaccounts.cleanLabel` both `.toLowerCase()` and strip to
@@ -15959,7 +15971,7 @@ function accountQualifiers(list) {
     );
     const providerDistinguishes = providersHere.size > 1;
     let qual;
-    if (a.isDefault && !used.has('main')) {
+    if (a.isDefault && !takenAlready('main')) {
       qual = 'main';
     } else {
       qual = String(a.label || '');
@@ -15973,7 +15985,7 @@ function accountQualifiers(list) {
          wrong statement before reaching the code that contradicts it. The chain
          is label, then a provider name where the group spans providers, then
          `dir`. */
-      if (!qual || qual === 'main' || takenAlready(qual)) {
+      if (!qual || String(qual).toLowerCase() === 'main' || takenAlready(qual)) {
         /* 🔑 #2612: THE PROVIDER BEFORE THE PATH. A second default in a group has
            no label (`list()` sets `label: null` for a default), so it fell
            straight through to `dir` and the screen read "Sign in again as
@@ -29429,8 +29441,14 @@ function fillCreateAccounts() {
      tester (Ben, 0.6.22) could not tell which to pick and ran his agent on the dead
      one for an hour. The Settings list already disambiguates duplicated rows via
      `accountQualifiers` (the default is `main`, the others by their own label, then
-     by a provider name only where the group spans providers, then by dir; this list
-     is filtered to ONE provider, so the provider step never fires here); the
+     by a provider name only where the group spans providers, then by dir. This list
+     is filtered to ONE provider, so the provider step does not fire here TODAY.
+     ⚠️ That is a fact about there being exactly two providers, not an invariant:
+     the non-openai bucket is `x.provider !== 'openai'`, so a third provider would
+     land in it and the step WOULD fire. That is the intended behaviour rather
+     than a regression, because in a genuinely mixed list the provider name does
+     distinguish; what would be wrong is showing it in a single-provider list,
+     which is what `providerDistinguishes` prevents); the
      picker threw that away and rendered by email alone -- the exact bug the Settings
      render was fixed for, one screen over. Compute the same qualifier over the rows
      actually OFFERED and append it, so a duplicated email is distinct and the default
