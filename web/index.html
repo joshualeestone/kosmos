@@ -5880,6 +5880,11 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
                    border-radius: 8px; color: var(--k-ink-2); }
 .pj-settings-cog:hover { color: var(--k-ink); background: var(--k-sunk); }
 .linkish:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* Josh, 2026-09-10 (#2711 item 12): the Files and Tasks "View All" doors read
+   as plain centred text, no underline, capital V and A. The base .linkish
+   underline is dropped only for these two doors, so every other text link keeps
+   it; block + full width centres the label within its card. */
+.pj-viewall { display: block; width: 100%; text-align: center; text-decoration: none; }
 .removed-list { margin-top: 14px; max-width: 34rem; }
 .removed-row { display: flex; align-items: center; justify-content: space-between;
                gap: 14px; padding: 10px 0; }
@@ -10315,7 +10320,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <!-- The door's label finally matches its handler (#535): it has
              opened the in-app Documents view since #134 landed, while the
              words still promised Finder. Finder lives INSIDE that view. -->
-        <button class="linkish" id="pj-docs-all" type="button" hidden>View all</button>
+        <button class="linkish pj-viewall" id="pj-docs-all" type="button" hidden>View All</button>
       </div>
     </aside>
 
@@ -10557,7 +10562,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            all-tasks screen yet); the reveal survives repaints and
            same-project Back-and-return (the page's round-31 rule) and
            resets on a project SWITCH. -->
-      <button class="linkish" id="pj-alltasks" type="button" hidden></button>
+      <button class="linkish pj-viewall" id="pj-alltasks" type="button" hidden></button>
     </div>
     </aside>
     </div>
@@ -33909,7 +33914,7 @@ function paintProjectTasks(p) {
        Nothing open, but finished tasks behind the door, must NOT say "Add a
        task" -- that contradicts the door line sitting directly under it. */
     list.innerHTML = html || (all.length
-      ? '<p class="tk-empty">Nothing open here. The finished ones are behind View all.</p>'
+      ? '<p class="tk-empty">Nothing open here. The finished ones are behind View All.</p>'
       : '<p class="tk-empty">Add a task, or have an agent add one, to start tracking progress.</p>');
   }
   /* THE DOOR IS ALWAYS THERE NOW (#1382), and both halves of that are
@@ -33928,7 +33933,9 @@ function paintProjectTasks(p) {
      the card asked us to avoid). The count the person needs is on the screen,
      derived from the rows it renders. */
   door.hidden = false;
-  door.textContent = 'View all tasks \u2192';
+  // Josh, 2026-09-10 (#2711 item 12): just "View All" (capital V and A),
+  // no "tasks", no arrow, centred and un-underlined via .pj-viewall.
+  door.textContent = 'View All';
 }
 
 /**
