@@ -342,6 +342,29 @@ test('#2669 a retry armed under the OLD id cannot act after a rekey', () => {
   assert.deepEqual(got, ['sid-new'], 'written once, under the new id only');
 });
 
+test('#2669 a rekey whose own write fails arms a FRESH retry: the old one cannot act, and nothing is cleared', () => {
+  /* Pins both of rekey's guards. Without the generation bump the old retry would
+     act for the new id; without the `retrying` reset the rekey's failure would
+     count as the old retry's SECOND failure and clear the file. */
+  let fails = 2;
+  const wrote = [];
+  let clears = 0;
+  const timers = [];
+  const pub = ss.publisher('agent-a', {
+    write: (rec) => { if (fails > 0) { fails -= 1; return { ok: false, because: 'EPERM' }; } wrote.push(rec.sessionId); return { ok: true }; },
+    clear: () => { clears += 1; },
+    setTimer: (fn) => timers.push(fn),
+  });
+  pub.started(1, 'sid-old');          // fails: a retry is armed for the old id
+  pub.rekey('sid-new');               // fails too
+  assert.equal(clears, 0, 'one failure under the new id is not the old id\'s second');
+  assert.equal(timers.length, 2, 'a fresh retry is armed for the new id');
+  timers[0]();                        // the old retry fires late
+  assert.deepEqual(wrote, [], 'and does nothing');
+  timers[1]();                        // the fresh one lands
+  assert.deepEqual(wrote, ['sid-new']);
+});
+
 test('#2669 END TO END on the real file: after a rekey the board matches the NEW session, not the old', () => {
   const pub = ss.publisher('Cleared One');
   pub.started(4321, 'sid-pre-clear');

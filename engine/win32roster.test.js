@@ -125,6 +125,32 @@ test('#570 emit guard: a corrupt store with a ZERO-WIDTH name + a live session o
 
 // ---- win32sessions record store (the ownership authority) ----
 
+test('#2669 record: a held record lock REFUSES the write rather than racing it, and the write lands once it frees', () => {
+  /* A running supervisor now re-records its agent whenever a /clear changes the
+     session id, at any moment, so two whole-file writers can meet. Without the
+     lock the later rename silently drops the earlier row while both say ok. A
+     fresh lock directory is a live holder (staleness is by age). */
+  const lockDir = win32sessions.FILE + '.lock';
+  const saved = process.env.AGENT_WORKFORCE_LOCK_MS;
+  fs.mkdirSync(win32sessions.DIR, { recursive: true });
+  fs.mkdirSync(lockDir);
+  process.env.AGENT_WORKFORCE_LOCK_MS = '50';
+  try {
+    const r = win32sessions.record('locked-2669', { name: 'lk', runner: 'claude' });
+    assert.equal(r.ok, false, 'a held lock is a refusal, not a blind write');
+    assert.match(r.because, /busy/);
+    assert.equal(win32sessions.isOurs('locked-2669'), false, 'and nothing was written');
+    assert.equal(win32sessions.forget('any-2669').ok, false, 'forget takes the same lock');
+  } finally {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+    if (saved === undefined) delete process.env.AGENT_WORKFORCE_LOCK_MS; else process.env.AGENT_WORKFORCE_LOCK_MS = saved;
+  }
+  assert.equal(win32sessions.record('locked-2669', { name: 'lk', runner: 'claude' }).ok, true, 'free again, the write lands');
+  assert.equal(win32sessions.isOurs('locked-2669'), true);
+  assert.equal(fs.existsSync(lockDir), false, 'and the lock is released after it');
+  assert.equal(win32sessions.forget('locked-2669').ok, true);
+});
+
 test('#570 record: record/read/isOurs/forget round-trip, keyed on sessionId', () => {
   win32sessions.record('sess-xyz', { name: 'leo-11', runner: '' });
   assert.equal(win32sessions.isOurs('sess-xyz'), true, 'a recorded session is ours');

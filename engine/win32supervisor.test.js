@@ -337,7 +337,72 @@ test('#2669 an init with a NEW session id moves ownership, the resume id, and th
   assert.equal(rec[t.oldId], undefined, 'and the old one is forgotten');
   assert.equal(t.h.sessionId, newId, 'a crash relaunch now resumes the conversation AFTER the clear');
   assert.ok(t.sink.calls.some((c) => c[0] === 'rekey' && c[1] === newId), 'the state file follows');
-  assert.ok(t.events.some((e) => e.action === 'rekeyed' && e.from === t.oldId && e.sessionId === newId));
+  assert.ok(t.events.some((e) => e.action === 'rekeyed' && e.from === t.oldId && e.sessionId === newId
+    && e.because.includes(t.oldId) && e.because.includes(newId)), 'the task log line names both ids');
+  const iRekey = t.sink.calls.findIndex((c) => c[0] === 'rekey');
+  const iInit = t.sink.calls.findIndex((c) => c[0] === 'event' && c[1] === 'system');
+  assert.ok(iRekey >= 0 && iRekey < iInit, 'the state file follows BEFORE the turn\'s events are published');
+  t.h.stop();
+});
+
+test('#2669 a failed record is RETRIED until it lands -- it cannot heal on its own', () => {
+  let attempts = 0;
+  const timers = [];
+  const forgotten = [];
+  const t = clearingSupervisor('clr-4', {
+    setTimer: (fn) => timers.push(fn),
+    sessions: {
+      record: () => { attempts += 1; return attempts === 1 ? { ok: false, because: 'the record is busy' } : { ok: true }; },
+      forget: (id) => { forgotten.push(id); return { ok: true }; },
+      read: () => ({}),
+    },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'nothing moves on the failure');
+  const failed = t.events.find((e) => e.action === 'rekey-failed');
+  assert.ok(failed && failed.because.includes(newId) && /keep trying/.test(failed.because));
+  assert.equal(timers.length, 1, 'a retry is armed');
+  timers[0]();
+  assert.equal(t.h.sessionId, newId, 'the retry lands the new id');
+  assert.deepEqual(forgotten, [t.oldId], 'and only then is the old one forgotten');
+  assert.ok(t.events.some((e) => e.action === 'rekeyed'));
+  t.h.stop();
+});
+
+test('#2669 the retry stops when the child is replaced, and gives up after its attempts', () => {
+  let attempts = 0;
+  const timers = [];
+  const failing = { record: () => { attempts += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) };
+  const t = clearingSupervisor('clr-5', { setTimer: (fn) => timers.push(fn), sessions: failing });
+  t.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  t.kids[0].die(1);                         // replaced: the relaunch timer is armed after the retry
+  const before = attempts;
+  timers[0]();                              // the rekey retry, for a child that is gone
+  assert.equal(attempts, before, 'a replaced child\'s rekey is not retried');
+  t.h.stop();
+
+  let n = 0;
+  const q = [];
+  const u = clearingSupervisor('clr-6', { setTimer: (fn) => q.push(fn), sessions: { record: () => { n += 1; return { ok: false, because: 'broken' }; }, forget: () => ({ ok: true }), read: () => ({}) } });
+  u.say(0, { type: 'system', subtype: 'init', session_id: require('node:crypto').randomUUID() });
+  while (q.length) q.shift()();
+  assert.equal(n, 30, 'bounded: REKEY_ATTEMPTS tries, then it stops');
+  const said = u.events.filter((e) => e.action === 'rekey-failed');
+  assert.equal(said.length, 2, 'the log says it once when it starts trying and once when it stops, not thirty times');
+  assert.match(said[1].because, /stopped trying/);
+  u.h.stop();
+});
+
+test('#2669 a forget that fails is SAID: the old id still answers to this name', () => {
+  const t = clearingSupervisor('clr-7', {
+    sessions: { record: () => ({ ok: true }), forget: () => ({ ok: false, because: 'the record is busy' }), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, newId, 'the rekey itself stands');
+  const said = t.events.find((e) => e.action === 'forget-failed');
+  assert.ok(said && said.sessionId === t.oldId && /record is busy/.test(said.because));
   t.h.stop();
 });
 
