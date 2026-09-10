@@ -8080,12 +8080,14 @@ test('--k-sunk is DEFINED, in both themes, not merely defended with a fallback',
   // an SVG fill it fails LOUDLY (undefined resolves to black). The invisible
   // instances are what let three drawings pass while the token was dead.
   //
-  // Here it decides the QUESTION BOX. (An earlier version of this comment said
-  // "and every message bubble", which is false: `.dm.mine .dm-b` overrides it
-  // and `dmRow` emits `dm mine` unconditionally, as the rule's own note in the
-  // stylesheet says.) The light fallback on the dark ground is a 5%-black wash
-  // on #17191c, which is not a sunk panel, it is a missing one. So the token is
-  // defined per theme.
+  // Here it decides the QUESTION BOX. (It no longer touches the message bubbles
+  // at all: as of #2660 the `.dm-b` default is `transparent`, the person's own
+  // bubble uses `--usermsg-tint`, and the agent's row -- `dm theirs`, which
+  // `dmRow` emits when `m.from` is set, since #175 -- takes that transparent
+  // default. Two earlier versions of this comment were false about that:
+  // "and every message bubble", then "dmRow emits dm mine unconditionally".)
+  // The light fallback on the dark ground is a 5%-black wash on #17191c, which
+  // is not a sunk panel, it is a missing one. So the token is defined per theme.
   const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
   /* ⚠️ SCOPED PER THEME, because "defined twice" is not what this test's own
      name claims. A whole-file count is satisfied by two declarations sitting
@@ -8108,6 +8110,29 @@ test('--k-sunk is DEFINED, in both themes, not merely defended with a fallback',
     + 'not a sunk panel, a missing one');
   assert.notEqual(light[0], dark[0],
     `both --k-sunk definitions are the same value (${light[0]}), so one theme is wearing the other’s wash`);
+});
+
+test('--usermsg-tint is DEFINED per theme, not left to fall back to the light value', () => {
+  // #2660: the wash behind the person's own messages, and the exact sibling of
+  // --k-sunk above -- same invisible-fallback failure mode. A `var(--usermsg-tint)`
+  // with no per-theme definition would silently wear the light 10% on a dark
+  // ground. web.theme's sync check does NOT close this: if the token were dropped
+  // from the system-dark block, the forced-dark regen would drop it too and stay
+  // in sync, so the sync assertion would pass while both dark themes wore the
+  // light value. So assert the definitions directly, exactly as --k-sunk does.
+  const raw = fs.readFileSync(nodePath.join(__dirname, 'web', 'index.html'), 'utf8');
+  const valuesIn = (text) => (text.match(/--usermsg-tint:\s*([^;]+);/g) || [])
+    .map((d) => d.replace(/^--usermsg-tint:\s*/, '').replace(/;$/, '').trim());
+  const darkAt = raw.indexOf('@media (prefers-color-scheme: dark)');
+  assert.ok(darkAt > 0, 'CONTROL: no dark media block in the page at all, so this test cannot mean anything');
+  const light = valuesIn(raw.slice(0, darkAt));
+  const dark = valuesIn(raw.slice(darkAt));
+  assert.equal(light.length, 1,
+    `--usermsg-tint is defined ${light.length} time(s) before the first dark block; the light theme needs exactly one`);
+  assert.ok(dark.length >= 1,
+    'the dark theme defines no --usermsg-tint at all, so the user-message wash wears the light 10% on the dark ground');
+  assert.notEqual(light[0], dark[0],
+    `both --usermsg-tint definitions are the same value (${light[0]}); light should be 10%, dark 15%`);
 });
 
 test('a composer that cannot send looks like it cannot send', () => {
