@@ -159,3 +159,49 @@ value, so it will fail loudly rather than drift.
   `false` reds three cross-provider arms.
 - Two drift mutations on the cross-derivation pin: changing one short name and changing the group
   head each red it.
+
+## Iteration 5's deferred NITs, worked 2026-09-10 01:0x
+
+Four of the five were fixed on this branch (commit `efa18395`): the scoping rationale rewritten to
+describe the property the code actually tests, `providersHere` folded into the existing one-pass
+precompute as `providersByKey`, the browser check's slash test scoped to the qualifier
+parenthetical rather than the whole aria-label (plus its pass line corrected to name all three
+properties it asserts), and the `#2634` pointer stated at the code per convention 5.
+
+The changed browser-check arm was measured in BOTH directions, since a scope can fail by being too
+wide or too narrow and one arm only ever sees one of those:
+
+| control | result |
+|---|---|
+| mutant: `providerDistinguishes` forced false, so the second default falls to its `dir` | rc=1, and the message now names the qualifier `"/home/.codex"`, not the whole label |
+| a slash seeded into `who` (`name: 'work a/b'`) | old whole-label test fires on **2 of 2** names; new qualifier-scoped test fires on **0 of 2** |
+
+### The fifth NIT: I REVERSED my own call, and the reversal is the useful part
+
+The fifth was the plan filename lacking the timestamp the root CLAUDE.md prescribes. I had deferred
+it with the reasoning: the reviewer measured 81 of 783 non-proof plans carrying a date-shaped
+suffix, so the DOC is the likelier stale half, and the fix belongs in the doc rather than in 700
+renames.
+
+**That was wrong, and it was wrong for a reason worth keeping.** Re-measured here:
+
+- Of the last **40** added non-proof plans on `origin/main`, **3** carry a date-shaped suffix.
+- **Two of those three landed tonight**, within hours of the convention itself.
+- The root `CLAUDE.md` that states the convention (twice, lines 91 and 110) was committed
+  **2026-09-09 23:09**, about two hours before I deferred the NIT.
+
+⇒ **A low adoption ratio is exactly what a two-hour-old convention looks like on an old corpus.**
+The ratio cannot discriminate between "the doc is stale" and "the doc is new", and I read it as
+evidence for the first without checking the second. The discriminating fact was the convention's
+AGE, and it was one `git log` away.
+
+**Weakest premise in the corrected reasoning:** I am inferring intent from three files, two of
+which are the work of the same night as the convention. If the convention is later reverted or
+narrowed, this rename is noise, but it is one file and it costs nothing to undo.
+
+**What I rejected:** renaming the other ~700 plan files (not mine to do, and not on this branch),
+and editing CLAUDE.md to match current practice (that would be arguing a two-hour-old deliberate
+decision out of existence on the strength of a ratio that cannot support it).
+
+Plan renamed to `.claude/plans/provider-qualifier-2612-20260909T2331.md`, the timestamp taken from
+the file's own add-commit rather than from the clock at rename time.
