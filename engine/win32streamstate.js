@@ -123,8 +123,12 @@ function writeState(name, record) {
   }
 }
 
+/* Returns whether the file is gone. After a death a leftover is harmless -- it
+   names a pid that is no longer listed -- but when the publisher clears a LIVE
+   process's older state, a failed delete leaves that state readable, so the
+   caller reports it. */
 function clearState(name) {
-  try { fs.rmSync(statePath(name), { force: true }); } catch { /* the pid join makes a leftover harmless */ }
+  try { fs.rmSync(statePath(name), { force: true }); return true; } catch { return false; }
 }
 
 /**
@@ -179,7 +183,7 @@ function publisher(name, opts) {
          than one that says it cannot tell. The next transition starts over. */
       retrying = false;
       written = null;
-      clear();
+      if (clear() === false) onProblem('we could not clear its older state either, so its card may be out of date until it next changes');
       return;
     }
     retrying = true;

@@ -171,7 +171,7 @@ shared usage before fanning out subagents.
    working/idle in `win32-state/<key>.json`, stamped with session id and pid;
    `win32capture` falls back to it for a status-less row. Measured live through
    the supervisor's real `main()`, a real claude.exe and the real snapshot:
-   card absent -> idle -> working (0.7s after the message) -> idle.
+   card absent -> idle -> working (0.8s after the message) -> idle.
 3. **7c-6:** the rehearsal, R1–R8 with R3 for the first time, and a real reboot.
 4. The crash-restart token defect above.
 5. A current Windows build and publish (the pipeline exists; the site is stale).

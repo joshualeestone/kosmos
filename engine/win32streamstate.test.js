@@ -166,6 +166,24 @@ test('#570 7c-5 a retry that succeeds writes the state; a success before it make
   assert.deepEqual(got, ['idle', 'busy'], 'no write when the disk already holds the current state');
 });
 
+test('#570 7c-5 a clear that fails after a second write failure is SAID, not swallowed', () => {
+  /* Found in review round 3: clearing a LIVE process's older state is the one
+     clear whose failure matters -- that state stays readable under a matching
+     session and pid -- and it failed silently. */
+  const problems = [];
+  const timers = [];
+  const pub = ss.publisher('agent-a', {
+    write: () => ({ ok: false, because: 'EPERM' }),
+    clear: () => false,
+    setTimer: (fn) => timers.push(fn),
+    onProblem: (why) => problems.push(why),
+  });
+  pub.started(1, 'sid');
+  timers[0]();
+  assert.equal(problems.length, 3, 'two write failures, then the failed clear');
+  assert.match(problems[2], /could not clear its older state/);
+});
+
 test('#570 7c-5 a retry armed for one process never acts as the second attempt for the next', () => {
   const timers = [];
   let clears = 0;
