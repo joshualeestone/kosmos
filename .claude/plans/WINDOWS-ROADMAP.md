@@ -3,18 +3,22 @@
 **If you are a new session picking this up, read this block, then §2 and §3. Nothing
 else is required to continue.**
 
-    where the work lives   branch win32-streaming-agent-570  (pushed)
-    already on main        PR #2537 -- the keep-alive slice (6964ab67)
+    where the work lives   branch win32-chat-arm-570  (pushed; one slice per branch
+                           off main from here on -- repo CLAUDE.md)
+    already on main        #2537 keep-alive; #2601 four blockers + 7c-1/7c-2 + the
+                           channel (44728136)
     this file              .claude/plans/WINDOWS-ROADMAP.md   <- the whole road
     the keep-alive log     .claude/plans/win32-keepalive-570.md  <- that slice only
 
 ## The one-line state
 
-Four blockers stood between Windows and a usable Kosmos. **Two are closed** (3:
-first run now names the real installer; 4: the board comes back at logon).
-**One is guarded but not solved** (2: the updater refuses honestly instead of
-lying "Up to date"). **One is the critical path** (1: you cannot message a
-Windows agent) and its substrate is built and measured — what remains is wiring.
+**A Windows agent can now be talked to** (BLOCKER 1, 7c-4, measured live
+2026-09-10 -- pending merge of win32-chat-arm-570). Blockers 3 and 4 are closed.
+**BLOCKER 2 IS OFF THE v1 CRITICAL PATH:** Josh approved 2026-09-10 (relayed by
+Splinter) that the first Windows release updates BY HAND (download the new zip),
+with a real updater as a fast-follow. What is left for v1: 7c-5 (state from the
+event stream), 7c-6 (the rehearsal, R3 included), and cutting a current Windows
+build -- installkosmos.com serves one, but it is 0.6.37 against the Mac's 0.6.54.
 
 ## ✅ 7c-2 IS DONE (2026-09-10), AND MEASURED ON THE BOX.
 
@@ -109,22 +113,65 @@ the production topology anyway.
 Win32 suite after this + a merge of main: **279/279**. `create.test.js` still at
 its known 61/100.
 
+## ✅ 7c-3 PART 2 AND 7c-4 ARE DONE (2026-09-10), MEASURED ON THE BOX
+
+    the channel, through the real task   winstream-1 restarted via its task; the
+                                         pipe appeared 546ms later; say() -> ok in
+                                         57ms; the agent answered "PELICAN-7"
+    chat.deliver, the product path       real snapshot, real win32roster card
+                                         (reachedByChannel true) -> placed in 60ms;
+                                         the agent answered "HERON-3" 1.3s later
+    a card with no channel               winreh-2 -> could_not "not running, nothing
+                                         typed" in 60ms, no tmux touched
+
+What 7c-4 is (branch win32-chat-arm-570): `status.js` puts `reachedByChannel` on
+every card (true exactly for win32roster's `WIN32_COMMAND` rows); `chat.deliver`
+sends such a card through `win32channel.say()` after every shared gate and
+instead of `verifyAtSend` + `send-keys`. `win32channel` marks outcomes where the
+request was already written `unsure`, which `deliver` reports as `unconfirmed`,
+never `could_not`. `chat.setChannel` is the seam, with setRunner's interlock.
+
+📌 FOUR THINGS FOUND ON THE WAY, so they are not re-found:
+- **A reboot gives the agent a FRESH conversation, and that is Mac parity, not a
+  defect.** Neither `bin/agent-supervisor.sh` nor create.js passes `--resume` or
+  `--continue` anywhere. `--resume` is used only INSIDE one supervisor's life (a
+  crash restart). §3 used to say a reboot would resume; it does not, on either
+  platform. A fresh boot files a new ownership row; stale rows are harmless
+  (nothing live matches them) but accumulate -- `win32stop` forgets on Stop, a
+  reboot or a task `/End` does not.
+- **DEFECT, small, not yet fixed: a crash-restarted agent resumes with an EMPTY
+  `KOSMOS_AGENT_TOKEN`** (`launchStreaming` passes `s.token || ''` on resume and
+  the supervisor never has one), so its self-reports are refused by /api/report
+  on win32. Fix: mint a fresh token on resume and retire the dead run's.
+- **`winreh-2`-shaped agents say "not running" while running.** A pre-7c-2
+  detached agent has no pipe, so the honest verdict is right and the WORDING is
+  wrong. No released user can have one; noted, not fixed.
+- **Test sandboxes leak.** ~138 `win32-sessions/record.json` copies were left
+  under `%TEMP%` by the win32 suites. Harmless, untidy.
+- **NOBODY READS THE AGENT'S STDOUT, AND IT DOES NOT HANG IT (measured).** The
+  supervisor holds stdout/stderr pipes and never drains them, which looked like a
+  freeze waiting for a full pipe buffer. Measured on winstream-1: an 18,892-char
+  answer completed, and a follow-up was answered 2s later, agent alive. So Claude
+  Code buffers or the pipe is roomy at this size. 7c-5 reads the stream anyway
+  (state comes from it), which retires the question rather than relying on it.
+
+📌 SPLINTER'S ANSWERS 2026-09-10: v1 ships with by-hand update (Josh approved);
+installkosmos.com serves a STALE Windows zip (0.6.37); #2604 is merged and win32
+changes route through this lane; **Baron Draxum owns the Mac-side delivery
+contract** (could_not / verify-before-send) -- sync the 7c-4 mapping with him.
+The Mac Kosmos builders now share this box's installkosmos account, so watch
+shared usage before fanning out subagents.
+
 ## Do this next
 
-1. **7c-3 part 2: measure the channel ON THE BOX** through the real task. Create
-   an agent, confirm the pipe is listed (`[IO.Directory]::GetFiles('\\.\pipe\')`),
-   `say()` a message into it, and see the agent answer on its event stream. Also
-   measure the pipe's default DACL, which `win32channel.js`'s header says is
-   unmeasured.
-2. **7c-4:** `chat.js`'s win32 arm on `win32channel.say()`, keeping
-   verify-before-send and the `could_not` contract; `down` words "not running".
-3. Then 7c-5 (state from the event stream) and 7c-6 (re-run R1–R8, R3 for the
-   first time). §3 has the sizing.
-
-📌 ASKED SPLINTER 2026-09-10 (no reply yet): would a first Windows release with
-update-by-hand be acceptable (drops BLOCKER 2 off the critical path); is
-installkosmos.com serving the Windows zip; who owns the win32leak-2603 lane that
-edits the same test files; any Mac-side change planned to chat.js's contract.
+1. Merge win32-chat-arm-570 once its review converges and CI is green.
+2. **7c-5:** state from the event stream (§4). A streaming agent's
+   `claude agents --json` row has no `status`, so every Windows card reads
+   `unknown` today (measured: winstream-1 did).
+3. **7c-6:** the rehearsal, R1–R8 with R3 for the first time, and a real reboot.
+4. The crash-restart token defect above.
+5. A current Windows build and publish (the pipeline exists; the site is stale).
+6. Still unmeasured: the named pipe's default DACL.
 
 ⚠️ DO NOT re-derive the three measurements in §3 — a streaming session stays
 alive across turns, is still listed by `claude agents --json` as
@@ -200,10 +247,10 @@ That is the bar. Not "the tests pass".
 | 1 | install + first run | ⚠️ **BLOCKER 3 CLOSED** 2026-09-09 — the card now names the real installer. Kosmos still cannot install Claude Code FOR you; see §3c |
 | 2 | make an agent | ✅ MEASURED |
 | 3 | board + roster | ✅ MEASURED (state: partial, see §4) |
-| 4 | **talk to it** | ❌ **BLOCKER 1** — §3 |
+| 4 | **talk to it** | ✅ **BLOCKER 1 CLOSED** 2026-09-10 (7c-4) — the board's `chat.deliver` reaches the agent through its supervisor's pipe and it answers; measured live. State still reads `unknown` until 7c-5 |
 | 5 | stop/restart/remove/restore | ✅ MEASURED |
 | 6 | survive a reboot | ✅ AGENTS measured (R8). BOARD: **BLOCKER 4 CLOSED** 2026-09-09 — an at-logon task, proven end to end via /Run; a real logon still owed |
-| 7 | **update the app** | ❌ **BLOCKER 2** — §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
+| 7 | **update the app** | ⚠️ **BLOCKER 2, OFF THE v1 PATH** — Josh approved 2026-09-10: v1 updates by hand, a real updater is a fast-follow. §3a. The ANCHOR (not stranding the fleet) is designed and unit-tested; the UPDATER ITSELF cannot run on Windows at all |
 
 🛑 THAT IS FOUR BLOCKERS, NOT ONE. This table said "one blocker" on 2026-09-09
 because capability 1 had never been looked at. It has now been traced end to end,
@@ -273,9 +320,14 @@ supported, which the alternative is not.
 session id. So `win32roster`, `win32live`, `win32stop`, `win32job` and
 `win32anchor` all keep working unchanged.
 
-🔑 AND IT RESUMES, which is what keep-alive rests on. A piped child cannot be
-ADOPTED — adoption means holding a stdin somebody else holds — so a supervisor
-restart or a reboot must re-open the conversation instead. Measured:
+🔑 AND IT RESUMES, which is what a CRASH RESTART rests on. A piped child cannot
+be ADOPTED — adoption means holding a stdin somebody else holds — so when the
+agent dies under a live supervisor, the supervisor re-opens the conversation
+instead. ⚠️ CORRECTED 2026-09-10: this used to say "a supervisor restart or a
+reboot" resumes too. It does not: a FRESH supervisor (reboot, task `/End` +
+`/Run`, Restore) has no session id to resume and starts a new conversation --
+which is exactly what the Mac does, since nothing Mac-side passes `--resume` or
+`--continue` either. Measured:
 
     turn 1 (new session)           -> "STORED"      session c502cba1-...
     turn 2 (NEW PROCESS, --resume) -> "PELICAN-42"
@@ -292,8 +344,8 @@ resume-not-replace, and the property it protected is preserved rather than trade
 |---|---|---|
 | 7c-1 | ✅ **DONE** — the substrate: `win32launch.launchStreaming()` spawns `-p --input-format stream-json` WITH PIPES; `win32supervisor.superviseStreaming()` holds them and has `send()`. Built and tested unwired first, deliberately | — |
 | 7c-2 | ✅ **DONE 2026-09-10** — WIRED LIVE. The task's `main()` supervises the streaming agent, and `create.js` starts the agent by RUNNING ITS JOB rather than spawning one, collapsing two launch paths into one. See the RESUME block for the four facts | — |
-| 7c-3 | board → supervisor channel: a local named pipe per agent, agent-token auth, honest failure when the supervisor is down | ~1 session |
-| 7c-4 | `chat.js` win32 arm on that channel, keeping verify-before-send and the `could_not` contract | ~½ session |
+| 7c-3 | ✅ **DONE 2026-09-10** — board → supervisor channel: a local named pipe per agent, per-agent secret, honest `down` when the supervisor is gone. Measured through the real task | — |
+| 7c-4 | ✅ **DONE 2026-09-10** — `chat.js` win32 arm on that channel, keeping the `could_not` contract; `verifyAtSend`'s hazards (a shell, copy-mode) do not exist on a stdin pipe, and the supervisor re-checks at the write. Measured live | — |
 | 7c-5 | state + transcript from the EVENT STREAM (see §4) | 1–2 sessions |
 | 7c-6 | re-run R1–R8, and R3 for the first time | ½ session + a reboot |
 

@@ -980,6 +980,9 @@ test('#2519: the non-string INVENTORY outside profile is fixed, so a new produce
       'nameDerived', 'isAgentPane', 'isAgentSession', 'isFleetSession', 'isNamedOurs',
       'paneless', 'stateProjectInferred', 'activeWhileWaiting', 'stateReported',
       'stateBackgroundWait', 'neverRecorded',
+      /* #570: how the board reaches the agent (a Windows supervisor pipe, or a pane).
+         Two values, nothing identifying, and false on every Mac card. */
+      'reachedByChannel',
     ];
     const PINNED_BOOLEAN = ['hasAvatar'];
     const ALWAYS = STRUCTURAL.concat(PINNED_BOOLEAN);

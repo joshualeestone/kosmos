@@ -158,7 +158,8 @@ function chooseCard(agents) {
         while both claim to enumerate them.
      4. STRUCTURAL BOOLEANS passed through by design -- nameDerived, isAgentPane,
         isAgentSession, isFleetSession, isNamedOurs, paneless, stateProjectInferred,
-        activeWhileWaiting, stateReported, stateBackgroundWait, neverRecorded. Each has
+        activeWhileWaiting, stateReported, stateBackgroundWait, neverRecorded,
+        reachedByChannel (#570: how the board reaches the agent, pipe or pane). Each has
         two possible values, carries nothing identifying, and MUST survive or the
         recording stops being a real card shape (`paneless: false` is load-bearing).
         ⚠️ TOP-LEVEL ONLY. A boolean nested outside `profile` (a future `context` flag,

@@ -177,9 +177,27 @@ function setPauser(fn) {
   pauser = typeof fn === 'function' ? fn : null;
 }
 
+/**
+ * The Windows channel seam (#570 7c-4), `runner`'s twin for agents reached
+ * through their supervisor's pipe rather than a pane. Clearing it re-arms
+ * dry-run, as clearing `runner` does.
+ *
+ * ⚠️ AND A FAKE TMUX IS NOT PERMISSION TO USE THE REAL CHANNEL. `setDryRun(false)`
+ * checks only that a tmux `runner` was injected, so a suite that faked tmux and
+ * left dry-run would otherwise send Windows cards down a real pipe. The real
+ * `say` is therefore used only when NO runner is injected, which is production.
+ */
+let channel = null;
+
+function setChannel(fn) {
+  channel = typeof fn === 'function' ? fn : null;
+  if (!channel) DRY_RUN = true;
+}
+
 function resetForTests() {
   runner = null;
   pauser = null;
+  channel = null;
   DRY_RUN = true;
 }
 
@@ -847,6 +865,28 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
   const noteFor = (outcome) => waitingNote(paneState, outcome, allowed.card.runner, paneBackgroundWait);
 
   /**
+   * 🔑 A WINDOWS AGENT IS REACHED THROUGH ITS SUPERVISOR, NOT A PANE (#570 7c-4).
+   *
+   * Every gate above is shared and has already run: the message, ownership,
+   * the trust-dialog floor, the trailer. What differs is only how the words get
+   * there, and the CARD says which way, not the platform: `status.js` sets
+   * `reachedByChannel` from the mark win32roster stamps on every Windows row
+   * (`WIN32_COMMAND`, a value tmux never reports on a Mac). One derivation of
+   * "this is a Windows agent", made where the card is built.
+   *
+   * ⚠️ `verifyAtSend` IS SKIPPED ON PURPOSE, and the property it protects is
+   * kept. It exists because a tmux pane can fall back to a SHELL, turning the
+   * message into a command, or be scrolled into copy-mode, where keystrokes
+   * vanish. A Windows agent's input is a JSON line into `claude -p`'s stdin,
+   * which can be neither. The re-check that remains, "is the agent still
+   * there", is made by the supervisor at the moment of the write, inside the
+   * process that holds the stdin, which is closer than any probe from here.
+   */
+  if (allowed.card.reachedByChannel === true) {
+    return deliverThroughChannel(allowed.card, wire, { at, paneState, noteFor });
+  }
+
+  /**
    * ⚠️ THE PANE IS ASKED AGAIN, HERE, IMMEDIATELY BEFORE THE KEYSTROKE.
    *
    * `addressable` above checked a roster SNAPSHOT, and that snapshot is already
@@ -945,6 +985,52 @@ function deliver(sessionName, raw, roster, envelope, trailer) {
     };
   }
   return { state: DELIVERY.PLACED, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+}
+
+/**
+ * Hand one already-checked message to a Windows agent's supervisor, and report
+ * the same three verdicts the tmux path reports.
+ *
+ *   ok            -> PLACED       the supervisor wrote it to the agent's stdin
+ *   unsure        -> UNCONFIRMED  it may have arrived; only the answer was lost
+ *   anything else -> COULD_NOT    nothing was typed, so re-sending is safe
+ *
+ * ⚠️ `unsure` IS THE CHANNEL'S OWN CLAIM, not inferred here. `win32channel`
+ * sets it for any doubt once the request was handed over -- a lost or unreadable
+ * answer, a helper that ran and died, a supervisor write that failed part-way.
+ * Folding those into COULD_NOT would tell somebody "not delivered" about a
+ * message that may be in the agent's conversation, which is how it gets sent
+ * twice.
+ *
+ * ⚠️ A THROW IS UNCONFIRMED, NOT COULD_NOT. `say()` promises never to throw, so
+ * one that does has broken that promise at a point we cannot see, and "nothing
+ * was typed" is not ours to claim from there.
+ */
+function deliverThroughChannel(card, wire, ctx) {
+  const { at, paneState, noteFor } = ctx;
+  const say = channel || ((DRY_RUN || runner) ? null : require('./win32channel').say);
+  if (!say) {
+    return {
+      state: DELIVERY.COULD_NOT,
+      because: 'we could not get to it, so we did not type anything (this copy of Kosmos is running without permission to touch agents)',
+      at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT),
+    };
+  }
+  let got;
+  try { got = say(card.session, wire); }
+  catch (e) { got = { ok: false, unsure: true, because: 'something went wrong while we were handing it over (' + ((e && e.code) || 'unknown') + '), so we cannot tell whether it arrived' }; }
+
+  if (got && got.ok === true) {
+    return { state: DELIVERY.PLACED, because: null, at, paneState, paneNote: noteFor(DELIVERY.PLACED) };
+  }
+  if (got && got.unsure === true) {
+    return { state: DELIVERY.UNCONFIRMED, because: got.because || 'we cannot tell whether it arrived', at, paneState, paneNote: noteFor(DELIVERY.UNCONFIRMED) };
+  }
+  return {
+    state: DELIVERY.COULD_NOT,
+    because: (got && got.because) || 'we could not reach it, so we did not type anything',
+    at, paneState, paneNote: noteFor(DELIVERY.COULD_NOT),
+  };
 }
 
 /**
@@ -2087,7 +2173,7 @@ module.exports = {
   deliver, viewport, questionIn, optionsIn, questionAbove, waitingNote, spawnFailure, verifyAtSend,
   threadFile, readThread, appendMessage, supersede, withThreadLock,
   defaultAgentFor, looksLikeManager,
-  setRunner, setDryRun, setPauser, resetForTests, CODEX_ENTER_GAP_MS,
+  setRunner, setDryRun, setPauser, setChannel, resetForTests, CODEX_ENTER_GAP_MS,
   chatsDir: DIR,
 };
 

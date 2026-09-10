@@ -11,9 +11,9 @@
  * 🔑 A LOCAL NAMED PIPE PER AGENT, which is this platform's unix socket. The
  * supervisor serves `\\.\pipe\kosmos-agent-<key>` for as long as it is up; the
  * board connects, presents a token, hands over one message, and is told what
- * happened. It is a REQUEST AND A REPLY, not a drop -- `chat.js`'s whole contract
- * is that a delivery either happened or is reported as `could_not`, and a channel
- * that could only post into a void could not honour it.
+ * happened. It is a REQUEST AND A REPLY, not a drop -- `chat.js` reports one of
+ * three verdicts (placed, could_not, unconfirmed), and a channel that could only
+ * post into a void could not tell them apart.
  *
  *      board  --(one json line: token + text)-->  supervisor
  *      board  <--(one json line: ok / because)--  supervisor  --> agent stdin
@@ -138,7 +138,8 @@ function sameSecret(a, b) {
  * this at all.
  *
  * `onSay(text, done)` is handed each authenticated message and calls
- * `done({ ok } | { ok:false, because })` when it knows what happened. It is
+ * `done({ ok } | { ok:false, because, unsure? })` when it knows what happened;
+ * `unsure` means the bytes may have reached the agent anyway. It is
  * asynchronous on purpose: the honest moment to answer is after the bytes have
  * reached the agent's pipe, not when they were handed to a stream.
  *
@@ -156,19 +157,29 @@ function serve(name, opts) {
   try { at = o.pipe || pipePath(name); }
   catch { return { ok: false, because: 'that is not a name we can open a channel for' }; }
 
+  /* How long a caller may sit silent before the supervisor gives up on it.
+     Injectable only so a test can prove the timer stops once a message is handed
+     over without waiting out the production value. */
+  const idleMs = Number.isFinite(o.idleMs) ? o.idleMs : SAY_TIMEOUT_MS;
+
   const server = net.createServer((sock) => {
     let buf = '';
     let answered = false;
+    /* 🛑 ONE MESSAGE PER CONNECTION. `answered` only turns true when `onSay`
+       answers, and `buf` still holds the line already parsed, so without this a
+       second chunk arriving while the write is pending would re-parse that same
+       line and type it at the agent twice. */
+    let handedOver = false;
     const answer = (payload) => {
       if (answered) return;
       answered = true;
       try { sock.end(JSON.stringify(payload) + '\n'); } catch { /* it is going anyway */ }
     };
     /* A caller that connects and says nothing must not hold a handle forever. */
-    sock.setTimeout(SAY_TIMEOUT_MS, () => { answer({ ok: false, because: 'nothing arrived on the channel' }); });
+    sock.setTimeout(idleMs, () => { answer({ ok: false, because: 'nothing arrived on the channel' }); });
     sock.on('error', () => { answered = true; });
     sock.on('data', (chunk) => {
-      if (answered) return;
+      if (answered || handedOver) return;
       buf += chunk.toString('utf8');
       if (Buffer.byteLength(buf, 'utf8') > MAX_REQUEST_BYTES) {
         answer({ ok: false, because: 'that is more than a message' });
@@ -192,8 +203,28 @@ function serve(name, opts) {
         answer({ ok: false, because: 'we did not understand what was asked' });
         return;
       }
-      try { onSay(req.text, (r) => answer(r && r.ok ? { ok: true } : { ok: false, because: (r && r.because) || 'it did not take the message' })); }
-      catch (e) { answer({ ok: false, because: 'we could not hand it over (' + ((e && e.code) || 'unknown') + ')' }); }
+      /* 🛑 THE IDLE TIMER STOPS HERE, the moment the message is handed over. Its
+         sentence, "nothing arrived", is true only BEFORE this line; after it the
+         write to the agent may be queued and land late, and answering "not
+         delivered" then is the duplicate-send this channel exists to prevent.
+         From here the only answer is the one `onSay` gives; a caller that tires
+         of waiting times out on its own side, where that is reported as unsure. */
+      sock.setTimeout(0);
+      handedOver = true;
+      try {
+        onSay(req.text, (r) => answer(r && r.ok ? { ok: true } : {
+          ok: false,
+          /* Relayed, never inferred: only the supervisor knows whether its write
+             had started, and dropping this turns a maybe-delivered message into
+             "not delivered" at the board. */
+          ...(r && r.unsure ? { unsure: true } : {}),
+          because: (r && r.because) || 'it did not take the message',
+        }));
+      }
+      /* A throw from `onSay` broke at a point we cannot see -- possibly after its
+         write began -- so it is unsure, the same reading chat.js gives a throw
+         from `say()`. */
+      catch (e) { answer({ ok: false, unsure: true, because: 'it broke while handing the message over (' + ((e && e.code) || 'unknown') + '), so we cannot tell whether it arrived' }); }
     });
   });
 
@@ -218,9 +249,11 @@ function serve(name, opts) {
  * deadline, and one without a deadline is the board's HTTP thread held by a
  * supervisor nobody can see.
  *
- * Returns { ok:true } or { ok:false, because, down? } -- never throws. `down` is
- * true when the supervisor is not there at all, which is the one failure a caller
- * may want to word differently from a refusal.
+ * Returns { ok:true } or { ok:false, because, down?, unsure? } -- never throws.
+ * `down` is true when the supervisor is not there at all, which is the one
+ * failure a caller may want to word differently from a refusal. `unsure` is true
+ * when the message may have arrived and only the answer was lost; every other
+ * `ok:false` means nothing was typed.
  */
 function say(name, text, opts) {
   const o = opts || {};
@@ -254,14 +287,56 @@ function say(name, text, opts) {
        failure we have to word ourselves. */
     out = (e && e.stdout) || '';
     if (!String(out).trim()) {
+      /* ⚠️ ONLY A HELPER THAT NEVER STARTED IS A DEFINITE NO. One that ran and
+         died without a verdict -- above all one killed at the deadline, which
+         arrives with a signal and no status (chat.js's `spawnFailure` measured
+         the same shapes) -- may already have handed the message over. Calling
+         that "not delivered" is what makes somebody send it twice. */
+      const neverRan = Boolean(e) && e.status == null && !e.signal;
+      if (!neverRan) {
+        /* Two shapes, two sentences. A signal is our own deadline killing it
+           (measured: ETIMEDOUT + SIGTERM, status null). An exit status with no
+           verdict is a helper that died on its own -- most likely before it
+           wrote anything, but "most likely" is not "nothing typed", so it stays
+           unsure and says what actually happened. */
+        return {
+          ok: false,
+          unsure: true,
+          because: e.signal
+            ? 'it did not answer us in time, so we cannot tell whether it arrived'
+            : 'the helper carrying the message stopped before it told us what happened, so we cannot tell whether it arrived',
+        };
+      }
       return { ok: false, because: 'we could not reach it to type anything (' + ((e && e.code) || 'no answer') + ')' };
     }
   }
-  let parsed;
-  try { parsed = JSON.parse(String(out).trim().split('\n').pop()); }
-  catch { return { ok: false, because: 'we could not make sense of what came back from its channel' }; }
-  if (parsed && parsed.ok === true) return { ok: true };
-  return { ok: false, because: (parsed && parsed.because) || 'it did not take the message', down: Boolean(parsed && parsed.down) };
+  /* The helper RAN -- a never-started one returned above -- so it may have
+     handed the message over before its verdict went wrong. */
+  return readVerdict(String(out).trim().split('\n').pop(), true);
+}
+
+/**
+ * Read one verdict line from the other side. The ONE reading for both places
+ * that receive one -- `clientMain` from the supervisor, `say()` from the helper
+ * -- because two copies of this guard is how a gap got fixed in one and not the
+ * other, twice (review rounds 3-5).
+ *
+ * Only two shapes are verdicts, the two this file writes: `ok === true`, and
+ * `ok === false` with a sentence, which carries its own `down` / `unsure`.
+ * Anything else did not come from us, so we cannot know what happened: once the
+ * request was handed over that is unsure, before it a definite no.
+ */
+function readVerdict(line, handedOver) {
+  let v;
+  try { v = JSON.parse(line); } catch { v = undefined; }
+  const isObject = Boolean(v) && typeof v === 'object' && !Array.isArray(v);
+  if (isObject && v.ok === true) return { ok: true };
+  if (isObject && v.ok === false && typeof v.because === 'string' && v.because) {
+    return { ok: false, because: v.because, down: v.down === true, unsure: v.unsure === true };
+  }
+  return handedOver
+    ? { ok: false, unsure: true, because: 'we could not make sense of what came back from its channel, so we cannot tell whether it arrived' }
+    : { ok: false, because: 'we could not make sense of what came back from its channel' };
 }
 
 /**
@@ -291,15 +366,34 @@ function clientMain(name, text, opts) {
   catch { done({ ok: false, because: 'that is not a name we can open a channel for' }); return null; }
 
   let settled = false;
+  /* Set the moment the request is written. Before it, every failure is a
+     definite "nothing typed"; after it, a broken channel may have delivered. */
+  let wrote = false;
   const finish = (payload) => { if (settled) return; settled = true; done(payload); try { sock.destroy(); } catch { /* going anyway */ } };
 
   const sock = net.connect(at);
-  sock.setTimeout(timeout, () => finish({ ok: false, because: 'it did not answer us in time, so we cannot tell whether it arrived' }));
+  /* 🔑 `unsure` IS SET ONLY AFTER THE REQUEST HAS BEEN WRITTEN (`wrote`), on each
+     way the conversation can end from there: this timeout, a close, an error.
+     From that point the supervisor may have typed it and only the answer was
+     lost, and chat.js reports `unconfirmed` rather than `could_not`, because
+     "not delivered" about a delivered message is how it gets sent twice. Before
+     the write, the same three events are a definite no. */
+  sock.setTimeout(timeout, () => finish(wrote
+    ? { ok: false, unsure: true, because: 'it did not answer us in time, so we cannot tell whether it arrived' }
+    : { ok: false, because: 'we could not get through to it in time, so we did not type anything' }));
   sock.on('error', (e) => {
     /* 🔑 ENOENT IS THE SUPERVISOR BEING DOWN, and Windows gives it to us at once:
        a named pipe stops existing when its server exits, so there is no stale
        socket file to time out against the way a unix socket would leave. */
     const down = e && (e.code === 'ENOENT' || e.code === 'ECONNREFUSED');
+    if (!down && wrote) {
+      finish({
+        ok: false,
+        unsure: true,
+        because: 'its channel broke after we handed the message over (' + ((e && e.code) || 'unknown') + '), so we cannot tell whether it arrived',
+      });
+      return;
+    }
     finish({
       ok: false,
       down: Boolean(down),
@@ -314,15 +408,18 @@ function clientMain(name, text, opts) {
     buf += chunk.toString('utf8');
     const nl = buf.indexOf('\n');
     if (nl === -1) return;
-    let reply;
-    try { reply = JSON.parse(buf.slice(0, nl)); }
-    catch { finish({ ok: false, because: 'we could not make sense of what came back from its channel' }); return; }
-    finish(reply && reply.ok === true ? { ok: true } : { ok: false, because: (reply && reply.because) || 'it did not take the message' });
+    /* The supervisor's own flags travel with its sentence; an answer we cannot
+       read, once the request is written, came from a supervisor that may already
+       have typed the message. */
+    finish(readVerdict(buf.slice(0, nl), wrote));
   });
-  sock.on('close', () => finish({ ok: false, because: 'its channel closed before it told us what happened' }));
+  sock.on('close', () => finish(wrote
+    ? { ok: false, unsure: true, because: 'its channel closed before it told us what happened, so we cannot tell whether it arrived' }
+    : { ok: false, because: 'its channel closed before we could hand anything over, so we did not type anything' }));
 
   sock.on('connect', () => {
     sock.write(JSON.stringify({ v: 1, token: got.secret, type: 'say', text: String(text) }) + '\n');
+    wrote = true;
   });
   return sock;
 }

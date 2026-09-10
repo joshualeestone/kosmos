@@ -3332,7 +3332,7 @@ function classify(pane, paneText) {
    * is live by construction. A gone session simply stops being emitted (absence),
    * which is where "stopped" is decided for win32 -- not here.
    */
-  if (pane.command === require('./win32roster').WIN32_COMMAND) {
+  if (require('./win32roster').isWin32Pane(pane)) {
     if (paneText === 'busy') {
       return { state: STATE.WORKING, confidence: CONFIDENCE.SCRAPED, because: 'it is working' };
     }
@@ -5861,6 +5861,9 @@ function panelessCard(key, nowMs, defaultStatus) {
        Only paneless cards carry it, so a pane card is untouched and every
        existing reader sees exactly what it saw before. Test `=== true`. */
     paneless: true,
+    /* #570 7c-4: no pane and no supervisor pipe behind it, so nothing is reached
+       through a channel. Carried so every card answers the question. */
+    reachedByChannel: false,
     runner: null,
     task: null,
     state: status.state,
@@ -6327,6 +6330,12 @@ function snapshot() {
          `undefined` in production while nothing fails. So both kinds answer
          this, and a consumer branches on a fact rather than on absence. */
       paneless: false,
+      /* #570 7c-4: a message to this agent goes down its supervisor's pipe, not
+         into a pane. True exactly for the rows win32roster emits; the roster owns
+         the one test for its own mark (`isWin32Pane`), which classify's win32
+         arm uses too, so chat.js reads a fact about the card rather than
+         re-deciding what platform it is on. */
+      reachedByChannel: require('./win32roster').isWin32Pane(pane),
       /* Which runner this pane RECORDED at launch (#245/#246): 'codex' or
          'claude', with empty meaning claude the way it does everywhere the
          option is absent. The switch screen keys on this, and it is the

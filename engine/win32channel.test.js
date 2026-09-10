@@ -54,9 +54,9 @@ function ask(name, text, pipe, opts) {
 test('#570 7c-3 a message crosses the channel and the ANSWER comes back', async () => {
   /* 🔑 THE WHOLE SLICE. After 7c-2 the supervisor could type at the agent and
      nothing outside that process could ask it to. This is the asking. It is a
-     request and a REPLY rather than a drop, because chat.js's contract is that a
-     delivery either happened or is reported as could_not -- a channel that could
-     only post into a void could not honour it. */
+     request and a REPLY rather than a drop, because chat.js reports one of three
+     verdicts -- placed, could_not, unconfirmed -- and a channel that could only
+     post into a void could not tell them apart. */
   const said = [];
   const s = serving('crosser', { onSay: (text, done) => { said.push(text); done({ ok: true }); } });
   assert.equal(s.ok, true, s.because || '');
@@ -133,6 +133,131 @@ test('#570 7c-3 a supervisor that is not there says SO, and says it is not runni
   assert.match(r.because, /did not type anything/, 're-sending has to be safe, so say nothing was typed');
 });
 
+/* ── #570 7c-4: which failures may have delivered ───────────────────────────── */
+
+test('#570 7c-4 a reply that never comes is UNSURE, because the message was already handed over', async () => {
+  /* The supervisor got the message and never said what happened. It may well be
+     in the agent's conversation, so "not delivered" would invite a duplicate. */
+  const said = [];
+  const s = serving('mute', { onSay: (t) => { said.push(t); /* never answers */ } });
+  const r = await ask('mute', 'hello', s.pipe, { timeoutMs: 300 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /cannot tell whether it arrived/);
+  assert.deepEqual(said, ['hello'], 'and it really had been handed over');
+});
+
+test('#570 7c-4 a channel that drops after the request is UNSURE, however it drops', async () => {
+  /* A server that hangs up on receipt: depending on timing the client sees a
+     clean close or a reset error. Both come after the write, so both are unsure. */
+  const net = require('node:net');
+  const addr = address();
+  const srv = net.createServer((sock) => { sock.on('error', () => {}); sock.on('data', () => sock.destroy()); });
+  await new Promise((res) => srv.listen(addr, res));
+  try {
+    const r = await ask('slammer', 'hello', addr, { timeoutMs: 2000 });
+    assert.equal(r.ok, false);
+    assert.equal(r.unsure, true, r.because);
+  } finally { srv.close(); }
+});
+
+test('#570 7c-4 down and refused are NOT unsure: nothing was typed, so re-sending is safe', async () => {
+  const down = await ask('nobody-home-2', 'x', address(), { timeoutMs: 500 });
+  assert.equal(down.down, true);
+  assert.ok(!down.unsure);
+  const s = serving('refuser', { onSay: (t, done) => done({ ok: false, because: 'it would not take it' }) });
+  const refused = await ask('refuser', 'x', s.pipe);
+  assert.equal(refused.ok, false);
+  assert.ok(!refused.unsure);
+});
+
+test('#570 7c-4 a helper that never started is a definite no, not an unsure one', () => {
+  /* The one say() failure that is provably before any write: the helper
+     process could not even be spawned. */
+  const r = channel.say('nohelper', 'x', { pipe: address(), node: path.join(SANDBOX, 'no-such-node.exe'), timeoutMs: 500 });
+  assert.equal(r.ok, false);
+  assert.ok(!r.unsure);
+  assert.match(r.because, /could not reach it to type anything/);
+});
+
+test('#570 7c-4 the supervisor does NOT time out a message it has already handed over', async () => {
+  /* Found in review: the server's idle timer kept running after onSay, and when
+     it fired it answered "nothing arrived" -- a definite no -- for a message
+     whose write to the agent was still queued. With the timer stopped at
+     handover, the only way this ends is the caller's own timeout, which is
+     unsure. idleMs is shorter than the caller's timeout so the old defect would
+     answer first. */
+  const s = serving('pending', { idleMs: 200, onSay: () => { /* still writing */ } });
+  const r = await ask('pending', 'hello', s.pipe, { timeoutMs: 900 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true, r.because);
+  assert.doesNotMatch(r.because, /nothing arrived/);
+});
+
+test('#570 7c-4 a helper that dies without a verdict is unsure, and says it stopped', () => {
+  const script = path.join(SANDBOX, 'helper-dies.js');
+  fs.writeFileSync(script, 'process.exit(1);\n', 'utf8');
+  const r = channel.say('dies', 'x', { pipe: address(), helper: script, timeoutMs: 2000 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /stopped before it told us/);
+});
+
+test('#570 7c-4 a helper killed at the deadline is unsure, and says it did not answer in time', () => {
+  const script = path.join(SANDBOX, 'helper-hangs.js');
+  fs.writeFileSync(script, 'setTimeout(() => {}, 60000);\n', 'utf8');
+  const r = channel.say('hangs', 'x', { pipe: address(), helper: script, timeoutMs: 300 });
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /did not answer us in time/);
+});
+
+test('#570 7c-4 a helper that RAN but left no readable verdict is unsure, not a definite no', () => {
+  /* Found in review round 3: a helper that exited 0 with garbage or nothing on
+     stdout read as could_not, yet it ran and may have handed the message over. */
+  for (const [label, body] of [
+    ['garbage', "process.stdout.write('not json\\n');\n"],
+    ['silent', ''],
+    ['array', "process.stdout.write('[]\\n');\n"],   // typeof [] is 'object'; round 4 found it slipping past
+    ['empty-object', "process.stdout.write('{}\\n');\n"],   // an object with no verdict in it (round 5)
+    ['ok-not-boolean', "process.stdout.write('{\"ok\":1}\\n');\n"],
+  ]) {
+    const script = path.join(SANDBOX, 'helper-' + label + '.js');
+    fs.writeFileSync(script, body, 'utf8');
+    const r = channel.say('garbled-' + label, 'x', { pipe: address(), helper: script, timeoutMs: 2000 });
+    assert.equal(r.ok, false, label);
+    assert.equal(r.unsure, true, label + ': it ran, so it may have delivered');
+    assert.match(r.because, /cannot tell whether it arrived/, label);
+  }
+});
+
+test('#570 7c-4 a reply we cannot read, after the request was written, is unsure', async () => {
+  /* The supervisor had the request and may have typed it; only its answer is
+     unreadable. Reading that as "not delivered" invites a second send. */
+  const net = require('node:net');
+  for (const reply of ['not json\n', 'null\n', '[]\n', '{}\n', '{"ok":1}\n', '{"because":"x"}\n']) {
+    const at = address();
+    const server = net.createServer((sock) => { sock.once('data', () => sock.end(reply)); });
+    await new Promise((res) => server.listen(at, res));
+    try {
+      const r = await ask('unreadable', 'hello', at);
+      assert.equal(r.ok, false, JSON.stringify(reply));
+      assert.equal(r.unsure, true, JSON.stringify(reply) + ' came after the request was written');
+      assert.match(r.because, /could not make sense/);
+    } finally {
+      await new Promise((res) => server.close(res));
+    }
+  }
+});
+
+test('#570 7c-4 an onSay that THROWS is unsure, the same reading chat.js gives a throwing say()', async () => {
+  const s = serving('thrower', { onSay: () => { throw Object.assign(new Error('boom'), { code: 'EBOOM' }); } });
+  const r = await ask('thrower', 'hello', s.pipe);
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /EBOOM.*cannot tell whether it arrived/);
+});
+
 test('#570 7c-3 a delivery the supervisor could not make is relayed with ITS sentence', async () => {
   /* The supervisor knows things the board cannot: that the agent died between the
      roster read and the write, that the pipe broke. Inventing a sentence here would
@@ -143,6 +268,20 @@ test('#570 7c-3 a delivery the supervisor could not make is relayed with ITS sen
   const r = await ask('honest', 'hello', s.pipe);
   assert.equal(r.ok, false);
   assert.match(r.because, /not running just now/);
+  assert.ok(!r.unsure, 'nothing was typed, so the board may say not delivered');
+});
+
+test('#570 7c-4 the supervisor\'s UNSURE survives the crossing', async () => {
+  /* Only the supervisor knows its write had started before it failed. A server
+     that relayed the sentence but dropped the flag would turn a maybe-delivered
+     message into "not delivered" at the board -- the duplicate-send hazard. */
+  const s = serving('halfway', {
+    onSay: (t, done) => done({ ok: false, unsure: true, because: 'the write to it failed part-way (EPIPE), so we cannot tell whether it arrived' }),
+  });
+  const r = await ask('halfway', 'hello', s.pipe);
+  assert.equal(r.ok, false);
+  assert.equal(r.unsure, true);
+  assert.match(r.because, /failed part-way/);
 });
 
 test('#570 7c-3 more than a message is refused rather than buffered', async () => {
@@ -165,6 +304,30 @@ test('#570 7c-3 more than a message is refused rather than buffered', async () =
   assert.equal(r.ok, false);
   assert.match(r.because, /more than a message/);
   assert.deepEqual(said, []);
+});
+
+test('#570 7c-4 more bytes after a message is handed over are ignored, never typed a second time', async () => {
+  /* Found in review, reproduced against the real serve(): with a slow write
+     pending, a second chunk on the same connection re-parsed the first line and
+     handed the SAME message to onSay again -- two writes into the agent for one
+     send, the duplicate this whole channel exists to prevent. */
+  const said = [];
+  const s = serving('once', {
+    secret: 'test-secret-once',
+    onSay: (t, done) => { said.push(t); setTimeout(() => done({ ok: true }), 300); },
+  });
+  const net = require('node:net');
+  const r = await new Promise((resolve) => {
+    const sock = net.connect(s.pipe, () => {
+      sock.write(JSON.stringify({ v: 1, token: 'test-secret-once', type: 'say', text: 'hello' }) + '\n');
+      setTimeout(() => { sock.write('one more line\n'); }, 50);
+    });
+    let buf = '';
+    sock.on('data', (c) => { buf += c.toString('utf8'); if (buf.includes('\n')) { resolve(JSON.parse(buf.split('\n')[0])); sock.destroy(); } });
+    sock.on('error', () => resolve({ ok: false, because: 'connect failed' }));
+  });
+  assert.deepEqual(r, { ok: true }, 'the answer is still the one onSay gave');
+  assert.deepEqual(said, ['hello'], 'handed over exactly once');
 });
 
 test('#570 7c-3 nonsense on the wire is refused with a sentence, never a crash', async () => {

@@ -52,6 +52,16 @@ const win32sessions = require('./win32sessions');
    (isNativeClaude) stays off and the claim is the sole ownership evidence. */
 const WIN32_COMMAND = 'claude.exe';
 
+/**
+ * Is this a pane this roster emitted? The ONE test for the mark above, owned by
+ * the module that stamps it, so `status.classify`'s win32 arm and the card's
+ * `reachedByChannel` (#570 7c-4) cannot come to disagree about which agents are
+ * Windows agents.
+ */
+function isWin32Pane(pane) {
+  return Boolean(pane) && pane.command === WIN32_COMMAND;
+}
+
 /* A tab or newline in a field would break the PANE_COLUMNS framing (tab-separated,
    one row per line). Agent names from `claude agents --json` do not contain them,
    but a field is caller-external text, so flatten defensively rather than smuggle
@@ -146,4 +156,4 @@ function make(opts) {
   };
 }
 
-module.exports = { make, defaultRun, WIN32_COMMAND, flat };
+module.exports = { make, defaultRun, WIN32_COMMAND, isWin32Pane, flat };
