@@ -89,11 +89,17 @@ function lineReader(onLine) {
   let buf = '';
   let skipping = false;
   return function feed(chunk) {
+    /* Search only what just arrived: what was already buffered is known to hold
+       no newline. Re-scanning it on every chunk made one long line cost the square
+       of its length (measured: a 16MB line in 64KB chunks held the supervisor's
+       event loop, which also serves the channel, for half a second). */
+    let from = buf.length;
     buf += typeof chunk === 'string' ? chunk : decoder.write(chunk);
     let nl;
-    while ((nl = buf.indexOf('\n')) !== -1) {
+    while ((nl = buf.indexOf('\n', from)) !== -1) {
       const line = buf.slice(0, nl);
       buf = buf.slice(nl + 1);
+      from = 0;
       if (skipping) { skipping = false; continue; }
       if (line.trim()) onLine(line);
     }
@@ -155,6 +161,9 @@ function publisher(name, opts) {
   let current = null;      // { pid, sessionId, state } of the agent running now
   let written = null;      // the state last put on disk for `current`
   let retrying = false;
+  /* Bumped on every start and stop, so a retry armed for one process can never
+     act as the second attempt for the next. */
+  let generation = 0;
 
   /* `retrying` is true from a failed write until the next write that SUCCEEDS, so
      the retry below -- or any transition that comes first -- is the second
@@ -174,12 +183,14 @@ function publisher(name, opts) {
       return;
     }
     retrying = true;
-    timer(() => { if (retrying) flush(); }, WRITE_RETRY_MS);
+    const armedFor = generation;
+    timer(() => { if (retrying && armedFor === generation) flush(); }, WRITE_RETRY_MS);
   }
 
   return {
     /** A new agent process is up: idle until it is told something. */
     started(pid, sessionId) {
+      generation += 1;
       retrying = false;
       written = null;
       if (!Number.isInteger(pid) || typeof sessionId !== 'string' || !sessionId) { current = null; clear(); return; }
@@ -197,6 +208,7 @@ function publisher(name, opts) {
     },
     /** The agent process is gone. */
     stopped() {
+      generation += 1;
       current = null;
       written = null;
       retrying = false;

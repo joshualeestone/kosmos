@@ -332,7 +332,7 @@ test('#570 7c-5 the supervisor publishes its agent: the start, every stream even
   h.stop();
 });
 
-test('#570 7c-5 a REPLACED child can neither publish nor clear for the one that replaced it', () => {
+test('#570 7c-5 a REPLACED child\'s late output says nothing about the one that replaced it', () => {
   const kids = [];
   const sink = streamSink();
   const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
@@ -345,9 +345,29 @@ test('#570 7c-5 a REPLACED child can neither publish nor clear for the one that 
   assert.deepEqual(sink.calls.slice(-1), [['started', 5001, 'sid-r']]);
   sink.calls.length = 0;
   kids[0].stdout.emit('data', Buffer.from('{"type":"assistant"}\n'));   // a late line from the dead one
-  kids[0].emit('exit', 1);                                              // and a second signal for its death
   assert.deepEqual(sink.calls, [], 'the old process said nothing about the new one');
   h.stop();
+});
+
+test('#570 7c-5 a clean STOP clears the state, and the agent\'s later exit does not clear it twice', () => {
+  /* stop() drops `child` before the agent exits, so the death handler's
+     current-child guard skips it; without the clear in stop() a turn cut off by
+     the stop would stay WORKING on disk. */
+  const kids = [];
+  const sink = streamSink();
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    launch: () => { const c = streamingChild(7); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  h.send('hello', () => {});
+  sink.calls.length = 0;
+  h.stop();
+  assert.deepEqual(sink.calls, [['stopped']], 'the stop clears');
+  kids[0].stdout.emit('data', Buffer.from('{"type":"result"}\n'));   // its last line, during shutdown
+  kids[0].die(0);                                                     // then its exit
+  assert.deepEqual(sink.calls, [['stopped']], 'nothing after the stop publishes or clears again');
 });
 
 test('#570 7c-5 a failed write does not mark the agent busy', () => {
@@ -452,6 +472,7 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   const spawned = [];
   launcher.setSpawn((bin, argv) => {
     const c = fakeChild();
+    c.pid = 4242;
     c.spawnargs = argv;
     spawned.push({ bin, argv, child: c });
     return c;
@@ -459,6 +480,11 @@ test('#570 7c-2 THE TASK SUPERVISES THE STREAMING AGENT -- the detached one cann
   sup.setLiveReader(() => []);
   const cwd = workdir('entry');
   const handle = sup.main(['entry', cwd, '-', '-', 'claude']);
+  /* 7c-5: and main() is the ONE production wiring of the state publisher. Without
+     it every Windows card reads UNKNOWN while every other test stays green, so the
+     file main()'s agent gets is checked here, before the stop below clears it. */
+  assert.equal(require('./win32streamstate').stateFor('entry', { sessionId: handle.sessionId, pid: 4242 }), 'idle',
+    'main() publishes its agent\'s state from the moment it starts');
 
   assert.equal(spawned.length, 1, 'main() started exactly one agent');
   assert.ok(spawned[0].argv.includes('--input-format'), 'and it is a STREAMING session');

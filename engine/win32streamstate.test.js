@@ -166,6 +166,27 @@ test('#570 7c-5 a retry that succeeds writes the state; a success before it make
   assert.deepEqual(got, ['idle', 'busy'], 'no write when the disk already holds the current state');
 });
 
+test('#570 7c-5 a retry armed for one process never acts as the second attempt for the next', () => {
+  const timers = [];
+  let clears = 0;
+  const problems = [];
+  const pub = ss.publisher('agent-a', {
+    write: () => ({ ok: false, because: 'EPERM' }),
+    clear: () => { clears += 1; },
+    setTimer: (fn) => timers.push(fn),
+    onProblem: (why) => problems.push(why),
+  });
+  pub.started(1, 'sid');            // fails; retry armed for process 1
+  pub.stopped();                    // clears (1)
+  pub.started(2, 'sid');            // fails; retry armed for process 2
+  const before = clears;
+  timers[0]();                      // process 1's retry fires late
+  assert.equal(clears, before, 'the old retry did nothing, so process 2 still gets its full retry');
+  assert.equal(problems.length, 2);
+  timers[1]();                      // process 2's own retry: its second failure
+  assert.equal(clears, before + 1);
+});
+
 test('#570 7c-5 the line reader joins split chunks, keeps a split multibyte character, and skips blanks', () => {
   const lines = [];
   const feed = ss.lineReader((l) => lines.push(l));

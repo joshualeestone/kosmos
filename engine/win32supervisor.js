@@ -395,6 +395,8 @@ function superviseStreaming(spec, opts) {
        say why on the task log rather than dying in silence. */
     let stderrTail = '';
     if (c.stderr && typeof c.stderr.on === 'function') {
+      /* Decoded by the stream, so a character split between two chunks stays whole. */
+      if (typeof c.stderr.setEncoding === 'function') c.stderr.setEncoding('utf8');
       c.stderr.on('data', (d) => { stderrTail = (stderrTail + String(d)).slice(-STDERR_TAIL_CHARS); });
     }
     /* ⚠️ ONE HANDLER, AND IT MUST NOT FIRE TWICE. 'exit' and 'close' both arrive;
@@ -535,6 +537,10 @@ function superviseStreaming(spec, opts) {
        its own accord, which lets it finish writing anything in flight. A stop
        that must be immediate is win32stop's job, and that is a different verb. */
     if (child && child.stdin && !child.stdin.destroyed) { try { child.stdin.end(); } catch { /* it is going anyway */ } }
+    /* A stop clears the state too. `child` is dropped here, before the agent's
+       exit arrives, so the death handler below would never publish it -- and a
+       turn cut off by the stop must not stay WORKING on disk. */
+    if (child) stream.stopped();
     child = null;
   };
 
