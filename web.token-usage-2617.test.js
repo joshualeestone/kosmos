@@ -116,6 +116,10 @@ test('#2617: the money box is derived from OUTPUT alone and names its class', ()
   assert.match(money, /engineering-equivalent of the <b>output<\/b> tokens/, 'it names OUTPUT as its basis');
   assert.ok(money.includes(fmt(EXPECT.output)), 'it states the output token count it is built from');
   assert.match(money, /about 1\.9 engineer-days/, 'it states the engineer-day equivalent');
+  // Mona's #2617 copy call: spell "eight-hour" so it does not collide with the
+  // digit in "about 1.9 engineer-days" later in the same sentence.
+  assert.match(money, /eight-hour engineer-day/, 'the engineer-day is spelled "eight-hour"');
+  assert.doesNotMatch(money, /8-hour/, 'not the digit form "8-hour" (Mona ruled the word)');
   // The other three classes must NOT be folded into the dollar figure.
   assert.ok(!money.includes(fmt(EXPECT.cacheRead)), 'cache-read is not folded into the dollar figure');
 });

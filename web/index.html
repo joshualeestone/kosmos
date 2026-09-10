@@ -1876,14 +1876,22 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    --k-* surface/ink/rule tokens so the whole view flips with the theme -- the
    mockup hardcoded dark; the tokens give the light scheme for free. The four
    chart/legend colors are Mona's exact values. */
-.usage-four { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 14px 0 0; }
-@media (max-width: 680px) { .usage-four { grid-template-columns: repeat(2, 1fr); } }
+/* TWO columns, not four. The mockup shows four across at a 900px document width,
+   and drops to two at <=680px VIEWPORT. But this section lives in the Settings
+   content column (34rem / ~544px) inside a wide viewport, so the viewport query
+   never fires and four full 13-digit numbers get crushed to ~85px each -- which
+   forced a font smaller than the card's own caption. Two across gives each card
+   ~210px, so the numbers stay bold AND fit on one clean line (Mona's #2617
+   design-block). One column only on a genuinely narrow phone. */
+.usage-four { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 14px 0 0; }
+@media (max-width: 480px) { .usage-four { grid-template-columns: 1fr; } }
 .usage-cls { border: 1px solid var(--k-rule); border-radius: 12px; padding: 14px 15px; }
 .usage-k { color: var(--k-ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 7px; }
-/* word-break so a full, unabbreviated cache-read number (it runs to billions)
-   wraps inside its card instead of widening the grid -- Josh's rule is to show
-   every class in full, so the layout has to hold an alarming number. */
-.usage-v { color: var(--k-ink); font: 700 1.375rem/1.1 var(--font-mono); letter-spacing: -.01em; word-break: break-all; }
+/* nowrap + no word-break: a full, unabbreviated number stays on ONE line and is
+   never split mid-digit-group (the #2617 design-block: "1,964,/004,10/2" read as
+   broken). At 1.2rem in a two-column card, even a trillion-scale (17-char) number
+   fits, so the layout holds Josh's "show it in full however large" without wrapping. */
+.usage-v { color: var(--k-ink); font: 700 1.2rem/1.15 var(--font-mono); letter-spacing: -.01em; white-space: nowrap; }
 /* The cache-read card's accent is applied inline by usageCardsHtml from the shared
    USAGE_CLASS_COLORS, so it agrees with the chart line and legend swatch by
    REFERENCE, not by both happening to equal the app-wide --gold (which is reused
@@ -22525,7 +22533,10 @@ function usageMoneyHtml(totals) {
     + '<p class="usage-money-big">$<span>' + usageNum(dollars) + '</span></p>'
     + '<p class="usage-money-basis">This is the engineering-equivalent of the <b>output</b> tokens above ('
     + usageNum(output) + ' over the period), at ' + usageNum(USAGE_TOKENS_PER_ENGINEER_DAY)
-    + ' output tokens to an ' + USAGE_HOURS_PER_ENGINEER_DAY + '-hour engineer-day at $' + USAGE_RATE_PER_HOUR
+    // "eight-hour" is spelled out (Mona's #2617 copy call) so the reader does not
+    // collide it with the digit in "about N engineer-days" later in the sentence.
+    // The word tracks USAGE_HOURS_PER_ENGINEER_DAY (8); update both together.
+    + ' output tokens to an eight-hour engineer-day at $' + USAGE_RATE_PER_HOUR
     + ' an hour: about ' + engDays.toFixed(1) + ' engineer-days. It is built from output on purpose, because '
     + 'output is what the models actually produced; the other three classes are shown in full above rather than '
     + 'folded into this figure, so a large number is never turned into a large dollar amount it did not earn.</p>'
@@ -22568,9 +22579,11 @@ function usageChartSvg(series) {
     const pts = s.map((p, i) => xAt(i).toFixed(1) + ',' + yAt(p[c.key]).toFixed(1)).join(' ');
     return '<polyline fill="none" stroke="' + c.color + '" stroke-width="2" points="' + pts + '"/>';
   }).join('');
-  /* Every other day, so a 14-day axis does not crowd. */
+  /* Every other day, so a 14-day axis does not crowd. The first label sits at
+     x0=8 and would clip at the SVG's left edge if centered ("ug 31"), so anchor
+     it to the start; the rest stay centered on their point. */
   const labels = s.map((p, i) => (i % 2 === 0)
-    ? '<text x="' + xAt(i).toFixed(1) + '" y="292" text-anchor="middle" font-size="9" fill="var(--k-ink-2)">' + esc(usageDayLabel(p.day)) + '</text>'
+    ? '<text x="' + xAt(i).toFixed(1) + '" y="292" text-anchor="' + (i === 0 ? 'start' : 'middle') + '" font-size="9" fill="var(--k-ink-2)">' + esc(usageDayLabel(p.day)) + '</text>'
     : '').join('');
   return '<svg viewBox="0 0 760 300" role="img" aria-label="Daily token usage by class, ' + n + ' days">'
     + '<line x1="' + x0 + '" y1="' + yBase + '" x2="' + x1 + '" y2="' + yBase + '" stroke="var(--k-rule)" stroke-width="1"/>'
