@@ -223,7 +223,7 @@ test('#2570: the stopped agent is on the removed list, which is what the answer 
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.match(String(r.json.because), /archer was stopped first/);
-  assert.match(String(r.json.because), /restore it from the removed list/);
+  assert.match(String(r.json.because), /put it back from the removed list once you add this account again under the same name/);
   assert.ok(removedNames().includes('archer'),
     'the answer says the agent can be restored, and no removal record was written, so it cannot be');
   /* And the original disconnect sentence survives: the stop note is APPENDED,
@@ -241,7 +241,7 @@ test('#2570: two agents are both stopped, and both are named', async () => {
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual([...r.json.stopped].sort(), ['goodwin', 'wolfe']);
   assert.match(String(r.json.because), /2 agents were stopped first \(/);
-  assert.match(String(r.json.because), /restore them from the removed list/);
+  assert.match(String(r.json.because), /put them back from the removed list once you add this account again under the same name/);
 });
 
 /* ── the guards ──────────────────────────────────────────────────────────── */
@@ -382,7 +382,7 @@ test('#2570: the OpenAI route stops its own agents the same way', async () => {
   const r = await del('openai', { dir, stopAgents: true });
   assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.stopped, ['poirot'], 'the OpenAI door must not be the one that still refuses');
-  assert.match(String(r.json.because), /restore it from the removed list/);
+  assert.match(String(r.json.because), /put it back from the removed list once you add this account again under the same name/);
   assert.ok(removedNames().includes('poirot'), 'no removal record, so the restore promise is false here too');
 });
 

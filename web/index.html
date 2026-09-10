@@ -16690,9 +16690,13 @@ async function paintAccounts() {
                 ? ' Press again to delete this account for good and stop ' + (one ? 'it' : 'them')
                   + '; ' + (one ? 'it' : 'they') + ' will need a different account before '
                   + (one ? 'it' : 'they') + ' can start again.'
+                /* Same condition the route's own sentence now names: a restore
+                   only lands on a working directory if the account comes back
+                   under the same name, because the launch file points at
+                   `.claude-<label>` by absolute path. */
                 : ' Press again to disconnect and stop ' + (one ? 'it' : 'them')
-                  + '; you can restore ' + (one ? 'it' : 'them')
-                  + ' from the removed list if you sign back in.');
+                  + '; you can put ' + (one ? 'it' : 'them')
+                  + ' back from the removed list once you add this account again under the same name.');
             if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
           }
           btn.focus({ preventScroll: true });

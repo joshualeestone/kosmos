@@ -128,7 +128,13 @@ test('#2570: blurring the row forgets the stop offer, exactly as it forgets the 
 
 /* A person who presses the second confirm has been told what it does. A person
    who reads only the sentence has not, unless the sentence says it too. */
-test('#2570: the offer sentence says the stop is reversible', () => {
+test('#2570: the offer sentence says the stop is reversible, and names the condition', () => {
   const fn = handler();
-  assert.match(fn, /restore/i, 'the offer no longer tells the person the agents can be restored');
+  /* Not a bare /restore/i: that matched the word anywhere in a 457KB window and
+     would still match a sentence that promised a way back without saying what it
+     depends on. The launch file points at `.claude-<label>` by absolute path, so
+     the account has to come back under the SAME name for a restore to land
+     anywhere useful. */
+  assert.ok(fn.indexOf('back from the removed list once you add this account again under the same name') > 0,
+    'the offer either drops the way back, or promises one without its condition');
 });

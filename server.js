@@ -4970,6 +4970,19 @@ const server = http.createServer((req, res) => {
    * stopped and which did not.
    */
   function stopAgentsForDisconnect(names) {
+    /* ⚠️ SYNCHRONOUS, AND THE BOUND IS WORTH STATING RATHER THAN DISCOVERING.
+       `removal.remove` shells out with execFileSync, four commands per agent
+       (disable, bootout, kill-session, has-session), each with a 20s ceiling. So
+       this loop blocks the board's event loop for as long as the launchctl and
+       tmux calls take, multiplied by the number of agents on ONE account.
+       Deliberate, for three reasons: the 20s is a HANG ceiling rather than a
+       duration (these calls return in milliseconds); the single-agent removal
+       route already calls the same primitive the same way, so a hung launchctl
+       already blocks the board today; and the person has just pressed a button
+       whose whole content is "stop these agents", so doing it before answering is
+       the expected order. If a board is ever reported wedged during a disconnect,
+       this is the loop, and the fix is to make the primitive async rather than to
+       cap N here. */
     const results = [];
     for (const name of names) {
       let done = null;
@@ -5044,8 +5057,15 @@ const server = http.createServer((req, res) => {
        working-agent-behaving-like-a-blank-one state #1659 exists to prevent, and
        a fresh sign-in makes a differently-named directory anyway. So the delete
        door says what is true of it instead. */
+    /* 🛑 THE CONDITION IS NAMED, BECAUSE THE WAY BACK HAS ONE. An agent's launch
+       file points at its account directory by ABSOLUTE PATH, and
+       `accounts.dirForLabel` derives that path from the label the person typed:
+       `.claude-<label>`. So a restore lands on a working directory only if the
+       account is added back under the SAME name. "if you sign back in" left that
+       out, which made the sentence true only for the person who happens to
+       retype the same label. */
     const way = restorable
-      ? ` You can restore ${one ? 'it' : 'them'} from the removed list if you sign back in.`
+      ? ` You can put ${one ? 'it' : 'them'} back from the removed list once you add this account again under the same name.`
       : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
     return {
       ...payload,

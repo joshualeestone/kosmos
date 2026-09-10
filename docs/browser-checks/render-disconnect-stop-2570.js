@@ -33,6 +33,17 @@ catch {
 
 const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
 
+/* 🔑 THE STUB'S SENTENCES ARE CONSTANTS, AND THE ASSERTIONS COMPARE AGAINST THEM
+   RATHER THAN AGAINST WORDING THIS FILE DOES NOT OWN. An earlier version pasted
+   the route's real sentence into the stub and then matched a phrase from it, so
+   when the route's copy was tightened this check went red about a sentence it
+   had invented. What this check is for is the RENDER path: the server's reason
+   reaches the page, and the success sentence reaches the page. The route's actual
+   wording is pinned by server.disconnect-stop-2570.test.js, which is where it
+   belongs. */
+const REFUSAL = 'marlowe is set up to run on this account. Move it to another account or remove it first.';
+const SUCCESS = 'That account is off the list. marlowe was stopped first, and you can put it back later.';
+
 const ROW = {
   provider: 'anthropic', providerName: 'Anthropic / Claude',
   email: 'busy@example.com', label: 'busy@example.com', dir: '/home/.claude-busy',
@@ -56,7 +67,7 @@ const ROW = {
   const page = await browser.newPage({ viewport: { width: 1100, height: 900 } });
   await page.goto('file://' + PAGE);
 
-  const r = await page.evaluate(async (account) => {
+  const r = await page.evaluate(async ({ account, refusal, success }) => {
     const sent = [];
     /* The stubbed board keeps state, so the repaint after a successful
        disconnect reflects what the route actually did. Without this the account
@@ -76,14 +87,11 @@ const ROW = {
         if (body && body.stopAgents === true) {
           gone = true;
           return Promise.resolve({ ok: true, json: async () => ({
-            forgotten: true,
-            because: 'That account is off the list. marlowe was stopped first. You can restore it from the removed list if you sign back in.',
-            stopped: ['marlowe'],
+            forgotten: true, because: success, stopped: ['marlowe'],
           }) });
         }
         return Promise.resolve({ ok: false, json: async () => ({
-          error: 'marlowe is set up to run on this account. Move it to another account or remove it first.',
-          usedBy: ['marlowe'],
+          error: refusal, usedBy: ['marlowe'],
         }) });
       }
       if (url.indexOf('/api/accounts') !== -1) {
@@ -118,7 +126,7 @@ const ROW = {
     const rowsAfter = document.querySelectorAll('#set-accounts [data-forget]').length;
 
     return { resting, armed, offered, offeredLabel, said, sent, afterSaid, rowsAfter };
-  }, ROW);
+  }, { account: ROW, refusal: REFUSAL, success: SUCCESS });
 
   await browser.close();
 
@@ -144,16 +152,17 @@ const ROW = {
      input cannot operate the button it can see. */
   ok(r.offeredLabel.indexOf(r.offered) === 0,
     'the armed accessible name does not start with the visible text: ' + JSON.stringify(r.offeredLabel));
-  ok(/restore/i.test(r.said),
-    'the offer sentence does not say the agents can be restored: ' + JSON.stringify(r.said));
+  ok(r.said.indexOf(REFUSAL) === 0,
+    'the server\'s own reason did not reach the page, so the person is not told WHY: ' + JSON.stringify(r.said));
+  ok(/put it back from the removed list once you add this account again under the same name/.test(r.said),
+    'the offer does not tell the person the way back and its condition: ' + JSON.stringify(r.said));
 
   /* After the third press: the person is told what happened. A page that sent
      the right request and then said nothing would satisfy every assertion
      above, and would be a page that appears to do nothing. */
-  ok(/marlowe was stopped first/.test(r.afterSaid),
-    'the success sentence naming who was stopped never reached the page: ' + JSON.stringify(r.afterSaid));
-  ok(/restore it from the removed list/.test(r.afterSaid),
-    'the success sentence does not tell the person the way back: ' + JSON.stringify(r.afterSaid));
+  ok(r.afterSaid === SUCCESS,
+    'the route\'s success sentence never reached the page, so a successful stop appears to do nothing: '
+    + JSON.stringify(r.afterSaid));
   ok(r.rowsAfter === 0,
     'the disconnected row is still on the page after a successful disconnect (' + r.rowsAfter + ' left)');
 
