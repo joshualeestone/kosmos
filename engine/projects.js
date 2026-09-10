@@ -2209,8 +2209,13 @@ function blockBody(projects, sessionName) {
     // shell says "command not found" never reaches the engine, so its
     // failure leaves no trace for anyone to find. Re-spliced on every
     // membership change, so existing agents get the corrected form.
+    // #2662: teach the tasks feature beside the room command, so agents catalog
+    // work with the real per-project tasks board instead of improvising a shared
+    // task-board.md file and colliding on it. Re-spliced like the post line, so
+    // existing agents learn it too, not only newborns.
     const head = `- **${oneLine(p.name)}**: \`${oneLine(p.folder)}\`` + (p.id
       ? `\n  - Post to everyone on it: \`${cliShown} post ${oneLine(String(p.id))} "your message"\``
+        + `\n  - Its tasks: \`${cliShown} task list ${oneLine(String(p.id))}\` to see them, \`${cliShown} task add ${oneLine(String(p.id))} "what needs doing"\` to add one (use this, not a hand-rolled task-board file)`
       : '');
     const mine = (sessionName && Array.isArray(p.tasks))
       /* 🛑 THE ONE THAT WOULD HAVE BROKEN QUIETLY AND WORST. This is the list
