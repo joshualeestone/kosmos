@@ -2,13 +2,24 @@
 pre_challenge: true
 method: challenge-loop
 branch: autohello-2686
-diff_hash: 344015dfbd5a15e5c633172be29ed34c343967be5f1804b0acae5d09278b7285
+diff_hash: e419538b9b4f0045b2f5e2457dabff02f7c67636bf3b4b85afd39d40d7b2f246
 validation: passed
 subdir_audit: passed
 timestamp: 2026-09-10T23:30:41Z
 iterations: 5
 converged: true
 ---
+
+> Post-review note: after convergence, origin/main was merged in to resolve two
+> mechanical registration conflicts (browser-checks-reason-grep.test.js's
+> EXPECTED_CATCH_SITES reconciled to 63 for both this branch's render-autohello-2686
+> and main's render-remove-force-2651; tools/browser-checks.sh's runner list keeps
+> both entries). Main's other web/index.html changes (#2712/#2651/#2693/#2660) touch
+> none of the restart/auto-hello code this review covered; the auto-merge was clean in
+> unrelated regions. The full suite and the 16-arm browser-check pass on the merged
+> state. The diff_hash above is recomputed for the merged three-dot diff. The
+> five-iteration review below stands unchanged, since the reviewed feature code is
+> byte-identical.
 
 ## [CHALLENGE-LOOP] Summary
 
