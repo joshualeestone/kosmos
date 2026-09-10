@@ -66,7 +66,7 @@ test('the link is actually pointed somewhere at paint time', () => {
   /* #1615: the design specifies `/+?from=app` ("one page, one parameter") and THAT ROUTE
      DOES NOT SERVE YET. Measured live with a negative control: /plus -> 200 (10305 bytes),
      /+?from=app -> 404 (8498), a nonsense path -> 404 (8498), byte-identical, so /+ is the
-     generic 404. A link labelled "See Kosmos+" landing there misleads, which is the one
+     generic 404. A link labelled "Join Kosmos+" landing there misleads, which is the one
      thing this card's ship-it-unwired rule does NOT permit.
      ⚠️ SO THIS ASSERTS `/plus` AND THAT IS TEMPORARY. It is pinned to the path that
      currently SERVES, not to the path that is RIGHT. When the `/+` rewrite lands in

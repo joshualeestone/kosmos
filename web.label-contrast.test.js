@@ -95,7 +95,7 @@ test('every --label-3 declaration clears 4.5 on the worst ground in its theme', 
   const grounds = {
     light: [hex('#ffffff'), rgb(decls('k-bg')[0])],
     dark: [rgb(decls('k-surface').find((c) => c.startsWith('#17')) || '#17191c'), hex('#0c0d0f')],
-    plus: [hex('#1b2c50'), rgb(decls('k-surface').find((c) => c === '#132140') || '#132140'), hex('#070c16')],
+    plus: [hex('#1b2c50'), rgb(decls('k-surface').find((c) => c === '#1c2c4f') || '#1c2c4f'), hex('#0b1428')],
   };
 
   for (const [theme, colours] of [['light', light], ['dark', dark], ['plus', plus]]) {

@@ -6685,13 +6685,21 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    token systems the app runs (--k-* and --label/--bg) are overridden. --gold is
    left untouched: it is brand, and it is the mock's own accent. */
 body.plus-active {
-  /* --k-* system */
-  --k-bg: #070c16; --k-surface: #132140; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
+  /* #2625 (Josh product-review): the ground was flat #070c16 (near-black) and read
+     "super duper dark". first-step.html / kosmosplus.com use #070c16 only as an outer
+     frame; the DOMINANT visible ground there is the navy radial-gradient. Paint that
+     gradient here so the tab reads as the on-brand navy blue, not near-black. The
+     gradient stops are copied verbatim from first-step.html's .app. `fixed` anchors it
+     to the viewport so it stays whole no matter how the pane scrolls. */
+  background: radial-gradient(130% 90% at 62% 8%, #1c2c4f 0%, #132140 42%, #0b1428 100%) fixed;
+  /* --k-* system. --k-bg lifted #070c16 -> #132140 (the gradient's mid navy) so any
+     solid --k-bg surface reads navy rather than near-black under the gradient. */
+  --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
   --k-optline: #5f7099;
   /* --label/--bg system */
-  --bg: #070c16; --bg-elevated: #132140; --bg-sunken: #0b1428;
+  --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
   --label: #E6EBF7; --label-2: #9fb0d0; --label-3: #8fa0c4;
   --separator: #22345a;
 }
@@ -6728,6 +6736,23 @@ a.plus-btn { display: inline-block; background: linear-gradient(150deg,#3a68d8,#
   text-decoration: none; box-shadow: 0 6px 22px rgba(65,113,227,.4); }
 a.plus-btn:hover { filter: brightness(1.06); }
 a.plus-btn:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+/* #2625: the two sign-in affordances (above the wordmark, and beside Join at the
+   foot). Links, not controls, so state 1 stays control-free. The foot row lays Join
+   and the sign-in link on one line; they wrap on a narrow pane. Link colour is
+   first-step.html's on-navy link blue (#7ea0f0), readable on the gradient. */
+.plus-topbar { color: var(--k-ink-2); font-size: .95rem; margin: 0 0 8px; }
+.plus-cta { display: flex; align-items: center; flex-wrap: wrap; gap: 10px 20px; }
+.plus-signin-link { color: #7ea0f0; text-decoration: none; font-weight: 600; font-size: .92rem; }
+.plus-signin-link:hover { text-decoration: underline; }
+.plus-signin-link:focus-visible { outline: 2px solid #7ea0f0; outline-offset: 2px; border-radius: 3px; }
+/* #2625: the TOP sign-in ("the sign-in box above the logo", Josh's words) is the
+   reference's bordered pill (.signin-btn in first-step.html), visually distinct from
+   the plain-text foot link. Still an <a>, so state1 stays control-free. */
+.plus-signin-pill { display: inline-block; background: transparent; border: 1px solid rgba(120,150,200,.4);
+  color: #E6EBF7; border-radius: 9px; padding: 7px 16px; margin-left: 8px; font-weight: 600;
+  font-size: .9rem; text-decoration: none; }
+.plus-signin-pill:hover { border-color: #41C2E3; }
+.plus-signin-pill:focus-visible { outline: 2px solid #41C2E3; outline-offset: 2px; }
 /* states 2 (paid sign-in gate) & 3 (connected) — the blue premium card. The
    whole app is already blue via the token override above; this frames the two
    working states as the mock's card. Their wired ids are untouched. */
@@ -11667,6 +11692,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
          platform assumption a shipped guard exists to keep out. Raised on kosmos#1615 so
          the mock can be corrected rather than this drifting from it silently. -->
     <div id="plus-state1">
+      <!-- #2625 (Josh product-review): the sign-in affordance sits ABOVE the
+           wordmark, matching first-step.html's HOME view ("Already have Kosmos+?
+           Sign in"). It is a LINK, not a control, so state 1 stays marketing plus
+           links and web.plus-tab.test.js's no-controls-in-state-1 rule still holds
+           (that guard scans this slice as TEXT, so a comment must not name the
+           control tags literally, or it trips the very rule it describes).
+           The href is set from JS (paintPlus), never in markup, per the same
+           no-hostname guard as plus-site-link below. -->
+      <p class="plus-topbar">Already have Kosmos+? <a id="plus-signin-top" class="plus-signin-pill" href="#" target="_blank" rel="noreferrer noopener">Sign in</a></p>
       <!-- #1615 blue reskin: the wordmark, drawn as ~300 circles that animate in
            over 1.5s (or a single static frame under prefers-reduced-motion), by
            the plusMark engine in the app script. Decorative -> aria-hidden; the
@@ -11712,8 +11746,12 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            KOSMOS_SITE at paint time and this markup carries none. The guard
            still passes UNCHANGED, which is the point: the rule did not move to
            accommodate the feature. -->
-      <p><a id="plus-site-link" class="plus-btn" href="#" target="_blank" rel="noreferrer noopener"
-      >See Kosmos+</a></p>
+      <!-- #2625 (Josh product-review): "See Kosmos+" -> "Join Kosmos+", with an
+           "Already a member? Sign in" link beside it, matching first-step.html's
+           bottom CTA. Both are <a> links (state 1 stays control-free); both hrefs
+           are set from JS per the no-hostname guard, so no address lives here. -->
+      <p class="plus-cta"><a id="plus-site-link" class="plus-btn" href="#" target="_blank" rel="noreferrer noopener"
+      >Join Kosmos+</a><a id="plus-signin-bottom" class="plus-signin-link" href="#" target="_blank" rel="noreferrer noopener">Already a member? Sign in</a></p>
     </div>
 
     <!-- #1615 state 2, design section 5: "paid, not set up here". The design settled an
@@ -27491,12 +27529,22 @@ async function paintPlus() {
          /+?from=app     404,  8498 bytes
          a nonsense path 404,  8498 bytes   <- BYTE-IDENTICAL, so /+ is the generic 404
      The rule for this card is that an inert control is fine and a page that MISLEADS is
-     not. A link labelled "See Kosmos+" opening a new tab onto a 404 is the second, and it
+     not. A link labelled "Join Kosmos+" opening a new tab onto a 404 is the second, and it
      sits two lines under a paragraph saying the website is where this happens.
      ⇒ Pointing at the designed target bought a DEVELOPER-visible signal and paid with a
      USER-visible break. The dependency belongs in a card, not a dead door. The `/+`
      rewrite is Angel's in chaoskosmos-site; reverted until it serves. */
   if (site) site.href = KOSMOS_SITE + '/plus';
+  /* #2625: the two sign-in links (#2625's "sign-in box above the logo" + the foot
+     "Already a member? Sign in") point at the SAME served /plus page as Join, for the
+     same reason spelled out above: /plus is what serves today and routes onward to the
+     site's own Join / Sign in. When login.kosmosplus.com is live and branded (#2626),
+     the two sign-in links should move to the site's direct sign-in route; pinned to the
+     served page until then so neither opens onto a 404. */
+  const signinTop = document.getElementById('plus-signin-top');
+  const signinBottom = document.getElementById('plus-signin-bottom');
+  if (signinTop) signinTop.href = KOSMOS_SITE + '/plus';
+  if (signinBottom) signinBottom.href = KOSMOS_SITE + '/plus';
   const epoch = (PLUS_EPOCH += 1);
   let r = null;
   try { r = await (await fetch('/api/remote', { cache: 'no-store' })).json(); } catch { r = null; }
