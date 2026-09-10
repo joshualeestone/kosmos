@@ -401,22 +401,56 @@ test('#2614 an absent task reads as known with no configDir (guard skips), an UN
   assert.equal(r.configDir, undefined);
 });
 
-test('#2614 configDirFor survives a UTF-16 /XML report (run() decodes utf8), so the guard is not silently disarmed', () => {
-  // If a box emits schtasks /Query /XML as UTF-16, run()'s utf8 decode leaves a
-  // NUL after every character (and maybe a BOM). Without the defensive strip the
-  // <Arguments> match fails and configDirFor returns configDir:null -- the guard
-  // never fires on real Windows while every other test passes. The round-trip
-  // tests inject a clean JS string and cannot see this, so this arm builds the
-  // mangled shape explicitly.
+test('#2614 configDirFor survives a real UTF-16 /XML report (run decodes utf8), guard not silently disarmed', () => {
+  // The ACCURATE mis-decode: encode the XML as the UTF-16LE bytes a box would emit,
+  // then decode those bytes as utf8 the way run() does. For an ASCII line this leaves
+  // a NUL after every character; the NUL strip recovers it. (A hand-built '" + '" + uFEFF + "' +
+  // interleaved-NUL fixture is NOT what a byte-level mis-decode produces -- the real
+  // UTF-16 BOM decodes to U+FFFD, not U+FEFF -- so build the real bytes.)
   const configDir = 'C:\\Users\\kitty\\.claude';
   const xml = job.taskXml(
     { name: 'u16', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
     { USERNAME: 'kitty', USERDOMAIN: 'BOX' });
-  const mangled = '\uFEFF' + xml.split('').map((c) => c + '\u0000').join('');
-  // Control: the mangled bytes really do defeat a naive match, or this proves nothing.
-  assert.equal(/<Arguments>[\s\S]*?<\/Arguments>/.test(mangled), false,
-    'control: the raw UTF-16-shaped output must NOT match before the strip');
-  job.setRunner(() => ({ ok: true, out: mangled }));
+  const real = Buffer.from(xml, 'utf16le').toString('utf8');
+  // Control: the real mis-decoded bytes defeat a naive match before the strip.
+  assert.equal(/<Arguments>[\s\S]*?<\/Arguments>/.test(real), false,
+    'control: the real UTF-16-mis-decoded output must NOT match before the strip');
+  job.setRunner(() => ({ ok: true, out: real }));
   assert.equal(job.configDirFor('u16').configDir, configDir,
-    'the defensive BOM/NUL strip must recover the configDir from a UTF-16 report');
+    'the NUL strip must recover the configDir from a real UTF-16 report');
+});
+
+test('#2614 a genuine UTF-8-with-BOM report has its leading BOM stripped', () => {
+  // This is the case the BOM strip actually defends: a utf8 report that carries a
+  // real U+FEFF BOM (EF BB BF), unlike the UTF-16 BOM which decodes to U+FFFD.
+  const configDir = 'C:\\Users\\bom\\.claude';
+  const xml = job.taskXml(
+    { name: 'bomdir', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\s.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  job.setRunner(() => ({ ok: true, out: '\uFEFF' + xml }));
+  assert.equal(job.configDirFor('bomdir').configDir, configDir);
+});
+
+test('#2614 a NON-ASCII path under a real UTF-16 report is known:false, never a corrupted directory', () => {
+  // The dangerous case: a real UTF-16 mis-decode of a non-ASCII account folder
+  // yields U+FFFD mid-path, which the NUL strip cannot recover and the (ASCII)
+  // name self-check would not catch. The U+FFFD guard must turn it into an honest
+  // unknown rather than return a silently wrong directory.
+  const xml = job.taskXml(
+    { name: 'nonascii', cwd: 'C:\\work', configDir: 'C:\\Users\\caf\u00e9\\.claude', node: 'C:\\node.exe', supervisor: 'C:\\app\\s.js' },
+    { USERNAME: 'u', USERDOMAIN: 'BOX' });
+  const real = Buffer.from(xml, 'utf16le').toString('utf8');
+  assert.ok(real.indexOf('\uFFFD') !== -1, 'control: the non-ASCII path must actually corrupt to U+FFFD');
+  job.setRunner(() => ({ ok: true, out: real }));
+  const r = job.configDirFor('nonascii');
+  assert.equal(r.known, false, 'a corrupted non-ASCII path must not be returned as a configDir');
+  assert.equal(r.configDir, undefined);
+});
+
+test('#2614 a registered task with no readable argument line is known:false, not a confident no-configDir', () => {
+  // r.ok but no <Arguments> element is a shape we do not understand; admit it
+  // rather than assert 'no account dir' the way an absent task legitimately can.
+  job.setRunner(() => ({ ok: true, out: '<Task><Actions><Exec><Command>x</Command></Exec></Actions></Task>' }));
+  const r = job.configDirFor('noargs');
+  assert.equal(r.known, false);
 });

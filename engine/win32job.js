@@ -513,20 +513,34 @@ function configDirFor(name) {
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, configDir: null };
     return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
   }
-  /* ⚠️ schtasks /Query /XML output encoding is NOT guaranteed utf8, and `run()`
-     decodes as utf8. schtasks wants UTF-16-with-BOM for /XML *input* (see install),
-     so a box that emits the /XML *report* as UTF-16 would arrive here with a NUL
-     between every character (and maybe a BOM): the match below would fail, and the
-     guard would silently never fire on real Windows while every Mac test passed --
-     the round-trip tests inject a JS string and cannot see this. Strip a leading
-     BOM and NUL bytes so an ASCII task line survives either encoding; a genuine
-     utf8 report carries neither, so this is a no-op there. The true encoding is
-     confirmed on a live box in the QA loop; this is the belt that keeps a wrong
+  /* WARNING: schtasks /Query /XML output encoding is NOT guaranteed utf8, and run()
+     decodes as utf8. Two defenses, for two different reports, because guessing the
+     encoding wrong would silently disarm the guard on real Windows while every Mac
+     test passed (the round-trip tests inject a JS string and cannot see the decode
+     at all):
+     - A genuine UTF-8-with-BOM report decodes to a leading U+FEFF; strip it.
+     - A UTF-16 report decoded as utf8 arrives with a NUL between every character
+       (its FF FE BOM does NOT survive as U+FEFF -- utf8 turns those bytes into
+       U+FFFD -- so the NUL strip, not the BOM strip, is what rescues this case);
+       strip the NULs and an ASCII task line comes back whole.
+     A genuine utf8 report carries neither a BOM nor NULs, so this is a no-op there.
+     The true encoding is confirmed on a live box in the QA loop; this keeps a wrong
      guess from disarming the guard rather than merely mis-reading it. */
   const out = String(r.out || '').replace(/^\uFEFF/, '').replace(/\u0000/g, '');
   const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(out);
-  if (!m) return { known: true, configDir: null };
+  /* A registered task whose definition carries no argument line we can read is not a
+     shape we understand, so admit it (known:false) rather than asserting a confident
+     "no configDir" the way an absent task legitimately can. */
+  if (!m) return { known: false, because: 'the task definition had no argument line we could read' };
   const argStr = xmlUnescape(m[1]);
+  /* A U+FFFD in the argument line means the utf8 decode hit bytes it could not
+     represent -- a UTF-16 report whose NON-ASCII path (an accented account folder)
+     the NUL strip cannot recover. Returning the corrupted directory would be a
+     silently wrong configDir that the (usually ASCII) name self-check below would not
+     catch, so refuse to guess rather than block or allow a restore on it. */
+  if (argStr.indexOf('\uFFFD') !== -1) {
+    return { known: false, because: 'the task argument line came back in an encoding we could not decode cleanly' };
+  }
   const tokens = [];
   const re = /"([^"]*)"/g;
   let t;
