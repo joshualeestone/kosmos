@@ -10,6 +10,7 @@
   "isFleetSession": true,
   "isNamedOurs": true,
   "paneless": false,
+  "reachedByChannel": false,
   "runner": "claude",
   "task": "an example task",
   "state": "working",

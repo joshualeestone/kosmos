@@ -166,7 +166,7 @@ different acts, and every version so far has done one while claiming the other:
    nothing identifying, and must survive or the recording stops being a real card shape:
    `nameDerived`, `isAgentPane`, `isAgentSession`, `isFleetSession`, `isNamedOurs`,
    `paneless`, `stateProjectInferred`, `activeWhileWaiting`, `stateReported`,
-   `stateBackgroundWait`, `neverRecorded`.
+   `stateBackgroundWait`, `neverRecorded`, `reachedByChannel`.
 5. **The `profile` subtree**, which gets the strictest treatment: every STRING, NUMBER and
    BOOLEAN under it is neutralised, at any depth. ⚠️ Not literally every value: a `null`
    survives as null, and an array's LENGTH survives even though its elements are scrubbed.

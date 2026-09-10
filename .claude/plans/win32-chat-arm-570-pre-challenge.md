@@ -2,10 +2,10 @@
 pre_challenge: true
 method: challenge-loop
 branch: win32-chat-arm-570
-diff_hash: 736e043e69ace40d7ddd36baf48a03748983d159d0e66f273b7d157be18b5ef4
+diff_hash: dc80287d754488216a86d16022383180c8dd7545de2d32d8c91f9567bba621ae
 validation: passed
 subdir_audit: passed
-timestamp: 2026-09-10T15:38:31Z
+timestamp: 2026-09-10T15:51:19Z
 iterations: 6
 converged: true
 ---
@@ -17,8 +17,9 @@ converged: true
 **Total findings:** 17 (1 BLOCKER, 8 WARNINGs, 2 CONVENTIONs, 6 NITs)
 **Fixed:** 15 | **Accepted with reason:** 2 NITs | **Asked (awaiting user):** 0
 
-`diff_hash` is sha256 of `git diff origin/main...HEAD` at 600d110b (merge-base
-44728136), computed before this proof file was added. The pre-challenge-gate
+`diff_hash` is sha256 of `git diff 44728136 -- . ':!.claude/plans/win32-chat-arm-570-pre-challenge.md'`
+(the branch's full change from its merge-base, this proof file excluded so it
+can carry its own hash), taken at the commit that follows 600d110b's CI fixes. The pre-challenge-gate
 hook is not installed on this Windows box, so the recipe is stated here rather
 than assumed to match it. Validation of record: the six affected suites under
 `node --test <explicit files>` on the Windows box, 382 tests, 378 pass; the 4
@@ -66,6 +67,20 @@ one gap (a write failing in its flush callback read as could_not), fixed in
 #### Iteration 6
 **Reviewer model:** sonnet
 **New findings:** 0. Enumerated every payload the channel and supervisor emit against `readVerdict`; ran `say()` against a missing pipe live (`down:true`, `unsure:false`, stays could_not). Noted `serve()`'s `ping` branch is unused (pre-existing, honest, out of scope).
+
+### After convergence: macOS CI (no behavior change)
+
+The first CI run on PR #2661 went red on three root-level suites the loop's
+targeted runs did not include, all from this branch's new card field and test
+seam, none a behavior defect:
+- `render-talk-goldencard-2519.test.js` (2 arms): `reachedByChannel` added to
+  the structural-boolean enumeration in all three documents that carry it (the
+  test, `docs/browser-checks/README.md`, `tools/capture-agent-card.js`) and to
+  the recorded fixture as `false`, the value every Mac card carries.
+- `engine.reachable.test.js`: `chat.setChannel` excused as a test seam beside
+  `setRunner`.
+All 56 tests in those three files pass locally. No production code changed, so
+the converged review of the code stands.
 
 ### Strengths (across all iterations)
 - `unsure` is the channel's own claim, carried intact through every hop and never re-inferred; each hop has a test that fails without it.
