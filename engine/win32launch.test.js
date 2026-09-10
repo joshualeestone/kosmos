@@ -239,6 +239,10 @@ test('#570 7c a streaming agent is asked for stream-json IN and OUT, and keeps i
   assert.equal(a[a.indexOf('--input-format') + 1], 'stream-json');
   assert.equal(a[a.indexOf('--output-format') + 1], 'stream-json');
   assert.ok(a.includes('--dangerously-skip-permissions'), 'an unattended agent still gets autonomy');
+  /* A FRESH run hands back its token's instance too, or the supervisor's death
+     handler has nothing to retire and every fresh run's token outlives it
+     (review round 4: only the resume path was pinned). */
+  assert.ok(r.instance && sendertoken.live('streamer-1').includes(r.instance), 'the fresh run returns the instance it minted');
 });
 
 test('#570 7c a FRESH agent pins the minted id; a RESUME names the id it already has', () => {
