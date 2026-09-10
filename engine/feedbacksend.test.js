@@ -372,3 +372,226 @@ test('#2037 scrub redacts an agent known only by its worker folder (no profile)'
   assert.ok(!feedbacksend.scrub('the Folderonly agent crashed').includes('Folderonly'),
     'an agent with a worker folder but no profile is still redacted');
 });
+
+// #1760 (audit slice 15): scrub must redact SECRETS, not just names/paths. The
+// body is agent-authored free text answering "what bugs did you hit / what's
+// broken", which invites quoting an error/log/config -- exactly where a live
+// credential rides along. Each arm below is a positive control: the planted
+// secret shape does NOT survive scrub (RED before the secret arm existed).
+test('#1760 scrub redacts provider key/token shapes (sk-, github_pat_, ghp_, AKIA, Slack, JWT)', () => {
+  const cases = [
+    'sk-proj-abcd1234EFGH5678ijkl90mn',
+    'sk-ant-api03-ABCdef1234567890xyzuvw',
+    'sk_live_abcdef1234567890ABCDEF',
+    'rk_test_abcdef1234567890ABCDEF',
+    'github_pat_11ABCDEFG0abcdefghijkl_mnopqrstuvwx',
+    'ghp_ABCdefGHIjklMNOpqrSTUvwx0123',
+    'AKIAIOSFODNN7EXAMPLE',
+    'ASIAIOSFODNN7EXAMPLE',
+    'AIzaSyA1bcd2EFgh3IJkl4MNop5QRst6UVwx7Y',
+    'ya29.a0Ae4lvC1bcd2EFgh3IJkl4MNop5QRst6',
+    'npm_abcdef1234567890ABCDEFghijklmnopqrst',
+    // NOTE: deliberately NOT real-Slack-token-shaped (no numeric id segments) so
+    // GitHub secret-scanning push protection does not flag these fake fixtures,
+    // while still exercising the scrub arms' xox*/xapp- prefixes.
+    'xoxb-not-a-real-slack-token-example',
+    'xapp-not-a-real-app-token-example',
+    'eyJhbGciOi.eyJzdWIiOiJ.SflKxwRJSM',
+  ];
+  for (const c of cases) {
+    const out = feedbacksend.scrub('failing with ' + c + ' today');
+    assert.ok(!out.includes(c), 'a secret shape survived scrub: ' + c);
+    assert.ok(out.includes('[redacted-secret]'), 'secret not replaced with marker: ' + c);
+  }
+});
+
+test('#1760 scrub redacts a Bearer credential but keeps the scheme word', () => {
+  const out = feedbacksend.scrub('sent header Authorization: Bearer abc123DEF456ghi789JKL end');
+  assert.ok(!out.includes('abc123DEF456ghi789JKL'), 'a Bearer token leaked');
+  assert.ok(/Bearer \[redacted-secret\]/.test(out), 'the scheme word should survive, only the token redacted');
+});
+
+test('#1760 scrub redacts a labelled password/token assignment value, keeping the label', () => {
+  assert.equal(feedbacksend.scrub('password: hunter2pass'), 'password: [redacted-secret]');
+  assert.equal(feedbacksend.scrub('token=abcd1234efgh'), 'token=[redacted-secret]');
+  assert.equal(feedbacksend.scrub('api_key = abcd1234efgh'), 'api_key = [redacted-secret]');
+  assert.equal(feedbacksend.scrub('apikey:abcd1234efgh'), 'apikey:[redacted-secret]');
+  // Quoted value: the quotes are consumed, the value redacted.
+  assert.ok(!feedbacksend.scrub('password: "hunter2pass"').includes('hunter2pass'),
+    'a quoted assignment value leaked');
+});
+
+// The `\b`-vs-lookbehind gap the first blind review caught: snake_case labels
+// (client_secret, access_token, refresh_token, api_secret) are exactly the
+// config/.env shape the plan targets, and a leading `\b` would silently miss
+// them because \b does not fire between `_` and a letter.
+test('#1760 scrub redacts snake_case config labels (client_secret, access_token, refresh_token, api_secret)', () => {
+  for (const line of [
+    'client_secret=abcdef1234567',
+    'access_token=abcdef1234567',
+    'refresh_token: abcdef1234567',
+    'api_secret=abcdef1234567',
+  ]) {
+    const out = feedbacksend.scrub(line);
+    assert.ok(!out.includes('abcdef1234567'), 'a snake_case secret value leaked: ' + line);
+    assert.ok(out.includes('[redacted-secret]'), 'value not redacted: ' + line);
+  }
+});
+
+// The safe direction is over-redaction, but it must not gut ordinary report
+// prose. These are the false-positive guards the design leans on.
+test('#1760 scrub does NOT corrupt a common word that merely contains "sk-"', () => {
+  assert.equal(feedbacksend.scrub('this is a risk-management-strategy problem'),
+    'this is a risk-management-strategy problem');
+});
+
+test('#1760 scrub leaves label prose with no value untouched (no separator+value)', () => {
+  assert.equal(feedbacksend.scrub('the token is invalid'), 'the token is invalid');
+  assert.equal(feedbacksend.scrub('secret: it works better now'), 'secret: it works better now');
+});
+
+// The value-discriminator guard (a redacted value must contain a digit or token
+// symbol): a bug report's diagnostic word after a label - which is often the bug
+// signal itself - must survive, even though it follows `label:` and is >=8 chars.
+test('#1760 scrub keeps diagnostic prose after a label (word value, no digit/symbol)', () => {
+  assert.equal(feedbacksend.scrub('token: undefined'), 'token: undefined');
+  assert.equal(feedbacksend.scrub('password: incorrect'), 'password: incorrect');
+  assert.equal(feedbacksend.scrub('secret: unavailable'), 'secret: unavailable');
+  assert.equal(feedbacksend.scrub('token: disconnected'), 'token: disconnected');
+  // A trailing sentence period and a hyphenated word are prose, not credential
+  // signals: `.` and `-` are excluded from the value discriminator so real
+  // sentences survive intact.
+  assert.equal(feedbacksend.scrub('token: undefined.'), 'token: undefined.');
+  assert.equal(feedbacksend.scrub('password: incorrect.'), 'password: incorrect.');
+  assert.equal(feedbacksend.scrub('the token: not-found here'), 'the token: not-found here');
+  assert.equal(feedbacksend.scrub('the token: read-only mode'), 'the token: read-only mode');
+});
+
+// The bare `key` label (private_key/ssh_key/signing_key), reachable via the
+// underscore lookbehind, is backstopped - but only for a credential-shaped value.
+test('#1760 scrub redacts a snake_case key= value, and spares a bare key: word', () => {
+  assert.equal(feedbacksend.scrub('private_key=abcd1234efgh'), 'private_key=[redacted-secret]');
+  assert.equal(feedbacksend.scrub('signing_key: abcd1234efgh'), 'signing_key: [redacted-secret]');
+  assert.equal(feedbacksend.scrub('key: important'), 'key: important');
+  // "monkey=" must NOT match: 'key' there is preceded by 'n' (alnum), lookbehind fails.
+  assert.equal(feedbacksend.scrub('monkey=business'), 'monkey=business');
+});
+
+// JSON-quoted label form - the most common way a config/error body is pasted into
+// a report. The value is redacted; the label, colon and quotes stay balanced.
+test('#1760 scrub redacts a JSON-quoted secret assignment, quotes balanced', () => {
+  assert.equal(feedbacksend.scrub('{"api_key": "a1b2c3d4e5f6g7h8"}'),
+    '{"api_key": "[redacted-secret]"}');
+  assert.equal(feedbacksend.scrub('{"token":"a1b2c3d4e5f6g7h8"}'),
+    '{"token":"[redacted-secret]"}');
+  assert.ok(!feedbacksend.scrub('{"db_password": "SuperSecret123", "user": "admin"}').includes('SuperSecret123'),
+    'a JSON-quoted password leaked');
+});
+
+// A prefix arm must not match mid-word and corrupt an unrelated word (the
+// lookbehind is now uniform across every arm).
+test('#1760 scrub does NOT corrupt a word that merely contains a prefix mid-word', () => {
+  assert.equal(feedbacksend.scrub('the flagho_customflag123456789012345678 word'),
+    'the flagho_customflag123456789012345678 word');
+});
+
+// Trailing SENTENCE punctuation adjacent to a value is given back, not swallowed.
+test('#1760 scrub does not eat trailing sentence punctuation around a value', () => {
+  assert.equal(feedbacksend.scrub('token=abcd1234efgh, thanks'), 'token=[redacted-secret], thanks');
+  assert.equal(feedbacksend.scrub('the config was (token=abcd1234efgh) and broke'),
+    'the config was (token=[redacted-secret]) and broke');
+  assert.equal(feedbacksend.scrub('token=abcd1234efgh.'), 'token=[redacted-secret].');
+});
+
+// The value discriminator fires on a base64 SYMBOL alone (= + /), not only on a
+// digit. (`.` and `-` are NOT discriminators - they are prose punctuation.)
+test('#1760 scrub redacts a base64-symbol value with no digit', () => {
+  assert.equal(feedbacksend.scrub('token=abcd+efgh/ijkl'), 'token=[redacted-secret]');
+  assert.equal(feedbacksend.scrub('secret: abcdef=ghijkl'), 'secret: [redacted-secret]');
+});
+
+// #1760 iter-6: secrets run BEFORE the name arm, so a project/agent literally
+// named "Token"/"Secret"/"Password" cannot have its label redacted first and
+// leave the credential value in the clear.
+test('#1760 a project named like a secret label does not leak the value (secrets before names)', () => {
+  fs.mkdirSync(nodePath.join(process.env.AGENT_WORKFORCE_WORKERS, 'Token'), { recursive: true });
+  const out = feedbacksend.scrub('the request failed: Token=abcd1234EFGH5678ijkl and retried');
+  assert.ok(!out.includes('abcd1234EFGH5678ijkl'), 'the credential value leaked past a secret-named project');
+  assert.ok(out.includes('[redacted-secret]'), 'the value was not redacted');
+});
+
+// #1760 iter-6: a credential embedded in a URL's userinfo (a pasted connection
+// string / curl URL). Password redacted; scheme, user and host preserved.
+test('#1760 scrub redacts a URL-embedded basic-auth password', () => {
+  const out = feedbacksend.scrub('psql postgres://admin:hunter2pass99@localhost/db failed');
+  assert.ok(!out.includes('hunter2pass99'), 'a URL-embedded password leaked');
+  assert.equal(out, 'psql postgres://admin:[redacted-secret]@localhost/db failed');
+});
+
+// #1760 iter-6: `Authorization: Basic <base64>` header.
+test('#1760 scrub redacts a Basic auth credential, keeping the scheme', () => {
+  const out = feedbacksend.scrub('sent Authorization: Basic dXNlcjpwYXNzd29yZDEyMw== and got 401');
+  assert.ok(!out.includes('dXNlcjpwYXNzd29yZDEyMw'), 'a Basic credential leaked');
+  assert.ok(/Basic \[redacted-secret\]/.test(out), 'the Basic scheme word should survive');
+});
+
+// #1760 iter-6: a Bearer token followed by a sentence period keeps the period.
+test('#1760 scrub does not eat a period after a Bearer token', () => {
+  assert.equal(feedbacksend.scrub('it failed using Bearer abcd1234EFGH5678ijkl. then retried'),
+    'it failed using Bearer [redacted-secret]. then retried');
+});
+
+// #1760 iter-6: a query string redacts only the secret param, leaving the rest.
+test('#1760 scrub stops a value at & so a following query param survives', () => {
+  assert.equal(feedbacksend.scrub('the reset link /reset?token=abcd1234efgh&email=foo@bar.com failed'),
+    'the reset link /reset?token=[redacted-secret]&email=foo@bar.com failed');
+});
+
+// #1760 iter-7: scrub() runs synchronously on the board event loop, so no arm may
+// be O(N^2). A long dotted/hex run (a stack trace / digest chain) with no `://`
+// used to make the URL-userinfo arm backtrack quadratically (~53s at 200k chars);
+// bounded quantifiers keep it linear. Generous budget so the test isn't flaky but
+// still fails hard on a return of the quadratic blowup.
+test('#1760 scrub stays fast on a long non-URL run (no ReDoS in the URL arm)', () => {
+  const big = 'a' + '.b1c'.repeat(40000); // ~160k chars of [a-z0-9.], no ://
+  const t = Date.now();
+  const out = feedbacksend.scrub(big);
+  const ms = Date.now() - t;
+  assert.equal(out, big, 'a non-credential run should pass through unchanged');
+  assert.ok(ms < 3000, `scrub took ${ms}ms on a ${big.length}-char run - possible ReDoS regression`);
+});
+
+// #1760 iter-8: the Basic arm must be case-insensitive on the scheme word, like
+// Bearer -- a lowercase `basic` header still carries a real credential.
+test('#1760 scrub redacts a lowercase basic auth credential', () => {
+  const out = feedbacksend.scrub('sent Authorization: basic dXNlcjpwYXNzd29yZDEyMw== and got 401');
+  assert.ok(!out.includes('dXNlcjpwYXNzd29yZDEyMw'), 'a lowercase basic credential leaked');
+  assert.ok(/basic \[redacted-secret\]/i.test(out), 'the basic scheme word should survive');
+});
+
+// #1760 iter-8: the value stops at `,` and `;`, so a comma list / cookie chain
+// redacts only the secret param and does not swallow across the separator.
+test('#1760 scrub stops the value at , and ; (no cross-separator over-redaction)', () => {
+  // "undefined" has no digit/symbol, so token=undefined is diagnostic prose, left whole,
+  // and the trailing ,count=5 is not swallowed.
+  assert.equal(feedbacksend.scrub('failed after 3 retries: token=undefined,count=5'),
+    'failed after 3 retries: token=undefined,count=5');
+  // A real credential value redacts, and the following param survives.
+  assert.equal(feedbacksend.scrub('token=abcd1234efgh,count=5'), 'token=[redacted-secret],count=5');
+  // Cookie/semicolon chain: only the token value goes; session (not a label) and secure survive.
+  const cookie = feedbacksend.scrub('Cookie: session=abc123XYZ;token=def456UVWx;secure=1');
+  assert.ok(!cookie.includes('def456UVWx'), 'a semicolon-chained token value leaked');
+  assert.ok(cookie.includes('session=abc123XYZ'), 'the semicolon fix over-redacted a neighbour');
+});
+
+// #1760 iter-8: bounded quantifiers -> a multi-MB degenerate run cannot stack-overflow
+// (scrub runs synchronously on the board event loop). It must return, not throw.
+test('#1760 scrub survives a multi-MB degenerate assignment run without throwing', () => {
+  const big = 'token:' + 'a'.repeat(3_000_000); // no digit/symbol, no separator
+  const t = Date.now();
+  let out, threw = null;
+  try { out = feedbacksend.scrub(big); } catch (e) { threw = e.message; }
+  const ms = Date.now() - t;
+  assert.equal(threw, null, 'scrub threw on a large run: ' + threw);
+  assert.ok(ms < 3000, `scrub took ${ms}ms on a large run - possible unbounded backtracking`);
+});
