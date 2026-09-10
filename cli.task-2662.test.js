@@ -51,7 +51,11 @@ test('#2662: a curl failure on `task add` is REPORTED, not a silent abort (set -
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
       try {
-        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42' };
+        // KOSMOS_NO_LEGACY_MIGRATION: `task add` calls board_token() -> store.ROOT ->
+        // maybeMigrateLegacyStore(). The canonical `yarn test` runner exports this, but pin it
+        // here too so a DIRECT `node --test` run cannot migrate a real ~/Library store (the
+        // fleet-store hazard engine/store.js documents), since KOSMOS_HOME defaults to the repo.
+        const env = { ...process.env, KOSMOS_PORT: String(server.address().port), TMUX_PANE: '%42', KOSMOS_NO_LEGACY_MIGRATION: '1' };
         const out = await runCli(['task', 'add', 'proj', 'a task worth adding'], env);
         assert.notEqual(out.stdout.trim(), '', 'a curl failure printed nothing -- the process aborted under set -e');
         assert.match(out.stdout, /could not reach Kosmos to add that task/, 'a curl failure must be reported to the agent');
@@ -76,8 +80,9 @@ test('#2662: `task list` delivers the board token OFF argv, via a mode-600 file'
   return new Promise((resolve, reject) => {
     server.listen(0, '127.0.0.1', async () => {
       let failure = null;
+      let sandbox = null;
       try {
-        const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-task-'));
+        sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-task-'));
         const binDir = path.join(sandbox, 'bin');
         const tmpDir = path.join(sandbox, 'tmp');
         const khEngine = path.join(sandbox, 'kh', 'engine');
@@ -122,6 +127,7 @@ test('#2662: `task list` delivers the board token OFF argv, via a mode-600 file'
           KOSMOS_PORT: String(server.address().port),
           KOSMOS_HOME: path.join(sandbox, 'kh'),
           AGENT_WORKFORCE_DATA: dataDir,
+          KOSMOS_NO_LEGACY_MIGRATION: '1',
           TMPDIR: tmpDir,
           PATH: `${binDir}:${process.env.PATH}`,
           KOSMOS_ARGV_LOG: argvLog,
@@ -146,6 +152,11 @@ test('#2662: `task list` delivers the board token OFF argv, via a mode-600 file'
         assert.ok(cap.includes(TOKEN), 'the board token must be present in the header file');
         assert.match(cap, /^PERM 600$/m, 'the header file must be mode 600');
       } catch (e) { failure = e; }
+      finally {
+        // Clean up the sandbox regardless of pass/fail; its sibling cli.token-off-argv-1970.test.js
+        // does the same. A test whose subject is board-token hygiene should not leak a token file.
+        if (sandbox) { try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch { /* best-effort */ } }
+      }
       server.close(() => (failure ? reject(failure) : resolve()));
     });
   });
