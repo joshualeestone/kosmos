@@ -15851,10 +15851,20 @@ function accountQualifiers(list) {
        the last branch still exempt. Returns `v` untouched unless it is already
        taken, so nothing changes for any group that was already distinct. */
     const distinctly = (v) => {
-      if (!takenAlready(v)) return v;
+      /* An empty `dir` would return '' straight back, and '' is the ONE value
+         this function must never hand an ambiguous row: it is the "not
+         ambiguous, no qualifier needed" signal, so the row would render its bare
+         name beside a sibling doing the same. `list()` always supplies a real
+         path, so this is unreachable through `/api/accounts` today and is here
+         for the same reason the dir-keying guard above is: this function is pure
+         and exported, and its whole defence is that a future caller cannot break
+         it from a distance. A positional word is not informative, but it IS
+         distinct, and distinct is the invariant. */
+      let base = String(v || '') || 'account';
+      if (!takenAlready(base)) return base;
       let n = 2;
-      while (takenAlready(v + ' (' + n + ')')) n += 1;
-      return v + ' (' + n + ')';
+      while (takenAlready(base + ' (' + n + ')')) n += 1;
+      return base + ' (' + n + ')';
     };
     /* 🛑 THE PROVIDER IS ONLY A QUALIFIER WHERE IT ACTUALLY DISTINGUISHES, and
        the test below is exactly that: does THIS key-group hold more than one
