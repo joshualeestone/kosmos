@@ -275,6 +275,44 @@ test('#570 7c a RESUME mints nothing, so one agent never gets two ownership reco
   assert.equal(Object.keys(win32sessions.read()).length, before, 'a resume records nothing new');
 });
 
+test('#570 a RESUME carries its OWN credential, or every self-report it sends is refused', () => {
+  /* 🛑 THE DEFECT THIS PINS. A crash-restarted agent was resumed with no token:
+     the resume branch passed `s.token || ''`, nobody ever set `token`, and
+     childEnv DELETES the variable on an empty value. A Windows agent has no pane
+     to fall back on, so the board refused every report it sent. The Mac mints a
+     fresh token on every launch; so does this. */
+  const calls = [];
+  launcher.setSpawn((cmd, argv, opts) => { calls.push({ opts }); return { pid: 557, stdin: {}, unref() {} }; });
+  const rowsBefore = Object.keys(win32sessions.read()).length;
+  const liveBefore = sendertoken.live('streamer-3').length;
+
+  const r = launcher.launchStreaming({
+    name: 'streamer-3', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    resumeSessionId: 'a-session-we-already-own-3',
+  });
+
+  assert.equal(r.ok, true, r.because);
+  assert.match(String(calls[0].opts.env.KOSMOS_AGENT_TOKEN), /^[0-9a-f]+$/, 'the resumed agent carries a token');
+  assert.equal(sendertoken.live('streamer-3').length, liveBefore + 1, 'exactly one new live credential');
+  assert.ok(r.instance && sendertoken.live('streamer-3').includes(r.instance), 'and it is the run it returns');
+  assert.equal(Object.keys(win32sessions.read()).length, rowsBefore, 'but still no second ownership record');
+});
+
+test('#570 a RESUME whose spawn throws retires the token it minted, and keeps the record', () => {
+  launcher.setSpawn(() => { const e = new Error('nope'); e.code = 'ENOENT'; throw e; });
+  const rowsBefore = Object.keys(win32sessions.read()).length;
+  const liveBefore = sendertoken.live('streamer-4').length;
+
+  const r = launcher.launchStreaming({
+    name: 'streamer-4', cwd: SANDBOX, claudeBin: process.execPath, platform: 'win32',
+    resumeSessionId: 'a-session-we-already-own-4',
+  });
+
+  assert.equal(r.ok, false);
+  assert.equal(sendertoken.live('streamer-4').length, liveBefore, 'no credential outlives a run that never started');
+  assert.equal(Object.keys(win32sessions.read()).length, rowsBefore, 'and the record, which is the agent\'s, is untouched');
+});
+
 test('#570 7c a message is ONE json line, in the shape stream-json reads', () => {
   const line = launcher.messageLine('hello agent');
   assert.ok(line.endsWith('\n'), 'newline-delimited, or the reader never sees it');
