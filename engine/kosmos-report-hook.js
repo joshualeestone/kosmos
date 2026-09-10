@@ -9,8 +9,9 @@
  * agent's own record instead of scraping its pane. On the Mac that script is
  * the 299-line bash hook. Native Windows has no bash in the Kosmos bundle
  * (gate-(b), #570), so THIS node entry is the win32 hook: reporthook.js wires
- * Claude Code to run `"<node.exe>" "<this file>"` there, and this reads the
- * event and does exactly what the bash hook does.
+ * Claude Code to run it in EXEC form (`{ command: <node.exe>, args: [<this
+ * file>] }`, no shell involved, #570), and this reads the event on stdin and
+ * does exactly what the bash hook does.
  *
  * 🔑 THE DELIVERY IS A POST TO /api/report, NOT A LOCAL WRITE. The bash hook's
  * effect is `kosmos report <word> --auto ...`, which POSTs to the board's
@@ -380,8 +381,8 @@ module.exports = {
   HEARTBEAT_SECONDS, DEFAULT_PORT, DEFAULT_TIMEOUT_MS, SHORT_TIMEOUT_MS,
 };
 
-/* Run only when invoked directly (Claude Code runs `"<node>" "<this>"`); a
-   require() in a test never triggers a network send. stdin is the event JSON.
+/* Run only when invoked directly (Claude Code spawns node with this file as its
+   arg, exec form, #570); a require() in a test never triggers a network send. stdin is the event JSON.
    attachStdin fires `run` once (on end OR error); the unref'd timer is the
    backstop for a stdin that never ends -- finishNow shares attachStdin's
    once-guard, so run cannot fire twice regardless of timing. */

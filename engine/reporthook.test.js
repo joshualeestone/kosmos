@@ -296,13 +296,15 @@ test('#570 unsafeForCommand: backslash is a normal separator on win32 but danger
   assert.equal(reporthook.unsafeForCommand('C:\\a$env.js', 'win32'), true, '$ stays refused (over-refusal, safe direction)');
   assert.equal(reporthook.unsafeForCommand('/a/b$x.sh', 'linux'), true);
   assert.equal(reporthook.unsafeForCommand('/a/b.sh', 'linux'), false);
-  // cmd.exe/PowerShell metacharacters that ARE quote-protected must NOT be
-  // refused -- especially `()`, since C:\Program Files (x86)\ is a normal path
-  // and refusing it would break the common case.
+  // Shell metacharacters that the win32 set does NOT refuse must stay allowed --
+  // especially `()`, since C:\Program Files (x86)\ is a normal path and refusing
+  // it would break the common case. In exec form these are inert because no shell
+  // parses the arg at all (not because quotes protect them, which was the old
+  // shell-form framing); the point that survives is that they must not be refused.
   assert.equal(reporthook.unsafeForCommand('C:\\Program Files (x86)\\Kosmos\\app\\engine\\kosmos-report-hook.js', 'win32'), false,
     'the Program Files (x86) path must be allowed');
   assert.equal(reporthook.unsafeForCommand('C:\\a&b^c|d<e>f.js', 'win32'), false,
-    'quote-protected cmd.exe metacharacters must not be refused');
+    'shell metacharacters outside the win32 set must not be refused');
   // A raw CR/LF is refused on BOTH platforms (line-oriented parsing can break out
   // of even a quoted argument); no legitimate hook path contains one.
   assert.equal(reporthook.unsafeForCommand('C:\\a\nb.js', 'win32'), true, 'a newline must be refused on win32');
