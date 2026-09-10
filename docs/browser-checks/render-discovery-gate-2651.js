@@ -140,6 +140,29 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     return { label: look.textContent, triggerHidden: tr.hidden };
   });
 
+  /* Arm 5 - LABEL WRITE IS GUARDED (no aria-live re-announce). paintDiscoveryTrigger runs on
+     every 5s poll while the trigger is shown (the default landing state); with aria-live on
+     the button, an unconditional textContent write would re-announce the label every tick.
+     The write must be a no-op when the label already equals the default. Mark the text node
+     and prove a SECOND paintDiscoveryTrigger (label already default) does NOT replace it. */
+  const page4 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page4.goto('file://' + PAGE);
+  const G = await page4.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    const look = document.getElementById('found-scan-look');
+    const tr = document.getElementById('found-scan-trigger');
+    if (!look || !tr) return { error: 'button or trigger missing' };
+    paintDiscoveryTrigger();                 // shows the trigger, label becomes the default
+    const node = look.firstChild;
+    if (!node) return { error: 'no text node after first paint' };
+    node.__cl_marker = 'keep';               // mark the exact text node
+    paintDiscoveryTrigger();                 // second poll, label already default -> must NOT rewrite
+    const kept = !!(look.firstChild && look.firstChild.__cl_marker === 'keep');
+    return { shown: !tr.hidden, kept };
+  });
+
   await browser.close();
 
   if (r.error) { console.error('FAIL  render-discovery-gate-2651: ' + r.error); process.exit(1); }
@@ -166,6 +189,12 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     if (L.triggerHidden !== false) fail.push('label-reset arm: the trigger was not re-shown, so the reset path did not run (arm vacuous)');
     if (/could not find/i.test(L.label || '')) fail.push('label-reset arm: a stale "could not find" message persisted after the trigger was re-shown');
   }
+  if (G.error) {
+    fail.push('label-write-guarded arm errored: ' + G.error);
+  } else {
+    if (G.shown !== true) fail.push('label-write-guarded arm: the trigger was not shown, so the write path did not run (arm vacuous)');
+    if (G.kept !== true) fail.push('label-write-guarded arm: the label text node was replaced on a no-change re-show, so aria-live would re-announce every 5s poll');
+  }
 
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
@@ -174,5 +203,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651: on load the found and scan panels stay hidden and only the "Look for agents" trigger shows; pressing it opens the panels and hides the trigger; and for a Dismissed-forever user the trigger is not re-offered and the empty-look message never misreports the dismissal. PASS');
+  console.log('render-discovery-gate-2651 (5 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan and hides the trigger; a Dismissed-forever user is not re-offered and the empty message never misreports the dismissal; a stale empty-look label is reset to the neutral default when the trigger re-shows; and that label write is guarded so aria-live does not re-announce every poll. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });

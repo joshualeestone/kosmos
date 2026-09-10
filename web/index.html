@@ -26341,7 +26341,11 @@ function paintDiscoveryTrigger() {
      feedback still wins for that press. */
   if (!hidden) {
     const look = document.getElementById('found-scan-look');
-    if (look) look.textContent = FOUND_SCAN_LOOK_LABEL;
+    /* Guard the write: this runs on every 5s poll while the trigger is shown (the default
+       landing state), and the button carries aria-live, so an UNCONDITIONAL reassignment
+       would re-announce the label to a screen reader every tick. Write only when it actually
+       changed - i.e. to restore a stale empty-look message back to the neutral default. */
+    if (look && look.textContent !== FOUND_SCAN_LOOK_LABEL) look.textContent = FOUND_SCAN_LOOK_LABEL;
   }
 }
 
