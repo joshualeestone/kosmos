@@ -517,6 +517,11 @@ function superviseStreaming(spec, opts) {
        reporting that as delivered is exactly the over-claim chat.js's `could_not`
        contract exists to prevent. Callers that want the old, cheaper answer simply
        pass no callback. */
+    /* The child this message goes to. Its flush can land after that child has died
+       and a restart has replaced it, and "a message reached it" is then news about
+       a process that is gone -- the same reason stdout and the exit handler check
+       `child === c` (7c-5, found in review). */
+    const target = child;
     try {
       child.stdin.write(win32launch.messageLine(text), (err) => {
         /* 🔑 A WRITE THAT FAILS HERE HAD ALREADY BEEN HANDED TO THE PIPE, so part
@@ -525,7 +530,7 @@ function superviseStreaming(spec, opts) {
            that buffered and then errored is not could_not). Only the synchronous
            throw below proves nothing left this process. */
         if (err) answer({ ok: false, unsure: true, because: 'the write to it failed part-way (' + ((err && err.code) || 'unknown') + '), so we cannot tell whether it arrived' });
-        else { stream.wrote(); answer({ ok: true }); }
+        else { if (child === target) stream.wrote(); answer({ ok: true }); }
       });
     } catch (e) { return answer({ ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }); }
     return { ok: true };

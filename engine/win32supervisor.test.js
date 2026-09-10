@@ -370,6 +370,32 @@ test('#570 7c-5 a clean STOP clears the state, and the agent\'s later exit does 
   assert.deepEqual(sink.calls, [['stopped']], 'nothing after the stop publishes or clears again');
 });
 
+test('#570 7c-5 a flush that lands after its child was REPLACED does not mark the new agent busy', () => {
+  /* Found in review round 2, reproduced: a write to C1 is still flushing when C1
+     dies and the restart brings up C2 (idle). C1's late flush said "a message
+     reached it" about a process that is gone, and published idle C2 as WORKING
+     with nothing to correct it until C2's next event. */
+  const kids = [];
+  const sink = streamSink();
+  let pendingFlush = null;
+  const h = sup.superviseStreaming({ name: 'a', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    stream: sink,
+    launch: () => { const c = streamingChild(6000 + kids.length); kids.push(c); return { ok: true, sessionId: 'sid-late', child: c }; },
+  });
+  kids[0].stdin.write = (s, cb) => { pendingFlush = cb; };   // the flush has not landed yet
+  let answered = null;
+  h.send('hello', (r) => { answered = r; });
+  kids[0].die(1);                                            // C1 dies; C2 comes up at once
+  assert.deepEqual(sink.calls.slice(-1), [['started', 6001, 'sid-late']]);
+  sink.calls.length = 0;
+  pendingFlush(null);                                        // C1's flush lands now
+  assert.deepEqual(sink.calls, [], 'news about the dead process is not news about the new one');
+  assert.deepEqual(answered, { ok: true }, 'the sender is still told its bytes left: delivery is a separate question');
+  h.stop();
+});
+
 test('#570 7c-5 a failed write does not mark the agent busy', () => {
   const kids = [];
   const sink = streamSink();
