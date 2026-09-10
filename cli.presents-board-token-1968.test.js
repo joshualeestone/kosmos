@@ -42,6 +42,24 @@ function makeHome() {
   return { home, root };
 }
 
+// #2644: the SOURCE-checkout layout the report hook actually resolves on a box whose
+// installed bundle is stale. It has NEITHER of makeHome()'s two installed things:
+// no `$KOSMOS_HOME/runtime/bin/node` (so board_token()'s `command -v node` fallback must
+// fire) and the store module at `engine/store`, not `app/engine/store` (so the
+// store-module fallback must fire). Both fallbacks are exercised at once, which is exactly
+// the real shape that was silently broken since 2026-09-03. Driving it needs a `node` on
+// PATH for the fallback to find (see the test's PATH injection).
+function makeSourceHome() {
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-2644-src-'));
+  const root = path.join(home, 'root');
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(path.join(home, 'engine'), { recursive: true });
+  fs.writeFileSync(path.join(home, 'engine', 'store.js'),
+    `module.exports = { ROOT: ${JSON.stringify(root)} };\n`);
+  // deliberately NO runtime/ and NO app/ -- that absence is the thing under test.
+  return { home, root };
+}
+
 // Stand up a stub that records the board-token header per route, run `fn`, then
 // close (rejecting on a thrown assertion rather than swallowing it -- the
 // cli.presents-token.test.js lesson).
@@ -102,6 +120,39 @@ test('#1968: report/reply send NO board-token header when there is no token (non
     const extra = { KOSMOS_HOME: home };
     assert.equal(await drive(port, seen, 'report', extra), undefined, 'no token file, so no board-token header may be sent');
     assert.equal(await drive(port, seen, 'reply', extra), undefined, 'no token file, so no board-token header may be sent');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}));
+
+// #2644: the source-checkout layout must resolve the token via BOTH fallbacks (no
+// runtime/bin/node -> `command -v node`; engine/store not app/engine/store -> the
+// store-module fallback). Prepend the test runner's own node dir to PATH so
+// `command -v node` is guaranteed to find one regardless of the ambient PATH.
+const NODE_DIR = path.dirname(process.execPath);
+const withNodeOnPath = (home) => ({
+  KOSMOS_HOME: home,
+  PATH: `${NODE_DIR}${path.delimiter}${process.env.PATH || ''}`,
+});
+
+test('#2644: report/reply present the board token from a SOURCE-checkout layout (both fallbacks fire)', () => withStub(async (port, seen) => {
+  const { home, root } = makeSourceHome();
+  try {
+    fs.writeFileSync(path.join(root, 'board.token'), TOKEN);
+    const extra = withNodeOnPath(home);
+    assert.equal(await drive(port, seen, 'report', extra), TOKEN, 'source-layout board_token must present the token via the node + store-module fallbacks');
+    assert.equal(await drive(port, seen, 'reply', extra), TOKEN, 'source-layout board_token must present the token via the node + store-module fallbacks');
+  } finally {
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+}));
+
+test('#2644: source-checkout layout with no token sends NO header (control: it is the token file that drives it, not the layout)', () => withStub(async (port, seen) => {
+  const { home } = makeSourceHome();  // no board.token written
+  try {
+    const extra = withNodeOnPath(home);
+    assert.equal(await drive(port, seen, 'report', extra), undefined, 'source layout, no token file -> no board-token header');
+    assert.equal(await drive(port, seen, 'reply', extra), undefined, 'source layout, no token file -> no board-token header');
   } finally {
     fs.rmSync(home, { recursive: true, force: true });
   }
