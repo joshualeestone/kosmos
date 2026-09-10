@@ -1881,6 +1881,66 @@ test('#1922/#2645: a dead credential discovered AFTER an install still finishes 
     + 'pane closed reports connected, not "window closed": ' + connect.state().because);
 });
 
+// #1922 (reauth + NO binary at start): the last reauth arm. A reauth on a box with no claude binary
+// yet AND a dead credential: start()'s reauth deadCredential detection is gated `haveBinary` (skipped,
+// no binary -> checkLive UNKNOWN), and the finish-capable post-install block is gated
+// `!owner.needsLogin` (skipped, reauth has needsLogin true). The SET-ONLY post-install reauth block
+// (`!haveBinary && owner.needsLogin`) must catch it: checkLive NONE after the install -> deadCredential.
+// Without it a landed reauth login whose pane died before "Login successful" would false-STICK.
+test('#1922: a reauth with NO binary at start still finishes a landed login on a capture failure (dead->live post-install)', async (t) => {
+  connect.resetForTests();
+  clearClaudeConfig();
+  subscription.resetCache();
+  connect.setTickInterval(15);
+  connect.setUnknownGrace(300);
+  connect.setAbandonedSigninMs(15 * 60 * 1000);
+  const binary = crypto.randomBytes(64 * 1024);
+  const checksum = crypto.createHash('sha256').update(binary).digest('hex');
+  process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE = await serveRelease(t, { version: '9.9.4', binary, checksum });
+  process.env.AGENT_WORKFORCE_CLAUDE_BIN = nodePath.join(SANDBOX, 'no-such-claude-reauth');
+  writeClaudeConfig(CONNECTED_CONFIG); // dead: file CONNECTED, live NONE (below) until the login lands
+  const term = fakeTerminal();
+  let failCaptures = false;
+  const base = term.runner.bind(term);
+  connect.setRunner((file, args) => {
+    if (args[0] === 'install') {
+      const bp = process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+      fs.writeFileSync(bp, '#!/bin/sh\necho "9.9.4 (Claude Code)"\n');
+      fs.chmodSync(bp, 0o755);
+      return { ok: true, stdout: '' };
+    }
+    if (args[0] === 'capture-pane' && failCaptures) {
+      return { ok: false, stdout: '', stderr: "can't find pane: =kosmos-connect:" };
+    }
+    return base(file, args);
+  });
+  connect.setDryRun(false);
+  let loggedIn = false; // DEAD across start()+install; the post-install reauth checkLive must read NONE
+  subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn }), err: null }));
+  t.after(async () => {
+    await connect.cancel().catch(() => {});
+    connect.resetForTests();
+    connect.setRunner(null);
+    connect.setTickInterval(700);
+    connect.setUnknownGrace(10000);
+    subscription.setRunner(null);
+    delete process.env.AGENT_WORKFORCE_CLAUDE_DOWNLOAD_BASE;
+    delete process.env.AGENT_WORKFORCE_CLAUDE_BIN;
+    clearClaudeConfig();
+    subscription.resetCache();
+  });
+
+  await connect.start({ reauth: true });
+  await until(() => String(connect.state().phase).startsWith('signin'), 15000);
+  // The reauth login lands (dead -> live) and its process exits, closing the pane before capture.
+  loggedIn = true;
+  failCaptures = true;
+  await until(() => connect.state().phase === connect.PHASE.CONNECTED, 15000);
+  assert.equal(connect.state().phase, connect.PHASE.CONNECTED,
+    'a reauth with no binary at start, whose login landed after the install and whose pane then '
+    + 'closed, must report connected via the post-install deadCredential set: ' + connect.state().because);
+});
+
 driverTest('a code is refused while nothing is asking for one', async () => {
   const refusedCold = connect.submitCode('abCD1234#efGH5678');
   assert.equal(refusedCold.ok, false);
