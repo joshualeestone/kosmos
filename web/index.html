@@ -1301,6 +1301,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
+   modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
+   clickable label wrapping its checkbox. */
+.world-import #world-add-import-hint { margin: 2px 0 8px; }
+.world-import-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+.world-import-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: .9375rem; }
+.world-import-cb { flex: none; }
+.world-import-name { color: var(--k-ink); }
 /* #2238: a non-active row is a native <button> switch control. Reset the button
    chrome (border/background/text-align/width) so it matches the div rows; the base
    .worldsw-row rule already supplies display/font/color. The active row is a div. */
@@ -8124,6 +8132,18 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="field">
       <label class="flabel tk-lab" for="world-add-name">Name</label>
       <input class="tk-inp" id="world-add-name" type="text" maxlength="60" placeholder="e.g. Client work" autocomplete="off">
+    </div>
+    <!-- #2563: optionally bring agents from an existing Kosmos into the new one at
+         creation. COPY semantics (the source Kosmos keeps its agents). The list comes from
+         GET /api/worlds/list, which always includes at least the default Kosmos, so the
+         control shows for anyone with a working board -- offering the default as a source is
+         intended (copying your starter agents into a new Kosmos is the point of the feature).
+         It hides only when the endpoint is absent or fails (graceful degrade, create
+         unchanged). Distinct from the disk find-agents import. -->
+    <div class="field world-import" id="world-add-import" hidden>
+      <span class="flabel tk-lab" id="world-add-import-lab">Add my agents from</span>
+      <p class="rm-small" id="world-add-import-hint">Bring copies of another Kosmos's agents into this one. They stay in the original too.</p>
+      <div class="world-import-list" id="world-add-import-list" role="group" aria-labelledby="world-add-import-lab"></div>
     </div>
     <div class="rm-acts" style="margin-top: var(--space-6);">
       <button class="btn" id="world-add-cancel" type="button">Cancel</button>
@@ -18135,14 +18155,77 @@ function worldswToggle() {
   if (menu.hidden) worldswOpen();
   else worldswClose();
 }
+// #2563: monotonic open counter. Each worldAddOpen() takes the next value; a fetch's late
+// resolution renders ONLY if its captured value is still current. Without it, a slow
+// /api/worlds/list from a PRIOR open could resolve after the person reopened and started
+// checking boxes, and worldImportRender's `listEl.textContent = ''` would silently WIPE their
+// selection -- Create would then submit `{ name }` with no import while they believe they
+// imported. (Referenced only here, not in the eval-extracted render/fetch/submit functions.)
+let worldAddImportGen = 0;
 function worldAddOpen() {
   worldswClose();
+  const gen = ++worldAddImportGen;
   const input = document.getElementById('world-add-name');
   input.value = '';
   document.getElementById('world-add-go').disabled = true;
   document.getElementById('world-add-msg').textContent = '';
+  // #2563: reset the "add my agents from" control, then populate it. worldImportRender
+  // shows it whenever /api/worlds/list returns any Kosmos (always at least the default), and
+  // hides it only when the list is empty -- which in practice means a failed/absent endpoint,
+  // so the create flow degrades to exactly today's behaviour when the board cannot answer.
+  const impWrap = document.getElementById('world-add-import');
+  const impList = document.getElementById('world-add-import-list');
+  if (impWrap) impWrap.hidden = true;
+  if (impList) impList.textContent = '';
   document.getElementById('world-add-modal').hidden = false;
   input.focus();
+  worldImportFetch().then((worlds) => {
+    // A newer open superseded this fetch: drop the stale result rather than re-render over
+    // (and wipe) a selection the person has already started on the current open.
+    if (gen !== worldAddImportGen) return;
+    worldImportRender(worlds, impList, impWrap);
+  }).catch(() => {});
+}
+/* #2563: fetch the user's existing Kosmoses (with agent counts) for the create-time import
+   selector. The engine half is live on main (GET /api/worlds/list -> {worlds:[{id,name,
+   agentCount}]}); this returns [] on ANY failure -- absent endpoint, non-2xx, unparseable
+   body, or network error -- so the caller hides the control and the create flow degrades to
+   exactly today's behaviour when the board cannot answer. */
+async function worldImportFetch() {
+  try {
+    const res = await fetch('/api/worlds/list', { cache: 'no-store' });
+    if (!res.ok) return [];
+    const body = await res.json().catch(() => null);
+    const list = body && Array.isArray(body.worlds) ? body.worlds : [];
+    return list.filter((w) => w && w.id != null && typeof w.name === 'string');
+  } catch { return []; }
+}
+/* #2563: render the import checkboxes. SELF-CONTAINED (no out-of-scope helper) because the
+   node suite eval-extracts this function and would throw ReferenceError on any external
+   call. An empty/missing list hides the whole control -- the null case is a real state, not
+   an error. Each row is a <label> wrapping the checkbox + text, so the count is the
+   accessible name and the whole row is a click target (AA). */
+function worldImportRender(worlds, listEl, wrapEl) {
+  if (!listEl || !wrapEl) return;
+  listEl.textContent = '';
+  const usable = Array.isArray(worlds) ? worlds.filter((w) => w && w.id != null) : [];
+  if (!usable.length) { wrapEl.hidden = true; return; }
+  for (const w of usable) {
+    const n = Number(w.agentCount) || 0;
+    const row = document.createElement('label');
+    row.className = 'world-import-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'world-import-cb';
+    cb.value = String(w.id);
+    const txt = document.createElement('span');
+    txt.className = 'world-import-name';
+    txt.textContent = String(w.name) + ' (' + n + (n === 1 ? ' agent' : ' agents') + ')';
+    row.appendChild(cb);
+    row.appendChild(txt);
+    listEl.appendChild(row);
+  }
+  wrapEl.hidden = false;
 }
 function worldAddClose() {
   document.getElementById('world-add-modal').hidden = true;
@@ -18156,17 +18239,61 @@ async function worldAddSubmit() {
   if (!name) { msg.textContent = 'Give your Kosmos a name.'; input.focus(); return; }
   go.disabled = true;
   msg.textContent = '';
+  // #2563: the checked Kosmoses to import agents from. Added to the payload ONLY when
+  // non-empty, so a create with no selection sends exactly today's { name } body. When it IS
+  // present, the live engine (POST /api/worlds honouring importAgentsFrom) COPIES those
+  // Kosmoses' agent profiles into the new one -- a real, file-writing effect, not a no-op.
+  const importAgentsFrom = Array.from(
+    document.querySelectorAll('#world-add-import-list .world-import-cb')
+  ).filter((c) => c.checked).map((c) => c.value);
+  const payload = importAgentsFrom.length ? { name, importAgentsFrom } : { name };
   try {
     const res = await fetch('/api/worlds', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(payload),
     });
+    const body = await res.json().catch(() => null);
     if (!res.ok) {
-      const body = await res.json().catch(() => null);
       msg.textContent = (body && (body.because || body.error)) || 'Could not create the Kosmos. Try a different name.';
       go.disabled = false;
       return;
+    }
+    // #2563: surface the import OUTCOME instead of closing silently as full success. The create
+    // succeeded either way, but the engine returns `imported` {copied,skipped,failed,
+    // unknownSources,error}; a genuine import problem -- the whole import threw (error), a profile
+    // failed to copy (failed), or a selected source was not found (unknownSources) -- must be
+    // shown, or a person who checked a Kosmos silently gets a new one missing its agents. (copied
+    // === 0 is NOT a failure on its own: selecting only empty Kosmoses legitimately copies nothing;
+    // neither is `skipped`, a profile whose name the target already holds.)
+    if (importAgentsFrom.length) {
+      const imp = body && body.imported;
+      if (!imp) {
+        // A 200 whose body did not parse or carried no readable `imported` means we asked to
+        // import but CANNOT confirm the outcome, so do not close as full success -- mirror the
+        // !res.ok branch's defensive parsing. Unreachable against today's server (its sendJson
+        // always emits valid JSON), kept for parity so a truncated/proxied 200 is never read as a
+        // clean import.
+        await worldsFetch().catch(() => {});
+        msg.textContent = 'Your Kosmos was created, but we could not confirm whether its agents were imported. Open the new Kosmos and add any that are missing.';
+        go.disabled = true;
+        return;
+      }
+      if (imp.error || imp.failed > 0 || imp.unknownSources > 0) {
+        await worldsFetch().catch(() => {});   // the new Kosmos DOES exist -- reflect it in the list
+        const copied = Number(imp.copied) || 0;
+        msg.textContent = imp.error
+          ? 'Your Kosmos was created, but its agents could not be imported. You can add them from the new Kosmos.'
+          : 'Your Kosmos was created' + (copied ? ' with ' + copied + (copied === 1 ? ' agent' : ' agents') : '')
+            + ', but some agents could not be copied. You can add the rest from the new Kosmos.';
+        // Disable Create now so an immediate re-press cannot duplicate the Kosmos that was just
+        // created; the alert (role=alert) announces what happened and Cancel/backdrop/Escape dismiss.
+        // (Editing the name re-enables Create via the pre-existing name-input listener -- that is
+        // fine: a deliberate second create is a normal new-Kosmos action, and a same-name retry is
+        // caught by the !res.ok branch above, so this is not relied on as a hard guarantee.)
+        go.disabled = true;
+        return;
+      }
     }
     worldAddClose();
     await worldsFetch().catch(() => {});
