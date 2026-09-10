@@ -355,6 +355,29 @@ test('#2570: a "removed" from commands that never ran is not a stop, and the acc
   assert.ok(fs.existsSync(dir), 'THE ACCOUNT MUST STILL BE THERE: nothing was actually stopped');
 });
 
+/* ⚠️ THE QUIET-SUCCESS BRANCH, which is the one place a real stop could go
+   unmentioned. Both engines answer `{ok: true, forgotten: false}` for an account
+   that is not there, and the page renders `because` and never reads the
+   `stopped` array, so a person whose agents were really just stopped would see
+   only "That account was already gone from this computer." Reachable exactly as
+   documented: a launch file naming a directory that has since gone. */
+test('#2570: an account that was already gone still SAYS the agents were stopped', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.claude-ghosted');   // never created
+  registeredNotRunning('sherlock', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.forgotten, false, 'this arm is about the quiet-success branch');
+  assert.deepEqual(r.json.stopped, ['sherlock']);
+  assert.match(String(r.json.because), /already gone from this computer/, 'the engine sentence must survive');
+  assert.match(String(r.json.because), /sherlock was stopped first/,
+    'the page renders `because` only, so a stop the sentence omits is a stop nobody is told about');
+  /* And NOT the re-add condition, which is what was nonsense here: there is no
+     account to add again under the same name. */
+  assert.doesNotMatch(String(r.json.because), /under the same name/,
+    'it promises a way back that names re-adding an account that was never there');
+});
+
 test('#2570: stopAgents is inert when no agent is on the account', async () => {
   installRunner();
   const dir = claudeAccount('lonely');
@@ -406,12 +429,19 @@ test('#2570: when the account operation fails AFTER the stop, the answer says th
   }
   const r = await del('claude', { dir, stopAgents: true });
   assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
-  assert.match(String(r.json.error), /could not find a free name/, 'the engine refusal must survive');
   assert.deepEqual(r.json.stopped, ['lestrade'],
     'the answer does not say which agents are already stopped, so the person cannot act on it');
-  assert.match(String(r.json.error), /lestrade was already stopped, and it is still stopped/);
-  assert.match(String(r.json.error), /put it back from the removed list/,
-    'a disconnect that failed after stopping must still name the way back');
+  /* 🛑 THE WHOLE SENTENCE, NOT TWO SUBSTRINGS. This arm used to match
+     /could not find a free name/ and /lestrade was already stopped/ separately,
+     and both matched while the text BETWEEN them was a run-on: the engine's
+     reason has no trailing stop, so the join read "...to move that account to
+     lestrade was already stopped", which sounds like the account was being moved
+     TO an agent. Two passing substring matches cannot see the sentence they sit
+     in; only reading it whole can. */
+  assert.equal(String(r.json.error),
+    'we could not find a free name to move that account to. lestrade was already stopped, '
+    + 'and it is still stopped. You can put it back from the removed list.',
+    'the joined sentence is not what a person would read');
   assert.ok(fs.existsSync(dir), 'the account is still connected, which is what the refusal says');
 });
 

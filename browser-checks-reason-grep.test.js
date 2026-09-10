@@ -704,7 +704,6 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
   //                                   +1: render-account-dup-reauth-2584.js (its could-not-start-a-browser launch catch, #2584)
   //                                   +1: render-disconnect-stop-2570.js (its could-not-start-a-browser launch
   //                                   catch, #2570). Appended, not substituted: see the note on EXPECTED_SITES.
-  //                                   +1: render-account-dup-reauth-2584.js (its could-not-start-a-browser launch catch, #2584)
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
     + 'number deliberately when you add or remove a catch/launch emit, after confirming the '

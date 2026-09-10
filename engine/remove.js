@@ -124,6 +124,20 @@ function resetForTests() { runner = null; DRY_RUN = false; }
  * The one caller today is the #2570 disconnect-and-stop route, which goes on to
  * rename or delete the account the stopped agents were running on. It must not
  * do that on the strength of a stop that never happened.
+ *
+ * 🛑 WHAT IT DOES NOT SEE, said here so nobody reads it as wider than it is. It
+ * inspects THIS module's `runner` only. On win32 the actual commands go through
+ * `engine/win32job.js` and `engine/win32stop.js`, each of which carries its own
+ * independent `setRunner` seam that this function cannot see. Production is
+ * unaffected either way, because `liveExecutionAllowed()` is a single global flag
+ * that the board arms regardless of platform, so the second half of this `||`
+ * answers true there. The gap is a test-only false NEGATIVE: a win32 test that
+ * seeds runners into those two modules without also seeding this one would make
+ * this answer `false` and the #2570 route would then distrust a stop that really
+ * did happen, and refuse. Reaching into both modules for an accessor they do not
+ * expose would couple this module to their internals for a case no test
+ * exercises today; the honest move is to say so, and to add it when a win32
+ * caller actually needs it.
  */
 function commandsAreReal() { return !!runner || liveExec.liveExecutionAllowed(); }
 

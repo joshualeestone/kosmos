@@ -5097,10 +5097,18 @@ const server = http.createServer((req, res) => {
     if (!stopReport || !stopReport.stopped.length) return payload;
     const names = stopReport.stopped;
     const one = names.length === 1;
+    /* 🛑 PUNCTUATE THE JOIN. The engine's reasons mostly do NOT end in a stop
+       ("we could not find a free name to move that account to"), so a bare
+       concatenation produced "...to move that account to lestrade was already
+       stopped", which reads as if the account were being moved TO an agent.
+       Substring assertions could not see it: both halves matched and the
+       sentence in between was never read. Only added when missing, because the
+       OpenAI sign-in refusal ends in one already. */
+    const head = /[.!?]$/.test(String(payload.error)) ? payload.error : `${payload.error}.`;
     return {
       ...payload,
       stopped: names,
-      error: `${payload.error} ${one ? names[0] + ' was' : names.length + ' agents were'} already stopped`
+      error: `${head} ${one ? names[0] + ' was' : names.length + ' agents were'} already stopped`
         + `${one ? '' : ' (' + names.join(', ') + ')'}, and ${one ? 'it is' : 'they are'} still stopped.`
         + (restorable
           ? ` You can put ${one ? 'it' : 'them'} back from the removed list.`
@@ -5118,7 +5126,20 @@ const server = http.createServer((req, res) => {
        account that was never there. Reachable when a launch file points at a
        directory that has since gone. */
     if (payload.forgotten === false || payload.removed === false) {
-      return { ...payload, stopped: stopReport.stopped };
+      /* ⚠️ STILL SAY IT, JUST WITHOUT THE CONDITION. Dropping the sentence
+         entirely and leaving the fact in the `stopped` array was worse than the
+         wording it replaced: the page renders `because` and never reads
+         `stopped`, so a person whose agents had really just been stopped saw
+         only "That account was already gone from this computer." The re-add
+         condition is what was nonsense here, not the stop itself. */
+      const gone = stopReport.stopped;
+      const single = gone.length === 1;
+      return {
+        ...payload,
+        stopped: gone,
+        because: `${payload.because} ${single ? gone[0] + ' was' : gone.length + ' agents were'} stopped first`
+          + `${single ? '' : ' (' + gone.join(', ') + ')'}.`,
+      };
     }
     const names = stopReport.stopped;
     const one = names.length === 1;
