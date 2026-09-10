@@ -15844,10 +15844,22 @@ function acctHasChosenName(a) {
 
 function accountQualifiers(list) {
   const rows = Array.isArray(list) ? list : [];
-  /* 🔑 ONE DERIVATION OF THE NORMALISED PROVIDER ID, read by all three sites
-     that need it (the key, the group's provider set, the display-name ternary).
-     Two of them were separate one-liners for one iteration and drifted at once,
-     which is why this is a function rather than a convention to remember. */
+  /* 🔑 ONE DERIVATION OF THE NORMALISED PROVIDER ID, read by BOTH sites that
+     need it: the group's provider set, and the display-name ternary. They were
+     separate one-liners for one iteration and drifted at once, which is why
+     this is a function rather than a convention to remember.
+     ⚠️ THE KEY IS NOT ONE OF THEM, AND THIS BANNER SAID IT WAS. It was true
+     when written and stopped being true in the commit that repointed the key at
+     `acctPrimaryName`; the banner survived the rewrite that made it false.
+     🛑 It matters because of what it hides: `acctPrimaryName`'s own provider
+     read is `a.provider === 'openai'`, EXACT-CASE, and it is the last
+     un-normalised provider read in the qualifier path. A banner claiming the
+     key reads a normalised id is exactly what stops the next person looking
+     there. Not user-reachable today (`server.js:4610` and
+     `openaiaccounts.js:39` are lowercase literals), and harmless if it ever is,
+     because `key()` and the rendered name call the SAME function on the SAME
+     row: a mismatch changes which fallback is chosen, never whether two rows
+     sound alike. */
   const provIdOf = (a) => String((a && a.provider) || '').toLowerCase();
   /* The same key the row renders its name from, so the count answers the
      question the SCREEN asks ("do two rows read alike"), not a question about
@@ -15928,7 +15940,11 @@ function accountQualifiers(list) {
   const usedByKey = new Map();
   for (const a of rows) {
     const k = key(a);
-    const dir = String(a.dir || '');
+    /* `a &&` for the same reason every other read in this function has it: a
+       null row must not throw. `provIdOf`, `acctChosenName` and
+       `acctPrimaryName` all guard; this one did not, so a caller passing a
+       sparse array got a TypeError from the one line that had no guard. */
+    const dir = String((a && a.dir) || '');
     if (!k || (count.get(k) || 0) < 2) { out.set(dir, ''); continue; }
     let used = usedByKey.get(k);
     if (!used) { used = new Set(); usedByKey.set(k, used); }
@@ -15961,15 +15977,23 @@ function accountQualifiers(list) {
        the last branch still exempt. Returns `v` untouched unless it is already
        taken, so nothing changes for any group that was already distinct. */
     const distinctly = (v) => {
-      /* An empty `dir` would return '' straight back, and '' is the ONE value
-         this function must never hand an ambiguous row: it is the "not
-         ambiguous, no qualifier needed" signal, so the row would render its bare
-         name beside a sibling doing the same. `list()` always supplies a real
-         path, so this is unreachable through `/api/accounts` today and is here
-         for the same reason the dir-keying guard above is: this function is pure
-         and exported, and its whole defence is that a future caller cannot break
-         it from a distance. A positional word is not informative, but it IS
-         distinct, and distinct is the invariant. */
+      /* An empty `dir` would return '' straight back, and '' is the "not
+         ambiguous, no qualifier needed" signal, so a row sharing an ambiguous
+         key would render its bare name beside a sibling doing the same. A
+         positional word is not informative, but it IS distinct.
+         🛑 WHAT THIS DOES *NOT* DO, and the comment here previously implied it
+         did: it CANNOT separate two rows that share a `dir`. The Map this
+         function returns is keyed on `dir`, and all three callers look it up by
+         `dir`, so two rows with the same `dir` read the SAME entry no matter
+         what is stored in it. Two rows both carrying `dir: ''` collapse to a
+         single entry and both controls speak whatever it holds.
+         ⇒ So the honest scope is: this makes the qualifier NON-EMPTY for a row
+         whose dir is empty, which is worth doing and is measurable (paired with
+         a normal row it now reads "account" rather than ''). It is not a
+         defence against a caller that hands in rows sharing a dir; nothing
+         inside this function can be, because the return shape cannot express
+         two answers for one dir. `list()` skips a directory it has already
+         seen, so such rows do not arise today. */
       let base = String(v || '') || 'account';
       if (!takenAlready(base)) return base;
       let n = 2;
