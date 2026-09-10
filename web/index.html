@@ -22700,15 +22700,6 @@ function openDetail(sessionName, section, fromProject) {
     // the next thread silently.
     TALK_QUERY = '';
     document.getElementById('d-talk-search').value = '';
-    /* 🛑 #2660: AND THE CACHED THREAD WITH IT. `__lastBody`/`__lastName` were
-       assigned on every paint and cleared nowhere, and the search input repaints
-       from them. So typing in the search box after switching agents, before the
-       new thread's fetch resolves, ran `paintTalkThread` with the PREVIOUS
-       agent's body while `CURRENT` was the new one. The rows are dropped
-       correctly (`m.from !== dmSession`), but the SEED still fired, marking the
-       new agent known-with-zero-rows and blanking its working line for a poll.
-       ⚠️ This is the dialog's copy of a race the room documents at its own
-       seeding block, found the same way: by asking who else calls the painter. */
     document.getElementById('d-talk-older').hidden = true;
     document.getElementById('d-dmoff').hidden = true;
     document.getElementById('d-say-msg').textContent = '';
