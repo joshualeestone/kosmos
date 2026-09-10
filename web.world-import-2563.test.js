@@ -196,4 +196,18 @@ test('#2563: a create whose import FAILED surfaces the outcome and does not clos
     { ok: true, world: {}, imported: { copied: 0, skipped: 0, failed: 0, unknownSources: 0 } });
   assert.equal(empty.captured.closed, true,
     'copied 0 with no error/failed (an empty source Kosmos) is success, not a failure to surface');
+
+  // Unknown outcome: a 200 whose body carries no readable `imported` (a truncated/proxied response,
+  // or an unexpected shape) must NOT close as full success -- we asked to import and cannot confirm
+  // it ran. Mirrors the !res.ok branch's defensive parsing.
+  const unknown = await runSubmitOutcome('New', ['w1'], { ok: true, world: {} });
+  assert.match(unknown.els['world-add-msg'].textContent, /could not confirm whether its agents were imported/,
+    'a 200 with no readable imported result must surface an unknown-outcome message, not silent success');
+  assert.equal(unknown.captured.closed, false, 'an unconfirmable import keeps the modal open');
+
+  // skipped-only (a profile whose name the target already holds) is NOT a failure -> success path.
+  const skipped = await runSubmitOutcome('New', ['w1'],
+    { ok: true, world: {}, imported: { copied: 1, skipped: 2, failed: 0, unknownSources: 0 } });
+  assert.equal(skipped.captured.closed, true,
+    'skipped>0 with no error/failed/unknownSources is success (deliberately excluded from the failure condition)');
 });

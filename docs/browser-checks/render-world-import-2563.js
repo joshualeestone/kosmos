@@ -76,7 +76,12 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       }
       if (/\/api\/worlds$/.test(url.split('?')[0]) && method === 'POST') {
         postBody = JSON.parse((opts && opts.body) || '{}');
-        return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true, world: { id: 'wnew', name: postBody.name } }) });
+        // Mirror the live engine: a create WITH importAgentsFrom comes back with a successful
+        // `imported` result (both checked Kosmoses' agents copied), so scenario A exercises the
+        // normal success path rather than the unconfirmable-outcome branch.
+        const n = Array.isArray(postBody.importAgentsFrom) ? postBody.importAgentsFrom.length : 0;
+        const imported = n ? { copied: 2, skipped: 0, failed: 0, unknownSources: 0 } : null;
+        return Promise.resolve({ ok: true, status: 200, json: async () => (imported ? { ok: true, world: { id: 'wnew', name: postBody.name }, imported } : { ok: true, world: { id: 'wnew', name: postBody.name } }) });
       }
       if (url.indexOf('/api/worlds') !== -1 && method === 'GET') {
         return Promise.resolve({ ok: true, status: 200, json: async () => ({ worlds: [{ id: 'w1', name: 'Client work' }], activeWorldId: 'w1' }) });

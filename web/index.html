@@ -18238,22 +18238,36 @@ async function worldAddSubmit() {
     // unknownSources,error}; a genuine import problem -- the whole import threw (error), a profile
     // failed to copy (failed), or a selected source was not found (unknownSources) -- must be
     // shown, or a person who checked a Kosmos silently gets a new one missing its agents. (copied
-    // === 0 is NOT a failure on its own: selecting only empty Kosmoses legitimately copies nothing.)
-    const imp = importAgentsFrom.length && body ? body.imported : null;
-    if (imp && (imp.error || imp.failed > 0 || imp.unknownSources > 0)) {
-      await worldsFetch().catch(() => {});   // the new Kosmos DOES exist -- reflect it in the list
-      const copied = Number(imp.copied) || 0;
-      msg.textContent = imp.error
-        ? 'Your Kosmos was created, but its agents could not be imported. You can add them from the new Kosmos.'
-        : 'Your Kosmos was created' + (copied ? ' with ' + copied + (copied === 1 ? ' agent' : ' agents') : '')
-          + ', but some agents could not be copied. You can add the rest from the new Kosmos.';
-      // Disable Create now so an immediate re-press cannot duplicate the Kosmos that was just
-      // created; the alert (role=alert) announces what happened and Cancel/backdrop/Escape dismiss.
-      // (Editing the name re-enables Create via the pre-existing name-input listener -- that is
-      // fine: a deliberate second create is a normal new-Kosmos action, and a same-name retry is
-      // caught by the !res.ok branch above, so this is not relied on as a hard guarantee.)
-      go.disabled = true;
-      return;
+    // === 0 is NOT a failure on its own: selecting only empty Kosmoses legitimately copies nothing;
+    // neither is `skipped`, a profile whose name the target already holds.)
+    if (importAgentsFrom.length) {
+      const imp = body && body.imported;
+      if (!imp) {
+        // A 200 whose body did not parse or carried no readable `imported` means we asked to
+        // import but CANNOT confirm the outcome, so do not close as full success -- mirror the
+        // !res.ok branch's defensive parsing. Unreachable against today's server (its sendJson
+        // always emits valid JSON), kept for parity so a truncated/proxied 200 is never read as a
+        // clean import.
+        await worldsFetch().catch(() => {});
+        msg.textContent = 'Your Kosmos was created, but we could not confirm whether its agents were imported. Open the new Kosmos and add any that are missing.';
+        go.disabled = true;
+        return;
+      }
+      if (imp.error || imp.failed > 0 || imp.unknownSources > 0) {
+        await worldsFetch().catch(() => {});   // the new Kosmos DOES exist -- reflect it in the list
+        const copied = Number(imp.copied) || 0;
+        msg.textContent = imp.error
+          ? 'Your Kosmos was created, but its agents could not be imported. You can add them from the new Kosmos.'
+          : 'Your Kosmos was created' + (copied ? ' with ' + copied + (copied === 1 ? ' agent' : ' agents') : '')
+            + ', but some agents could not be copied. You can add the rest from the new Kosmos.';
+        // Disable Create now so an immediate re-press cannot duplicate the Kosmos that was just
+        // created; the alert (role=alert) announces what happened and Cancel/backdrop/Escape dismiss.
+        // (Editing the name re-enables Create via the pre-existing name-input listener -- that is
+        // fine: a deliberate second create is a normal new-Kosmos action, and a same-name retry is
+        // caught by the !res.ok branch above, so this is not relied on as a hard guarantee.)
+        go.disabled = true;
+        return;
+      }
     }
     worldAddClose();
     await worldsFetch().catch(() => {});
