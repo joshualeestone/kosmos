@@ -8435,12 +8435,17 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
              Kosmos Accessibility permission; STAND-IN until the real "Screenshot 10.09.15 AM" is pulled (flagged).
              ============================================================ -->
         <style>
-        /* The window is an ILLUSTRATION of the macOS pane, not a control: its
-           switch (.s3-sw) is decorative and rendered On. pointer-events:none
-           makes the whole mock inert, so a click on the decoy switch cannot be
-           mistaken for activating anything (0.6.41 re-test: a blue/On decoy
-           toggle sat right above the real "Turn On" button). The real action is
-           the .s3-on button below the mock, which stays clickable. */
+        /* The window is an ILLUSTRATION of the macOS pane. The switch (.s3-sw) is
+           decorative and MIRRORS the real gate (#2620): gray with a swipe hint until
+           the permission is granted, then blue. pointer-events:none keeps the whole
+           mock inert, so the 0.6.41 concern still holds -- a blue/On decoy must never
+           sit above the real Turn On looking activatable; here the switch reads the
+           real state, so it is never a false On. The CLICK is honest: a real focusable
+           button (.s3-sw-open), lifted OUT of this aria-hidden mock into the .s3-mock
+           wrapper and positioned over the switch, opens the exact macOS pane. So
+           .s3-win stays pointer-events:none while the switch is still clickable, via
+           that overlay, not via the inert decoy. The .s3-on "Turn On" button below
+           the mock stays clickable too. */
         .s3-win{background:#f7f7f5;border:1px solid #d8d6d2;border-radius:12px;overflow:hidden;
           box-shadow:0 8px 22px rgba(0,0,0,.14);color:#1c1b19;margin:0 0 10px;pointer-events:none}
         .s3-bar{display:flex;align-items:center;gap:6px;padding:9px 12px;background:#eceae7;border-bottom:1px solid #d8d6d2}
@@ -38928,6 +38933,11 @@ async function frPollGates(screenEl, gen) {
     const spec = FR_GATES[row.getAttribute('data-gate')];
     if (st === 'blocked' && !(spec && spec.gatesNext === false)) anyBlocked = true;
   });
+  // #2620: re-position the switch overlays every poll, not just on show/resize -- so a
+  // switch that measured zero (pane not laid out yet, or a late web-font reflow moved it)
+  // is corrected within a poll tick rather than waiting for a resize. Cheap + idempotent;
+  // typeof-guarded for eval-sliced unit tests.
+  if (typeof frSyncSwitchOverlays === 'function') frSyncSwitchOverlays();
   const next = document.getElementById('fr-next');
   if (!next) return;
   next.disabled = anyBlocked;
@@ -39510,6 +39520,23 @@ document.getElementById('fr-pane-2').addEventListener('click', async (e) => {
    Only a failure speaks, in the step's own #fr-s3-msg line; the Settings window
    itself is the success feedback. */
 document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
+  /* The S3 gate -> (native trigger, open-settings fallback) map, in ONE place so the
+     "Turn On" button (.s3-on) and the #2620 mock-switch overlay (.s3-sw-open) -- both
+     handled in this one listener -- cannot drift apart (they opened the same panes by
+     two copies before this was extracted). Kept INSIDE the listener so it travels with
+     the handler the web.firstrun-a11y-1214 test slices.
+     #1/#2451: the Accessibility row fires the native PROMPT (Kitty's /api/a11y-prompt),
+     which registers the CALLING BINARY (the kosmos-app = Kosmos) in the Accessibility
+     list so it appears and is grantable -- the grant is keyed on the calling binary, not
+     tmux (tmux disclaims responsibility for its children and never holds it; #2125). The
+     internal gate key stays "tmux" for back-compat, but the subject is Kosmos.app. sleep
+     is programmatic (pmset), not a prompt category, so it opens Settings and passes no
+     trigger. Both fall back to opening Settings when the native trigger is unavailable. */
+  const s3PermissionTargets = (gate) => ({
+    trigger: gate === 'tmux' ? '/api/a11y-prompt' : null,
+    fallback: gate === 'sleep' ? '/api/open-sleep-settings'
+      : gate === 'tmux' ? '/api/open-accessibility-settings' : null,
+  });
   // #2620: a click on the mock switch (its real overlay button, .s3-sw-open) opens the
   // same macOS pane as that row's "Turn On" -- Josh's point is people try to click the
   // switch itself. Same trigger/fallback map as the .s3-on handler below; keyed on the
@@ -39518,9 +39545,7 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (swOpen) {
     if (swOpen.disabled) return;
     const g = swOpen.getAttribute('data-sw-gate');
-    const swTrigger = g === 'tmux' ? '/api/a11y-prompt' : null;
-    const swFallback = g === 'sleep' ? '/api/open-sleep-settings'
-      : g === 'tmux' ? '/api/open-accessibility-settings' : null;
+    const { trigger: swTrigger, fallback: swFallback } = s3PermissionTargets(g);
     if (!swFallback) return;
     const swMsg = document.getElementById('fr-s3-msg');
     swOpen.disabled = true;
@@ -39558,16 +39583,9 @@ document.getElementById('fr-pane-3').addEventListener('click', async (e) => {
   if (!b) return;
   const row = b.closest('[data-gate]');
   const gate = row && row.getAttribute('data-gate');
-  /* #1/#2451: the Accessibility row fires the native PROMPT (Kitty's /api/a11y-prompt),
-     which registers the CALLING BINARY (the kosmos-app = Kosmos) in the Accessibility
-     list so it appears and is grantable - the grant is keyed on the calling binary, not
-     tmux (tmux disclaims responsibility for its children and never holds it; #2125). The
-     internal data-gate key stays "tmux" for back-compat, but the subject is Kosmos.app.
-     sleep is programmatic (pmset), not a prompt category, so it opens Settings and passes
-     no trigger. Both fall back to opening Settings when the native trigger is unavailable. */
-  const trigger = gate === 'tmux' ? '/api/a11y-prompt' : null;
-  const fallback = gate === 'sleep' ? '/api/open-sleep-settings'
-    : gate === 'tmux' ? '/api/open-accessibility-settings' : null;
+  // The gate -> (trigger, fallback) map lives in s3PermissionTargets (see it for the
+  // #1/#2451/#2125 rationale); shared with the .s3-sw-open overlay so they cannot drift.
+  const { trigger, fallback } = s3PermissionTargets(gate);
   if (!fallback) return;
   const msg = document.getElementById('fr-s3-msg');
   b.disabled = true;

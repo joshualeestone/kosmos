@@ -526,7 +526,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 83;   // +2: render-permission-slider-2620.js (its launch catch + the final .catch() throw emit, both literal-`FAIL ` SHAPE-1 sites, #2620; the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 83;   // +2: render-permission-slider-2620.js (#2620) -- its two LITERAL-`FAIL ` emit lines: the could-not-start-a-browser launch catch and the final .catch() throw. (The ok() helper's `FAIL` is interpolated -> empty literal prefix, not counted; the summary line carries no marker.) Same two lines the catch matcher counts below. +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
   //                              +1: render-worldsw-abandon-2628.js (its `for (const p of problems)
   //                              console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site,
   //                              confirmed quotable; same shape as render-worldswitch-2238's. Its
