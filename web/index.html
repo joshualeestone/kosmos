@@ -26323,30 +26323,37 @@ document.getElementById('found-toggle').addEventListener('click', () => {
 /* #2651: the neutral action label, ONE source (this const), so the HTML initial text and
    the JS reset below cannot drift. */
 const FOUND_SCAN_LOOK_LABEL = 'Look for agents already on this computer';
+/* #2651: the trigger's previous hidden state, so the neutral-label reset fires only on a
+   hidden->shown TRANSITION (the trigger re-appearing after a found-then-handled candidate),
+   never on every poll while already shown - otherwise an empty-look message would be wiped
+   within one 5s tick and the button's aria-live would re-announce it. Starts true: the
+   trigger ships hidden. */
+let DISCOVERY_TRIGGER_WAS_HIDDEN = true;
 
+/* Show/hide the discovery trigger, and RETURN whether a discovery panel is currently
+   showing (so the click handler need not recompute it). */
 function paintDiscoveryTrigger() {
   const trig = document.getElementById('found-scan-trigger');
-  if (!trig) return;
+  if (!trig) return false;
   const fw = document.getElementById('found-wrap');
   const sw = document.getElementById('scan-wrap');
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
   /* #2651: also hidden once we learn the feature was Dismissed forever - a dismissed
      person is not re-offered the look. */
   const hidden = !onAgentsTab() || anyPanel || DISCOVERY_DISMISSED;
+  const wasHidden = DISCOVERY_TRIGGER_WAS_HIDDEN;
   trig.hidden = hidden;
-  /* When the poll (re)shows the trigger, restore the neutral action label so a stale
-     "could not find" message from an EARLIER press cannot persist after the panel state
-     has changed (a later candidate found then handled would re-show the trigger). The
-     click handler sets its own empty-look message AFTER calling this, so that press's
-     feedback still wins for that press. */
-  if (!hidden) {
+  DISCOVERY_TRIGGER_WAS_HIDDEN = hidden;
+  /* Restore the neutral label ONLY on a hidden->shown TRANSITION (the trigger re-appearing
+     after a found-then-handled candidate), not on every poll while already shown - else the
+     click handler's empty-look message would be wiped within one 5s tick and the aria-live
+     would re-announce neutral->empty->neutral. The !== keeps even the transition write a
+     no-op when the label is already neutral. */
+  if (!hidden && wasHidden) {
     const look = document.getElementById('found-scan-look');
-    /* Guard the write: this runs on every 5s poll while the trigger is shown (the default
-       landing state), and the button carries aria-live, so an UNCONDITIONAL reassignment
-       would re-announce the label to a screen reader every tick. Write only when it actually
-       changed - i.e. to restore a stale empty-look message back to the neutral default. */
     if (look && look.textContent !== FOUND_SCAN_LOOK_LABEL) look.textContent = FOUND_SCAN_LOOK_LABEL;
   }
+  return anyPanel;
 }
 
 document.getElementById('found-scan-look').addEventListener('click', async () => {
@@ -26364,10 +26371,10 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
        (the same belt-and-braces the poll IIFEs carry with their .catch). */
     look.disabled = false;
   }
-  paintDiscoveryTrigger();   // hides the trigger once a panel shows; keeps it if not
-  const fw = document.getElementById('found-wrap');
-  const sw = document.getElementById('scan-wrap');
-  const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
+  /* paintDiscoveryTrigger hides the trigger once a panel shows and returns whether one is
+     showing, so we do not recompute it here. This press keeps the trigger shown when nothing
+     was found (a no-transition show), so the empty-look message set below is NOT reset by it. */
+  const anyPanel = paintDiscoveryTrigger();
   /* Hedged and NOT a machine-scoped count claim (web.empty-scope guard); and only when the
      look genuinely found nothing - NOT when the feature was dismissed (paintDiscoveryTrigger
      has already hidden the trigger there), so the message never misreports a dismissal. */

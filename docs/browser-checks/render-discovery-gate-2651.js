@@ -135,8 +135,14 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     const look = document.getElementById('found-scan-look');
     const tr = document.getElementById('found-scan-trigger');
     if (!look || !tr) return { error: 'button or trigger missing' };
+    /* The reset fires only on a hidden->shown TRANSITION, so create one: settle to shown,
+       stage the stale empty-look label, force the trigger HIDDEN (via the dismissed flag),
+       then clear that and re-show. Only the final re-show is a transition, and it must
+       restore the neutral label. */
+    paintDiscoveryTrigger();                                         // settle: shown
     look.textContent = 'We could not find any new agents to add';   // a prior empty look left this
-    paintDiscoveryTrigger();                                         // no panel, on tab, not dismissed -> the poll re-shows it
+    DISCOVERY_DISMISSED = true; paintDiscoveryTrigger();             // force hidden
+    DISCOVERY_DISMISSED = false; paintDiscoveryTrigger();            // re-show -> transition -> reset
     return { label: look.textContent, triggerHidden: tr.hidden };
   });
 
@@ -161,6 +167,32 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     paintDiscoveryTrigger();                 // second poll, label already default -> must NOT rewrite
     const kept = !!(look.firstChild && look.firstChild.__cl_marker === 'keep');
     return { shown: !tr.hidden, kept };
+  });
+
+  /* Arm 6 - EMPTY-LOOK MESSAGE PERSISTS ACROSS A POLL. After an empty look sets the button to
+     "We could not find any new agents to add", the very next poll (paintDiscoveryTrigger, no
+     panel state change) must NOT wipe it back to the neutral label - the reset fires only on a
+     hidden->shown transition, not on every shown poll. Fresh page: stub both endpoints EMPTY,
+     press Look (message set), then simulate one more poll and assert the message survives. */
+  const page5 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page5.goto('file://' + PAGE);
+  const P = await page5.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/found-agents') !== -1) return Promise.resolve({ ok: true, json: async () => ({ ok: true, agents: [] }) });
+      if (url.indexOf('/api/scan-agents') !== -1) return Promise.resolve({ ok: true, json: async () => ({ ok: true, candidates: [] }) });
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+    const look = document.getElementById('found-scan-look');
+    if (!look) return { error: 'button missing' };
+    look.click();                                   // empty look -> the message is set
+    await new Promise((res) => setTimeout(res, 150));
+    const afterClick = look.textContent;
+    paintDiscoveryTrigger();                         // a subsequent poll, no panel-state change
+    return { afterClick, afterPoll: look.textContent };
   });
 
   await browser.close();
@@ -195,6 +227,12 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     if (G.shown !== true) fail.push('label-write-guarded arm: the trigger was not shown, so the write path did not run (arm vacuous)');
     if (G.kept !== true) fail.push('label-write-guarded arm: the label text node was replaced on a no-change re-show, so aria-live would re-announce every 5s poll');
   }
+  if (P.error) {
+    fail.push('message-persists arm errored: ' + P.error);
+  } else {
+    if (!/could not find/i.test(P.afterClick || '')) fail.push('message-persists arm: the empty-look message was not set on the press (arm vacuous)');
+    if (!/could not find/i.test(P.afterPoll || '')) fail.push('message-persists arm: the empty-look message was wiped by the next poll (reset fired on a no-transition show)');
+  }
 
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
@@ -203,5 +241,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651 (5 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan and hides the trigger; a Dismissed-forever user is not re-offered and the empty message never misreports the dismissal; a stale empty-look label is reset to the neutral default when the trigger re-shows; and that label write is guarded so aria-live does not re-announce every poll. PASS');
+  console.log('render-discovery-gate-2651 (6 arms): on load the panels stay hidden and only the "Look for agents" trigger shows; the press opens both found and scan and hides the trigger; a Dismissed-forever user is not re-offered and the empty message never misreports the dismissal; a stale empty-look label is reset on a hidden->shown re-show; that label write is guarded so aria-live does not re-announce; and an empty-look message is NOT wiped by the next poll while the trigger stays shown. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });
