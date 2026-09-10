@@ -1345,8 +1345,26 @@ function restoreInner(name, platform) {
         re-enable case.
      `fs.existsSync` matches the sibling `startableGone` plist check; its macOS
      case-insensitivity errs SAFE here -- a case-variant dir reads as present, so
-     we do not over-refuse a restore that would in fact land somewhere real. */
-  const launched = create.readJob(clean);
+     we do not over-refuse a restore that would in fact land somewhere real. Two
+     more existsSync/read edges, enumerated rather than guarded because both are
+     unreachable under the account lifecycle and the sibling checks in this file do
+     not guard them either:
+      - `create.readJob(clean)` reads `plistPath(clean)` with a plain readFileSync,
+        which is case-insensitive too -- so a HAND-DELETED plist for `clean` plus a
+        live case-variant same-stem agent (`CASEY` vs `casey`, the exact shape this
+        file's `existsExactly` history records) could read the OTHER agent's job and
+        judge configDir off a stranger. Needs plistGone AND that collision; the
+        sibling startableGone read carries the same weakness, so this check is no
+        stricter than its neighbours by design.
+      - `existsSync` calls a path that is now a FILE (not a dir) "present", so an
+        account dir replaced by a stray same-named file would pass here and fail
+        later. `dirForLabel`/`prepare` always mkdir the directory and removal always
+        operates on the whole dir, so the lifecycle never produces this.
+     🛑 The `platform === 'win32'` guard below makes the MAC-ONLY scope STRUCTURAL
+     rather than incidental (readJob happens to return null on win32 for lack of a
+     plist): a win32 configDir rides the Scheduled Task argv, not a plist, and needs
+     its own readback (the follow-up named above). */
+  const launched = platform === 'win32' ? null : create.readJob(clean);
   if (launched && launched.configDir && !fs.existsSync(launched.configDir)) {
     return {
       outcome: OUTCOME.REFUSED,
