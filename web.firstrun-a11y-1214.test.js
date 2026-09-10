@@ -225,8 +225,16 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
     'frRecheckPress does not actually re-check the gates');
   /* And it must still refuse to clobber an unread error on the shared status
      line, which is the subtle half that a retyped copy would have lost. */
-  assert.match(prBody, /fr-msg-err/,
-    'frRecheckPress no longer guards the shared #fr-s3-msg error state');
+  /* 🛑 COUNTED, NOT MATCHED, because the subtle half is that the error state is
+     re-read TWICE: once before the await and once after, since a "Turn On"
+     failure can land DURING it while both controls are live. A single substring
+     hit cannot tell "read twice" from "read once", so the previous
+     `assert.match(prBody, /fr-msg-err/)` was satisfied by a body that had lost
+     the post-await re-read entirely, which is precisely the half a retyped copy
+     drops. Verified: the one-hit form matches that mutant. */
+  assert.equal((prBody.match(/fr-msg-err/g) || []).length, 2,
+    'frRecheckPress must read the shared #fr-s3-msg error state BOTH before and after the await; '
+    + 'losing the post-await re-read silently wipes an error the person has not read');
 });
 
 test('#2587: the sleep step is ADVISORY (never gates Next); Accessibility still gates; the honest laptop note stays', () => {
