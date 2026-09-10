@@ -353,6 +353,13 @@ function install(specs, opts = {}) {
   const screens = new Map(list.map((s) => [`${s.session}:${s.pane}`, s.screen]));
 
   status.setPaneSource(() => text);
+  // #1078: snapshot() ALSO appends the created-never-run roster source whenever it is
+  // wired (server.js wires it live from createdroster.make(), reading launchd jobs + worker
+  // dirs on disk). A fixture describes running PANES only, so a box carrying real
+  // created-but-never-run agents (an operator mid-import) would leak them into every
+  // fixture's snapshot().agents. Sandbox this seam too, empty, so a fixture stays its own
+  // panes -- the whole point of install() being hermetic. Restored in restore() below.
+  status.setCreatedSource(() => []);
   status.setPaneCapture((target) => {
     const screen = screens.get(target);
     // `null` is the engine's "we could not read this pane", which is a real
@@ -479,6 +486,7 @@ function verify(specs, board) {
 function blind() {
   status.setPaneSource(() => null);
   status.setPaneCapture(() => null);
+  status.setCreatedSource(() => []);   // #1078: sandbox the created arm too (see install())
   return { restore };
 }
 
@@ -486,6 +494,7 @@ function blind() {
 function unreadable(text = 'not_a_pane_line_at_all') {
   status.setPaneSource(() => text);
   status.setPaneCapture(() => null);
+  status.setCreatedSource(() => []);   // #1078: sandbox the created arm too (see install())
   return { restore };
 }
 
@@ -493,6 +502,7 @@ function unreadable(text = 'not_a_pane_line_at_all') {
 function refuses(message = 'tmux is not answering') {
   status.setPaneSource(() => { throw new Error(message); });
   status.setPaneCapture(() => null);
+  status.setCreatedSource(() => []);   // #1078: sandbox the created arm too (see install())
   return { restore };
 }
 
@@ -500,6 +510,7 @@ function refuses(message = 'tmux is not answering') {
 function restore() {
   status.setPaneSource(null);
   status.setPaneCapture(null);
+  status.setCreatedSource(null);   // #1078: clear the created-never-run seam too, so a fixture cannot leak into a later test in the same process
 }
 
 module.exports = {
