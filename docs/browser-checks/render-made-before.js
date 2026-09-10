@@ -109,7 +109,7 @@ function chk(ok, label, extra) {
     });
     chk(rick.whyH > 0 && /To bring it in/.test(rick.whyText), 'the explainer is on screen and names the way in', rick.whyText);
     chk(rick.disabled === true, 'the picker is refused before any click');
-    chk(/no launch file to change/.test(rick.msg), 'the refusal says why in the state’s own words', rick.msg);
+    chk(/its model cannot change here/.test(rick.msg), 'the refusal says why in the state’s own words', rick.msg);
     await page.screenshot({ path: path.join(OUT, 'made-before-rick.png'), fullPage: false });
 
     // The regression the review caught: switch to Bob, nothing lingers.

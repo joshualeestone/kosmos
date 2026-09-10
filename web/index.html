@@ -7772,7 +7772,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     </div>
     <div class="field" style="margin-top:14px;">
       <button class="btn" id="d-trust-restart" type="button">Trust &amp; Restart</button>
-      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent folder so it can start without the Terminal question.</p>
+      <p class="fhint" id="d-trust-restart-hint" style="margin-top:8px;">Approves this agent's folder so it can start without the macOS permission prompt each time.</p>
       <p class="fmsg" id="d-trust-restart-msg" role="status" aria-live="polite"></p>
     </div>
   </section>
@@ -22368,13 +22368,13 @@ function openDetail(sessionName, section, fromProject) {
     drunWhy.textContent = a.neverRecorded === true
       ? 'Kosmos has no record of how this agent starts, and waiting will not add one. '
         + (recordedDir
-          ? 'Kosmos records where this agent lives but has no launch file for it'
-            + (a.running === false ? ', so it will not start on its own.' : '. Kosmos will not write one while it runs some other way.')
-            + ' There is no control here that re-records one yet.'
+          ? 'Kosmos records where this agent lives but did not record how it starts'
+            + (a.running === false ? ', so it will not start on its own.' : '. Kosmos will not record that while it runs some other way.')
+            + ' There is no control here to re-record that yet.'
           : (a.running === false
             ? 'To bring it in: add it from Found agents in Settings.'
             : 'To bring it in: stop it, then add it from Found agents in Settings. '
-              + 'Kosmos will not write a launch file while it runs some other way.'))
+              + 'Kosmos will not record how it starts while it runs some other way.'))
       : '';
     drunWhy.hidden = !drunWhy.textContent;
   }
@@ -27812,7 +27812,7 @@ async function paintOpenaiDetailModel(a, forWhom) {
      verbatim also collided the web.made-before pins that anchor on that copy. */
   const refusal = !ours
     ? 'Kosmos did not start this agent, so it cannot change its model.'
-    : 'Kosmos has no launch file for this agent yet, so there is no model to change here.';
+    : 'Kosmos did not record how this agent starts, so there is no model to change here.';
   const currentKey = (a && typeof a.plannedModelName === 'string') ? a.plannedModelName : '';
   const acctDir = (a && a.account && a.account.dir && !a.account.isDefault) ? a.account.dir : '';
   if (row) row.hidden = false;
@@ -27946,9 +27946,9 @@ async function paintModelPicker(a) {
   { const row = document.getElementById('d-model-row'); if (row) row.hidden = false; }
   if (msg && !usable && !msg.textContent) {
     msg.textContent = ours
-      ? 'Made before Kosmos recorded how it starts, so there is no launch file to change. '
+      ? 'Made before Kosmos recorded how it starts, so its model cannot change here. '
         + (a && a.profile && a.profile.dir
-          ? 'There is no control here that re-records one yet.'
+          ? 'There is no control here to re-record that yet.'
           : (a && a.running === false
             ? 'Add it from Found agents in Settings to bring it in.'
             : 'Stop it, then add it from Found agents in Settings to bring it in.'))
