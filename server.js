@@ -4945,6 +4945,79 @@ const server = http.createServer((req, res) => {
   }
 
   /**
+   * #2570: stop the agents that are on an account, so DISCONNECT can proceed
+   * instead of refusing.
+   *
+   * 🔑 ONE DERIVATION, TWO ROUTES. The Claude and OpenAI DELETE routes each
+   * enumerate `usedBy` in their own copied loop, which this codebase accepted
+   * for diffability. The STOP is not copied: two spellings of "stop these
+   * agents and decide whether it worked" is the two-derivations habit
+   * engine/status.js calls the worst one here, and it would fail asymmetrically
+   * (one provider stopping an agent the other refuses to).
+   *
+   * 🛑 IT REUSES `removal.remove(name)` AND DOES NOT REIMPLEMENT THE STOP. That
+   * primitive disables the launchd job BEFORE booting it out (KeepAlive would
+   * revive it in the other order), treats "no such service" as success, and
+   * RECORDS the agent on the removed list, which is what makes this reversible:
+   * signing back in and pressing Restore brings the agent back. A hand-rolled
+   * `launchctl bootout` here would be a stop nobody can undo.
+   *
+   * ⚠️ IT ANSWERS `ok:false` ON ANY OUTCOME THAT IS NOT `REMOVED`, INCLUDING
+   * PARTIAL. A PARTIAL means the job was disabled but the boot-out failed, so
+   * the agent may still be live against an account we are about to rename out
+   * from under it. That is the exact #1659 hazard the refusal existed to
+   * prevent, so the account is left alone and the caller is told which agents
+   * stopped and which did not.
+   */
+  function stopAgentsForDisconnect(names) {
+    const results = [];
+    for (const name of names) {
+      let done = null;
+      try { done = removal.remove(name); }
+      catch (err) {
+        /* A throw is not a stop. It is also not evidence the agent is still
+           running, and saying either would be a guess: the honest verdict is
+           that we do not know, which fails closed the same way PARTIAL does. */
+        results.push({ name, outcome: 'failed', because: String((err && err.message) || err) });
+        continue;
+      }
+      results.push({
+        name,
+        outcome: (done && done.outcome) || 'failed',
+        because: (done && done.because) || '',
+      });
+    }
+    const stopped = results.filter((r) => r.outcome === removal.OUTCOME.REMOVED).map((r) => r.name);
+    const notStopped = results.filter((r) => r.outcome !== removal.OUTCOME.REMOVED);
+    return { ok: notStopped.length === 0, results, stopped, notStopped };
+  }
+
+  /**
+   * #2570: add the "and we stopped these first" half to a success answer.
+   *
+   * 🔑 ONE SENTENCE, FOUR ANSWERS. Disconnect and delete, on two providers, are
+   * four success payloads that already differ for good reasons. What they must
+   * NOT differ on is what a person is told about their agents, so the sentence
+   * is written once and appended rather than hand-written into each.
+   *
+   * ⚠️ IT SAYS "you can restore them" BECAUSE THAT IS TRUE AND CHECKABLE:
+   * `removal.remove` records each agent on the removed list, which is exactly
+   * what the Restore control reads. If that ever stops being true this sentence
+   * becomes the lie, and `engine/remove.js` is where it would be told.
+   */
+  function withStopNote(payload, stopReport) {
+    if (!stopReport || !stopReport.stopped.length) return payload;
+    const names = stopReport.stopped;
+    const one = names.length === 1;
+    return {
+      ...payload,
+      stopped: names,
+      because: `${payload.because} ${one ? names[0] + ' was' : names.length + ' agents were'} stopped first`
+        + `${one ? '' : ' (' + names.join(', ') + ')'}. You can restore ${one ? 'it' : 'them'} from the removed list if you sign back in.`,
+    };
+  }
+
+  /**
    * Forget an OpenAI account (#1372).
    *
    * 🛑 THE WAY BACK OUT THAT DID NOT EXIST. A person could add up to 500 and
@@ -5066,16 +5139,54 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        /* #2570 option 2, DISCONNECT AND STOP. With no `stopAgents` in the body
+           the behaviour below is exactly what #1659 shipped: the engine refuses
+           and names the agents. With it, we stop them first and then proceed.
+
+           🛑 THE FAIL-CLOSED GATE IS THE `return` ABOVE, BY POSITION. This sits
+           after it on purpose, so an uncertain enumeration can never reach the
+           stop loop: stopping a GUESSED set is worse than refusing, because the
+           agent that was missed then runs on against an account that has been
+           renamed out from under it.
+
+           ⚠️ AND THE ENGINE'S OWN REFUSAL IS LEFT INTACT RATHER THAN BYPASSED.
+           We clear `usedBy` only after every name comes back REMOVED, which is
+           the removal primitive's own verified verdict. If a stop had silently
+           not worked, the list would still be non-empty and this would still be
+           a refusal, not a rename under a live agent. */
+        let stopReport = null;
+        if (usedBy.length && !!(body && body.stopAgents === true)) {
+          stopReport = stopAgentsForDisconnect(usedBy);
+          if (!stopReport.ok) {
+            const failed = stopReport.notStopped.map((r) => r.name);
+            sendJson(res, 400, {
+              /* Names both halves. "Some agents could not be stopped" tells the
+                 person nothing they can act on, and the half that DID stop is
+                 the part they most need to know about, because those agents are
+                 now off and their account is still connected. */
+              error: stopReport.stopped.length
+                ? `We stopped ${stopReport.stopped.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
+                  + 'Restore the stopped ones from the removed list, or stop the rest yourself and try again.'
+                : `We could not stop ${failed.join(', ')}, so nothing was changed.`,
+              usedBy,
+              stopped: stopReport.stopped,
+              notStopped: stopReport.notStopped,
+            });
+            return;
+          }
+          usedBy.length = 0;
+        }
+
         if (remove) {
           const gone = openaiAccounts.removeAccount(dir, usedBy);
           if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
-          sendJson(res, 200, {
+          sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
             because: gone.removed
               ? 'That account is deleted from this computer. Its sign-in file is gone.'
               : 'That account was already gone from this computer.',
             accounts: openaiAccounts.list(),
-          });
+          }, stopReport));
           return;
         }
 
@@ -5086,7 +5197,7 @@ const server = http.createServer((req, res) => {
         }
         /* "Removed" and "deleted" are different promises and the person is
            entitled to know which one they got. */
-        sendJson(res, 200, {
+        sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           /* 🛑 `movedTo` IS SURFACED HERE TOO, and #1659 is why. This engine has
              always computed it and this route has always dropped it, which was
@@ -5118,7 +5229,7 @@ const server = http.createServer((req, res) => {
                 + ' in your home folder.' : '')
             : 'That account was already gone from this computer.',
           accounts: openaiAccounts.list(),
-        });
+        }, stopReport));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;
@@ -5298,16 +5409,54 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        /* #2570 option 2, DISCONNECT AND STOP. With no `stopAgents` in the body
+           the behaviour below is exactly what #1659 shipped: the engine refuses
+           and names the agents. With it, we stop them first and then proceed.
+
+           🛑 THE FAIL-CLOSED GATE IS THE `return` ABOVE, BY POSITION. This sits
+           after it on purpose, so an uncertain enumeration can never reach the
+           stop loop: stopping a GUESSED set is worse than refusing, because the
+           agent that was missed then runs on against an account that has been
+           renamed out from under it.
+
+           ⚠️ AND THE ENGINE'S OWN REFUSAL IS LEFT INTACT RATHER THAN BYPASSED.
+           We clear `usedBy` only after every name comes back REMOVED, which is
+           the removal primitive's own verified verdict. If a stop had silently
+           not worked, the list would still be non-empty and this would still be
+           a refusal, not a rename under a live agent. */
+        let stopReport = null;
+        if (usedBy.length && !!(body && body.stopAgents === true)) {
+          stopReport = stopAgentsForDisconnect(usedBy);
+          if (!stopReport.ok) {
+            const failed = stopReport.notStopped.map((r) => r.name);
+            sendJson(res, 400, {
+              /* Names both halves. "Some agents could not be stopped" tells the
+                 person nothing they can act on, and the half that DID stop is
+                 the part they most need to know about, because those agents are
+                 now off and their account is still connected. */
+              error: stopReport.stopped.length
+                ? `We stopped ${stopReport.stopped.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
+                  + 'Restore the stopped ones from the removed list, or stop the rest yourself and try again.'
+                : `We could not stop ${failed.join(', ')}, so nothing was changed.`,
+              usedBy,
+              stopped: stopReport.stopped,
+              notStopped: stopReport.notStopped,
+            });
+            return;
+          }
+          usedBy.length = 0;
+        }
+
         if (remove) {
           const gone = accounts.removeAccount(dir, usedBy);
           if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
-          sendJson(res, 200, {
+          sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
             because: gone.removed
               ? 'That account is deleted from this computer. Its sign-in file is gone, and any history kept only under it goes with it.'
               : 'That account was already gone from this computer.',
             accounts: accounts.list(),
-          });
+          }, stopReport));
           return;
         }
 
@@ -5343,7 +5492,7 @@ const server = http.createServer((req, res) => {
            STOPS DOING rather than asserting a loss that is only sometimes real,
            which is the conditional-stated-as-fact error this card already made
            once in the refusal copy. */
-        sendJson(res, 200, {
+        sendJson(res, 200, withStopNote({
           forgotten: out.forgotten === true,
           because: out.forgotten
             ? 'That account is off the list. Its sign-in file is still on this computer, '
@@ -5367,7 +5516,7 @@ const server = http.createServer((req, res) => {
              through GET /api/accounts, which uses listLive(), so no caller
              reads this: it is a second, non-live derivation of the same list. */
           accounts: accounts.list(),
-        });
+        }, stopReport));
       })
       .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
     return;

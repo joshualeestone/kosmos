@@ -16536,6 +16536,16 @@ async function paintAccounts() {
        and "deleted" are different promises. Copying "Remove it for
        good?" would make the confirm contradict the sentence after it. */
     let armed = false;
+    /* #2570: THE SECOND CONFIRM. A refusal naming the agents on this account
+       re-arms the button as "Disconnect and stop N agents?", and the next press
+       re-sends the same request with `stopAgents: true`. Held in the row's own
+       closure for the same reason `armed` is: no state outside it, nothing to
+       reset on a repaint, and one blur disarms both.
+       🛑 IT IS NEVER OFFERED UNTIL THE SERVER HAS REFUSED ONCE AND NAMED THE
+       AGENTS. Offering it up front would put "and stop your agents" in front of
+       somebody disconnecting an idle account, which is the common case and
+       needs no such warning. */
+    let stopFor = null;
     const REST = btn.textContent;
     /* 🛑 THE ARMED STATE WAS INVISIBLE TO ASSISTIVE TECH, AND THE CONFIRM IS THE
        SAFETY STEP OF A DESTRUCTIVE ACTION. `aria-label` WINS over name-from-content
@@ -16563,9 +16573,14 @@ async function paintAccounts() {
          ⇒ The armed name now STARTS with the visible text and keeps the account
          identity after it, so it satisfies both: the words on screen are sayable,
          and the row is still identified. */
-      btn.setAttribute('aria-label', on ? CONFIRM + ' ' + REST_LABEL : REST_LABEL);
+      /* #2570: the armed name is taken from the VISIBLE text rather than from
+         CONFIRM, because there are now two armed states and only one constant.
+         The stop confirm showed "Disconnect and stop 2 agents?" while announcing
+         "Disconnect?", which is the WCAG 2.5.3 defect this line was written to
+         fix, arriving again through a second state the original could not see. */
+      btn.setAttribute('aria-label', on ? btn.textContent + ' ' + REST_LABEL : REST_LABEL);
     };
-    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
+    btn.addEventListener('blur', () => { if (!btn.disabled) { armed = false; stopFor = null; btn.textContent = REST; btn.classList.remove('armed'); armLabel(false); } });
     btn.addEventListener('click', async () => {
       /* 🛑 THE PROVIDER GUARD RUNS BEFORE THE ARMING, and it did not until now even
          though the plan said it must. An unmarked button used to ARM on the first
@@ -16608,10 +16623,64 @@ async function paintAccounts() {
         const res = await fetch('/api/accounts/' + provider, {
           method: 'DELETE',
           headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(isRemove ? { dir: targetDir, remove: true } : { dir: targetDir }),
+          /* #2570: `stopAgents` only ever rides on the SECOND press, after a
+             refusal named the agents. The default request is byte-identical to
+             what #1659 shipped, so the refuse-and-name behaviour is untouched
+             for every caller that does not opt in. */
+          body: JSON.stringify(Object.assign(
+            { dir: targetDir },
+            isRemove ? { remove: true } : {},
+            stopFor ? { stopAgents: true } : {},
+          )),
         });
         const out = await res.json().catch(() => null);
+        /* #2570: A REFUSAL THAT NAMES AGENTS IS AN OFFER, NOT A DEAD END. #1659
+           shipped the safe half (refuse, and say which agents are on the
+           account) and left the person to go and stop each one by hand. When
+           the server names them, re-arm this same button with the second
+           confirm; the next press sends `stopAgents` and the route stops them
+           first.
+           🛑 ONLY WHEN WE HAVE NOT ALREADY TRIED. A refusal that still names
+           agents AFTER a stop attempt means a stop did not work, and re-offering
+           the same press would loop a person against a failure. That path falls
+           through to the throw below, whose sentence names which agents stopped
+           and which did not. */
+        const blocking = (!res.ok && out && Array.isArray(out.usedBy))
+          ? out.usedBy.filter((n) => typeof n === 'string' && n)
+          : [];
+        if (blocking.length && !stopFor) {
+          stopFor = blocking;
+          armed = true;
+          btn.disabled = false;
+          btn.textContent = blocking.length === 1
+            ? 'Disconnect and stop ' + blocking[0] + '?'
+            : 'Disconnect and stop ' + blocking.length + ' agents?';
+          btn.classList.add('armed');
+          armLabel(true);
+          /* The server's own sentence names the agents and is the thing to read
+             before pressing again. The button says what the press will do; this
+             line says what is on the account and, from the route, that they can
+             be restored.
+             🛑 THE CANCEL SITS INSIDE THE `if (msg)`, IMMEDIATELY BEFORE THE
+             WRITE, NOT ABOVE THE BLOCK. `web.account-qualifier.test.js` checks
+             the every-writer-cancels rule by looking back only as far as the
+             enclosing brace, deliberately, so that a cancel on a branch that did
+             not run cannot vouch for a write on the branch that did. A cancel
+             one block out is invisible to it, and it went red on this exact
+             line. The rule is real either way; this is where it is checkable. */
+          if (msg) {
+            acctCancelSay();
+            msg.textContent = String((out && out.error) || 'agents are set up to run on this account')
+              + ' Press again to disconnect and stop '
+              + (blocking.length === 1 ? 'it' : 'them') + '; you can restore '
+              + (blocking.length === 1 ? 'it' : 'them') + ' from the removed list if you sign back in.';
+            if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
+          }
+          btn.focus({ preventScroll: true });
+          return;
+        }
         if (!res.ok) throw new Error((out && out.error) || 'we could not remove that account');
+        stopFor = null;
         /* 🛑 THE REPAINT MUST COME FIRST, AND THIS ORDER IS THE WHOLE
            PROMISE OF THE CARD. paintAccounts() opens by writing "Checking your
            accounts…" into this same line and ends by blanking it, so setting the
