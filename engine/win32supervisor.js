@@ -40,6 +40,7 @@
 
 const cp = require('node:child_process');
 
+const win32channel = require('./win32channel');
 const win32launch = require('./win32launch');
 const win32sessions = require('./win32sessions');
 
@@ -274,9 +275,39 @@ function main(argv) {
         + (e.because ? ' -- ' + e.because : '') + '\n');
     },
   });
-  const bye = () => { handle.stop(); };
-  process.on('SIGINT', bye);
-  process.on('SIGTERM', bye);
+  /**
+   * 🔑 AND IT SERVES THE CHANNEL, BECAUSE IT IS THE ONLY PROCESS THAT COULD (7c-3).
+   * `handle.send()` types at the agent, and until now nothing outside this process
+   * could call it -- the board is somewhere else entirely. The pipe is opened here,
+   * in the process that holds the agent's stdin, which is the whole reason the
+   * server half lives in the supervisor rather than in the board.
+   *
+   * ⚠️ A CHANNEL THAT COULD NOT BE OPENED DOES NOT STOP THE SUPERVISOR. An agent
+   * that runs and cannot be messaged is the state Windows has been in all along;
+   * refusing to supervise it as well would turn a lost capability into a lost
+   * agent. It is said once, on stderr, where the task log keeps it.
+   */
+  const channel = win32channel.serve(spec.name, {
+    onSay: (text, replyWith) => { handle.send(text, replyWith); },
+  });
+  if (!channel.ok) {
+    process.stderr.write(new Date().toISOString() + ' ' + spec.name
+      + ' channel-refused -- ' + channel.because + '\n');
+  }
+
+  /* ⚠️ STOPPING HAS TO CLOSE THE CHANNEL TOO, and hanging that off `stop` rather
+     than off the signal handlers is what makes it true for every caller. A pipe
+     server holds the event loop open, so a supervisor that stopped supervising and
+     left its channel listening is a process that never exits -- which is a hung
+     Scheduled Task in production and a test run that never returns. */
+  const supervisionStop = handle.stop;
+  handle.stop = function stop() {
+    supervisionStop();
+    if (channel.ok) channel.close();
+  };
+  process.on('SIGINT', handle.stop);
+  process.on('SIGTERM', handle.stop);
+  handle.channel = channel;
   return handle;
 }
 
@@ -430,12 +461,25 @@ function superviseStreaming(spec, opts) {
    * contract is that a delivery either happened or is reported as could_not, and
    * a throw here would become a 500 where a sentence belongs.
    */
-  handle.send = function send(text) {
+  handle.send = function send(text, done) {
+    const answer = (r) => { if (typeof done === 'function') { try { done(r); } catch { /* the caller's problem, not ours */ } } return r; };
     if (!child || !child.stdin || child.stdin.destroyed) {
-      return { ok: false, because: 'it is not running just now, so we did not type anything' };
+      return answer({ ok: false, because: 'it is not running just now, so we did not type anything' });
     }
-    try { child.stdin.write(win32launch.messageLine(text)); }
-    catch (e) { return { ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }; }
+    /* 🔑 `done` IS CALLED WHEN THE BYTES HAVE FLUSHED, NOT WHEN THEY WERE HANDED
+       TO A STREAM (7c-3). The return value is a PRE-CHECK -- it says the pipe was
+       open when we looked -- and that was enough while the only caller was a test.
+       The channel answers a person's send with it, so it needs the later truth: an
+       agent that died between the check and the write fails the write, and
+       reporting that as delivered is exactly the over-claim chat.js's `could_not`
+       contract exists to prevent. Callers that want the old, cheaper answer simply
+       pass no callback. */
+    try {
+      child.stdin.write(win32launch.messageLine(text), (err) => {
+        if (err) answer({ ok: false, because: 'we could not reach it (' + ((err && err.code) || 'unknown') + ')' });
+        else answer({ ok: true });
+      });
+    } catch (e) { return answer({ ok: false, because: 'we could not reach it (' + ((e && e.code) || 'unknown') + ')' }); }
     return { ok: true };
   };
 
