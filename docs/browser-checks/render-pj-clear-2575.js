@@ -54,14 +54,11 @@ function check(name, pass, detail) {
    clear result are read from page globals so scenarios can re-arm the stub. */
 function initStub() {
   window.__posted = [];
-  window.__intervals = [];
   // Refuse the page's 5s polls: a Playwright page is VISIBLE, so tick's
   // document.hidden guard does not stop it, and a background poll would race
-  // every hand-driven paint (the render-talk lesson).
-  window.setInterval = (fn, ms) => {
-    window.__intervals.push({ ms, name: (fn && fn.name) || '(anonymous)' });
-    return 0;
-  };
+  // every hand-driven paint (the render-talk lesson). We only need to refuse it,
+  // not record it, so this stub returns a fake id and keeps nothing.
+  window.setInterval = () => 0;
   window.__asking = true;      // does the thread say the agent is asking?
   window.__clearOk = true;     // should the clear route succeed?
   const enc = (o) => new Response(JSON.stringify(o), {
@@ -269,4 +266,12 @@ function initStub() {
   console.log('\n' + (failed.length ? 'FAIL  ' + failed.length + ' of ' + results.length + ' checks failed'
     : 'PASS  all ' + results.length + ' checks passed'));
   process.exit(failed.length ? 1 : 0);
-})();
+})().catch((err) => {
+  /* Without this a rejection inside the IIFE (a renamed selector, a null read on an
+     evaluate result, an un-timed-out click) exits on an unhandled rejection with NO
+     quotable FAIL line, so the runner's reason-grep gate has nothing to report and the
+     browser is never closed. Same lesson as render-restore-dircheck-2615.js. */
+  console.error('FAIL  render-pj-clear-2575: the check itself threw: '
+    + (err && err.message ? err.message.split('\n')[0] : err));
+  process.exit(1);
+});
