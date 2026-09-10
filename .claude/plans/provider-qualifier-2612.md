@@ -36,10 +36,42 @@ the whole point of a qualifier, so the map is explicit and silence means `dir`.
 **The short product name, not `providerName`.** This renders inside a parenthetical after the
 login, and "(Anthropic / Claude)" carries a slash that reads as a second field.
 
-**Still subject to the used-set**, like every other qualifier in that function. If another row in
-the group already took "OpenAI" as its LABEL, the default falls to `dir` rather than sharing a
-name, because two controls answering to one accessible name is the defect the whole function
-exists to prevent.
+**Still subject to the used-set, and the comparison is CASE-INSENSITIVE in both branches.** An
+earlier version of this paragraph said the default falls back "if another row already took
+'OpenAI' as its LABEL", which describes a protection that **can never fire**: every label is
+lowercase by construction, since `accounts.dirForLabel` and `openaiaccounts.cleanLabel` both
+`.toLowerCase()` and strip to `[a-z0-9-]`. The reachable shape is a label of **"openai"**, which
+an exact `Set.has` waves straight through while a screen reader announces it identically to
+"OpenAI".
+
+⚠️ **That was a REGRESSION, not merely a gap.** Measured on one email across `~/.claude`,
+`~/.codex` and `~/.codex-openai` with exact matching: `["main","OpenAI","openai"]`, three distinct
+strings and two distinct sounds. The same three rows BEFORE this card gave
+`["main","/home/.codex","openai"]`, which is ugly and audibly distinct.
+
+📌 **And it bites in both orderings, which is why there are two arms.** Fixing only the provider
+lookup leaves the real payload order broken: the default is emitted first, takes "OpenAI", and the
+labelled row then reaches the LABEL branch where an exact `used.has('openai')` misses. My first fix
+did exactly that, and the real-payload arm is what caught it.
+
+**Which row gets the friendly name is first-come, and that is a deliberate non-choice.** In the
+rare trio above the default takes "OpenAI" and the labelled row falls to its path, so the row that
+HAS a name shows a path. Reserving every row's own label up front would invert it, at the cost of
+a self-exclusion pass in a function whose comments already warn about its fragility. The invariant
+that matters (distinct, audibly distinct qualifiers) holds either way; which row gets the prettier
+one is cosmetic in a case the card itself says does not reproduce on Josh's machine.
+
+## Two things this makes slightly worse, recorded rather than hidden
+
+- **Inside a SINGLE-provider group the qualifier repeats the group head.** Two OpenAI accounts on
+  one email now read "(main)" and "(OpenAI)" under a box already headed "OpenAI", where the second
+  previously showed its path and at least said which account it was. It is still the better
+  trade: the accessible name has no group head to lean on, and that is the surface a screen-reader
+  user actually gets.
+- **The cross-provider pair mixes two axes**: "(main)" says which is original, "(OpenAI)" says
+  which provider. Somebody hearing "(main)" cannot tell it is the Claude one. "(Claude)" and
+  "(OpenAI)" would be more parallel, at the cost of dropping the reserved `main` that the rest of
+  this function is built around.
 
 ## Weakest premise
 
