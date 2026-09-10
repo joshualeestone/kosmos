@@ -168,17 +168,27 @@ test('#2644: source-checkout layout with no token sends NO header (control: it i
 // rather than hardcoding its platform formula.
 function makeRealStoreSourceHome() {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-2644-real-'));
-  // engine/ -> the repo's REAL engine dir, so require($KOSMOS_HOME/engine/store) loads the
-  // actual module with its actual siblings. No runtime/ and no app/ so both fallbacks fire.
-  fs.symlinkSync(path.join(__dirname, 'engine'), path.join(home, 'engine'));
   const awHome = fs.mkdtempSync(path.join(os.tmpdir(), 'aw-2644-awhome-'));
-  const realRoot = execFileSync(
-    process.execPath,
-    ['-e', 'process.stdout.write(require(process.argv[1]).ROOT)', path.join(__dirname, 'engine', 'store')],
-    { env: { ...process.env, AGENT_WORKFORCE_HOME: awHome }, encoding: 'utf8' },
-  );
-  fs.mkdirSync(realRoot, { recursive: true });
-  return { home, awHome, realRoot };
+  // Both temp dirs exist now, and the calls below CAN throw (execFileSync throws if a plain
+  // node cannot require the real store -- the exact regression this arm exists to catch). The
+  // caller's try/finally only wraps code AFTER this returns, so clean up here on any error
+  // before rethrowing, or the failure path this test targets would leak two temp dirs.
+  try {
+    // engine/ -> the repo's REAL engine dir, so require($KOSMOS_HOME/engine/store) loads the
+    // actual module with its actual siblings. No runtime/ and no app/ so both fallbacks fire.
+    fs.symlinkSync(path.join(__dirname, 'engine'), path.join(home, 'engine'));
+    const realRoot = execFileSync(
+      process.execPath,
+      ['-e', 'process.stdout.write(require(process.argv[1]).ROOT)', path.join(__dirname, 'engine', 'store')],
+      { env: { ...process.env, AGENT_WORKFORCE_HOME: awHome }, encoding: 'utf8' },
+    );
+    fs.mkdirSync(realRoot, { recursive: true });
+    return { home, awHome, realRoot };
+  } catch (e) {
+    fs.rmSync(home, { recursive: true, force: true });
+    fs.rmSync(awHome, { recursive: true, force: true });
+    throw e;
+  }
 }
 
 test('#2644: source layout resolves the token through the REAL engine/store.js under a system node (integration)', () => withStub(async (port, seen) => {
