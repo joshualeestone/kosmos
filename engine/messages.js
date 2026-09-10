@@ -679,7 +679,20 @@ function send({ fromPane, to, text, inReplyTo }, roster) {
   }
   const toName = String(to == null ? '' : to).trim();
   if (!toName) return refuse('(nobody named)', 'say which agent this is for');
-  if (toName === from) {
+  /* ⚠️ THE SELF-SEND GUARD MUST ASK THE ROUTER'S QUESTION, NOT A STRICTER ONE
+     (#2703). Delivery resolves the recipient through chat.resolveCard -- exact
+     sessionName first, then a case-folded fallback -- so `SubZero` from an agent
+     named `subzero` misses an exact-string `toName === from` check here and is
+     then handed straight back to the sender by the router, arriving with its
+     casing normalised away and indistinguishable from a colleague's message.
+     Resolve `toName` the same way the router will and refuse when it lands on
+     the sender's own card. This is exactly the router's rule, so a genuinely
+     case-distinct agent (a real `SubZero` alongside `subzero`) still routes to
+     that agent and is NOT over-refused -- resolveCard returns their card, whose
+     sessionName is not `from`. The literal `toName === from` fast path is kept
+     for the common case and for a roster we cannot resolve against. */
+  const selfCard = chat.resolveCard(roster, toName);
+  if (toName === from || (selfCard && selfCard.sessionName === from)) {
     return refuse(toName, 'that is your own name; a note to yourself does not need the wire');
   }
 
