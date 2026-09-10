@@ -401,3 +401,92 @@ anything: a mutation that fails to apply looks exactly like a mutation the tests
 
 State: 40 arms (was 37), `bash tools/run-tests.sh` rc=0 with 5583 tests and 0 fail, browser check
 green under real playwright. **Not converged**; iteration 8 (sonnet) running.
+
+## Challenge-loop iteration 9 (opus, clean tree): 1 BLOCKER, 2 WARNINGs
+
+### The BLOCKER: the original bug was still shipping, and my own trim hid it
+
+The key was `name || email || keyTail`. The SCREEN renders
+`name || email || keyTail || label || dir` (`acctPrimaryName`). **The key was a strict PREFIX of what
+the row actually shows**, so any row identified only by its label or dir keyed to `''`, was never
+counted ambiguous, and got no qualifier.
+
+```
+{anthropic, dir:.claude-work, label:'work', email:null}
+{openai chatgpt, dir:.codex-work, label:'work', email:null, keyTail:null}
+  ->  ["", ""]              both controls read "Sign in again as work"
+control, same pair WITH an email
+  ->  ["work", "OpenAI"]
+```
+
+Reachability read rather than assumed, both arms: `engine/accounts.js` returns a truthy account with
+`email:null` when `oauthAccount` carries neither `emailAddress` nor `email`;
+`engine/openaiaccounts.js` returns `{email:null, keyTail:null}` for a `chatgpt` auth.json whose
+`id_token` will not decode. `.claude-work` and `.codex-work` are different namespaces, so no
+case-sensitive volume is needed.
+
+⭐ **The cause is the branch's most-repeated one, for the fourth time: the key CARRIED ITS OWN COPY
+of `acctPrimaryName`'s chain and fell behind when that chain grew.** Same shape as the two
+provider-id derivations and the pin's membership list. The key now READS the helper, which also
+makes its own comment ("the same key the row renders its name from") true for the first time.
+
+🛑 **DISCLOSED AGAINST MY OWN PREVIOUS COMMIT: the comment trim DELETED the one true sentence about
+this** ("a row that yields NEITHER an email nor a keyTail gets `''`, is not counted, and finding 8
+becomes live with nothing failing") **while keeping the overclaim it qualified** ("finding 8 is
+DIRECTLY ADDRESSED"). I removed the caveat and kept the claim.
+⇒ **The byte-identical-code check I ran proves behaviour did not change and proves NOTHING about
+whether I deleted a warning that mattered.** That is the exact risk I named when deferring the trim,
+and naming it did not prevent it. A comment trim needs a different check from a code refactor, and I
+did not have one.
+
+### WARNING 1: `dir` was the last branch still exempt from the used-set
+
+Called "the collision-proof last resort" throughout. **True of STRINGS, false of SOUNDS**, and sound
+is the only thing this function protects. On a case-sensitive volume `.claude-main` and
+`.claude-Main` are two directories announcing identically: measured
+`["/h/.claude-main", "/h/.claude-Main"]`, two strings and ONE sound, from the branch every other
+qualifier falls back to. **Fifth instance of the case class on this card**, in the last exempt
+branch. `distinctly()` returns its argument untouched unless already taken, pinned by a control arm.
+
+### WARNING 2: my iteration-7 correction moved the count the WRONG WAY
+
+```
+v1   "THREE", listing the ternary, qualName and the GROUP HEAD
+     count right, MEMBERSHIP wrong: provName matched by nothing
+v2   "FOUR", adding provName and KEEPING the group head, while annotating it
+     "LONG form, not required to equal the short three" in the same breath
+     membership right, count wrong, and self-contradictory
+now  THREE producers of the short pair, enumerated by reading every 'OpenAI'
+```
+
+⭐ **A number can be right for the wrong reason, and that is the hardest kind of stale claim to
+correct**: v1's count matched the truth, so a reader checking the number found nothing wrong while
+the list underneath it was missing the site that actually went unpinned.
+
+### The sweep, with its controls
+
+```
+62,208 two-row fixtures INCLUDING case-variant dirs
+  fixed              0 audible collisions
+  revert distinctly  164        <- the sweep can return the dangerous answer
+  revert the key    1760
+```
+
+### 🛑 ONE FILE IS NOT THE GATE
+
+Fixing the key broke a SECOND test file carrying its own copy of the extraction harness.
+**`web.account-qualifier.test.js` passed 44/44 while the repo was red.** Three test files extract
+`accountQualifiers`; the third already pulled `acctPrimaryName`. ⇒ Run `tools/run-tests.sh`, never
+the one file you are editing.
+
+### The tail, and the shape it shares with everything above
+
+Iteration 9's report truncated; the remainder named a **stale banner ABOVE the note I had already
+corrected**, still carrying v1's wrong table, plus a live "collision-proof dir" claim one commit
+after I disproved it. ⭐ **A correction lands on the paragraph that was reported and the retracted
+claim survives in the SUMMARY above it. Summaries come first, so the stale copy is the one a reader
+meets.** Two of the six comment defects on this card were this exact shape.
+
+State: 44 arms, `tools/run-tests.sh` rc=0 with 5587 tests, 0 fail, 0 skipped, browser check green.
+Iteration 9 ran 14 mutations, 13 red, the only survivor the documented unpinnable one. **Not
+converged**; iteration 10 (sonnet) running.
