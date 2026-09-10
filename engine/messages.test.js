@@ -172,6 +172,10 @@ test('a case-distinct DIFFERENT agent is NOT over-refused: subzero -> SubZero st
     const sent = messages.send({ fromPane: '%7', to: 'SubZero', text: 'hello, other me' }, board.agents);
     assert.ok(!/your own name/.test(String(sent.because || '')),
       'a distinct case-variant agent must not be treated as self');
+    // ...and it actually routed: proving it was not refused AND was placed is
+    // what makes the "still routes" claim in the title true rather than merely
+    // "not refused as self".
+    assert.equal(sent.state, chat.DELIVERY.PLACED, 'the message to a distinct agent must be delivered');
   });
 });
 
