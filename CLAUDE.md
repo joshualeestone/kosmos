@@ -10,7 +10,7 @@ explicitly to learn the repo's pre-PR commands and conventions.
 
 ### Run
 
-- `node server.js` (or `npm start`) launches the local board (a web server). The board's
+- `node server.js` (or `yarn start`) launches the local board (a web server). The board's
   port is derived per-OS-user, not fixed, so do not assume a specific port.
 - The shipped product is a bundle (the app + a pinned Node runtime + the `kosmos` CLI)
   under `~/.local/share/kosmos`, installed via
@@ -19,11 +19,15 @@ explicitly to learn the repo's pre-PR commands and conventions.
 
 ### Test
 
-- `npm test` runs `bash tools/run-tests.sh` (the canonical runner). Do NOT invoke
+- `yarn test` runs `bash tools/run-tests.sh` (the canonical runner). Do NOT invoke
   `node --test` with a bare glob directly (see Repo-Specific Conventions below).
-- `npm run test:shell` runs the large shell-and-tooling suite (`bash -n` syntax checks plus
+- `yarn test:shell` runs the large shell-and-tooling suite (`bash -n` syntax checks plus
   focused tool tests); `run-tests.sh` invokes it.
-- `npm run test:install` / `test:install-gate` exercise the installer.
+- `yarn test:install` / `test:install-gate` exercise the installer.
+- **Use yarn, not npm.** The scripts are also npm-runnable, but `tools/run-tests.sh` itself
+  shells out to `yarn` (`yarn -s test:shell`, and it self-invokes `yarn test`), and its own
+  coverage-mismatch message names `yarn test` the canonical helper, so yarn must be present
+  regardless. There is no committed lockfile or `packageManager` pin.
 
 ### Build / Lint
 
@@ -64,7 +68,7 @@ board-auth model, install/update, multi-world ("Kosmos") switching, and provider
 
 | Task | Where to Look |
 |------|---------------|
-| Run the test suite the way CI does | `npm test` -> `tools/run-tests.sh` |
+| Run the test suite the way CI does | `yarn test` -> `tools/run-tests.sh` |
 | Add or change a test | Colocated `*.test.js` next to the code; the runner considers every `*.test.js` in the tree (see Repo-Specific Conventions) |
 | Change the board UI | `web/index.html` (single page); a committed change here needs a browser-check assertion or a `Browser-check:` trailer |
 | Find the data root / Application Support path | `engine/store.js` (`store.ROOT`) |
@@ -169,7 +173,7 @@ then run `/challenge-loop` (the pre-PR gate) and `/create-pr`.
 Kosmos is plain JavaScript on Node (`node >=26`): no TypeScript, no build step, no database
 server, no cloud runtime. It runs entirely on the end user's own Mac, from source, packaged
 with a pinned Node runtime. So there are no compile/type-check/migration pre-PR steps; the
-one pre-PR gate is `npm test` (which runs `bash tools/run-tests.sh`).
+one pre-PR gate is `yarn test` (which runs `bash tools/run-tests.sh`).
 
 ## Repo-Specific Conventions
 
