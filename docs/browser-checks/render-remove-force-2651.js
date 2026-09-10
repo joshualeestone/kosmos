@@ -105,7 +105,11 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     const aStartHidden = !!(startBtn() && startBtn().hidden);
     const aForceAgent = forceBtn() ? (forceBtn().dataset.forceAgent || '') : '';
     // wrong-asset guard: the override is a distinct element from the normal Remove.
-    const distinct = !!(forceBtn() && startBtn() && forceBtn() !== startBtn() && forceBtn().id === 'd-remove-force');
+    // Both resolve by their own ids (forceBtn -> #d-remove-force, startBtn ->
+    // #d-remove-start), so the only discriminating check is that they are two
+    // different elements; an `id === 'd-remove-force'` conjunct would be
+    // tautological (forceBtn is fetched by that id) and is deliberately omitted.
+    const distinct = !!(forceBtn() && startBtn() && forceBtn() !== startBtn());
 
     // Clicking the override sends DELETE ...?force=1.
     deleteUrl = null;

@@ -989,44 +989,63 @@ function markDryRun(result) {
 
 function removeInner(name, { tmuxBin, platform, force } = {}) {
   const intent = plan(name, platform);
-  if (!intent.ok) {
-    /* #2651: USER-INITIATED OVERRIDE OF THE UNTIED REFUSAL, AND ONLY THAT ONE.
-       A residual/auto-imported card whose session Kosmos cannot tie to it (a
-       teammate's test agent on a shared Mac, a bare-named session with no
-       `-discord` suffix) leaves the person stuck: the safety gate rightly will
-       not STOP a process it cannot prove is this agent, so removal is refused
-       and the card cannot be cleared. When the person explicitly opts in
-       (`force`) on THIS refusal (`intent.untied`), remove the CARD only:
-       recordRemoval hides it and revokes any token, and we DO NOT touch the
-       session -- so a teammate's process on a shared box keeps running while the
-       person's board gets clean. `force` is inert on every other refusal
-       (isHidden / not-there / unsafeToActOn are unmarked), so it can never reach
-       a case where stopping or hiding would be wrong. `job` is passed NULL on
-       purpose: we own no launchd job for an untied card, and recording jobFor()'s
-       resolution here could file a bystander's plist for a later restore to
-       re-enable -- the exact cross-agent hazard the gate exists for. */
-    if (force === true && intent.untied === true) {
-      const clean = create.cleanName(name);
-      const shown = status.readIdentity(clean).displayName || clean;
-      const kept = recordRemoval(clean, null, false, shown, true);
-      if (!kept) {
-        /* ⚠️ NOTHING WAS CLEARED. On this path the record write is the ONLY
-           action -- there is no prior stop/disable step (unlike the ordinary
-           partial, where real work happened before the write), and hiding the
-           card is driven entirely by `leftRunningByChoice` on that record. So a
-           failed write means the board is unchanged; do not say we cleared it. */
-        return {
-          outcome: OUTCOME.PARTIAL,
-          steps: [],
-          because: `we could not clear ${shown} from your board just now, because saving the change failed. Nothing was stopped, and its terminal session is still running. Please try again in a moment.`,
-        };
-      }
+
+  /* #2651: THE USER-INITIATED "CLEAR THE CARD, LEAVE THE SESSION RUNNING"
+     OVERRIDE. It is OFFERED (web) only on the untied refusal -- a residual /
+     auto-imported card whose session Kosmos cannot tie to it (a teammate's test
+     agent on a shared Mac, a bare-named session with no `-discord` suffix),
+     where the safety gate rightly will not STOP a process it cannot prove is
+     this agent, so the card cannot be cleared the ordinary way. The override
+     records the removal (hides the card via `leftRunningByChoice`, revokes any
+     token) and touches NOTHING on the machine.
+
+     🛑 IT MUST NEVER STOP A SESSION -- that is the promise on the button ("this
+     leaves the terminal session running"). So `force` is handled HERE, ABOVE the
+     ordinary removal, and structurally cannot fall through to the stop/disable
+     path below. This also closes a race the safety gate alone did not: the offer
+     is made on a GET `plan()` and acted on later on the DELETE, and if the
+     session became TIED in that window, re-running `plan()` here returns ok:true
+     -- the OLD structure then fell through to the STOPPING removal, silently
+     turning "leave it running" into a kill. A forced clear now leaves the
+     session running whether the agent is untied or (now) tied; it stops nothing
+     either way. It stays INERT on a refusal with nothing to clear (not-there,
+     cannot-check, unsafe): those are not "leave it running" situations, so it
+     returns the plain refusal and runs nothing.
+
+     `job` is passed NULL on purpose: the untied card owns no launchd job we may
+     touch, and even for a now-tied agent "leave it running" means we do NOT
+     disable its job -- recording jobFor()'s resolution would let a later restore
+     re-enable a job we never disabled, and for the untied case it could file a
+     bystander's plist, the exact cross-agent hazard the gate exists for. */
+  if (force === true && (intent.untied === true || intent.ok === true)) {
+    const clean = create.cleanName(name);
+    const shown = status.readIdentity(clean).displayName || clean;
+    const kept = recordRemoval(clean, null, false, shown, true);
+    if (!kept) {
+      /* ⚠️ NOTHING WAS CLEARED. On this path the record write is the ONLY
+         action -- there is no prior stop/disable step (unlike the ordinary
+         partial, where real work happened before the write), and hiding the
+         card is driven entirely by `leftRunningByChoice` on that record. So a
+         failed write means the board is unchanged; do not say we cleared it. */
       return {
-        outcome: OUTCOME.REMOVED,
+        outcome: OUTCOME.PARTIAL,
         steps: [],
-        because: `we cleared ${shown} from your board. We left its terminal session running, because Kosmos cannot confirm it is this agent and will not stop a session it cannot tie to the card. Whoever owns that session can stop it where it runs.`,
+        because: `we could not clear ${shown} from your board just now, because saving the change failed. Nothing was stopped, and its terminal session is still running. Please try again in a moment.`,
       };
     }
+    return {
+      outcome: OUTCOME.REMOVED,
+      steps: [],
+      /* The untied message names WHY the session was left (Kosmos cannot tie it
+         to the card); the now-tied race message must NOT say "cannot confirm it
+         is this agent" -- by then it can -- so it speaks to the person's choice. */
+      because: intent.untied === true
+        ? `we cleared ${shown} from your board. We left its terminal session running, because Kosmos cannot confirm it is this agent and will not stop a session it cannot tie to the card. Whoever owns that session can stop it where it runs.`
+        : `we cleared ${shown} from your board and left its terminal session running, as you chose. Kosmos did not stop it; you can stop it from its terminal, or put the card back from the removed list.`,
+    };
+  }
+
+  if (!intent.ok) {
     return { outcome: OUTCOME.REFUSED, because: intent.because, steps: [] };
   }
 

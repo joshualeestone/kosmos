@@ -573,26 +573,33 @@ test('#2651: force is INERT on a refusal that is not the untied case (it can nev
   assert.deepEqual(calls, [], 'force ran commands on a non-untied refusal');
 });
 
-test('#2651: force is INERT on a TIED agent -- removal proceeds normally, not via the override', () => {
-  // A tied agent's removal is not refused (intent.ok === true), so `force` never
-  // reaches the override block: the normal stop/disable/record path runs exactly
-  // as it would without force. The override's fingerprint -- a record carrying
-  // leftRunningByChoice, and the "left its terminal session running" message --
-  // must NOT appear, or force would be silently changing tied behaviour.
-  const name = madeAgent('force-tied');
-  boardShows(name, name);   // claim === name -> isNamedOurs, so the removal is offered
-  world();                  // killWorks default true: the normal removal completes
+test('#2651: force NEVER stops a session -- on a now-TIED agent (an untied->tied race between offer and click) it still clears the card and leaves the session running', () => {
+  // The override is offered on a GET plan() and acted on later on the DELETE. If
+  // the session becomes TIED in that window, plan() now returns ok:true -- and
+  // the old structure fell through to the normal STOPPING removal, silently
+  // turning the button's promise ("leaves the terminal session running") into a
+  // kill. force must clear the CARD and leave the session alone whether the
+  // agent is untied or (now) tied: it stops nothing, ever.
+  const name = madeAgent('force-raced-tied');
+  boardShows(name, name);   // claim === name -> isNamedOurs, so plan() returns ok (tied)
+  const calls = world();
   remove.setDryRun(false);
 
-  const r = mac.remove(name, { force: true });
-  assert.equal(r.outcome, remove.OUTCOME.REMOVED, r.because);
-  assert.equal(remove.isHidden(name), true, 'a normally-removed tied agent must leave the board');
+  // Precondition: this agent is TIED/removable, so the race case is exercised.
+  assert.equal(mac.plan(name).ok, true, 'the fixture is not tied, so this does not test the race');
+
+  const forced = mac.remove(name, { force: true });
+  assert.equal(forced.outcome, remove.OUTCOME.REMOVED, forced.because);
+  assert.equal(remove.isHidden(name), true, 'the forced clear did not take the card off the board');
   const rec = remove.removedAgents().find((x) => x.name === create.cleanName(name));
-  assert.ok(rec, 'the tied removal wrote no record');
-  assert.notEqual(rec.leftRunningByChoice, true,
-    'force sent a TIED agent through the untied override (leftRunningByChoice set) instead of the normal stop path');
-  assert.doesNotMatch(r.because, /left its terminal session running/i,
-    'a tied removal claimed the session was left running -- that is the untied override talking');
+  assert.equal(rec && rec.leftRunningByChoice, true,
+    'a forced clear of a tied agent must take the leave-running path, not the normal stop path');
+  assert.deepEqual(calls, [],
+    'force STOPPED/DISABLED/KILLED a tied session -- it must NEVER stop anything, tied or untied');
+  assert.doesNotMatch(forced.because, /cannot confirm it is this agent/i,
+    'the now-tied message must not claim Kosmos cannot confirm the agent -- by now it can');
+  assert.match(forced.because, /left its terminal session running/i,
+    'it did not tell the person the session was left running');
 });
 
 test('the untied check is still made at the session step, for a roster that changes mid-removal', () => {

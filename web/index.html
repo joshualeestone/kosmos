@@ -25297,6 +25297,12 @@ document.getElementById('d-remove-force').addEventListener('click', async () => 
     // REMOVED: the card is off the board. Do not re-enable a button that is now
     // gone; the message says what happened (including the session left running).
     msg.textContent = done.because || 'Cleared from your board.';
+    /* ⚠️ REPAINT NOW, don't wait for the 5s poll. Same as the normal-remove
+       handler (rm-go): a person who just cleared a card should see it leave the
+       Agents roster and appear on the Removed list immediately, not sit there
+       for up to five seconds looking as if the click did nothing. */
+    await tick();
+    await paintRemoved();
   } catch {
     msg.textContent = 'We could not reach the board just now. Try again in a moment.';
     btn.disabled = false;
