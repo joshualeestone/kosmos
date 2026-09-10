@@ -860,10 +860,27 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    --bg #faf9f7: full 17.21:1, `.8` 9.36:1 (passes AA), `.7` 6.55:1, `.5`
    3.39:1 (FAILS the 4.5 minimum). Same reasoning and same value as the sibling
    `.acct-disconnect[aria-disabled="true"]`, which did this math first.
-   📌 SCOPED TO `.acts` DELIBERATELY. A bare `.btn[aria-disabled="true"]` ties
-   `.btn:disabled` on specificity and wins on source order, which would quietly
-   restyle `#fr-next` in the first-run wizard (it sets BOTH attributes) from .5
-   to .8: a different flow, changed as a side effect of this card. */
+   📌 SCOPED TO `.acts`, AND THE REASON IS BLAST RADIUS RATHER THAN ANY SPECIFIC
+   RESCUE. An earlier version of this comment claimed an unscoped
+   `.btn[aria-disabled="true"]` would tie `.btn:disabled` on specificity, win on
+   source order, and quietly restyle `#fr-next` from .5 to .8.
+   🛑 THAT WAS MEASURED FALSE ON BOTH ARMS, and it is left here as a correction
+   rather than deleted, because it was the FOURTH confident claim on this card
+   about code that was never re-opened (see the plan file: a comment citing the
+   sibling as precedent for `disabled` when the sibling argues the opposite; the
+   README row describing the defect its own check reds on; a fix written in one
+   direction; and this). Measured:
+     #fr-next with BOTH attributes set        -> opacity .45, not .5
+     the same, with the unscoped rule injected
+       LAST so source order would favour it   -> STILL .45
+   because `#firstrun #fr-next[disabled]` is an ID rule (2,1,0) and beats any
+   class rule (0,2,0) outright, source order never being consulted. `#fr-next`
+   is also not inside `.acts`, so it was unreachable either way.
+   ⇒ The honest reason to scope: `.8` and `not-allowed` were chosen and
+   contrast-checked for THIS control. An unscoped rule would silently hand them
+   to any future `.btn` given `aria-disabled` anywhere in the app, with nobody
+   having checked that they suit it. That is worth scoping for. The rescue this
+   comment used to describe is not. */
 .acts .btn[aria-disabled="true"] { opacity: .8; cursor: not-allowed; }
 /* The hover highlight is the "this will do the thing" affordance and it will
    not, so it is suppressed rather than left to contradict the cursor. */
