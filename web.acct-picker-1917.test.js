@@ -42,8 +42,12 @@ function runFillCreate(accounts, providerValue) {
   const unkSrc = grab('function acctUnknownLive(');
   // #2095: fillCreateAccounts now names accounts through the shared acctPrimaryName
   // helper (which itself calls acctChosenName), so the eval scope must include both
-  // or the extracted function throws ReferenceError. (accountQualifiers uses only
-  // acctChosenName, not acctPrimaryName.)
+  // or the extracted function throws ReferenceError.
+  // 🔑 #2612: accountQualifiers ALSO needs acctPrimaryName now, because its key IS
+  // that helper lowercased. This parenthetical used to say it needed only
+  // acctChosenName, which was true when written and stopped being true in the same
+  // commit that repointed the key; this file kept passing because the helper was
+  // already grabbed for fillCreateAccounts' own use, so nothing failed to say so.
   const chosenNameSrc = grab('function acctChosenName(');
   const primNameSrc = grab('function acctPrimaryName(');
   const fillSrc = grab('function fillCreateAccounts(');

@@ -1262,3 +1262,29 @@ test('#2612: two dirs differing only by case do not collide audibly', () => {
   assert.equal(qCtl.get(b.dir), '/h/.claude-two',
     'a non-colliding dir was rewritten, so the disambiguator fires when it should not');
 });
+
+/* 🔑 `''` IS THE ONE VALUE AN AMBIGUOUS ROW MUST NEVER GET, because it is the
+   signal for "not ambiguous, no qualifier needed": a row handed '' renders its
+   bare name beside a sibling doing the same, which is the defect this function
+   exists to prevent. An empty `dir` used to produce exactly that.
+   ⚠️ Unreachable through `/api/accounts` (`list()` always supplies a real path),
+   so this pins a property rather than guarding a live path, for the same reason
+   the dir-keying guard exists: the function is pure and exported, and its whole
+   defence is that a future caller cannot break it from a distance. */
+test('#2612: an ambiguous row never receives the empty qualifier, even with no dir', () => {
+  const E = 'a@x.com';
+  const noDir = { provider: 'anthropic', email: E, dir: '', label: null, isDefault: false };
+  const normal = { provider: 'anthropic', email: E, dir: '/h/.b', label: null, isDefault: false };
+  const q = qualifiers([noDir, normal]);
+  assert.notEqual(q.get(''), '',
+    'a row sharing an ambiguous key got the empty qualifier, so it renders its bare name '
+    + 'beside a sibling doing the same');
+  const heard = [q.get(''), q.get(normal.dir)].map((s) => String(s).toLowerCase());
+  assert.equal(new Set(heard).size, 2, 'the two sound alike: ' + JSON.stringify(heard));
+  /* CONTROL: an UNAMBIGUOUS row must still get '' , or the assertion above has
+     been satisfied by making every row carry a qualifier, which would put a
+     pointless tag on every single-account screen. */
+  const solo = qualifiers([{ provider: 'anthropic', email: 'only@x.com', dir: '', label: null }]);
+  assert.equal(solo.get(''), '',
+    'a row with no ambiguous sibling gained a qualifier, so every solo account now renders a tag');
+});
