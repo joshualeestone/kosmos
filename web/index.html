@@ -1851,16 +1851,15 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    wider than a narrow window, and a table that widens the page pushes every
    other section sideways too. `#usage-table` is the scroll container; the table
    inside it is allowed to be wider than the screen. */
-/* 🔑 ROOM FOR THE SCROLLBAR, SO IT DOES NOT LAND ON THE SENTENCE (kosmos#1308).
-   Josh, on 0.5.97: "there's a horizontal scroll bar that is going right over the
-   top of the total line". The scrollbar is drawn at this container's bottom edge
-   and `#usage-worth` begins immediately after it, so with nothing between them
-   the bar strikes through the summary -- and the summary is the most important
-   sentence on the page, the one that says what the number actually means.
-   ⚠️ PADDING INSIDE THE SCROLL CONTAINER, not a margin on the paragraph: the bar
-   belongs to this box, so the room for it has to be in this box. A margin below
-   would move the sentence and leave the bar sitting on the last table row
-   instead, which is the same defect one element up.
+/* ROOM FOR THE SCROLLBAR (kosmos#1308, revisited by #2617). Josh, on 0.5.97:
+   "there's a horizontal scroll bar that is going right over the top of the total
+   line". Back then `#usage-worth` sat immediately BELOW this scroll container and
+   the bar struck through the summary. #2617 reordered the section: the money box
+   now sits ABOVE the table and `#usage-table` is the LAST element, so the bar no
+   longer lands on the summary. The padding stays: it is breathing room below the
+   bar at the foot of the section, and it keeps the bar off the last table row.
+   ⚠️ PADDING INSIDE THE SCROLL CONTAINER, not a margin below it: the bar belongs
+   to this box, so the room for it has to be in this box.
    📌 Only appears when the six columns are wider than the window, which is why
    it shows on a narrow window and not a wide one. */
 #usage-table { overflow-x: auto; padding-bottom: 10px; }
@@ -1872,6 +1871,47 @@ button.worldsw-row:focus-visible { outline: 2px solid var(--k-ink); outline-offs
    cache-read runs orders of magnitude above output, and ragged digits make that
    difference harder to see rather than easier. */
 .usage-table td.usage-n { text-align: right; font-variant-numeric: tabular-nums; }
+/* #2617: the graphical value view (Mona's design). Cards, shared-axis chart,
+   money box, and the table framed as "the measurement". Built on the app's
+   --k-* surface/ink/rule tokens so the whole view flips with the theme -- the
+   mockup hardcoded dark; the tokens give the light scheme for free. The four
+   chart/legend colors are Mona's exact values. */
+/* TWO columns, not four. The mockup shows four across at a 900px document width,
+   and drops to two at <=680px VIEWPORT. But this section lives in the Settings
+   content column (34rem / ~544px) inside a wide viewport, so the viewport query
+   never fires and four full 13-digit numbers get crushed to ~85px each -- which
+   forced a font smaller than the card's own caption. Two across gives each card
+   ~210px, so the numbers stay bold AND fit on one clean line (Mona's #2617
+   design-block). One column only on a genuinely narrow phone. */
+.usage-four { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 14px 0 0; }
+@media (max-width: 480px) { .usage-four { grid-template-columns: 1fr; } }
+.usage-cls { border: 1px solid var(--k-rule); border-radius: 12px; padding: 14px 15px; }
+.usage-k { color: var(--k-ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .06em; margin: 0 0 7px; }
+/* nowrap + no word-break: a full, unabbreviated number stays on ONE line and is
+   never split mid-digit-group (the #2617 design-block: "1,964,/004,10/2" read as
+   broken). At 1.2rem in a two-column card, even a trillion-scale (17-char) number
+   fits, so the layout holds Josh's "show it in full however large" without wrapping. */
+.usage-v { color: var(--k-ink); font: 700 1.2rem/1.15 var(--font-mono); letter-spacing: -.01em; white-space: nowrap; }
+/* The cache-read card's accent is applied inline by usageCardsHtml from the shared
+   USAGE_CLASS_COLORS, so it agrees with the chart line and legend swatch by
+   REFERENCE, not by both happening to equal the app-wide --gold (which is reused
+   for unrelated accents and could drift from the class color). */
+.usage-say { color: var(--k-ink-2); font-size: .8125rem; margin: 6px 0 0; }
+.usage-chartwrap { border: 1px solid var(--k-rule); border-radius: 14px; padding: 16px 16px 10px; margin: 16px 0 0; }
+.usage-chartwrap h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 2px; }
+#usage-chart svg { width: 100%; height: auto; display: block; }
+.usage-legend { display: flex; flex-wrap: wrap; gap: 14px; margin: 8px 0 0; }
+.usage-lg { display: inline-flex; align-items: center; gap: 6px; color: var(--k-ink-2); font-size: .8125rem; }
+.usage-lg i { width: 14px; height: 3px; border-radius: 2px; display: inline-block; }
+.usage-money { border: 1px solid var(--k-rule); border-radius: 12px; padding: 16px 18px; margin: 22px 0 0;
+               background: linear-gradient(180deg, rgba(214, 166, 46, .06), transparent 70%); }
+.usage-money-lab { color: var(--k-ink-2); font-size: .75rem; text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px; }
+.usage-money-big { font: 700 2rem/1 var(--font-ui); color: var(--k-ink); letter-spacing: -.02em; margin: 0; }
+.usage-money-big span { color: var(--gold); }
+.usage-money-basis { color: var(--k-ink-2); font-size: .9375rem; margin: 10px 0 0; max-width: 60ch; }
+.usage-money-basis b { color: var(--k-ink); }
+.usage-meas { margin: 24px 0 0; }
+.usage-meas h4 { color: var(--k-ink); font: 600 .9375rem var(--font-ui); margin: 0 0 10px; }
 .dstack { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
 .dstack > .dbox { align-self: stretch; }
 /* The agent page's left nav (Mona Lisa's agent-page mock, 2026-08-22). A
@@ -11363,15 +11403,34 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
   <section class="dsec" id="s-sec-usage" data-sec="usage" tabindex="-1" aria-label="Token Usage" hidden>
     <section class="dbox">
       <h3>Token usage</h3>
-      <p class="dhint">What your agents actually used, per model, per day. Read from the transcripts on this computer. Nothing here leaves the machine.</p>
+      <!-- #2617 (Mona's design, Josh's overrule): the graphical value view.
+           The four classes are shown separately and in full above a shared-axis
+           trend chart; the money box below is one interpretation from OUTPUT
+           alone and names its class; the per-model/day table stays as the
+           measurement the headline numbers add up from. All from the existing
+           /api/usage data -- the per-AGENT breakdown Josh remembers is engine
+           work and is a deferred fast-follow (#2617 comment). -->
+      <p class="dhint">What your agents used, per class, over the last 14 days. Read from the transcripts on this computer, shown in full. Nothing here leaves the machine.</p>
       <p id="usage-msg" class="dhint">Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.</p>
-      <div id="usage-table"></div>
+      <div id="usage-cards"></div>
+      <div id="usage-chartwrap" class="usage-chartwrap" hidden>
+        <h4>Daily usage, all four classes</h4>
+        <p class="dhint">Cache read dominates the axis, so the other three run low along the bottom. That is the real scale, not a drawing choice.</p>
+        <div id="usage-chart"></div>
+        <!-- Filled by usageLegendHtml() from the shared USAGE_CLASS_COLORS, so the
+             swatches cannot drift from the polyline colors they explain. -->
+        <div id="usage-legend" class="usage-legend"></div>
+      </div>
       <!-- The engineering-equivalent line, quoted against OUTPUT tokens and
-           saying so in the sentence itself. It sits BELOW the table on purpose:
-           the four classes are the measurement, this is one interpretation of
-           one of them, and putting the interpretation first would make the
-           derived number look like the finding. -->
-      <p id="usage-worth" class="dhint"></p>
+           saying so in the sentence itself. It sits BELOW the cards and chart on
+           purpose: the four classes are the measurement, this is one
+           interpretation of one of them, and putting the interpretation first
+           would make the derived number look like the finding. -->
+      <div id="usage-worth"></div>
+      <div class="usage-meas">
+        <h4>The measurement it comes from</h4>
+        <div id="usage-table"></div>
+      </div>
     </section>
   </section>
   <section class="dsec" id="s-sec-updates" data-sec="updates" tabindex="-1" aria-label="Updates" hidden>
@@ -22379,73 +22438,224 @@ function settingsGo(section, opts) {
 const USAGE_TOKENS_PER_ENGINEER_DAY = 750000;
 const USAGE_HOURS_PER_ENGINEER_DAY = 8;
 const USAGE_RATE_PER_HOUR = 100;
-function paintUsageWorth(byDay) {
-  const el = document.getElementById('usage-worth');
-  if (!el) return;
-  let output = 0;
-  let cacheRead = 0;
-  for (const day of Object.keys(byDay || {})) {
-    for (const model of Object.keys(byDay[day] || {})) {
-      output += Number((byDay[day][model] || {}).output_tokens) || 0;
-      cacheRead += Number((byDay[day][model] || {}).cache_read_input_tokens) || 0;
-    }
-  }
-  if (!output) { el.textContent = ''; return; }
-  const days = output / USAGE_TOKENS_PER_ENGINEER_DAY;
-  const dollars = days * USAGE_HOURS_PER_ENGINEER_DAY * USAGE_RATE_PER_HOUR;
-  /* The ratio is shown rather than described, because it is the whole reason
-     the smaller number is the honest one and a reader who is not told the size
-     of the gap has no way to judge the claim. */
-  const ratio = output ? Math.round(cacheRead / output) : 0;
-  el.innerHTML = '<b>' + usageNum(output) + ' output tokens</b>, which is what the models actually produced. '
-    + 'At ' + usageNum(USAGE_TOKENS_PER_ENGINEER_DAY) + ' output tokens to an '
-    + USAGE_HOURS_PER_ENGINEER_DAY + '-hour engineer-day and $' + USAGE_RATE_PER_HOUR + ' an hour, that is about '
-    + days.toFixed(1) + ' engineer-days, or $' + usageNum(Math.round(dollars)) + '.'
-    + (ratio > 1 ? ' <span class="dhint">Cache reads over the same period were ' + usageNum(ratio)
-        + ' times larger. They are the same context read again on every turn, so they are deliberately not in this figure.</span>' : '');
-}
-let USAGE_BUSY = false;
+/* #2617: the graphical value view (Mona's design, Josh's #1 demo win). The four
+   classes are shown SEPARATELY and in FULL -- Josh's overrule, verbatim via
+   Splinter: show them "however high or insane they might look", no rounding, no
+   abbreviation, no softening a number because it looks alarming. The chart puts
+   all four on ONE shared axis so cache-read towers over the rest, which is the
+   true proportion rather than a drawing choice. The dollar box below is built
+   from OUTPUT tokens alone and names its class in the sentence, so a derived
+   figure is never read as a raw total.
+   🛑 THE HELPERS BELOW ARE PURE AND SELF-CONTAINED ON PURPOSE. The node test
+   (web.token-usage-2617.test.js) lifts each out of the page and runs it against
+   a fixed /api/usage fixture to pin the summed classes and the computed dollar
+   figure -- an un-runnable check's hardcoded value is exactly what the #2620
+   review caught, so the numbers here are proven by running the real code. */
 function usageNum(n) {
   const v = Number(n) || 0;
   return v.toLocaleString();
 }
+/* Sum each of the four classes across every day and model. They are returned as
+   four separate integers and DELIBERATELY never added together (server.js:4485,
+   web:11299): cache_read ran ~440x output in one measured day, so a single
+   "tokens used" figure is not a rounder truth, it is roughly 440x too large. */
+function usageTotals(byDay) {
+  const t = { input: 0, output: 0, cacheWritten: 0, cacheRead: 0 };
+  for (const day of Object.keys(byDay || {})) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models)) {
+      const b = models[model] || {};
+      t.input += Number(b.input_tokens) || 0;
+      t.output += Number(b.output_tokens) || 0;
+      t.cacheWritten += Number(b.cache_creation_input_tokens) || 0;
+      t.cacheRead += Number(b.cache_read_input_tokens) || 0;
+    }
+  }
+  return t;
+}
+/* One point per day (models summed within the day), ascending by date, so the
+   chart draws left-to-right oldest-to-newest. */
+function usageDailySeries(byDay) {
+  return Object.keys(byDay || {}).sort().map((day) => {
+    const models = byDay[day] || {};
+    const p = { day: day, input: 0, output: 0, cacheWritten: 0, cacheRead: 0 };
+    for (const model of Object.keys(models)) {
+      const b = models[model] || {};
+      p.input += Number(b.input_tokens) || 0;
+      p.output += Number(b.output_tokens) || 0;
+      p.cacheWritten += Number(b.cache_creation_input_tokens) || 0;
+      p.cacheRead += Number(b.cache_read_input_tokens) || 0;
+    }
+    return p;
+  });
+}
+/* YYYY-MM-DD (the UTC key usage.js produces) -> a short "Mon D" axis label.
+   Anything not in that shape is shown as-is rather than guessed at. */
+function usageDayLabel(day) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(day || ''));
+  if (!m) return String(day || '');
+  const names = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  return (names[Number(m[2]) - 1] || m[2]) + ' ' + String(Number(m[3]));
+}
+/* The four class cards, full numbers, cache-read gold-accented. Each names what
+   its class IS on the card, because a caveat at the top does not travel with a
+   number somebody screenshots. */
+function usageCardsHtml(totals) {
+  const t = totals || {};
+  /* The cache-read accent is taken from the SAME shared source as the chart line
+     and the legend swatch, so all three agree by reference rather than by all
+     happening to equal the app-wide --gold. */
+  const readColor = (USAGE_CLASS_COLORS.find((c) => c.key === 'cacheRead') || {}).color || '';
+  const card = (extra, label, value, say, color) =>
+    '<div class="usage-cls' + (extra ? ' ' + extra : '') + '">'
+    + '<div class="usage-k">' + label + '</div>'
+    + '<div class="usage-v"' + (color ? ' style="color:' + color + '"' : '') + '>' + usageNum(value) + '</div>'
+    + '<div class="usage-say">' + say + '</div></div>';
+  return '<div class="usage-four">'
+    + card('', 'Input', t.input, 'what you sent the models', '')
+    + card('', 'Output', t.output, 'what the models produced', '')
+    + card('', 'Cache written', t.cacheWritten, 'context stored for reuse', '')
+    + card('read', 'Cache read', t.cacheRead, 'the same context read again on every turn', readColor)
+    + '</div>';
+}
+/* One interpretation, in money, from OUTPUT tokens only. The class is named in
+   the sentence and the other three are shown in full above rather than folded
+   in, so a large count is never turned into a large dollar amount it did not
+   earn. The two constants belong to a person, not the engine (see the note at
+   USAGE_TOKENS_PER_ENGINEER_DAY). Empty when there is no output to interpret. */
+function usageMoneyHtml(totals) {
+  const output = Number((totals || {}).output) || 0;
+  if (!output) return '';
+  const engDays = output / USAGE_TOKENS_PER_ENGINEER_DAY;
+  const dollars = Math.round(engDays * USAGE_HOURS_PER_ENGINEER_DAY * USAGE_RATE_PER_HOUR);
+  return '<div class="usage-money">'
+    + '<p class="usage-money-lab">One interpretation, in money</p>'
+    + '<p class="usage-money-big">$<span>' + usageNum(dollars) + '</span></p>'
+    + '<p class="usage-money-basis">This is the engineering-equivalent of the <b>output</b> tokens above ('
+    + usageNum(output) + ' over the period), at ' + usageNum(USAGE_TOKENS_PER_ENGINEER_DAY)
+    // "eight-hour" is spelled out (Mona's #2617 copy call) so the reader does not
+    // collide it with the digit in "about N engineer-days" later in the sentence.
+    // The word tracks USAGE_HOURS_PER_ENGINEER_DAY (8); update both together.
+    + ' output tokens to an eight-hour engineer-day at $' + USAGE_RATE_PER_HOUR
+    + ' an hour: about ' + engDays.toFixed(1) + ' engineer-days. It is built from output on purpose, because '
+    + 'output is what the models actually produced; the other three classes are shown in full above rather than '
+    + 'folded into this figure, so a large number is never turned into a large dollar amount it did not earn.</p>'
+    + '</div>';
+}
+/* The four class colors live ONCE here and drive BOTH the chart polylines
+   (usageChartSvg) and the legend swatches (usageLegendHtml), so a color Mona
+   revises cannot drift between the two surfaces -- the "two derivations of one
+   fact" defect. Order matches the mockup's legend (cache-read first). */
+const USAGE_CLASS_COLORS = [
+  { key: 'cacheRead', color: '#d6a62e', label: 'Cache read' },
+  { key: 'cacheWritten', color: '#6fd3a0', label: 'Cache written' },
+  { key: 'input', color: '#8ab4ff', label: 'Input' },
+  { key: 'output', color: '#c78cff', label: 'Output' }
+];
+/* The legend, generated from the shared color list so it cannot disagree with
+   the polylines it explains. */
+function usageLegendHtml() {
+  return USAGE_CLASS_COLORS.map((c) =>
+    '<span class="usage-lg"><i style="background:' + c.color + '"></i>' + c.label + '</span>').join('');
+}
+/* The daily chart: four polylines on ONE shared y-axis, scaled to the single
+   largest value across all four classes (cache-read, in practice), so the true
+   proportion shows -- cache-read towers, the other three run low along the
+   bottom. Needs at least two days to draw a line; returns '' otherwise and the
+   caller hides the chart. Colors come from USAGE_CLASS_COLORS (shared with the
+   legend). */
+function usageChartSvg(series) {
+  const s = Array.isArray(series) ? series : [];
+  if (s.length < 2) return '';
+  const x0 = 8, x1 = 752, yBase = 274, yTop = 14;
+  const classes = USAGE_CLASS_COLORS;
+  let max = 0;
+  for (const p of s) for (const c of classes) max = Math.max(max, Number(p[c.key]) || 0);
+  if (!max) max = 1;
+  const n = s.length;
+  const xAt = (i) => x0 + (i / (n - 1)) * (x1 - x0);
+  const yAt = (v) => yBase - ((Number(v) || 0) / max) * (yBase - yTop);
+  const lines = classes.map((c) => {
+    const pts = s.map((p, i) => xAt(i).toFixed(1) + ',' + yAt(p[c.key]).toFixed(1)).join(' ');
+    return '<polyline fill="none" stroke="' + c.color + '" stroke-width="2" points="' + pts + '"/>';
+  }).join('');
+  /* Every other day, so a 14-day axis does not crowd. The first label sits at
+     x0=8 and would clip at the SVG's left edge if centered ("ug 31"), so anchor
+     it to the start; the rest stay centered on their point. */
+  const labels = s.map((p, i) => (i % 2 === 0)
+    ? '<text x="' + xAt(i).toFixed(1) + '" y="292" text-anchor="' + (i === 0 ? 'start' : 'middle') + '" font-size="9" fill="var(--k-ink-2)">' + esc(usageDayLabel(p.day)) + '</text>'
+    : '').join('');
+  return '<svg viewBox="0 0 760 300" role="img" aria-label="Daily token usage by class, ' + n + ' days">'
+    + '<line x1="' + x0 + '" y1="' + yBase + '" x2="' + x1 + '" y2="' + yBase + '" stroke="var(--k-rule)" stroke-width="1"/>'
+    + lines + labels + '</svg>';
+}
+/* The per-model, per-day table -- the measurement the headline numbers add up
+   from. Newest day first, as before #2617. */
+function usageTableHtml(byDay) {
+  const days = Object.keys(byDay || {}).sort().reverse();
+  const rows = [];
+  for (const day of days) {
+    const models = byDay[day] || {};
+    for (const model of Object.keys(models).sort()) {
+      const b = models[model] || {};
+      rows.push('<tr><td>' + esc(day) + '</td><td>' + esc(model) + '</td>'
+        + '<td class="usage-n">' + usageNum(b.input_tokens) + '</td>'
+        + '<td class="usage-n">' + usageNum(b.output_tokens) + '</td>'
+        + '<td class="usage-n">' + usageNum(b.cache_creation_input_tokens) + '</td>'
+        + '<td class="usage-n">' + usageNum(b.cache_read_input_tokens) + '</td></tr>');
+    }
+  }
+  if (!rows.length) return '';
+  return '<table class="usage-table"><thead><tr>'
+    + '<th>Day</th><th>Model</th><th>Input</th><th>Output</th><th>Cache written</th><th>Cache read</th>'
+    + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
+}
+let USAGE_BUSY = false;
 async function paintUsage() {
   const msg = document.getElementById('usage-msg');
+  const cards = document.getElementById('usage-cards');
+  const chartWrap = document.getElementById('usage-chartwrap');
+  const chart = document.getElementById('usage-chart');
+  const legend = document.getElementById('usage-legend');
+  const money = document.getElementById('usage-worth');
   const box = document.getElementById('usage-table');
   if (!msg || !box || USAGE_BUSY) return;
   USAGE_BUSY = true;
   msg.textContent = 'Reading the transcripts. Today has to be counted fresh every time, so on a busy day this takes up to a minute.';
   try {
-    const res = await fetch('/api/usage?days=7');
+    /* 14 days -- Mona's design shows a two-week trend. Completed days are frozen
+       to disk and load instantly; the extra week is nearly free (server.js note). */
+    const res = await fetch('/api/usage?days=14');
     if (!res.ok) throw new Error('status ' + res.status);
     const data = await res.json();
     const byDay = (data && data.byDay) || {};
-    const days = Object.keys(byDay).sort().reverse();
-    if (!days.length) {
+    if (!Object.keys(byDay).length) {
       msg.textContent = 'No usage recorded yet on this computer.';
+      if (cards) cards.innerHTML = '';
+      if (chart) chart.innerHTML = '';
+      if (legend) legend.innerHTML = '';
+      if (chartWrap) chartWrap.hidden = true;
+      if (money) money.innerHTML = '';
       box.innerHTML = '';
       return;
     }
-    const rows = [];
-    for (const day of days) {
-      const models = byDay[day] || {};
-      for (const model of Object.keys(models).sort()) {
-        const b = models[model] || {};
-        rows.push('<tr><td>' + esc(day) + '</td><td>' + esc(model) + '</td>'
-          + '<td class="usage-n">' + usageNum(b.input_tokens) + '</td>'
-          + '<td class="usage-n">' + usageNum(b.output_tokens) + '</td>'
-          + '<td class="usage-n">' + usageNum(b.cache_creation_input_tokens) + '</td>'
-          + '<td class="usage-n">' + usageNum(b.cache_read_input_tokens) + '</td></tr>');
-      }
-    }
-    if (!rows.length) {
-      msg.textContent = 'No usage recorded in the last seven days.';
-      box.innerHTML = '';
+    const totals = usageTotals(byDay);
+    if (cards) cards.innerHTML = usageCardsHtml(totals);
+    const svg = usageChartSvg(usageDailySeries(byDay));
+    if (chart) chart.innerHTML = svg;
+    if (legend) legend.innerHTML = svg ? usageLegendHtml() : '';
+    if (chartWrap) chartWrap.hidden = !svg;
+    if (money) money.innerHTML = usageMoneyHtml(totals);
+    box.innerHTML = usageTableHtml(byDay);
+    if (!box.innerHTML) {
+      msg.textContent = 'No usage recorded in the last fourteen days.';
+      if (cards) cards.innerHTML = '';
+      if (chart) chart.innerHTML = '';
+      if (legend) legend.innerHTML = '';
+      if (chartWrap) chartWrap.hidden = true;
+      if (money) money.innerHTML = '';
       return;
     }
-    box.innerHTML = '<table class="usage-table"><thead><tr>'
-      + '<th>Day</th><th>Model</th><th>Input</th><th>Output</th><th>Cache written</th><th>Cache read</th>'
-      + '</tr></thead><tbody>' + rows.join('') + '</tbody></table>';
     /* Said plainly rather than implied: this counts what was found on this
        machine, and a config root we could not read is a gap in the number
        rather than a zero. The engine reports what it actually read. */
@@ -22453,9 +22663,13 @@ async function paintUsage() {
     msg.textContent = roots === null
       ? 'Counted from the transcripts on this computer.'
       : 'Counted from ' + roots + (roots === 1 ? ' place' : ' places') + ' on this computer that hold transcripts.';
-    paintUsageWorth(byDay);
   } catch (e) {
     msg.textContent = 'We could not read token usage just now.';
+    if (cards) cards.innerHTML = '';
+    if (chart) chart.innerHTML = '';
+    if (legend) legend.innerHTML = '';
+    if (chartWrap) chartWrap.hidden = true;
+    if (money) money.innerHTML = '';
     box.innerHTML = '';
   } finally {
     USAGE_BUSY = false;
