@@ -431,3 +431,85 @@ test('#1150: both stamps come from this page, never from a server time', () => {
   assert.match(fn, /spoke\.learnedAt > LAST_AT/, 'the comparison is not the two local stamps');
   assert.doesNotMatch(fn, /Date\.parse|new Date/, 'a server time reached the comparison');
 });
+
+
+/* ───────────────────────────────────────────────────────────────────────────
+ * #2660: THE SAME DEFECT, ON THE SURFACE #1150's FIX NEVER REACHED.
+ *
+ * Josh, 2026-09-10: "I'll get a reply and then it will show the little thing
+ * that says the agent is working. It'll last for a few seconds and then go
+ * away." That is the sentence at the top of this file again, about the DIALOG
+ * box rather than the room.
+ *
+ * ⭐ The two working lines were built to SHARE their markup (`busyRow`) and the
+ * one word that carries the claim (`WORKING_VERB`), and the correctness filter
+ * went to one of them. These arms are here, in this file, so the pair is pinned
+ * together and the next fix to either has to look at both.
+ * ──────────────────────────────────────────────────────────────────────────*/
+function runDm({ fresh, lastAt, spoke }) {
+  const el = { hidden: null, innerHTML: '' };
+  // eslint-disable-next-line no-new-func
+  const paint = new Function(
+    'FRESH', 'NAME', 'LAST_AT_IN', 'SPOKE', 'EL',
+    'const document = { getElementById: () => EL };\n'
+    + 'let LAST_AT = LAST_AT_IN;\n'
+    + 'const DM_SPOKE_AT = SPOKE;\n'
+    /* busyRow is the SHARED markup helper and has its own coverage; stubbed to a
+       recognisable string so these arms test the SHOW DECISION and nothing else. */
+    + 'const busyRow = (f, n) => "ROW:" + String(n);\n'
+    + page.lift(SCRIPT, 'paintBusy')
+    + '; return paintBusy;',
+  )(fresh, fresh && fresh.name, lastAt, spoke, el);
+  paint(fresh, fresh && fresh.name);
+  return el;
+}
+
+test('#2660: a dialog reply already on screen is not announced as still working', () => {
+  const SNAP = 1000;
+  const dm = { sessionName: 'dana', name: 'Dana', state: 'working' };
+
+  /* 🔑 CONTROL FIRST, same rule as the room arm above: with no reply recorded
+     the line must paint, or every assertion below is satisfied by a painter
+     that never shows anything. */
+  const plain = runDm({ fresh: dm, lastAt: SNAP, spoke: new Map() });
+  assert.equal(plain.hidden, false, 'a working agent is not announced in the dialog at all');
+  assert.match(plain.innerHTML, /ROW:Dana/, 'the shared row helper was not reached');
+
+  /* THE DEFECT: the reply reached this page AFTER the snapshot, so the state
+     about to be asserted is older than what is already painted beneath it. */
+  const after = runDm({
+    fresh: dm,
+    lastAt: SNAP,
+    spoke: new Map([['dana', { at: 1, learnedAt: SNAP + 1 }]]),
+  });
+  assert.equal(after.hidden, true,
+    'the dialog indicator still follows the reply it was supposed to precede');
+
+  /* THE OTHER ARM: a reply learned BEFORE the snapshot proves nothing about it.
+     Without this the fix could be "never show it" and both rows above pass. */
+  const before = runDm({
+    fresh: dm,
+    lastAt: SNAP,
+    spoke: new Map([['dana', { at: 1, learnedAt: SNAP - 1 }]]),
+  });
+  assert.equal(before.hidden, false,
+    'an older reply is suppressing a state that is newer than it');
+});
+
+test('#2660: an auth failure is NOT suppressed by a reply, which #874 put in this exact slot', () => {
+  const SNAP = 1000;
+  /* 🛑 THE ARM THAT STOPS THIS FIX RE-OPENING #874. That bug was an agent
+     sitting in this slot claiming to work while its terminal retried a 401, and
+     the fix was to give `auth_failed` its own line here. A reply arriving does
+     not make an auth failure stale, so the #2660 filter must not touch it.
+     Same inputs that suppress `working` two tests up. */
+  const failed = { sessionName: 'dana', name: 'Dana', state: 'auth_failed' };
+  const out = runDm({
+    fresh: failed,
+    lastAt: SNAP,
+    spoke: new Map([['dana', { at: 1, learnedAt: SNAP + 1 }]]),
+  });
+  assert.equal(out.hidden, false,
+    'the #2660 staleness filter swallowed an auth failure, re-opening #874');
+  assert.match(out.innerHTML, /ROW:Dana/, 'the auth-failed row did not reach the shared helper');
+});

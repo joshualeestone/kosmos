@@ -19975,6 +19975,25 @@ let LAST = [];
  */
 let LAST_AT = 0;
 const ROOM_SPOKE_AT = new Map();
+/**
+ * 🛑 #2660: THE SAME THING, FOR THE DIALOG BOX, BECAUSE #1150 ONLY EVER FIXED
+ * THE ROOM. Josh: "I'll get a reply and then it will show the little thing that
+ * says the agent is working. It'll last for a few seconds and then go away."
+ * That is #1150's sentence again, on the surface its fix never reached.
+ *
+ * ⭐ The two working lines were deliberately built to SHARE their markup
+ * (`busyRow`) and the one word that carries the claim (`WORKING_VERB`), and the
+ * correctness filter went to one of them. The question that finds this class is
+ * "which surfaces have no guard", not "where else does the defect appear".
+ *
+ * 🛑 A SEPARATE MAP RATHER THAN REUSING `ROOM_SPOKE_AT`, and the reason is not
+ * tidiness: that map's `learnedAt` is stamped against `ROOM_SPOKE_SEEDED`,
+ * which is keyed on the open PROJECT. A dialog has no project, so seeding would
+ * read as unseeded forever and every reply would stamp `learnedAt: 0`, which is
+ * the over-claim #1150 exists to prevent. Same shape, its own seeding.
+ */
+const DM_SPOKE_AT = new Map();
+const DM_SPOKE_SEEDED = new Set();
 /* 🛑 SEEDED PER ROOM, NOT ONCE PER PAGE. This was a single boolean, set true
    after the first room painted and never reset, so opening a SECOND room
    stamped its whole history as "everybody just spoke" and blanked its working
@@ -20512,7 +20531,24 @@ function paintBusy(fresh, name) {
   if (!el) return;
   // #874: shown for auth_failed too, not just working -- see busyRow's own
   // comment for why this exact slot is the one the bug report named.
-  const show = !!(fresh && (fresh.state === 'working' || fresh.state === 'auth_failed'));
+  /* 🛑 #2660: DROP A `working` SAMPLE THAT IS OLDER THAN THE REPLY ALREADY ON
+     SCREEN. Both of these paint in the SAME tick, in this order: `paintTalk`
+     fires an async thread fetch, then this runs synchronously off the status
+     snapshot that tick already holds. So on the tick an agent finishes, the
+     snapshot can still read `working` (sampled before the reply existed), this
+     line asserts it, and the reply renders underneath a moment later. Next tick
+     says idle and it vanishes. That is exactly the report.
+     ⚠️ `working` ONLY, NEVER `auth_failed`. #874 put that state in this slot
+     because an agent sat here claiming to work while its terminal retried a
+     401, and a reply arriving does not make an auth failure stale. Suppressing
+     it here would re-open the bug this slot was rebuilt for.
+     🔑 Bounded the same way the room's is: the next snapshot is newer than the
+     message, so a genuinely mid-task agent reappears within one poll. It
+     under-claims for at most that long, which is the direction to fail in. */
+  const spoke = fresh && DM_SPOKE_AT.get(fresh.sessionName);
+  const working = !!(fresh && fresh.state === 'working');
+  const staleWorking = working && !!(spoke && spoke.learnedAt > LAST_AT);
+  const show = (working && !staleWorking) || !!(fresh && fresh.state === 'auth_failed');
   el.hidden = !show;
   if (!show) { el.innerHTML = ''; return; }
   /* ⚠️ THE SAME AVATAR THE CARD DRAWS, off the same route, with the same
@@ -21186,6 +21222,29 @@ function talkFilterRows(rows, name, q) {
 let TALK_QUERY = '';
 function paintTalkThread(body, name) {
   const allRows = Array.isArray(body.messages) ? body.messages : [];
+  /* #2660: record WHEN THIS PAGE LEARNED of the agent's latest reply, so the
+     working line can tell a state sample that is merely OLD from one that is
+     wrong. Mirrors the room's loop deliberately, including its deny test: a row
+     Kosmos refused is not the agent speaking (#1397).
+     🔑 `from === CURRENT.sessionName` is this file's own convention for "the
+     agent said it" in a dialog, taken from `dmWho` rather than re-derived.
+     ⚠️ `learnedAt: 0` ON THE FIRST LOAD OF A THREAD. Backlog is not a new
+     reply, and stamping it as one would suppress the working line for an agent
+     that is genuinely mid-task the moment you open its dialog. */
+  const dmSession = CURRENT && CURRENT.sessionName;
+  if (dmSession) {
+    const seededThread = DM_SPOKE_SEEDED.has(dmSession);
+    for (const m of allRows) {
+      if (!m || m.from !== dmSession || !m.at) continue;
+      if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
+      const at = Date.parse(m.at);
+      if (!Number.isFinite(at)) continue;
+      const seen = DM_SPOKE_AT.get(dmSession);
+      if (seen && at <= seen.at) continue;
+      DM_SPOKE_AT.set(dmSession, { at, learnedAt: seededThread ? Date.now() : 0 });
+    }
+    DM_SPOKE_SEEDED.add(dmSession);
+  }
   const rows = talkFilterRows(allRows, name, TALK_QUERY);
   const filtering = TALK_QUERY.trim() !== '';
   const thread = document.getElementById('d-dmthread');
