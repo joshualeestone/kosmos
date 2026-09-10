@@ -310,7 +310,7 @@ test('#2570 REFUSED: an agent the primitive will not touch leaves the account CO
    written no record. A route that trusted that outcome would clear `usedBy` and
    go on to a REAL rename, taking the account out from under agents that are
    still running, and then tell the person they can restore them. */
-test('#2570: a DRY-RUN "removed" is not a stop, and the account is left alone', async () => {
+test('#2570: a "removed" from commands that never ran is not a stop, and the account is left alone', async () => {
   removal.setRunner(null);          // re-arms dry-run (remove.js:96)
   calls = [];
   fs.writeFileSync(PANES, '');
@@ -330,15 +330,28 @@ test('#2570: a DRY-RUN "removed" is not a stop, and the account is left alone', 
   assert.equal(r.code, 400, 'a dry-run stop was accepted as real. body: ' + JSON.stringify(r.json));
   assert.deepEqual(r.json.stopped, []);
   assert.deepEqual(r.json.notStopped.map((x) => x.name), ['lamb']);
-  /* The GUARD's own sentence, matched whole. A bare /dry-run/ also matches the
-     "(Nothing actually happened: this board is running in dry-run.)" that
-     markDryRun appends to every non-refusal, which is how the first version of
-     this arm read as covering something it never reached. */
+  /* 🔑 WHICH HALF OF THE GUARD THIS ARM PROVES, stated rather than blurred.
+     `removal.commandsAreReal()` is false here for the SECOND reason, not the
+     first: no runner is installed, and live execution is not armed in this
+     process because server.js arms it inside `if (require.main === module)` and
+     the suite REQUIRES the module. That is the path a top-level `dryRun` marker
+     never covers (`markDryRun` marks only the DRY_RUN-flag path), and it is
+     therefore the one a route could not otherwise see.
+
+     ⚠️ THE OTHER HALF IS NOT COVERED HERE AND CANNOT BE. `markDryRun` marks only
+     when no runner is installed, and with no runner `commandsAreReal()` already
+     answers false, so the two conditions are mutually exclusive in this harness.
+     Both are reachable in production (a real board arms live execution, and an
+     operator can still set AGENT_WORKFORCE_DRY_RUN in its environment), which is
+     why the guard tests both. */
+  assert.equal(removal.commandsAreReal(), false,
+    'commands would really run here, so this arm is not about a stop that never happened');
   assert.equal(String(r.json.notStopped[0].because),
-    'the removal ran in dry-run, so nothing was actually stopped',
+    'no command actually ran, so nothing was stopped',
     'the reason is not the guard\'s, so this arm may be passing on an adjacent string');
   assert.equal(r.json.notStopped[0].outcome, removal.OUTCOME.REMOVED,
     'the underlying outcome must be the lying REMOVED; anything else and the guard was never reached');
+  assert.equal(r.json.notStopped[0].verified, false, 'the verdict field must be the thing that refused it');
   assert.ok(fs.existsSync(dir), 'THE ACCOUNT MUST STILL BE THERE: nothing was actually stopped');
 });
 
@@ -351,6 +364,55 @@ test('#2570: stopAgents is inert when no agent is on the account', async () => {
   assert.ok(!('stopped' in r.json),
     'an empty stop list must not add a sentence about agents to an account that had none');
   assert.deepEqual(calls, [], 'nothing should have been stopped');
+});
+
+/* 🛑 THE ENGINE'S OTHER REFUSALS DO NOT CARE ABOUT THE AGENTS, AND THIS IS THE
+   ARM FOR IT. `forgetAccount` and `removeAccount` both refuse the DEFAULT folder
+   outright, and that check runs BEFORE their agents check. So without a
+   pre-flight, a request naming the default account stopped every agent on it,
+   for real, recorded each one, and then answered 400 with a refusal that never
+   mentioned the stop. Deterministic. Not reachable from the page (the default
+   row renders no control) and fully reachable from the board API and the CLI. */
+test('#2570 PRE-FLIGHT: a refusal that has nothing to do with the agents stops NOBODY', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.claude');
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(nodePath.join(dir, '.claude.json'),
+    JSON.stringify({ oauthAccount: { emailAddress: 'main@example.com' } }));
+  agentOn('holmes', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /main Claude folder/,
+    'the answer must be the engine\'s own refusal, not a stop report');
+  assert.deepEqual(calls, [],
+    'AGENTS WERE STOPPED FOR AN ACCOUNT THAT WAS NEVER GOING TO BE DISCONNECTED');
+  assert.ok(!removedNames().includes('holmes'), 'and none was written to the removed list');
+  assert.ok(fs.existsSync(dir), 'the default folder must still be there');
+});
+
+/* 🛑 A FAILURE AFTER THE STOP SUCCEEDED. Every one of these four paths used to
+   answer with the engine's sentence alone, so the person was told the account
+   was untouched while N of their agents had just been stopped, with nothing on
+   screen saying so. Forced here by filling every name `forgetAccount` would move
+   the account to, which is a real refusal it carries for exactly this reason. */
+test('#2570: when the account operation fails AFTER the stop, the answer says the agents are stopped', async () => {
+  installRunner();
+  const dir = claudeAccount('boxedin');
+  registeredNotRunning('lestrade', dir, 'claude');
+  // `.removed-claude-boxedin`, then -2 .. -499: the loop gives up at 500.
+  fs.mkdirSync(nodePath.join(HOME, '.removed-claude-boxedin'), { recursive: true });
+  for (let n = 2; n < 500; n += 1) {
+    fs.mkdirSync(nodePath.join(HOME, `.removed-claude-boxedin-${n}`), { recursive: true });
+  }
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.match(String(r.json.error), /could not find a free name/, 'the engine refusal must survive');
+  assert.deepEqual(r.json.stopped, ['lestrade'],
+    'the answer does not say which agents are already stopped, so the person cannot act on it');
+  assert.match(String(r.json.error), /lestrade was already stopped, and it is still stopped/);
+  assert.match(String(r.json.error), /put it back from the removed list/,
+    'a disconnect that failed after stopping must still name the way back');
+  assert.ok(fs.existsSync(dir), 'the account is still connected, which is what the refusal says');
 });
 
 /* ── the other three doors ───────────────────────────────────────────────── */
@@ -384,6 +446,23 @@ test('#2570: the OpenAI route stops its own agents the same way', async () => {
   assert.deepEqual(r.json.stopped, ['poirot'], 'the OpenAI door must not be the one that still refuses');
   assert.match(String(r.json.because), /put it back from the removed list once you add this account again under the same name/);
   assert.ok(removedNames().includes('poirot'), 'no removal record, so the restore promise is false here too');
+});
+
+/* Delete is the more dangerous door, and it was covered on one provider only.
+   The `restorable=false` copy branch and the OpenAI removeAccount pairing are
+   what this adds. */
+test('#2570: the OpenAI DELETE door honours stopAgents, and does NOT promise a restore', async () => {
+  installRunner();
+  const dir = codexAccount('doomed');
+  registeredNotRunning('lupin', dir, 'codex');
+  const r = await del('openai', { dir, stopAgents: true, remove: true });
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.removed, true);
+  assert.deepEqual(r.json.stopped, ['lupin']);
+  assert.ok(!fs.existsSync(dir), 'the account was not deleted');
+  assert.doesNotMatch(String(r.json.because), /put it back|restore/i,
+    'the OpenAI delete door promises a way back that cannot work');
+  assert.match(String(r.json.because), /needs a different one before it can start again/);
 });
 
 test('#2570 CONTROL: the OpenAI route with no flag still refuses and names the agent', async () => {

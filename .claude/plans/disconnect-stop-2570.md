@@ -57,6 +57,42 @@ a copy carve-out parks one sentence and not the card, so an honest version ships
 swap it: the button reads "Disconnect and stop N agents?" and the answer names who was stopped and
 says they can be restored. That is closest to Renet's option C.
 
+**Ask the engine before stopping anything.** Both engines refuse the DEFAULT account
+outright, and refuse a path that is not one of their accounts, and BOTH of those checks run
+BEFORE their agents check. So the route now makes a pre-flight call with the real (non-empty)
+`usedBy` first: that call can only return a path refusal, a default refusal, or the agents
+refusal, and can never perform anything, because every destructive step sits after the agents
+guard. The agents refusal is told apart by SHAPE (it is the only one carrying a `usedBy` array),
+not by matching its prose. Without this, a request naming the default account stopped every agent
+on it, for real, and then refused.
+
+**A stop is only believed when the commands actually ran.** `engine/remove.js` has two
+fake-success paths, and its top-level `dryRun` marker covers only one: a missed live-execution
+opt-in warns to stderr and returns success for every command, unmarked. So the route asks the new
+`removal.commandsAreReal()` (runner installed, or live execution armed), which is the only place
+that knows both halves. A caller that asked `liveExecutionAllowed()` directly would answer false
+whenever a runner is injected, which is exactly when the commands DO run.
+
+## Residuals, named rather than left to be found
+
+- **kosmos#2609, filed.** The removed list renders a Restore control for every record with no
+  check that the account directory still exists, and the record carries nothing distinguishing a
+  restorable stop from an unrestorable one. It pre-dates this card; what this card changes is that
+  the state now takes one guided click instead of two separate acts. Not fixed here because
+  `restoreInner` is a shared path and changing it naively breaks the disconnect-then-reconnect
+  flow this card's own copy points people at.
+- **The stop loop is synchronous.** Four `execFileSync` commands per agent, each with a 20s
+  ceiling, multiplied by the agents on one account. Deferred deliberately: the 20s is a hang
+  ceiling rather than a duration, the existing single-agent removal route already calls the same
+  primitive the same way, and the person has just pressed a button whose whole content is "stop
+  these agents". The reasoning is recorded at the code. If a board is ever reported wedged during
+  a disconnect, the fix is to make the primitive async, not to cap N in the route.
+- **The DRY_RUN-marked half of the stop guard is not covered by a test**, and cannot be in the
+  in-process harness: `markDryRun` marks only when no runner is installed, and with no runner
+  `commandsAreReal()` already answers false, so the two conditions are mutually exclusive there.
+  Both are reachable in production. The arm that exists covers the unmarked half, which is the one
+  no marker could have caught.
+
 ## Weakest premise
 
 That a person who has just been refused, and reads a sentence naming their agents, understands that

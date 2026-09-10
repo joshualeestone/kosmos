@@ -5006,7 +5006,23 @@ const server = http.createServer((req, res) => {
          ⚠️ Production is unaffected: server.js opts into live execution at
          startup, so `dryRun` is never set there. This is the guard for the day
          that opt-in is missed, which remove.js warns about rather than prevents. */
-      const dry = !!(done && done.dryRun === true);
+      /* 🛑 TWO FAKE-SUCCESS PATHS, AND THE MARKER ONLY COVERS ONE. `markDryRun`
+         sets `dryRun` when AGENT_WORKFORCE_DRY_RUN is set and no runner is
+         installed. `run()` has a SECOND path (engine/remove.js:114): when live
+         execution was never authorised it warns to stderr and returns success
+         for every command, and NOTHING marks the result. For a
+         registered-but-not-running agent there is no session to end, so that
+         produces an unmarked REMOVED with a real removal record, and the account
+         would be renamed while the launchd job was never disabled.
+         ⭐ THAT IS EXACTLY THE CASE THE COMMENT BELOW CLAIMED TO GUARD -- "the
+         guard for the day that opt-in is missed" -- and the first version of it
+         did not fire there. Asking the gate directly covers both paths, because
+         a stop is only believable when live execution was actually armed. */
+      const real = (() => {
+        try { return removal.commandsAreReal() === true; }
+        catch { return false; }
+      })();
+      const dry = !!(done && done.dryRun === true) || !real;
       results.push({
         name,
         /* The primitive's own word, reported verbatim even when we reject it.
@@ -5022,8 +5038,10 @@ const server = http.createServer((req, res) => {
            is worse than none, because it reads as protection. Caught by a
            mutation control: deleting the dryRun test changed nothing. */
         verified: !!(done && done.outcome === removal.OUTCOME.REMOVED) && !dry,
-        because: dry && done.outcome === removal.OUTCOME.REMOVED
-          ? 'the removal ran in dry-run, so nothing was actually stopped'
+        because: dry && done && done.outcome === removal.OUTCOME.REMOVED
+          ? (real
+            ? 'the removal ran in dry-run, so nothing was actually stopped'
+            : 'no command actually ran, so nothing was stopped')
           : ((done && done.because) || ''),
       });
     }
@@ -5045,8 +5063,63 @@ const server = http.createServer((req, res) => {
    * what the Restore control reads. If that ever stops being true this sentence
    * becomes the lie, and `engine/remove.js` is where it would be told.
    */
+  /**
+   * #2570: the sentence for a stop that did not finish.
+   *
+   * 🔑 WRITTEN ONCE, for the same reason `withStopNote` is. The success sentence
+   * was extracted so the two doors could not drift, which left the FAILURE
+   * sentence as the one written twice, and it is the harder one to get right: it
+   * has to name both halves, because the half that DID stop is what the person
+   * most needs to know about (those agents are off and their account is still
+   * connected).
+   */
+  function stopFailureSentence(stopReport) {
+    const failed = stopReport.notStopped.map((r) => r.name);
+    return stopReport.stopped.length
+      ? `We stopped ${stopReport.stopped.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
+        + 'Put the stopped ones back from the removed list, or stop the rest yourself and try again.'
+      : `We could not stop ${failed.join(', ')}, so nothing was changed.`;
+  }
+
+  /**
+   * #2570: a failure that happens AFTER the agents were already stopped.
+   *
+   * 🛑 EVERY POST-STOP FAILURE PATH USED TO DROP THIS ON THE FLOOR. The engine
+   * can refuse after the stop succeeded ("could not find a free name to move
+   * that account to", "could not move that account out of the way", "could not
+   * delete that account", or a sign-in in progress), and those 400s carried only
+   * the engine's own sentence. So the person was told the account was untouched
+   * while N of their agents had just been stopped, with nothing on screen saying
+   * so. The stop-FAILURE path went to trouble to name both halves; these are the
+   * inverse case and said nothing.
+   */
+  function withStopDone(payload, stopReport, restorable) {
+    if (!stopReport || !stopReport.stopped.length) return payload;
+    const names = stopReport.stopped;
+    const one = names.length === 1;
+    return {
+      ...payload,
+      stopped: names,
+      error: `${payload.error} ${one ? names[0] + ' was' : names.length + ' agents were'} already stopped`
+        + `${one ? '' : ' (' + names.join(', ') + ')'}, and ${one ? 'it is' : 'they are'} still stopped.`
+        + (restorable
+          ? ` You can put ${one ? 'it' : 'them'} back from the removed list.`
+          : ''),
+    };
+  }
+
   function withStopNote(payload, stopReport, restorable) {
     if (!stopReport || !stopReport.stopped.length) return payload;
+    /* 🛑 NOT ON THE ALREADY-GONE BRANCH. Both engines answer
+       `{ok: true, forgotten: false}` for an account that is not there, and
+       appending the way-back sentence produced "That account was already gone
+       from this computer. x was stopped first. You can put it back once you add
+       this account again under the same name." The condition names re-adding an
+       account that was never there. Reachable when a launch file points at a
+       directory that has since gone. */
+    if (payload.forgotten === false || payload.removed === false) {
+      return { ...payload, stopped: stopReport.stopped };
+    }
     const names = stopReport.stopped;
     const one = names.length === 1;
     /* 🛑 THE WAY BACK IS NOT THE SAME ON BOTH DOORS, AND SAYING IT WAS WOULD BE A
@@ -5214,18 +5287,38 @@ const server = http.createServer((req, res) => {
            a refusal, not a rename under a live agent. */
         let stopReport = null;
         if (usedBy.length && !!(body && body.stopAgents === true)) {
+          /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
+             THE AGENTS. `openaiAccounts.removeAccount` refuses the DEFAULT account outright, and
+             refuses a path that is not one of its accounts, and BOTH of those
+             checks run BEFORE its agents check. So without this, a request
+             naming the default account stopped every agent on it, for real, wrote
+             each to the removed list, and then answered 400 with a refusal that
+             never mentioned the stop. Deterministic, not a race. Not reachable
+             from the page (the default row renders no control) and fully
+             reachable from the board API and the CLI.
+
+             🔑 THIS PRE-FLIGHT CANNOT ACT, AND THAT IS STRUCTURAL RATHER THAN
+             LUCKY. Verified in all four engine functions: the path guard and the
+             default guard come first, the agents guard next, and every
+             destructive step (existsSync, rename, rmSync) comes AFTER it. We only
+             reach this line when `usedBy` is non-empty, so the call can return
+             only a path refusal, a default refusal, or the agents refusal, and
+             can never perform anything.
+
+             ⚠️ AND THE AGENTS REFUSAL IS TOLD APART BY SHAPE, NOT BY PROSE: it is
+             the one refusal that carries a `usedBy` array. Matching the sentence
+             would break the day somebody rewords it. */
+          const preflight = remove
+            ? openaiAccounts.removeAccount(dir, usedBy)
+            : openaiAccounts.forgetAccount(dir, usedBy);
+          if (!preflight.ok && !(Array.isArray(preflight.usedBy) && preflight.usedBy.length)) {
+            sendJson(res, 400, { error: preflight.because, usedBy: [] });
+            return;
+          }
           stopReport = stopAgentsForDisconnect(usedBy);
           if (!stopReport.ok) {
-            const failed = stopReport.notStopped.map((r) => r.name);
             sendJson(res, 400, {
-              /* Names both halves. "Some agents could not be stopped" tells the
-                 person nothing they can act on, and the half that DID stop is
-                 the part they most need to know about, because those agents are
-                 now off and their account is still connected. */
-              error: stopReport.stopped.length
-                ? `We stopped ${stopReport.stopped.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
-                  + 'Restore the stopped ones from the removed list, or stop the rest yourself and try again.'
-                : `We could not stop ${failed.join(', ')}, so nothing was changed.`,
+              error: stopFailureSentence(stopReport),
               usedBy,
               stopped: stopReport.stopped,
               notStopped: stopReport.notStopped,
@@ -5237,7 +5330,7 @@ const server = http.createServer((req, res) => {
 
         if (remove) {
           const gone = openaiAccounts.removeAccount(dir, usedBy);
-          if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
+          if (!gone.ok) { sendJson(res, 400, withStopDone({ error: gone.because, usedBy: gone.usedBy || [] }, stopReport, false)); return; }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
             because: gone.removed
@@ -5250,7 +5343,7 @@ const server = http.createServer((req, res) => {
 
         const out = openaiAccounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
-          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          sendJson(res, 400, withStopDone({ error: out.because, usedBy: out.usedBy || [] }, stopReport, true));
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
@@ -5484,18 +5577,38 @@ const server = http.createServer((req, res) => {
            a refusal, not a rename under a live agent. */
         let stopReport = null;
         if (usedBy.length && !!(body && body.stopAgents === true)) {
+          /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
+             THE AGENTS. `accounts.forgetAccount` refuses the DEFAULT account outright, and
+             refuses a path that is not one of its accounts, and BOTH of those
+             checks run BEFORE its agents check. So without this, a request
+             naming the default account stopped every agent on it, for real, wrote
+             each to the removed list, and then answered 400 with a refusal that
+             never mentioned the stop. Deterministic, not a race. Not reachable
+             from the page (the default row renders no control) and fully
+             reachable from the board API and the CLI.
+
+             🔑 THIS PRE-FLIGHT CANNOT ACT, AND THAT IS STRUCTURAL RATHER THAN
+             LUCKY. Verified in all four engine functions: the path guard and the
+             default guard come first, the agents guard next, and every
+             destructive step (existsSync, rename, rmSync) comes AFTER it. We only
+             reach this line when `usedBy` is non-empty, so the call can return
+             only a path refusal, a default refusal, or the agents refusal, and
+             can never perform anything.
+
+             ⚠️ AND THE AGENTS REFUSAL IS TOLD APART BY SHAPE, NOT BY PROSE: it is
+             the one refusal that carries a `usedBy` array. Matching the sentence
+             would break the day somebody rewords it. */
+          const preflight = remove
+            ? accounts.removeAccount(dir, usedBy)
+            : accounts.forgetAccount(dir, usedBy);
+          if (!preflight.ok && !(Array.isArray(preflight.usedBy) && preflight.usedBy.length)) {
+            sendJson(res, 400, { error: preflight.because, usedBy: [] });
+            return;
+          }
           stopReport = stopAgentsForDisconnect(usedBy);
           if (!stopReport.ok) {
-            const failed = stopReport.notStopped.map((r) => r.name);
             sendJson(res, 400, {
-              /* Names both halves. "Some agents could not be stopped" tells the
-                 person nothing they can act on, and the half that DID stop is
-                 the part they most need to know about, because those agents are
-                 now off and their account is still connected. */
-              error: stopReport.stopped.length
-                ? `We stopped ${stopReport.stopped.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
-                  + 'Restore the stopped ones from the removed list, or stop the rest yourself and try again.'
-                : `We could not stop ${failed.join(', ')}, so nothing was changed.`,
+              error: stopFailureSentence(stopReport),
               usedBy,
               stopped: stopReport.stopped,
               notStopped: stopReport.notStopped,
@@ -5507,7 +5620,7 @@ const server = http.createServer((req, res) => {
 
         if (remove) {
           const gone = accounts.removeAccount(dir, usedBy);
-          if (!gone.ok) { sendJson(res, 400, { error: gone.because, usedBy: gone.usedBy || [] }); return; }
+          if (!gone.ok) { sendJson(res, 400, withStopDone({ error: gone.because, usedBy: gone.usedBy || [] }, stopReport, false)); return; }
           sendJson(res, 200, withStopNote({
             removed: gone.removed === true,
             because: gone.removed
@@ -5520,7 +5633,7 @@ const server = http.createServer((req, res) => {
 
         const out = accounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
-          sendJson(res, 400, { error: out.because, usedBy: out.usedBy || [] });
+          sendJson(res, 400, withStopDone({ error: out.because, usedBy: out.usedBy || [] }, stopReport, true));
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
