@@ -127,7 +127,9 @@ test('one bad key does not sink the rest (a key that panelessCard cannot build i
 test('default (no created source wired) leaves the board byte-identical -- no created cards', () => {
   const board = fleet.install(MAC());
   try {
-    // createdSource is null here (nothing wired); only the real pane agent shows.
+    // No created source is wired for this fixture, so no created-never-run card shows -- only
+    // the real pane agent. (fleet.install() itself sandboxes createdSource to an empty source,
+    // so this holds on any box, including one carrying real created-but-never-run agents.)
     assert.equal(board.agents.length, 1);
     assert.equal(board.agents[0].sessionName, 'mara');
   } finally { board.restore(); }
