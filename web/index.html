@@ -38213,13 +38213,15 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     if (err && err.message && /description/i.test(err.message)) {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
-    } else if (err && err.message && /name/i.test(err.message)) {
-      // #2606: route a server refusal that mentions the name to the name field. Checked
-      // AFTER the description branch so a message mentioning both still routes to
-      // description, and anything the regex does not match falls through to the generic
-      // below-button message. Which exact server messages match is decided by /name/i
-      // against the live projects.js text, not enumerated here -- an enumeration in a
-      // comment goes stale (an earlier version of it was wrong about folder collisions).
+    } else if (err && err.message && /give this project a name|a name has to be words|name is longer than a project name|too many projects with that name/i.test(err.message)) {
+      // #2606: route a project NAME-RULE refusal to the name field. Matched on the specific
+      // name-rule sentences projects.js throws, NOT a broad /name/i: a folder-collision
+      // refusal interpolates an existing project's TITLE ("...already the project X"), and a
+      // title that happens to contain "name" would false-match /name/i and flag the name
+      // field for what is really a folder problem. These sentences carry no interpolated
+      // content, so they cannot. The regex is the source of truth; a coupling test in
+      // web.inline-errors-2606.test.js pins it to projects.js's messages and proves the
+      // folder-collision message does not match. Checked AFTER the description branch.
       pjFieldBad('pj-name', 'pj-name-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else {

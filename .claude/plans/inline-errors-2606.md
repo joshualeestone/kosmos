@@ -16,10 +16,17 @@ border + message beside the field + focus/scroll. The helper is form-neutral in 
 its `pj` name is kept only because a test lifts it by name and the project forms call it.
 
 ### Engine (engine/create.js)
-- The name refusal now carries `field: 'name'` so the page can route it to the name field.
+- The name refusals carry `field: 'name'` so the page can route them to the name field.
   The refusal SENTENCE stays the server's - the form deliberately keeps NO client-side copy
   of the name rule (documented at the form, #2605 owns the rule), so this only says WHERE the
   message goes, not what it says.
+- Tagged: the `nameProblem` char/length/format refusal AND every name-COLLISION refusal - on
+  the removed list, an existing agent (folder+job), a job left behind, a launchd service still
+  loaded, a folder left behind, and an already-running session. They are all "pick another
+  name" refusals.
+- NOT tagged, deliberately: the fail-closed "we could not check which agents are already
+  running" refusal. That is a SYSTEM failure (tmux unreachable), not a name known to be taken,
+  so flagging the name field red would mislead; it stays in the below-button message.
 
 ### Create an Agent (web/index.html)
 - New `.ferr` slots `#create-name-err` (under the Name field) and `#create-label-err` (under
@@ -35,8 +42,12 @@ its `pj` name is kept only because a test lifts it by name and the project forms
 - New `.ferr` slot `#pj-name-err` (under the Name field).
 - Submit handler: an empty-name pre-check catches the commonest refusal at the field before
   the round trip (empty is unambiguous; the char rule and length cap stay the server's). The
-  catch routes a server name refusal (`/name/i`, AFTER the existing `/description/i` branch so
-  a both-mentioning message still routes to description) to the name field.
+  catch routes a server name-RULE refusal to the name field, matched on the specific name-rule
+  sentences projects.js throws (give-a-name / not-words / too-long / too-many) rather than a
+  broad `/name/i` - a folder-collision refusal interpolates an existing project's TITLE, and a
+  title containing "name" would false-match `/name/i` (iteration-4 review). Checked AFTER the
+  `/description/i` branch so a both-mentioning message still routes to description; a coupling
+  test pins the regex to projects.js's messages and proves a folder collision does not match.
 - Cleared on open (`openAddProject`) and on input.
 
 ### CSS

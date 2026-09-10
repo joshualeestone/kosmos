@@ -87,7 +87,9 @@ test('Create a Project pre-checks an empty name and routes a name refusal to the
   // A server name refusal is routed to the name field, AFTER the description check
   // so a both-mentioning message still routes to description.
   const descAt = h.indexOf('/description/i.test(err.message)');
-  const nameAt = h.indexOf('/name/i.test(err.message)');
+  // The name branch matches the specific name-rule phrases (not a broad /name/i -- see the
+  // coupling test below), so anchor on the first phrase of that regex.
+  const nameAt = h.indexOf('give this project a name|a name has to be words');
   assert.ok(descAt !== -1 && nameAt !== -1, 'a routing branch is missing');
   assert.ok(descAt < nameAt, 'the name branch must come AFTER the description branch');
   assert.match(h, /pjFieldBad\('pj-name', 'pj-name-err', pjSentence\(err\.message\)/,
@@ -105,18 +107,18 @@ test('reopening either form and typing clears a stale field flag', () => {
   assert.match(inp, /pjFieldOk\('pj-name', 'pj-name-err'\)/, 'typing the name does not clear its flag');
 });
 
-test('every name-collision refusal is tagged field: name, not just the char-rule one (#2606)', () => {
+test('every name-collision refusal is tagged field: name; the system-check failure is deliberately NOT (#2606)', () => {
   // The reported case (the nameProblem char/length/format rule) is not the only NAME
-  // refusal. A name COLLISION -- already an agent, on the removed list, a folder or job
-  // left behind, already running, or could-not-check -- is equally a name refusal and must
-  // reach the name field, not the below-button slot #2606 is moving away from. Each such
-  // `because` must carry field: 'name' before its return closes (`steps,`).
+  // refusal. A name COLLISION -- already an agent, on the removed list, a folder / job /
+  // loaded launchd service left behind, or already running -- is equally a name refusal and
+  // must reach the name field, not the below-button slot #2606 is moving away from. Each
+  // such `because` must carry field: 'name' before its return closes (`steps,`).
   const collisions = [
     'is on your removed list',
     'there is already an agent called',
-    'is still set to start on this computer',
+    'is still set to start on this computer',      // hasJob, no folder
+    'already set to start on this computer',        // launchd service loaded, nothing else left
     'there is already a folder for an agent called',
-    'we could not check which agents are already running',
     'is already running on this computer',
   ];
   for (const frag of collisions) {
@@ -124,8 +126,39 @@ test('every name-collision refusal is tagged field: name, not just the char-rule
     assert.notEqual(at, -1, `the collision refusal "${frag}" is gone from create.js`);
     const end = CREATE.indexOf('steps,', at);
     assert.ok(end > at, `no return-closing steps, after "${frag}"`);
-    const block = CREATE.slice(at, end);
-    assert.match(block, /field: 'name'/,
+    assert.match(CREATE.slice(at, end), /field: 'name'/,
       `the collision refusal "${frag}" is not tagged field: 'name', so it lands below the button`);
   }
+  // The ONE refusal deliberately NOT tagged: a fail-closed SYSTEM refusal (tmux/paneRoster
+  // unreachable) is not a name that is known to be taken, so flagging the name field red
+  // would assert the name is wrong when it may be fine. It stays below-button. Re-tagging it
+  // would re-introduce that misleading red border (#2606, iteration 4).
+  const sysAt = CREATE.indexOf('we could not check which agents are already running');
+  assert.notEqual(sysAt, -1, 'the could-not-check refusal is gone from create.js');
+  assert.doesNotMatch(CREATE.slice(sysAt, CREATE.indexOf('steps,', sysAt)), /field: 'name'/,
+    "the could-not-check SYSTEM refusal must NOT be field: 'name' -- it is not a bad name");
+});
+
+test('the project name-rule routing matches projects.js name refusals but never a folder collision (#2606)', () => {
+  const PROJECTS = fs.readFileSync(path.join(__dirname, 'engine', 'projects.js'), 'utf8');
+  // The exact regex the pj-create catch uses to route a NAME-RULE refusal to the field.
+  const RE = /give this project a name|a name has to be words|name is longer than a project name|too many projects with that name/i;
+  // The handler must use THIS regex, not a broad /name/i (which the iter-4 review showed
+  // false-matches a folder collision whose interpolated title contains "name").
+  assert.ok(PAGE.includes('give this project a name|a name has to be words|name is longer than a project name|too many projects with that name'),
+    'the pj-create catch is not using the specific name-rule regex');
+  // Every name-RULE message projects.js actually throws must be routed to the field.
+  for (const m of [
+    'give this project a name',
+    'a name has to be words',
+    'that name is longer than a project name should be',
+    'there are too many projects with that name',
+  ]) {
+    assert.ok(PROJECTS.includes(m), `projects.js no longer throws "${m}" -- the routing regex is stale`);
+    assert.match(m, RE, `the routing regex does not match the name refusal "${m}"`);
+  }
+  // A folder collision interpolates an existing project's TITLE; a title containing "name"
+  // must NOT false-route to the name field.
+  assert.doesNotMatch('that folder is already the project "Renamed Client Docs"', RE,
+    'a folder-collision refusal whose title contains "name" false-matches the name-field regex');
 });

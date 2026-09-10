@@ -3016,6 +3016,7 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: `something called ${shown} is already set to start on this computer, though there is nothing else left of it. Pick another name, or open it under Agents and delete what was left of it, which frees the name.`,
+      field: 'name', // #2606
       steps,
     };
   }
@@ -3044,7 +3045,10 @@ function createAgentInner(opts) {
     return {
       outcome: OUTCOME.REFUSED,
       because: 'we could not check which agents are already running, so we will not risk making a second one with the same name',
-      field: 'name', // #2606: the remedy is name-related (retry or a different name), so land it at the name field
+      // #2606: deliberately left UNtagged (no field marker). This is a fail-closed SYSTEM
+      // refusal (tmux could not be queried), not a name that is known to be taken -- flagging
+      // the name field red would assert the name is wrong when it may be fine. It stays in the
+      // below-button #create-msg, where "we could not check" reads honestly.
       steps,
     };
   }
