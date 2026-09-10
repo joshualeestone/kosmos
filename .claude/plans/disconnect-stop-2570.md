@@ -57,9 +57,17 @@ a copy carve-out parks one sentence and not the card, so an honest version ships
 swap it: the button reads "Disconnect and stop marlowe?" for one agent and "Disconnect and stop 2 agents?" for more, which is what the browser check pins and the answer names who was stopped and
 says they can be restored. That is closest to Renet's option C.
 
-**Ask the engine before stopping anything.** Both engines refuse the DEFAULT account
-outright, and refuse a path that is not one of their accounts, and BOTH of those checks run
-BEFORE their agents check. So the route now makes a pre-flight call with the real (non-empty)
+**Ask the engine before stopping anything.** The engines carry several refusals that have
+nothing to do with the agents, and the ones that run BEFORE their agents check are visible to a
+pre-flight call made with a non-empty `usedBy`.
+
+⚠️ **Which those are is NOT uniform, and an earlier version of this paragraph flattened it into
+"both engines refuse the DEFAULT account outright", which is false.** Precisely:
+`accounts.forgetAccount` and `accounts.removeAccount` both refuse `.claude`;
+`openaiAccounts.removeAccount` refuses the default `.codex` but `openaiAccounts.forgetAccount`
+does NOT (it will rename the default aside). What all four share, before the agents check, is the
+name-shape guard and, on the OpenAI side, the sign-in-in-progress guard. The IDENTITY guard runs
+after, in all four, which is the next paragraph. So the route now makes a pre-flight call with the real (non-empty)
 `usedBy` first: that call can only return a path refusal, a default refusal, or the agents
 refusal, and can never perform anything, because every destructive step sits after the agents
 guard. The agents refusal is told apart by SHAPE (it is the only one carrying a `usedBy` array),

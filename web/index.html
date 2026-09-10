@@ -16671,7 +16671,12 @@ async function paintAccounts() {
            re-offer loop this guard exists to prevent: nothing was stopped, and
            the agent list has CHANGED, so pressing again agrees to the set now on
            screen rather than retrying a failure. */
-        if (blocking.length && (!stopFor || (out && out.consentStale === true))) {
+        /* `stopUnavailable` means the route declined to stop for this directory
+           at all (it is not one of the engine's accounts), so an offer here can
+           never succeed: the person would press, read the same refusal, and be
+           able to do it again forever with nothing saying why. */
+        if (blocking.length && !(out && out.stopUnavailable === true)
+            && (!stopFor || (out && out.consentStale === true))) {
           stopFor = blocking;
           armed = true;
           btn.disabled = false;
@@ -16708,8 +16713,20 @@ async function paintAccounts() {
                deleted config dir is the working-agent-behaving-like-a-blank-one
                state #1659 exists to prevent. */
             const one = blocking.length === 1;
+            /* 🛑 THE SERVER'S CONSENT-STALE SENTENCE ALREADY SAYS "PRESS AGAIN".
+               Appending ours produced two instructions in a row: "...Press again
+               to disconnect and stop it too. Press again to disconnect and stop
+               it; you can put it back..." -- and on the delete door the two
+               halves carried different verbs. On that path the server's sentence
+               is the instruction and ours contributes only the way back. */
+            const already = !!(out && out.consentStale === true);
+            const wayBack = isRemove
+              ? ' ' + (one ? 'It' : 'They') + ' will need a different account before '
+                + (one ? 'it' : 'they') + ' can start again.'
+              : ' You can put ' + (one ? 'it' : 'them')
+                + ' back from the removed list once you add this account again under the same name.';
             msg.textContent = String((out && out.error) || 'agents are set up to run on this account')
-              + (isRemove
+              + (already ? wayBack : (isRemove
                 ? ' Press again to delete this account for good and stop ' + (one ? 'it' : 'them')
                   + '; ' + (one ? 'it' : 'they') + ' will need a different account before '
                   + (one ? 'it' : 'they') + ' can start again.'
@@ -16719,7 +16736,7 @@ async function paintAccounts() {
                    `.claude-<label>` by absolute path. */
                 : ' Press again to disconnect and stop ' + (one ? 'it' : 'them')
                   + '; you can put ' + (one ? 'it' : 'them')
-                  + ' back from the removed list once you add this account again under the same name.');
+                  + ' back from the removed list once you add this account again under the same name.'));
             if (msg.scrollIntoView) msg.scrollIntoView({ block: 'nearest' });
           }
           btn.focus({ preventScroll: true });

@@ -505,7 +505,7 @@ test('#2570: one stopped and one not names BOTH agents, singular', async () => {
   assert.deepEqual(r.json.notStopped.map((x) => x.name), ['mycroft']);
   assert.equal(String(r.json.error),
     'We stopped watson but could not stop mycroft, so this account was left connected. '
-    + 'Put watson back from the removed list, or stop mycroft yourself and try again.',
+    + 'Put watson back from the removed list. Stop mycroft yourself and try again.',
     'the mixed-case sentence is not what a person would read');
   assert.ok(fs.existsSync(dir), 'an agent may still be live on it, so it stays connected');
 });
@@ -547,6 +547,29 @@ test('#2570: the OpenAI DELETE door refuses its default account and stops NOBODY
     'AGENTS WERE STOPPED FOR A DEFAULT ACCOUNT THAT WAS NEVER GOING TO BE DELETED');
   assert.ok(!removedNames().includes('codexdefault'));
   assert.ok(fs.existsSync(dir), 'the default account must still be there');
+});
+
+/* 🛑 STOPPED + PARTIAL, which is the mixed shape that had no arm. The mixed
+   branch used to tell the person to "stop the rest yourself and try again" for
+   an agent whose job is ALREADY disabled and which is ALREADY on the removed
+   list, describing state they can see as untrue. Only the nothing-fully-stopped
+   branch had been fixed for that. */
+test('#2570: stopped plus PARTIAL does not tell you to go and stop the partial yourself', async () => {
+  installRunner();
+  const dir = claudeAccount('halfmixed');
+  registeredNotRunning('bell', dir, 'claude');   // stops cleanly
+  agentOn('moriarty', dir, 'claude');            // running, and the kill is unconfirmable
+  sessionsStillAlive.add('moriarty');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, ['bell']);
+  assert.deepEqual(r.json.notStopped.map((x) => x.outcome), ['partial'],
+    'the fixture stopped producing stopped+PARTIAL, so this arm is no longer about what it says');
+  assert.match(String(r.json.error), /Put bell back from the removed list\./);
+  assert.doesNotMatch(String(r.json.error), /Stop moriarty yourself/,
+    "moriarty's job is already disabled and it is on the removed list; this tells the person to redo it");
+  assert.match(String(r.json.error), /moriarty: we stopped moriarty from starting again/,
+    "the engine's own reason for the partial did not reach the sentence the page renders");
 });
 
 /* 🔑 A PIN ON AN ORDERING THE ROUTE DEPENDS ON, IN ANOTHER MODULE. The
@@ -598,6 +621,39 @@ test('#2570: an agent the confirm never named is REFUSED, not swept along', asyn
   assert.ok(fs.existsSync(dir));
 });
 
+/* 🛑 THE DELETE DOOR'S consent-stale SENTENCE MUST NOT SAY "disconnect". It is
+   the one sentence that reaches a screen on the irreversible path, and it
+   hardcoded the softer verb while its three siblings all branched. */
+test('#2570: the DELETE door consent refusal says what pressing again will really do', async () => {
+  installRunner();
+  const dir = claudeAccount('doomedset');
+  registeredNotRunning('marlowe3', dir, 'claude');
+  registeredNotRunning('spade3', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true, remove: true, stopNames: ['marlowe3'] });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.consentStale, true);
+  assert.match(String(r.json.error), /Press again to delete this account for good and stop it too/,
+    'the delete door tells the person the next press DISCONNECTS, when it deletes for good');
+  assert.doesNotMatch(String(r.json.error), /Press again to disconnect/);
+  assert.deepEqual(calls, []);
+  assert.ok(fs.existsSync(dir));
+});
+
+/* When the route declines to stop for a directory that is not one of the
+   engine's accounts, it must SAY so to the page, or the page offers a confirm
+   that can never succeed and the person can repeat it forever. */
+test('#2570: a stop the route will not attempt is flagged so the page cannot re-offer it', async () => {
+  installRunner();
+  const dir = nodePath.join(HOME, '.claude-hollow2');
+  fs.mkdirSync(dir, { recursive: true });
+  registeredNotRunning('adler2', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.stopUnavailable, true,
+    'without this the page re-arms an offer that can never succeed');
+  assert.deepEqual(calls, []);
+});
+
 test('#2570: naming the whole set proceeds, so the consent check is not just a wall', async () => {
   installRunner();
   const dir = claudeAccount('agreed');
@@ -637,8 +693,12 @@ test('#2570: the DELETE door honours stopAgents, and does NOT promise a restore'
      directory is GONE, so restoring the agent would re-enable a launchd job
      whose config dir does not exist, and a fresh sign-in makes a
      differently-named directory anyway. */
-  assert.doesNotMatch(String(r.json.because), /restore/i,
-    'the delete door promises a restore that cannot work');
+  /* `/put it back|restore/i`, matching the OpenAI sibling. A bare /restore/i
+     CANNOT return the dangerous answer here: the disconnect door's copy says
+     "you can put it back from the removed list" and contains no "restore", so
+     the assertion passed whatever this door did. */
+  assert.doesNotMatch(String(r.json.because), /put it back|restore/i,
+    'the delete door promises a way back that cannot work');
   assert.match(String(r.json.because), /needs a different one before it can start again/);
 });
 

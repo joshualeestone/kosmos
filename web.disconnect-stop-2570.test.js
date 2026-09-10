@@ -84,7 +84,9 @@ test('#2570: the second confirm is offered only after the server names the agent
      one documented exception: the server saying the agent set changed under the
      person, where pressing again agrees to the new set rather than retrying a
      failure. */
-  assert.match(fn, /if \(blocking\.length && \(!stopFor \|\| \(out && out\.consentStale === true\)\)\)/,
+  assert.match(fn, /!\(out && out\.stopUnavailable === true\)/,
+    'the guard no longer suppresses the offer when the route says a stop is impossible here');
+  assert.match(fn, /\(!stopFor \|\| \(out && out\.consentStale === true\)\)/,
     'the re-offer guard changed shape: check it still refuses to loop on a failed stop');
   assert.match(fn, /Disconnect and stop/, 'the second confirm lost its wording');
 });

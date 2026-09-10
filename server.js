@@ -5042,7 +5042,7 @@ const server = http.createServer((req, res) => {
            Rewriting a dry-run REMOVED to "failed" would hide WHICH state we
            refused, and the person reading this needs the difference between
            "it would not stop" and "we would not believe the stop". */
-        outcome: (done && done.outcome) || 'failed',
+        outcome: (done && done.outcome) || removal.OUTCOME.REFUSED,
         /* 🛑 THE VERDICT IS ITS OWN FIELD, NOT A RE-READING OF `outcome`. The
            first version of this guard computed exactly this condition and then
            wrote the primitive's raw outcome back into `outcome`, which the
@@ -5123,10 +5123,27 @@ const server = http.createServer((req, res) => {
        sentence has in the simplest mixed case. Its three siblings all branch;
        this one did not, and it was also the only one with no test. */
     const oneDone = done.length === 1;
-    const oneLeft = failed.length === 1;
+    /* 🛑 A PARTIAL IN THE MIXED BATCH IS NOT SOMETHING TO GO AND STOP YOURSELF.
+       Its launchd job is already disabled and it is already on the removed list;
+       only the shut-down could not be confirmed. Telling the person to "stop it
+       yourself and try again" describes state they can see is not true. The
+       `!done.length` branch was fixed for exactly this and handed over the
+       engine's own per-agent sentence; this branch, one subset over, still hid
+       it. Same split here: name the ones that need doing by hand, and quote the
+       engine for the ones that got partway. */
+    const partlyLeft = stopReport.notStopped.filter((r) => r.outcome === removal.OUTCOME.PARTIAL);
+    const flatlyLeft = stopReport.notStopped
+      .filter((r) => r.outcome !== removal.OUTCOME.PARTIAL)
+      .map((r) => r.name);
+    const oneFlat = flatlyLeft.length === 1;
     return `We stopped ${done.join(', ')} but could not stop ${failed.join(', ')}, so this account was left connected. `
-      + `Put ${oneDone ? done[0] : 'the stopped ones'} back from the removed list, or stop `
-      + `${oneLeft ? failed[0] : 'the rest'} yourself and try again.`;
+      + `Put ${oneDone ? done[0] : 'the stopped ones'} back from the removed list.`
+      + (flatlyLeft.length
+        ? ` Stop ${oneFlat ? flatlyLeft[0] : 'the rest'} yourself and try again.`
+        : '')
+      + (partlyLeft.length
+        ? ' ' + partlyLeft.map((r) => `${r.name}: ${r.because}`).join(' ')
+        : '');
   }
 
   /**
@@ -5160,7 +5177,11 @@ const server = http.createServer((req, res) => {
         + `${one ? '' : ' (' + names.join(', ') + ')'}, and ${one ? 'it is' : 'they are'} still stopped.`
         + (restorable
           ? ` You can put ${one ? 'it' : 'them'} back from the removed list.`
-          : ''),
+          /* The worst path (the account directory is gone AND the operation
+             failed) was the one saying nothing at all. Its sibling
+             `withStopNote` says this; there is no reason this one should not. */
+          : ` ${one ? 'It needs' : 'They need'} a different account before `
+            + `${one ? 'it' : 'they'} can start again.`),
     };
   }
 
@@ -5230,13 +5251,18 @@ const server = http.createServer((req, res) => {
        account is added back under the SAME name. "if you sign back in" left that
        out, which made the sentence true only for the person who happens to
        retype the same label. */
+    /* Same join guard as `withStopDone`. Every `because` this can be appended to
+       ends in a terminal stop today, so this is latent rather than live, but the
+       run-on it prevents was found in the sibling and the fix was not carried
+       across. A latent defect with a known instance next door is worth closing. */
+    const lead = /[.!?]$/.test(String(payload.because)) ? payload.because : `${payload.because}.`;
     const way = restorable
       ? ` You can put ${one ? 'it' : 'them'} back from the removed list once you add this account again under the same name.`
       : ` ${one ? 'It was' : 'They were'} set up to run on that account, so ${one ? 'it needs' : 'they need'} a different one before ${one ? 'it' : 'they'} can start again.`;
     return {
       ...payload,
       stopped: names,
-      because: `${payload.because} ${one ? names[0] + ' was' : names.length + ' agents were'} stopped first`
+      because: `${lead} ${one ? names[0] + ' was' : names.length + ' agents were'} stopped first`
         + `${one ? '' : ' (' + names.join(', ') + ')'}.${way}`,
     };
   }
@@ -5260,6 +5286,15 @@ const server = http.createServer((req, res) => {
    * common case.
    */
   if (pathname === '/api/accounts/openai' && req.method === 'DELETE') {
+    /* #2570: HOISTED OUT OF THE `.then` SO THE OUTER `.catch` CAN SEE IT.
+       That catch answers "we could not read that request" for anything thrown
+       anywhere below, INCLUDING after the stop loop has really stopped agents
+       and possibly after the account has really been renamed. Telling somebody
+       their request was unreadable at that point is the exact state
+       `withStopDone` exists to prevent, arriving through the one exit it could
+       not reach. Now it can. */
+    let stopReport = null;
+    let stopUnavailable = false;
     readBody(req)
       .then((raw) => {
         let body = null;
@@ -5388,7 +5423,6 @@ const server = http.createServer((req, res) => {
            session names), which is exactly why it is worth pinning rather than
            relying on. */
         const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
-        let stopReport = null;
         if (stoppable.length && !!(body && body.stopAgents === true)) {
           /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
              THE AGENTS. Which refusals those are differs by DOOR on this
@@ -5458,10 +5492,20 @@ const server = http.createServer((req, res) => {
              credential was removed out from under still-registered agents (a
              terminal logout rewriting the config, a deleted auth file).
 
-             🔑 ASKED OF `list()`, NOT RE-DERIVED. That is the engine's own answer
-             to "is this an account", built from the same identity rule the guard
-             uses, so this cannot drift from it the way a copied condition would.
-             The models route already gates on exactly this membership.
+             🔑 ASKED OF `list()`, NOT RE-DERIVED, so the identity RULE is the
+             engine's own rather than a copy of it. The models route already
+             gates on exactly this membership.
+
+             ⚠️ "CANNOT DRIFT" WOULD BE TOO STRONG, AND THE ONE PLACE IT IS NOT
+             TRUE IS WORTH NAMING. `list()` enumerates `defaultDir()` plus
+             `homeDir()/.codex-*`, while `forgetAccount` accepts any `.codex` or
+             `.codex-*` inside home. So with `CODEX_HOME` pointed at a named
+             home, a leftover credentialled `~/.codex` is absent from the list
+             while the engine would happily forget it: `dirIsAnAccount` goes
+             false and the stop is unavailable for that directory. It fails in
+             the safe direction (we decline to stop rather than stopping
+             wrongly), and it is API-reachable only, since the page never renders
+             an unlisted row.
 
              ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
              list either and its answer is a quiet SUCCESS rather than a refusal.
@@ -5521,18 +5565,32 @@ const server = http.createServer((req, res) => {
           if (dirIsAnAccount && agreed) {
             const unasked = stoppable.filter((n) => !agreed.includes(n));
             if (unasked.length) {
+              /* 🛑 THE VERB COMES FROM THE DOOR. This sentence is the one that
+                 reaches a screen on the irreversible path, and it hardcoded
+                 "disconnect": on the DELETE door the person was told "press again
+                 to disconnect and stop it too" when pressing again rmSyncs the
+                 account for good. Its three siblings all branch (the button's
+                 `stopVerb`, `withStopNote`'s `restorable`, `withStopDone`'s), and
+                 this was the one that did not. */
+              const act = remove ? 'delete this account for good' : 'disconnect';
               sendJson(res, 400, {
                 error: unasked.length === 1
                   ? `${unasked[0]} is also set up to run on this account now, and you were not asked about it. `
-                    + 'Press again to disconnect and stop it too.'
+                    + `Press again to ${act} and stop it too.`
                   : `${unasked.length} more agents are set up to run on this account now (${unasked.join(', ')}), `
-                    + 'and you were not asked about them. Press again to disconnect and stop them too.',
+                    + `and you were not asked about them. Press again to ${act} and stop them too.`,
                 usedBy: stoppable,
                 consentStale: true,
               });
               return;
             }
           }
+          /* Told to the page so it does not re-offer a confirm that can never
+             succeed. Without it: press 2 refuses and arms "…and stop adler?",
+             press 3 gets the byte-identical refusal, the offer disarms, and the
+             next two presses do the same thing again with nothing on screen
+             saying the stop is unavailable for this directory. */
+          if (!dirIsAnAccount) stopUnavailable = true;
           if (dirIsAnAccount) {
             stopReport = stopAgentsForDisconnect(stoppable);
             if (!stopReport.ok) {
@@ -5561,7 +5619,10 @@ const server = http.createServer((req, res) => {
                whether the directory is actually still on disk. */
             let dirStillThere = false;
             try { dirStillThere = fs.existsSync(dir); } catch { dirStillThere = false; }
-            sendJson(res, 400, withStopDone({ error: gone.because, usedBy: gone.usedBy || [] }, stopReport, dirStillThere));
+            sendJson(res, 400, withStopDone(
+              { error: gone.because, usedBy: gone.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+              stopReport, dirStillThere,
+            ));
             return;
           }
           sendJson(res, 200, withStopNote({
@@ -5576,7 +5637,10 @@ const server = http.createServer((req, res) => {
 
         const out = openaiAccounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
-          sendJson(res, 400, withStopDone({ error: out.because, usedBy: out.usedBy || [] }, stopReport, true));
+          sendJson(res, 400, withStopDone(
+            { error: out.because, usedBy: out.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+            stopReport, true,
+          ));
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
@@ -5615,7 +5679,13 @@ const server = http.createServer((req, res) => {
           accounts: openaiAccounts.list(),
         }, stopReport, true));
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      /* #2570: the stop report rides on this too. Anything thrown below the stop
+         loop lands here, and answering "we could not read that request" after N
+         agents were really stopped is the state `withStopDone` exists to
+         prevent, arriving through the one exit it could not reach. */
+      .catch(() => sendJson(res, 400, withStopDone(
+        { error: 'we could not read that request' }, stopReport, true,
+      )));
     return;
   }
 
@@ -5652,6 +5722,15 @@ const server = http.createServer((req, res) => {
    * below cannot silently skip an old Claude agent. That one IS load-bearing.
    */
   if (pathname === '/api/accounts/claude' && req.method === 'DELETE') {
+    /* #2570: HOISTED OUT OF THE `.then` SO THE OUTER `.catch` CAN SEE IT.
+       That catch answers "we could not read that request" for anything thrown
+       anywhere below, INCLUDING after the stop loop has really stopped agents
+       and possibly after the account has really been renamed. Telling somebody
+       their request was unreadable at that point is the exact state
+       `withStopDone` exists to prevent, arriving through the one exit it could
+       not reach. Now it can. */
+    let stopReport = null;
+    let stopUnavailable = false;
     readBody(req)
       .then((raw) => {
         let body = null;
@@ -5818,7 +5897,6 @@ const server = http.createServer((req, res) => {
            session names), which is exactly why it is worth pinning rather than
            relying on. */
         const stoppable = usedBy.filter((n) => typeof n === 'string' && n);
-        let stopReport = null;
         if (stoppable.length && !!(body && body.stopAgents === true)) {
           /* 🛑 ASK THE ENGINE FIRST, BECAUSE ITS OTHER REFUSALS DO NOT CARE ABOUT
              THE AGENTS. `accounts.forgetAccount` refuses the DEFAULT account outright, and
@@ -5882,10 +5960,20 @@ const server = http.createServer((req, res) => {
              credential was removed out from under still-registered agents (a
              terminal logout rewriting the config, a deleted auth file).
 
-             🔑 ASKED OF `list()`, NOT RE-DERIVED. That is the engine's own answer
-             to "is this an account", built from the same identity rule the guard
-             uses, so this cannot drift from it the way a copied condition would.
-             The models route already gates on exactly this membership.
+             🔑 ASKED OF `list()`, NOT RE-DERIVED, so the identity RULE is the
+             engine's own rather than a copy of it. The models route already
+             gates on exactly this membership.
+
+             ⚠️ "CANNOT DRIFT" WOULD BE TOO STRONG, AND THE ONE PLACE IT IS NOT
+             TRUE IS WORTH NAMING. `list()` enumerates `defaultDir()` plus
+             `homeDir()/.codex-*`, while `forgetAccount` accepts any `.codex` or
+             `.codex-*` inside home. So with `CODEX_HOME` pointed at a named
+             home, a leftover credentialled `~/.codex` is absent from the list
+             while the engine would happily forget it: `dirIsAnAccount` goes
+             false and the stop is unavailable for that directory. It fails in
+             the safe direction (we decline to stop rather than stopping
+             wrongly), and it is API-reachable only, since the page never renders
+             an unlisted row.
 
              ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
              list either and its answer is a quiet SUCCESS rather than a refusal.
@@ -5945,18 +6033,32 @@ const server = http.createServer((req, res) => {
           if (dirIsAnAccount && agreed) {
             const unasked = stoppable.filter((n) => !agreed.includes(n));
             if (unasked.length) {
+              /* 🛑 THE VERB COMES FROM THE DOOR. This sentence is the one that
+                 reaches a screen on the irreversible path, and it hardcoded
+                 "disconnect": on the DELETE door the person was told "press again
+                 to disconnect and stop it too" when pressing again rmSyncs the
+                 account for good. Its three siblings all branch (the button's
+                 `stopVerb`, `withStopNote`'s `restorable`, `withStopDone`'s), and
+                 this was the one that did not. */
+              const act = remove ? 'delete this account for good' : 'disconnect';
               sendJson(res, 400, {
                 error: unasked.length === 1
                   ? `${unasked[0]} is also set up to run on this account now, and you were not asked about it. `
-                    + 'Press again to disconnect and stop it too.'
+                    + `Press again to ${act} and stop it too.`
                   : `${unasked.length} more agents are set up to run on this account now (${unasked.join(', ')}), `
-                    + 'and you were not asked about them. Press again to disconnect and stop them too.',
+                    + `and you were not asked about them. Press again to ${act} and stop them too.`,
                 usedBy: stoppable,
                 consentStale: true,
               });
               return;
             }
           }
+          /* Told to the page so it does not re-offer a confirm that can never
+             succeed. Without it: press 2 refuses and arms "…and stop adler?",
+             press 3 gets the byte-identical refusal, the offer disarms, and the
+             next two presses do the same thing again with nothing on screen
+             saying the stop is unavailable for this directory. */
+          if (!dirIsAnAccount) stopUnavailable = true;
           if (dirIsAnAccount) {
             stopReport = stopAgentsForDisconnect(stoppable);
             if (!stopReport.ok) {
@@ -5985,7 +6087,10 @@ const server = http.createServer((req, res) => {
                whether the directory is actually still on disk. */
             let dirStillThere = false;
             try { dirStillThere = fs.existsSync(dir); } catch { dirStillThere = false; }
-            sendJson(res, 400, withStopDone({ error: gone.because, usedBy: gone.usedBy || [] }, stopReport, dirStillThere));
+            sendJson(res, 400, withStopDone(
+              { error: gone.because, usedBy: gone.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+              stopReport, dirStillThere,
+            ));
             return;
           }
           sendJson(res, 200, withStopNote({
@@ -6000,7 +6105,10 @@ const server = http.createServer((req, res) => {
 
         const out = accounts.forgetAccount(dir, usedBy);
         if (!out.ok) {
-          sendJson(res, 400, withStopDone({ error: out.because, usedBy: out.usedBy || [] }, stopReport, true));
+          sendJson(res, 400, withStopDone(
+            { error: out.because, usedBy: out.usedBy || [], ...(stopUnavailable ? { stopUnavailable: true } : {}) },
+            stopReport, true,
+          ));
           return;
         }
         /* "Removed" and "deleted" are different promises and the person is
@@ -6056,7 +6164,13 @@ const server = http.createServer((req, res) => {
           accounts: accounts.list(),
         }, stopReport, true));
       })
-      .catch(() => sendJson(res, 400, { error: 'we could not read that request' }));
+      /* #2570: the stop report rides on this too. Anything thrown below the stop
+         loop lands here, and answering "we could not read that request" after N
+         agents were really stopped is the state `withStopDone` exists to
+         prevent, arriving through the one exit it could not reach. */
+      .catch(() => sendJson(res, 400, withStopDone(
+        { error: 'we could not read that request' }, stopReport, true,
+      )));
     return;
   }
 
