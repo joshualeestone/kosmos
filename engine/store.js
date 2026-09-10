@@ -386,6 +386,23 @@ function readProfile(name) {
   }
 }
 
+/* The identity fields (#170): `id` is the random anchor minted on first write, and
+   `idInstall` the install it was minted under. Named ONCE here, where identity lives,
+   so a consumer that must produce a FRESH identity -- copying an agent into another
+   Kosmos (worlds.importAgents), say -- strips exactly the fields writeProfile restores
+   and mints, and a future identity field is added in a single place rather than in
+   two that can disagree. */
+const IDENTITY_KEYS = ['id', 'idInstall'];
+
+/* Remove the identity fields from a profile object IN PLACE, so the next writeProfile
+   MINTS a fresh id instead of carrying an old one over -- the decided restore
+   convention (a restored/copied agent is a separate agent, see writeProfile below).
+   Returns the same object for chaining. */
+function stripIdentity(profile) {
+  for (const k of IDENTITY_KEYS) delete profile[k];
+  return profile;
+}
+
 function writeProfile(name, patch) {
   ensure(profilesDir());
   const had = readProfile(name);
@@ -411,8 +428,7 @@ function writeProfile(name, patch) {
    * fresh per process and ids would remint per restart -- which degrades
    * in the SAFE direction (a new id is a separate agent, never a warning).
    */
-  next.id = had.id;
-  next.idInstall = had.idInstall;
+  for (const k of IDENTITY_KEYS) next[k] = had[k];
   const install = require('./ping').installId();
   if (!next.id || next.idInstall !== install) {
     next.id = crypto.randomBytes(6).toString('hex');
@@ -481,7 +497,7 @@ function writeSettings(patch) {
  * it. A symbol whose only justification is symmetry is a symbol somebody will
  * eventually use for the deletion this feature exists not to do.
  */
-module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, agentId, readSettings, writeSettings };
+module.exports = { APP, LEGACY_APP, dataRootFor, safeKey, ALLOWED_IMAGES, imageTypeOf, avatarPath, saveAvatar, removeAvatar, readProfile, writeProfile, stripIdentity, agentId, readSettings, writeSettings };
 
 /* 🔑 GETTERS, SO 94 REFERENCES ACROSS 39 FILES KEEP WORKING UNCHANGED (#1443).
    `store.ROOT` still reads like a constant at every call site and now answers
