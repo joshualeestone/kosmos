@@ -167,6 +167,31 @@ else
   echo "run-tests: could not make a per-run temp dir; the suite will use TMPDIR directly and leave its scratch behind" >&2
 fi
 
+# --- sandbox the store DATA ROOT for the node suite (kosmos#2708) --------------
+# engine/status.js snapshot() surfaces agents from THREE sources: live panes (tests sandbox
+# these via test-support/fleet.js's setPaneSource), the created-never-run arm (setCreatedSource),
+# and panelessKeys() -- agents with a sender token + a live heartbeat but no pane, read from
+# sendertoken.keys() + liveness, BOTH keyed off store.ROOT (the real data root). sendertoken and
+# liveness capture their directory from store.ROOT AT MODULE LOAD, so there is no runtime seam a
+# fixture can reach. On a box carrying real agents -- a cut box running the live fleet, or one where
+# an operator is mid-import (#2678) -- those real agents leak into EVERY fixture's snapshot(), and
+# a hermetic assertion (e.g. engine/heartbeat.test.js's boardRows) reds. This red the 0.6.55 cut at
+# step 3, deterministically, with the operator's imported agents on the board.
+# Point the store root at an empty per-run dir BEFORE node loads, so store.ROOT is empty and the node
+# suite reads no live agents. AGENT_WORKFORCE_HOME is the LOWEST-precedence store-root seam
+# (AGENT_WORKFORCE_DATA and a per-test AGENT_WORKFORCE_HOME both still override it), so a test that
+# self-sandboxes is unaffected; only tests that would otherwise read the REAL, live data root change,
+# and those were non-hermetic by construction. run-tests.sh runs as its own subprocess, so this
+# export never reaches the other test:shell scripts in the package.json chain.
+KOSMOS_TEST_STORE_HOME="$(mktemp -d "${TMPDIR:-/tmp}/aw-store-home.XXXXXXXX" 2>/dev/null || true)"
+if [ -n "$KOSMOS_TEST_STORE_HOME" ] && [ -d "$KOSMOS_TEST_STORE_HOME" ]; then
+  export AGENT_WORKFORCE_HOME="$KOSMOS_TEST_STORE_HOME"
+  # This trap REPLACES the one set inside the mkdir block above, so it must clean BOTH dirs.
+  trap 'rm -rf "$KOSMOS_RUN_TMPDIR" "$KOSMOS_TEST_STORE_HOME"' EXIT
+else
+  echo "run-tests: could not sandbox the store home; node tests may read the live data root" >&2
+fi
+
 # --- coverage assertion: every *.test.js is CONSIDERED (kosmos#1934) -----------
 # The suite globs `engine/*.test.js *.test.js`. The naming convention uses DOTS as
 # a pseudo-namespace at the ROOT -- `engine.reachable.test.js`, `install.banner.test.js`
