@@ -8451,8 +8451,41 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         .s3-mrow{display:flex;align-items:center;gap:10px;padding:9px 10px;background:#fff;border:1px solid #e6e4e0;border-radius:8px}
         .s3-mtxt{font:600 .6875rem/1.3 var(--font-ui,-apple-system,sans-serif);color:#1c1b19}
         .s3-mtxt small{display:block;font-weight:400;color:#7c7c78;font-size:.625rem}
-        .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#2f7bf6}
-        .s3-sw::after{content:"";position:absolute;top:2px;right:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3)}
+        /* #2620: the decoy switch now MIRRORS the real gate instead of a hardcoded On.
+           Gray (#e2e2e5, knob left) until the paired gate row is granted, then blue
+           (#2f7bf6, knob right). The state (data-granted / data-checking / data-battonly)
+           is copied onto this switch from its gate row by frPollGates, because CSS cannot
+           select a preceding sibling and the mock sits ABOVE its row. The switch stays
+           decorative inside the aria-hidden .s3-win; a real overlay button (.s3-sw-open,
+           lifted out of the aria-hidden subtree) carries the click + a11y (Mona, #2620). */
+        .s3-sw{margin-left:auto;width:38px;height:22px;border-radius:99px;position:relative;flex:none;background:#e2e2e5;transition:background .2s ease}
+        .s3-sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.3);transform:translateX(0);transition:transform .2s ease}
+        .s3-sw[data-granted]{background:#2f7bf6}
+        .s3-sw[data-granted]::after{transform:translateX(16px)}
+        /* The "go flip this" hint: a gentle swipe, ONLY while the gate is not granted and
+           is actually satisfiable (never on battonly, where there is nothing to flip).
+           Two animations on the same 2.6s ease-in-out timeline keep the background and the
+           knob in step, since one @keyframes cannot drive both an element and its ::after.
+           Timeline (Mona): 0-8% hold OFF, 8-32% flip ON, 32-55% hold ON, 55-79% flip OFF,
+           79-100% hold OFF. */
+        .s3-sw:not([data-granted]):not([data-battonly]){animation:s3-sw-hint-bg 2.6s ease-in-out infinite}
+        .s3-sw:not([data-granted]):not([data-battonly])::after{animation:s3-sw-hint-knob 2.6s ease-in-out infinite}
+        @keyframes s3-sw-hint-bg{0%,8%{background:#e2e2e5}32%,55%{background:#2f7bf6}79%,100%{background:#e2e2e5}}
+        @keyframes s3-sw-hint-knob{0%,8%{transform:translateX(0)}32%,55%{transform:translateX(16px)}79%,100%{transform:translateX(0)}}
+        /* MANDATORY: no motion for a person who asked for none. The switch still shows its
+           honest static position (gray/off or blue/on), just without the swipe. */
+        @media (prefers-reduced-motion: reduce){
+          .s3-sw, .s3-sw::after{animation:none !important;transition:none}
+        }
+        /* The real, focusable click target. It sits OUTSIDE the aria-hidden .s3-win (in the
+           .s3-mock wrapper) and is absolutely positioned over the visible switch, so the
+           mock stays purely decorative (the 0.6.41 decoy fix) while a click on the switch
+           does something honest: it opens the exact macOS pane. pointer-events:auto
+           re-enables it despite the mock's pointer-events:none. Scoped to the switch, not
+           the row, so a stray click near the text does not open Settings. */
+        .s3-mock{position:relative}
+        .s3-sw-open{position:absolute;padding:0;margin:0;border:0;background:transparent;cursor:pointer;border-radius:99px;pointer-events:auto}
+        .s3-sw-open:focus-visible{outline:2px solid #2f7bf6;outline-offset:2px}
         /* #9 (0.6.40): the two numbered step captions read gigantic + stretched
            because a bare .s3-step-cap (0,1,0) loses its font to the id-scoped
            first-run paragraph rule (1,1,1, 400/1.0625rem) -- so they rendered
