@@ -5057,11 +5057,19 @@ const server = http.createServer((req, res) => {
            disable and a kill that never happened. The account is left alone
            either way, so this was wording only, on exactly the path the guard
            exists for. */
-        because: !real
-          ? 'no command actually ran, so nothing was stopped'
-          : (done && done.dryRun === true && done.outcome === removal.OUTCOME.REMOVED
-            ? 'the removal ran in dry-run, so nothing was actually stopped'
-            : ((done && done.because) || '')),
+        /* ⚠️ ONLY WHEN THE PRIMITIVE CLAIMED SUCCESS. A REFUSED or PARTIAL carries
+           a real reason the engine worked out (a session it cannot tie to this
+           agent, a boot-out it could not confirm), and replacing that with a
+           sentence about the live-execution gate discards the one detail the
+           person would act on. The gate sentence belongs only where the outcome
+           says the work happened and it did not. */
+        because: (done && done.outcome === removal.OUTCOME.REMOVED)
+          ? (!real
+            ? 'no command actually ran, so nothing was stopped'
+            : (done.dryRun === true
+              ? 'the removal ran in dry-run, so nothing was actually stopped'
+              : (done.because || '')))
+          : ((done && done.because) || ''),
       });
     }
     const stopped = results.filter((r) => r.verified).map((r) => r.name);
@@ -5082,7 +5090,22 @@ const server = http.createServer((req, res) => {
   function stopFailureSentence(stopReport) {
     const failed = stopReport.notStopped.map((r) => r.name);
     const done = stopReport.stopped;
-    if (!done.length) return `We could not stop ${failed.join(', ')}, so nothing was changed.`;
+    /* 🛑 A PARTIAL IS NOT "NOTHING WAS CHANGED", AND SAYING SO WAS A LIE ABOUT
+       STATE THE PERSON CAN SEE. On a PARTIAL the removal disabled the launchd job
+       AND wrote the removed-list record before failing its post-kill look-again,
+       so the agent's card has left the board and it is on the removed list. The
+       first version of this sentence claimed nothing had changed, which is the
+       same defect `withStopDone` exists to fix, inverted one layer in.
+       ⇒ It hands over the ENGINE's own per-agent sentence, which already
+       explains the disable-but-not-confirmed state and names the way back. No
+       new copy is invented here, and the page only renders `error`, so this is
+       the only route by which that sentence reaches a screen at all. */
+    const partly = stopReport.notStopped.filter((r) => r.outcome === removal.OUTCOME.PARTIAL);
+    if (!done.length) {
+      if (!partly.length) return `We could not stop ${failed.join(', ')}, so nothing was changed.`;
+      return 'This account was left connected. '
+        + partly.map((r) => `${r.name}: ${r.because}`).join(' ');
+    }
     /* 🛑 SINGULAR AND PLURAL, like every other sentence this feature adds. The
        first version read "Put the stopped ones back ... or stop the rest
        yourself" with ONE agent on each side, which is the only shape this
@@ -5161,11 +5184,22 @@ const server = http.createServer((req, res) => {
          condition is what was nonsense here, not the stop itself. */
       const gone = stopReport.stopped;
       const single = gone.length === 1;
+      /* ⚠️ THE NOT-RESTORABLE CLAUSE STILL BELONGS HERE; ONLY THE RE-ADD ONE DOES
+         NOT. What made the original sentence nonsense on this branch was
+         promising a way back "once you add this account again under the same
+         name" for an account that was never there. On the DELETE door the other
+         clause is about the AGENT rather than the account, and it stays true:
+         those agents were set up to run on a directory that is gone, so they
+         need a different account before they can start again. */
+      const stillNeeded = restorable
+        ? ''
+        : ` ${single ? 'It was' : 'They were'} set up to run on that account, so `
+          + `${single ? 'it needs' : 'they need'} a different one before ${single ? 'it' : 'they'} can start again.`;
       return {
         ...payload,
         stopped: gone,
         because: `${payload.because} ${single ? gone[0] + ' was' : gone.length + ' agents were'} stopped first`
-          + `${single ? '' : ' (' + gone.join(', ') + ')'}.`,
+          + `${single ? '' : ' (' + gone.join(', ') + ')'}.${stillNeeded}`,
       };
     }
     const names = stopReport.stopped;
@@ -5353,23 +5387,41 @@ const server = http.createServer((req, res) => {
              each to the removed list, and then answered 400 with a refusal that
              never mentioned the stop. Deterministic, not a race. Not reachable
              from the page (the default row renders no control) and fully
-             reachable from the board API and the CLI.
+             reachable from the board API.
 
-             🔑 THIS PRE-FLIGHT CANNOT ACT, AND THAT IS STRUCTURAL RATHER THAN
-             LUCKY. Verified in all four engine functions: every refusal that
-             does not depend on the agents comes BEFORE the agents guard, and
-             every destructive step (existsSync, rename, rmSync) comes AFTER it.
-             We only reach this line with a non-empty agents list, so the call
-             stops at the agents guard at the latest and can never perform
-             anything.
+             📌 NOT the CLI, which an earlier version of this comment claimed.
+             Measured: `stopAgents` appears only in this file, web/index.html,
+             the two test files and the browser check, so a CLI caller reaches
+             the DELETE route but has no way to arm the stop. The route is the
+             shared surface; the flag is this page's.
 
-             ⚠️ THAT INVARIANT IS A PROPERTY OF THOSE FILES, NOT OF THIS ONE, SO
-             IT IS PINNED. The OpenAI sign-in-in-progress refusal used to sit
-             AFTER the agents guard, which made it invisible here: a stopAgents
-             request against an account with a reauth in flight really stopped
-             every agent and only then refused. It was moved up, and
-             `server.disconnect-stop-2570.test.js` asserts the order in both
-             OpenAI functions so it cannot drift back silently.
+             🔑 THIS PRE-FLIGHT CANNOT ACT. Verified in all four engine
+             functions: every destructive step (rename, rmSync) comes AFTER the
+             agents guard, and we only reach this line with a non-empty agents
+             list, so the call stops at that guard at the latest.
+
+             🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
+             version of this comment claimed an invariant it does not have and
+             claimed it in the UNSAFE direction ("every refusal that does not
+             depend on the agents comes BEFORE the agents guard"). Three refusals
+             precede the agents guard and are therefore visible here: the path
+             guard, the default-account guard, and the OpenAI
+             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             Claude/OpenAI account on this computer") does NOT, in any of the
+             four, and it cannot be hoisted: `engine/accounts.js` states why at
+             the guard itself, that `identityOf` answers null for a missing
+             directory too, so moving it above the existence check would turn
+             "already gone" into "not an account" and lose the quiet-success arm.
+             ⇒ So that one is handled just below, by asking the engine's OWN
+             account list rather than by re-deriving its rule here.
+
+             ⚠️ THE ORDER OF THE THREE IT DOES SEE IS A PROPERTY OF THOSE FILES,
+             NOT OF THIS ONE, SO IT IS PINNED. The OpenAI sign-in-in-progress
+             refusal used to sit AFTER the agents guard, which made it invisible
+             here: a stopAgents request against an account with a reauth in
+             flight really stopped every agent and only then refused. It was
+             moved up, and `server.disconnect-stop-2570.test.js` asserts the
+             order in both OpenAI functions so it cannot drift back silently.
 
              ⚠️ AND THE AGENTS REFUSAL IS TOLD APART BY SHAPE, NOT BY PROSE: it is
              the one refusal that carries a `usedBy` array. Matching the sentence
@@ -5381,17 +5433,102 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: preflight.because, usedBy: [] });
             return;
           }
-          stopReport = stopAgentsForDisconnect(stoppable);
-          if (!stopReport.ok) {
-            sendJson(res, 400, {
-              error: stopFailureSentence(stopReport),
-              usedBy,
-              stopped: stopReport.stopped,
-              notStopped: stopReport.notStopped,
-            });
-            return;
+          /* 🛑 THE IDENTITY REFUSAL, WHICH THE PRE-FLIGHT ABOVE CANNOT REACH.
+             A directory that EXISTS inside home with an account-shaped name but
+             carries no credential is refused by the engine AFTER its agents
+             guard, so a stopAgents request against one would stop every agent on
+             it and only then be told it was never an account. Reachable when a
+             credential was removed out from under still-registered agents (a
+             terminal logout rewriting the config, a deleted auth file).
+
+             🔑 ASKED OF `list()`, NOT RE-DERIVED. That is the engine's own answer
+             to "is this an account", built from the same identity rule the guard
+             uses, so this cannot drift from it the way a copied condition would.
+             The models route already gates on exactly this membership.
+
+             ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
+             list either and its answer is a quiet SUCCESS rather than a refusal.
+             Refusing here would turn "already gone" into "not an account", which
+             is the exact reason the engine keeps its own identity guard late.
+
+             ⚠️ WE SKIP THE STOP AND FALL THROUGH, WHICH MEANS THE PERSON GETS
+             THE AGENTS REFUSAL RATHER THAN THE IDENTITY ONE, AND THAT TRADE IS
+             DELIBERATE. With `usedBy` still non-empty the engine stops at its
+             agents guard, so the sentence says "move these agents first" when
+             the real problem is that this was never an account: true, but the
+             less useful of the two reasons. Clearing `usedBy` here would get the
+             accurate sentence, and it would do so by relying on my reading that
+             nothing destructive sits between the engine's existence check and
+             its identity guard. That is the same reliance on guard ORDER that has
+             been wrong three times on this branch, and the failure mode if it is
+             wrong again is a real rename or rmSync under live agents. A slightly
+             worse sentence is the cheaper mistake, so this takes it knowingly
+             rather than trading it for a silent one. */
+          let dirIsThere = false;
+          try { dirIsThere = fs.existsSync(dir); } catch { dirIsThere = false; }
+          let dirIsAnAccount = true;
+          if (dirIsThere) {
+            try {
+              const want = path.resolve(dir);
+              dirIsAnAccount = openaiAccounts.list().some((a) => {
+                try { return path.resolve(a.dir) === want; } catch { return false; }
+              });
+            } catch { dirIsAnAccount = true; }   // could not look: do not invent a refusal
           }
-          usedBy.length = 0;
+          /* 🛑 THE STOP, ITS VERDICT AND THE `usedBy` CLEAR ARE ONE BLOCK, and they
+             have to be. The first version of this skip left them separate: with
+             the stop skipped `stopReport` stayed null and `!stopReport.ok` threw
+             (the route answered "we could not read that request", caught by the
+             arm that pins this case) -- and far worse, `usedBy.length = 0` ran
+             anyway, which is the one line that must never execute when nothing
+             was stopped. Clearing it is what lets the engine act. */
+          /* 🛑 THE SET THE PERSON AGREED TO IS NOT AUTOMATICALLY THE SET WE ACT ON.
+             The confirm names the agents from the FIRST refusal; this request
+             re-enumerates, so an agent created on the account between the two
+             presses would be stopped having never been named to anybody. The
+             page therefore sends the names it showed, and anything enumerated
+             beyond them is refused rather than swept along.
+
+             ⚠️ A CALLER THAT SENDS NO NAMES IS UNCHANGED, deliberately: this is a
+             board API, `stopAgents` alone is a complete request, and demanding a
+             list would break any caller that is not this page. The consent check
+             is available to whoever wants it and mandatory for nobody.
+
+             📌 NOT the same thing as iteration-1's re-offer loop: nothing has
+             been stopped at this point, and the set is DIFFERENT rather than
+             unchanged, so re-offering converges on the new set instead of
+             re-presenting a failure. */
+          const agreed = body && Array.isArray(body.stopNames)
+            ? body.stopNames.filter((n) => typeof n === 'string' && n)
+            : null;
+          if (dirIsAnAccount && agreed) {
+            const unasked = stoppable.filter((n) => !agreed.includes(n));
+            if (unasked.length) {
+              sendJson(res, 400, {
+                error: unasked.length === 1
+                  ? `${unasked[0]} is also set up to run on this account now, and you were not asked about it. `
+                    + 'Press again to disconnect and stop it too.'
+                  : `${unasked.length} more agents are set up to run on this account now (${unasked.join(', ')}), `
+                    + 'and you were not asked about them. Press again to disconnect and stop them too.',
+                usedBy: stoppable,
+                consentStale: true,
+              });
+              return;
+            }
+          }
+          if (dirIsAnAccount) {
+            stopReport = stopAgentsForDisconnect(stoppable);
+            if (!stopReport.ok) {
+              sendJson(res, 400, {
+                error: stopFailureSentence(stopReport),
+                usedBy,
+                stopped: stopReport.stopped,
+                notStopped: stopReport.notStopped,
+              });
+              return;
+            }
+            usedBy.length = 0;
+          }
         }
 
         if (remove) {
@@ -5674,23 +5811,41 @@ const server = http.createServer((req, res) => {
              each to the removed list, and then answered 400 with a refusal that
              never mentioned the stop. Deterministic, not a race. Not reachable
              from the page (the default row renders no control) and fully
-             reachable from the board API and the CLI.
+             reachable from the board API.
 
-             🔑 THIS PRE-FLIGHT CANNOT ACT, AND THAT IS STRUCTURAL RATHER THAN
-             LUCKY. Verified in all four engine functions: every refusal that
-             does not depend on the agents comes BEFORE the agents guard, and
-             every destructive step (existsSync, rename, rmSync) comes AFTER it.
-             We only reach this line with a non-empty agents list, so the call
-             stops at the agents guard at the latest and can never perform
-             anything.
+             📌 NOT the CLI, which an earlier version of this comment claimed.
+             Measured: `stopAgents` appears only in this file, web/index.html,
+             the two test files and the browser check, so a CLI caller reaches
+             the DELETE route but has no way to arm the stop. The route is the
+             shared surface; the flag is this page's.
 
-             ⚠️ THAT INVARIANT IS A PROPERTY OF THOSE FILES, NOT OF THIS ONE, SO
-             IT IS PINNED. The OpenAI sign-in-in-progress refusal used to sit
-             AFTER the agents guard, which made it invisible here: a stopAgents
-             request against an account with a reauth in flight really stopped
-             every agent and only then refused. It was moved up, and
-             `server.disconnect-stop-2570.test.js` asserts the order in both
-             OpenAI functions so it cannot drift back silently.
+             🔑 THIS PRE-FLIGHT CANNOT ACT. Verified in all four engine
+             functions: every destructive step (rename, rmSync) comes AFTER the
+             agents guard, and we only reach this line with a non-empty agents
+             list, so the call stops at that guard at the latest.
+
+             🛑 WHAT IT CATCHES, AND WHAT IT PROVABLY CANNOT, because an earlier
+             version of this comment claimed an invariant it does not have and
+             claimed it in the UNSAFE direction ("every refusal that does not
+             depend on the agents comes BEFORE the agents guard"). Three refusals
+             precede the agents guard and are therefore visible here: the path
+             guard, the default-account guard, and the OpenAI
+             sign-in-in-progress guard. The IDENTITY refusal ("that is not a
+             Claude/OpenAI account on this computer") does NOT, in any of the
+             four, and it cannot be hoisted: `engine/accounts.js` states why at
+             the guard itself, that `identityOf` answers null for a missing
+             directory too, so moving it above the existence check would turn
+             "already gone" into "not an account" and lose the quiet-success arm.
+             ⇒ So that one is handled just below, by asking the engine's OWN
+             account list rather than by re-deriving its rule here.
+
+             ⚠️ THE ORDER OF THE THREE IT DOES SEE IS A PROPERTY OF THOSE FILES,
+             NOT OF THIS ONE, SO IT IS PINNED. The OpenAI sign-in-in-progress
+             refusal used to sit AFTER the agents guard, which made it invisible
+             here: a stopAgents request against an account with a reauth in
+             flight really stopped every agent and only then refused. It was
+             moved up, and `server.disconnect-stop-2570.test.js` asserts the
+             order in both OpenAI functions so it cannot drift back silently.
 
              ⚠️ AND THE AGENTS REFUSAL IS TOLD APART BY SHAPE, NOT BY PROSE: it is
              the one refusal that carries a `usedBy` array. Matching the sentence
@@ -5702,17 +5857,102 @@ const server = http.createServer((req, res) => {
             sendJson(res, 400, { error: preflight.because, usedBy: [] });
             return;
           }
-          stopReport = stopAgentsForDisconnect(stoppable);
-          if (!stopReport.ok) {
-            sendJson(res, 400, {
-              error: stopFailureSentence(stopReport),
-              usedBy,
-              stopped: stopReport.stopped,
-              notStopped: stopReport.notStopped,
-            });
-            return;
+          /* 🛑 THE IDENTITY REFUSAL, WHICH THE PRE-FLIGHT ABOVE CANNOT REACH.
+             A directory that EXISTS inside home with an account-shaped name but
+             carries no credential is refused by the engine AFTER its agents
+             guard, so a stopAgents request against one would stop every agent on
+             it and only then be told it was never an account. Reachable when a
+             credential was removed out from under still-registered agents (a
+             terminal logout rewriting the config, a deleted auth file).
+
+             🔑 ASKED OF `list()`, NOT RE-DERIVED. That is the engine's own answer
+             to "is this an account", built from the same identity rule the guard
+             uses, so this cannot drift from it the way a copied condition would.
+             The models route already gates on exactly this membership.
+
+             ⚠️ GUARDED ON EXISTENCE, because a MISSING directory is not in the
+             list either and its answer is a quiet SUCCESS rather than a refusal.
+             Refusing here would turn "already gone" into "not an account", which
+             is the exact reason the engine keeps its own identity guard late.
+
+             ⚠️ WE SKIP THE STOP AND FALL THROUGH, WHICH MEANS THE PERSON GETS
+             THE AGENTS REFUSAL RATHER THAN THE IDENTITY ONE, AND THAT TRADE IS
+             DELIBERATE. With `usedBy` still non-empty the engine stops at its
+             agents guard, so the sentence says "move these agents first" when
+             the real problem is that this was never an account: true, but the
+             less useful of the two reasons. Clearing `usedBy` here would get the
+             accurate sentence, and it would do so by relying on my reading that
+             nothing destructive sits between the engine's existence check and
+             its identity guard. That is the same reliance on guard ORDER that has
+             been wrong three times on this branch, and the failure mode if it is
+             wrong again is a real rename or rmSync under live agents. A slightly
+             worse sentence is the cheaper mistake, so this takes it knowingly
+             rather than trading it for a silent one. */
+          let dirIsThere = false;
+          try { dirIsThere = fs.existsSync(dir); } catch { dirIsThere = false; }
+          let dirIsAnAccount = true;
+          if (dirIsThere) {
+            try {
+              const want = path.resolve(dir);
+              dirIsAnAccount = accounts.list().some((a) => {
+                try { return path.resolve(a.dir) === want; } catch { return false; }
+              });
+            } catch { dirIsAnAccount = true; }   // could not look: do not invent a refusal
           }
-          usedBy.length = 0;
+          /* 🛑 THE STOP, ITS VERDICT AND THE `usedBy` CLEAR ARE ONE BLOCK, and they
+             have to be. The first version of this skip left them separate: with
+             the stop skipped `stopReport` stayed null and `!stopReport.ok` threw
+             (the route answered "we could not read that request", caught by the
+             arm that pins this case) -- and far worse, `usedBy.length = 0` ran
+             anyway, which is the one line that must never execute when nothing
+             was stopped. Clearing it is what lets the engine act. */
+          /* 🛑 THE SET THE PERSON AGREED TO IS NOT AUTOMATICALLY THE SET WE ACT ON.
+             The confirm names the agents from the FIRST refusal; this request
+             re-enumerates, so an agent created on the account between the two
+             presses would be stopped having never been named to anybody. The
+             page therefore sends the names it showed, and anything enumerated
+             beyond them is refused rather than swept along.
+
+             ⚠️ A CALLER THAT SENDS NO NAMES IS UNCHANGED, deliberately: this is a
+             board API, `stopAgents` alone is a complete request, and demanding a
+             list would break any caller that is not this page. The consent check
+             is available to whoever wants it and mandatory for nobody.
+
+             📌 NOT the same thing as iteration-1's re-offer loop: nothing has
+             been stopped at this point, and the set is DIFFERENT rather than
+             unchanged, so re-offering converges on the new set instead of
+             re-presenting a failure. */
+          const agreed = body && Array.isArray(body.stopNames)
+            ? body.stopNames.filter((n) => typeof n === 'string' && n)
+            : null;
+          if (dirIsAnAccount && agreed) {
+            const unasked = stoppable.filter((n) => !agreed.includes(n));
+            if (unasked.length) {
+              sendJson(res, 400, {
+                error: unasked.length === 1
+                  ? `${unasked[0]} is also set up to run on this account now, and you were not asked about it. `
+                    + 'Press again to disconnect and stop it too.'
+                  : `${unasked.length} more agents are set up to run on this account now (${unasked.join(', ')}), `
+                    + 'and you were not asked about them. Press again to disconnect and stop them too.',
+                usedBy: stoppable,
+                consentStale: true,
+              });
+              return;
+            }
+          }
+          if (dirIsAnAccount) {
+            stopReport = stopAgentsForDisconnect(stoppable);
+            if (!stopReport.ok) {
+              sendJson(res, 400, {
+                error: stopFailureSentence(stopReport),
+                usedBy,
+                stopped: stopReport.stopped,
+                notStopped: stopReport.notStopped,
+              });
+              return;
+            }
+            usedBy.length = 0;
+          }
         }
 
         if (remove) {

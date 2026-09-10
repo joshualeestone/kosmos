@@ -16646,7 +16646,10 @@ async function paintAccounts() {
           body: JSON.stringify(Object.assign(
             { dir: targetDir },
             isRemove ? { remove: true } : {},
-            stopFor ? { stopAgents: true } : {},
+            /* `stopNames` is the set the confirm actually NAMED. The route
+               refuses anything enumerated beyond it, so an agent created between
+               the two presses cannot be stopped without having been shown. */
+            stopFor ? { stopAgents: true, stopNames: stopFor } : {},
           )),
         });
         const out = await res.json().catch(() => null);
@@ -16664,7 +16667,11 @@ async function paintAccounts() {
         const blocking = (!res.ok && out && Array.isArray(out.usedBy))
           ? out.usedBy.filter((n) => typeof n === 'string' && n)
           : [];
-        if (blocking.length && !stopFor) {
+        /* `consentStale` re-opens the offer with the NEW set. That is not the
+           re-offer loop this guard exists to prevent: nothing was stopped, and
+           the agent list has CHANGED, so pressing again agrees to the set now on
+           screen rather than retrying a failure. */
+        if (blocking.length && (!stopFor || (out && out.consentStale === true))) {
           stopFor = blocking;
           armed = true;
           btn.disabled = false;

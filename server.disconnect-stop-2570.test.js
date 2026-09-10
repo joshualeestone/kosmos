@@ -289,6 +289,19 @@ test('#2570 PARTIAL: a stop that could not be confirmed leaves the account CONNE
     'the fixture stopped producing a PARTIAL, so this arm is no longer about what it says');
   assert.deepEqual(r.json.stopped, []);
   assert.ok(fs.existsSync(dir), 'THE ACCOUNT MUST STILL BE CONNECTED while an agent may be live on it');
+  /* 🛑 AND IT MUST NOT SAY "nothing was changed", WHICH IS WHAT IT USED TO SAY.
+     On a PARTIAL the launchd job IS disabled and the removed-list record IS
+     written before the look-again fails, so the agent's card has left the board
+     and it is on the removed list. This arm asserted the code and the arrays and
+     never the sentence, which is how that claim survived.
+     ⚠️ The engine's own per-agent reason is what reaches the screen, because the
+     page renders `error` and never reads `notStopped[].because`. */
+  assert.doesNotMatch(String(r.json.error), /nothing was changed/,
+    'a PARTIAL disabled the job and wrote a removal record, so nothing-was-changed is false');
+  assert.match(String(r.json.error), /^This account was left connected\. quirke: /,
+    'the engine per-agent reason did not reach the sentence the page renders');
+  assert.match(String(r.json.error), /put it back from the removed list/,
+    'the person is not told the agent is on the removed list, which it is');
 });
 
 test('#2570 REFUSED: an agent the primitive will not touch leaves the account CONNECTED, and is named', async () => {
@@ -413,6 +426,38 @@ test('#2570 PRE-FLIGHT: a refusal that has nothing to do with the agents stops N
   assert.ok(fs.existsSync(dir), 'the default folder must still be there');
 });
 
+/* 🛑 THE REFUSAL THE PRE-FLIGHT STRUCTURALLY CANNOT SEE. The engine's identity
+   guard ("that is not a Claude account on this computer") sits AFTER its agents
+   guard in all four functions, and cannot be hoisted: `identityOf` answers null
+   for a missing directory too, so moving it above the existence check would turn
+   "already gone" into "not an account". So a directory that exists with an
+   account-shaped name but no credential would have had every agent on it stopped
+   before the refusal arrived. Reachable when a credential is removed out from
+   under still-registered agents. The route asks `list()` instead, which is the
+   engine's own answer to the same question. */
+test('#2570: a directory that is not an account stops NOBODY, even with stopAgents', async () => {
+  installRunner();
+  // Account-shaped name, real directory, NO credential file: `list()` omits it
+  // and the engine's identity guard refuses it, but only after its agents guard.
+  const dir = nodePath.join(HOME, '.claude-hollow');
+  fs.mkdirSync(dir, { recursive: true });
+  registeredNotRunning('adler', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(calls, [],
+    'AGENTS WERE STOPPED FOR A DIRECTORY THAT WAS NEVER AN ACCOUNT');
+  assert.ok(!removedNames().includes('adler'), 'and none was written to the removed list');
+  assert.ok(!('stopped' in r.json), 'no stop may be reported');
+  assert.ok(fs.existsSync(dir), 'nothing was renamed or deleted');
+  /* The sentence is the AGENTS refusal, not the identity one, and that is the
+     documented trade: clearing `usedBy` to get the better sentence would rely on
+     guard ordering that has been wrong three times on this branch, and the
+     failure mode there is a real rename under live agents. Pinned so the trade is
+     visible rather than assumed. */
+  assert.match(String(r.json.error), /adler is set up to run on this account/,
+    'if this is now the identity sentence, the route started clearing usedBy: re-read the trade');
+});
+
 /* 🛑 A FAILURE AFTER THE STOP SUCCEEDED. Every one of these four paths used to
    answer with the engine's sentence alone, so the person was told the account
    was untouched while N of their agents had just been stopped, with nothing on
@@ -491,6 +536,49 @@ test('#2570: every OpenAI refusal that ignores the agents runs BEFORE the agents
       + 'pre-flight cannot see it and will stop every agent on the account before learning '
       + 'the operation was refused');
   }
+});
+
+/* 🛑 CONSENT: THE SET NAMED AND THE SET ACTED ON MUST MATCH. The confirm names
+   the agents from the first refusal; the route re-enumerates at press time. An
+   agent created on the account in between would otherwise be stopped having
+   never been shown to anybody. */
+test('#2570: an agent the confirm never named is REFUSED, not swept along', async () => {
+  installRunner();
+  const dir = claudeAccount('newcomer');
+  registeredNotRunning('hastings', dir, 'claude');
+  registeredNotRunning('japp', dir, 'claude');       // appeared after the confirm
+  // The page would have named only `hastings` on the first refusal.
+  const r = await del('claude', { dir, stopAgents: true, stopNames: ['hastings'] });
+  assert.equal(r.code, 400, 'body: ' + JSON.stringify(r.json));
+  assert.equal(r.json.consentStale, true, 'the page needs a flag to know it may re-offer');
+  assert.match(String(r.json.error), /japp is also set up to run on this account now/);
+  assert.match(String(r.json.error), /you were not asked about it/);
+  assert.deepEqual([...r.json.usedBy].sort(), ['hastings', 'japp'],
+    'the answer must carry the CURRENT set, or the re-offer names the stale one again');
+  assert.deepEqual(calls, [], 'NOBODY may be stopped on a consent mismatch, including the named one');
+  assert.ok(fs.existsSync(dir));
+});
+
+test('#2570: naming the whole set proceeds, so the consent check is not just a wall', async () => {
+  installRunner();
+  const dir = claudeAccount('agreed');
+  registeredNotRunning('poirot2', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true, stopNames: ['poirot2'] });
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, ['poirot2']);
+});
+
+/* A board API caller that sends no names is unchanged, deliberately: `stopAgents`
+   alone is a complete request and demanding a list would break every caller that
+   is not this page. */
+test('#2570 CONTROL: a caller that sends no stopNames is not held to a consent set', async () => {
+  installRunner();
+  const dir = claudeAccount('nonames');
+  registeredNotRunning('lecoq', dir, 'claude');
+  const r = await del('claude', { dir, stopAgents: true });
+  assert.equal(r.code, 200, 'body: ' + JSON.stringify(r.json));
+  assert.deepEqual(r.json.stopped, ['lecoq']);
+  assert.ok(!('consentStale' in r.json));
 });
 
 /* ── the other three doors ───────────────────────────────────────────────── */

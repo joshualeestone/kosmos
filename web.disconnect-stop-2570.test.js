@@ -57,14 +57,22 @@ function handler() {
 
 test('#2570: the request carries stopAgents ONLY when the row is armed to stop', () => {
   const fn = handler();
-  assert.match(fn, /stopFor \? \{ stopAgents: true \} : \{\}/,
+  assert.match(fn, /stopFor \? \{ stopAgents: true, stopNames: stopFor \} : \{\}/,
     'the flag is no longer conditional on the second-press state, so every disconnect may be stopping agents');
+  /* And it carries the set the confirm NAMED, which is what lets the route refuse
+     an agent that appeared between the two presses. */
+  assert.match(fn, /stopNames: stopFor/,
+    'the request no longer sends the agreed set, so a newly-created agent can be stopped unnamed');
   /* The control: an unconditional `stopAgents: true` anywhere in this handler
      would defeat the line above without changing it. */
-  /* Counted in its CODE form (braced), because the doc comment above the line
-     quotes the flag by name and a bare substring count reads that as a second
-     call site. A count that includes prose is not a count of call sites. */
-  const sites = fn.match(/\{\s*stopAgents:\s*true\s*\}/g) || [];
+  /* Counted in its CODE form, because the doc comments above quote the flag by
+     name and a bare substring count reads those as extra call sites. A count that
+     includes prose is not a count of call sites.
+     📌 The pattern follows the code: this was a braced single-key object until the
+     consent set was added, and matching the old shape would have counted ZERO
+     while the flag was still being sent -- a vacuous pass, which is why the
+     assertion below states the expected count rather than a floor. */
+  const sites = fn.match(/stopAgents: true, stopNames: stopFor/g) || [];
   assert.equal(sites.length, 1,
     `the handler has ${sites.length} places that send stopAgents; exactly one, inside the stopFor ternary, is correct`);
 });
@@ -72,8 +80,12 @@ test('#2570: the request carries stopAgents ONLY when the row is armed to stop',
 test('#2570: the second confirm is offered only after the server names the agents', () => {
   const fn = handler();
   assert.match(fn, /out\.usedBy/, 'the offer no longer keys on the server naming the agents');
-  assert.match(fn, /if \(blocking\.length && !stopFor\)/,
-    'the guard against re-offering after a failed stop is gone, so a person can be looped against a failure');
+  /* The guard still refuses to re-offer after a FAILED stop, and now has exactly
+     one documented exception: the server saying the agent set changed under the
+     person, where pressing again agrees to the new set rather than retrying a
+     failure. */
+  assert.match(fn, /if \(blocking\.length && \(!stopFor \|\| \(out && out\.consentStale === true\)\)\)/,
+    'the re-offer guard changed shape: check it still refuses to loop on a failed stop');
   assert.match(fn, /Disconnect and stop/, 'the second confirm lost its wording');
 });
 

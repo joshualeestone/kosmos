@@ -145,6 +145,14 @@ const ROW = {
     'the FIRST disconnect carried stopAgents, so agents are stopped without being offered: ' + JSON.stringify(r.sent[0]));
   ok(r.sent[1] && r.sent[1].stopAgents === true,
     'the second press did not carry stopAgents, so the offer does nothing: ' + JSON.stringify(r.sent[1]));
+  /* 🔑 AND IT CARRIES THE SET THE BUTTON NAMED. The route refuses anything
+     enumerated beyond this list, so without it an agent created between the two
+     presses would be stopped having never been shown to anybody. Asserted here
+     because only a real press can produce it: the source pin can see the field,
+     not the value the page actually sends. */
+  ok(r.sent[1] && Array.isArray(r.sent[1].stopNames)
+     && r.sent[1].stopNames.length === 1 && r.sent[1].stopNames[0] === 'marlowe',
+    'the second press did not carry the agent set the confirm named: ' + JSON.stringify(r.sent[1]));
 
   ok(/Disconnect and stop marlowe\?/.test(r.offered),
     'the refusal did not turn into the second confirm, naming the agent: ' + JSON.stringify(r.offered));

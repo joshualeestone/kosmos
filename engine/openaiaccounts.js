@@ -241,11 +241,6 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'that is not an OpenAI account on this computer' };
   }
 
-  /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. A rename
-     moves a path that a running agent's plist points at by absolute path, so
-     this refusal is not politeness, it is what makes the rename safe. And a
-     refusal that cannot be acted on is the class this card came from: the
-     person needs to know WHICH agents, not that there are some. */
   /* #2584: refuse while a reauth of this account is in flight (its dir is reserved in
      activeChatgptDirs). A rename now would pull the live dir out from under the pending
      promote, so this refusal keeps the reservation whole. Without it the reauth still
@@ -265,6 +260,11 @@ function forgetAccount(dir, usedBy) {
     return { ok: false, forgotten: false, because: 'a sign-in is in progress for this account; finish or cancel it first.' };
   }
 
+  /* 🛑 REFUSED WHILE AN AGENT IS ON IT, AND THE AGENTS ARE NAMED. A rename
+     moves a path that a running agent's plist points at by absolute path, so
+     this refusal is not politeness, it is what makes the rename safe. And a
+     refusal that cannot be acted on is the class this card came from: the
+     person needs to know WHICH agents, not that there are some. */
   const agents = (Array.isArray(usedBy) ? usedBy : []).filter((n) => typeof n === 'string' && n);
   if (agents.length) {
     return {

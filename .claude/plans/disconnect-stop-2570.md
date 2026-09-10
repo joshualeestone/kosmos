@@ -54,7 +54,7 @@ enumeration can never reach it. Stopping a guessed set is worse than refusing.
 
 Josh owns the wording per #1659, and Renet put three options on the card. The standing rule is that
 a copy carve-out parks one sentence and not the card, so an honest version ships now and he can
-swap it: the button reads "Disconnect and stop N agents?" and the answer names who was stopped and
+swap it: the button reads "Disconnect and stop marlowe?" for one agent and "Disconnect and stop 2 agents?" for more, which is what the browser check pins and the answer names who was stopped and
 says they can be restored. That is closest to Renet's option C.
 
 **Ask the engine before stopping anything.** Both engines refuse the DEFAULT account
@@ -72,6 +72,33 @@ opt-in warns to stderr and returns success for every command, unmarked. So the r
 `removal.commandsAreReal()` (runner installed, or live execution armed), which is the only place
 that knows both halves. A caller that asked `liveExecutionAllowed()` directly would answer false
 whenever a runner is injected, which is exactly when the commands DO run.
+
+**The set the person agreed to is the set we act on.** The confirm names the agents from the
+first refusal, and the route re-enumerates at press time, so an agent created on the account
+between the two presses would otherwise be stopped having never been shown to anybody. The page
+therefore sends `stopNames` (the set it displayed) and the route refuses anything enumerated
+beyond it, answering `consentStale: true` so the page can re-offer with the new set. A caller
+that sends no names is deliberately unchanged: this is a board API, `stopAgents` alone is a
+complete request, and demanding a list would break every caller that is not this page.
+
+**The identity refusal is handled separately, because the pre-flight structurally cannot see it.**
+"that is not a Claude/OpenAI account on this computer" sits AFTER the agents guard in all four
+engine functions and cannot be hoisted: `identityOf` answers null for a missing directory too, so
+moving it above the existence check would turn "already gone" into "not an account". The route
+therefore asks the engine's own `list()` for membership (the same identity rule, not a copy of
+it), guarded on the directory existing so the quiet-success arm survives, and SKIPS the stop.
+⚠️ **The person then gets the agents refusal rather than the identity one, and that trade is
+taken knowingly:** getting the better sentence would mean clearing `usedBy` and relying on my
+reading of guard order, which has been wrong three times on this branch, and the failure mode if
+it is wrong again is a real rename under live agents.
+
+⭐ **THE PATTERN WORTH KEEPING FROM THIS LOOP.** Three separate reviewers found three separate
+counterexamples to the same claim of mine, that "every refusal which does not depend on the
+agents comes before the agents guard": the default guard, then the OpenAI sign-in guard, then the
+identity guard. Two were fixable by moving the guard; the third was not, by design. **A claim of
+the form "every X does Y" in a file I do not own is the shape that kept being wrong**, and the
+durable fix was to stop asserting the invariant and instead name which cases are covered, which
+are not, and why.
 
 ## Residuals, named rather than left to be found
 
