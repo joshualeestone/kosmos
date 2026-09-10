@@ -314,7 +314,10 @@ board_token() {
   # unchanged. Without both fallbacks the node call load-fails, board_token returns
   # no token, and since #1976 requires one every hook report is silently refused
   # (the 2026-09-03 fleet-wide self-report freeze, the live tail of #2509).
-  _node="$NODE"; [ -x "$_node" ] || _node="$(command -v node 2>/dev/null || true)"
+  # `[ -f ] && [ -x ]`, never a bare `[ -x ]`: a directory carries the executable
+  # (traversable) bit, so a bare `[ -x "$_node" ]` accepts a directory and we would then
+  # try to exec one. The installer runnable-guard test enforces this form repo-wide.
+  _node="$NODE"; { [ -f "$_node" ] && [ -x "$_node" ]; } || _node="$(command -v node 2>/dev/null || true)"
   [ -n "$_node" ] || return 1
   _storemod="$KOSMOS_HOME/app/engine/store"
   [ -f "$_storemod.js" ] || _storemod="$KOSMOS_HOME/engine/store"
