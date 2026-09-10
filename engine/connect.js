@@ -1040,6 +1040,13 @@ async function start(opts) {
      account connected and a fresh directory requested, an unscoped check
      would early-exit every add-another-account attempt as already done. */
   const sub = subscription.check(configDir ? { configDir } : undefined);
+  /* #2645: set true when the local file claims CONNECTED but the LIVE check says NONE
+     (a credential that is PRESENT but DEAD -- an expired/invalid session, however it got
+     that way). The launch below must then run a real login rather than a bare `claude`,
+     which drops into the "Not logged in" REPL against a dead credential and never opens
+     the browser (the #1937 hazard, previously fixed only for an explicit reauth). Carried
+     into `owner.needsLogin` so the launch + completion take the reauth-style path. */
+  let deadCredential = false;
   if (sub.state === subscription.STATE.CONNECTED && !reauth) {
     /**
      * 🛑 THE FILE SAYING CONNECTED IS NOT ENOUGH TO REFUSE TO CONNECT (#1560).
@@ -1194,6 +1201,11 @@ async function start(opts) {
        to change together, which is #1937, and `/login` from that REPL does yield
        the chooser and the browser-open OAuth this driver already walks. */
     if (!binaryOnDisk || live.state === subscription.STATE.NONE) {
+      // #2645: a PRESENT-but-DEAD credential (the file claimed CONNECTED but the live
+      // check says NONE) needs a REAL login -- a bare `claude` drops into the REPL against
+      // it and never opens the browser. Carried to the launch + completion via
+      // owner.needsLogin. (A missing binary alone -- live UNKNOWN -- is not this case.)
+      if (live.state === subscription.STATE.NONE) deadCredential = true;
       /**
        * ⚠️ TWO REASONS REACH HERE NOW, AND NEITHER IS AN ERROR TO SHOW SOMEBODY.
        * Either there is nothing on disk to run (#1580) or the file and the world
@@ -1327,6 +1339,32 @@ async function start(opts) {
     if (!probe.ok || probe.dryRun) haveBinary = false;
   }
 
+  /* #1922 (RE-AUTH of a DEAD credential): start()'s deadCredential detection above is gated
+     `!reauth` (a reauth must never early-finish as connected, so that whole block is skipped for
+     it), which leaves `deadCredential` false for every reauth. But a reauth of a credential that
+     is DEAD at flow start is the SAME dead->live proof case as a present-but-dead first-run: if the
+     login lands and `claude auth login` then exits and closes the pane before the brief "Login
+     successful" screen is captured, the #1922 capture-fail rescue needs `deadCredential` to know a
+     later checkLive CONNECTED is a real NEW login and not the OLD credential. Compute it here for
+     the reauth path. A reauth of a STILL-LIVE credential leaves this false (checkLive CONNECTED at
+     start), so that case still falls to becomeStuck -- it cannot prove the new login landed vs.
+     reading the old live one (the iter-7 BLOCKER guard). This site handles the reauth arm where the
+     binary is usable at start; the arm with no usable binary at start (checkLive is UNKNOWN here --
+     nothing on disk, or a launcher that later fails the --version probe) is handled AFTER the
+     install, by the `!haveBinary && owner.needsLogin` block in runFlow. Between the two, every
+     reauth-of-a-dead-credential path WHERE THE LIVE CHECK REACHED A VERDICT sets deadCredential. If
+     checkLive returns UNKNOWN at both points (a timeout or non-JSON chatter with the binary present
+     the whole time), deadCredential stays false on purpose -- UNKNOWN is not proof of a dead
+     credential, so we do not claim a dead->live transition we cannot support; the cost is that such
+     a reauth, if its login-done screen is also missed on a pane-death, falls to becomeStuck (a
+     recoverable false-stick with an actionable message, never a false success). Before
+     the driver claim below, so a concurrent start that claims during this await is caught by the
+     `if (driver) return state()` guard (deadCredential is a local, unused until the owner literal). */
+  if (reauth && haveBinary) {
+    const liveAtStart = await subscription.checkLive(configDir ? { configDir } : undefined);
+    if (liveAtStart.state === subscription.STATE.NONE) deadCredential = true;
+  }
+
   /**
    * 🛑 #1574: THE CONFIRM IS DECIDED HERE, IN THE SAME CALL THAT WOULD START THE
    * DOWNLOAD, BECAUSE ANYWHERE ELSE IS A RACE.
@@ -1391,7 +1429,16 @@ async function start(opts) {
    * cannot distinguish "cancelled" from "replaced"; `driver !== owner` can.
    */
   flowDir = configDir;
-  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, reauth };
+  /* #2645: needsLogin -- run a real login (auth login --claudeai) AND require login-success
+     evidence -- for an explicit reauth OR a present-but-dead credential. Without it, a
+     first-run Connect against a dead credential launches a bare `claude` that wedges in the
+     "Not logged in" REPL and never opens the browser (the #1937 hazard, previously fixed only
+     for reauth). The launch already scopes CLAUDE_CONFIG_DIR to configDir, so the token lands
+     in the account's own dir, where the check reads it. */
+  /* #2645: `needsLogin` (reauth OR a present-but-dead credential) is the single signal
+     every gate reads; `owner.reauth` itself is no longer read anywhere, so it is not
+     stored -- the local `reauth` const still feeds needsLogin here. */
+  const owner = { pendingCode: null, lastActed: null, acted: null, unknownTicks: 0, configDir, deadCredential, needsLogin: reauth || deadCredential };
   driver = owner;
 
   runFlow(owner, haveBinary).catch((err) => {
@@ -1872,15 +1919,42 @@ async function runFlow(owner, haveBinary) {
    *                  start() applies must apply here, or the guard is decorative.
    * Caught by the #1562 matrix cells, not by the suite, which stayed green.
    */
-  /* #1937: `!owner.reauth` is the FOURTH stale-file finish this card gates, the
-     one on the binary-just-installed path. An explicit re-auth must run the login
-     it was asked for -- and `checkLive` here is the same expiry-blind
-     `claude auth status` (#874/#1916), so on a dead-but-present credential this
-     gate would otherwise finish connected and never launch the login, the exact
-     symptom on the missing-binary path. The plan flagged this site. Mirror the
-     start() bypass: a re-auth always falls through to launchSignin; non-reauth is
-     byte-identical. */
-  if (!haveBinary && !owner.reauth) {
+  /* #1922 (a login is needed and no usable binary was present at start): compute deadCredential
+     post-install for the needsLogin arm that start()'s two checkLive sites could not. TWO flows
+     reach here with `!haveBinary && owner.needsLogin`, and it would be wrong to call it reauth-only:
+       - a RE-AUTH on a box with no binary (the arm this block exists for): start()'s reauth
+         detection is gated `haveBinary`, so with nothing on disk its checkLive was UNKNOWN and
+         deadCredential stayed false -- this block is the ONLY site that sets it for that arm;
+       - a present-but-dead FIRST-RUN whose binary was present enough for start()'s #1560 checkLive
+         to return NONE (so deadCredential is ALREADY true and needsLogin already true) but then
+         FAILED the `--version` probe, flipping haveBinary false. Here this block is a harmless
+         idempotent re-confirm, not the setter of record.
+     (A present-but-dead first-run whose binary was truly ABSENT at start leaves needsLogin false
+     until here -- checkLive was UNKNOWN, not NONE -- so it is caught by the finish-capable
+     `!owner.needsLogin` block just below instead, not by this one.)
+     Either way, now that the install has run checkLive is authoritative: if the credential is dead,
+     a later CONNECTED after a pane-death is the dead->live proof the #1922 capture-fail rescue
+     reads, so set deadCredential. Without it the reauth arm would false-stick a landed login (the
+     reauth-completes-but-not-seen symptom, on the no-binary arm). This ONLY sets the flag -- a
+     needsLogin flow must still run the login and never finish here (that is why it is separate from
+     the finish-capable block below, not a relaxation of its guard). Safe after the await:
+     launchSignin re-guards with `if (driver !== owner) return`. */
+  if (!haveBinary && owner.needsLogin) {
+    const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
+    if (driver !== owner) return;
+    if (live.state === subscription.STATE.NONE) owner.deadCredential = true;
+  }
+  /* #1937/#2645: `!owner.needsLogin` is the FOURTH stale-file finish this card gates,
+     the one on the binary-just-installed path. A flow that needs a login -- a re-auth
+     OR a present-but-dead credential (#2645) -- must run the login it was asked for,
+     and `checkLive` here is the same expiry-blind `claude auth status` (#874/#1916),
+     so on a dead-but-present credential this gate would otherwise finish connected and
+     never launch the login, the exact symptom on the missing-binary path. The plan
+     flagged this site; #2645 aligned it from `!owner.reauth` to `needsLogin` so all
+     five sites (this, the launch, and the three in-flow completion gates) move together
+     on one signal. Mirror the start() bypass: a needsLogin flow always falls through to
+     launchSignin; a flow with no login to run is byte-identical. */
+  if (!haveBinary && !owner.needsLogin) {
     const already = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
     if (already.state === subscription.STATE.CONNECTED) {
       const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
@@ -1904,6 +1978,24 @@ async function runFlow(owner, haveBinary) {
         await finishConnected(owner, already);
         return;
       }
+      /* #2645: a present-but-dead credential detected HERE (the file said CONNECTED,
+         the live check says NONE) needs a real login too. start() left needsLogin
+         false because its live check was UNKNOWN (no binary yet); the binary now
+         exists and this live check is authoritative, so set it, or launchSignin below
+         runs a bare `claude` that wedges in the "Not logged in" REPL. Safe after the
+         await: launchSignin, the next call, opens with `if (driver !== owner) return`,
+         so a cancel/takeover during the checkLive above cannot act on this mutation.
+         🛑 BOTH FLAGS, NOT JUST needsLogin. `deadCredential` must be set here too, and
+         for the SAME reason start()'s site sets it (connect.js #1560 fall-through): it is
+         the proof the #1922 capture-fail rescue reads. This credential is provably dead at
+         this point (live NONE over a CONNECTED file), so a later checkLive CONNECTED after
+         the pane dies is a dead->live transition only a real login makes. Setting needsLogin
+         alone would launch the login correctly but then, if the "Login successful" screen
+         fell between ticks and the pane closed, the rescue's
+         (!needsLogin || sawLoginDone || deadCredential) would be (false||false||false) and
+         report "the sign-in window closed" over a login that landed -- the exact symptom the
+         PR exists to kill, on the no-binary-at-start path. */
+      if (live.state === subscription.STATE.NONE) { owner.needsLogin = true; owner.deadCredential = true; }
     }
   }
   await launchSignin(owner);
@@ -2012,11 +2104,18 @@ async function launchSignin(owner) {
      `--claudeai` skips the login-method chooser, which is harmless. No recognizer
      widening was needed.
 
-     📌 Only for `owner.reauth`. The first-run/add-another launch is left byte-
-     identical (a bare `claude` on a machine with no credential opens its own
-     onboarding); this changes only the deliberate re-auth of an existing account,
-     which is the one path the bare launch could not repair. */
-  if (owner.reauth) {
+     📌 #2645 BROADENED THIS FROM `owner.reauth` TO `owner.needsLogin` (reauth OR a
+     present-but-dead credential -- the file said CONNECTED but the live check said NONE,
+     set at the #1560 fall-through above). A genuinely FRESH machine (no credential) still
+     gets a byte-identical bare `claude` and its own onboarding, because `check()` returns
+     NONE there, so the CONNECTED-file block that sets `deadCredential` is never entered
+     and `needsLogin` stays false -- it is that gate, not the live-check verdict, that keeps
+     a fresh machine on the bare path.
+     What changed is the one path the bare launch could not repair: a first-run/reauth
+     Connect against a dead credential now runs the real login instead of wedging in the
+     "Not logged in" REPL. The launch scopes CLAUDE_CONFIG_DIR to configDir (below), so the
+     refreshed token lands in the account's own dir, which is where the check reads it. */
+  if (owner.needsLogin) {
     cmd.push('auth', 'login', '--claudeai');
   }
 
@@ -2120,6 +2219,39 @@ async function tickBody(owner) {
      */
     owner.captureFails = (owner.captureFails || 0) + 1;
     if (owner.captureFails > Math.max(3, Math.ceil(3000 / TICK_MS))) {
+      /* #1922: A SESSION THAT CLOSED AFTER THE LOGIN LANDED IS A SUCCESS, NOT A
+         FAILURE. `claude auth login` writes the credential and THEN EXITS, which
+         closes the pane -- so if the brief "Login successful" screen fell between
+         ticks, the on-screen evidence is gone while the login is real, and this
+         path used to report "the sign-in window closed" over a login that
+         actually completed (Josh's reauth-completes-but-not-seen symptom). Before
+         declaring the window closed, confirm LIVE (the authoritative "did Anthropic
+         accept it"). This mirrors the "config outranks the screen" check on the
+         unknown-screen path below, but keyed on the LIVE check, not the file: a
+         stale present-but-dead credential (checkLive NONE) is never mistaken for
+         success, so this only finishes on a login the live check actually confirms
+         landed. (Why an in-app login is seen here where a hand-run Terminal one may
+         not be is in the commit and plan, not asserted here -- the code only calls
+         checkLive and cannot enforce it.) */
+      const live = await subscription.checkLive(owner.configDir ? { configDir: owner.configDir } : undefined);
+      if (driver !== owner) return;
+      /* #1922 + #1937: finish here ONLY if the login PROVABLY landed. `checkLive`
+         CONNECTED alone is not proof for a needsLogin flow whose credential was already
+         live: a re-auth of a WORKING account reads CONNECTED off the OLD credential from
+         the first tick, so finishing on a pane-death before the new login completed would
+         report a success the login never earned (the #1937 class). Proof is sawLoginDone
+         (we saw "Login successful"), OR deadCredential (the credential was DEAD at start,
+         so a now-CONNECTED live check is a dead->live transition only a real login makes
+         -- exactly the present-but-dead case #1922 exists for, where the login-done screen
+         was missed between ticks and the pane then closed). A re-auth on a still-live
+         credential has neither, so it falls through to becomeStuck rather than finishing
+         off the old credential. A non-needsLogin flow (fresh first-run) has no stale
+         credential to mistake, so checkLive CONNECTED is enough. */
+      if (live.state === subscription.STATE.CONNECTED
+          && (!owner.needsLogin || owner.sawLoginDone || owner.deadCredential)) {
+        await finishConnected(owner, subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined));
+        return;
+      }
       becomeStuck(owner, 'the sign-in window closed before Claude finished',
         tailOf(cap.stderr || '') || 'it is no longer there');
     }
@@ -2143,12 +2275,13 @@ async function tickBody(owner) {
        * this only prevents the false failure.
        */
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
-      /* #1937: a re-auth may finish off the file only once login-done has proven
-         the login landed; the file was stale-connected from the start, so an
-         unrecognised screen with no completion evidence is a genuine "we could
-         not confirm", not a silent success on the old credential. Non-reauth is
-         unchanged (`!owner.reauth` short-circuits true). */
-      if ((!owner.reauth || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
+      /* #1937/#2645: a needsLogin flow -- a re-auth OR a present-but-dead credential
+         -- may finish off the file only once login-done has proven the login landed;
+         the file was stale-connected from the start, so an unrecognised screen with
+         no completion evidence is a genuine "we could not confirm", not a silent
+         success on the old credential. A flow with no login to run (a fresh machine,
+         add-another) is unchanged: `!owner.needsLogin` short-circuits the guard true. */
+      if ((!owner.needsLogin || owner.sawLoginDone) && sub.state === subscription.STATE.CONNECTED) {
         finishConnected(owner, sub);
         return;
       }
@@ -2242,12 +2375,13 @@ async function tickBody(owner) {
    * cross-tick bookkeeping to shrink further.
    */
   if (seen.kind === 'browser-open' || seen.kind === 'awaiting-code') {
-    /* #1937: these screens appear BEFORE a login completes, so for a re-auth the
-       only "connected" the file can report here is the STALE one from flow start
-       -- finishing on it kills the still-running `claude auth login` and reports
-       success with no credential repaired. Require login-done first for a
-       re-auth; a normal flow (file starts signed-out) is unchanged. */
-    if (!owner.reauth || owner.sawLoginDone) {
+    /* #1937/#2645: these screens appear BEFORE a login completes, so for a needsLogin
+       flow (a re-auth OR a present-but-dead credential) the only "connected" the file
+       can report here is the STALE one from flow start -- finishing on it kills the
+       still-running `claude auth login` and reports success with no credential
+       repaired. Require login-done first whenever needsLogin; a flow with no login to
+       run (a fresh machine, file starts signed-out) is unchanged. */
+    if (!owner.needsLogin || owner.sawLoginDone) {
       const sub = subscription.check(owner.configDir ? { configDir: owner.configDir } : undefined);
       if (sub.state === subscription.STATE.CONNECTED) {
         await finishConnected(owner, sub);
@@ -2489,21 +2623,31 @@ async function tickBody(owner) {
         // a late-flipping config finished on the next tick and killed the
         // session mid-onboarding, skipping the walk-forward this comment
         // promises.
-        /* #1937: the THIRD file-outranks-screen finish, and the same stale-file
-           hazard as the two arms above. `repl` is a live, logged-in session -- a
-           genuine completion signal, safe to finish on even for a re-auth. But the
-           `settleTicks` path also fires on `press-enter`, which this file's own
-           note (below, on the second `press-enter` handler) says is NOT login
-           evidence: a pre-login notice screen carries no login. For a re-auth the
-           config is stale-CONNECTED from flow start, so finishing on a pre-login
-           press-enter after settleTicks would be the exact false success the two
-           arms above were hardened against. Require login evidence for a re-auth's
-           settle finish -- owner.sawLoginDone is set (line ~2125) whenever a real
-           "Login successful" (login-done) screen appears, including this tick. The
-           repl path and every non-reauth flow are unchanged. A re-auth stuck on a
-           pre-login press-enter instead falls to the never-moves becomeStuck. */
-        if (seen.kind === 'repl'
-          || ((owner.settleTicks || 0) > 4 && (!owner.reauth || owner.sawLoginDone))) {
+        /* #1937/#2645: the THIRD file-outranks-screen finish, and the same stale-file
+           hazard as the two arms above -- and BOTH its disjuncts must require login
+           evidence for a needsLogin flow, not just the settleTicks one.
+           - `repl`: for a flow with NO login to run (a fresh sign-in that landed, or a
+             signed-in person who only needed the install and runs a BARE `claude`), a
+             "? for shortcuts" REPL is a live, logged-in session and finishing is right.
+             But for a needsLogin flow (a re-auth OR a present-but-dead credential, #2645)
+             the launch is `claude auth login --claudeai`, which EXITS on success (the pane
+             then closes and the #1922 capture-fail rescue -- keyed on a live check -- is
+             what finishes it). So a REPL appearing in a needsLogin flow is NOT a completed
+             login: it is auth-login failing/erroring back to a bare "Not logged in" REPL
+             (the #1937 measured shape) while the config is still stale-CONNECTED from flow
+             start. Finishing off that stale file would be the exact dead-credential false
+             success this PR exists to kill -- connected reported over a credential that is
+             still dead, and the agent then will not start.
+           - `settleTicks` also fires on `press-enter`, which this file's own note (below,
+             on the second `press-enter` handler) says is NOT login evidence: a pre-login
+             notice screen carries no login.
+           So gate the WHOLE finish on `(!owner.needsLogin || owner.sawLoginDone)`.
+           owner.sawLoginDone is set whenever a real "Login successful" (login-done) screen
+           appears. A flow with no login to run is unchanged (the guard is vacuously true);
+           a needsLogin flow with no login evidence does not finish here and falls to the
+           never-moves becomeStuck / the abandoned-signin timeout rather than false-finishing. */
+        if ((seen.kind === 'repl' || (owner.settleTicks || 0) > 4)
+          && (!owner.needsLogin || owner.sawLoginDone)) {
           await finishConnected(owner, sub);
           return;
         }
