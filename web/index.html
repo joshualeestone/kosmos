@@ -12308,7 +12308,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      DISCOVERY_OPENED). Pressing it opens both on demand; a full reload starts
      collapsed again on purpose, so the page never opens itself. -->
 <div class="removed-wrap" id="found-scan-trigger" hidden>
-  <button class="linkish" id="found-scan-look" type="button">Look for agents already on this computer</button>
+  <!-- aria-live so the empty-look result ("We could not find any new agents to add"),
+       which replaces this button's own label, is announced to a screen reader rather than
+       changing silently under focus (#2651 review). -->
+  <button class="linkish" id="found-scan-look" type="button" aria-live="polite">Look for agents already on this computer</button>
 </div>
 <div class="removed-wrap" id="found-wrap" hidden>
   <!-- Josh, 2026-08-24 17:06: "add a button that says Dismiss this forever at

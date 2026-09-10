@@ -132,6 +132,7 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
   if (r.load.triggerHidden !== false) fail.push('the "Look for agents" trigger was not shown on load');
   if (r.afterClick.opened !== true) fail.push('pressing the trigger did not set DISCOVERY_OPENED');
   if (r.afterClick.foundHidden !== false) fail.push('the found panel did not open after the explicit press');
+  if (r.afterClick.scanHidden !== false) fail.push('the scan panel did not open after the explicit press (a scan-only gate regression would otherwise stay green)');
   if (r.afterClick.triggerHidden !== true) fail.push('the trigger did not hide once the panels opened');
   if (d.error) {
     fail.push('dismissed arm errored: ' + d.error);

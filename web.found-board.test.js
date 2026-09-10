@@ -66,6 +66,11 @@ async function paint(agents, opts = {}) {
        press). Default it OPEN here so the rendering tests below exercise the panel's
        behaviour as before; a test passes opened:false to assert the gate itself. */
     let DISCOVERY_OPENED = ${opts.opened === undefined ? 'true' : JSON.stringify(opts.opened)};
+    /* #2651: paintFoundBoard WRITES this on the body.dismissed branch. Declared (not
+       assigned as a global) for the same reason as the others above: an undeclared write
+       would silently leak a global, per this file's own doctrine. No test here exercises
+       the dismissed branch yet; the declaration keeps a future one honest. */
+    let DISCOVERY_DISMISSED = false;
     return paintFoundBoard();
   `);
   await run(
