@@ -9905,6 +9905,35 @@ const server = http.createServer((req, res) => {
   if (roomThread && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* Computed ONCE for this request (the text arm below reads it too): the CLI
+       (`kosmos room`) passes ?as=text, the web board reads JSON. #2702's reject
+       and the existing render must agree on which arm this is. */
+    let asText = false;
+    try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+    /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
+       do, instead of rendering it as an empty room -- a typo or a hyphenated-name
+       guess otherwise reads identically to genuine silence, and the agent acts on
+       "nobody said anything." The check is EXISTENCE, never post-count: a real
+       project with zero posts still returns the normal empty room below.
+       ⚠️ readAll(), not projects.get(): get() routes through describe(), which
+       heals everSeen and can writeAll() -- a write side-effect on a room READ
+       would be a real defect. readAll() is the pure registry read get() itself
+       uses. FAILS OPEN: a transient registry-read throw must not become a false
+       "no such project," so on a throw we fall through to the best-effort room
+       read below (which already handles an unreadable store), never to a 404. */
+    let projectKnown = true;
+    try { projectKnown = projects.readAll().some((p) => p && p.id === id); } catch { projectKnown = true; }
+    if (!projectKnown) {
+      if (asText) {
+        /* The CLI (bash 3.2, no JSON parser) prints this body verbatim; the 404
+           status lets cmd_room exit non-zero for parity with post/react. */
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('there is no project by that name\n');
+      } else {
+        sendJson(res, 404, { error: 'there is no project by that name' });
+      }
+      return;
+    }
     try {
       const rec = messages.record();
       const rows = rec.rows
@@ -9939,9 +9968,9 @@ const server = http.createServer((req, res) => {
       /* Plain text on ?as=text, for `kosmos room <id>` (#314): the CLI runs on
          stock bash 3.2 with no JSON parser, so the server does the shaping.
          The tail only (last 40), oldest first, one line per row, and the
-         unreadable case says so rather than printing an empty room. */
-      let asText = false;
-      try { asText = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asText = false; }
+         unreadable case says so rather than printing an empty room.
+         #2702: `asText` is computed once at the top of this route now and reused
+         here, so the reject arm and this render arm cannot disagree. */
       /* #185, #563: who still owes an answer, from the record alone, computed
          ONCE here for both arms. The page draws its small line from this and
          the text view prints the same line under the same post, so an agent
