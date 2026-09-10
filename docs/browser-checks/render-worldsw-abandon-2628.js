@@ -35,7 +35,7 @@
  * and scenario A reds -- the banner never becomes the abandon message (it falls through
  * to the slow/timeout guidance), so `sawAbandon`/`namedWorld` go red. Scenario B is the
  * negative arm proving the probe is not just asserting the message is always present: a
- * stale abandon must NOT produce it. (Verified red-capable in the challenge loop.)
+ * stale abandon must NOT produce it.
  *
  * ⚠️ WHY A BROWSER. engine/worldenv.abandon-2628 proves the SIGNAL; it cannot prove a
  * real DOM turns lastAbandonedWorld into the right banner, keys the guard on the switch
@@ -75,6 +75,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
   const r = await page.evaluate(async () => {
     const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
     const bannerMsg = () => (document.getElementById('worldsw-restart-msg').textContent || '');
+    const bannerHidden = () => document.getElementById('worldsw-restart').hidden;
     const menuHidden = () => document.getElementById('worldsw-menu').hidden;
 
     // Stub state. registryActive is what the SWITCH flips instantly (GET /api/worlds
@@ -165,6 +166,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       namedWorld: /"side project" could not start/i.test(abandonMsg),
       reloaded: reloadCount > 0,
       menuOpen: !menuHidden(),
+      bannerVisible: !bannerHidden(),   // the banner region itself must be shown, not just have text set
     };
 
     // ---- Scenario B: STALE abandon (older than the switch) -> banner does NOT fire;
@@ -201,6 +203,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if (!a.namedWorld) problems.push('the abandon banner must NAME the world it could not start ("Side Project" could not start...), got "' + a.abandonMsg + '"');
     if (a.reloaded) problems.push('an abandoned switch must NOT reload -- the board is back on Kosmos 1 and the point is that the person reads why (worldswReload was called)');
     if (!a.menuOpen) problems.push('the switcher menu (which contains the banner) must stay open so the abandon guidance stays visible');
+    if (!a.bannerVisible) problems.push('the #worldsw-restart banner region must be unhidden so the abandon guidance is actually shown, not just set as text on a hidden region');
 
     // Scenario B: the stale-abandon guard -- an earlier boot's abandon must not fire it.
     const b = r.afterStale;
