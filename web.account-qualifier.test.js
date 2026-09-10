@@ -1288,3 +1288,23 @@ test('#2612: an ambiguous row never receives the empty qualifier, even with no d
   assert.equal(solo.get(''), '',
     'a row with no ambiguous sibling gained a qualifier, so every solo account now renders a tag');
 });
+
+/* 🔑 A NULL ROW MUST NOT THROW. Every other read in `accountQualifiers` guards
+   with `a &&`; the `dir` read did not, so a caller handing in a sparse array got
+   a TypeError from the single line that had no guard. Same pure-and-exported
+   argument that justifies the dir-keying guard and the empty-dir fallback: this
+   function's whole defence is that a caller cannot break it from a distance, and
+   defending two of three reads is not that. */
+test('#2612: a null row does not throw and does not disturb its neighbours', () => {
+  const E = 'a@x.com';
+  const a = { provider: 'anthropic', email: E, dir: '/h/.a', label: null, isDefault: false };
+  const b = { provider: 'anthropic', email: E, dir: '/h/.b', label: null, isDefault: false };
+  let q;
+  assert.doesNotThrow(() => { q = qualifiers([null, a, b]); },
+    'a null row threw; the dir read is missing its `a &&` guard');
+  /* CONTROL: the real rows must still be qualified exactly as they are without
+     the null, or "does not throw" has been satisfied by bailing out early. */
+  const clean = qualifiers([a, b]);
+  assert.deepEqual([q.get(a.dir), q.get(b.dir)], [clean.get(a.dir), clean.get(b.dir)],
+    'the null row changed the answer for its neighbours, so it is not being skipped cleanly');
+});
