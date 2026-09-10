@@ -24558,9 +24558,20 @@ document.getElementById('doc-go').addEventListener('click', async () => {
       try {
         const rr = await fetch('/api/agent/' + encodeURIComponent(plan.sessionName) + '/restart', { method: 'POST' });
         const rout = await rr.json().catch(() => null);
-        msg.textContent = restartTook(rr.ok, rout)
-          ? 'Added and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.'
-          : 'Added, but the restart did not take. ' + restartFailureLine(rout);
+        if (restartTook(rr.ok, rout)) {
+          /* #2686: auto-send the wake 'hello' here too -- this flow also told the
+             person to say hello by hand. Guard the receipt on the open agent still
+             being this one (like the trust-restart handlers) so a mid-wait switch
+             does not land the line in another agent's dialog. */
+          msg.textContent = 'Added and restarted. Waking ' + who2 + '…';
+          const forAgent = plan.sessionName;
+          autoHelloAfterRestart(forAgent,
+            (t) => { if (CURRENT && CURRENT.sessionName === forAgent) msg.textContent = t; },
+            'Added and restarted, and said hello to wake ' + who2 + '.',
+            'Added and restarted. You will need to say ‘hello’ to ' + who2 + ' to wake them.');
+        } else {
+          msg.textContent = 'Added, but the restart did not take. ' + restartFailureLine(rout);
+        }
       } catch {
         msg.textContent = 'Added, but we could not reach Kosmos to restart ' + who2
           + '. They will read the new rules on their next restart.';
@@ -26836,7 +26847,6 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        sentence its success and its silent failure look identical. A receipt is
        owed wherever the screen does not provide one by changing. */
     const note = noteFor(btn);
-    if (note) note.textContent = 'Restarted. You will need to say ‘hello’ to wake them.';
     go.textContent = wasGo;
     /* ⚠️ RE-ENABLED. Every other exit from this handler puts the button back and
        this one did not, so a modal reopened after a successful restart came up
@@ -26844,6 +26854,16 @@ document.getElementById('rst-go').addEventListener('click', async () => {
     go.disabled = false;
     closeRestartModal();
     await tick();
+    /* #2686: auto-send the wake 'hello' instead of asking the person to type it.
+       The interim note says we are waking them; autoHelloAfterRestart resolves it
+       to "said hello" once the agent is back, or to the old manual line if the
+       agent does not come back in time. Fire-and-forget: the handler's UI work
+       (modal closed, button restored) is already done. */
+    if (note) note.textContent = 'Restarted. Waking them…';
+    autoHelloAfterRestart(name,
+      (t) => { if (note) note.textContent = t; },
+      'Restarted, and said hello to wake them.',
+      'Restarted. You will need to say ‘hello’ to wake them.');
   } catch {
     go.textContent = wasGo;
     go.disabled = false;
@@ -32117,6 +32137,99 @@ document.getElementById('create-go').addEventListener('click', async () => {
  */
 function boardCanSeeIt(a) {
   return Boolean(a) && a.isAgentSession === true && a.isNamedOurs === true && a.state !== 'stopped';
+}
+
+/* #2686: after a USER-INITIATED restart, auto-send the wake 'hello' so the
+   person does not have to type it. The two things this needs are both here: a
+   readiness predicate stricter than boardCanSeeIt, and a poll that waits for it.
+
+   🛑 WHY boardCanSeeIt IS NOT ENOUGH. A restart is async -- POST .../restart
+   KILLS the pane and returns after the kill; a supervisor respawns it LATER. In
+   the gap the engine emits state 'restarting' (#2019), which boardCanSeeIt
+   counts as visible (it only excludes 'stopped'). Sending 'hello' then types
+   into a booting/dead pane -- the exact failure this whole wait exists against.
+   So readiness ALSO excludes 'restarting'. */
+function restartedAndReady(a) {
+  return boardCanSeeIt(a) && a.state !== 'restarting';
+}
+
+/* The window and poll cadence for the readiness wait. `let`, not `const`, so a
+   browser-check can shorten them to run the timeout arm fast (the same seam the
+   board uses for WATCH); production values are 30s / 2s, matching watchForAgent. */
+let RESTART_READY_WINDOW_MS = 30000;
+let RESTART_READY_POLL_MS = 2000;
+/* PER-AGENT monotonic token so a later restart of the SAME agent supersedes an
+   earlier pending wait for it -- but a restart of a DIFFERENT agent does not
+   cancel this one's wake. A single global counter would let restarting agent B
+   silently kill agent A's pending hello (a plausible flow: restart several in a
+   row), leaving A's notice stuck on "Waking them...". Keyed by name. */
+const RESTART_HELLO_SEQ = {};
+
+/* Poll /api/status until the just-restarted agent is back and ready to RECEIVE,
+   or the window elapses. Returns true only if ready was seen; false on timeout.
+
+   ⚠️ REQUIRES OBSERVING THE GAP FIRST (`sawUnready`). A stale first snapshot can
+   still show the PRE-restart session as idle -- accepting that as ready would
+   fire hello into the pane that is about to die. So ready is accepted only after
+   we have seen the agent NOT-ready at least once. The cost is that an agent that
+   comes back faster than one poll falls to the manual line, which is the current
+   behavior anyway; the card states a mistimed send is worse than manual, so the
+   bias is deliberate. */
+async function restartReadyWait(name, mine) {
+  const until = Date.now() + RESTART_READY_WINDOW_MS;
+  let sawUnready = false;
+  while (Date.now() < until) {
+    await new Promise((r) => setTimeout(r, RESTART_READY_POLL_MS));
+    if (mine !== RESTART_HELLO_SEQ[name]) return false;   // a newer restart of this agent took over
+    let agents = [];
+    try {
+      const res = await fetch('/api/status', { cache: 'no-store' });
+      if (res.ok) agents = (await res.json()).agents || [];
+    } catch { /* the next round can try again */ }
+    if (mine !== RESTART_HELLO_SEQ[name]) return false;
+    const found = agents.find((a) => a.sessionName === name);
+    if (restartedAndReady(found)) {
+      if (sawUnready) return true;
+      // Ready on the first look with no observed gap: treat as the stale
+      // pre-restart session and keep waiting for a real gap-then-recovery.
+    } else {
+      sawUnready = true;
+    }
+  }
+  return false;
+}
+
+/* Do the wake for one user-initiated restart: wait for readiness, then POST
+   'hello' to the agent's thread and report the outcome. `report(text)` writes
+   the site's own status line (a stale-notice element, or the doctrine dialog's
+   msg); `saidText` / `manualText` are that site's own phrasings so the sentence
+   fits where it lands. Fire-and-forget from the caller -- it resolves the notice
+   on its own, exactly as watchForAgent's post-create work does. */
+async function autoHelloAfterRestart(name, report, saidText, manualText) {
+  const mine = RESTART_HELLO_SEQ[name] = (RESTART_HELLO_SEQ[name] || 0) + 1;
+  const ready = await restartReadyWait(name, mine);
+  if (mine !== RESTART_HELLO_SEQ[name]) return;    // a newer restart of this agent superseded us
+  if (!ready) { report(manualText); return; }
+  try {
+    const res = await fetch('/api/agent/' + encodeURIComponent(name) + '/thread', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ text: 'hello' }),
+    });
+    const out = await res.json().catch(() => null);
+    if (mine !== RESTART_HELLO_SEQ[name]) return;
+    // 'placed' is the composer's OWN signal that the message reached the agent's
+    // session (web/index.html talk send). NOT `recorded`: recorded is only
+    // whether it was filed in the thread, and a message can be placed but
+    // unrecorded (a name that cannot be filed under). Claim "said hello" only on
+    // placed; 'unconfirmed' or any failure falls to the manual line, so a person
+    // is never falsely told the agent was greeted (the worse-than-manual case).
+    const placed = res.ok && out && out.delivery && out.delivery.state === 'placed';
+    report(placed ? saidText : manualText);
+  } catch {
+    if (mine !== RESTART_HELLO_SEQ[name]) return;
+    report(manualText);
+  }
 }
 
 /**
