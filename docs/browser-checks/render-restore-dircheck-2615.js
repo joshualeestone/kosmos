@@ -98,6 +98,24 @@ const AGENTS = [
       out.spoken = msgEl ? (msgEl.textContent || '').trim() : null;
       out.liveRegion = msgEl ? msgEl.getAttribute('aria-live') : null;
 
+      /* 🛑 THE OTHER DIRECTION OF THE SAME SEAM, and it was unpinned: pressing a
+         LIVE Restore must NOT fire the explain handler. There are now THREE
+         click listeners delegated on `#removed-list` (restore, explain,
+         delete-leftover) and they select on different attributes; a widened
+         selector on any one of them would make a working control announce that
+         it is unavailable. Nothing asserted that until now.
+         📌 The delete-leftover control is pressed too, because it sits in the
+         same row and carries the same `data-shown-as`, so it is the likeliest
+         thing a widened selector would catch. */
+      msgEl.textContent = '';
+      const liveBtn = document.querySelector('#removed-list [data-restore]');
+      if (liveBtn) { liveBtn.click(); await new Promise((r2) => setTimeout(r2, 20)); }
+      out.liveFiredExplain = /account folder/i.test(msgEl.textContent || '');
+      msgEl.textContent = '';
+      const delBtn = document.querySelector('#removed-list [data-delete-leftover]');
+      if (delBtn) { delBtn.click(); await new Promise((r2) => setTimeout(r2, 20)); }
+      out.deleteFiredExplain = /account folder/i.test(msgEl.textContent || '');
+
       /* Now with a restore already in flight. */
       out.bothSpoken = null;
       if (typeof RESTORE_WAITING_SENTENCE !== 'undefined' && msgEl) {
@@ -157,6 +175,14 @@ const AGENTS = [
     if (r.bothSpoken !== null && !r.bothSpoken) {
       problems.push('pressing the unavailable Restore wiped an in-flight restore status: '
         + JSON.stringify(r.afterBoth) + ' -- the other agent is still coming up with nothing saying so');
+    }
+    if (r.liveFiredExplain) {
+      problems.push('pressing the LIVE Restore announced the unavailable explanation, so a working '
+        + 'control tells the person it cannot be used');
+    }
+    if (r.deleteFiredExplain) {
+      problems.push('pressing "Delete its files" announced the Restore-unavailable explanation, so '
+        + 'the explain listener selects more than the control it was written for');
     }
     if (r.liveRegion !== 'assertive') {
       problems.push('the message region is not aria-live=assertive (' + JSON.stringify(r.liveRegion)
