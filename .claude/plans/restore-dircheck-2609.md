@@ -34,6 +34,19 @@ follow-up needing browser verify.
   (2) CONTROL: account dir present -> restore RESTORED (the check must not over-refuse). Full
   remove.test.js: 63 pass. Perturbation (disable the check) reds test (1) only -> load-bearing.
 
+## Scope: MAC ONLY (win32 follow-up)
+
+This reads the account dir out of the launchd PLIST (via `create.readJob`). A win32 agent has no
+plist -- a registered Scheduled Task -- so `readJob` returns null and the check never fires, yet a
+win32 agent DOES carry an account dir (`win32job.js` puts configDir into the task argv). So a
+Windows agent whose account was deleted still restores unchecked -- the same class, reopened on the
+other substrate (this file calls a platform arm landing in one copy and not the other "this repo's
+most expensive recurring shape"). Closing it needs new plumbing (`win32job.status` exposes only
+`{registered, enabled}`, no configDir readback), and whether #2570's delete-for-good is win32-live is
+unconfirmed, so it is a follow-up, not this card. Flagged in-code and here so the class is honestly
+scoped rather than assumed closed. The Restore control grey-out (April's option 3, frontend) is a
+separate follow-up.
+
 ## Weakest premise
 
 `fs.existsSync` is case-insensitive on macOS, so a case-variant account dir reads as present and this

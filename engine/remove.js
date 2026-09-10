@@ -1329,6 +1329,20 @@ function restoreInner(name, platform) {
       - A GONE plist makes readJob return null, so this does not fire; that is the
         separate `plistGone` case reported below. This fires only when the plist
         EXISTS and names a configDir that does not.
+      - 🛑 MAC ONLY, and the class is NOT closed on win32. This reads the account dir
+        out of the launchd PLIST via readJob; a win32 agent has no plist (a registered
+        Scheduled Task), so readJob returns null and this never fires -- yet a win32
+        agent DOES carry an account dir (win32job puts configDir into the task argv).
+        A Windows agent whose account was deleted still restores unchecked. Closing it
+        needs new plumbing (win32job.status exposes only {registered, enabled}, no
+        configDir readback), and whether #2570's delete-for-good is win32-live is
+        unconfirmed, so it is a follow-up rather than this card -- named here so a
+        reader does not mistake the two bullets above for the whole story.
+      - It fires regardless of `record.label` (whether launchd would re-enable a job).
+        That is intended: a label-less agent restores by "put the card back, start it
+        the way you did before", and a manual start points at the same gone dir -- so
+        refusing with "re-add the account first" is right for both, not just the
+        re-enable case.
      `fs.existsSync` matches the sibling `startableGone` plist check; its macOS
      case-insensitivity errs SAFE here -- a case-variant dir reads as present, so
      we do not over-refuse a restore that would in fact land somewhere real. */
