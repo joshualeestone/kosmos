@@ -159,7 +159,8 @@ test('#2612 CONTROL: a provider the map does not know falls back to the path, no
    BE CASE-INSENSITIVE. #2612 introduced the first mixed-case value this namespace
    has ever held. Every label is LOWERCASE by construction (`dirForLabel` and
    `cleanLabel` both `.toLowerCase()` and strip to `[a-z0-9-]`), so a label can
-   never be "OpenAI" and can easily be "openai". An exact `Set.has` waves that
+   be "OpenAI" only off a hand-made directory (`list()` reads the basename with
+   no normalisation) and is very easily "openai". An exact `Set.has` waves that
    through while a screen reader announces the two identically, which is the
    defect this function exists to prevent, and it would have been a REGRESSION:
    the same rows previously produced a path, which is ugly and audibly distinct.
@@ -1024,16 +1025,48 @@ test('#2612: a row with no provider does not fake a cross-provider group', () =>
  * asserts it EXPLICITLY so nobody reads this pin as proof the three agree
  * everywhere.
  */
+/* 🛑 THE COUNT IN THIS PIN'S OWN NAME WAS WRONG, WHICH IS THE FAILURE MODE THE
+   PIN EXISTS TO PREVENT, COMMITTED BY THE PIN. It said THREE derivations and
+   promised whoever picks up kosmos#2634 that changing one turns this red. There
+   are FOUR sites producing the short `OpenAI | Claude` pair, and the fourth was
+   not matched, so that promise was false for a quarter of the thing it named.
+
+   The four, each read rather than recalled:
+     web/index.html  the qualifier ternary in accountQualifiers   PINNED (via the helper)
+     web/index.html  `const qualName = qual || (isOpenai ? ...)`  PINNED (regex)
+     web/index.html  `const provName = (providerOf(CURRENT) ...)` PINNED (regex, added here)
+     web/index.html  `const name = a.providerName || (...)`       PINNED (regex) but LONG form
+   ⚠️ The last one yields "Anthropic / Claude", not "Claude", so it is pinned as
+   the GROUP HEAD and deliberately not required to equal the short three.
+
+   📌 DELIBERATELY OUT OF SCOPE, named so the next reader does not count them as
+   a gap: `const provName = want === 'openai' ? 'OpenAI' : 'Anthropic'` uses the
+   `OpenAI | Anthropic` pair, a different fact, documented as such at its site.
+
+   ⭐ A count is the most attractive thing to write and the least likely to be
+   re-derived, and this file already carries a bulletin's worth of that lesson
+   about counts elsewhere. So this pin now asserts the SHAPE of each site it
+   claims, and the assertions below fail loudly if any of them moves. */
 const PROVIDER_SITES = {
   groupHead: /const name = a\.providerName \|\| \(a\.provider === 'openai' \? '([^']+)' : '([^']+)'\)/,
   qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : '([^']+)'\)/,
+  provName: /const provName = \(providerOf\(CURRENT\) === 'openai'\) \? '([^']+)' : '([^']+)'/,
 };
 
-test('#2612: the three provider-name derivations agree for every provider that exists', () => {
+test('#2612: the four provider-name derivations agree for every provider that exists', () => {
   const head = PAGE.match(PROVIDER_SITES.groupHead);
   const qual = PAGE.match(PROVIDER_SITES.qualName);
+  const prov = PAGE.match(PROVIDER_SITES.provName);
   assert.ok(head, 'the group-head derivation moved or changed shape; restate this pin');
   assert.ok(qual, 'the qualName fallback moved or changed shape; restate this pin');
+  assert.ok(prov, 'the provName derivation moved or changed shape; restate this pin');
+  /* The fourth site carries the SHORT pair, so it must equal the qualName pair
+     exactly. Asserted before the loop below so a drift here names itself rather
+     than surfacing as a confusing qualifier mismatch. */
+  assert.deepEqual([prov[1], prov[2]], [qual[1], qual[2]],
+    'the provName derivation disagrees with the qualName fallback on the short provider names, '
+    + 'so one screen says ' + JSON.stringify([prov[1], prov[2]]) + ' and another says '
+    + JSON.stringify([qual[1], qual[2]]) + ': that is exactly the drift kosmos#2634 exists to end');
 
   const headFor = { openai: head[1], anthropic: head[2] };
   const qualFor = { openai: qual[1], anthropic: qual[2] };
@@ -1085,4 +1118,56 @@ test('#2612 CONTROL: the pin can see a disagreement, and records the one that al
   assert.equal(qual[2], 'Claude',
     'the qualName fallback stopped guessing "Claude" for a non-openai provider: #2634 may be fixed, '
     + 'in which case this arm and the qualifier above should now AGREE and this pin needs rewriting');
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 🛑 THE GROUPING KEY IS CASE-INSENSITIVE TOO, AND IT WAS THE LAST EXACT-CASE
+ * COMPARISON IN A FUNCTION WHOSE COMMENTS ALREADY CLAIMED OTHERWISE.
+ *
+ * Iterations 6 and 7 hardened every membership test (the reserved word, the
+ * label, the provider id) and each of those sits DOWNSTREAM of the grouping.
+ * The key itself stayed raw, and that is the one place where being wrong costs
+ * the entire fix: rows that do not group are never counted ambiguous, so they
+ * get NO qualifier at all and both controls answer to the person's bare name.
+ *
+ * ⭐ Worth keeping past this card: a claim of the form "X is true EVERYWHERE"
+ * is a claim about a set, and the cheapest way to be wrong about it is to
+ * enumerate the members you were already thinking about. Every exact-case
+ * comparison this branch found and fixed was one it had already looked at; the
+ * one it missed was upstream of all of them.
+ * ───────────────────────────────────────────────────────────────────────────*/
+test('#2612: two accounts whose NAME differs only by case still get qualifiers', () => {
+  /* `name` is free-form text kept verbatim in a per-account `.kosmos-name`
+     sidecar (engine/openaiaccounts.js), with no cross-account uniqueness, so
+     naming two accounts "Work" and "work" is ordinary rather than contrived. */
+  const a = { provider: 'openai', name: 'Work', dir: '/h/.codex-a', label: null, isDefault: false };
+  const b = { provider: 'openai', name: 'work', dir: '/h/.codex-b', label: null, isDefault: false };
+  const q = qualifiers([a, b]);
+  assert.notEqual(q.get(a.dir), '',
+    'a case-variant name did not group, so the row was never counted ambiguous and got NO '
+    + 'qualifier: both controls now read the bare name and sound identical');
+  assert.notEqual(q.get(b.dir), '', 'the sibling row is unqualified for the same reason');
+  const heard = [q.get(a.dir), q.get(b.dir)].map((s) => String(s).toLowerCase());
+  assert.equal(new Set(heard).size, 2, 'the two qualifiers sound alike: ' + JSON.stringify(heard));
+  /* CONTROL: the exact-match spelling must already behave this way, or the
+     assertions above are measuring something other than the case-insensitivity. */
+  const qCtl = qualifiers([{ ...a, name: 'work' }, b]);
+  assert.deepEqual(
+    [qCtl.get(a.dir), qCtl.get(b.dir)], [q.get(a.dir), q.get(b.dir)],
+    'the same two rows named identically get a different answer, so the key is still exact-case',
+  );
+});
+
+/* The same defect via `email`, which is the key for every Claude row and is the
+   field the original #2584 collision was keyed on. Kept separate from the name
+   arm because they are different branches of the key expression: a change that
+   normalises one and not the other must red exactly one of these. */
+test('#2612: two accounts whose EMAIL differs only by case still get qualifiers', () => {
+  const a = { provider: 'anthropic', email: 'Agent@Example.com', dir: '/h/.a', label: null, isDefault: false };
+  const b = { provider: 'anthropic', email: 'agent@example.com', dir: '/h/.b', label: null, isDefault: false };
+  const q = qualifiers([a, b]);
+  const heard = [q.get(a.dir), q.get(b.dir)].map((s) => String(s).toLowerCase());
+  assert.ok(heard.every((h) => h !== ''),
+    'a case-variant email did not group, so neither row was qualified: ' + JSON.stringify(heard));
+  assert.equal(new Set(heard).size, 2, 'the two qualifiers sound alike: ' + JSON.stringify(heard));
 });

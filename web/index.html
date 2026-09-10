@@ -15770,27 +15770,58 @@ function accountQualifiers(list) {
      that distinguishes, else the unique dir)
      -- so the on-screen name and the accessible name stay distinct. Trimmed so a
      whitespace-only name never becomes the key. */
+  /* 🔑 ONE DERIVATION OF THE NORMALISED PROVIDER ID, READ BY EVERY SITE THAT
+     NEEDS IT. There are three: the key below, the group's provider set, and the
+     ternary that turns an id into a display name. Two of them were separate
+     one-liners for one iteration and IMMEDIATELY DRIFTED: iteration 6
+     lowercased the set and left the ternary exact, which iteration 7 caught by
+     measuring that reverting the ternary's `.toLowerCase()` left every arm
+     green. They must agree or a case-variant id counts toward
+     `providerDistinguishes` and then fails to resolve to a name, which is the
+     worst of both outcomes.
+     ⇒ CLAUDE.md convention 5 names a duplicated fact as this codebase's
+     most-shipped defect, and this one already went wrong once, so it is a
+     function rather than a convention to remember. */
+  const provIdOf = (a) => String((a && a.provider) || '').toLowerCase();
+  /* 🛑 THE KEY IS LOWERCASED, AND UNTIL ITERATION 7 IT WAS THE ONE EXACT-CASE
+     COMPARISON LEFT IN A FUNCTION WHOSE COMMENTS CLAIMED "MEMBERSHIP IS
+     CASE-INSENSITIVE EVERYWHERE IT IS TESTED". That claim was true of every
+     test DOWNSTREAM of the grouping and false of the grouping itself, which is
+     the one place where being wrong costs the whole fix: rows that do not group
+     are never counted ambiguous, so they get NO qualifier at all.
+
+     ⚠️ REPRODUCED against this function before fixing it. Two OpenAI accounts a
+     person named "Work" and "work":
+       before  -> ["", ""]                      <- no qualifier on EITHER row, so
+                                                   both controls read the person's
+                                                   name and nothing else, and the
+                                                   two names sound identical
+       control -> ["/h/.codex-a", "/h/.codex-b"]   (both named "work", so they DO
+                                                   group and both get qualified)
+     The same held for `Agent@Example.com` beside `agent@example.com`.
+     ⇒ That is the #2584 / #1917 defect itself, reached through the grouping key
+     rather than through qualifier assignment, and every hardening this branch
+     did sits downstream of it and could not see it.
+
+     📌 REACHABLE THROUGH ORDINARY USE, not a hand-made-directory edge case.
+     `name` is free-form text that `engine/openaiaccounts.js` preserves as
+     "EXACTLY what the person typed", in a `.kosmos-name` sidecar INSIDE each
+     account dir, so there is no cross-account uniqueness or normalisation to
+     prevent two accounts named "Work" and "work". Naming two accounts with
+     different capitalisation is an ordinary thing for a person to do.
+     🔑 Lowercasing here is safe because the key is used ONLY for grouping
+     (`count`, `providersByKey`, `usedByKey`) and is never displayed; the
+     qualifiers themselves keep the casing they were derived from. */
   const key = (a) => String((a && (
     acctChosenName(a)
     || a.email
-    || (a.provider === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '');
+    || (provIdOf(a) === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '')
+    .toLowerCase();
   /* Both facts about a key-group are gathered in ONE pass: how many rows share
      the key, and which providers those rows come from. They are siblings, and
      the provider set used to be rebuilt per row with a full `rows.filter()`
      inside the second loop, which is the same work done N times for an answer
      that cannot change between rows of one group. */
-  /* 🔑 ONE DERIVATION OF THE NORMALISED PROVIDER ID, READ BY BOTH SITES THAT NEED
-     IT. There are exactly two: the group's provider set below, and the ternary
-     that turns an id into a display name. They were separate one-liners for one
-     iteration and IMMEDIATELY DRIFTED: iteration 6 lowercased the set and left
-     the ternary exact, which iteration 7 caught by measuring that reverting the
-     ternary's `.toLowerCase()` left every arm green. The two must agree or a
-     case-variant id counts toward `providerDistinguishes` and then fails to
-     resolve to a name, which is the worst of both outcomes.
-     ⇒ CLAUDE.md convention 5 names a duplicated fact as this codebase's
-     most-shipped defect, and this is a two-line instance that already went
-     wrong once, so it is a function rather than a convention to remember. */
-  const provIdOf = (a) => String((a && a.provider) || '').toLowerCase();
   const count = new Map();
   const providersByKey = new Map();
   for (const a of rows) {
@@ -15815,8 +15846,14 @@ function accountQualifiers(list) {
                                                             consistently lowercase)
        📌 NOT REACHABLE TODAY, and that is a statement about the two writers, not
        about this function: `/api/accounts` rows get their provider from
-       `server.js` (`'anthropic'` at :4610, `'openai'` at :4696) and from
-       `openaiaccounts.js`'s `PROVIDER` constant, all lowercase literals. The
+       `server.js` (`'anthropic'` at :4610) and from `openaiaccounts.js:39`
+       (`const PROVIDER = 'openai'`), both lowercase literals.
+       ⚠️ THIS USED TO ALSO CITE `server.js:4696` AS A SOURCE, AND THAT WAS THE
+       SAME MISTAKE THE NEXT SENTENCE EXISTS TO WARN ABOUT: :4696 is
+       `provider: 'openai'` inside the missing-runner 400 body of
+       POST /api/accounts/openai/key, an ERROR payload, not an account row. A
+       citation that is one line off reads as verification and is worse than no
+       citation, because the next reader stops there. The
        `provider: 'claude'` at `server.js:4739` is an ERROR BODY from
        POST /api/accounts/claude/apikey, not an account row, so it never arrives
        here. #2634 (consolidating the three provider-name derivations) is exactly
@@ -15899,7 +15936,11 @@ function accountQualifiers(list) {
        qualifier this namespace has ever held ("OpenAI"), and every label is
        lowercase by construction: `accounts.dirForLabel` and
        `openaiaccounts.cleanLabel` both `.toLowerCase()` and strip to
-       `[a-z0-9-]`. So a label can never BE "OpenAI" and can easily be "openai",
+       `[a-z0-9-]`. So a label is lowercase whenever THIS APP created it, and can
+       be "OpenAI" when read off a hand-made `~/.codex-OpenAI` directory
+       (`engine/openaiaccounts.js:166` is
+       `label: isDefault ? null : path.basename(dir).replace(/^\.codex-/, '')`,
+       with no normalisation). It can easily be "openai",
        which an exact `Set.has` waves through while a screen reader announces
        the two identically.
        ⚠️ IT BITES IN BOTH ORDERINGS, WHICH IS WHY THE TEST FOR IT IS TWO ARMS.
@@ -15988,7 +16029,9 @@ function accountQualifiers(list) {
            mixed-case value ever added to this namespace: every label is
            lowercase by construction, because `accounts.dirForLabel` and
            `openaiaccounts.cleanLabel` both `.toLowerCase()` and strip to
-           `[a-z0-9-]`. So a label can never be "OpenAI" and CAN be "openai",
+           `[a-z0-9-]`. So a label is lowercase whenever THIS APP created it (it
+           CAN be "OpenAI" off a hand-made directory, see the note above) and is
+           very easily "openai",
            which an exact `used.has()` waves straight through while a screen
            reader announces the two identically. Measured with the real payload
            ordering on one email across `~/.claude`, `~/.codex` and
