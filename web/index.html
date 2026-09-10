@@ -2770,12 +2770,20 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   html[data-layout="consolidated"] body.consolidated .railme-b { min-width: 0; }
   html[data-layout="consolidated"] body.consolidated .railme-n { display: block; font-size: .8125rem; font-weight: 600; color: var(--k-ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   html[data-layout="consolidated"] body.consolidated .railme-s { display: block; font-size: .6875rem; color: var(--k-ink-2); }
-  html[data-layout="consolidated"] body.consolidated .railme-theme, html[data-layout="consolidated"] body.consolidated .railme-lay { flex: none; }
+  /* #2282: the appearance + view-toggle controls now live in the one top header on
+     every view (above), so the side rail no longer carries its own copies -- the rail
+     keeps only the per-view person -> Settings affordance (#520). Hiding rather than
+     removing the markup keeps the one document-level theme/layout handler and
+     paintThemePicker/applyLayout sync trivially correct (a hidden radio is still kept
+     in sync; it just is not shown). */
+  html[data-layout="consolidated"] body.consolidated .railme-theme, html[data-layout="consolidated"] body.consolidated .railme-lay { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a > #rail-me { justify-content: center; padding-left: 0; padding-right: 0; }
   /* #2154: the view toggle folds away with the theme pill (and the name) when the
      agents column is folded to its letters, for the same reason -- there is no
      room for it, and the person unfolds to reach either control. */
-  html[data-layout="consolidated"] body.consolidated.fold-a .railme-b, html[data-layout="consolidated"] body.consolidated.fold-a .railme-theme, html[data-layout="consolidated"] body.consolidated.fold-a .railme-lay { display: none; }
+  /* #2282: .railme-theme/.railme-lay are now hidden in ALL consolidated (above), so the
+     fold-a rule only needs to fold the name (.railme-b) away with the column. */
+  html[data-layout="consolidated"] body.consolidated.fold-a .railme-b { display: none; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railme-go { flex: none; }
   /* The header gives way (Josh, 15:32: "header gone is what I'm going
      for"). Its notice slots stay in the flow, so an update note or the
@@ -2798,9 +2806,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
   /* Josh, 2026-08-27: "the design doesn't go all the way to the top. There's a gap
          above Agents, Projects, the main dialogue, and Tasks, like a gray row running
          across the whole top of the whole site."
-         🔑 THAT ROW WAS THIS ELEMENT'S BOTTOM MARGIN. Everything inside .apphead is
-         display:none in this view (klink, h1, tabs, headright), so the header collapsed
-         to nothing and left 16px of body showing above the columns.
+         🔑 THAT ROW WAS THIS ELEMENT'S BOTTOM MARGIN, back when this view COLLAPSED the
+         header (every child hidden, so it read as a band across the top). #2282 ended
+         the collapse -- the header is now a real full-width bar (see the header rule
+         below) -- but the `.apphead` reset it produced is KEPT so the bar still sits
+         flush to the top with no stray band.
          ⚠️ THE MARGIN WAS NOT DEAD WEIGHT, WHICH IS WHY IT MOVES RATHER THAN GOING.
          The four update slots live inside .apphead, and when one shows, that margin is
          what separates it from the board. So it moves ONTO the slots, where it applies
@@ -2809,27 +2819,49 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
          :empty (it carries a hidden #newsbar child, as its own comment says), so it
          needs the :has() test instead. */
       html[data-layout="consolidated"] body.consolidated > .apphead { position: static; margin: 0; padding: 0; border: 0; min-height: 0; }
-      html[data-layout="consolidated"] body.consolidated > .apphead #utoast-slot,
-      html[data-layout="consolidated"] body.consolidated > .apphead #unote-slot,
-      html[data-layout="consolidated"] body.consolidated > .apphead #uoffline-slot { margin-bottom: var(--space-6); }
-      html[data-layout="consolidated"] body.consolidated > .apphead #unews-slot:has(> *:not([hidden])) { margin-bottom: var(--space-6); }
-  /* 🔑 `margin: 0` IS THE GREY BAND (kosmos#1303 A). Josh, twice: "the gray
-     emptiness margin bar at the top was reduced but it still looks like it's
-     there... 5 or 8 pixels of a banner still across the top, where the design
-     isn't going all the way fully to the top of the title bar."
-     MEASURED, not reasoned: `.apphead` renders 4px tall in this view with every
-     child hidden. The `header` inside it is 0px high and carries
-     `margin-bottom: var(--space-2)`, and this rule zeroed its PADDING and its
-     MIN-HEIGHT and left the margin. A zero-height grid with a bottom margin is
-     still four pixels of page.
+      /* #2282: the consolidated-only notice-slot bottom-margins are GONE. They existed
+         for the OLD collapsed-header design, where a shown update/offline notice was the
+         only visible header content and its margin separated it from the board. The
+         header is now a real bar with its own border-bottom, and the notices ride inside
+         it exactly as they do in the tab view -- so a consolidated-only bottom margin
+         made a shown notice the tallest item in the header's flex row, growing and
+         misaligning the bar. Dropping them keeps the notices consistent across views
+         (kosmos#2282 iteration-1 review). The slots stay inside .apphead and are still
+         :empty-hidden; web.consolidated-980 still pins that they are not styled away. */
+  /* 🔑 `margin: 0` IS WHY THERE IS NO GREY BAND (kosmos#1303 A, HISTORY -- since
+     #2282 the header is a real bar, not a collapsed one, but the margin:0 reason still
+     holds). Josh, twice: "the gray emptiness margin bar at the top was reduced but it
+     still looks like it's there... 5 or 8 pixels of a banner still across the top, where
+     the design isn't going all the way fully to the top of the title bar."
+     MEASURED, not reasoned (at the time #1303 was fixed): `.apphead` rendered 4px tall
+     in this view with every child hidden -- the `header` inside it was 0px high and
+     carried `margin-bottom: var(--space-2)`, and zeroing PADDING and MIN-HEIGHT left the
+     margin. A zero-height grid with a bottom margin is still four pixels of page. The
+     header now has real content and its own `margin: 0` (below), so the band cannot
+     return; this note is why that margin:0 must stay.
      ⚠️ It reads as a band across the WHOLE width because every body child in
      this view spans `grid-column: 1 / -1`, so four pixels of `.apphead` is four
      pixels across everything. That is why it looks like a banner rather than
      like a gap above one column, and why reading the rails' own padding never
      explained it. */
-  html[data-layout="consolidated"] body.consolidated > .apphead header { padding: 0; min-height: 0; margin: 0; }
-  html[data-layout="consolidated"] body.consolidated > .apphead .klink, html[data-layout="consolidated"] body.consolidated > .apphead h1,
-  html[data-layout="consolidated"] body.consolidated > .apphead .tabs, html[data-layout="consolidated"] body.consolidated > .apphead .worldsw, html[data-layout="consolidated"] body.consolidated > .apphead .headright { display: none; }
+  /* #2282 (Josh 0.6.36, Mona's mock design/top-header.html): ONE header across the
+     top on every view. In the consolidated view the header used to be fully hidden
+     (its controls drifted into the #rail-me side rail); now it stays as a real
+     full-width top bar so the top reads the same in tab, consolidated and grid.
+     🔑 RECONCILES #1303 (Josh, twice: "no gray emptiness band across the top"):
+     that objection was to an EMPTY 4px collapsed-header band. This is not that -- the
+     bar now carries real content (the K mark, the Kosmos switcher on the left, the
+     appearance + view-toggle controls on the right) flush to the top with no empty
+     margin, which is exactly what Mona's mock (the design owner's call, Josh's newer
+     ask) puts there. The center TABS stay hidden in this view (consolidated is one
+     screen, not separate tab screens) -- matching the mock's 2-column consolidated
+     header (left cluster + right cluster). */
+  html[data-layout="consolidated"] body.consolidated > .apphead header {
+    display: flex; align-items: center; justify-content: space-between; gap: var(--space-5);
+    padding: 8px var(--space-8); min-height: 0; margin: 0;
+    background: var(--k-bg); border-bottom: 1px solid var(--k-rule); }
+  html[data-layout="consolidated"] body.consolidated > .apphead h1,
+  html[data-layout="consolidated"] body.consolidated > .apphead .tabs { display: none; }
   html[data-layout="consolidated"] body.consolidated .railhead .lead { display: flex; align-items: center; gap: 7px; min-width: 0; }
   html[data-layout="consolidated"] body.consolidated.fold-a .railhead#rail-agents .lead { flex-direction: column; }
   /* The rails on a deeper ground than the conversation, and their rows flat

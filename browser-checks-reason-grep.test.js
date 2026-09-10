@@ -532,7 +532,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `.catch(...) threw:` emit. Both are ALSO counted by the catch/launch scan below (+2 there).
      Its ok() helper interpolates FAIL (empty literal prefix), so that is NOT counted -- matching
      how every ok()-helper check on this page is treated. */
-  const EXPECTED_SITES = 85;   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 86;   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
   //                              +1: render-worldsw-abandon-2628.js (its `for (const p of problems)
   //                              console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site,
   //                              confirmed quotable; same shape as render-worldswitch-2238's. Its
@@ -546,6 +546,14 @@ test('every emit site in every check prints a line the gate can quote', () => {
   //                              per-finding `console.error('  FAIL  ' + f)` loop are two SHAPE-1 sites,
   //                              both confirmed quotable. Its launch-failure catch is counted once by the
   //                              catch/launch scan below (as the 49th), not here. (#2570)
+  //                              +1: render-tophead-consolidated-2282.js -- its per-problem
+  //                              `for (const p of problems) console.error('  FAIL  ' + p)` loop is one SHAPE-1
+  //                              finding-emit site, confirmed quotable. Its launch-failure literal
+  //                              `console.error('FAIL  render-tophead-consolidated-2282: could not start a browser' ...)`
+  //                              has no ` + <finding>`, so it is counted ONLY by the catch/launch scan below
+  //                              (as the 55th), NOT here -- same split as render-worldrename-1704. So the
+  //                              recent arithmetic runs 80 + 1 (#2633) + 2 (#2620) + 2 (#2617) + 1 (#2282) = 86.
+  //                              Added on the RE-merge of current origin/main into tophead-2282 (#2282/#2624).
   //                              ⚠️ APPEND HERE, NEVER REPLACE, AND THAT GOES FOR A MERGE TOO. The first
   //                              version of this row overwrote the #1040 line above it, which left both
   //                              counters correct and their trails unable to reconcile. Then the MERGE with
@@ -718,7 +726,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      catch/launch emit sites, both confirmed quotable (`FAIL  render-token-usage-2617: ...`
      and `FAIL  render-token-usage-2617 threw: ...`). Both are ALSO counted once by the
      finding-emit scan above (75/76). Same shape as render-account-badge-1921's launch catch. */
-  const EXPECTED_CATCH_SITES = 54;   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
+  const EXPECTED_CATCH_SITES = 55;   // +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch catch; the 55th, #2282, added on the re-merge). +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
   //                                   +1: render-worldsw-abandon-2628.js (its `console.error('FAIL
   //                                   render-worldsw-abandon-2628: could not start a browser' ...)` launch catch
   //                                   is one catch/launch emit site, confirmed quotable; same shape as
