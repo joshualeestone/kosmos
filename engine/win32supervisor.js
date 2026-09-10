@@ -23,7 +23,8 @@
  * all. Rather than encode the respawn in a task setting whose semantics differ
  * from KeepAlive's, the loop lives HERE -- respawn and throttle in code, where
  * both are testable from any platform. The task keeps only the half Windows does
- * well: start at logon, and restart the supervisor itself if IT dies.
+ * well: start at logon. Nothing restarts a supervisor that dies -- the task has
+ * no restart-on-failure (`win32job.taskXml`) -- until the next logon.
  *
  *      launchd                          this module
  *      RunAtLoad ......................  Scheduled Task, at-logon trigger
@@ -455,7 +456,14 @@ function superviseStreaming(spec, opts) {
       /* This run is over whether or not it was already replaced, so its token is
          retired unconditionally -- retire, never revoke, so the agent's other runs
          keep theirs. A clean stop ends the child through this same path. */
-      if (runInstance) { try { retireRun(s.name, runInstance); } catch { /* a stale token only waits out the cap */ } }
+      if (runInstance) {
+        let retired;
+        try { retired = retireRun(s.name, runInstance); }
+        catch (e) { retired = { ok: false, because: 'we could not retire its token (' + ((e && e.code) || 'unknown') + ')' }; }
+        /* Said, not swallowed: a token left live only waits out the store's cap,
+           but the task log should show why it is still there. */
+        if (retired && retired.ok === false) onEvent({ action: 'token-not-retired', because: retired.because });
+      }
       if (child === c) { child = null; stream.stopped(); }
       const said = stderrTail.replace(/\s+/g, ' ').trim();
       onEvent({ action: 'died', code: code === undefined ? null : code, sessionId: handle.sessionId, because: said ? 'it said: ' + said : undefined });
@@ -540,7 +548,10 @@ function superviseStreaming(spec, opts) {
        nothing until it is told something, fresh or resumed. */
     stream.started(r.child && r.child.pid, r.sessionId);
     attach(r.child, r.instance || null);
-    onEvent({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId });
+    /* A run that could not mint a token still runs, but the board refuses every
+       report it sends -- so the task log says why, rather than nothing. */
+    onEvent(Object.assign({ action: r.resumed ? 'resumed' : 'started', sessionId: r.sessionId },
+      r.tokenBecause ? { because: 'it has no reporting token: ' + r.tokenBecause } : {}));
   }
 
   /* The Mac's ThrottleInterval, gating the RESTART. A crash-loop must limp, not

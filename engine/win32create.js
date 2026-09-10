@@ -94,38 +94,14 @@ const win32sessions = require('./win32sessions');
 const sendertoken = require('./sendertoken');
 
 /**
- * Mint a session id, record it as Kosmos-owned, and return the launch args that
- * pin it. Call this immediately before spawning the interactive win32 agent.
- *
- * @param {{ name: string, runner?: string }} meta the Kosmos agent name (the
- *   claim the roster emits and status.isNamedOurs matches) and the runner
- *   ('claude' | 'codex'), the same vocabulary win32sessions.record and the roster
- *   already use -- no private words.
- * @returns {{ ok: true, sessionId: string, launchArgs: string[], name: string,
- *             env: object, token: string|null, instance: string|null,
- *             tokenBecause: string|null }
- *           | { ok: false, because: string }}
- *   On success, sessionId is the id to pass to the spawn (it is already in
- *   launchArgs) and launchArgs is ['--session-id', sessionId] to splice into the
- *   claude argv. `env` is the environment to MERGE into the spawn -- it carries
- *   KOSMOS_AGENT_TOKEN when a token was minted and is EMPTY when one was not, so
- *   a caller that spreads it unconditionally is correct either way and never
- *   spells the variable name itself. `token`/`instance` are the same mint,
- *   returned so the caller can hand the pair to abandon(); `tokenBecause` is null
- *   on success and carries the mint's own reason when reporting will be degraded.
- *   On failure (a name the record refuses -- blank or invisible --, or a store
- *   write fault) nothing was recorded and there is nothing to abandon; `because`
- *   is the record's own reason, spoken plainly.
- */
-/**
  * Mint THIS run's credential: the one mint point for a fresh start AND a resume.
  *
  * 🛑 A RESUME NEEDS ONE TOO. A crash-restarted agent was resumed with no token at
  * all -- `childEnv` deletes the variable on an empty one -- so every self-report it
  * sent was refused, and a Windows agent has no pane to fall back on. The Mac mints
  * a fresh token on every launch (`bin/agent-supervisor.sh`); this mirrors it. The
- * old run's token is not reused: the store never records which run a token
- * belongs to, and one token per launch is the design (sendertoken.js).
+ * old run's token is not reused: the launcher never holds on to it, and one token
+ * per launch is the design (sendertoken.js), so each run retires only its own.
  *
  * Never throws and never refuses a launch: a mint that fails degrades reporting,
  * and `tokenBecause` says why.
@@ -161,6 +137,30 @@ function retireRun(name, instance) {
   catch (e) { return { ok: false, because: 'we could not retire that run' + ((e && e.code) ? ' (' + e.code + ')' : '') }; }
 }
 
+/**
+ * Mint a session id, record it as Kosmos-owned, and return the launch args that
+ * pin it. Call this immediately before spawning the interactive win32 agent.
+ *
+ * @param {{ name: string, runner?: string }} meta the Kosmos agent name (the
+ *   claim the roster emits and status.isNamedOurs matches) and the runner
+ *   ('claude' | 'codex'), the same vocabulary win32sessions.record and the roster
+ *   already use -- no private words.
+ * @returns {{ ok: true, sessionId: string, launchArgs: string[], name: string,
+ *             env: object, token: string|null, instance: string|null,
+ *             tokenBecause: string|null }
+ *           | { ok: false, because: string }}
+ *   On success, sessionId is the id to pass to the spawn (it is already in
+ *   launchArgs) and launchArgs is ['--session-id', sessionId] to splice into the
+ *   claude argv. `env` is the environment to MERGE into the spawn -- it carries
+ *   KOSMOS_AGENT_TOKEN when a token was minted and is EMPTY when one was not, so
+ *   a caller that spreads it unconditionally is correct either way and never
+ *   spells the variable name itself. `token`/`instance` are the same mint,
+ *   returned so the caller can hand the pair to abandon(); `tokenBecause` is null
+ *   on success and carries the mint's own reason when reporting will be degraded.
+ *   On failure (a name the record refuses -- blank or invisible --, or a store
+ *   write fault) nothing was recorded and there is nothing to abandon; `because`
+ *   is the record's own reason, spoken plainly.
+ */
 function prepareSession(meta) {
   // crypto.randomUUID gives a canonical v4 UUID: the shape `claude --session-id`
   // accepts (measured) and one win32sessions.validId passes (hyphens are in its

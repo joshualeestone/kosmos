@@ -441,6 +441,41 @@ test('#570 every finished run retires ITS OWN token: a crash, a relaunch, then a
   assert.deepEqual(retired, ['tok/inst-1', 'tok/inst-2'], 'and the stopped run\'s too, exactly once each');
 });
 
+test('#570 a token that cannot be retired is SAID on the task log, not swallowed', () => {
+  for (const retireRun of [
+    () => ({ ok: false, because: 'the token store is busy' }),
+    () => { throw Object.assign(new Error('busy'), { code: 'EBUSY' }); },
+  ]) {
+    const kids = [];
+    const events = [];
+    const h = sup.superviseStreaming({ name: 'stuck', cwd: 'C:\w' }, {
+      liveReader: NOBODY_LIVE,
+      throttleMs: 0, now: () => 0, setTimer: () => {},
+      onEvent: (e) => events.push(e),
+      retireRun,
+      launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-1' }; },
+    });
+    kids[0].die(1);
+    const said = events.find((e) => e.action === 'token-not-retired');
+    assert.ok(said, 'the failure reaches the task log');
+    assert.match(said.because, /store is busy|EBUSY/);
+    h.stop();
+  }
+});
+
+test('#570 a run that got NO token says so when it starts, since the board will refuse its reports', () => {
+  const events = [];
+  const h = sup.superviseStreaming({ name: 'tokenless', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    onEvent: (e) => events.push(e),
+    launch: () => ({ ok: true, sessionId: 's', child: fakeChild(), tokenBecause: 'the token store is busy' }),
+  });
+  const started = events.find((e) => e.action === 'started');
+  assert.match(started.because, /no reporting token: the token store is busy/);
+  h.stop();
+});
+
 test('#570 a run that was launched with no token retires nothing', () => {
   const kids = [];
   const retired = [];

@@ -257,7 +257,7 @@ test('#570 7c a FRESH agent pins the minted id; a RESUME names the id it already
   assert.ok(!back.includes('--session-id'), 'never both -- they are mutually exclusive');
 });
 
-test('#570 7c a RESUME mints nothing, so one agent never gets two ownership records', () => {
+test('#570 7c a RESUME writes no record, so one agent never gets two ownership records', () => {
   /* ⚠️ prepareSession WRITES the record. Calling it on a resume would file a
      SECOND row for one agent -- exactly the duplicate-name hazard win32live
      documents, arriving through the restart path that is supposed to be routine. */
@@ -299,6 +299,10 @@ test('#570 a RESUME carries its OWN credential, or every self-report it sends is
 });
 
 test('#570 a RESUME whose spawn throws retires the token it minted, and keeps the record', () => {
+  /* The row must EXIST first, or a resume that wrongly forgot it would forget
+     nothing and this test could not tell. */
+  const owned = win32sessions.record('a-session-we-already-own-4', { name: 'streamer-4', runner: 'claude' });
+  assert.equal(owned.ok, true, owned.because);
   launcher.setSpawn(() => { const e = new Error('nope'); e.code = 'ENOENT'; throw e; });
   const rowsBefore = Object.keys(win32sessions.read()).length;
   const liveBefore = sendertoken.live('streamer-4').length;
@@ -311,6 +315,7 @@ test('#570 a RESUME whose spawn throws retires the token it minted, and keeps th
   assert.equal(r.ok, false);
   assert.equal(sendertoken.live('streamer-4').length, liveBefore, 'no credential outlives a run that never started');
   assert.equal(Object.keys(win32sessions.read()).length, rowsBefore, 'and the record, which is the agent\'s, is untouched');
+  assert.equal(win32sessions.read()['a-session-we-already-own-4'].name, 'streamer-4', 'the agent\'s own row survives a failed restart');
 });
 
 test('#570 7c a message is ONE json line, in the shape stream-json reads', () => {

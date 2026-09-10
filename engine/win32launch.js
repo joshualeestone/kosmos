@@ -304,9 +304,8 @@ function launch(spec) {
  * resume-not-replace: a supervisor cannot adopt a pipe somebody else holds, but
  * it can re-open the same session id, which every other module already keys on.
  *
- * 📌 NOT WIRED IN THIS COMMIT. `create.js` and `win32supervisor.js` still use
- * `launch()`. This is the substrate, measured and tested on its own first, which
- * is the order this lane has learned to work in.
+ * 📌 WIRED through `win32supervisor.superviseStreaming`, which every agent's task
+ * runs; `launch()` remains only for the older detached `supervise()` loop.
  */
 
 /** One message, in the shape `--input-format stream-json` reads. */
@@ -394,9 +393,13 @@ function launchStreaming(spec) {
   } catch (e) {
     /* A fresh start undoes its record AND its token. A resume keeps the record (it
        is the agent's, not this run's) and retires only the token it just minted. */
+    let tokenNote = '';
     if (!s.resumeSessionId) { try { win32create.abandon(prepared); } catch { /* best effort */ } }
-    else { try { win32create.retireRun(prepared.name, prepared.instance); } catch { /* best effort */ } }
-    return { ok: false, because: 'we could not start it (' + ((e && e.code) || 'unknown') + ')' };
+    else {
+      const retired = win32create.retireRun(prepared.name, prepared.instance);   // never throws
+      if (!retired.ok) tokenNote = '; ' + retired.because;
+    }
+    return { ok: false, because: 'we could not start it (' + ((e && e.code) || 'unknown') + ')' + tokenNote };
   }
 
   return {
