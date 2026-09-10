@@ -14663,6 +14663,7 @@ async function tick() {
        leave the same silence that made it necessary. */
     if (RESTORE_WAITING && data.agents.some((a) => a && a.sessionName === RESTORE_WAITING)) {
       RESTORE_WAITING = null;
+      RESTORE_WAITING_SENTENCE = null;
       const done = document.getElementById('removed-msg');
       if (done) done.textContent = '';
     }
@@ -25880,6 +25881,13 @@ async function paintRemoved() {
 let REMOVED_HTML = null;
 /* The agent a restore is waiting on, so the poll can retire its sentence. */
 let RESTORE_WAITING = null;
+/* #2615: the in-flight restore sentence, kept so it can be RE-ASSERTED rather
+   than only set once. `#removed-msg` is a single assertive region shared by the
+   restore flow and the blocked-Restore explanation, and the in-flight sentence
+   is written once and cleared only by the ARRIVAL it predicts (see tick()), so
+   anything that overwrites it destroys it permanently: the person is left with
+   no status for a restore that is still running. */
+let RESTORE_WAITING_SENTENCE = null;
 
 /**
  * ⚠️ Answers "we do not know" rather than inventing a date.
@@ -25980,7 +25988,23 @@ document.getElementById('removed-list').addEventListener('click', (e) => {
   const msg = document.getElementById('removed-msg');
   if (!msg) return;
   const shown = blocked.dataset.shownAs || blocked.dataset.restoreBlocked;
-  msg.textContent = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
+  /* 🛑 IT MUST NOT DESTROY AN IN-FLIGHT RESTORE'S STATUS. This region is shared,
+     and the "Starting X again" sentence is written ONCE and cleared only by the
+     arrival it predicts, so a bare overwrite here loses it permanently: press
+     Restore on one row, then press an unavailable Restore on another, and the
+     first agent is still coming up with nothing on screen saying so.
+     ⇒ Both sentences are true at once, so both are said. The in-flight one is
+     re-asserted from the variable that holds it rather than reconstructed here,
+     which is what keeps the two copies from drifting.
+     ⚠️ Residual, stated rather than hidden: the arrival clears this whole
+     region, so an explanation still on screen goes with it. That is the right
+     trade (the arrival is a real event and the status it clears is the one the
+     person was waiting for), and the explanation is re-obtainable by pressing
+     the control again, which is exactly what a person does. */
+  const explain = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
+  msg.textContent = RESTORE_WAITING_SENTENCE
+    ? explain + ' ' + RESTORE_WAITING_SENTENCE
+    : explain;
 });
 
 document.getElementById('removed-list').addEventListener('click', async (e) => {
@@ -26097,7 +26121,8 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
     const say = document.getElementById('removed-msg');
     if (say) {
       RESTORE_WAITING = name;
-      say.textContent = 'Starting ' + (btn.dataset.shownAs || name) + ' again. It takes a few seconds, and its card appears here on its own.';
+      RESTORE_WAITING_SENTENCE = 'Starting ' + (btn.dataset.shownAs || name) + ' again. It takes a few seconds, and its card appears here on its own.';
+      say.textContent = RESTORE_WAITING_SENTENCE;
     }
     await tick();
     await paintRemoved();

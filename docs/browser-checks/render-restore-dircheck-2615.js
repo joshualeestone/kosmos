@@ -64,9 +64,15 @@ const AGENTS = [
     /* Found by SHOWN NAME, not by the acting attribute: a blocked row
        deliberately carries no `data-restore` (that absence is what stops the
        click), so selecting on it would make the blocked row invisible to this
-       check and every assertion about it vacuous. */
+       check and every assertion about it vacuous.
+       ⚠️ SCOPED TO THE RESTORE CONTROLS EXPLICITLY. The "Delete its files..."
+       button in the same row carries the SAME `data-shown-as`, so a bare
+       `.acts button` search picked whichever renders first and this check was
+       silently depending on Restore preceding Delete in the markup. It does
+       today; nothing pins it. Selecting on the union of the two Restore
+       attributes removes the dependency rather than relying on it. */
     const read = (shown) => {
-      const b = [...document.querySelectorAll('#removed-list .acts button')]
+      const b = [...document.querySelectorAll('#removed-list [data-restore], #removed-list [data-restore-blocked]')]
         .find((x) => (x.dataset.shownAs || '') === shown);
       if (!b) return null;
       return {
@@ -84,14 +90,25 @@ const AGENTS = [
     /* A press on the unavailable control must SAY WHY. Reaching a focusable
        control that does nothing is the failure `aria-disabled` invites, so this
        drives the real click and reads the live region. */
-    const blockedBtn = [...document.querySelectorAll('#removed-list .acts button')]
-      .find((x) => (x.dataset.shownAs || '') === 'Gone Account');
+    const blockedBtn = document.querySelector('#removed-list [data-restore-blocked]');
     if (blockedBtn) {
       blockedBtn.click();
       await new Promise((r) => setTimeout(r, 20));
       const msgEl = document.getElementById('removed-msg');
       out.spoken = msgEl ? (msgEl.textContent || '').trim() : null;
       out.liveRegion = msgEl ? msgEl.getAttribute('aria-live') : null;
+
+      /* Now with a restore already in flight. */
+      out.bothSpoken = null;
+      if (typeof RESTORE_WAITING_SENTENCE !== 'undefined' && msgEl) {
+        RESTORE_WAITING_SENTENCE = 'Starting Other Agent again. It takes a few seconds.';
+        msgEl.textContent = RESTORE_WAITING_SENTENCE;
+        blockedBtn.click();
+        await new Promise((r2) => setTimeout(r2, 20));
+        out.afterBoth = (msgEl.textContent || '').trim();
+        out.bothSpoken = /Other Agent/.test(out.afterBoth) && /account folder/i.test(out.afterBoth);
+        RESTORE_WAITING_SENTENCE = null;
+      }
     }
     return out;
   }, AGENTS);
@@ -131,6 +148,15 @@ const AGENTS = [
     if (!r.spoken || !/account folder/i.test(r.spoken)) {
       problems.push('pressing the unavailable Restore said nothing useful: ' + JSON.stringify(r.spoken)
         + ' -- a focusable control that does nothing is worse than one that cannot be reached');
+    }
+    /* 🛑 THE EXPLANATION MUST NOT DESTROY AN IN-FLIGHT RESTORE'S STATUS. This
+       region is shared with the "Starting X again" sentence, which is written
+       once and cleared only by the arrival it predicts, so a bare overwrite
+       loses it permanently. Seeded here by writing the region and setting the
+       page's own variable, then pressing the unavailable control. */
+    if (r.bothSpoken !== null && !r.bothSpoken) {
+      problems.push('pressing the unavailable Restore wiped an in-flight restore status: '
+        + JSON.stringify(r.afterBoth) + ' -- the other agent is still coming up with nothing saying so');
     }
     if (r.liveRegion !== 'assertive') {
       problems.push('the message region is not aria-live=assertive (' + JSON.stringify(r.liveRegion)
