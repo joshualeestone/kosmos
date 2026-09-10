@@ -72,15 +72,15 @@ test('the nav is in the ruled order, only You shows before a click, and the two 
   assert.deepEqual(secs.map((s) => s.key), gos, 'the sections are not in the order the nav lists them');
   assert.deepEqual(secs.filter((s) => !s.hidden).map((s) => s.key), ['you'], 'the landing is not You alone');
   assert.match(BODY, /<h3 class="dlab">Connections<\/h3>/, 'the task-board box is not headed Connections');
-  assert.match(BODY, /<h3 class="dlab">Agents talking to each other<\/h3>/, 'the conversations box keeps its old heading');
-  assert.doesNotMatch(BODY, /Your task board<\/h3>|Agent conversations<\/h3>/, 'an old heading survives');
+  assert.match(BODY, /<h3 class="dlab">Agent Communication<\/h3>/, 'the conversations box is not headed Agent Communication (#2619 retitle)');
+  assert.doesNotMatch(BODY, /Your task board<\/h3>|Agent conversations<\/h3>|Agents talking to each other<\/h3>/, 'an old heading survives');
 });
 
 // #2054: the consolidated Automation section, in Mona Lisa's ruled order. The
 // "Agents Talking" top-level tab is gone (checked by the nav-order test above,
 // which no longer lists 'talking'); its one block lives here as block 3. Daily
 // report (#2037) is not built yet, so it is not asserted -- it becomes block 4.
-test('#2054: Automation holds Auto-save, Prompter, Sounds, Agents talking, Daily report in order, and Agents Talking is no longer its own tab', () => {
+test('#2054: Automation holds Auto-save, Prompter, Sounds, Agent Communication, Daily report in order, and Agents Talking is no longer its own tab', () => {
   const at = BODY.indexOf('id="s-sec-automation"');
   assert.ok(at > -1, 'the Automation section is gone');
   const end = BODY.indexOf('<section class="dsec"', at + 1);
@@ -89,10 +89,10 @@ test('#2054: Automation holds Auto-save, Prompter, Sounds, Agents talking, Daily
   // #2037 PR-C1: "Daily report" is the last block, the one the section's own
   // placeholder note reserved ("before the future Daily report (#2037)").
   // #2436: "Sounds" (the master new-message sound toggle) sits beside the Prompter as
-  // the other "how Kosmos gets your attention" control, between Prompter and Agents
-  // talking.
-  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Sounds', 'Agents talking to each other', 'Daily report'],
-    'the Automation blocks are not Auto-save, Prompter, Sounds, Agents talking, Daily report in that order');
+  // the other "how Kosmos gets your attention" control, between Prompter and Agent
+  // Communication (#2619 retitle, formerly "Agents talking to each other").
+  assert.deepEqual(headings, ['Auto-save', 'Prompter', 'Sounds', 'Agent Communication', 'Daily report'],
+    'the Automation blocks are not Auto-save, Prompter, Sounds, Agent Communication, Daily report in that order');
   // The tab and its section are deleted, not merely hidden.
   assert.doesNotMatch(BODY, /data-go="talking"/, 'the Agents Talking nav pill survives');
   assert.doesNotMatch(BODY, /id="s-sec-talking"/, 'the Agents Talking section survives');

@@ -11566,23 +11566,25 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <button class="toggle on" id="snd-toggle" role="switch" aria-checked="true" aria-label="Play a sound for new messages on any of your projects"><i></i></button>
       </div>
     </section>
-    <!-- #2054 (Mona Lisa's design, 2026-09-03): "Agents talking to each other" moved
-         here from its own top-level tab, which is deleted. Block 3 of the consolidated
-         Automation section, before the Daily report (#2037, now the block below).
+    <!-- #2054 (Mona Lisa's design, 2026-09-03): the Agent Communication block (Josh's
+         retitle #2619, formerly "Agents talking to each other") moved here from its own
+         top-level tab, which is deleted. Block 3 of the consolidated Automation section,
+         before the Daily report (#2037, now the block below).
          The block is Mona Lisa's verbatim copy and the SAME `.toggle` + tier-select it already shipped;
          the only change is where it lives. The move's acceptance is that its STORED
          value survives -- it does, because paintLimits reads /api/limits, never the DOM. -->
     <section class="dbox">
       <!-- ⚠️ THE CONVERSATION LIMIT (2026-08-18 in-channel). Copy is Mona
-           Lisa's VERBATIM: the heading line, the hint, "Stop them after
-           ... exchanges an hour", and the Off-state sentence. The model is
+           Lisa's VERBATIM: the hint, "Stop them after ... exchanges an hour",
+           and the Off-state sentence. The heading is Josh's retitle to
+           "Agent Communication" (#2619). The model is
            her split: the counter ALWAYS tells the person (that half is not
            configurable, same rule as "we could not look"); this switch
            decides only whether Kosmos also STOPS them. Ships On at the
            default tier (Josh). The category label, the high-tier cost
            line, and the told-only record sentences are Mona Lisa's ruled
            copy (her pass, 2026-08-18 ~1:42 PM). -->
-      <h3 class="dlab">Agents talking to each other</h3>
+      <h3 class="dlab">Agent Communication</h3>
       <div class="setrow" id="lim-row">
         <div><b>Limit how often your agents message each other</b>
           <p class="dhint" style="margin:2px 0 0;">Every message between your agents is billed to your AI plan. Past the limit below, Kosmos stops them for the rest of the hour. If your model does not charge per use, turn this off.</p></div>
