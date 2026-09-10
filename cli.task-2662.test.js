@@ -153,8 +153,10 @@ test('#2662: `task list` delivers the board token OFF argv, via a mode-600 file'
         assert.match(cap, /^PERM 600$/m, 'the header file must be mode 600');
       } catch (e) { failure = e; }
       finally {
-        // Clean up the sandbox regardless of pass/fail; its sibling cli.token-off-argv-1970.test.js
-        // does the same. A test whose subject is board-token hygiene should not leak a token file.
+        // Clean up the sandbox regardless of pass/fail via finally (its sibling
+        // cli.token-off-argv-1970.test.js does the same cleanup but at the end of its linear body,
+        // so it leaks on a failing assertion; finally is stricter). A test whose subject is
+        // board-token hygiene should not leak a token file.
         if (sandbox) { try { fs.rmSync(sandbox, { recursive: true, force: true }); } catch { /* best-effort */ } }
       }
       server.close(() => (failure ? reject(failure) : resolve()));
