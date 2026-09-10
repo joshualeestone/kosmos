@@ -12300,6 +12300,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      ⚠️ COLLAPSED, LIKE ITS NEIGHBOUR. A list that opens itself every time the
      board loads is a list that has to be dismissed, and this one can be long.
      Absent entirely when there is nothing to add. -->
+<!-- #2651: discovery is GATED behind an explicit action. Landing on the Agents
+     page must NEVER auto-scan-and-show "we found agents on your computer" -- Josh
+     read that auto-appearance as Kosmos importing every agent file on the machine
+     without consent. Until this button is pressed, neither the found panel below
+     nor the scan panel is fetched or shown (paintFoundBoard/paintScanBoard gate on
+     DISCOVERY_OPENED). Pressing it opens both on demand; a full reload starts
+     collapsed again on purpose, so the page never opens itself. -->
+<div class="removed-wrap" id="found-scan-trigger" hidden>
+  <button class="linkish" id="found-scan-look" type="button">Look for agents already on this computer</button>
+</div>
 <div class="removed-wrap" id="found-wrap" hidden>
   <!-- Josh, 2026-08-24 17:06: "add a button that says Dismiss this forever at
        the top right of the small section so you can just make it disappear and
@@ -15292,7 +15302,7 @@ async function tick() {
     // grid is legitimately hidden on the agents tab whenever the list layout
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
-    if (onAgentsTab()) { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); }
+    if (onAgentsTab()) { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); paintDiscoveryTrigger(); }
   } catch (err) {
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
@@ -15500,6 +15510,10 @@ function showTab(tab) {
        the 5s poll is gated to the Agents tab, so off-tab nothing hid it. Mirror
        the found-wrap line exactly. */
     document.getElementById('scan-wrap').hidden = true;
+    /* #2651: the discovery TRIGGER is painted only on the Agents tab (paintDiscoveryTrigger
+       runs in the tab-gated poll), so like its two panels it must be hidden on the way
+       off the tab, or it follows the person to Projects and Settings. */
+    { const t = document.getElementById('found-scan-trigger'); if (t) t.hidden = true; }
     // ⚠️ And the message with it. It deliberately lives outside the wrap so a
     // repaint cannot erase it -- which also means nothing else hides it, so a
     // sentence about the removed list would otherwise sit under Settings or
@@ -15512,7 +15526,7 @@ function showTab(tab) {
     if (rw) rw.hidden = true;
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
-  } else { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); }
+  } else { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); paintDiscoveryTrigger(); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
@@ -25659,6 +25673,13 @@ let SURVIVAL_BUSY = false;
  * only when the SET has changed, and never once a row has been touched.
  */
 let FOUND_SIG = null;
+/* #2651: false until the user presses "Look for agents already on this computer".
+   While false, paintFoundBoard AND paintScanBoard render nothing and fetch nothing,
+   so landing on the Agents page never auto-shows discovered candidates. NOT
+   persisted: a full page load resets it to false on purpose, so the page never
+   opens the panels for you. FOUND_OPEN/SCAN_OPEN below are the separate per-panel
+   Show/Hide fold, unchanged. */
+let DISCOVERY_OPENED = false;
 let FOUND_OPEN = false;
 async function paintFoundBoard() {
   const wrap = document.getElementById('found-wrap');
@@ -25666,6 +25687,10 @@ async function paintFoundBoard() {
   const toggle = document.getElementById('found-toggle');
   if (!wrap || !list || !toggle) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
+  /* #2651: discovery is gated behind an explicit "Look for agents" press. Until
+     then show nothing and fetch nothing, so the Agents page never scans-and-shows
+     candidates on load (which read as an auto-import). */
+  if (!DISCOVERY_OPENED) { wrap.hidden = true; return; }
   /* ⚠️ A row somebody has pressed is a row that must survive the next poll. The
      board repaints every five seconds and an add makes the set change, so
      without this the panel rebuilds under somebody's hand and takes away the
@@ -25805,6 +25830,9 @@ async function paintScanBoard() {
   const toggle = document.getElementById('scan-toggle');
   if (!wrap || !list || !toggle) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
+  /* #2651: gated behind the explicit "Look for agents" press, exactly like the
+     found panel above -- the two open together and neither scans on load. */
+  if (!DISCOVERY_OPENED) { wrap.hidden = true; return; }
   /* A row somebody has pressed must survive the next poll. Same guard the found
      panel uses, widened by `.fr-adoptno:disabled` because a Skip in flight is also
      a pressed row here. */
@@ -26266,6 +26294,36 @@ document.getElementById('found-toggle').addEventListener('click', () => {
      aria-expanded state cannot be set in two places and disagree. Its neighbour
      is written the same way for the same reason. */
   paintFoundBoard();
+});
+
+/* #2651: the explicit-action gate for the discovery panels. The trigger row shows
+   on the Agents tab whenever NO discovery panel is on screen, and pressing it opens
+   both panels on demand. Keyed on panel VISIBILITY (not on DISCOVERY_OPENED), so it
+   is also the resting state after a look that found nothing, and it hides itself the
+   moment a panel renders candidates. */
+function paintDiscoveryTrigger() {
+  const trig = document.getElementById('found-scan-trigger');
+  if (!trig) return;
+  const fw = document.getElementById('found-wrap');
+  const sw = document.getElementById('scan-wrap');
+  const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
+  trig.hidden = !onAgentsTab() || anyPanel;
+}
+
+document.getElementById('found-scan-look').addEventListener('click', async () => {
+  DISCOVERY_OPENED = true;
+  const look = document.getElementById('found-scan-look');
+  look.disabled = true;
+  /* Await both, so the empty-result feedback below reads the SETTLED panels rather
+     than a fetch still in flight. */
+  await paintFoundBoard();
+  await paintScanBoard();
+  look.disabled = false;
+  paintDiscoveryTrigger();   // hides the trigger once a panel shows; keeps it if not
+  const fw = document.getElementById('found-wrap');
+  const sw = document.getElementById('scan-wrap');
+  const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
+  if (!anyPanel) look.textContent = 'No agents found on this computer to add';
 });
 
 /* #1938: the scan panel's toggle and dismiss, mirroring the found panel above so
