@@ -252,7 +252,13 @@ function specFromArgv(argv) {
  * and tested -- it is the adoption watcher, and the measured knowledge in it is
  * worth keeping -- but nothing in production selects it.
  */
-function main(argv) {
+/** How long the supervisor gives its agent to leave, once its host is gone, before
+    exiting anyway. Closing stdin was measured ending the agent in ~800ms, so this
+    is room enough without leaving a stopped agent up for long. */
+const HOST_GONE_GRACE_MS = 2000;
+
+function main(argv, deps) {
+  const d = deps || {};
   const spec = specFromArgv(argv);
   if (!spec.name || !spec.cwd) {
     process.stderr.write('kosmos win32 supervisor: needs <name> <cwd>\n');
@@ -306,10 +312,30 @@ function main(argv) {
      server holds the event loop open, so a supervisor that stopped supervising and
      left its channel listening is a process that never exits -- which is a hung
      Scheduled Task in production and a test run that never returns. */
+  /**
+   * 🔑 AND IT LEAVES WHEN ITS HOST DOES (#570). The task runs this under
+   * `conhost.exe --headless` so no window opens, and `/End` kills only that
+   * conhost. This watch is what makes every Kosmos stop still stop the agent:
+   * the supervisor stops its agent and exits. See engine/win32orphan.js. Under
+   * an older windowed task the parent is Task Scheduler's svchost, which never
+   * leaves, so nothing changes there.
+   */
+  const watchHost = d.watchHost || require('./win32orphan').exitWhenParentGone;
+  const exitLater = d.exitLater || ((ms) => { const t = setTimeout(() => process.exit(0), ms); if (t.unref) t.unref(); });
+  const hostWatch = watchHost({
+    onGone: () => {
+      process.stderr.write(new Date().toISOString() + ' ' + spec.name
+        + ' host-gone -- its task was ended, so its agent is being stopped\n');
+      handle.stop();
+      exitLater(HOST_GONE_GRACE_MS);
+    },
+  });
+
   const supervisionStop = handle.stop;
   handle.stop = function stop() {
     supervisionStop();
     if (channel.ok) channel.close();
+    if (hostWatch && typeof hostWatch.stop === 'function') hostWatch.stop();
   };
   process.on('SIGINT', handle.stop);
   process.on('SIGTERM', handle.stop);

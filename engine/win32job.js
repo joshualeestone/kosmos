@@ -193,8 +193,33 @@ function taskUser(env) {
  * `IgnoreNew` is the multiple-instances policy that matches adopt-not-replace --
  * a second logon must not start a second supervisor for the same agent.
  */
+/**
+ * Wrap a task's command so it runs with NO WINDOW.
+ *
+ * 🛑 MEASURED 2026-09-10: a task that starts `node.exe` directly opens a visible
+ * Windows Terminal window, and closing it kills the agent or board with
+ * 0xC000013A, which is exactly what a person does with a stray black window. The
+ * same command under `conhost.exe --headless` opens nothing. ONE wrapper for the
+ * agent and the board, so the two task definitions cannot drift apart.
+ *
+ * ⚠️ `/End` then kills only the conhost. The node under it leaves on its own
+ * through engine/win32orphan.js, so every Kosmos stop still stops.
+ *
+ * `SystemRoot` comes from the env passed in (then the real one), so a Mac can
+ * assert the Windows shape.
+ */
+function headlessExec(exec, env) {
+  const e = env || {};
+  const root = e.SystemRoot || e.SYSTEMROOT || process.env.SystemRoot || process.env.SYSTEMROOT || 'C:\\Windows';
+  return {
+    command: path.win32.join(root, 'System32', 'conhost.exe'),
+    args: '--headless "' + exec.command + '" ' + exec.args,
+    workingDir: exec.workingDir,
+  };
+}
+
 function taskXml(spec, env) {
-  const exec = taskExec(spec);
+  const exec = headlessExec(taskExec(spec), env);
   const user = xmlEscape(taskUser(env));
   return '<?xml version="1.0" encoding="UTF-16"?>\n'
     + '<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">\n'
@@ -424,7 +449,7 @@ function status(name) {
 }
 
 module.exports = {
-  TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape,
+  TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, headlessExec,
   install, disable, enable, end, start, remove, status, presence, list,
   setRunner, setAnchorer,
 };

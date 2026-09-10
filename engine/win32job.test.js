@@ -208,6 +208,26 @@ test('#570 a job is REFUSED when the anchor cannot be written, not registered to
   assert.equal(calls.length, 0, 'nothing may be registered when the anchor failed');
 });
 
+test('#570 THE TASK RUNS WITH NO WINDOW: node is started under a headless conhost', () => {
+  /* 🛑 Measured 2026-09-10: a task that starts node.exe directly opens a Windows
+     Terminal window, and closing it killed the agent (0xC000013A). Josh closed
+     exactly those windows. The definition must start the headless host, and hand
+     it the SAME command it used to run. */
+  const env = { USERDOMAIN: 'DOM', USERNAME: 'jo', SystemRoot: 'C:\\Windows' };
+  const spec = { name: 'quiet', cwd: 'C:\\work\\quiet', node: 'C:\\K\\node.exe', supervisor: 'C:\\K\\supervisor-boot.js' };
+  const xml = job.taskXml(spec, env);
+  assert.ok(xml.includes('<Command>C:\\Windows\\System32\\conhost.exe</Command>'), xml);
+  const inner = job.taskExec(spec);
+  assert.ok(xml.includes('<Arguments>--headless &quot;C:\\K\\node.exe&quot; '), 'headless first, then the quoted node: ' + xml);
+  assert.ok(xml.includes(inner.args.replace(/&/g, '&amp;').replace(/"/g, '&quot;')), 'and every argument it used to get, unchanged');
+});
+
+test('#570 the headless host follows SystemRoot, so Windows on another drive still starts', () => {
+  const exec = job.headlessExec({ command: 'C:\\K\\node.exe', args: '"a"' }, { SystemRoot: 'D:\\WINNT' });
+  assert.equal(exec.command, 'D:\\WINNT\\System32\\conhost.exe');
+  assert.equal(exec.args, '--headless "C:\\K\\node.exe" "a"');
+});
+
 /* The joined command line, rebuilt from what actually ships. `taskCommand` used
    to return this, but nothing in production called it -- `taskXml` builds the
    definition from `taskExec` -- so it was a second derivation of the command

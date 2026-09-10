@@ -11618,6 +11618,18 @@ if (require.main === module) {
     } catch (err) {
       process.stderr.write(`Kosmos could not check whether it starts when you log in: ${String(err && err.message)}\n`);
     }
+    /* #570: the board's logon task runs it under `conhost.exe --headless`, so no
+       window opens that a person could close. `/End`, the first step of the
+       board's own restart, then kills only that conhost, so the board leaves when
+       its host does. See engine/win32orphan.js. Armed only for a task-started
+       board: a hand-started one belongs to whoever started it. */
+    try {
+      if (require('./engine/win32board').startedByTask()) {
+        require('./engine/win32orphan').exitWhenParentGone({ onGone: () => process.exit(0) });
+      }
+    } catch (err) {
+      process.stderr.write(`Kosmos could not watch the job that started it: ${String(err && err.message)}\n`);
+    }
   }
   /**
    * Refresh every agent's managed connections block, at boot (#1649).
