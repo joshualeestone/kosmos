@@ -327,12 +327,14 @@ async function fresh(browser) {
     await ctx.close();
   }
 
-  /* ---------- #2451/#2559: the manual "Check again" button fires an IMMEDIATE re-check ---------- */
-  // Josh 0.6.50 (7.58.24): after granting, the screen "sat here forever" -- the poll was slow
-  // and there was no way to force it. Assert the S3 "Check again" button exists and, on click,
-  // fires a gate re-check RIGHT NOW (a new /api/a11y-status request lands well inside one poll
-  // interval), and that this manual re-check unlocks Next when the grant has landed.
-  console.log('\n#2451/#2559 -- the S3 "Check again" button forces an immediate gate re-check');
+  /* ---------- #2451/#2559 + #2648: the "Check again" nav alt fires an IMMEDIATE re-check ---------- */
+  // Josh 0.6.50: after granting, the screen "sat here forever" -- the poll was slow and there
+  // was no way to force it. #2648 moved the Check-again affordance OUT of the pane body (it sat
+  // below the fold on first load, so a person could not see it when they needed it) INTO the
+  // far-left nav alt (#fr-alt), which is always visible, carrying a shortened hint. Assert the
+  // nav button + hint exist on step 3 and, on click, fire a gate re-check RIGHT NOW (a new
+  // /api/a11y-status request well inside one poll interval) and unlock Next once the grant lands.
+  console.log('\n#2451/#2559 + #2648 -- the step-3 "Check again" nav alt forces an immediate gate re-check');
   {
     const { ctx, page } = await fresh(browser);
     await page.goto(`${BASE}/?first-run=1`, { waitUntil: 'domcontentloaded' });
@@ -343,10 +345,16 @@ async function fresh(browser) {
     await page.route('**/api/a11y-status', (r) => { a11yHits += 1; return r.fulfill({ json: { checkable: true, trusted: tmuxTrusted } }); });
     await page.goto(`${BASE}/?first-run=1&fr-step=${step}`, { waitUntil: 'networkidle' });
     await page.waitForTimeout(300);
-    const btn = await page.$('#fr-pane-3 .fr-recheck');
-    ok(!!btn, 'the S3 "Check again" button is present');
+    // #2648: the Check-again affordance is now the far-left nav alt (#fr-alt), not an in-pane
+    // button; it must be VISIBLE on step 3 (its whole point is that the person can see it).
+    const btn = await page.$('#fr-alt');
+    ok(!!btn && await btn.isVisible(), 'the "Check again" nav alt (#fr-alt) is visible on step 3');
     const label = btn ? (await btn.textContent()).trim() : '';
-    ok(/check again/i.test(label), `the button reads "Check again" (got: ${JSON.stringify(label)})`);
+    ok(/check again/i.test(label), `the nav alt reads "Check again" (got: ${JSON.stringify(label)})`);
+    const hint = await page.$('#fr-alt-hint');
+    const hintText = hint ? (await hint.textContent()).trim() : '';
+    ok(!!hint && await hint.isVisible() && /^turned it on\? tap to check\.$/i.test(hintText),
+      `the shortened hint rides beside it (#2648 item 3) (got: ${JSON.stringify(hintText)})`);
     ok(await nextDisabled(page), 'Next is disabled while the grant has not landed');
     // Grant it, then FORCE the check via the button and confirm a re-poll fires at once
     // (before the next timer tick) and unlocks Next.
@@ -356,7 +364,7 @@ async function fresh(browser) {
     // 80ms is far under the 750ms poll interval, so a hit in this window is almost
     // certainly the click's (a timer tick could coincide ~1-in-9, so this is a strong
     // integration signal, not a proof of isolation -- the DETERMINISTIC wiring guard is
-    // the unit test web.firstrun-a11y-1214.test.js, which pins handler -> frRecheckGates).
+    // the unit test web.firstrun-a11y-1214.test.js, which pins the step-3 alt -> frRecheckGates).
     await page.waitForTimeout(80);
     ok(a11yHits > before, `clicking "Check again" fired an immediate /api/a11y-status re-check (hits ${before} -> ${a11yHits})`);
     await page.waitForFunction(() => !document.getElementById('fr-next').disabled, null, { timeout: 2000 }).catch(() => {});

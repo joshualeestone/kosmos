@@ -126,7 +126,9 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
 test('install-flow-9screen: the S3 Continue/Next is GATED -- unlocks only when both gates are granted', () => {
   const SCRIPT = PAGE.slice(PAGE.indexOf('<script'), PAGE.lastIndexOf('</script>'));
   const step3 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 3) {'), SCRIPT.indexOf('} else if (step === 4) {'));
-  assert.match(step3, /frActions\(\{ label: 'Next', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(4\); \} \}\)/,
+  // #2648 made this a two-arg frActions (a "Check again" alt was added), so match the gated
+  // primary itself rather than the whole single-arg call: the disabled-check is the gate.
+  assert.match(step3, /label: 'Next', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(4\); \}/,
     'the S3 Next is gated: it proceeds to S4 only when the check has not disabled it');
   assert.match(step3, /frGateStart\(pane\)/,
     'S3 starts the permission-gate poll (frGateStart), which drives the disabled state');
@@ -152,33 +154,46 @@ test('kosmos#1214: no em dashes in the S3 gate copy (house rule)', () => {
   }
 });
 
-test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an immediate gate re-check', () => {
-  // Josh's screen "sat here forever" after he granted -- the poll was 1500ms and there
-  // was no way to force it. Assert: a Check-again button in the S3 pane; a faster poll
-  // interval than the old 1500ms; and the button wired to an immediate re-poll.
-  assert.match(S3, /class="s3-recheck fr-recheck"[^>]*>Check again</, 'S3 has a "Check again" button');
-  // Mona's reassurance + hint copy (addresses Josh sitting on "Checking..." thinking it was stuck).
-  assert.match(S3, /class="s3-recheck-note">This can take a few seconds after you flip the switch\./,
-    'S3 shows the reassurance line under the rows');
-  assert.match(S3, /class="s3-recheck-hint">Turned it on already\? Tap to check now\./,
-    'the Check again button carries its hint');
-  // The poll interval is a named constant, faster than the old 1500ms.
+test('#2451/#2559 + #2648: S3 "Check again" is the far-left nav alt (moved out of the pane body), with its shortened hint, wired to an immediate gate re-check', () => {
+  // Josh's screen "sat here forever" after he granted -- the poll was 1500ms and there was
+  // no way to force it (#2451/#2559). #2648: the in-pane Check-again button sat under the
+  // rows, below the fold on first load, so the person could not see it when they needed it;
+  // it moved into the bottom nav (far-left #fr-alt), which is always visible, carrying a
+  // shortened hint. These assert the NEW placement + wiring and are red-capable on the old
+  // in-pane design.
+
+  // It is NO LONGER an in-pane button, and the reassurance note is deleted (#2648 item 4).
+  assert.ok(!/class="s3-recheck fr-recheck"[^>]*>Check again</.test(S3),
+    'the in-pane .s3-recheck "Check again" button is gone from S3 (moved to the nav)');
+  assert.ok(!S3.includes('This can take a few seconds after you flip the switch'),
+    'the old "this can take a few seconds" reassurance note is deleted (#2648 item 4)');
+
+  // The footer carries the optional hint span, and frActions drives it from alt.hint.
+  assert.match(PAGE, /id="fr-alt-hint"/, 'the footer has the #fr-alt-hint span (#2648)');
+  const fa = PAGE.indexOf('function frActions(');
+  const faBody = PAGE.slice(fa, PAGE.indexOf('// install-flow-9screen', fa));
+  assert.match(faBody, /a\.hint/, 'frActions renders an alt.hint into the footer hint span');
+
+  // Step 3 renders the "Check again" alt with the shortened hint, wired to frRecheckGates.
+  const s3s = PAGE.indexOf('} else if (step === 3) {');
+  const s3block = PAGE.slice(s3s, PAGE.indexOf('} else if (step === 4) {', s3s));
+  assert.match(s3block, /label:\s*'Check again'/, 'step 3 renders a "Check again" nav alt');
+  assert.match(s3block, /hint:\s*'Turned it on\? Tap to check\.'/,
+    'the Check again alt carries the shortened hint (#2648 item 3)');
+  assert.match(s3block, /frRecheckGates\(\)/,
+    'the step-3 "Check again" alt fires an immediate frRecheckGates()');
+
+  // The poll interval is a named constant, faster than the old 1500ms (unchanged by #2648).
   const m = PAGE.match(/const FR_GATE_POLL_MS = (\d+);/);
   assert.ok(m, 'FR_GATE_POLL_MS is a named constant');
   assert.ok(Number(m[1]) < 1500, `the gate poll is faster than the old 1500ms (got ${m[1]})`);
   assert.match(PAGE, /setInterval\(\(\) => frPollGates\(screenEl, gen\), FR_GATE_POLL_MS\)/,
     'the poll timer uses the FR_GATE_POLL_MS constant (not a hardcoded interval)');
-  // The fr-recheck click fires an immediate re-poll of the active gated screen.
-  // Bound the match to frRecheckGates's OWN body (to its closing `\n}`), not a lazy
-  // scan across the whole 2MB file -- otherwise a stray later mention could false-pass.
+  // frRecheckGates itself re-polls the active gated screen (unchanged).
   const frcs = PAGE.indexOf('function frRecheckGates()');
   const frcBody = PAGE.slice(frcs, PAGE.indexOf('\n}', frcs));
   assert.match(frcBody, /frPollGates\(FR_GATE_SCREEN, FR_GATE_GEN\)/,
     'frRecheckGates re-polls the active gated screen at the current generation');
-  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
-  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));   // bound to the handler's own close, not a fixed offset
-  assert.match(handler, /closest\('\.fr-recheck'\)[\s\S]*?frRecheckGates\(\)/,
-    'the fr-pane-3 handler routes a .fr-recheck click to frRecheckGates()');
 });
 
 test('#2587: the sleep step is ADVISORY (never gates Next); Accessibility still gates; the honest laptop note stays', () => {
