@@ -14711,6 +14711,7 @@ async function tick() {
          that outlived what is on screen would be re-asserted onto an empty one
          by the next writer and reappear from nowhere. */
       RESTORE_BLOCKED_SAID = null;
+      RESTORE_BLOCKED_SAID_FOR = null;
       const done = document.getElementById('removed-msg');
       if (done) done.textContent = '';
     }
@@ -25944,6 +25945,17 @@ let RESTORE_WAITING_SENTENCE = null;
    THIS card now re-assert rather than clobber; the other pre-existing writers
    are a named follow-up and are not this card. */
 let RESTORE_BLOCKED_SAID = null;
+/* 🛑 WHICH ROW THE HELD EXPLANATION IS ABOUT, so it can be checked for still
+   being TRUE before it is re-asserted. Without this the sentence outlives its
+   own subject: press an unavailable Restore, add the account folder back, then
+   restore that same agent, and the region said both at once, of one agent, in
+   one breath:
+     "Starting Gone Account again. ... Gone Account cannot be restored yet:
+      the account folder this agent ran on is gone."
+   ⭐ A held sentence is a claim with a timestamp, and re-asserting it is making
+   the claim again NOW. The fix for a clobbered message must not become a
+   mechanism for reprinting stale ones. */
+let RESTORE_BLOCKED_SAID_FOR = null;
 
 /**
  * ⚠️ Answers "we do not know" rather than inventing a date.
@@ -26059,6 +26071,7 @@ document.getElementById('removed-list').addEventListener('click', (e) => {
      the control again, which is exactly what a person does. */
   const explain = shown + ' cannot be restored yet: ' + RESTORE_BLOCKED_SENTENCE;
   RESTORE_BLOCKED_SAID = explain;
+  RESTORE_BLOCKED_SAID_FOR = blocked.dataset.restoreBlocked || null;
   msg.textContent = RESTORE_WAITING_SENTENCE
     ? explain + ' ' + RESTORE_WAITING_SENTENCE
     : explain;
@@ -26186,7 +26199,14 @@ document.getElementById('removed-list').addEventListener('click', async (e) => {
          reproduced by only fixing that direction.
          ⇒ Both sentences are true at once, so both are said. The one about what
          was just pressed leads, matching the explain handler's own order. */
-      say.textContent = RESTORE_BLOCKED_SAID
+      /* Re-assert the explanation ONLY while it is still true: the row it names
+         must still be rendered blocked. Scanned rather than selected, so a name
+         needing CSS escaping cannot break the test and silently drop the arm. */
+      const stillBlocked = RESTORE_BLOCKED_SAID && RESTORE_BLOCKED_SAID_FOR
+        && [...document.querySelectorAll('#removed-list [data-restore-blocked]')]
+             .some((el) => el.dataset.restoreBlocked === RESTORE_BLOCKED_SAID_FOR);
+      if (!stillBlocked) { RESTORE_BLOCKED_SAID = null; RESTORE_BLOCKED_SAID_FOR = null; }
+      say.textContent = stillBlocked
         ? RESTORE_WAITING_SENTENCE + ' ' + RESTORE_BLOCKED_SAID
         : RESTORE_WAITING_SENTENCE;
     }
