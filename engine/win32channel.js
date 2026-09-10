@@ -165,6 +165,11 @@ function serve(name, opts) {
   const server = net.createServer((sock) => {
     let buf = '';
     let answered = false;
+    /* 🛑 ONE MESSAGE PER CONNECTION. `answered` only turns true when `onSay`
+       answers, and `buf` still holds the line already parsed, so without this a
+       second chunk arriving while the write is pending would re-parse that same
+       line and type it at the agent twice. */
+    let handedOver = false;
     const answer = (payload) => {
       if (answered) return;
       answered = true;
@@ -174,7 +179,7 @@ function serve(name, opts) {
     sock.setTimeout(idleMs, () => { answer({ ok: false, because: 'nothing arrived on the channel' }); });
     sock.on('error', () => { answered = true; });
     sock.on('data', (chunk) => {
-      if (answered) return;
+      if (answered || handedOver) return;
       buf += chunk.toString('utf8');
       if (Buffer.byteLength(buf, 'utf8') > MAX_REQUEST_BYTES) {
         answer({ ok: false, because: 'that is more than a message' });
@@ -205,6 +210,7 @@ function serve(name, opts) {
          From here the only answer is the one `onSay` gives; a caller that tires
          of waiting times out on its own side, where that is reported as unsure. */
       sock.setTimeout(0);
+      handedOver = true;
       try {
         onSay(req.text, (r) => answer(r && r.ok ? { ok: true } : {
           ok: false,

@@ -260,6 +260,30 @@ test('#570 7c-3 more than a message is refused rather than buffered', async () =
   assert.deepEqual(said, []);
 });
 
+test('#570 7c-4 more bytes after a message is handed over are ignored, never typed a second time', async () => {
+  /* Found in review, reproduced against the real serve(): with a slow write
+     pending, a second chunk on the same connection re-parsed the first line and
+     handed the SAME message to onSay again -- two writes into the agent for one
+     send, the duplicate this whole channel exists to prevent. */
+  const said = [];
+  const s = serving('once', {
+    secret: 'test-secret-once',
+    onSay: (t, done) => { said.push(t); setTimeout(() => done({ ok: true }), 300); },
+  });
+  const net = require('node:net');
+  const r = await new Promise((resolve) => {
+    const sock = net.connect(s.pipe, () => {
+      sock.write(JSON.stringify({ v: 1, token: 'test-secret-once', type: 'say', text: 'hello' }) + '\n');
+      setTimeout(() => { sock.write('one more line\n'); }, 50);
+    });
+    let buf = '';
+    sock.on('data', (c) => { buf += c.toString('utf8'); if (buf.includes('\n')) { resolve(JSON.parse(buf.split('\n')[0])); sock.destroy(); } });
+    sock.on('error', () => resolve({ ok: false, because: 'connect failed' }));
+  });
+  assert.deepEqual(r, { ok: true }, 'the answer is still the one onSay gave');
+  assert.deepEqual(said, ['hello'], 'handed over exactly once');
+});
+
 test('#570 7c-3 nonsense on the wire is refused with a sentence, never a crash', async () => {
   const s = serving('nonsense', { onSay: (t, done) => done({ ok: true }) });
   const net = require('node:net');
