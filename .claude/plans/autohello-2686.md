@@ -47,8 +47,19 @@ the manual line, which is the current behavior anyway.
 
 ### Scope guard
 
-Only user-initiated restarts route through these two sites. A crash / self /
-supervisor restart does not, so it will not trigger an unwanted auto-hello.
+This PR wires the two restart-MODAL-based user-initiated restart sites (rst-go +
+doctrine). A crash / self / supervisor restart does not route through them, so it
+will not trigger an unwanted auto-hello.
+
+Two OTHER user-initiated flows also restart the agent and still tell the person to
+say hello by hand: the provider switch (`moveAccountNow`) and the model switch
+(`changeModelNow`). They are deliberately NOT in this PR: both run through
+`changeDialog`'s Josh-tuned interstitial (a success-only `minBusyMs` hold,
+RESTART_HOLD_MS ~10s, with the #768/#2463 wording rulings), whose timing differs
+from the auto-hello readiness wait (up to 30s), so reconciling the two is a focused
+follow-up with its own test arms and Josh's eyes in the running app. Tracked as
+kosmos#2716. The `autoHelloAfterRestart` helper is site-agnostic and already
+carries everything that piece needs.
 
 ### Concurrency guard
 

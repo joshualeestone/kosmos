@@ -24715,8 +24715,12 @@ function renderStale(s) {
     setLive(el, '<b>' + esc(who || 'This agent') + ' needs to be restarted.</b>'
       + '<button class="btn-quiet instr-restart" type="button" data-restart-agent="'
       + esc(session) + '">Restart</button>'
-      + '<small class="instr-restart-note">You will need to say ‘hello’ to '
-      + esc(who || 'them') + ' to wake them after restarting.</small>');
+      // #2686: restarting now auto-sends the wake 'hello', so the banner no
+      // longer tells the person they will have to. The runtime note after the
+      // click says whether the wake landed, and falls back to the manual line
+      // only if the agent does not come back in time.
+      + '<small class="instr-restart-note">Restarting re-reads the changes and wakes '
+      + esc(who || 'them') + '.</small>');
     el.hidden = false;
     return;
   }
@@ -26861,19 +26865,8 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        as this comment already prescribes. The wake hello fires on both paths
        regardless of whether its receipt can be written. */
     const note = noteFor(btn);
-    go.textContent = wasGo;
-    /* ⚠️ RE-ENABLED. Every other exit from this handler puts the button back and
-       this one did not, so a modal reopened after a successful restart came up
-       with a dead primary. */
-    go.disabled = false;
-    closeRestartModal();
-    await tick();
     /* #2686: auto-send the wake 'hello' instead of asking the person to type it.
-       The interim note says we are waking them; autoHelloAfterRestart resolves it
-       to "said hello" once the agent is back, or to the old manual line if the
-       agent does not come back in time. Fire-and-forget: the handler's UI work
-       (modal closed, button restored) is already done. */
-    /* Guard the receipt on BOTH the open agent still being this one AND the node
+       Guard the receipt on BOTH the open agent still being this one AND the node
        still being connected. isConnected covers the stale notice, which
        renderStale detaches; CURRENT covers the detail-page control, whose
        d-restart-msg element is SHARED across agents and stays connected -- without
@@ -26881,7 +26874,21 @@ document.getElementById('rst-go').addEventListener('click', async () => {
        navigated away during the wait. This is the open-agent capture-and-recheck
        the doctrine site and the rest of this file already use. */
     const showNote = (t) => { if (CURRENT && CURRENT.sessionName === name && note && note.isConnected) note.textContent = t; };
+    /* Immediate feedback, BEFORE the tick round-trip below, matching the doctrine
+       site and the synchronous write this replaced: on the detail page the note
+       stays connected through tick, so it must not sit blank during that fetch. */
     showNote('Restarted. Waking them…');
+    go.textContent = wasGo;
+    /* ⚠️ RE-ENABLED. Every other exit from this handler puts the button back and
+       this one did not, so a modal reopened after a successful restart came up
+       with a dead primary. */
+    go.disabled = false;
+    closeRestartModal();
+    await tick();
+    /* autoHelloAfterRestart resolves the note to "said hello" once the agent is
+       back, or to the old manual line if it does not come back in time.
+       Fire-and-forget: the handler's UI work (modal closed, button restored) is
+       already done. */
     autoHelloAfterRestart(name, showNote,
       'Restarted, and said hello to wake them.',
       'Restarted. You will need to say ‘hello’ to wake them.');
