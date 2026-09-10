@@ -752,6 +752,40 @@ test('#1659: the repaint path CANCELS the pending announcement, all writers', ()
     + JSON.stringify(body.slice(Math.max(0, (unguarded[0] || {}).index - 90), ((unguarded[0] || {}).index || 0) + 40)));
 });
 
+/* 🛑 A ROW WHOSE LABEL IS LITERALLY `main`, WITH THE `provider` FIELD PRODUCTION
+   ACTUALLY EMITS. `dirForLabel` has no reserved-word guard, so `~/.claude-main`
+   is creatable, and beside `~/.claude` on one email that row reaches the LABEL
+   branch, finds `main` reserved, and falls through.
+
+   ⚠️ The pre-existing arm for this shape uses a fixture with NO `provider` field,
+   which `/api/accounts` never emits (server.js sets `provider:'anthropic'` on
+   every Claude row), so it only ever exercised the unknown-provider path and
+   passed unchanged through this card. This is the reachable version.
+
+   📌 AND THE ANSWER IS THE DIR, NOT THE PROVIDER, because both rows are Claude:
+   the provider distinguishes nothing inside a single-provider group, so the
+   chain stays label-then-dir there. That also keeps the chosen name visible in
+   the qualifier, which is what the old fallback did well. */
+test('#2612: a row labelled `main` beside the default keeps its identifying path, not a provider name', () => {
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const named = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude-main', label: 'main', isDefault: false };
+  const q = qualifiers([claudeDefault, named]);
+  assert.equal(q.get(claudeDefault.dir), 'main', 'the default still holds the reserved word');
+  assert.equal(q.get(named.dir), '/Users/x/.claude-main',
+    'a single-provider group gained a provider qualifier, which identifies nothing there and '
+    + 'replaces a path that named the account');
+});
+
+/* The mirror: the SAME shape in a group that DOES span providers still gets the
+   provider name, so the scoping above did not simply disable the feature. */
+test('#2612: the same collision in a cross-provider group still gets the provider name', () => {
+  const claudeDefault = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const q = qualifiers([claudeDefault, openaiDefault]);
+  assert.equal(q.get(openaiDefault.dir), 'OpenAI',
+    'the provider qualifier is gone even where it DOES distinguish, so the scoping went too far');
+});
+
 /* ─────────────────────────────────────────────────────────────────────────────
  * #2612 + CLAUDE.md convention 5: THE THREE DERIVATIONS OF A PROVIDER'S DISPLAY
  * NAME ARE PINNED EQUAL, because there are three of them and they must not drift.
@@ -816,10 +850,22 @@ test('#2612: the three provider-name derivations agree for every provider that e
 });
 
 test('#2612 CONTROL: the pin can see a disagreement, and records the one that already exists', () => {
-  /* The control: a fabricated mismatch must fail the comparison the arm above
-     makes. Without this, that arm could be comparing two things that are equal
-     for a reason other than the one it claims. */
-  assert.notEqual('Claude', 'Anthropic', 'the comparison used above cannot distinguish two strings');
+  /* 🛑 THE CONTROL EXERCISES THE PIN'S OWN COMPARISON, and the first version of
+     this line did not: it was `assert.notEqual('Claude', 'Anthropic', ...)`, two
+     literals, which cannot fail and established only that `assert.notEqual`
+     works. Labelled a control, it would have told a future reader the pin had
+     been shown able to red when nothing of the sort had happened. A vacuous
+     assertion inside a test about vacuous assertions.
+     ⇒ This feeds the real comparison a deliberately wrong provider key and
+     requires it to DISAGREE, so the arm above is known to be capable of failing. */
+  const shortFor = (provider) => {
+    const a = { provider, email: 'x@e.com', dir: '/h/.a', label: null, isDefault: true };
+    const b = { provider: provider === 'openai' ? 'anthropic' : 'openai', email: 'x@e.com', dir: '/h/.b', label: null, isDefault: true };
+    return qualifiers([b, a]).get('/h/.a');
+  };
+  assert.notEqual(shortFor('openai'), shortFor('anthropic'),
+    'the qualifier returns the same short name for both providers, so the pin above compares '
+    + 'two values that cannot disagree and proves nothing');
 
   /* And the REAL disagreement, asserted rather than glossed: for a provider the
      map does not know, the two ternaries guess and the qualifier does not. This
