@@ -6,19 +6,19 @@
  * The web slice adds an OPT-IN import selector to #world-add-modal: worldAddOpen() fetches
  * GET /api/worlds/list and worldImportRender() draws one checkbox per OTHER Kosmos (name +
  * agent count); worldAddSubmit() adds importAgentsFrom:[...] to the POST /api/worlds body
- * when boxes are checked. The engine endpoints are a SEPARATE lane and are not live yet, so
+ * when boxes are checked. The engine endpoints are LIVE on main (the #2563 engine slice), so
  * the load-bearing behaviour is: the control shows when the list HAS entries, HIDES when the
- * list endpoint is absent (the graceful-degrade that lets this ship before the engine), and
- * a checked selection reaches the create payload. The render/fetch/submit units are covered
- * by web.world-import-2563.test.js; this proves a real DOM does it end to end.
+ * list endpoint is absent (the graceful-degrade for a board that cannot answer), and a checked
+ * selection reaches the create payload. The render/fetch/submit units are covered by
+ * web.world-import-2563.test.js; this proves a real DOM does it end to end.
  *
  * Two scenarios, hermetic (file://), fetch stubbed:
  *  - A (list present): GET /api/worlds/list -> two Kosmoses. Opening the create modal shows
  *    the control with one labelled checkbox each ("Client work (2 agents)", "Side project
  *    (1 agent)"), the checkbox value is the world id, and checking both then submitting sends
  *    importAgentsFrom:['w1','w2'] on POST /api/worlds.
- *  - B (endpoint absent): GET /api/worlds/list -> 404 (the engine slice not live). Opening the
- *    modal leaves #world-add-import HIDDEN, so the create flow is exactly today's.
+ *  - B (endpoint unreachable): GET /api/worlds/list -> 404 (a board that cannot answer).
+ *    Opening the modal leaves #world-add-import HIDDEN, so the create flow is exactly today's.
  *
  * CONTROL (red before #2563): on the pre-slice page #world-add-import / worldAddOpen's fetch
  * do not exist, so reading .hidden on the absent element throws and the check reds.
@@ -125,7 +125,7 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
     if ((info[0] || {}).value !== 'w1' || (info[1] || {}).value !== 'w2') problems.push('a checkbox value is not the world id (needed for importAgentsFrom): got ' + JSON.stringify(info.map((i) => i.value)));
     if (!info.every((i) => i.isCheckbox)) problems.push('the import rows must be real checkboxes');
     if (JSON.stringify(r.submittedImport) !== JSON.stringify(['w1', 'w2'])) problems.push('checking both Kosmoses and creating must POST importAgentsFrom:["w1","w2"], got ' + JSON.stringify(r.submittedImport));
-    if (!r.hiddenWhenAbsent) problems.push('THE GRACEFUL DEGRADE: when GET /api/worlds/list is absent (404, the engine slice not live), #world-add-import must stay HIDDEN so the create flow is unchanged, but it was shown');
+    if (!r.hiddenWhenAbsent) problems.push('THE GRACEFUL DEGRADE: when GET /api/worlds/list is unreachable (404, a board that cannot answer), #world-add-import must stay HIDDEN so the create flow is unchanged, but it was shown');
   }
 
   console.log('  ' + JSON.stringify(r));

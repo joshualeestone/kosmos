@@ -4,11 +4,11 @@
  *
  * These run the SHIPPED functions from web/index.html against a fake document, so what is
  * under test is the code that ships, not a paraphrase. The engine endpoints
- * (GET /api/worlds/list, POST /api/worlds { importAgentsFrom }) are a SEPARATE lane and are
- * not live yet, so the load-bearing behaviour here is: the control renders from a list when
- * there IS one, HIDES itself when the list is empty/absent (the graceful-degrade that lets
- * this slice ship before the engine), and the create payload carries importAgentsFrom ONLY
- * when the person actually checked a Kosmos.
+ * (GET /api/worlds/list, POST /api/worlds { importAgentsFrom }) are LIVE on main (merged as
+ * the #2563 engine slice), so a checked create really copies agent profiles. The load-bearing
+ * web behaviour here is: the control renders from a list when there IS one, HIDES itself when
+ * the list is empty/absent (the graceful-degrade for a board that cannot answer), and the
+ * create payload carries importAgentsFrom ONLY when the person actually checked a Kosmos.
  *
  *   node --test web.world-import-2563.test.js
  */
