@@ -104,10 +104,12 @@ function initStub() {
       }
       return enc({ ok: true, asking: false, agent: { sessionName: 'Mara' }, messages: [], viewport: { text: null } });
     }
-    // The projects LIST (plural, no id) -- carry our project so a startup
+    // The projects LIST GET (plural, no id) -- carry our project so a startup
     // loadProjects() (`PROJECTS = body.projects || []`) populates/keeps p1 rather
-    // than wiping the seed. Must not match the singular `/api/project/<id>/...`.
-    if (/\/api\/projects(\?|$)/.test(u)) {
+    // than wiping the seed. Must not match the singular `/api/project/<id>/...`,
+    // and scoped to GET so the create POST (same bare path) still hits the
+    // catch-all rather than being handed a list.
+    if (/\/api\/projects(\?|$)/.test(u) && (!opts || !opts.method || String(opts.method).toUpperCase() === 'GET')) {
       return enc({ ok: true, projects: [window.__project] });
     }
     // Everything else (first-run, docs, you, avatar) gets a benign ok so a
