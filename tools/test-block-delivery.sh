@@ -17,6 +17,23 @@ ok()  { echo "PASS  $1"; }
 bad() { echo "FAIL  $1"; FAILS=$((FAILS+1)); }
 
 T="$(mktemp -d)"; trap 'rm -rf "$T"' EXIT
+# #2259/#2648: the content side (you/policy/doctrine) is read from REAL engine state via
+# engine/store.js's data root (AGENT_WORKFORCE_HOME || os.homedir()), NOT a stub, and the arms
+# below assume that state is EMPTY (no you record, no policies, no doctrine). That held on a dev
+# laptop but NOT on a live cut box (mortals), whose provisioned roster saves a real you.json --
+# so the STALE arm read the fixture `you` block as "delivered to all entitled" instead of STALE,
+# and every mortals release cut aborted at step 3. Sandbox the data root too (an empty $T/home has
+# no .../Kosmos/you.json), so the content side is absent BY CONSTRUCTION on any box. The CONTROL
+# arm at the end writes a real you record into a separate home and proves the STALE detection still
+# discriminates -- a fix that greened against real you-state would let a genuinely-stale block ship.
+# AGENT_WORKFORCE_DATA (the multi-Kosmos data-root switch) WINS OVER AGENT_WORKFORCE_HOME in
+# engine/store.js's dataRootFor (it is the first branch), so a cut/dev shell that carries it (a
+# world switch, direnv, an exported world) would make the HOME redirect inert and read the real
+# you.json again -- the exact recurrence this fix exists to prevent. Unset it so the HOME branch is
+# reached. (tools/test-data-root-1511.sh strips AGENT_WORKFORCE_DATA the same way; that harness
+# sandboxes a different, shell-side data root, so only the unset idiom is shared, not the machinery.)
+unset AGENT_WORKFORCE_DATA
+export AGENT_WORKFORCE_HOME="$T/home"; mkdir -p "$AGENT_WORKFORCE_HOME"
 run() { KOSMOS_WORKERS_DIR="$1" node tools/check-block-delivery.js 2>&1; }
 
 # --- a fleet that has the colleagues block -----------------------------------
@@ -112,6 +129,32 @@ case "$out" in
   *"you"*"STALE on a"*) ok "a block present with nothing to deliver is named STALE, and by agent" ;;
   *) bad "stale case misread: $(printf '%s' "$out" | grep ' you ')" ;;
 esac
+
+# --- CONTROL: the sandbox must not blanket-green the STALE arm (#2259/#2648) --------------
+# Splinter's requirement: prove the STALE detection still DISCRIMINATES under the sandbox. With a
+# REAL you record present, the SAME fixture `you` block must read DELIVERED, not STALE -- so the
+# harness still tells a deliverable block from a stale one, and a genuinely-stale block cannot ship
+# just because we sandboxed the content state. The setup guard fails LOUDLY if the record could not
+# be saved, so a broken control can never masquerade as a passing (or vacuous) detection.
+CTRL_HOME="$T/ctrl-home"; mkdir -p "$CTRL_HOME"
+# Short-circuit on a setup failure: if the record cannot be saved the control is unusable, so
+# emit ONE clear FAIL and skip the verdict check (which would otherwise ALSO fail -- STALE, since
+# nothing was saved -- turning one root cause into two confusing FAIL lines).
+if ! AGENT_WORKFORCE_HOME="$CTRL_HOME" node -e "require('./engine/you.js').save({name:'You',does:'a thing',know:'a fact'})"; then
+  bad "CONTROL SETUP: could not save a you record into the sandbox (control unusable)"
+else
+  out_ctrl="$(AGENT_WORKFORCE_HOME="$CTRL_HOME" KOSMOS_WORKERS_DIR="$T/stale" node tools/check-block-delivery.js 2>&1)"
+  # Extract the `you` row alone before matching (this file's row-test convention -- the projects
+  # and codex arms grep '^  <block> ' first), so a stray STALE/delivered token from another row
+  # could never flip the verdict if the fixture grows.
+  you_ctrl="$(printf '%s' "$out_ctrl" | grep -E '^  you ')"
+  case "$you_ctrl" in
+    "") bad "CONTROL: no 'you' row in the output at all; the table shape changed" ;;
+    *"STALE"*) bad "CONTROL: a you-block with a REAL you record present was still read STALE -- the STALE detection is vacuous under the sandbox" ;;
+    *"delivered to all entitled"*) ok "CONTROL: with a real you record present the same block reads DELIVERED, not STALE -- the STALE detection discriminates" ;;
+    *) bad "CONTROL: unexpected verdict for a present you record: $you_ctrl" ;;
+  esac
+fi
 
 # --- the population floor ----------------------------------------------------
 mkdir -p "$T/empty"
