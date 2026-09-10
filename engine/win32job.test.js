@@ -400,3 +400,23 @@ test('#2614 an absent task reads as known with no configDir (guard skips), an UN
   assert.equal(r.known, false, 'an unreadable task must not read as "no account dir"');
   assert.equal(r.configDir, undefined);
 });
+
+test('#2614 configDirFor survives a UTF-16 /XML report (run() decodes utf8), so the guard is not silently disarmed', () => {
+  // If a box emits schtasks /Query /XML as UTF-16, run()'s utf8 decode leaves a
+  // NUL after every character (and maybe a BOM). Without the defensive strip the
+  // <Arguments> match fails and configDirFor returns configDir:null -- the guard
+  // never fires on real Windows while every other test passes. The round-trip
+  // tests inject a clean JS string and cannot see this, so this arm builds the
+  // mangled shape explicitly.
+  const configDir = 'C:\\Users\\kitty\\.claude';
+  const xml = job.taskXml(
+    { name: 'u16', cwd: 'C:\\work', configDir, node: 'C:\\node.exe', supervisor: 'C:\\app\\win32supervisor.js' },
+    { USERNAME: 'kitty', USERDOMAIN: 'BOX' });
+  const mangled = '\uFEFF' + xml.split('').map((c) => c + '\u0000').join('');
+  // Control: the mangled bytes really do defeat a naive match, or this proves nothing.
+  assert.equal(/<Arguments>[\s\S]*?<\/Arguments>/.test(mangled), false,
+    'control: the raw UTF-16-shaped output must NOT match before the strip');
+  job.setRunner(() => ({ ok: true, out: mangled }));
+  assert.equal(job.configDirFor('u16').configDir, configDir,
+    'the defensive BOM/NUL strip must recover the configDir from a UTF-16 report');
+});

@@ -499,6 +499,13 @@ function xmlUnescape(v) {
  * otherwise, with configDir null when the task carries none. `specFromArgv` is
  * required lazily so win32job does not pull the supervisor's whole module tree at
  * load time.
+ *
+ * ⚠️ EACH CALL SHELLS ONE schtasks PROCESS. That is right for the single
+ * restore-time check, but the #2615 screen field calls the caller once per removed
+ * agent on the board's 5s poll, so on a win32 board this is a per-agent spawn per
+ * poll. Bounded by removed-agent count and deferred rather than cached here (a
+ * stale configDir in a safety check is worse than a bounded spawn); the batched
+ * read is tracked in #2717.
  */
 function configDirFor(name) {
   const r = run(['/Query', '/TN', taskName(name), '/XML']);
@@ -506,7 +513,18 @@ function configDirFor(name) {
     if (NO_SUCH_TASK.test(r.out || '')) return { known: true, configDir: null };
     return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
   }
-  const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(r.out || '');
+  /* ⚠️ schtasks /Query /XML output encoding is NOT guaranteed utf8, and `run()`
+     decodes as utf8. schtasks wants UTF-16-with-BOM for /XML *input* (see install),
+     so a box that emits the /XML *report* as UTF-16 would arrive here with a NUL
+     between every character (and maybe a BOM): the match below would fail, and the
+     guard would silently never fire on real Windows while every Mac test passed --
+     the round-trip tests inject a JS string and cannot see this. Strip a leading
+     BOM and NUL bytes so an ASCII task line survives either encoding; a genuine
+     utf8 report carries neither, so this is a no-op there. The true encoding is
+     confirmed on a live box in the QA loop; this is the belt that keeps a wrong
+     guess from disarming the guard rather than merely mis-reading it. */
+  const out = String(r.out || '').replace(/^\uFEFF/, '').replace(/\u0000/g, '');
+  const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(out);
   if (!m) return { known: true, configDir: null };
   const argStr = xmlUnescape(m[1]);
   const tokens = [];

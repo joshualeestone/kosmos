@@ -267,13 +267,14 @@ function isRemoved(name) {
  * the click-then-refuse it replaces, because it fails in the direction nobody
  * reports.
  *
- * The scope is #2609's and is deliberately narrow. Every bullet is a case this
- * must NOT fire on, and each is pinned by an arm:
- *  - **win32 is out, structurally.** The account dir rides the launchd plist,
- *    and a win32 agent has none (it carries a registered Scheduled Task), so
- *    `readJob` returns null. A Windows agent whose account was deleted still
- *    restores unchecked; that is #2609's named follow-up, still open, and NOT
- *    closed here.
+ * The scope is #2609's and is deliberately narrow. Each bullet is pinned by an
+ * arm:
+ *  - **win32 is now covered too (#2614), the #2609 follow-up this closes.** A
+ *    win32 agent has no plist, but its configDir rides the Scheduled Task argv,
+ *    so `win32job.configDirFor` reads it back into the same `{ configDir }` shape
+ *    `readJob` produces on a Mac, and the one check below runs on both platforms.
+ *    A task we could not read yields no configDir and the guard skips it, the same
+ *    fail-open posture as a missing plist.
  *  - **A default-account agent has `configDir: null`** and is untouched: no
  *    CLAUDE_CONFIG_DIR in its plist, and the default `~/.claude` always exists.
  *  - **A gone plist** makes `readJob` return null, which is the separate
