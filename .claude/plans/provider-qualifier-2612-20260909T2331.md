@@ -545,3 +545,69 @@ code**, and told to assume the latter until it has looked.
 
 State: 45 arms, `tools/run-tests.sh` rc=0 with 5588 tests, 0 fail, 0 skipped, browser check green,
 collision sweep 0 across 62,208 fixtures with controls at 164 and 1760.
+
+## Challenge-loop iteration 11 (opus): NOT converged. 2 WARNINGs, 1 NIT, and a verdict worth quoting
+
+It was briefed to decide whether the loop was converged **or whether ten rounds had trained my blind
+spot into the code**, and told to assume the latter. Its answer refines that question rather than
+answering it as asked, and the refinement is the most useful sentence of the night:
+
+> **"Ten rounds have not trained a blind spot into the CODE. They have trained one into the PROSE."**
+
+🛑 **I initially wrote this up as "the blind spot is in the code" and that was wrong.** The code held
+under 13 mutations (12 red the suite; the 13th is the documented-unpinnable one), 2,075,040
+brute-forced row-pairs over a 1,440-row pool against an oracle proven live, and a full suite at
+5588/5588. **Every finding this round was a COMMENT defect**, and both WARNINGs sat in prose that
+iterations 9 and 10 had themselves just written.
+
+### WARNING 1: a banner that was true before a rewrite, hiding the thing it made unfindable
+
+`provIdOf`'s banner claimed three call sites "including the key". Measured: one definition, two
+calls. The key stopped calling it in the commit that repointed it at `acctPrimaryName`; the banner
+survived the rewrite that falsified it.
+
+⚠️ **Not cosmetic, and this is the general reason a stale banner is dangerous rather than untidy:**
+`acctPrimaryName`'s own provider read is `a.provider === 'openai'`, EXACT-CASE, and is the last
+un-normalised provider read in the qualifier path. **A banner claiming the key reads a normalised id
+is exactly what stops the next person looking there.** Harmless if ever reached (`key()` and the
+rendered name call the SAME function on the SAME row, so a mismatch changes which fallback is
+chosen, never whether two rows sound alike), and that reasoning is now recorded at the code.
+
+### WARNING 2: my own fix from ONE round earlier, and it is class 4 in its purest form
+
+Iteration 10's empty-dir guard **covers half the fix it was written for while reading complete** -
+committed in the same commit where I wrote up class 4 as a lesson.
+
+The comment claimed `''` is "the ONE value this function must never hand an ambiguous row", under an
+explicit future-caller threat model. But **the returned Map is keyed on `dir` and all three callers
+look up by `dir`**, so two rows sharing a dir read the SAME entry. Measured: two ambiguous rows both
+with `dir:''` produce a map of **size 1 for 2 rows**, the first row's `main` is overwritten, and both
+controls speak "account".
+
+⭐ **A NEW SHAPE, and the most transferable thing here: a guard that RUNS, is correct in isolation,
+and whose effect CANNOT REACH the caller.** Not a vacuous assertion (it does compute), not dead code
+(it does execute). The return shape cannot express two answers for one `dir`, so no value written
+there can separate them. **Ask of any defence: can its result actually arrive?**
+⇒ The guard stays, because it does something real and measurable (a row with an empty dir beside a
+normal row now reads "account" rather than `''`). What changed is the CLAIM: the comment states the
+real limit and says plainly that nothing inside this function can defend against rows sharing a dir.
+
+### The NIT was an inconsistency in my own argument
+
+`const dir = String(a.dir || '')` had no `a &&`, so a null row threw from the one line without a
+guard, while `provIdOf`, `acctChosenName` and `acctPrimaryName` all guard. **Defending two of three
+reads is not the pure-and-exported argument I used to justify the other two.**
+
+### What iteration 11 could NOT check, recorded because it bounds the convergence signal
+
+- **Its collision oracle cannot see the #1917 harm class** - a qualifier that is *distinct but
+  MEANINGLESS*, such as a provider name in a group where every row is that provider. Those mutations
+  stayed green on the brute force and had to be caught by the suite instead, which they were.
+  ⇒ **A brute-force sweep proving "no two sound alike" is not proving "every qualifier is useful",
+  and those are different properties.** Iteration 12 is briefed to hunt that class specifically.
+- The browser check needs Playwright and a live board, so it verified the underlying helper claim
+  rather than the rendered assertion.
+
+State: 46 arms, `tools/run-tests.sh` rc=0 with 5589 tests, 0 fail, 0 skipped, browser check green,
+collision sweep 0 across 62,208 fixtures. **Not converged**; iteration 12 (sonnet) running, briefed
+almost entirely on comment accuracy plus the harm class the oracle is blind to.
