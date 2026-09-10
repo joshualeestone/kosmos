@@ -56,7 +56,8 @@ function makeEl() {
 function run(primary, alt) {
   const next = makeEl();
   const other = makeEl();
-  const els = { 'fr-next': next, 'fr-alt': other };
+  const altHint = makeEl();  // #2648: the footer's optional hint span beside #fr-alt
+  const els = { 'fr-next': next, 'fr-alt': other, 'fr-alt-hint': altHint };
   const body = frActionsBody();
   // eslint-disable-next-line no-new-func
   new Function('document', '_p', '_a', body + '\nfrActions(_p, _a);')(
@@ -64,7 +65,7 @@ function run(primary, alt) {
     primary,
     alt,
   );
-  return { next, other };
+  return { next, other, altHint };
 }
 
 test('primary null WITH an alt renders the alt (the #1835 bug: it was hidden)', () => {
@@ -100,4 +101,25 @@ test('a primary AND an alt shows both (unchanged behaviour)', () => {
   assert.equal(next.textContent, 'Continue');
   assert.equal(other.hidden, false);
   assert.equal(other.textContent, 'Back');
+});
+
+test('#2648: an alt with a hint renders it beside the button; without a hint it stays hidden', () => {
+  const withHint = run({ label: 'Next', go: () => 'n' },
+    { label: 'Check again', go: () => 'r', hint: 'Turned it on? Tap to check.' });
+  assert.equal(withHint.altHint.hidden, false, 'the hint span shows when alt.hint is given');
+  assert.equal(withHint.altHint.textContent, 'Turned it on? Tap to check.', 'the hint text renders');
+
+  const noHint = run({ label: 'Next', go: () => 'n' }, { label: 'Back', go: () => 'b' });
+  assert.equal(noHint.altHint.hidden, true, 'no alt.hint -> the hint span is hidden');
+  assert.equal(noHint.altHint.textContent, '', 'no alt.hint -> the hint text is cleared');
+});
+
+test('#2648: the hint is RESET on a paint with no alt (a step-3 hint must not leak forward)', () => {
+  // The footer element is shared across steps; if a leftover hint carried into a step that
+  // passes no alt, it would sit beside a hidden button. setAltHint must clear it every paint.
+  const noAlt = run({ label: 'Continue', go: () => 'c' });
+  assert.equal(noAlt.altHint.hidden, true, 'no alt -> hint hidden');
+  assert.equal(noAlt.altHint.textContent, '', 'no alt -> hint text cleared');
+  const nullPrimaryNoAlt = run();
+  assert.equal(nullPrimaryNoAlt.altHint.hidden, true, 'null primary + no alt -> hint hidden');
 });
