@@ -31,7 +31,14 @@ run() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2>/de
 run_err() { /bin/sh -euc "set -o pipefail; $1; . '$HELPER'; _kosmos_data_root" 2>&1 >/dev/null; }
 # The default answer, normalised the way the helper normalises, so a HOME carrying a
 # trailing slash does not red five arms for a reason none of them names.
-EXP_DEFAULT="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"; EXP_DEFAULT="${EXP_DEFAULT%/}/AgentWorkforce"
+# #2439: the fallback leaf is legacy-aware now -- AgentWorkforce only when it already
+# exists and Kosmos does not, else the new /Kosmos leaf. That makes the default depend
+# on what the base dir CONTAINS, so pin HOME to a fresh dir with an EMPTY Application
+# Support (neither leaf) rather than the runner's real one, which may hold either leaf
+# (a cut box carries the installed /Kosmos). These fallback arms then assert the
+# post-#2439 fresh default deterministically: /Kosmos.
+export HOME="$(mktemp -d)"; mkdir -p "$HOME/Library/Application Support"
+EXP_DEFAULT="$(printf '%s' "$HOME/Library/Application Support" | /usr/bin/tr -s '/')"; EXP_DEFAULT="${EXP_DEFAULT%/}/Kosmos"
 
 # 0. THE FILE PARSES. Every refusal arm below asserts "nothing on stdout, non-zero",
 #    and a helper that cannot parse satisfies that. Named here so a syntax error reds
@@ -52,10 +59,29 @@ r=$(run 'KOSMOS_HOME=/nonexistent; unset AGENT_WORKFORCE_DATA')
 [ "$r" = "$EXP_DEFAULT" ] \
   && ok "no runtime falls back to the default root" || bad "no runtime falls back to the default root" "$r"
 
-# 2. the sandbox seam is honoured in the fallback
+# 2. the sandbox seam is honoured in the fallback (fresh base, neither leaf -> /Kosmos)
 r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp/sbx-1511')
-[ "$r" = "/tmp/sbx-1511/AgentWorkforce" ] \
+[ "$r" = "/tmp/sbx-1511/Kosmos" ] \
   && ok "the sandbox seam is honoured" || bad "the sandbox seam is honoured" "$r"
+
+# 2b. #2439 fallback leaf selection, legacy arm: a base that already carries the legacy
+#     AgentWorkforce data (and no Kosmos yet) resolves to /AgentWorkforce, so a
+#     pre-migration partial uninstall still finds its own data. Mirrors setup.sh:3522.
+SBXL="$(mktemp -d)"; mkdir -p "$SBXL/AgentWorkforce"
+r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$SBXL")
+[ "$r" = "$SBXL/AgentWorkforce" ] \
+  && ok "the fallback picks the legacy leaf when only AgentWorkforce exists" \
+  || bad "the fallback picks the legacy leaf when only AgentWorkforce exists" "$r"
+
+# 2c. #2439 fallback leaf selection, migrated arm: once /Kosmos exists the fallback
+#     prefers it even beside a lingering legacy folder (the migration never clobbers a
+#     new root, so both can coexist and the new one is the live data root).
+mkdir -p "$SBXL/Kosmos"
+r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$SBXL")
+[ "$r" = "$SBXL/Kosmos" ] \
+  && ok "the fallback prefers /Kosmos once it exists, even beside a lingering AgentWorkforce" \
+  || bad "the fallback prefers /Kosmos once it exists, even beside a lingering AgentWorkforce" "$r"
+rm -rf "${SBXL:?}"
 
 FAKE="$(mktemp -d)"; mkdir -p "$FAKE/runtime/bin" "$FAKE/app/engine"
 ln -sf "$(command -v node)" "$FAKE/runtime/bin/node"
@@ -154,7 +180,7 @@ r=$(run "KOSMOS_HOME=$FAKE; export AGENT_WORKFORCE_DATA=/tmp/sbx-1511")
 
 # 11. AND THE FALLBACK NORMALISES LIKE THE ENGINE: trailing and doubled slashes.
 r=$(run 'KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=/tmp//sbx-1511/')
-[ "$r" = "/tmp/sbx-1511/AgentWorkforce" ] \
+[ "$r" = "/tmp/sbx-1511/Kosmos" ] \
   && ok "the fallback squeezes // and drops a trailing /, as path.join does" \
   || bad "the fallback squeezes // and drops a trailing /, as path.join does" "$r"
 
@@ -200,7 +226,7 @@ d=$(refused "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/nox" 'refusing'
        || bad "an unenterable parent aborted with no sentence" "$d rc=$rc out=[$r]"; }
 chmod 700 "$LNK/nox"
 r=$(run "KOSMOS_HOME=/nonexistent; AGENT_WORKFORCE_DATA=$LNK/ok"); rc=$?
-[ "$rc" -eq 0 ] && [ "$r" = "$LNK/ok/AgentWorkforce" ] && ok "CONTROL: a symlink to an ordinary folder is still accepted" \
+[ "$rc" -eq 0 ] && [ "$r" = "$LNK/ok/Kosmos" ] && ok "CONTROL: a symlink to an ordinary folder is still accepted" \
   || bad "CONTROL: a symlink to an ordinary folder is still accepted" "rc=$rc out=[$r]"
 rm -rf "${LNK:?}"
 
