@@ -532,12 +532,13 @@ test('every emit site in every check prints a line the gate can quote', () => {
      `.catch(...) threw:` emit. Both are ALSO counted by the catch/launch scan below (+2 there).
      Its ok() helper interpolates FAIL (empty literal prefix), so that is NOT counted -- matching
      how every ok()-helper check on this page is treated. */
-  const EXPECTED_SITES = 86;   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 88;   // +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (#2620) -- its launch catch + the final .catch() throw (the ok() helper's FAIL is interpolated -> not counted). +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
   //                              +1: render-worldsw-abandon-2628.js (its `for (const p of problems)
   //                              console.error('  FAIL  ' + p)` loop is one SHAPE-1 finding-emit site,
   //                              confirmed quotable; same shape as render-worldswitch-2238's. Its
   //                              launch-failure catch is counted once by the catch/launch scan below
   //                              (as the 50th), not here. #2633). 80 + 1 (#2633) + 2 (#2620) + 2 (#2617) = 85.
+  //                              +2: render-firstrun-openai-sub-2621.js (its r.error FAIL-emit + the problems FAIL-emit loop, #2621) -- MERGE of #2621 onto main.
   //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
   //                              line (a quotable failure), net +1 across the suppression rewrites.
   //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
@@ -726,12 +727,13 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      catch/launch emit sites, both confirmed quotable (`FAIL  render-token-usage-2617: ...`
      and `FAIL  render-token-usage-2617 threw: ...`). Both are ALSO counted once by the
      finding-emit scan above (75/76). Same shape as render-account-badge-1921's launch catch. */
-  const EXPECTED_CATCH_SITES = 55;   // +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch catch; the 55th, #2282, added on the re-merge). +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
+  const EXPECTED_CATCH_SITES = 56;   // +1: render-tophead-consolidated-2282.js (its could-not-start-a-browser launch catch; the 55th, #2282, added on the re-merge). +2: render-token-usage-2617.js (its launch catch + top-level .catch throw, #2617). +2: render-permission-slider-2620.js (its could-not-start-a-browser launch catch + the final .catch() throw emit, #2620; both quotable FAIL lines). +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
   //                                   +1: render-worldsw-abandon-2628.js (its `console.error('FAIL
   //                                   render-worldsw-abandon-2628: could not start a browser' ...)` launch catch
   //                                   is one catch/launch emit site, confirmed quotable; same shape as
   //                                   render-worldswitch-2238's. Its per-problem finding-emit loop is counted
   //                                   once by the finding-emit scan above (81), not here. #2633)
+  //                                   +1: render-firstrun-openai-sub-2621.js (its could-not-start-a-browser launch catch, #2621) -- MERGE of #2621 onto main.
   //                                   +1: render-account-dup-reauth-2584.js (its could-not-start-a-browser launch catch, #2584)
   //                                   +1: render-disconnect-stop-2570.js (its could-not-start-a-browser launch
   //                                   catch, #2570). Appended, not substituted: see the note on EXPECTED_SITES.
