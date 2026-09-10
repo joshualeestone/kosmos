@@ -526,7 +526,7 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 77;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 79;   // +2: render-disconnect-stop-2570.js (the r.error emit and the fails-list FAIL emit, #2570);
   //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
   //                              line (a quotable failure), net +1 across the suppression rewrites.
   //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
@@ -691,7 +691,7 @@ test('every catch/launch emit prints a line the gate can quote (#1864)', () => {
      `console.error('FAIL  render-sound-master-2436: could not start a browser' ...)`
      is one catch/launch emit site, confirmed quotable (same shape as render-account-badge-1921's).
      Its per-problem finding-emit loop is counted once by the finding-emit scan above (72). */
-  const EXPECTED_CATCH_SITES = 48;   // +1: render-provider-combobox-1040.js (the could-not-start-a-browser launch catch, #1040 2b)
+  const EXPECTED_CATCH_SITES = 49;   // +1: render-disconnect-stop-2570.js (the could-not-start-a-browser launch catch, #2570)
   //                                   +1: render-account-dup-reauth-2584.js (its could-not-start-a-browser launch catch, #2584)
   assert.equal(sites, EXPECTED_CATCH_SITES,
     `${sites} catch/launch emit sites matched, expected ${EXPECTED_CATCH_SITES}. Update this `
