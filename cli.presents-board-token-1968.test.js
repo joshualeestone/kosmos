@@ -133,6 +133,13 @@ const NODE_DIR = path.dirname(process.execPath);
 const withNodeOnPath = (home) => ({
   KOSMOS_HOME: home,
   PATH: `${NODE_DIR}${path.delimiter}${process.env.PATH || ''}`,
+  // Pin AGENT_WORKFORCE_DATA to empty: engine/store.js resolves DATA BEFORE HOME, so an
+  // ambient AGENT_WORKFORCE_DATA in the developer's shell would override the sandbox HOME
+  // this test relies on -- redirecting the real store's ROOT out of the temp dir and, worse,
+  // writing a fake board.token into a real data root. Empty is falsy in store's
+  // `if (e.AGENT_WORKFORCE_DATA)` guard, so HOME is used. (Harmless for the stub-store tests,
+  // whose store ignores env entirely; load-bearing for the real-store integration arm.)
+  AGENT_WORKFORCE_DATA: '',
 });
 
 test('#2644: report/reply present the board token from a SOURCE-checkout layout (both fallbacks fire)', () => withStub(async (port, seen) => {
@@ -180,7 +187,10 @@ function makeRealStoreSourceHome() {
     const realRoot = execFileSync(
       process.execPath,
       ['-e', 'process.stdout.write(require(process.argv[1]).ROOT)', path.join(__dirname, 'engine', 'store')],
-      { env: { ...process.env, AGENT_WORKFORCE_HOME: awHome }, encoding: 'utf8' },
+      // AGENT_WORKFORCE_DATA:'' for the same reason as withNodeOnPath: store.js resolves DATA
+      // before HOME, so an ambient DATA would compute realRoot outside awHome (leaking it) and
+      // could point the probe at a real data root. Empty is falsy, so HOME (awHome) is used.
+      { env: { ...process.env, AGENT_WORKFORCE_HOME: awHome, AGENT_WORKFORCE_DATA: '' }, encoding: 'utf8' },
     );
     fs.mkdirSync(realRoot, { recursive: true });
     return { home, awHome, realRoot };
