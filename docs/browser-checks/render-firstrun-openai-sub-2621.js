@@ -131,8 +131,9 @@ const PAGE = nodePath.join(__dirname, '..', '..', 'web', 'index.html');
       window.fetch = (u) => {
         const url = String(u);
         if (url.indexOf('/subscription/start') !== -1) return Promise.resolve({ ok: true, json: async () => ({ sessionId: 's9', authUrl: 'https://openai.example/s', mode: 'browser' }) });
-        // NON-terminal: the poll keeps going, so only the FR_STEP guard can stop it.
-        if (url.indexOf('/subscription/status') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ state: 'awaiting_authorization' }) });
+        // NON-terminal contract state (acctOpenaiSubView: done=false), so the poll keeps
+        // going and only the FR_STEP guard can stop it.
+        if (url.indexOf('/subscription/status') !== -1) return Promise.resolve({ ok: true, status: 200, json: async () => ({ state: 'awaiting-browser' }) });
         return Promise.resolve({ ok: true, json: async () => ({}) });
       };
       document.getElementById('fr-openai-sub-go').click();
