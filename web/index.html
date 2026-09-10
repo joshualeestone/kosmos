@@ -525,8 +525,6 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
 .instr-restart { margin-left: 8px; font-size: .8125rem;
                  padding: calc(.35em - 1px) calc(.85em - 1px); vertical-align: baseline; }
 .instr-restart-note { display: block; margin-top: 6px; color: var(--label-2); font-size: .8125rem; }
-.tellrow { display: flex; align-items: center; gap: 10px; cursor: pointer; font-size: .875rem; }
-.tellrow input { width: 16px; height: 16px; flex: 0 0 16px; accent-color: var(--gold-deep, #b8860b); }
 /* #770 (Josh, 2026-08-24 22:31): "a nicer more organized box of what's
    connected... on the right of that box, a green connected thing... a
    link at the bottom to disconnect." One box per account, stacked.
@@ -9448,34 +9446,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            being made, so the menu would carry no choice. Same rule as the
            projects picker, and the same resolution as the removed-agents list at
            zero. -->
-      <!-- #238. Josh: "They will see a checkbox that says 'Let Kosmos know you
-           created an agent' and they can uncheck it if they want."
-           RULED, Josh 2026-08-24 13:28 CDT, #chaoskosmos-design: "Let the
-           Kosmos team know you created an agent", his exact words, "as
-           simplified as possible". The receiver is still named (the team,
-           not the app on this Mac), which was the #331 concern; what is
-           sent stays spelled out in the Settings row's hint. One string in
-           one place, so a later ruling is still one edit. -->
-      <!-- 📌 THE CREATED-PING CONTROL IS BACK, BOTH SURFACES (Josh, 2026-09-05,
-           relayed by Splinter): "we need that back in for sure" + "I've never
-           said flip it off". That reverses the 2026-08-26 removal (item 3). The
-           Settings row was restored earlier under #2020; this is its other
-           surface, the point-of-the-act checkbox, restored here with the default
-           back ON (engine/ping.js returns { on: true } for a never-asked
-           machine). The default and the control move together (#2013).
-           ⚠️ NOT `checked` IN THE MARKUP. Sending is two gates: this box for one
-           agent, and the standing answer in Settings. refreshCreateTell() paints
-           the box from the real read on every open, so a person who turned it
-           off in Settings sees an unchecked, disabled box that says so, rather
-           than a hard-coded tick claiming a consent the second gate would refuse
-           (the #258 defect). -->
-      <div class="field" id="create-tell-wrap">
-        <label class="tellrow" for="create-tell">
-          <input type="checkbox" id="create-tell">
-          <span>Let the Kosmos team know you created an agent</span>
-        </label>
-        <div class="fhint" id="create-tell-note"></div>
-      </div>
+      <!-- #2623: the "Let the Kosmos team know you created an agent" checkbox was
+           deleted with the create-agent telemetry (Josh, 2026-09-09, "invasion
+           of privacy"). Creating an agent tells no one. -->
       <button class="btn uprime big" id="create-go" type="button">Create agent</button>
     </div>
     <div class="fmsg" id="create-msg" role="status" aria-live="polite"></div>
@@ -11235,13 +11208,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
           <p class="dhint" style="margin:2px 0 0;">Every so often, Kosmos looks at which of your agents are working and asks you to check on any that have stopped. It asks a question, never assumes, because an agent may be mid-something. On by default.</p></div>
         <button class="toggle" id="hb-toggle" role="switch" aria-label="Ask me to check on any agent that has stopped" hidden><i></i></button>
       </div>
-      <!-- #1722: the heartbeat reaches the person through notifications, so if
-           the notify master switch is OFF this toggle does nothing, silently.
-           This conditional hint (Mona Lisa's voice) is shown ONLY when
-           notifications are off, keyed on the notify-master state in
-           paintHeartbeat -- a dedicated element, NOT hb-msg (which is the save
-           status). Hidden by default; unhidden only when notify is off. -->
-      <p class="fhint" id="hb-needs-notify" hidden>Notifications are off, so this cannot reach you. Turn them on and Kosmos will let you know when an agent has stopped.</p>
+      <!-- #2623: the "notifications are off" hint was removed with the notify
+           phone-home seam (engine/notify.js). -->
       <div class="frow" id="hb-interval-row" hidden style="margin-top:12px; align-items:center; gap:8px;">
         <label class="dhint" for="hb-interval" style="margin:0;">Check every</label>
         <select id="hb-interval" aria-label="How often to check on your agents"></select>
@@ -11402,41 +11370,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            — admitting the gap is the first half, and the second half is
            whether the person can ACT. Now they can: it installs, or it does
            not, and both are real. -->
-      <!-- #2020: the two telemetry OPT-OUT rows, restored (Josh, 2026-09-03: "on,
-           and they can turn it off" needs the controls he removed 08-26). That
-           branch restored the CONTROLS only and held the default flip for Josh -
-           the irreversible half - so the copy honestly said "Off by default" then.
-           Josh has since flipped the create-agent ping default ON (2026-09-05,
-           #2020/#2013: "we need that back in for sure", "I've never said flip it
-           off"; engine/ping.js defaults an absent setting to on:true). So the copy
-           now reads "On by default; this switch turns it off" - the wording swap
-           the note above said would follow the flip. This switch is the OPT-OUT.
-           (The phone-notification row below is engine/notify.js, a DIFFERENT
-           mechanism with its own switch; it is ALSO on by default now, its own
-           #2020 step 3 flip - Josh 2026-09-03 "on, and they can turn it off".)
-           🛑 THREE STATES, NOT TWO (#2047): the paint below shows ON / OFF /
-           COULD-NOT-READ. On a 403 board the GET is gated and the value is unknown;
-           a telemetry opt-out that falsely reads OFF would tell a person "nothing is
-           sent" while the engine may be sending, so an unknown read draws neither
-           position. -->
-      <div class="setrow" id="tell-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when you create an agent</b>
-          <p class="dhint" style="margin:2px 0 0;">On by default; this switch turns it off. One small message each time: that an agent was made, when, which Kosmos version and which macOS, and a random ID for this install, so we can count how many people use Kosmos. Nothing about the agent, and nothing it does.</p></div>
-        <button class="toggle" id="tell-toggle" role="switch" aria-label="Let the Kosmos team know when you create an agent" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="tell-msg" role="status" style="margin:8px 0 0;"></p>
-      <!-- The outbound "something happened" switch (engine/notify.js): the seam a
-           phone notification rides on. ON by default (#2020 step 3, Josh 2026-09-03
-           "on, and they can turn it off"; engine/notify.js defaults an absent
-           setting to on:true); this switch is the OPT-OUT. The copy says exactly
-           what leaves the Mac: who, what, when, never the words. -->
-      <div class="setrow" id="notify-row" style="margin-top:12px;">
-        <div><b>Let the Kosmos team know when an agent posts or answers you</b>
-          <p class="dhint" style="margin:2px 0 0;">On by default; this switch turns it off. One small message each time: the agent's name and session, what it did (posted or answered), which project, when, an id for that event, and a random ID for this install. Never the words. This is what a phone notification will ride on once Kosmos can reach your phone.</p></div>
-        <button class="toggle" id="notify-toggle" role="switch" aria-label="Let the Kosmos team know when an agent posts or answers you" hidden><i></i></button>
-      </div>
-      <p class="dhint" id="notify-msg" role="status" style="margin:8px 0 0;"></p>
-
+      <!-- #2623: the two "let the Kosmos team know..." telemetry opt-out rows
+           (create-agent, and posts/answers) were deleted (Josh, 2026-09-09,
+           "invasion of privacy"). Only auto-update remains below. -->
       <div class="setrow" id="auto-row" style="margin-top:12px;">
         <div><b>Update Kosmos automatically</b>
           <p class="dhint" style="margin:2px 0 0;">On by default. New versions install themselves, which takes a few seconds and reloads this board. Agents keep running throughout.</p></div>
@@ -15435,7 +15371,7 @@ document.getElementById('you-tz-save').addEventListener('click', async () => {
    HIDES the knob (paintSwitch(null)) and says so, never a false Off. Reads are
    403-safe: a non-ok GET is could-not-read, not a position (the #2047 rule).
    AH_EPOCH is the same stale-response guard the sibling pairs use (LIM_EPOCH,
-   TELL_EPOCH, ...): paint and save share one epoch, so a GET that lands after a
+   FEEDBACK_EPOCH, ...): paint and save share one epoch, so a GET that lands after a
    newer paint or save cannot repaint over the fresher state -- which is the exact
    "a moved setting keeps its stored value" acceptance under tab churn. */
 let AH_EPOCH = 0;
@@ -15540,7 +15476,6 @@ async function paintHeartbeat() {
   const iv = document.getElementById('hb-interval');
   const msg = document.getElementById('hb-msg');
   const row = document.getElementById('hb-interval-row');
-  const needsNotify = document.getElementById('hb-needs-notify');
   if (!iv) return;
   try {
     const res = await fetch('/api/heartbeat-setting', { cache: 'no-store' });
@@ -15562,17 +15497,7 @@ async function paintHeartbeat() {
     if (row) row.hidden = true;
     if (msg) msg.textContent = 'We could not read this setting just now.';
   }
-  /* The heartbeat reaches the person through notifications, so show the notify-off
-     hint ONLY when the notify master switch is off. Best-effort and separate from
-     the setting read above: a failed OR non-ok read HIDES the hint (never show a false
-     "notifications off" warning), and it keys its own element, not hb-msg. */
-  if (needsNotify) {
-    try {
-      const res = await fetch('/api/notify-setting', { cache: 'no-store' });
-      const n = res.ok ? await res.json() : null;
-      needsNotify.hidden = !n || n.on === true;
-    } catch { needsNotify.hidden = true; }
-  }
+  /* #2623: the notify-off hint was removed with the phone-home seam. */
 }
 /* Save on interact, the lim pattern. Both handlers refuse to write until the setting
    has LOADED -- the toggle ships hidden and is unclickable until paintSwitch gives it
@@ -15599,15 +15524,7 @@ async function saveHeartbeat(on, intervalMinutes) {
     document.getElementById('hb-interval').value = String(out.intervalMinutes || 15);
     if (row) row.hidden = out.on !== true;
     if (msg) msg.textContent = '';
-    /* The prompter just changed; re-check the notify-off hint. */
-    const needsNotify = document.getElementById('hb-needs-notify');
-    if (needsNotify) {
-      try {
-        const nres = await fetch('/api/notify-setting', { cache: 'no-store' });
-        const n = nres.ok ? await nres.json() : null;
-        needsNotify.hidden = !n || n.on === true;
-      } catch { needsNotify.hidden = true; }
-    }
+    /* #2623: the notify-off hint was removed with the phone-home seam. */
   } catch {
     /* Epoch-guarded like every other write here (see saveAutohandoff). */
     if (mine === HB_EPOCH && msg) msg.textContent = 'We could not reach Kosmos to save that.';
@@ -18633,64 +18550,8 @@ async function autoToggleClick() {
 }
 document.getElementById('auto-toggle').addEventListener('click', autoToggleClick);
 
-/* #2020: the two telemetry OPT-OUT switches, restored (Josh 2026-09-03: "on, and
-   they can turn it off" needs the controls removed 08-26). Same three pieces as the
-   switches above - paint from a read, refresh on arrival, save on click - AND the
-   same three STATES (on / off / could-not-read). The reads are 403-SAFE FROM THE
-   START (#2047): a gated or failed GET draws COULD-NOT-READ, never a confident Off.
-   For a telemetry opt-out that distinction is the whole point - a switch that
-   falsely reads Off tells a person nothing is sent while the engine may be. The
-   created-agent ping now defaults ON (Josh 2026-09-05, #2020/#2013: "we need
-   that back in for sure", "I've never said flip it off"), with these switches as
-   the opt-out; the send stays event-only (nothing about the agent). */
-let TELL_EPOCH = 0;
-function tellPaint(r) {
-  // could-not-read if there is no real value: no body at all, or the route/engine
-  // said ok:false. paintSwitch(null) HIDES the switch, so no position is claimed.
-  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
-  paintSwitch('tell-toggle', unread ? null : r.on === true);
-  document.getElementById('tell-msg').textContent = unread
-    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
-    : '';
-}
-async function refreshTell() {
-  const mine = ++TELL_EPOCH;
-  try {
-    const res = await fetch('/api/ping-setting');
-    /* 🛑 #2047: a non-ok GET (403 on an enforcing board, or 500) is COULD-NOT-READ,
-       not Off. Do NOT .json() a non-ok response into a switch position - that is the
-       bug on the auto-update row. */
-    if (!res.ok) { if (mine === TELL_EPOCH) tellPaint(null); return; }
-    const r = await res.json();
-    if (mine === TELL_EPOCH) tellPaint(r);
-  } catch {
-    if (mine === TELL_EPOCH) tellPaint(null);
-  }
-}
-let TELL_SAVING = false;
-async function tellToggleClick() {
-  if (TELL_SAVING) return;
-  TELL_SAVING = true;
-  const mine = ++TELL_EPOCH;
-  const msg = document.getElementById('tell-msg');
-  try {
-    const on = document.getElementById('tell-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/ping-setting', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== TELL_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    tellPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    TELL_SAVING = false;
-  }
-}
-document.getElementById('tell-toggle').addEventListener('click', tellToggleClick);
+/* #2623: the create-agent telemetry opt-out switch (tell-toggle, /api/ping-setting)
+   was deleted here with the telemetry itself. */
 
 /* #2037 PR-C1: the daily product-feedback SEND switch, in Settings > Automation.
    Same three pieces and same PRIVACY could-not-read treatment as the tell switch
@@ -18744,92 +18605,10 @@ async function feedbackToggleClick() {
 }
 document.getElementById('feedback-toggle').addEventListener('click', feedbackToggleClick);
 
-/**
- * The create page's copy of the standing answer (#258, restored #2020 on Josh's
- * 2026-09-05 reversal).
- *
- * ⚠️ THREE STATES, AND THE THIRD IS NOT "ON". `unread` (no body, ok:false, or a
- * non-boolean on) means we have not read it, which is not off. An unread or
- * turned-off setting disables the box here, because the engine refuses on
- * `!pref.on` either way and a checked box would describe a send that cannot
- * happen.
- *
- * 🔑 IT NEVER WRITES THE SETTING. Unchecking here is about this one agent; the
- * standing answer is changed in Settings and nowhere else.
- */
-function createTellPaint(r) {
-  const box = document.getElementById('create-tell');
-  const note = document.getElementById('create-tell-note');
-  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
-  const on = !unread && r.on === true;
-  box.disabled = !on;
-  box.checked = on;
-  note.textContent = on ? ''
-    : (unread
-      ? 'We could not read this setting, so nothing is sent.'
-      : 'Turned off in Settings.');
-}
-
-let CREATE_TELL_EPOCH = 0;
-async function refreshCreateTell() {
-  /* Painted as unreadable FIRST, then upgraded, so a slow fetch never shows a
-     stale claim. A non-ok GET (403 on an enforcing board, or 500) is
-     could-not-read, not off (#2047), the same rule the Settings row follows.
-     The epoch guard discards a stale response when the form is re-opened
-     mid-fetch, matching refreshTell/refreshNotify. */
-  const mine = ++CREATE_TELL_EPOCH;
-  createTellPaint(null);
-  try {
-    const res = await fetch('/api/ping-setting');
-    if (!res.ok) { if (mine === CREATE_TELL_EPOCH) createTellPaint(null); return; }
-    const r = await res.json();
-    if (mine === CREATE_TELL_EPOCH) createTellPaint(r);
-  } catch { if (mine === CREATE_TELL_EPOCH) createTellPaint(null); }
-}
-
-let NOTIFY_EPOCH = 0;
-function notifyPaint(r) {
-  const unread = !r || r.ok === false || typeof r.on !== 'boolean';
-  paintSwitch('notify-toggle', unread ? null : r.on === true);
-  document.getElementById('notify-msg').textContent = unread
-    ? 'We could not check this setting here. Open Kosmos from its icon and you can change it.'
-    : '';
-}
-async function refreshNotify() {
-  const mine = ++NOTIFY_EPOCH;
-  try {
-    const res = await fetch('/api/notify-setting');
-    if (!res.ok) { if (mine === NOTIFY_EPOCH) notifyPaint(null); return; }
-    const r = await res.json();
-    if (mine === NOTIFY_EPOCH) notifyPaint(r);
-  } catch {
-    if (mine === NOTIFY_EPOCH) notifyPaint(null);
-  }
-}
-let NOTIFY_SAVING = false;
-async function notifyToggleClick() {
-  if (NOTIFY_SAVING) return;
-  NOTIFY_SAVING = true;
-  const mine = ++NOTIFY_EPOCH;
-  const msg = document.getElementById('notify-msg');
-  try {
-    const on = document.getElementById('notify-toggle').getAttribute('aria-checked') !== 'true';
-    const res = await fetch('/api/notify-setting', {
-      method: 'PUT',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ on }),
-    });
-    const body = await res.json().catch(() => ({}));
-    if (mine !== NOTIFY_EPOCH) return;
-    if (!res.ok) { msg.textContent = body.error || 'We could not save that setting.'; return; }
-    notifyPaint(body);
-  } catch {
-    msg.textContent = 'We could not save that setting.';
-  } finally {
-    NOTIFY_SAVING = false;
-  }
-}
-document.getElementById('notify-toggle').addEventListener('click', notifyToggleClick);
+/* #2623: the create-page telemetry checkbox painter (createTellPaint /
+   refreshCreateTell, /api/ping-setting) was deleted with the checkbox.
+   #2623: the posts/answers telemetry switch (notify-toggle, refreshNotify,
+   /api/notify-setting) was deleted here too. */
 document.getElementById('eng-toggle').addEventListener('click', engToggleClick);
 
 /* The one place the project page's viewport visibility is decided: the
@@ -18883,8 +18662,6 @@ function pjScreenOnScreen() {
 }
 refreshEngMode();
 refreshAutoUpdate();
-refreshTell();     // #2020: read the two telemetry opt-out switches (three-state, 403-safe)
-refreshNotify();
 refreshFeedback(); // #2037 PR-C1: the daily-report send switch (three-state, 403-safe, privacy)
 refreshYou();
 /* The Accessibility door (kosmos#1344).
@@ -29914,9 +29691,8 @@ function openCreate(initialMode) {
   // import link (openCreate('import')) lands on the import panel rather than being
   // reset to 'pm'. Every other caller passes nothing and gets 'pm' as before.
   loadRoles(initialMode === 'import' ? 'import' : 'pm');
-  /* Read on every open, not once on boot: the standing answer can be changed
-     in Settings between two visits to this form. */
-  refreshCreateTell();
+  /* #2623: the create-agent telemetry checkbox was deleted, so there is nothing
+     to refresh on open. */
 }
 
 /* #1652: wrapped, not bound bare. openCreate now takes an optional initialMode
@@ -30339,11 +30115,8 @@ async function addImportedInPlace(file, btn, row) {
      wrong-provider create). */
   const wanted = String(data.provider || '').toLowerCase();
   if (wanted && wanted !== 'anthropic') bodyObj.provider = wanted;
-  /* tellKosmos is DELIBERATELY not sent: the server reads `wanted = tellKosmos !== false`
-     and ping.agentCreated still gates on the person's global ping setting, so omitting
-     it defers to that setting (on by default, #2020) instead of reading a create-form
-     checkbox this path never shows. This is what the old find-agents import got WRONG --
-     it reused the form and could create with tellKosmos=false even when the ping was on. */
+  /* #2623: the create-agent telemetry (tellKosmos / ping.agentCreated) was deleted,
+     so this path sends nothing about it. */
   let out, res;
   try {
     res = await fetch('/api/agents', {
@@ -31046,11 +30819,8 @@ document.getElementById('create-go').addEventListener('click', async () => {
            the hub already. */
         const to = document.getElementById('create-reports').value;
         if (to) b.reportsTo = to;
-        /* Sent only when it is FALSE. The server defaults it to true, so a
-           caller that has never heard of this field behaves the way a ticked
-           box does, and an older client cannot silently opt somebody out. The
-           box is restored (#2020, Josh 2026-09-05), so this reads it again. */
-        if (!document.getElementById('create-tell').checked) b.tellKosmos = false;
+        /* #2623: the create-agent telemetry checkbox was deleted, so tellKosmos
+           is no longer sent. */
         if (CREATE_PROJECTS.length) b.projects = CREATE_PROJECTS;
         return b;
       })()),
@@ -39319,8 +39089,10 @@ function frGo(step) {
    once at top level because the span exists before this script runs. A
    could-not-read leaves the markup at its default-ON position, never a false Off.
    #11 (0.6.39): the create-agent-ping switch was removed from this screen (it
-   belongs on the Create-an-Agent screen, #2020); its /api/ping-setting backend is
-   unchanged, only the install-flow control and wiring are gone. */
+   belonged on the Create-an-Agent screen, #2020). #2623: that create-agent
+   telemetry, its checkbox, and its /api/ping-setting backend were all deleted
+   (Josh, 2026-09-09, "invasion of privacy"); only the daily-feedback opt-out
+   documented above remains here. */
 function frSwOn(el) { return el.getAttribute('aria-checked') === 'true'; }
 function frSwSet(el, on) { el.setAttribute('aria-checked', on ? 'true' : 'false'); }
 
