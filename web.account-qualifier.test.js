@@ -26,12 +26,20 @@ function loadQualifiers() {
   const at = PAGE.indexOf('function accountQualifiers(');
   assert.notEqual(at, -1, 'accountQualifiers is gone from the page');
   const src = PAGE.slice(at, PAGE.indexOf('\n}', at) + 2);
-  // #2095: accountQualifiers' key now calls the shared acctChosenName helper, so
-  // the eval scope must include it or the extracted function throws ReferenceError.
-  const cnAt = PAGE.indexOf('function acctChosenName(');
-  assert.notEqual(cnAt, -1, 'acctChosenName is gone from the page');
-  const cnSrc = PAGE.slice(cnAt, PAGE.indexOf('\n}', cnAt) + 2);
-  return new Function(cnSrc + '\n' + src + '; return accountQualifiers;')();
+  /* The key calls shared helpers, so the eval scope must include them or the
+     extracted function throws ReferenceError.
+     🔑 `acctPrimaryName` is here because the key IS `acctPrimaryName`, lowercased
+     (kosmos#2612, iteration 9). Pulling it in rather than inlining its chain is
+     the point: the defect that made this necessary was the key carrying its OWN
+     COPY of that chain and falling behind it, so a test that stubbed it would
+     re-open exactly the gap the fix closes. `acctChosenName` comes with it
+     because acctPrimaryName calls it. */
+  const helpers = ['acctChosenName', 'acctPrimaryName'].map((fn) => {
+    const fnAt = PAGE.indexOf('function ' + fn + '(');
+    assert.notEqual(fnAt, -1, fn + ' is gone from the page; the key depends on it');
+    return PAGE.slice(fnAt, PAGE.indexOf('\n}', fnAt) + 2);
+  }).join('\n');
+  return new Function(helpers + '\n' + src + '; return accountQualifiers;')();
 }
 const qualifiers = loadQualifiers();
 
@@ -1025,35 +1033,45 @@ test('#2612: a row with no provider does not fake a cross-provider group', () =>
  * asserts it EXPLICITLY so nobody reads this pin as proof the three agree
  * everywhere.
  */
-/* 🛑 THE COUNT IN THIS PIN'S OWN NAME WAS WRONG, WHICH IS THE FAILURE MODE THE
-   PIN EXISTS TO PREVENT, COMMITTED BY THE PIN. It said THREE derivations and
-   promised whoever picks up kosmos#2634 that changing one turns this red. There
-   are FOUR sites producing the short `OpenAI | Claude` pair, and the fourth was
-   not matched, so that promise was false for a quarter of the thing it named.
+/* 🛑 THE COUNT IN THIS PIN'S OWN NAME HAS NOW BEEN WRONG TWICE, IN OPPOSITE
+   DIRECTIONS, WHICH IS THE FAILURE THE PIN EXISTS TO PREVENT COMMITTED BY THE
+   PIN. Worth the space, because the second version was written while FIXING the
+   first and was more confident than either.
 
-   The four, each read rather than recalled:
-     web/index.html  the qualifier ternary in accountQualifiers   PINNED (via the helper)
-     web/index.html  `const qualName = qual || (isOpenai ? ...)`  PINNED (regex)
-     web/index.html  `const provName = (providerOf(CURRENT) ...)` PINNED (regex, added here)
-     web/index.html  `const name = a.providerName || (...)`       PINNED (regex) but LONG form
-   ⚠️ The last one yields "Anthropic / Claude", not "Claude", so it is pinned as
-   the GROUP HEAD and deliberately not required to equal the short three.
+     v1  "THREE derivations", listing the ternary, `qualName` and the GROUP HEAD.
+         Count right, MEMBERSHIP wrong: the group head is the LONG form, and the
+         real third short producer (`provName`) was matched by nothing.
+     v2  "FOUR sites producing the short pair", adding `provName` and KEEPING the
+         group head in the list, while annotating it "LONG form, not required to
+         equal the short three" in the same breath. Self-contradictory, and it
+         moved the count away from the truth to fix a membership error.
+     now THREE producers of the short `OpenAI | Claude` pair, enumerated by
+         reading every `'OpenAI'` in the page rather than by recall.
 
-   📌 DELIBERATELY OUT OF SCOPE, named so the next reader does not count them as
-   a gap: `const provName = want === 'openai' ? 'OpenAI' : 'Anthropic'` uses the
-   `OpenAI | Anthropic` pair, a different fact, documented as such at its site.
+   The three, all pinned below:
+     the qualifier ternary in accountQualifiers   (via the helper, run not matched)
+     `const qualName = qual || (isOpenai ? ...)`  (regex)
+     `const provName = (providerOf(CURRENT) ...)` (regex, the switch-account screen)
+
+   📌 NAMED SO THEY ARE NOT RE-COUNTED AS GAPS, since two readers have now tried:
+     `const name = a.providerName || (...)`   the GROUP HEAD, "Anthropic / Claude".
+         A different fact (long form) and pinned separately below.
+     `const provName = want === 'openai' ? 'OpenAI' : 'Anthropic'`  and
+     `const label = toOpenai ? 'OpenAI' : 'Anthropic'`
+         the `OpenAI | Anthropic` pair, a third fact, documented at its own site
+         as deliberately different from the short pair.
 
    ⭐ A count is the most attractive thing to write and the least likely to be
-   re-derived, and this file already carries a bulletin's worth of that lesson
-   about counts elsewhere. So this pin now asserts the SHAPE of each site it
-   claims, and the assertions below fail loudly if any of them moves. */
+   re-derived. Both wrong versions were written by someone who had just read the
+   code. So the assertions below pin the SHAPE of every site they claim, and the
+   membership list above is the part to check, not the number. */
 const PROVIDER_SITES = {
   groupHead: /const name = a\.providerName \|\| \(a\.provider === 'openai' \? '([^']+)' : '([^']+)'\)/,
   qualName: /const qualName = qual \|\| \(isOpenai \? '([^']+)' : '([^']+)'\)/,
   provName: /const provName = \(providerOf\(CURRENT\) === 'openai'\) \? '([^']+)' : '([^']+)'/,
 };
 
-test('#2612: the four provider-name derivations agree for every provider that exists', () => {
+test('#2612: the three short provider-name derivations agree for every provider that exists', () => {
   const head = PAGE.match(PROVIDER_SITES.groupHead);
   const qual = PAGE.match(PROVIDER_SITES.qualName);
   const prov = PAGE.match(PROVIDER_SITES.provName);
@@ -1170,4 +1188,68 @@ test('#2612: two accounts whose EMAIL differs only by case still get qualifiers'
   assert.ok(heard.every((h) => h !== ''),
     'a case-variant email did not group, so neither row was qualified: ' + JSON.stringify(heard));
   assert.equal(new Set(heard).size, 2, 'the two qualifiers sound alike: ' + JSON.stringify(heard));
+});
+
+/* ─────────────────────────────────────────────────────────────────────────────
+ * 🛑 THE KEY IS `acctPrimaryName`, AND IT USED TO BE A STALE COPY OF IT.
+ *
+ * Iteration 9 (BLOCKER). The key was `name || email || keyTail` while the screen
+ * renders `name || email || keyTail || label || dir`, so the key was a strict
+ * PREFIX of what the row actually shows. Any row identified only by its label or
+ * its dir keyed to '', was never counted ambiguous, and got NO qualifier: the
+ * original #2584 bug, shipping, in the one function written to prevent it.
+ *
+ * ⭐ The cause is worth more than the fix: the key CARRIED ITS OWN COPY of
+ * acctPrimaryName's chain and fell behind when that chain grew. It is the same
+ * duplicated-fact drift as the two provider-id derivations, and the same remedy
+ * applies, so the key now READS the helper instead of restating it.
+ * ⚠️ Which is why the harness at the top of this file pulls acctPrimaryName in
+ * rather than stubbing it: a stub would re-open exactly this gap.
+ * ───────────────────────────────────────────────────────────────────────────*/
+test('#2612: rows identified only by their LABEL still group and get qualifiers', () => {
+  /* Both reachable, and read rather than assumed: engine/accounts.js returns a
+     truthy account with email:null when oauthAccount carries neither
+     emailAddress nor email, and engine/openaiaccounts.js returns
+     {email:null, keyTail:null} for a chatgpt auth.json whose id_token will not
+     decode. `.claude-work` and `.codex-work` are different namespaces, so this
+     needs no case-sensitive volume. */
+  const claude = { provider: 'anthropic', dir: '/home/.claude-work', label: 'work', email: null, apiKey: false };
+  const openai = { provider: 'openai', authMode: 'chatgpt', dir: '/home/.codex-work', label: 'work', email: null, keyTail: null, name: null };
+  const q = qualifiers([claude, openai]);
+  const heard = [q.get(claude.dir), q.get(openai.dir)].map((s) => String(s).toLowerCase());
+  assert.ok(heard.every((h) => h !== ''),
+    'a label-identified row keyed to "" and was never counted ambiguous, so both reauth '
+    + 'controls read "Sign in again as work" and answer to one name: ' + JSON.stringify(heard));
+  assert.equal(new Set(heard).size, 2, 'the two qualifiers sound alike: ' + JSON.stringify(heard));
+  /* CONTROL: the same pair WITH an email must already have worked, or this arm
+     is measuring something other than the label branch of the key. */
+  const qCtl = qualifiers([{ ...claude, email: 'a@x.com' }, { ...openai, email: 'a@x.com' }]);
+  assert.equal(new Set([qCtl.get(claude.dir), qCtl.get(openai.dir)]).size, 2,
+    'the email-identified pair collides too, so this arm is not isolating the label branch');
+});
+
+/* 🛑 `dir` IS THE LAST RESORT AND IT IS NOT EXEMPT FROM THE USED-SET. The
+   comments called it "the collision-proof last resort", which is true of STRINGS
+   and false of SOUNDS, and sound is the only thing this function protects.
+   `list()` never yields one dir twice, but on a case-SENSITIVE volume
+   `~/.claude-main` and `~/.claude-Main` are two directories that announce
+   identically. This was the FIFTH instance of the case class on this card, in
+   the last branch still exempt from it. */
+test('#2612: two dirs differing only by case do not collide audibly', () => {
+  const E = 'a@x.com';
+  const lower = { provider: 'anthropic', email: E, dir: '/h/.claude-main', label: 'main', isDefault: false };
+  const upper = { provider: 'anthropic', email: E, dir: '/h/.claude-Main', label: 'Main', isDefault: false };
+  const q = qualifiers([lower, upper]);
+  const heard = [q.get(lower.dir), q.get(upper.dir)].map((s) => String(s).toLowerCase());
+  assert.equal(new Set(heard).size, 2,
+    'both rows fell to a dir and the two dirs differ only by case, so the last-resort '
+    + 'qualifier is the collision: ' + JSON.stringify(heard));
+  /* CONTROL: a group with no case-variant dirs must be untouched, or the
+     disambiguator is firing where nothing was wrong and every path grows a
+     suffix nobody asked for. */
+  const a = { provider: 'anthropic', email: E, dir: '/h/.claude-one', label: 'x', isDefault: false };
+  const b = { provider: 'anthropic', email: E, dir: '/h/.claude-two', label: 'x', isDefault: false };
+  const qCtl = qualifiers([a, b]);
+  assert.equal(qCtl.get(b.dir), '/h/.claude-two',
+    'a non-colliding dir was rewritten, so the disambiguator fires when it should not');
 });
