@@ -95,6 +95,33 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     return { load, afterClick };
   }, { found: FOUND, scan: SCAN });
 
+  /* Arm 3 - DISMISSED FOREVER. A person who pressed "Dismiss this forever" asked the whole
+     found/scan feature to go away. After that the trigger must NOT re-offer it, and pressing
+     it must NOT misreport the dismissal as an empty search ("could not find any"). Fresh page
+     so DISCOVERY_OPENED / DISCOVERY_DISMISSED reset. */
+  const page2 = await browser.newPage({ viewport: { width: 1100, height: 900 } });
+  await page2.goto('file://' + PAGE);
+  const d = await page2.evaluate(async () => {
+    const bb = document.getElementById('boardbar');
+    if (!bb) return { error: 'boardbar is gone' };
+    bb.hidden = false;
+    window.fetch = (u) => {
+      const url = String(u);
+      if (url.indexOf('/api/found-agents') !== -1 || url.indexOf('/api/scan-agents') !== -1) {
+        return Promise.resolve({ ok: true, json: async () => ({ ok: true, agents: [], candidates: [], dismissed: true }) });
+      }
+      return Promise.resolve({ ok: false, json: async () => ({}) });
+    };
+    const tr = document.getElementById('found-scan-trigger');
+    const look = document.getElementById('found-scan-look');
+    if (!tr || !look) return { error: 'trigger or button missing' };
+    paintDiscoveryTrigger();                 // the poll would offer the trigger (not dismissed yet, no panel)
+    const shownBefore = !tr.hidden;
+    look.click();                            // the person looks; the fetch reveals the dismissal
+    await new Promise((res) => setTimeout(res, 150));
+    return { shownBefore, triggerHidden: tr.hidden, dismissedFlag: (typeof DISCOVERY_DISMISSED !== 'undefined' && DISCOVERY_DISMISSED), label: look.textContent };
+  });
+
   await browser.close();
 
   if (r.error) { console.error('FAIL  render-discovery-gate-2651: ' + r.error); process.exit(1); }
@@ -106,6 +133,14 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
   if (r.afterClick.opened !== true) fail.push('pressing the trigger did not set DISCOVERY_OPENED');
   if (r.afterClick.foundHidden !== false) fail.push('the found panel did not open after the explicit press');
   if (r.afterClick.triggerHidden !== true) fail.push('the trigger did not hide once the panels opened');
+  if (d.error) {
+    fail.push('dismissed arm errored: ' + d.error);
+  } else {
+    if (d.shownBefore !== true) fail.push('dismissed arm: the trigger was not even offered before the press (arm is vacuous)');
+    if (d.dismissedFlag !== true) fail.push('dismissed arm: DISCOVERY_DISMISSED was not set from body.dismissed');
+    if (d.triggerHidden !== true) fail.push('dismissed arm: the trigger did not hide for a dismissed-forever user');
+    if (/could not find/i.test(d.label || '')) fail.push('dismissed arm: the empty-look message misreported a dismissal as a search result');
+  }
 
   if (fail.length) {
     /* One-line reason after the marker so the release runner's reason-grep can quote
@@ -114,5 +149,5 @@ const SCAN = [{ dir: '/tmp/y/gamma' }];
     console.error('  load=' + JSON.stringify(r.load) + '  afterClick=' + JSON.stringify(r.afterClick));
     process.exit(1);
   }
-  console.log('render-discovery-gate-2651: on Agents-page load the found and scan panels stay hidden and only the "Look for agents already on this computer" trigger shows; pressing it sets DISCOVERY_OPENED, opens the panels, and hides the trigger. PASS');
+  console.log('render-discovery-gate-2651: on load the found and scan panels stay hidden and only the "Look for agents" trigger shows; pressing it opens the panels and hides the trigger; and for a Dismissed-forever user the trigger is not re-offered and the empty-look message never misreports the dismissal. PASS');
 })().catch((e) => { console.error('FAIL  render-discovery-gate-2651', e && e.message); process.exit(1); });

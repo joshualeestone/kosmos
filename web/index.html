@@ -3652,7 +3652,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      board's full-width notice bars do not belong over the consolidated grid;
      the news line already lives in the header notice slot. found-wrap and
      removed-wrap are board-management chrome for the tab view. */
-  html[data-layout="consolidated"] body.consolidated > #found-wrap, html[data-layout="consolidated"] body.consolidated > #scan-wrap, html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
+  html[data-layout="consolidated"] body.consolidated > #found-scan-trigger, html[data-layout="consolidated"] body.consolidated > #found-wrap, html[data-layout="consolidated"] body.consolidated > #scan-wrap, html[data-layout="consolidated"] body.consolidated > #removed-wrap, html[data-layout="consolidated"] body.consolidated > #restart-wrap { display: none; }
   /* #867 shipped this as flat, borderless cards "like the mock" -- a
      citation nobody actually checked. The real mock (installkosmos.com/
      consolidated-mock) draws Tasks/Members/Files as white, bordered,
@@ -15302,7 +15302,11 @@ async function tick() {
     // grid is legitimately hidden on the agents tab whenever the list layout
     // is active, so `grid.hidden` stopped meaning "not on the agents tab".
     // `onAgentsTab()` reads boardbar, which tracks the tab and nothing else.
-    if (onAgentsTab()) { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); paintDiscoveryTrigger(); }
+    /* #2651: await the two panel paints before paintDiscoveryTrigger, which reads their
+       settled `hidden` state. Fire-and-forget (like the un-awaited paints above) so a slow
+       or failed found/scan fetch never blocks the grid; the paints swallow their own fetch
+       errors, and the .catch is a backstop against an unhandled rejection in the poll. */
+    if (onAgentsTab()) { paintRemoved(); paintSurvival(); (async () => { await paintFoundBoard(); await paintScanBoard(); paintDiscoveryTrigger(); })().catch(() => {}); }
   } catch (err) {
     // ⚠️ Recorded and REPAINTED, not just written into `#grid`. The picker in
     // the add-a-project flow reads these globals, that flow hides `#grid`, and
@@ -15526,7 +15530,7 @@ function showTab(tab) {
     if (rw) rw.hidden = true;
     /* Leaving the screen is what finishes a repair report; see SURVIVAL_HELD. */
     SURVIVAL_HELD = false;
-  } else { paintRemoved(); paintSurvival(); paintFoundBoard(); paintScanBoard(); paintDiscoveryTrigger(); }
+  } else { paintRemoved(); paintSurvival(); (async () => { await paintFoundBoard(); await paintScanBoard(); paintDiscoveryTrigger(); })().catch(() => {}); }
   PANELS.forEach((p) => { document.getElementById('panel-' + p).hidden = (p !== tab); });
   /* #1615: un-blue + tear down the Plus canvases when leaving Settings (or when
      the Settings section is not Plus); re-blue + re-mount on return. The Settings
@@ -25680,6 +25684,13 @@ let FOUND_SIG = null;
    opens the panels for you. FOUND_OPEN/SCAN_OPEN below are the separate per-panel
    Show/Hide fold, unchanged. */
 let DISCOVERY_OPENED = false;
+/* #2651: set true once a paint learns the found/scan panels were "Dismissed forever"
+   (body.dismissed). A dismissed person asked the whole found/scan feature to go away, so
+   the trigger must not re-offer it and the empty-look message must not read as a search
+   result. Learned only on a fetch, which the gate defers until the first press, so a fresh
+   reload can show the trigger once before the press re-teaches it - an accepted residual
+   (a quiet trigger is far less than the auto-panel dismiss was aimed at). */
+let DISCOVERY_DISMISSED = false;
 let FOUND_OPEN = false;
 async function paintFoundBoard() {
   const wrap = document.getElementById('found-wrap');
@@ -25709,7 +25720,7 @@ async function paintFoundBoard() {
   if (!body || body.ok !== true || !Array.isArray(body.agents)) return;
   /* Sent away for good (Josh, 2026-08-24 17:06). Hidden before the list is
      even filtered: a dismissed block must not flash on a poll. */
-  if (body.dismissed === true) { wrap.hidden = true; list.innerHTML = ''; return; }
+  if (body.dismissed === true) { DISCOVERY_DISMISSED = true; wrap.hidden = true; list.innerHTML = ''; return; }
 
   const missing = body.agents.filter((a) => a && a.already !== true);
   const sig = missing.map((a) => a.dir).sort().join('\u0000');
@@ -25849,7 +25860,7 @@ async function paintScanBoard() {
   if (!body || body.ok !== true || !Array.isArray(body.candidates)) return;
   /* Sent away for good honours the SAME flag as the found panel: both are "agents on
      your computer" offers, and a person who dismissed one forever meant both. */
-  if (body.dismissed === true) { wrap.hidden = true; list.innerHTML = ''; return; }
+  if (body.dismissed === true) { DISCOVERY_DISMISSED = true; wrap.hidden = true; list.innerHTML = ''; return; }
 
   const cands = body.candidates;
   const sig = cands.map((c) => c.dir).sort().join('\u0000');
@@ -26307,7 +26318,9 @@ function paintDiscoveryTrigger() {
   const fw = document.getElementById('found-wrap');
   const sw = document.getElementById('scan-wrap');
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
-  trig.hidden = !onAgentsTab() || anyPanel;
+  /* #2651: also hidden once we learn the feature was Dismissed forever - a dismissed
+     person is not re-offered the look. */
+  trig.hidden = !onAgentsTab() || anyPanel || DISCOVERY_DISMISSED;
 }
 
 document.getElementById('found-scan-look').addEventListener('click', async () => {
@@ -26325,7 +26338,10 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
   /* Hedged and NOT a machine-scoped count claim (web.empty-scope guard): a screen must
      not state as fact what is on the computer; say what our look turned up instead. */
-  if (!anyPanel) look.textContent = 'We could not find any new agents to add';
+  /* Only when the look genuinely found nothing - NOT when the feature was dismissed
+     (paintDiscoveryTrigger has already hidden the trigger in that case), so the message
+     never misreports a dismissal as a search result. */
+  if (!anyPanel && !DISCOVERY_DISMISSED) look.textContent = 'We could not find any new agents to add';
 });
 
 /* #1938: the scan panel's toggle and dismiss, mirroring the found panel above so
