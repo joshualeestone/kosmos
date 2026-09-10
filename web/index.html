@@ -1290,6 +1290,14 @@ button.uprime:hover, .btn.uprime:hover, .utoast .uacts button.uprime:hover,
 .worldsw-new:hover { color: var(--gold-edge); }
 .worldsw-new:focus-visible { outline: 2px solid var(--k-ink); outline-offset: -2px; }
 .worldsw-plus { font-weight: 700; font-size: 1.05em; line-height: 1; }
+/* #2563: the create-time "add my agents from an existing Kosmos" control. Reuses the
+   modal field tokens; the list scrolls if the person has many Kosmoses. Each row is a
+   clickable label wrapping its checkbox. */
+.world-import #world-add-import-hint { margin: 2px 0 8px; }
+.world-import-list { display: flex; flex-direction: column; gap: 6px; max-height: 180px; overflow-y: auto; }
+.world-import-row { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: .9375rem; }
+.world-import-cb { flex: none; }
+.world-import-name { color: var(--k-ink); }
 /* #2238: a non-active row is a native <button> switch control. Reset the button
    chrome (border/background/text-align/width) so it matches the div rows; the base
    .worldsw-row rule already supplies display/font/color. The active row is a div. */
@@ -8100,6 +8108,16 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
     <div class="field">
       <label class="flabel tk-lab" for="world-add-name">Name</label>
       <input class="tk-inp" id="world-add-name" type="text" maxlength="60" placeholder="e.g. Client work" autocomplete="off">
+    </div>
+    <!-- #2563: optionally bring agents from an existing Kosmos into the new one at
+         creation. COPY semantics (the source Kosmos keeps its agents). Hidden until we
+         know the person HAS other Kosmoses (GET /api/worlds/list); an absent endpoint or
+         no other Kosmoses leaves it hidden, so a first Kosmos never sees it. Distinct from
+         the disk find-agents import. -->
+    <div class="field world-import" id="world-add-import" hidden>
+      <span class="flabel tk-lab" id="world-add-import-lab">Add my agents from</span>
+      <p class="rm-small" id="world-add-import-hint">Bring copies of another Kosmos's agents into this one. They stay in the original too.</p>
+      <div class="world-import-list" id="world-add-import-list" role="group" aria-labelledby="world-add-import-lab"></div>
     </div>
     <div class="rm-acts" style="margin-top: var(--space-6);">
       <button class="btn" id="world-add-cancel" type="button">Cancel</button>
@@ -18115,8 +18133,57 @@ function worldAddOpen() {
   input.value = '';
   document.getElementById('world-add-go').disabled = true;
   document.getElementById('world-add-msg').textContent = '';
+  // #2563: reset the "add my agents from" control, then populate it. It stays hidden
+  // until worldImportRender confirms there ARE other Kosmoses to import from, so a
+  // failed/absent /api/worlds/list (the engine slice not being live yet) just leaves it
+  // hidden and the create flow is unchanged.
+  const impWrap = document.getElementById('world-add-import');
+  const impList = document.getElementById('world-add-import-list');
+  if (impWrap) impWrap.hidden = true;
+  if (impList) impList.textContent = '';
   document.getElementById('world-add-modal').hidden = false;
   input.focus();
+  worldImportFetch().then((worlds) => worldImportRender(worlds, impList, impWrap)).catch(() => {});
+}
+/* #2563: fetch the user's OTHER Kosmoses (with agent counts) for the create-time import
+   selector. Returns [] on ANY failure -- absent endpoint (the engine slice is a separate
+   lane, not live yet), non-2xx, unparseable body, or network error -- so the caller hides
+   the control and the create flow degrades to exactly today's behaviour. */
+async function worldImportFetch() {
+  try {
+    const res = await fetch('/api/worlds/list', { cache: 'no-store' });
+    if (!res.ok) return [];
+    const body = await res.json().catch(() => null);
+    const list = body && Array.isArray(body.worlds) ? body.worlds : [];
+    return list.filter((w) => w && w.id != null && typeof w.name === 'string');
+  } catch { return []; }
+}
+/* #2563: render the import checkboxes. SELF-CONTAINED (no out-of-scope helper) because the
+   node suite eval-extracts this function and would throw ReferenceError on any external
+   call. An empty/missing list hides the whole control -- the null case is a real state, not
+   an error. Each row is a <label> wrapping the checkbox + text, so the count is the
+   accessible name and the whole row is a click target (AA). */
+function worldImportRender(worlds, listEl, wrapEl) {
+  if (!listEl || !wrapEl) return;
+  listEl.textContent = '';
+  const usable = Array.isArray(worlds) ? worlds.filter((w) => w && w.id != null) : [];
+  if (!usable.length) { wrapEl.hidden = true; return; }
+  for (const w of usable) {
+    const n = Number(w.agentCount) || 0;
+    const row = document.createElement('label');
+    row.className = 'world-import-row';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.className = 'world-import-cb';
+    cb.value = String(w.id);
+    const txt = document.createElement('span');
+    txt.className = 'world-import-name';
+    txt.textContent = String(w.name) + ' (' + n + (n === 1 ? ' agent' : ' agents') + ')';
+    row.appendChild(cb);
+    row.appendChild(txt);
+    listEl.appendChild(row);
+  }
+  wrapEl.hidden = false;
 }
 function worldAddClose() {
   document.getElementById('world-add-modal').hidden = true;
@@ -18130,11 +18197,18 @@ async function worldAddSubmit() {
   if (!name) { msg.textContent = 'Give your Kosmos a name.'; input.focus(); return; }
   go.disabled = true;
   msg.textContent = '';
+  // #2563: the checked Kosmoses to import agents from. Added to the payload ONLY when
+  // non-empty, so a create with no selection sends exactly today's { name } body (the
+  // engine ignores an unknown importAgentsFrom until its own slice lands -- COPY semantics).
+  const importAgentsFrom = Array.from(
+    document.querySelectorAll('#world-add-import-list .world-import-cb')
+  ).filter((c) => c.checked).map((c) => c.value);
+  const payload = importAgentsFrom.length ? { name, importAgentsFrom } : { name };
   try {
     const res = await fetch('/api/worlds', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ name }),
+      body: JSON.stringify(payload),
     });
     if (!res.ok) {
       const body = await res.json().catch(() => null);
