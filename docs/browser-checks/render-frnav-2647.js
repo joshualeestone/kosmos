@@ -104,7 +104,15 @@ const HINT = 'Turned it on? Tap to check.';
     const nr = next.getBoundingClientRect();
     const hr = hint.getBoundingClientRect();
     out.altLeftOfNext = ar.right <= nr.left;
-    out.hintBesideAlt = hr.left >= ar.right - 1 && hr.left < nr.left;
+    /* 🛑 A REAL ADJACENCY, NOT "somewhere between the two buttons". The first
+       version was `hr.left >= ar.right - 1 && hr.left < nr.left`, which admits
+       any position in the ~350px between them: moving this span after
+       `.fr-spacer` (the exact "wedged toward Next, reads as a caption for the
+       wrong button" failure) drifts it 100px off its own button and that arm
+       still passed. The flex `gap` is 14px at every width measured, so 24 is a
+       real bound rather than a restatement of the layout. */
+    out.hintGap = Math.round(hr.left - ar.right);
+    out.hintBesideAlt = out.hintGap >= -1 && out.hintGap < 24;
     out.sameRowAsNext = Math.abs((ar.top + ar.height / 2) - (nr.top + nr.height / 2)) < 40;
 
     /* 🛑 THE PRESS. Spying on frRecheckGates rather than counting network calls,
@@ -174,7 +182,11 @@ const HINT = 'Turned it on? Tap to check.';
     if (!r.hintInNav) problems.push('the hint copy is not in the bottom nav beside its control');
     if (!r.altLeftOfNext) problems.push('the Check-again control is not left of Next, so it is not "far left"');
     if (!r.sameRowAsNext) problems.push('the Check-again control is not on the same row as Next');
-    if (!r.hintBesideAlt) problems.push('the hint is not sitting beside its own control');
+    if (!r.hintBesideAlt) {
+      problems.push('the hint is not sitting beside its own control (gap ' + r.hintGap
+        + 'px; expected under 24). It has drifted toward Next, where it reads as a caption for the '
+        + 'wrong button');
+    }
     if (!r.pressFiredRecheck) {
       problems.push('PRESSING the nav Check-again did not run a re-check: the control renders, styles '
         + 'and focuses correctly and does nothing, which is worse than not moving it. The old handler '
