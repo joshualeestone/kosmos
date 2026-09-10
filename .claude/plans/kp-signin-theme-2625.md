@@ -29,7 +29,8 @@ Three defects, all in state1 (the resting, unpaid view most people see):
    ...>Already a member? Sign in</a>` beside it; wrap both in `<p class="plus-cta">`.
 4. **JS.** In `paintPlus()`, set the two new links' `href` to `KOSMOS_SITE + '/plus'`
    (the same served route as `plus-site-link`).
-5. New CSS: `.plus-topbar`, `.plus-cta`, `.plus-signin-link`.
+5. New CSS: `.plus-topbar`, `.plus-cta`, `.plus-signin-link` (plain foot link),
+   `.plus-signin-pill` (the bordered top sign-in pill, matching the reference `.signin-btn`).
 
 ## Design decisions (and weakest premises)
 

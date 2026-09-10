@@ -135,7 +135,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     if (!r.enterActive) problems.push(label + ': entering Plus did not add body.plus-active');
     if (!GRADIENT_RE.test(r.enterBgImg)) problems.push(label + ': body did not get the navy gradient ground on Plus (backgroundImage ' + r.enterBgImg + ')');
     if (!r.hasHead) problems.push(label + ': .apphead (nav chrome) not found — cannot verify the chrome recoloured');
-    if (r.enterNavBg !== NAV_NAVY) problems.push(label + ': the nav chrome (.apphead) did NOT turn navy on Plus (got ' + r.enterNavBg + ', want ' + NAV_NAVY + ') — the whole-app navy is not reaching the chrome');
+    if (r.enterNavBg !== NAV_NAVY) problems.push(label + ': the nav chrome (.apphead) did NOT turn navy on Plus (got ' + r.enterNavBg + ', want ' + NAV_NAVY + '), so the whole-app navy is not reaching the chrome');
     if (!r.hasStars || !r.hasMark) problems.push(label + ': the Plus canvases (#plus-stars / #plus-mark) are missing');
     if (!r.mounted) problems.push(label + ': the canvas engine did not mount (plusMounted false) on Plus');
     if (!r.starsSized) problems.push(label + ': #plus-stars has zero size (not laid out / not sized)');
@@ -143,7 +143,7 @@ const GRADIENT_RE = /gradient/i;      /* the body ground is a radial-gradient on
     // Leave a section: blue off, torn down.
     if (r.leaveActive) problems.push(label + ': plus-active LEAKED to another Settings section');
     if (GRADIENT_RE.test(r.leaveBgImg)) problems.push(label + ': the navy gradient ground LEAKED to another Settings section (backgroundImage still ' + r.leaveBgImg + ')');
-    if (r.leaveNavBg === NAV_NAVY) problems.push(label + ': the nav chrome (.apphead) stayed navy after leaving Plus — chrome navy LEAKED');
+    if (r.leaveNavBg === NAV_NAVY) problems.push(label + ': the nav chrome (.apphead) stayed navy after leaving Plus, chrome navy LEAKED');
     if (r.leaveMounted) problems.push(label + ': the canvas engine did not tear down on leave (plusMounted still true) — it would burn CPU behind another screen');
     // Leave the tab: no off-tab leak.
     if (!r.reEnterActive) problems.push(label + ': re-entering Plus did not re-apply the skin');
