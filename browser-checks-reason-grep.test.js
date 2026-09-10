@@ -526,19 +526,21 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 79;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 80;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
   //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
   //                              line (a quotable failure), net +1 across the suppression rewrites.
   //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
+  //                              +1: render-inline-field-errors-2606.js (its problems FAIL-emit loop, #2606)
   //                              +2: render-disconnect-stop-2570.js -- its `r.error` early emit and its
   //                              per-finding `console.error('  FAIL  ' + f)` loop are two SHAPE-1 sites,
   //                              both confirmed quotable. Its launch-failure catch is counted once by the
   //                              catch/launch scan below (as the 49th), not here. (#2570)
-  //                              ⚠️ APPEND HERE, NEVER REPLACE. The first version of this row overwrote
-  //                              the #1040 line above it, which left both counters correct and their
-  //                              trails unable to reconcile: 74 + 2 + 1 + 1 = 78 against an expected 79.
-  //                              The assertion still passed, so the only symptom was a lost audit trail
-  //                              on a file whose whole discipline IS the trail.
+  //                              ⚠️ APPEND HERE, NEVER REPLACE, AND THAT GOES FOR A MERGE TOO. The first
+  //                              version of this row overwrote the #1040 line above it, which left both
+  //                              counters correct and their trails unable to reconcile. Then the MERGE with
+  //                              main tried it again from the other side: main's own +1 row for #2606 sits
+  //                              above, and taking either side of the conflict whole would have dropped one
+  //                              branch's row while its check kept emitting. 74 + 1 + 1 + 1 + 1 + 2 = 80.
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '
