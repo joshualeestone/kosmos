@@ -4725,10 +4725,36 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    the content, not the wrap, so the rule above it still runs the board's
    width like its neighbour's. */
 .found-head, #found-list.found-list { max-width: 36rem; }
-.found-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-4); }
-.found-dismiss { color: var(--label-2); font-weight: 500; flex: none; }
+/* foundagents-banner (Josh, 2026-09-10): the banner controls restyled OFF the
+   shared underlined `.linkish` (24+ other uses, untouched). Plain description
+   text + a real "Show them" button on the left, a far-right circle-X dismiss.
+   The `found-dismiss` class name is KEPT (only its presentation changes) so the
+   `.found-dismiss.armed` sibling reference in the account-remove note still holds. */
+.found-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-5); }
+.found-lead { display: flex; align-items: center; gap: var(--space-5); flex-wrap: wrap; min-width: 0; }
+.found-desc { font-size: .9375rem; color: var(--k-ink-2); }
+.found-show { font: 500 .8125rem/1 var(--font-ui); flex: none; padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-control); border: 0.5px solid var(--border-strong);
+  background: var(--bg); color: var(--label); cursor: pointer; min-height: 24px; }
+.found-show:hover { background: var(--attn-bg); }
+.found-show:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+/* the dismiss, now a circle-X icon. The armed/error states show an inline word
+   in `.found-x-say` beside the icon rather than replacing the icon's text. */
+.found-dismiss { flex: none; display: inline-flex; align-items: center; gap: var(--space-4);
+  border: 0; background: none; color: var(--label-2); cursor: pointer;
+  border-radius: var(--radius-pill); padding: var(--space-3); font: inherit; min-height: 24px; }
+.found-dismiss:hover { color: var(--k-ink); background: var(--attn-bg); }
+.found-dismiss:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
+.found-dismiss svg { flex: none; }
+.found-dismiss .found-x-say { font-size: .8125rem; font-weight: 500; }
+.found-dismiss .found-x-say:empty { display: none; }
 .found-dismiss.armed { font-weight: 600; color: var(--danger, #b3261e); }
-.found-dismiss:disabled { cursor: default; text-decoration: none; }
+.found-dismiss:disabled { cursor: default; }
+/* "Show removed agents (N)", plain (not the underlined `.linkish`). */
+.removed-toggle { display: inline-block; font-size: .875rem; font-weight: 600;
+  color: var(--k-ink-2); background: none; border: 0; padding: 0; cursor: pointer; min-height: 24px; }
+.removed-toggle:hover { color: var(--k-ink); }
+.removed-toggle:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 #found-list .fr-found { max-width: none; margin: 0; }
 #found-list .fr-foundnote { margin: 0 0 var(--space-5); font: var(--text-callout) var(--font-ui);
   color: var(--label-2); line-height: 1.5; max-width: 46rem; }
@@ -12371,9 +12397,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        answer is kept on disk, so the block stays gone across browsers, ports
        and versions. -->
   <div class="found-head">
-    <button class="linkish" id="found-toggle" type="button"
-            aria-expanded="false" aria-controls="found-list"></button>
-    <button class="linkish found-dismiss" id="found-dismiss" type="button">Dismiss this forever</button>
+    <div class="found-lead">
+      <span class="found-desc" id="found-desc"></span>
+      <button class="found-show" id="found-toggle" type="button"
+              aria-describedby="found-desc" aria-expanded="false" aria-controls="found-list"></button>
+    </div>
+    <button class="found-dismiss" id="found-dismiss" type="button" aria-label="Dismiss this forever">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+      <span class="found-x-say" role="status" aria-live="polite"></span>
+    </button>
   </div>
   <div class="removed-list found-list" id="found-list" hidden></div>
 </div>
@@ -12386,9 +12418,15 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      decides, and a wrong candidate is one Skip. -->
 <div class="removed-wrap" id="scan-wrap" hidden>
   <div class="found-head">
-    <button class="linkish" id="scan-toggle" type="button"
-            aria-expanded="false" aria-controls="scan-list"></button>
-    <button class="linkish found-dismiss" id="scan-dismiss" type="button">Dismiss this forever</button>
+    <div class="found-lead">
+      <span class="found-desc" id="scan-desc"></span>
+      <button class="found-show" id="scan-toggle" type="button"
+              aria-describedby="scan-desc" aria-expanded="false" aria-controls="scan-list"></button>
+    </div>
+    <button class="found-dismiss" id="scan-dismiss" type="button" aria-label="Dismiss this forever">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></svg>
+      <span class="found-x-say" role="status" aria-live="polite"></span>
+    </button>
   </div>
   <div class="removed-list found-list" id="scan-list" hidden></div>
 </div>
@@ -12402,7 +12440,7 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
      an empty "Show removed agents (0)" on a new machine is clutter that
      teaches the person to ignore this corner of the screen. -->
 <div class="removed-wrap" id="removed-wrap" hidden>
-  <button class="linkish" id="removed-toggle" type="button"
+  <button class="removed-toggle" id="removed-toggle" type="button"
           aria-expanded="false" aria-controls="removed-list"></button>
   <div class="removed-list" id="removed-list" hidden></div>
 </div>
@@ -25920,7 +25958,8 @@ async function paintFoundBoard() {
   const wrap = document.getElementById('found-wrap');
   const list = document.getElementById('found-list');
   const toggle = document.getElementById('found-toggle');
-  if (!wrap || !list || !toggle) return;
+  const desc = document.getElementById('found-desc');
+  if (!wrap || !list || !toggle || !desc) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
   /* ⚠️ A row somebody has pressed is a row that must survive the next poll. The
      board repaints every five seconds and an add makes the set change, so
@@ -25960,8 +25999,9 @@ async function paintFoundBoard() {
      #362 visible (the same agents counted above and offered here); removing
      it does not settle that, which is why #362 stays open. One sentence,
      the verb carried by the fold state, no arithmetic for a reader to do. */
-  toggle.textContent = 'We found ' + (n === 1 ? 'an agent' : 'agents') + ' on your computer. '
-    + (FOUND_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
+  desc.textContent =
+    'We found ' + (n === 1 ? 'an agent' : 'agents') + ' on your computer.';
+  toggle.textContent = (FOUND_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
   toggle.setAttribute('aria-expanded', FOUND_OPEN ? 'true' : 'false');
   list.hidden = !FOUND_OPEN;
 
@@ -26059,7 +26099,8 @@ async function paintScanBoard() {
   const wrap = document.getElementById('scan-wrap');
   const list = document.getElementById('scan-list');
   const toggle = document.getElementById('scan-toggle');
-  if (!wrap || !list || !toggle) return;
+  const desc = document.getElementById('scan-desc');
+  if (!wrap || !list || !toggle || !desc) return;
   if (!onAgentsTab()) { wrap.hidden = true; return; }
   /* A row somebody has pressed must survive the next poll. Same guard the found
      panel uses, widened by `.fr-adoptno:disabled` because a Skip in flight is also
@@ -26085,8 +26126,9 @@ async function paintScanBoard() {
 
   const n = cands.length;
   wrap.hidden = false;
-  toggle.textContent = 'We found ' + (n === 1 ? 'an agent' : 'agents')
-    + ' on this computer we have not seen before. ' + (SCAN_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
+  desc.textContent =
+    'We found ' + (n === 1 ? 'an agent' : 'agents') + ' on this computer we have not seen before.';
+  toggle.textContent = (SCAN_OPEN ? 'Hide' : 'Show') + ' ' + (n === 1 ? 'it' : 'them');
   toggle.setAttribute('aria-expanded', SCAN_OPEN ? 'true' : 'false');
   list.hidden = !SCAN_OPEN;
 
@@ -26498,20 +26540,23 @@ document.getElementById('removed-toggle').addEventListener('click', () => {
    would be a second thing to aim at for a one-word decision. */
 {
   const dis = document.getElementById('found-dismiss');
-  const REST = 'Dismiss this forever';
+  // The circle-X is the resting state (its accessible name is the button's
+  // aria-label); the armed confirm and any error show as an inline word in
+  // `.found-x-say` beside the icon, so we never overwrite the icon itself.
+  const say = dis.querySelector('.found-x-say');
   let armed = false;
-  const reset = () => { armed = false; dis.disabled = false; dis.textContent = REST; dis.classList.remove('armed'); };
+  const reset = () => { armed = false; dis.disabled = false; say.textContent = ''; dis.classList.remove('armed'); };
   dis.addEventListener('click', async () => {
-    if (!armed) { armed = true; dis.textContent = 'Dismiss it for good?'; dis.classList.add('armed'); return; }
+    if (!armed) { armed = true; say.textContent = 'Dismiss it for good?'; dis.classList.add('armed'); return; }
     dis.disabled = true;
     try {
       const res = await fetch('/api/found-agents/dismiss', { method: 'POST' });
       const out = await res.json().catch(() => null);
-      if (!res.ok || !out || out.ok !== true) { reset(); dis.textContent = 'We could not remember that. Try again'; return; }
+      if (!res.ok || !out || out.ok !== true) { reset(); say.textContent = 'We could not remember that. Try again'; return; }
       document.getElementById('found-wrap').hidden = true;
       document.getElementById('found-list').innerHTML = '';
       FOUND_SIG = null;
-    } catch { reset(); dis.textContent = 'We could not reach Kosmos. Try again'; }
+    } catch { reset(); say.textContent = 'We could not reach Kosmos. Try again'; }
   });
   dis.addEventListener('blur', () => { if (!dis.disabled) reset(); });
 }
@@ -26533,20 +26578,20 @@ document.getElementById('scan-toggle').addEventListener('click', () => {
 });
 {
   const dis = document.getElementById('scan-dismiss');
-  const REST = 'Dismiss this forever';
+  const say = dis.querySelector('.found-x-say');
   let armed = false;
-  const reset = () => { armed = false; dis.disabled = false; dis.textContent = REST; dis.classList.remove('armed'); };
+  const reset = () => { armed = false; dis.disabled = false; say.textContent = ''; dis.classList.remove('armed'); };
   dis.addEventListener('click', async () => {
-    if (!armed) { armed = true; dis.textContent = 'Dismiss it for good?'; dis.classList.add('armed'); return; }
+    if (!armed) { armed = true; say.textContent = 'Dismiss it for good?'; dis.classList.add('armed'); return; }
     dis.disabled = true;
     try {
       const res = await fetch('/api/found-agents/dismiss', { method: 'POST' });
       const out = await res.json().catch(() => null);
-      if (!res.ok || !out || out.ok !== true) { reset(); dis.textContent = 'We could not remember that. Try again'; return; }
+      if (!res.ok || !out || out.ok !== true) { reset(); say.textContent = 'We could not remember that. Try again'; return; }
       document.getElementById('scan-wrap').hidden = true;
       document.getElementById('scan-list').innerHTML = '';
       SCAN_SIG = null;
-    } catch { reset(); dis.textContent = 'We could not reach Kosmos. Try again'; }
+    } catch { reset(); say.textContent = 'We could not reach Kosmos. Try again'; }
   });
   dis.addEventListener('blur', () => { if (!dis.disabled) reset(); });
 }
