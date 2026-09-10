@@ -17647,13 +17647,33 @@ async function worldswReconnect(switchedId, switchedName, say) {
     while (Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, WORLDSW_RECONNECT_INTERVAL_MS));
       let booted = null;
+      let abandoned = null;
       try {
         const s = await fetch('/api/status', { cache: 'no-store' });
-        if (s.ok) { const body = await s.json().catch(() => null); booted = body && body.activeWorldId; }
+        if (s.ok) {
+          const body = await s.json().catch(() => null);
+          booted = body && body.activeWorldId;
+          abandoned = body && body.lastAbandonedWorld;
+        }
       } catch { /* the board dropped the connection mid-restart; that is expected, keep polling */ }
       if (booted != null && booted === switchedId) {
         say('Switched to ' + switchedName + '. Reloading…');
         worldswReload();
+        return;
+      }
+      // #2628: the board came back, but it ABANDONED the world we asked for -- that world
+      // would not start, so it fell back to Kosmos 1 (engine/worldenv + engine/worldbootguard,
+      // the #2528 lockout recovery). Say so at once, with the reason, instead of waiting out
+      // the whole timeout on a bare spinner (Josh: "the restart errored and I am back in
+      // Kosmos 1" with no explanation). Guard on `at > start`: lastAbandonedWorld persists for
+      // the life of a board, so a world that failed on an EARLIER boot would otherwise
+      // false-fire the instant this poll first reaches the still-running old board, before
+      // the switch's own restart has even happened. Only an abandon stamped AFTER this switch
+      // began is this switch's. Do not reload: the board is on Kosmos 1 and the point is that
+      // the person reads why.
+      if (abandoned && abandoned.id === switchedId && Number(abandoned.at) > start) {
+        say('"' + switchedName + '" could not start, so Kosmos brought you back to Kosmos 1. Check the board log for why, or try switching again.');
+        worldswFocusTrigger();
         return;
       }
       if (!slowShown && Date.now() - start >= WORLDSW_RECONNECT_SLOW_MS) {
