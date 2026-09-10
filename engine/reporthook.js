@@ -160,11 +160,12 @@ function entryFor(scriptPath, opts) {
  *
  * Type-safe: a non-string is unsafe rather than throwing on `.test`.
  *
- * A raw CR/LF is refused on BOTH platforms: cmd.exe parses a command line
- * line-by-line before quote state is considered, so an embedded newline could
- * break out of even a quoted argument, and in sh it would likewise start a new
- * command; no legitimate hook path contains one, so refusing it (degrading to
- * scraping) is squarely the "over-refuse, never under-refuse" direction.
+ * A raw CR/LF is refused on BOTH platforms, though the win32 arm no longer runs
+ * through a shell so the mechanism differs: on posix (shell form) an embedded
+ * newline in sh would start a new command; on win32 (exec form) nothing parses
+ * the arg as a shell command, so CR/LF cannot inject, but a newline in a hook
+ * path is still meaningless and refusing it stays in the "over-refuse, never
+ * under-refuse" direction. No legitimate hook path contains one either way.
  */
 function unsafeForCommand(s, plat) {
   if (typeof s !== 'string') return true;

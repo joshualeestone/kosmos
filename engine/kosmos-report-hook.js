@@ -382,7 +382,8 @@ module.exports = {
 };
 
 /* Run only when invoked directly (Claude Code spawns node with this file as its
-   arg, exec form, #570); a require() in a test never triggers a network send. stdin is the event JSON.
+   arg, exec form, #570); a require() in a test never triggers a network send.
+   stdin is the event JSON.
    attachStdin fires `run` once (on end OR error); the unref'd timer is the
    backstop for a stdin that never ends -- finishNow shares attachStdin's
    once-guard, so run cannot fire twice regardless of timing. */
