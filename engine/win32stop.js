@@ -110,7 +110,9 @@ function setAlive(fn) { aliveFn = typeof fn === 'function' ? fn : null; }
  * is this lane's own recurring defect turned on its own test. The rule is about
  * the error code, so it is asserted on the error code.
  */
-function aliveFromError(e) { return !(e && e.code === 'ESRCH'); }
+/* The rule itself lives in win32orphan, the one reading of "is that pid still
+   here" that the board's restart and the host watch also use. */
+function aliveFromError(e) { return require('./win32orphan').aliveFromError(e); }
 
 function alive(pid) {
   if (aliveFn) return Boolean(aliveFn(pid));

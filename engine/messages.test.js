@@ -139,6 +139,46 @@ test('a note to yourself is refused, in words', () => {
   });
 });
 
+test('a note to yourself is refused even when you change the case of your own name (#2703)', () => {
+  // The router resolves the recipient case-insensitively (chat.resolveCard:
+  // exact-first, then case-fold), so an all-caps or mixed-case spelling of your
+  // OWN name used to slip past the exact-string self-send guard and be handed
+  // straight back to you, arriving indistinguishable from a colleague's note.
+  // Every casing that resolves to the sender must be refused the same way.
+  for (const variant of ['LEO', 'Leo', 'lEo']) {
+    withFleet([fleet.agent('leo', { state: 'idle' })], (board) => {
+      armSender('leo-discord');
+      arm([ok(), ok()]);
+      const sent = messages.send({ fromPane: '%7', to: variant, text: 'echo' }, board.agents);
+      assert.equal(sent.state, chat.DELIVERY.COULD_NOT, variant + ' should not be delivered to yourself');
+      assert.match(sent.because, /your own name/, variant + ' should be refused as a self-send');
+    });
+  }
+});
+
+test('a case-distinct DIFFERENT agent is NOT over-refused: subzero -> SubZero still routes (#2703)', () => {
+  // The fix mirrors the router, so it must not refuse a genuine send to a
+  // separate agent whose name merely case-folds to the sender's. resolveCard
+  // returns SubZero's own card (exact match wins), whose sessionName is not the
+  // sender's, so the self-send guard stands down and the message is delivered.
+  withFleet([fleet.agent('subzero', { state: 'idle' }), fleet.agent('SubZero', { state: 'idle' })], (board) => {
+    // Guard the fixture: the two case-distinct names must survive as two rows
+    // (a case-insensitive filesystem must not collapse them), or this proves
+    // nothing about over-refusal.
+    const names = board.agents.map((a) => a.sessionName).filter((n) => /^subzero$/i.test(n));
+    assert.deepEqual(names.sort(), ['SubZero', 'subzero'], 'fixture must hold two case-distinct agents');
+    armSender('subzero-discord');
+    arm([ok(), ok()]);
+    const sent = messages.send({ fromPane: '%7', to: 'SubZero', text: 'hello, other me' }, board.agents);
+    assert.ok(!/your own name/.test(String(sent.because || '')),
+      'a distinct case-variant agent must not be treated as self');
+    // ...and it actually routed: proving it was not refused AND was placed is
+    // what makes the "still routes" claim in the title true rather than merely
+    // "not refused as self".
+    assert.equal(sent.state, chat.DELIVERY.PLACED, 'the message to a distinct agent must be delivered');
+  });
+});
+
 /* ── what it answers ─────────────────────────────────────────────────────── */
 
 test('in_reply_to must be one of our ids: a real one rides the envelope and the log, an invented shape is refused', () => {

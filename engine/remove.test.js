@@ -524,6 +524,98 @@ test('a session the board does not tie to this agent is left alone', () => {
   assert.equal(remove.isRemoved(name), false, 'it recorded a removal it never performed');
 });
 
+test('#2651: a user-FORCED remove of an untied card clears the card and STILL leaves the session alone', () => {
+  // The residual/auto-imported card case (a teammate's session on a shared Mac):
+  // the default refusal is right, but the person must be able to clear it off
+  // their board. `force` records the removal (hides the card) and revokes any
+  // token, and touches NO tmux/launchd -- so the untied session keeps running.
+  const name = madeAgent('force-untied');
+  status.setPaneSource(() => fleet.line({ session: name, claim: 'somebody-else', title: '✳ Claude Code' }));
+  const calls = world();
+  remove.setDryRun(false);
+
+  // Default (no force) is unchanged: refused, nothing touched, not recorded.
+  const refused = mac.remove(name);
+  assert.equal(refused.outcome, remove.OUTCOME.REFUSED, refused.because);
+  assert.equal(remove.isRemoved(name), false, 'the default refusal recorded a removal');
+  assert.deepEqual(calls, [], 'the default refusal disabled/stopped/killed something');
+
+  // force:true clears the CARD (recorded/hidden) and STILL runs no commands.
+  const forced = mac.remove(name, { force: true });
+  assert.equal(forced.outcome, remove.OUTCOME.REMOVED, forced.because);
+  assert.equal(remove.isRemoved(name), true, 'the forced clear did not record the removal');
+  /* 🛑 THE POINT OF THE FEATURE: the card must actually LEAVE the board, which
+     is a different question from being on the removed list. The record carries
+     stopped:false (the session genuinely is not stopped), and isHidden's old
+     `stopped !== false` test read that as "keep the card", so the clear recorded
+     a removal that never hid anything -- the card sat on the board forever. This
+     asserts board-visibility, not just list-membership. */
+  assert.equal(remove.isHidden(name), true,
+    'the forced clear recorded a removal but the card is STILL on the board (stopped:false was read as visible)');
+  assert.match(forced.because, /left its terminal session running/i,
+    'it did not tell the person the session was left running');
+  assert.deepEqual(calls, [],
+    'the forced clear DISABLED, STOPPED or KILLED something -- it must ONLY record/hide the card, never touch the untied session');
+});
+
+test('#2651: force is INERT on a refusal that is not the untied case (it can never hide the wrong thing)', () => {
+  // The "we could not check which agent" refusal is NOT untied, so force must
+  // not reach it: the card stays, nothing is recorded, nothing runs.
+  const name = madeAgent('force-inert');
+  status.setPaneSource(() => { throw new Error('tmux is not where we thought'); });
+  const calls = world();
+  remove.setDryRun(false);
+
+  const r = mac.remove(name, { force: true });
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, 'force overrode a refusal that is not the untied case');
+  assert.match(r.because, /could not check which agent/);
+  assert.equal(remove.isRemoved(name), false, 'force hid a card on a refusal that was not untied');
+  assert.deepEqual(calls, [], 'force ran commands on a non-untied refusal');
+});
+
+test('#2651: force is INERT on a NOT-THERE refusal (nothing to clear -> nothing recorded, nothing run)', () => {
+  // A name that was never an agent: exists() is false, so plan() refuses with
+  // "cannot find an agent". intent.ok is false and intent.untied is unset, so
+  // force has nothing to clear -- it must record no removal and run no command.
+  const calls = world();
+  remove.setDryRun(false);
+
+  const r = mac.remove('ghost-forced', { force: true });
+  assert.equal(r.outcome, remove.OUTCOME.REFUSED, 'force cleared a card for a name that was never an agent');
+  assert.match(r.because, /cannot find an agent/);
+  assert.equal(remove.isRemoved('ghost-forced'), false, 'force filed a removal record for a non-existent agent');
+  assert.deepEqual(calls, [], 'force ran commands on a not-there refusal');
+});
+
+test('#2651: force NEVER stops a session -- on a now-TIED agent (an untied->tied race between offer and click) it still clears the card and leaves the session running', () => {
+  // The override is offered on a GET plan() and acted on later on the DELETE. If
+  // the session becomes TIED in that window, plan() now returns ok:true -- and
+  // the old structure fell through to the normal STOPPING removal, silently
+  // turning the button's promise ("leaves the terminal session running") into a
+  // kill. force must clear the CARD and leave the session alone whether the
+  // agent is untied or (now) tied: it stops nothing, ever.
+  const name = madeAgent('force-raced-tied');
+  boardShows(name, name);   // claim === name -> isNamedOurs, so plan() returns ok (tied)
+  const calls = world();
+  remove.setDryRun(false);
+
+  // Precondition: this agent is TIED/removable, so the race case is exercised.
+  assert.equal(mac.plan(name).ok, true, 'the fixture is not tied, so this does not test the race');
+
+  const forced = mac.remove(name, { force: true });
+  assert.equal(forced.outcome, remove.OUTCOME.REMOVED, forced.because);
+  assert.equal(remove.isHidden(name), true, 'the forced clear did not take the card off the board');
+  const rec = remove.removedAgents().find((x) => x.name === create.cleanName(name));
+  assert.equal(rec && rec.leftRunningByChoice, true,
+    'a forced clear of a tied agent must take the leave-running path, not the normal stop path');
+  assert.deepEqual(calls, [],
+    'force STOPPED/DISABLED/KILLED a tied session -- it must NEVER stop anything, tied or untied');
+  assert.doesNotMatch(forced.because, /cannot confirm it is this agent/i,
+    'the now-tied message must not claim Kosmos cannot confirm the agent -- by now it can');
+  assert.match(forced.because, /left its terminal session running/i,
+    'it did not tell the person the session was left running');
+});
+
 test('the untied check is still made at the session step, for a roster that changes mid-removal', () => {
   /**
    * ⚠️ THE GATE IS NOT A REPLACEMENT FOR THE LATER CHECK, and this pins the
