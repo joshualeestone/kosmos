@@ -15765,11 +15765,7 @@ function accountQualifiers(list) {
      reassurance (Splinter, 2026-08-29). #2584 already made finding 9 live once,
      by giving the OpenAI default its own reauth button. If you widen what a row
      can be again, re-check 9 rather than assuming. */
-  const key = (a) => String((a && (
-    acctChosenName(a)
-    || a.email
-    || (provIdOf(a) === 'openai' && a.keyTail ? 'key ending ' + a.keyTail : ''))) || '')
-    .toLowerCase();
+  const key = (a) => acctPrimaryName(a).toLowerCase();
   /* Both facts about a key-group are gathered in ONE pass: how many rows share
      the key, and which providers those rows come from. */
   const count = new Map();
@@ -15840,6 +15836,26 @@ function accountQualifiers(list) {
     const takenAlready = (v) => !!v && [...used].some(
       (u) => String(u).toLowerCase() === String(v).toLowerCase(),
     );
+    /* 🛑 EVEN `dir` HAS TO CLEAR THE USED-SET. The comments here used to call it
+       "the collision-proof last resort", which is true of STRINGS and false of
+       SOUNDS, and sound is the only thing this function exists to protect.
+       `list()` skips a directory it has already seen, so two rows never share a
+       dir exactly; on a case-insensitive volume `~/.claude-main` and
+       `~/.claude-Main` are one directory, but on a case-SENSITIVE one they are
+       two, and they announce identically.
+       ⚠️ MEASURED before fixing: those two rows on one email came out
+       ["/h/.claude-main", "/h/.claude-Main"], two strings and ONE sound, from
+       the one branch every other qualifier falls back to.
+       ⇒ This was the fifth instance of the same case-sensitivity class on this
+       card, each found in a place the previous fix had not looked, and it was
+       the last branch still exempt. Returns `v` untouched unless it is already
+       taken, so nothing changes for any group that was already distinct. */
+    const distinctly = (v) => {
+      if (!takenAlready(v)) return v;
+      let n = 2;
+      while (takenAlready(v + ' (' + n + ')')) n += 1;
+      return v + ' (' + n + ')';
+    };
     /* 🛑 THE PROVIDER IS ONLY A QUALIFIER WHERE IT ACTUALLY DISTINGUISHES, and
        the test below is exactly that: does THIS key-group hold more than one
        provider. Nothing here asks which screen is calling.
@@ -15879,18 +15895,24 @@ function accountQualifiers(list) {
            📌 The SHORT form, not `providerName`: this renders in a parenthetical
            after the login, and "(Anthropic / Claude)" carries a slash that reads
            as a second field.
-           📌 FOUR SITES DERIVE THE SHORT `OpenAI | Claude` PAIR and kosmos#2634
-           is the card to consolidate them: this ternary, `qualName`, `provName`
-           on the switch-account screen, and the group head (which needs the LONG
-           form, so it is pinned separately). An earlier version of this note said
-           THREE and named the group head as one of them; both halves were wrong,
-           and the cross-derivation pin in `web.account-qualifier.test.js` made
-           the same miscount. Change any one and read that pin before editing it. */
+           📌 THREE SITES DERIVE THE SHORT `OpenAI | Claude` PAIR and kosmos#2634
+           is the card to consolidate them: this ternary, `qualName`, and
+           `provName` on the switch-account screen. The group head is NOT one of
+           them (it needs the long "Anthropic / Claude" and is pinned
+           separately), and neither are the two `OpenAI | Anthropic` sites, which
+           are a third fact again.
+           ⚠️ This note has been wrong twice, in OPPOSITE directions: it first
+           said THREE while naming the group head instead of `provName` (count
+           right, membership wrong), then FOUR while keeping both (membership
+           right, count wrong). The cross-derivation pin in
+           `web.account-qualifier.test.js` made the same error both times, which
+           is what a duplicated fact does. Change any one site and read that pin
+           before editing it; trust its membership list, not its number. */
         const provId = provIdOf(a);
         const prov = !providerDistinguishes ? ''
           : (provId === 'openai' ? 'OpenAI'
             : (provId === 'anthropic' ? 'Claude' : ''));
-        qual = (prov && !takenAlready(prov)) ? prov : dir;
+        qual = (prov && !takenAlready(prov)) ? prov : distinctly(dir);
       }
     }
     used.add(qual);
