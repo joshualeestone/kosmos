@@ -56,11 +56,33 @@ const AGENTS = [
 
   const r = await page.evaluate(async (agents) => {
     const realFetch = window.fetch;
-    window.fetch = (u, opts) => (String(u).indexOf('/api/removed') !== -1
-      ? Promise.resolve({ ok: true, json: async () => ({ agents }) })
-      : realFetch(u, opts));
+    /* `/restore` is stubbed too, and only so the REVERSE arm at the bottom can
+       reach the success path that writes "Starting X again". Without it the
+       live press falls through to a file:// fetch, fails, and takes the
+       "Restore failed" branch, so the sentence that arm is about never exists
+       and it would pass while measuring nothing. */
+    window.fetch = (u, opts) => {
+      const url = String(u);
+      if (url.indexOf('/api/removed') !== -1) return Promise.resolve({ ok: true, json: async () => ({ agents }) });
+      if (url.indexOf('/restore') !== -1) return Promise.resolve({ ok: true, json: async () => ({ outcome: 'restored' }) });
+      return realFetch(u, opts);
+    };
     if (typeof paintRemoved !== 'function') return { error: 'paintRemoved is not a function' };
     await paintRemoved();
+    /* 🛑 EXPAND THE LIST, BECAUSE EVERY ARM BELOW WAS RUNNING AGAINST
+       `display: none`. `#removed-list` ships `hidden` and opens on the "show
+       removed" toggle, and this check never pressed it. Measured on the old
+       version: listHidden true, btnVisible false, and `b.focus()` left
+       activeElement on BODY. The arms still passed, because attribute reads and
+       programmatic `.click()` both work perfectly on an invisible element.
+       ⇒ The check was asserting things about a page state no person ever sees.
+       Nothing here is trustworthy until this control is actually on screen. */
+    const toggle = document.getElementById('removed-toggle');
+    if (toggle) toggle.click();
+    await new Promise((r) => setTimeout(r, 30));
+    if (document.getElementById('removed-list').hidden) {
+      return { error: 'the removed list is still hidden after pressing the toggle, so every arm below would run against display:none' };
+    }
     /* Found by SHOWN NAME, not by the acting attribute: a blocked row
        deliberately carries no `data-restore` (that absence is what stops the
        click), so selecting on it would make the blocked row invisible to this
@@ -89,7 +111,14 @@ const AGENTS = [
         hardDisabled: b.disabled === true,
         acting: b.hasAttribute('data-restore'),
         blockedAttr: b.hasAttribute('data-restore-blocked'),
-        focusable: !b.disabled,
+        /* 🛑 MEASURED, NOT DEFINED. This field read `!b.disabled`, which is a
+           different proposition wearing this one's name: an element inside a
+           collapsed container is not focusable however un-disabled it is, and
+           that is exactly the state this check used to run in. The name is what
+           a reviewer checks against the requirement, so nobody checked the name
+           against the expression. Three iterations went past it. */
+        focusable: (() => { b.focus(); return document.activeElement === b; })(),
+        onScreen: b.offsetParent !== null,
         title: b.getAttribute('title') || '',
         label: b.getAttribute('aria-label') || '',
         text: (b.textContent || '').trim(),
@@ -117,6 +146,15 @@ const AGENTS = [
          same row and carries the same `data-shown-as`, so it is the likeliest
          thing a widened selector would catch. */
       msgEl.textContent = '';
+      /* 🛑 CLEAR THE HELD EXPLANATION FIRST, OR THIS ARM CANNOT TELL THE TWO
+         CASES APART. A live press now legitimately RE-ASSERTS a standing
+         blocked explanation (that is the reverse-direction fix below), and that
+         text contains "account folder" too. Without this reset the arm reads a
+         correct re-assertion as a cross-fire and reds on working code.
+         ⭐ Found by this arm going red the moment the reverse fix landed: the
+         discriminator was only ever valid while nothing else could put that
+         phrase on screen. */
+      RESTORE_BLOCKED_SAID = null;
       const liveBtn = document.querySelector('#removed-list [data-restore]');
       if (liveBtn) { liveBtn.click(); await new Promise((r2) => setTimeout(r2, 20)); }
       out.liveFiredExplain = /account folder/i.test(msgEl.textContent || '');
@@ -135,6 +173,39 @@ const AGENTS = [
         out.afterBoth = (msgEl.textContent || '').trim();
         out.bothSpoken = /Other Agent/.test(out.afterBoth) && /account folder/i.test(out.afterBoth);
         RESTORE_WAITING_SENTENCE = null;
+      }
+
+      /* 🛑 THE REVERSE ORDER, WHICH WAS A REAL BUG AND IS THE POINT OF THIS ARM.
+         The arm above proves the EXPLAIN press does not destroy an in-flight
+         restore. Nothing proved the opposite: press an unavailable Restore on
+         one row, read why, then press a WORKING Restore on another, and the
+         explanation was silently erased.
+         ⭐ A fix written in one direction reads as finished, which is why the
+         asymmetry survived the iteration that created it. */
+      if (typeof RESTORE_BLOCKED_SAID !== 'undefined') {
+        RESTORE_WAITING_SENTENCE = null;
+        RESTORE_BLOCKED_SAID = null;
+        RESTORE_WAITING = null;
+        msgEl.textContent = '';
+        /* 🛑 FORCE A REPAINT FIRST. An arm above already pressed the live
+           Restore, and that handler sets `btn.disabled = true` on the node. The
+           generated markup is unchanged, so `paintRemoved`'s change-guard
+           (`html !== REMOVED_HTML`) SKIPS the rewrite and the disabled node
+           survives. Pressing it again does nothing, and this arm would then
+           "pass" by measuring a button that never fired.
+           ⇒ Clearing the cache is what makes the next press real. */
+        REMOVED_HTML = null;
+        await paintRemoved();
+        const blockedBtn2 = document.querySelector('#removed-list [data-restore-blocked]');
+        blockedBtn2.click();                      // 1. read why row A cannot restore
+        await new Promise((r2) => setTimeout(r2, 20));
+        const explained = (msgEl.textContent || '').trim();
+        const liveBtn2 = document.querySelector('#removed-list [data-restore]:not([disabled])');
+        if (liveBtn2) { liveBtn2.click(); await new Promise((r2) => setTimeout(r2, 150)); }
+        out.afterReverse = (msgEl.textContent || '').trim();
+        out.reverseKept = explained.length > 0
+          && /account folder/i.test(out.afterReverse)   // A's explanation survived
+          && /Starting/.test(out.afterReverse);         // and B's status is there too
       }
     }
     return out;
@@ -201,6 +272,15 @@ const AGENTS = [
     if (!r.spoken || !/account folder/i.test(r.spoken)) {
       problems.push('pressing the unavailable Restore said nothing useful: ' + JSON.stringify(r.spoken)
         + ' -- a focusable control that does nothing is worse than one that cannot be reached');
+    }
+    if (!r.gone.onScreen) {
+      problems.push('the unavailable Restore is not actually on screen, so every arm about it is '
+        + 'describing a page state nobody sees');
+    }
+    if (r.reverseKept === false) {
+      problems.push('starting a live restore destroyed a blocked row\'s standing explanation: '
+        + JSON.stringify(r.afterReverse) + ' -- both sentences are true at once, so both must be said, '
+        + 'the same way the explain handler already re-asserts an in-flight restore');
     }
     /* 🛑 THE EXPLANATION MUST NOT DESTROY AN IN-FLIGHT RESTORE'S STATUS. This
        region is shared with the "Starting X again" sentence, which is written
