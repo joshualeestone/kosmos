@@ -64,7 +64,10 @@ test('the board is installable: manifest linked, served as its type, icons real,
   const page = await (await fetch(base + '/')).text();
   assert.match(page, /<link rel="manifest" href="\/manifest\.webmanifest">/, 'the page does not link the manifest');
   assert.match(page, /<meta name="apple-mobile-web-app-capable" content="yes">/, 'iOS Safari reads this, not display:standalone');
-  assert.match(page, /<meta name="theme-color" content="#[0-9a-f]{6}">/);
+  /* Theme-color is split per colour scheme (#2527), so the browser chrome
+     matches the app in light and dark. Both metas must be present. */
+  assert.match(page, /<meta name="theme-color" content="#[0-9a-f]{6}" media="\(prefers-color-scheme: light\)">/, 'no light-scheme theme-color meta');
+  assert.match(page, /<meta name="theme-color" content="#[0-9a-f]{6}" media="\(prefers-color-scheme: dark\)">/, 'no dark-scheme theme-color meta');
   const res = await fetch(base + '/manifest.webmanifest');
   assert.equal(res.status, 200);
   assert.match(res.headers.get('content-type'), /^application\/manifest\+json/, 'served as the page or as plain JSON, a browser will not install from it');
@@ -80,8 +83,9 @@ test('the board is installable: manifest linked, served as its type, icons real,
     assert.equal(r.headers.get('content-type'), 'image/png', icon.src + ' served as something other than an image');
     assert.ok(fs.existsSync(nodePath2.join(__dirname, 'web', icon.src)), icon.src + ' is not on disk');
   }
-  /* A manifest is a JSON file a browser reads; the theme colour in it and
-     the meta must agree, or the status bar changes colour on install. */
-  const meta = /<meta name="theme-color" content="(#[0-9a-f]{6})">/.exec(page)[1];
-  assert.equal(m.theme_color, meta, 'the manifest and the meta disagree on the theme colour');
+  /* A manifest is a JSON file a browser reads; a manifest has no per-scheme
+     variant, so it carries the light value, and the light meta must agree
+     with it, or the status bar changes colour on install. */
+  const meta = /<meta name="theme-color" content="(#[0-9a-f]{6})" media="\(prefers-color-scheme: light\)">/.exec(page)[1];
+  assert.equal(m.theme_color, meta, 'the manifest and the light-scheme meta disagree on the theme colour');
 });
