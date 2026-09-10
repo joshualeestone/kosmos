@@ -6248,9 +6248,22 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
    the quiet one: this is the line a person has to copy correctly. (#570) */
 #firstrun .fr-cmd { color: var(--k-ink); background: rgba(20,22,26,.04); border-color: var(--k-rule); }
 #firstrun .llm { display: flex; align-items: center; gap: 14px; padding: 14px 16px;
-                 border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: #fff; }
+                 border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: #fff;
+                 transition: border-color .12s ease, background-color .12s ease, box-shadow .12s ease; }
 #firstrun .llm.off { background: rgba(20,22,26,.02); }
 #firstrun .llm.off .llm-w b, #firstrun .llm.off .llm-w small { color: var(--k-ink-2); }
+/* Josh, 2026-09-10: hovering a connectable provider row gave no feedback that
+   it responds. The connected provider showed state, but mousing over the other
+   working rows (Claude, GPT) did nothing, so there was no cue they were live.
+   Give the connectable rows (.llm.on) a rollover highlight: gold border, a faint
+   gold wash, a soft lift. .llm.off (Coming soon) stays flat, because it is not
+   actionable and a hover there would promise a click it cannot honour. No cursor
+   change on the row itself, since only the Connect button clicks; focus-within
+   mirrors the hover so a keyboard user tabbing to Connect gets the same cue.
+   The wash is var(--gold) at low alpha (raw rgba, matching .llm.off's pattern). */
+#firstrun .llm.on:hover,
+#firstrun .llm.on:focus-within { border-color: var(--gold); background-color: rgba(214,166,46,.06);
+                                 box-shadow: 0 1px 6px rgba(20,22,26,.06); }
 #firstrun .llm-w { flex: 1; min-width: 0; }
 #firstrun .llm-w b { display: block; font-size: 1rem; color: var(--k-ink); }
 #firstrun .llm-w small { color: var(--k-ink-2); font-size: .8125rem; }
