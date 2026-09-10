@@ -108,7 +108,8 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
   // so it keeps opening Energy settings (no trigger).
   // Bound the slice to the handler's OWN closing `});` (a column-0 `\n});`, since it is a
   // top-level statement) rather than a fixed char offset -- a fixed window silently breaks
-  // when the handler grows (e.g. the #2451/#2559 fr-recheck branch added at its top).
+  // when the handler grows or shrinks (e.g. #2648 REMOVED the in-pane .fr-recheck branch that
+  // used to sit at its top; a dynamic bound tracks that with no edit here).
   const h1s = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
   const handler = PAGE.slice(h1s, PAGE.indexOf('\n});', h1s));
   assert.match(handler, /\/api\/a11y-prompt/,
@@ -149,8 +150,19 @@ test('kosmos#1214: the Settings accessibility box name is stable ground truth', 
 });
 
 test('kosmos#1214: no em dashes in the S3 gate copy (house rule)', () => {
-  for (const spelling of ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u{2014}']) {
+  const EM_DASH_SPELLINGS = ['—', '&mdash;', '&#8212;', '&#x2014;', '\\u{2014}'];
+  for (const spelling of EM_DASH_SPELLINGS) {
     assert.ok(!S3.includes(spelling), 'an em dash (' + spelling + ') reached the S3 copy');
+  }
+  // #2648: the recheck copy ('Check again' + its hint) moved OUT of the S3 pane slice above
+  // and into the step-3 frActions call, so the S3 scan no longer covers it. Guard the moved
+  // user-facing strings here too, or a future edit to the nav-alt label/hint could ship an em
+  // dash uncaught (org rule: ask which surfaces have NO guard, not just where the defect is).
+  const s3blk = PAGE.slice(PAGE.indexOf('} else if (step === 3) {'), PAGE.indexOf('} else if (step === 4) {'));
+  const movedCopy = [...s3blk.matchAll(/\b(?:label|hint):\s*'([^']*)'/g)].map((m) => m[1]).join(' ');
+  assert.ok(movedCopy.length > 0, 'sanity: found the step-3 frActions label/hint copy to guard (guard is not vacuous)');
+  for (const spelling of EM_DASH_SPELLINGS) {
+    assert.ok(!movedCopy.includes(spelling), 'an em dash (' + spelling + ') reached the step-3 nav-alt copy');
   }
 });
 
