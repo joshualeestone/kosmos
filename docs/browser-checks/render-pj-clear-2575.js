@@ -59,6 +59,24 @@ function initStub() {
   // every hand-driven paint (the render-talk lesson). We only need to refuse it,
   // not record it, so this stub returns a fake id and keeps nothing.
   window.setInterval = () => 0;
+  // The project this check drives, defined here so the stub's OWN /api/projects
+  // response carries it too -- not only the global we seed below.
+  // 🛑 WHY (kosmos#2575 flake, ~50% before this): setInterval=0 stops REPEAT
+  // polls, but the page's ONE-TIME startup loadProjects() (already in flight from
+  // page load) still resolves, and it does `PROJECTS = body.projects || []`. When
+  // /api/projects fell through to the catch-all (`{agents:[]}`, no `projects`),
+  // that late resolve WIPED our seeded p1 -- so paintThread had already unhidden
+  // #pj-question, then the project vanished, the view reset to the list
+  // (`if (!p) pjView('list'); PJ_CURRENT=null`), and the question re-hid. Whether
+  // the poll landed before or after our openProject was a coin-flip = the flake.
+  // Answering /api/projects with p1 makes every read agree, so no late poll can
+  // clobber the seed. This is a HARNESS completeness fix; the product paints
+  // correctly (proven: the run passes whenever this race is won).
+  window.__project = {
+    id: 'p1', name: 'Project 1C', parent: null, archived: false,
+    agents: [{ sessionName: 'Mara', name: 'Mara' }],
+    defaultAgent: 'Mara', summary: { total: 1, needsYou: 1 },
+  };
   window.__asking = true;      // does the thread say the agent is asking?
   window.__clearOk = true;     // should the clear route succeed?
   const enc = (o) => new Response(JSON.stringify(o), {
@@ -86,10 +104,16 @@ function initStub() {
       }
       return enc({ ok: true, asking: false, agent: { sessionName: 'Mara' }, messages: [], viewport: { text: null } });
     }
-    // Everything else (first-run, projects, docs, you, avatar) gets a benign
-    // ok so a startup poll cannot fill the console and mask a real error. The
-    // agents poll assigns `LAST = data.agents`, so it must carry an array or
-    // LAST becomes undefined and paintFreeAgentPicker throws.
+    // The projects LIST (plural, no id) -- carry our project so a startup
+    // loadProjects() (`PROJECTS = body.projects || []`) populates/keeps p1 rather
+    // than wiping the seed. Must not match the singular `/api/project/<id>/...`.
+    if (/\/api\/projects(\?|$)/.test(u)) {
+      return enc({ ok: true, projects: [window.__project] });
+    }
+    // Everything else (first-run, docs, you, avatar) gets a benign ok so a
+    // startup poll cannot fill the console and mask a real error. The agents poll
+    // assigns `LAST = data.agents`, so it must carry an array or LAST becomes
+    // undefined and paintFreeAgentPicker throws.
     return enc({ ok: true, agents: [] });
   };
 }
@@ -132,12 +156,10 @@ function initStub() {
     // The fleet's free-agent snapshot the picker reads; seed it so a load-time
     // poll that resolved to no `agents` cannot have left it undefined.
     LAST = [];
+    // Seed from the SAME object the /api/projects stub returns, so the global we
+    // open and the value a late startup poll would re-read cannot disagree.
     PROJECTS.length = 0;
-    PROJECTS.push({
-      id: 'p1', name: 'Project 1C', parent: null, archived: false,
-      agents: [{ sessionName: 'Mara', name: 'Mara' }],
-      defaultAgent: 'Mara', summary: { total: 1, needsYou: 1 },
-    });
+    PROJECTS.push(window.__project);
     openProject('p1');
   });
 
