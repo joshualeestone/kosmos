@@ -136,9 +136,10 @@ test('both handlers check before sending, and route the engine refusal to the fi
 test('the button they pressed never goes silent, on any refusal path', () => {
   /* Per handler, the count is one pointer per refusal path that focuses a field:
      pjs-save has THREE (the description pre-check, the description engine-refusal,
-     and #1994's parent engine-refusal); pj-create has TWO (it has no parent
-     control). A new field-refusal path must add its own pointer here, or the
-     button it was pressed under says nothing when the scroll does not land. */
+     and #1994's parent engine-refusal); pj-create has FOUR (#2606 added the name
+     empty pre-check and the name-rule catch alongside the description pre-check and
+     description engine-refusal). A new field-refusal path must add its own pointer
+     here, or the button it was pressed under says nothing when the scroll does not land. */
   const paths = [
     ["getElementById('pjs-save').addEventListener", 'Nothing saved.', 3],
     ["getElementById('pj-create').addEventListener", 'Nothing added.', 4],
