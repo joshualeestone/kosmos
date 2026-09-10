@@ -12,7 +12,7 @@ asked to capture and build it (he confirmed it does not need to jump the queue).
 ## Problem
 
 On the first-run "Choose a model." screen (`#fr-pane-5` in `web/index.html`), the connectable
-provider rows (`.llm.on` — Claude and GPT) have no hover feedback. Only the connected provider
+provider rows (`.llm.on`, Claude and GPT) have no hover feedback. Only the connected provider
 shows any state (its Connect button turns green). Mousing over the other working rows gives no
 cue that they are interactive, so a person cannot tell the row responds.
 
@@ -35,7 +35,7 @@ same cue.
   not actionable. A hover affordance on a row that cannot be acted on promises a click it
   cannot honour, which is worse than no affordance.
 - **`cursor: pointer` on the whole row:** rejected. Only the `.connect-b` button is a click
-  target — there is no row-level click handler (confirmed: no `closest('.llm')` / row listener
+  target; there is no row-level click handler (confirmed: no `closest('.llm')` / row listener
   in the file). A pointer cursor on the row would falsely imply the whole row clicks. The row
   highlight draws the eye to the row and its Connect button without over-promising.
 - **A "selected" toggle state:** out of scope. Josh asked for hover feedback, not a new
