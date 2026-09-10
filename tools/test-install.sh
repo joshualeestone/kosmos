@@ -562,7 +562,17 @@ deregister_kosmos_app() { "$LSREGISTER" -u "$SB/apps/Kosmos.app" >/dev/null 2>&1
 mkdir -p "$SB/fakehome/bin"
 printf '#!/bin/sh\necho "$@" >> "%s/launcher.log"\nexit 0\n' "$SB" > "$SB/fakehome/bin/kosmos"
 chmod +x "$SB/fakehome/bin/kosmos"
-KOSMOS_HOME="$SB/fakehome" KOSMOS_APP_LOG="$SB/launcher-app.log" \
+# ⚠️ KOSMOS_RELAUNCH_HANDOFF=1: skip the #2124 single-instance dedup, or this arm reads REAL
+# machine state. applicationDidFinishLaunching activates-and-exits the moment otherRunningInstance()
+# finds any process sharing this bundle id (main.swift:909, decided at :1004). A live cut box
+# (mortals runs the fleet) ALWAYS has a real /Applications/Kosmos.app running, so the sandbox copy
+# deferred to it and exited before startBoard: launcher.log was never written and the cut aborted at
+# step 4b on mortals while passing on a clean laptop that had no instance up. KOSMOS_RELAUNCH_HANDOFF
+# is the #2094 relaunch signal ("this fresh copy is intended, do not dedup it") -- with it,
+# shouldDeferToExistingInstance() returns false and the launch path runs on ANY box. On a clean box
+# it is a no-op: with no other instance the dedup would not have fired anyway. Set on all three
+# launcher arms below, each of which would otherwise defer-and-exit the same way.
+KOSMOS_HOME="$SB/fakehome" KOSMOS_APP_LOG="$SB/launcher-app.log" KOSMOS_RELAUNCH_HANDOFF=1 \
   "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 &
 LAUNCHER_PID=$!
 wait_for_file "$SB/launcher.log" 30 || true
@@ -601,7 +611,7 @@ LNS_BEFORE="$(wc -l < "$SB/launcher.log" | tr -d ' ')"
 # instead of the uid-comparison branch this case exists to test --
 # measured: it never reached "refused, no own install" at all.
 mkdir -p "$SB/otherhome"
-env -u KOSMOS_HOME KOSMOS_APP_CONFIG="$SB/wrong-owner-config.json" KOSMOS_APP_TEST_HOME="$SB/otherhome" KOSMOS_APP_LOG="$SB/refuse-app.log" \
+env -u KOSMOS_HOME KOSMOS_APP_CONFIG="$SB/wrong-owner-config.json" KOSMOS_APP_TEST_HOME="$SB/otherhome" KOSMOS_APP_LOG="$SB/refuse-app.log" KOSMOS_RELAUNCH_HANDOFF=1 \
   "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 &
 REFUSE_PID=$!
 _i=0
@@ -619,7 +629,7 @@ mkdir -p "$SB/ownhome/.local/share/kosmos/bin"
 printf '#!/bin/sh\nprintf "%%s %%s\\n" "$1" "${KOSMOS_HOME:-}" >> "%s/own-open.log"\nexit 0\n' "$SB" > "$SB/ownhome/.local/share/kosmos/bin/kosmos"
 chmod +x "$SB/ownhome/.local/share/kosmos/bin/kosmos"
 # Same env -u KOSMOS_HOME reasoning as the case above.
-env -u KOSMOS_HOME KOSMOS_APP_CONFIG="$SB/wrong-owner-config.json" KOSMOS_APP_TEST_HOME="$SB/ownhome" KOSMOS_APP_LOG="$SB/own-app.log" \
+env -u KOSMOS_HOME KOSMOS_APP_CONFIG="$SB/wrong-owner-config.json" KOSMOS_APP_TEST_HOME="$SB/ownhome" KOSMOS_APP_LOG="$SB/own-app.log" KOSMOS_RELAUNCH_HANDOFF=1 \
   "$SB/apps/Kosmos.app/Contents/MacOS/Kosmos" > /dev/null 2>&1 &
 OWN_PID=$!
 wait_for_file "$SB/own-open.log" 30 || true
