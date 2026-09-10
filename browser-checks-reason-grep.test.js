@@ -526,10 +526,11 @@ test('every emit site in every check prints a line the gate can quote', () => {
      emit is counted once by the catch/launch scan below (as the 46th), not here.
      (73 was render-model-restart-interstitial's +1, which never got its own numbered
      block above -- a pre-existing trail gap, noted rather than back-filled here.) */
-  const EXPECTED_SITES = 77;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
+  const EXPECTED_SITES = 78;   // +1: render-provider-combobox-1040.js (the problems FAIL-emit loop, #1040 2b);
   //                              +1: #2497 -- the reconciled first-run checks emit a 'FAILED: <names>' summary
   //                              line (a quotable failure), net +1 across the suppression rewrites.
   //                              +1: render-account-dup-reauth-2584.js (its problems FAIL-emit loop, #2584)
+  //                              +1: render-inline-field-errors-2606.js (its problems FAIL-emit loop, #2606)
   assert.equal(sites, EXPECTED_SITES,
     `${sites} finding-emit sites matched, expected ${EXPECTED_SITES}. The LIKELY cause is an emit site `
     + 'added or removed without updating this number: check the diff first, and if that is '

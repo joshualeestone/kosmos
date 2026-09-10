@@ -854,7 +854,11 @@ select:focus-visible { outline: 2px solid var(--label); outline-offset: 1px; }
    explicit dark), checked, so this does not vanish in one of them. */
 .ferr { font: var(--text-callout) var(--font-ui); color: var(--danger); margin-top: var(--space-2); }
 .ferr:empty { display: none; }
-.tk-inp.bad, .tk-inp.bad:focus { border-color: var(--danger); }
+/* #2606: the red border reaches the plain `.frow` inputs too (Create an Agent's
+   name/role, Create a Project's name), not only `.tk-inp`, so a field flagged by
+   `pjFieldBad` looks flagged on every form that uses the shared helper. */
+.tk-inp.bad, .tk-inp.bad:focus,
+.frow input.bad, .frow input.bad:focus { border-color: var(--danger); }
 /* kosmos#976: a step that can wreck the flow, told apart from the hints around
    it. Same size as .dhint so it does not shout, but in full ink with a red
    marker, because the defect was that it looked like advice. */
@@ -9258,6 +9262,11 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <input type="text" id="create-name" autocomplete="off" spellcheck="false"
                placeholder="Casey">
       </div>
+      <!-- #2606: the refusal about the name lands HERE, beside the field, not only
+           in #create-msg below the button the person scrolled to. Filled by
+           `pjFieldBad` from the server's `result.because` when `result.field` is
+           'name'; empty (and so hidden, `.ferr:empty`) until then. -->
+      <p class="ferr" id="create-name-err" aria-live="polite"></p>
     </div>
 
       <!-- "Role", not "Role label" (Josh, 2026-08-22): the word `label` was
@@ -9269,6 +9278,9 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <input type="text" id="create-label" autocomplete="off" maxlength="80"
                placeholder="Executive Assistant, Bookkeeper, Researcher&hellip;">
       </div>
+      <!-- #2606: the "say what this agent does" gate reports HERE, beside the Role
+           field, rather than as text below the button. -->
+      <p class="ferr" id="create-label-err" aria-live="polite"></p>
     </div>
 
     <!-- 🛑 NOT OPTIONAL, AND ALWAYS HERE (Josh, 2026-08-22): "it either reports
@@ -10513,6 +10525,10 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
            folder for it...") is irrelevant to a business person; the line is
            kept for the code that writes it and never shown. -->
       <p class="pj-chosen" id="pj-will-be" hidden></p>
+      <!-- #2606: a name-rule refusal (empty, too long, too many with that name) lands
+           HERE, beside the name field, not only in #pj-add-msg below the button. Filled
+           by `pjFieldBad`; empty and hidden (`.ferr:empty`) until then. -->
+      <p class="ferr" id="pj-name-err" aria-live="polite"></p>
     </div>
     <!-- #551 (Josh, 2026-08-24 10:55): a project can be born described. The
          SAME field Project settings edits, optional on purpose: a name is
@@ -29705,6 +29721,10 @@ function openCreate(initialMode) {
   WATCH += 1;
   document.getElementById('create-name').value = '';
   document.getElementById('create-msg').textContent = '';
+  // #2606: clear the field-level errors too, so a reopened form is not pre-flagged
+  // with a red border left from a previous attempt.
+  pjFieldOk('create-name', 'create-name-err');
+  pjFieldOk('create-label', 'create-label-err');
   AVATAR_FILE = null;
   document.getElementById('create-avatar').value = '';
   // Back to empty, not back to the explanation.
@@ -30722,19 +30742,32 @@ async function loadCreateExtras() {
 
 }
 
+// #2606: clear a field's red border + message the moment the person starts fixing
+// it, so the flag tracks the state instead of lingering until the next submit. The
+// NAME rule itself stays server-owned (no client-side copy, per the form comment);
+// this only clears a flag the server or the empty-gate set.
+['create-name', 'create-label'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', () => pjFieldOk(id, id + '-err'));
+});
 document.getElementById('create-go').addEventListener('click', async () => {
   if (CREATING) return;
   const name = document.getElementById('create-name').value.trim();
   const msg = document.getElementById('create-msg');
+  // #2606: clear any field-level errors from a prior attempt so a field the person
+  // has since fixed does not keep its red border and message.
+  pjFieldOk('create-name', 'create-name-err');
+  pjFieldOk('create-label', 'create-label-err');
   const role = roleByKey(PICKED);
   if (!role) { msg.textContent = 'Pick what this agent is for first.'; cstep('role'); return; }
   // A blanked Role label GATES rather than defaults (Mona Lisa's ruling,
   // 2026-08-16): an empty-field message that tells you what to type beats
   // one that tells you that you did not, and it runs before the flow claims
   // anything. The engine's own gate for the own role stays behind this.
+  // #2606: reported AT the Role field (red border + message + focus, via
+  // pjFieldBad) rather than as text below the button the person scrolled past.
   if (!document.getElementById('create-label').value.trim()) {
-    msg.textContent = 'Say what this agent does. One or two words.';
-    document.getElementById('create-label').focus();
+    pjFieldBad('create-label', 'create-label-err', 'Say what this agent does. One or two words.');
     return;
   }
 
@@ -30893,7 +30926,14 @@ document.getElementById('create-go').addEventListener('click', async () => {
   if (result && result.outcome === 'refused') {
     dropMyLoader();
     cstep('name');
-    msg.textContent = result.because || 'that name will not work';
+    // #2606: a refusal the server tagged as being about the name (result.field ===
+    // 'name') lands beside the name field, red-bordered and focused; anything the
+    // server does not tag to a field stays in the after-the-button slot.
+    if (result.field === 'name') {
+      pjFieldBad('create-name', 'create-name-err', result.because || 'that name will not work');
+    } else {
+      msg.textContent = result.because || 'that name will not work';
+    }
     return;
   }
 
@@ -33615,7 +33655,10 @@ function pjDescTooLong(text) { return Array.from(String(text || '')).length > PJ
    ⚠️ IT FOCUSES. That is the half that answers Josh's actual complaint: he
    scrolled DOWN to the button, so a message anywhere above it was off screen.
    Focusing brings the field, its hint and its reason into view together, which
-   no amount of rewording the sentence would do. */
+   no amount of rewording the sentence would do.
+   #2606: form-neutral despite the `pj` name (kept because a test lifts it and the
+   project forms call it) -- the Create an Agent form now uses it too, for the same
+   scroll-past-the-button reason it was written for. */
 function pjFieldBad(inputId, errId, reason) {
   const input = document.getElementById(inputId);
   const err = document.getElementById(errId);
@@ -37840,6 +37883,9 @@ function openAddProject() {
   name.dataset.auto = '1';
   document.getElementById('pj-add-desc').value = ''; // #551: no leak between opens
   document.getElementById('pj-add-msg').textContent = '';
+  // #2606: clear the field-level errors so a reopened form is not pre-flagged.
+  pjFieldOk('pj-name', 'pj-name-err');
+  pjFieldOk('pj-add-desc', 'pj-add-desc-err');
   document.getElementById('pj-add-agent-row').hidden = true;
   document.getElementById('pj-chosen').textContent = 'No folder chosen yet.';
   // The advanced route starts closed on every arrival, so a person who opened
@@ -38080,6 +38126,7 @@ document.getElementById('pj-path-go').addEventListener('click', () => {
 let PJ_WILLBE_TIMER = null;
 document.getElementById('pj-name').addEventListener('input', (e) => {
   e.target.dataset.auto = '0';
+  pjFieldOk('pj-name', 'pj-name-err'); // #2606: clear a name error as they fix it
   clearTimeout(PJ_WILLBE_TIMER);
   PJ_WILLBE_TIMER = setTimeout(pjWillBe, 150);
 });
@@ -38092,6 +38139,17 @@ document.getElementById('pj-create').addEventListener('click', async () => {
   const msg = document.getElementById('pj-add-msg');
   const btn = document.getElementById('pj-create');
   pjFieldOk('pj-add-desc', 'pj-add-desc-err');
+  pjFieldOk('pj-name', 'pj-name-err');
+  // #2606, the create half of Josh's "this probably applies to creating a project
+  // too": the commonest name refusal (empty) caught AT the field before the round
+  // trip, matching how the description length is pre-checked below. The char rule
+  // and the length cap stay the server's (no client-side copy); empty is unambiguous
+  // and the engine still refuses independently.
+  if (!document.getElementById('pj-name').value.trim()) {
+    pjFieldBad('pj-name', 'pj-name-err', 'Give this project a name.');
+    msg.textContent = 'Nothing added. There is something to fix above.';
+    return;
+  }
   /* #1303 G, the create half of Josh's "this probably applies to creating a
      project too". This box used to carry maxlength="500" while the engine
      refused at 200, so it accepted text it could not save. */
@@ -38154,6 +38212,17 @@ document.getElementById('pj-create').addEventListener('click', async () => {
     // one place still pasting a lowercase clause in as a whole sentence.
     if (err && err.message && /description/i.test(err.message)) {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
+      msg.textContent = 'Nothing added. There is something to fix above.';
+    } else if (err && err.message && /give this project a name|a name has to be words|name is longer than a project name|too many projects with that name/i.test(err.message)) {
+      // #2606: route a project NAME-RULE refusal to the name field. Matched on the specific
+      // name-rule sentences projects.js throws, NOT a broad /name/i: a folder-collision
+      // refusal interpolates an existing project's TITLE ("...already the project X"), and a
+      // title that happens to contain "name" would false-match /name/i and flag the name
+      // field for what is really a folder problem. These sentences carry no interpolated
+      // content, so they cannot. The regex is the source of truth; a coupling test in
+      // web.inline-errors-2606.test.js pins it to projects.js's messages and proves the
+      // folder-collision message does not match. Checked AFTER the description branch.
+      pjFieldBad('pj-name', 'pj-name-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else {
       msg.textContent = pjSentence(err.message) || 'We could not add that project.';
