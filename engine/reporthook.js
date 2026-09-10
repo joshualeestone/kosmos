@@ -43,11 +43,17 @@ const HOOK_EVENTS = Object.freeze([
 
    #570: the STEM, not `kosmos-report-hook.sh`, so ONE dedup key matches both
    the posix hook (`bash ".../kosmos-report-hook.sh"`) and the native-win32 hook
-   (`"<node>" ".../kosmos-report-hook.js"`) -- the win32 bundle carries no bash,
-   so its hook is the node entry beside this module. Widening `.sh` -> the stem
-   is backward-compatible: every already-wired `.sh` command still contains the
-   stem, so a machine that had the old hook reads as ours and is repointed/kept
-   exactly as before. The stem is specific enough that nothing else matches. */
+   (the node entry `kosmos-report-hook.js` beside this module) -- the win32 bundle
+   carries no bash. Widening `.sh` -> the stem is backward-compatible: every
+   already-wired `.sh` command still contains the stem, so a machine that had the
+   old hook reads as ours and is repointed/kept exactly as before. The stem is
+   specific enough that nothing else matches.
+
+   ⚠️ WHERE the stem rides differs by win32 form: in the OLD win32 SHELL form it
+   was inside the command string (`"<node>" ".../kosmos-report-hook.js"`); in the
+   #570 EXEC form the command is the bare node executable and the stem is in
+   args[0]. entryIsOurs checks BOTH the command and args for exactly this reason,
+   so an old win32 shell-form entry is still recognized and repointed to exec. */
 const MARKER = 'kosmos-report-hook';
 
 /**
@@ -77,12 +83,27 @@ function hookScriptPath(platform) {
 }
 
 /**
- * The hook command Claude Code runs, per platform. posix: `bash "<script>"`.
- * win32 (#570): `"<node>" "<script>"` -- the node entry, run through the same
- * node that is doing the wiring (on a win32 install that is the bundled
- * runtime/node.exe, so no path is resolved from HOME, keeping this module's
- * zero-dependency contract). Both `platform` and `node` are injectable so the
- * branch is unit-testable; they default to the running process.
+ * The hook command Claude Code runs, per platform. posix: `bash "<script>"`
+ * (SHELL FORM -- the value rides inside a double-quoted sh command).
+ *
+ * win32 (#570): EXEC FORM -- `{ command: <node>, args: [<script>] }`. When
+ * `args` is present Claude Code spawns `command` as an executable directly, with
+ * NO shell involved, each arg passed verbatim; the `shell` field is ignored. So
+ * the win32 hook fires identically whether or not Git Bash is present. That is
+ * the point: Claude Code's Windows hook shell "defaults to bash, or to powershell
+ * when Git Bash isn't installed" (docs), and the OLD win32 shell form
+ * (`"<node>" "<script>"`) is a bash-shaped string a PowerShell fallback would
+ * echo rather than execute (a leading quoted token is expression-mode) -- so on a
+ * stock Windows box the hook process would fire and deliver nothing. Exec form
+ * removes the shell from the path entirely, which is what a state source that
+ * must never silently go dark needs. (See the unsafeForCommand note and #570; the
+ * one-run box check is: does exec form fire all seven events under a no-Git-Bash
+ * PowerShell default.)
+ *
+ * `node` is the bundled runtime/node.exe on a win32 install, so no path is
+ * resolved from HOME, keeping this module's zero-dependency contract. Both
+ * `platform` and `node` are injectable so the branch is unit-testable; they
+ * default to the running process.
  */
 function entryFor(scriptPath, opts) {
   const o = opts || {};
@@ -91,7 +112,7 @@ function entryFor(scriptPath, opts) {
     const node = o.node || process.execPath;
     return {
       matcher: '',
-      hooks: [{ type: 'command', command: '"' + node + '" "' + scriptPath + '"', timeout: 15 }],
+      hooks: [{ type: 'command', command: node, args: [scriptPath], timeout: 15 }],
     };
   }
   return {
@@ -102,51 +123,40 @@ function entryFor(scriptPath, opts) {
 
 /**
  * True when a path holds a character we refuse to embed in the hook command
- * for that platform. posix (the value rides inside a double-quoted `bash`
- * command in sh): a quote, backslash, dollar or backtick would break out of or
- * execute inside the command. win32 (the value rides inside a double-quoted
- * command, which is how entryFor builds it): the value that matters is what can
- * break OUT of or expand INSIDE the surrounding double quotes.
- *   - `"` ends the quoting (both shells).
- *   - `%` is cmd.exe variable expansion, which happens even inside double quotes.
- *   - `` ` `` and `$` are live inside a PowerShell double-quoted string.
- * The classic cmd.exe metacharacters `& | < > ^ ( )` are NOT included, and that
- * is deliberate, not an omission: inside a double-quoted argument they are
- * literal, so they cannot start a command -- and `( )` in particular MUST be
- * allowed, because `C:\Program Files (x86)\...` is a completely ordinary install
- * path and refusing it would break the common case to defend against a hazard
- * the quotes already neutralize.
+ * for that platform.
  *
- * 🔑 THE SHELL IS NOW MEASURED, AND IT IS NEITHER OF THE TWO THIS SET WAS BUILT
- * FOR. This comment used to say the shell was unknown, offer cmd.exe ∪ PowerShell
- * as the conservative superset, and invite relaxing to `["%]` "if it is cmd.exe
- * only". Measured on the Windows box 2026-09-07 by walking the hook's own parent
- * chain:
+ * posix (SHELL FORM -- the value rides inside a double-quoted `bash` command in
+ * sh): a quote, backslash, dollar or backtick would break out of or execute
+ * inside the command, so all are refused. This is LOAD-BEARING: the posix hook is
+ * a shell string, so injection through the path is a real hazard.
  *
- *     node.exe (the hook)
- *       <- bash.exe   C:\Program Files\Git\bin\bash.exe
- *       <- claude.exe
+ * win32: as of the #570 exec-form change entryFor emits `{ command:<node>,
+ * args:[<script>] }`, which Claude Code spawns with NO shell involved and each
+ * arg passed VERBATIM. So on win32 there is no shell to break out of and path
+ * injection is not possible -- this guard is now DEFENSIVE / belt-and-suspenders
+ * for the win32 path, not load-bearing. It is kept unchanged (`["%$`\r\n]`)
+ * rather than relaxed, in the codebase's stated "over-refuse, never under-refuse;
+ * degrading to scraping is the safe direction" posture: a real Windows path
+ * carrying one of these is extraordinarily rare, and refusing it degrades to
+ * scraping rather than writing something wrong. A backslash is ALLOWED on win32
+ * (the ordinary separator; the posix `\\` would refuse every real path), which is
+ * safe here because nothing is being parsed as a shell string at all.
  *
- * Claude Code runs a Windows hook through BASH, which it locates externally (Git
- * Bash here) rather than bundling. So the context is a bash double-quoted string.
+ * 🔑 HISTORY, so the reasoning is not re-derived: this set was once built for an
+ * unknown Windows shell (cmd.exe ∪ PowerShell superset), then re-derived for bash
+ * after the box measured Claude Code running the hook through Git Bash
+ * (2026-09-07). Both of those framings assumed SHELL FORM. The exec-form change
+ * makes the win32 shell moot -- which is exactly why it also closes the bigger
+ * open question below.
  *
- * ⚠️ DO NOT TAKE THE RELAXATION THIS COMMENT USED TO OFFER. Dropping to `["%]`
- * would remove `$` and `` ` ``, both of which bash expands inside double quotes --
- * the invitation was written against the wrong shell, and following it would open
- * exactly the hole this function exists to close.
- *
- * Re-derived against bash, the set below is CORRECT AS IT STANDS: `"` ends the
- * quoting, `$` and `` ` `` expand, CR/LF start a new command -- all refused. `%`
- * is harmless in bash and stays refused, which is an over-refusal in the safe
- * direction and costs nothing real. And a backslash is safely ALLOWED (the
- * ordinary Windows separator; the posix `\\` would refuse every real path)
- * precisely BECAUSE the four characters that would give a preceding backslash any
- * meaning are themselves refused, so the dangerous pair cannot occur.
- *
- * 📌 STILL OPEN, and it is a bigger question than this guard: if Claude Code
- * needs an external bash to run ANY hook command, a stock Windows box without Git
- * for Windows may run no hooks at all -- including this node entry. Measured only
- * with Git Bash present; a clean VM would settle it. See #570.
+ * ✅ RESOLVED by exec form (was: "STILL OPEN"): the old worry was that if Claude
+ * Code needs an external bash to run ANY hook command, a stock Windows box with no
+ * Git for Windows might run no hooks at all. The docs answer it -- the hook shell
+ * "defaults to bash, or to powershell when Git Bash isn't installed", so a shell
+ * always exists -- and exec form removes the dependency regardless, since `args`
+ * spawns the executable directly with no shell. The residual is narrower and
+ * box-checkable, not architectural: confirm exec form fires all seven events under
+ * a no-Git-Bash PowerShell default. See #570.
  *
  * Type-safe: a non-string is unsafe rather than throwing on `.test`.
  *
@@ -163,8 +173,18 @@ function unsafeForCommand(s, plat) {
 }
 
 function entryIsOurs(entry) {
+  /* The marker rides in the command for the posix shell-form hook
+     (`bash ".../kosmos-report-hook.sh"`) AND for the OLD win32 shell form
+     (`"<node>" ".../kosmos-report-hook.js"`), but in `args` for the #570 win32
+     EXEC form (command is the bare node executable; the script path is args[0]).
+     Checking both keeps a machine that carries the old win32 shell-form entry
+     recognized as ours -- so ensureWired REPOINTS it to exec form rather than
+     stacking a second entry beside it. */
   return !!(entry && Array.isArray(entry.hooks)
-    && entry.hooks.some((h) => h && typeof h.command === 'string' && h.command.includes(MARKER)));
+    && entry.hooks.some((h) => h && (
+      (typeof h.command === 'string' && h.command.includes(MARKER))
+      || (Array.isArray(h.args) && h.args.some((a) => typeof a === 'string' && a.includes(MARKER)))
+    )));
 }
 
 /**
@@ -181,20 +201,23 @@ function ensureWired(settingsPath, scriptPath, opts) {
   if (!scriptPath) return { wired: false, because: 'the reporting hook script is not on this machine' };
   const o = opts || {};
   const plat = o.platform || process.platform;
-  /* On win32 the command embeds a second path -- the node executable -- so the
-     guard below must vet it too. It defaults to the node doing the wiring
-     (the bundled runtime/node.exe on a win32 install), the same source entryFor
-     uses; injectable for tests. Null off win32, where the command is bash-only. */
+  /* On win32 the entry carries a second path -- the node executable (as the
+     exec-form `command`) -- so the guard below vets it too. It defaults to the
+     node doing the wiring (the bundled runtime/node.exe on a win32 install), the
+     same source entryFor uses; injectable for tests. Null off win32, where the
+     entry carries only the script (bash + the script). */
   const node = plat === 'win32' ? (o.node || process.execPath) : null;
-  /* The path(s) are embedded in a double-quoted hook command; a character that
-     would break the quoting or execute inside it is refused. The unsafe set is
-     platform-specific (unsafeForCommand): backslash is dangerous in sh but is
-     the ordinary separator on win32, so a single posix guard would refuse every
-     Windows path. setup.sh refuses similar characters for the profile write,
-     and this keeps the pair consistent (Angel's review). No real KOSMOS_HOME
-     carries these; a hand-built one that does gets a sentence instead of a
-     settings file that runs it. On win32 BOTH the script path and the node path
-     are vetted. */
+  /* Vet both paths for characters we refuse to put in a hook entry
+     (unsafeForCommand). On POSIX this is LOAD-BEARING: the path rides inside a
+     double-quoted `bash` command, so a quote/backslash/dollar/backtick could
+     break out of or execute inside it. On win32 the #570 exec form passes each
+     path VERBATIM as an argv element with no shell, so injection is not possible
+     there -- the guard is defensive/over-refusal only (kept unchanged in the
+     safe direction: a rare real Windows path with one of these degrades to
+     scraping rather than writing something wrong). backslash is dangerous in sh
+     but is the ordinary win32 separator, so the set is platform-specific. setup.sh
+     refuses similar characters for the profile write, keeping the pair consistent
+     (Angel's review). On win32 BOTH the script path and the node path are vetted. */
   if (unsafeForCommand(scriptPath, plat) || (node !== null && unsafeForCommand(node, plat))) {
     return { wired: false, because: 'the hook command path contains characters we will not embed in a command' };
   }
@@ -234,10 +257,11 @@ function ensureWired(settingsPath, scriptPath, opts) {
        sentence. underRoot returns false for a non-string rather than calling
        .startsWith on it (#1582 review). */
     const underRoot = (p, root) => typeof p === 'string' && (p === root || p.startsWith(root + path.sep));
-    /* #570: the win32 command embeds TWO paths (node + script), so BOTH must be
-       vetted -- a durable settings file pointing at an ephemeral runtime/node.exe
-       is the same #1582 defect as pointing at an ephemeral script. `node` is null
-       off win32, where the command carries only the script. */
+    /* #570: the win32 entry carries TWO paths (node as the exec-form command,
+       script as args[0]), so BOTH must be vetted -- a durable settings file
+       pointing at an ephemeral runtime/node.exe is the same #1582 defect as
+       pointing at an ephemeral script. `node` is null off win32, where the entry
+       carries only the script. */
     const scriptEphemeral = underRoot(scriptPath, rawTmp) || underRoot(scriptPath, realTmp)
       || (node !== null && (underRoot(node, rawTmp) || underRoot(node, realTmp)));
     /* Durable = a real settings path that is NOT under temp. A null/undefined
@@ -297,14 +321,22 @@ function ensureWired(settingsPath, scriptPath, opts) {
      ours by the marker, so replacing it is not clobbering somebody's
      configuration -- and leaving it is how a machine keeps running a hook
      nobody has looked at since August. */
-  const wantCommand = entryFor(scriptPath, { platform: plat, node }).hooks[0].command;
+  const want = entryFor(scriptPath, { platform: plat, node }).hooks[0];
+  /* Compare the FULL desired shape, not just the command: the #570 win32 exec
+     form carries its script path in `args`, so a command-only check would read
+     an OLD win32 shell-form entry (same node in the command, no args) as already
+     correct and never repoint it. Normalizing a missing `args` to null makes the
+     posix shell form (no args) compare equal to itself. */
+  const sameHook = (h) => !!(h && h.command === want.command
+    && JSON.stringify(h.args === undefined ? null : h.args)
+       === JSON.stringify(want.args === undefined ? null : want.args));
   for (const event of HOOK_EVENTS) {
     const existing = Array.isArray(data.hooks[event]) ? data.hooks[event] : [];
     const mine = existing.filter(entryIsOurs);
     if (mine.length) {
       /* Already ours and already correct: leave it completely alone, so a
          second run is a no-op and a person's timeout or matcher edits survive. */
-      if (mine.some((e) => e.hooks.some((h) => h && h.command === wantCommand))) continue;
+      if (mine.some((e) => e.hooks.some(sameHook))) continue;
       /* Ours, but aimed at another copy. Replace only OUR entries; anything
          else in this event's list is somebody else's hook and is untouched. */
       data.hooks[event] = existing.map((e) => (entryIsOurs(e) ? entryFor(scriptPath, { platform: plat, node }) : e));
