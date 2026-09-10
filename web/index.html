@@ -19986,11 +19986,21 @@ const ROOM_SPOKE_AT = new Map();
  * correctness filter went to one of them. The question that finds this class is
  * "which surfaces have no guard", not "where else does the defect appear".
  *
- * 🛑 A SEPARATE MAP RATHER THAN REUSING `ROOM_SPOKE_AT`, and the reason is not
- * tidiness: that map's `learnedAt` is stamped against `ROOM_SPOKE_SEEDED`,
- * which is keyed on the open PROJECT. A dialog has no project, so seeding would
- * read as unseeded forever and every reply would stamp `learnedAt: 0`, which is
- * the over-claim #1150 exists to prevent. Same shape, its own seeding.
+ * 🛑 A SEPARATE MAP RATHER THAN REUSING `ROOM_SPOKE_AT`, AND THE FIRST VERSION
+ * OF THIS NOTE GAVE A REASON THAT IS ONLY CONDITIONALLY TRUE. It said reusing
+ * the room's map would seed as unseeded forever; that holds only if the seeding
+ * set stayed keyed on `PJ_CURRENT`, and keying it on the session would seed
+ * fine. Corrected rather than quietly rewritten, because a justification that
+ * does not survive being re-opened is the defect class this repo keeps paying
+ * for.
+ * ⇒ THE LOAD-BEARING REASON IS THE ONE THE ROOM'S OWN LOOP STATES:
+ * `ROOM_SPOKE_AT` is keyed on the SPEAKER GLOBALLY. Stamping a dialog reply
+ * into it would suppress that agent in the ROOM's working line too, for a room
+ * the person is not even looking at. Its own map keeps the two surfaces from
+ * silencing each other.
+ * 📌 One known divergence, stated rather than left to be discovered: the room
+ * PRESERVES an existing `learnedAt` when it re-stamps unseeded; this writes 0.
+ * Equivalent today (one key, one call site) and not equivalent by construction.
  */
 const DM_SPOKE_AT = new Map();
 const DM_SPOKE_SEEDED = new Set();
@@ -21232,19 +21242,25 @@ function paintTalkThread(body, name) {
      reply, and stamping it as one would suppress the working line for an agent
      that is genuinely mid-task the moment you open its dialog. */
   const dmSession = CURRENT && CURRENT.sessionName;
-  if (dmSession) {
-    const seededThread = DM_SPOKE_SEEDED.has(dmSession);
-    for (const m of allRows) {
-      if (!m || m.from !== dmSession || !m.at) continue;
-      if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
-      const at = Date.parse(m.at);
-      if (!Number.isFinite(at)) continue;
-      const seen = DM_SPOKE_AT.get(dmSession);
-      if (seen && at <= seen.at) continue;
-      DM_SPOKE_AT.set(dmSession, { at, learnedAt: seededThread ? Date.now() : 0 });
-    }
-    DM_SPOKE_SEEDED.add(dmSession);
+  const seededThread = dmSession ? DM_SPOKE_SEEDED.has(dmSession) : false;
+  for (const m of dmSession ? allRows : []) {
+    if (!m || m.from !== dmSession || !m.at) continue;
+    if (m.kind && ROOM_NOT_SPEECH.has(m.kind)) continue;
+    const at = Date.parse(m.at);
+    if (!Number.isFinite(at)) continue;
+    const seen = DM_SPOKE_AT.get(dmSession);
+    if (seen && at <= seen.at) continue;
+    DM_SPOKE_AT.set(dmSession, { at, learnedAt: seededThread ? Date.now() : 0 });
   }
+  /* 🛑 SEEDED ONLY ON A READ THAT ACTUALLY ANSWERED, which the room guards too
+     and for the same reason. The route replies 200 with `messages: null` when a
+     thread read FAILS, so an unguarded seed marks the thread known-with-zero-rows;
+     the next poll's real backlog is then all new, stamps `Date.now()`, and blanks
+     the working line for a poll on a genuinely working agent. That is the HIDE
+     direction, which is the one this whole branch is built not to fail in.
+     `Array.isArray(body.messages)` is the precise signal: null means the read
+     failed, and it does not depend on what `historyBecause` means elsewhere. */
+  if (dmSession && Array.isArray(body.messages)) DM_SPOKE_SEEDED.add(dmSession);
   const rows = talkFilterRows(allRows, name, TALK_QUERY);
   const filtering = TALK_QUERY.trim() !== '';
   const thread = document.getElementById('d-dmthread');
@@ -22538,10 +22554,32 @@ function openDetail(sessionName, section, fromProject) {
     const th0 = document.getElementById('d-dmthread');
     th0.__heldTop = undefined;
     th0.__heldAtBottom = undefined;
+    /* 🛑 #2660: AND THE CACHED BODY, for the same reason as the scroll state
+       above and in the same place, because this block already owns "what the
+       thread box remembers about the agent being left". `__lastBody`/
+       `__lastName` were assigned on every paint and cleared nowhere, and the
+       search input repaints from them: type in `d-talk-search` after switching
+       agents, before the new fetch resolves, and `paintTalkThread` runs with the
+       PREVIOUS agent's body while `CURRENT` is the new one. The rows are dropped
+       correctly (`m.from !== dmSession`), but the SEED still fired, marking the
+       new agent known-with-zero-rows and blanking its working line for a poll.
+       ⚠️ The dialog's copy of a race the room documents at its own seeding
+       block, found the same way: by asking who else calls the painter. */
+    th0.__lastBody = undefined;
+    th0.__lastName = undefined;
     // A reading posture, not agent state: carried across agents it would hide
     // the next thread silently.
     TALK_QUERY = '';
     document.getElementById('d-talk-search').value = '';
+    /* 🛑 #2660: AND THE CACHED THREAD WITH IT. `__lastBody`/`__lastName` were
+       assigned on every paint and cleared nowhere, and the search input repaints
+       from them. So typing in the search box after switching agents, before the
+       new thread's fetch resolves, ran `paintTalkThread` with the PREVIOUS
+       agent's body while `CURRENT` was the new one. The rows are dropped
+       correctly (`m.from !== dmSession`), but the SEED still fired, marking the
+       new agent known-with-zero-rows and blanking its working line for a poll.
+       ⚠️ This is the dialog's copy of a race the room documents at its own
+       seeding block, found the same way: by asking who else calls the painter. */
     document.getElementById('d-talk-older').hidden = true;
     document.getElementById('d-dmoff').hidden = true;
     document.getElementById('d-say-msg').textContent = '';
