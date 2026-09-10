@@ -75,7 +75,17 @@ whenever a runner is injected, which is exactly when the commands DO run.
 
 ## Residuals, named rather than left to be found
 
-- **kosmos#2609, filed, and the deferral is a DECISION rather than an oversight.**
+- **kosmos#2609 IS NO LONGER A RESIDUAL. It was filed from this loop and somebody shipped the
+  engine half while this branch was still iterating**: PR #2613 (`c92c7cf2`, merged into main and
+  folded in here) makes `restoreInner` refuse when the agent's recorded config dir is gone, which
+  is option 1 from the card. Verified present after the merge at `engine/remove.js:1404`. The
+  frontend half is **#2615** (grey the control out before the click rather than refusing after
+  it), which names me as its owner, and it is follow-on work rather than part of this card.
+  ⚠️ **So the paragraph below is kept as the record of a decision that was overtaken, not as a
+  live one.** It is left in deliberately: the reasoning is still what I would have shipped, and a
+  plan that quietly rewrites its own history to look prescient is worth less than one that shows
+  where it was superseded.
+- **The original deferral, now overtaken, and it WAS a decision rather than an oversight.**
   A reviewer asked that it be confirmed before merge rather than after, which is fair, so
   stating it plainly: this card ships with the hazard open. The copy on the delete door is honest
   about it ("needs a different one before it can start again"), the affordance that contradicts it
@@ -100,6 +110,17 @@ whenever a runner is injected, which is exactly when the commands DO run.
   `commandsAreReal()` already answers false, so the two conditions are mutually exclusive there.
   Both are reachable in production. The arm that exists covers the unmarked half, which is the one
   no marker could have caught.
+
+## One behaviour change outside this feature, called out because a route-only reader would miss it
+
+**`engine/openaiaccounts.js` now reports its refusals in a different order for EVERY caller, not
+just for this route.** The sign-in-in-progress refusal moved above the agents guard, so an account
+that simultaneously has running agents and a reauth in flight now answers "a sign-in is in
+progress for this account; finish or cancel it first." where it previously named the blocking
+agents. Both refusals are correct and both are dead ends until the person acts; the sign-in one is
+the more actionable of the two, and nothing asserted the old precedence. The four sibling suites
+(#1659, #1372, #1689, #2264) are green either way, which is exactly why it needs saying out loud
+rather than being left to a green run.
 
 ## Weakest premise
 
