@@ -1881,15 +1881,19 @@ driverTest('#1937 CONTROL: WITHOUT the reauth flag, a connected account still sh
 });
 
 /**
- * ⭐ THE SECOND CONTROL, on the LAUNCH rather than the gate. The login arguments
- * are scoped to `owner.reauth`, so an ordinary (non-reauth) sign-in that DOES
- * launch -- the first-run path, reached here by a signed-out world -- must remain
- * a bare `claude` with no login subcommand appended. Without this, a change that
- * appended the login args unconditionally would pass the arm above.
+ * ⭐ THE SECOND CONTROL, on the LAUNCH rather than the gate. #2645 UPDATED THIS.
+ * The login arguments used to be scoped to `owner.reauth`, so a present-but-dead
+ * credential (file CONNECTED, live signed-out) launched a bare `claude` -- which
+ * drops into the "Not logged in" REPL and wedges (Josh's first-run bug). #2645
+ * broadened the scope to `owner.needsLogin` (reauth OR a present-but-dead
+ * credential), so this exact scenario NOW appends the login subcommand and opens
+ * the browser. The "not unconditional" invariant this originally guarded -- a
+ * GENUINELY FRESH machine (no credential) stays bare -- is pinned by the #2645
+ * CONTROL in server.connect.test.js (a fresh machine still launches a bare claude).
  */
-driverTest('#1937 CONTROL: a NON-reauth sign-in launch does NOT append the login subcommand', async () => {
-  // World says signed out, so start() falls through and launches the first-run
-  // sign-in -- the byte-identical bare-`claude` path.
+driverTest('#2645 (was #1937 CONTROL): a present-but-dead credential now appends the login subcommand', async () => {
+  // File claims CONNECTED, the world says signed out = a present-but-dead credential.
+  // start() falls through the #1560 gate and #2645 makes the launch run a real login.
   writeClaudeConfig(CONNECTED_CONFIG);
   subscription.setRunner(async () => ({ stdout: JSON.stringify({ loggedIn: false }), err: null }));
   const term = fakeTerminal();
@@ -1899,9 +1903,9 @@ driverTest('#1937 CONTROL: a NON-reauth sign-in launch does NOT append the login
     await connect.start();
     await until(() => term.all.some((a) => a[0] === 'new-session'), 5000);
     const made = term.all.find((a) => a[0] === 'new-session');
-    assert.ok(made, 'the first-run sign-in launched no session, so this control asserts nothing');
-    assert.notDeepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
-      'a non-reauth launch appended the login subcommand -- the change is meant to be scoped to an explicit re-auth');
+    assert.ok(made, 'the sign-in launched no session, so this control asserts nothing');
+    assert.deepEqual(made.slice(-3), ['auth', 'login', '--claudeai'],
+      'a present-but-dead credential must run a real login (#2645) -- a bare claude wedges in the "Not logged in" REPL');
   } finally { subscription.setRunner(null); }
 });
 
