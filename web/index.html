@@ -4166,6 +4166,17 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .tsearch input { flex: 1 1 auto; min-width: 0; border: 0; background: none; font: inherit;
   font-size: .8125rem; color: var(--k-ink); padding: 3px 0; }
 .tsearch input:focus { outline: none; }
+/* #2622: the Talk-to-them caption and the search on one row. The caption takes the
+   left, the search is constrained (not full-width) and sits on the caption's baseline;
+   in .dsec (a flex column) the standalone search would otherwise stretch to full width.
+   On a phone the row wraps so the search drops below rather than squishing. */
+.d-talk-caprow { display: flex; align-items: baseline; gap: 12px; margin: 0 0 12px; }
+.d-talk-caprow #d-talk-hint { flex: 1 1 auto; min-width: 0; }
+.d-talk-caprow #d-talk-search-wrap { flex: 0 1 min(260px, 40%); align-self: center; }
+@media (max-width: 480px) {
+  .d-talk-caprow { flex-wrap: wrap; }
+  .d-talk-caprow #d-talk-search-wrap { flex-basis: 100%; }
+}
 .msg p { margin: 0; font-size: .9375rem; line-height: 1.55; color: var(--k-ink); overflow-wrap: anywhere; }
 .msg.you p { color: var(--k-ink-2); }
 /* ⚠️ THREE DELIVERY STATES, NEVER TWO (the pack's own warning kept
@@ -7188,7 +7199,19 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
        happens to be open. -->
   <section class="dbox" id="d-talk-box" tabindex="-1">
     <h3 class="dlab" id="d-talk-label"></h3>
-    <p class="dhint" id="d-talk-hint" style="margin:0 0 12px;"></p>
+    <!-- #2622 (Josh product-review): the caption and the search sit on ONE row so the
+         search is not a full-width row of its own ("put it on the same baseline as
+         'Just between you and X'"). The search still filters the thread below; every id
+         is unchanged so the filter JS is untouched. -->
+    <div class="d-talk-caprow">
+      <p class="dhint" id="d-talk-hint" style="margin:0;"></p>
+      <div class="tsearch" id="d-talk-search-wrap">
+        <span class="tsearch-i" aria-hidden="true">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        </span>
+        <input type="search" id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation">
+      </div>
+    </div>
     <div class="qask" id="d-qask" hidden>
       <span class="haz" aria-hidden="true">!</span>
       <div style="min-width:0;flex:1 1 auto;">
@@ -7226,15 +7249,8 @@ body.plus-active #plus-state2, body.plus-active #plus-flow {
         <p class="fmsg" id="d-qask-trust-restart-msg" role="status" aria-live="polite"></p>
       </div>
     </div>
-    <!-- Search above the thread (#403), the room's control on the agent's own
-         page: same shape, same no-match sentence, same rule that a filtered
-         paint never scrolls. It filters what a row SHOWS (who, and the text). -->
-    <div class="tsearch" id="d-talk-search-wrap" style="margin-bottom:8px;">
-      <span class="tsearch-i" aria-hidden="true">
-        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-      </span>
-      <input type="search" id="d-talk-search" placeholder="Search this conversation" aria-label="Search this conversation">
-    </div>
+    <!-- #2622: the search moved up beside the caption (.d-talk-caprow above). It still
+         sits above the thread (#403) and filters what a row SHOWS. -->
     <div class="dmthread" id="d-dmthread"></div>
     <!-- 🔑 "WORKING", NEVER "TYPING". We can see that Claude is producing
          output or is mid-task. We CANNOT see WHAT it is working on, and
