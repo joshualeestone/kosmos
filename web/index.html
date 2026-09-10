@@ -26323,7 +26323,9 @@ document.getElementById('found-scan-look').addEventListener('click', async () =>
   const fw = document.getElementById('found-wrap');
   const sw = document.getElementById('scan-wrap');
   const anyPanel = (fw && !fw.hidden) || (sw && !sw.hidden);
-  if (!anyPanel) look.textContent = 'No agents found on this computer to add';
+  /* Hedged and NOT a machine-scoped count claim (web.empty-scope guard): a screen must
+     not state as fact what is on the computer; say what our look turned up instead. */
+  if (!anyPanel) look.textContent = 'We could not find any new agents to add';
 });
 
 /* #1938: the scan panel's toggle and dismiss, mirroring the found panel above so

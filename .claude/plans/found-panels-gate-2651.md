@@ -12,7 +12,7 @@ Gate the two discovery panels behind an explicit user action, per Angel's recomm
 
 - `DISCOVERY_OPENED` (new module global, default false, NOT persisted): while false, `paintFoundBoard` and `paintScanBoard` render nothing and fetch nothing. A full page reload resets it, so the page never opens the panels for you.
 - A new trigger row `#found-scan-trigger` with button `#found-scan-look` ("Look for agents already on this computer"). `paintDiscoveryTrigger()` shows it on the Agents tab whenever NO discovery panel is visible, and hides it once a panel renders candidates. Keyed on panel visibility, not on the flag, so it is also the resting state after a look that found nothing.
-- Pressing the trigger sets `DISCOVERY_OPENED`, paints both panels, and (empty case) reports "No agents found on this computer to add".
+- Pressing the trigger sets `DISCOVERY_OPENED`, paints both panels, and (empty case) reports "We could not find any new agents to add" (hedged, not a machine-scoped count claim, per the web.empty-scope guard).
 - The trigger is wired into the same tab-gated poll that paints the panels (so its visibility stays correct), and hidden on the way off the Agents tab exactly as the two panels already are.
 
 The existing per-panel Show/Hide fold (`FOUND_OPEN`/`SCAN_OPEN`) and "Dismiss this forever" are unchanged.
