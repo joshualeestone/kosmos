@@ -11086,8 +11086,9 @@ const server = http.createServer((req, res) => {
      not iOS parity; Josh ruled push + icon + store, and this is one of the
      three. Served as its own type so a browser reads it as a manifest and
      not as the page. The name, short_name and colours in it appear under
-     the icon and paint the status bar: placeholders until Mona Lisa says
-     them (#815). */
+     the icon and paint the status bar. The colours are finalized to the
+     brand ground token (#2527); the old #815 placeholder flag is closed and
+     the live parent is #718. */
   if (apiPath === '/manifest.webmanifest' && (req.method === 'GET' || req.method === 'HEAD')) {
     fs.readFile(path.join(__dirname, 'web', 'manifest.webmanifest'), (err, buf) => {
       if (err) { sendJson(res, 404, { error: 'no manifest' }); return; }
