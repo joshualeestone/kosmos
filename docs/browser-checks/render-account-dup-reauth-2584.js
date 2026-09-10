@@ -119,6 +119,27 @@ const ACCOUNTS = [
       problems.push('both reauth controls answer to one accessible name: ' + JSON.stringify(names[0])
         + ' -- deferred finding 9: two defaults sharing an email both took qual="main"');
     }
+    /* 🔑 #2612: DISTINCT IS NOT ENOUGH; NEITHER MAY BE A FILESYSTEM PATH. The
+       assertion above passed while the second default's qualifier was its raw
+       `dir`, so a screen reader announced "Sign in again as agent@example.com
+       (/Users/x/.codex)". Distinctness and readability are separate properties
+       and only one of them was pinned.
+       ⚠️ Checked on the RENDERED aria-label rather than on the helper's return,
+       because that is the string a person actually hears, and the render path
+       interpolates it. */
+    for (let i = 0; i < names.length; i++) {
+      if (/[/\\]/.test(names[i])) {
+        problems.push('reauth control ' + i + ' announces a filesystem path: ' + JSON.stringify(names[i])
+          + ' -- #2612: a second default with no label fell through to its dir');
+      }
+    }
+    /* And the provider IS the qualifier for this pair, which is the fix #2612
+       asked for rather than merely the absence of a path. Seeded as one Claude
+       default and one OpenAI default, so the second one reads "(OpenAI)". */
+    if (!names.some((n) => /\(OpenAI\)$/.test(n))) {
+      problems.push('no reauth control is qualified by its provider; names=' + JSON.stringify(names)
+        + ' -- #2612 expects the second cross-provider default to read "(OpenAI)"');
+    }
   }
 
   console.log('  ' + JSON.stringify(r.names));
