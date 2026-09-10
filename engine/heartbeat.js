@@ -1,5 +1,13 @@
 'use strict';
-/* #1722: the product heartbeat's periodic sweep -- the check-and-notify half.
+/* #1722: the product heartbeat's periodic sweep -- the stall-detection half.
+ *
+ * 🛑 #2623: THE DELIVERY HALF IS GONE. This sweep used to hand its `toAsk` list to
+ * engine/notify.js (a `check_in` notify.happened per agent), but that phone-home
+ * seam was deleted (Josh, 2026-09-09, "invasion of privacy"). This module still
+ * computes who is in an open stall and carries the per-agent record across ticks;
+ * server.js no longer delivers the result anywhere off the Mac. A future in-app
+ * delivery channel is a separate build. Comments below that say "notify" describe
+ * the removed delivery, kept for the design record.
  *
  * DETECTION IS NOT REBUILT HERE. Every agent on the board already carries a
  * `state` classified by engine/status.js `classify()` (WORKING / IDLE / STOPPED

@@ -9,13 +9,12 @@
  * `kosmos reply` records into a thread; this is the record for STATE:
  * `kosmos report <state>` appends one line here and delivers nothing.
  *
- * 🔑 SIX WORDS, A CLOSED LIST, exactly like notify.js's KINDS: started,
- * working, idle, needs_you, blocked, stopped. Four are already the board's
- * words (status.js STATE) and needs_you is already the phone's word
- * (notify.js KINDS), so a report teaches the board and the phone the same
- * fact with no translation layer. An unknown word is a writer's typo and is
- * skipped with one line to stderr on read, notify.js's posture for the same
- * mistake.
+ * 🔑 SIX WORDS, A CLOSED LIST: started, working, idle, needs_you, blocked,
+ * stopped. Four are already the board's words (status.js STATE), so a report
+ * teaches the board the same fact with no translation layer. An unknown word is
+ * a writer's typo and is skipped with one line to stderr on read. (#2623: this
+ * used to be shared with engine/notify.js's KINDS, the phone-home seam; that
+ * module was deleted, so the board's STATE is now the only shared vocabulary.)
  *
  * ⚠️ THIS MODULE RECORDS AND READS; IT NEVER DECIDES STATE. What a fresh
  * report outranks, what a stale one decays to, and what the pane reader is
@@ -51,8 +50,7 @@ const DIR = path.join(store.ROOT, 'selfreports');
 const TAIL_BYTES = 64 * 1024;
 
 /* Field caps, so one runaway caller cannot turn the record into a dump.
-   `because` is a sentence, not a transcript: the words live on this Mac
-   (unlike notify.js's payload, which strips them before anything leaves),
+   `because` is a sentence, not a transcript: the words live on this Mac,
    but a report is still a claim about state, not a place to store output. */
 const CAPS = { because: 1000, on: 200, owner: 200, until: 100, project: 120, instance: 40 };
 
