@@ -354,7 +354,7 @@ if (require.main === module) main(process.argv.slice(2));
 /* ── the streaming supervisor (7c-1) ───────────────────────────────────────── */
 
 /* A stream sink that records nothing: the default, so only `main()` publishes. */
-const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {} };
+const NO_STREAM = { started() {}, event() {}, wrote() {}, stopped() {}, rekey() {} };
 
 /** How much of a dying agent's stderr rides on its `died` line. Enough for the
     one sentence that explains a crash; small enough that a chatty agent cannot
@@ -416,6 +416,8 @@ function superviseStreaming(spec, opts) {
      a real token store. */
   const retireRun = typeof o.retireRun === 'function' ? o.retireRun
     : (name, instance) => require('./win32create').retireRun(name, instance);
+  /* The ownership record, injectable so a test can make a record fail. */
+  const sessions = o.sessions || win32sessions;
 
   /* Where the agent's working/idle goes (7c-5). The default does nothing, so no
      suite that drives this loop writes state files; `main()` passes the real
@@ -427,6 +429,45 @@ function superviseStreaming(spec, opts) {
   let lastStart = 0;
   const handle = { sessionId: s.resumeSessionId || null };
 
+  /**
+   * Follow the session id when it changes under a running agent (#2669).
+   *
+   * 🛑 A `/clear` ROTATES A STREAMING SESSION'S ID: same pid, new `session_id`.
+   * Measured on the box, fresh and `--resume`d alike: `conversation_reset` still
+   * carries the old id, then a `system`/`init` carries the new one, then a
+   * `result`, all within a tenth of a second. Three
+   * holders of the old id must follow it, or the agent drops off the board:
+   * ownership (`win32sessions`, which `win32live` joins the live list through),
+   * the resume id (`handle.sessionId`, which a crash relaunch `--resume`s), and
+   * the 7c-5 state file (`stream.rekey`).
+   *
+   * Gated on `system`/`init` ONLY: it is the one event that opens every turn and
+   * carries the id. Hook events carry it too but depend on configuration, and a
+   * looser gate would fire this once per event.
+   *
+   * 🔑 RECORD THE NEW ID BEFORE FORGETTING THE OLD, so an interruption leaves the
+   * agent visible under two ids, never under none. The resume id moves only after
+   * the record succeeds, so a failed record never strands it on an unrecorded
+   * session.
+   */
+  function followSessionId(e) {
+    if (!e|| e.type !== 'system' || e.subtype !== 'init') return;
+    const id = e.session_id;
+    if (typeof id !== 'string' || !id || id === handle.sessionId) return;
+    const oldId = handle.sessionId;
+    let rec;
+    try { rec = sessions.record(id, { name: s.name, runner: s.runner }); }
+    catch (err) { rec = { ok: false, because: 'we could not record its new session (' + ((err && err.code) || 'unknown') + ')' }; }
+    if (!rec || !rec.ok) {
+      onEvent({ action: 'rekey-failed', sessionId: id, because: (rec && rec.because) || 'we could not record its new session' });
+      return;
+    }
+    handle.sessionId = id;
+    if (typeof stream.rekey === 'function') stream.rekey(id);
+    if (oldId) { try { sessions.forget(oldId); } catch { /* a leftover old row is harmless: win32live joins only live ids */ } }
+    onEvent({ action: 'rekeyed', sessionId: id, from: oldId });
+  }
+
   function attach(c, runInstance) {
     child = c;
     /* 🔑 THE EVENT STREAM IS READ, and that is what gives a Windows card its
@@ -436,7 +477,12 @@ function superviseStreaming(spec, opts) {
        a late line from a child already replaced says nothing about the new one. */
     const { lineReader, parseEvent } = require('./win32streamstate');
     if (c.stdout && typeof c.stdout.on === 'function') {
-      const feed = lineReader((line) => { if (child === c) stream.event(parseEvent(line)); });
+      const feed = lineReader((line) => {
+        if (child !== c) return;
+        const e = parseEvent(line);
+        followSessionId(e);   // before the state sink, so a rekey lands before the turn's events
+        stream.event(e);
+      });
       c.stdout.on('data', feed);
     }
     /* stderr is drained so it can never fill, and its tail is kept so a death can

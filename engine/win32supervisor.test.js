@@ -306,8 +306,67 @@ function streamSink() {
     event: (e) => calls.push(['event', e && e.type]),
     wrote: () => calls.push(['wrote']),
     stopped: () => calls.push(['stopped']),
+    rekey: (sid) => calls.push(['rekey', sid]),
   };
 }
+
+/* #2669: a /clear rotates the session id; the supervisor must follow it. */
+function clearingSupervisor(name, opts) {
+  const kids = [];
+  const events = [];
+  const sink = streamSink();
+  const oldId = require('node:crypto').randomUUID();
+  win32sessions.record(oldId, { name, runner: 'claude' });
+  const h = sup.superviseStreaming({ name, cwd: 'C:\w', runner: 'claude' }, Object.assign({
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    stream: sink,
+    onEvent: (e) => events.push(e),
+    launch: () => { const c = streamingChild(7000 + kids.length); kids.push(c); return { ok: true, sessionId: oldId, child: c }; },
+  }, opts));
+  const say = (i, obj) => kids[i].stdout.emit('data', Buffer.from(JSON.stringify(obj) + '\n'));
+  return { h, kids, events, sink, oldId, say };
+}
+
+test('#2669 an init with a NEW session id moves ownership, the resume id, and the state file', () => {
+  const t = clearingSupervisor('clr-1');
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  const rec = win32sessions.read();
+  assert.equal(rec[newId] && rec[newId].name, 'clr-1', 'the new id is recorded under the same name');
+  assert.equal(rec[t.oldId], undefined, 'and the old one is forgotten');
+  assert.equal(t.h.sessionId, newId, 'a crash relaunch now resumes the conversation AFTER the clear');
+  assert.ok(t.sink.calls.some((c) => c[0] === 'rekey' && c[1] === newId), 'the state file follows');
+  assert.ok(t.events.some((e) => e.action === 'rekeyed' && e.from === t.oldId && e.sessionId === newId));
+  t.h.stop();
+});
+
+test('#2669 the same id, a hook event carrying a new id, or a replaced child\'s line changes nothing', () => {
+  const t = clearingSupervisor('clr-2', { setTimer: (fn) => fn() });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: t.oldId });           // the normal first turn
+  t.say(0, { type: 'system', subtype: 'hook_started', session_id: newId });     // config-dependent: not the gate
+  assert.equal(t.h.sessionId, t.oldId);
+  assert.ok(!t.sink.calls.some((c) => c[0] === 'rekey'));
+  t.kids[0].die(1);                                                              // relaunch: kids[1] is current
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });             // a late line from the dead one
+  assert.equal(t.h.sessionId, t.oldId, 'a replaced child cannot move the id');
+  t.h.stop();
+});
+
+test('#2669 a record that FAILS leaves everything on the old id, and says so', () => {
+  const forgotten = [];
+  const t = clearingSupervisor('clr-3', {
+    sessions: { record: () => ({ ok: false, because: 'the store is busy' }), forget: (id) => forgotten.push(id), read: () => ({}) },
+  });
+  const newId = require('node:crypto').randomUUID();
+  t.say(0, { type: 'system', subtype: 'init', session_id: newId });
+  assert.equal(t.h.sessionId, t.oldId, 'the resume id is not stranded on an unrecorded session');
+  assert.deepEqual(forgotten, [], 'the old row is kept, so the agent stays visible');
+  assert.ok(!t.sink.calls.some((c) => c[0] === 'rekey'));
+  assert.ok(t.events.some((e) => e.action === 'rekey-failed' && /store is busy/.test(e.because)));
+  t.h.stop();
+});
 
 test('#570 7c-5 the supervisor publishes its agent: the start, every stream event, a flushed write, the death', () => {
   const kids = [];
