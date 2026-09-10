@@ -71,6 +71,26 @@ a self-exclusion pass in a function whose comments already warn about its fragil
 that matters (distinct, audibly distinct qualifiers) holds either way; which row gets the prettier
 one is cosmetic in a case the card itself says does not reproduce on Josh's machine.
 
+## The reserved word `main` is compared case-insensitively too, and that was a live collision
+
+**A label can be a case-variant of `main`, and my first version did not catch it.** `list()` READS
+a label straight off the directory basename with no normalisation (`engine/accounts.js:264`,
+`engine/openaiaccounts.js:166`); only the CREATE path lowercases (`dirForLabel`, `cleanLabel`). So
+a `.claude-Main` directory, makeable by hand or restored from a backup, yields the label "Main".
+
+⚠️ **Reproduced before fixing.** With the row holding `main` in a DIFFERENT key-group (so the
+reserved word is not yet taken in this one), the group came out `["Main","main"]`: two distinct
+strings, ONE sound. After the fix, `["Claude","main"]`.
+
+🛑 **THE SHAPE MATTERS AND MY FIRST PROBE HAD IT WRONG.** With the default in the SAME group there
+is no collision, because the case-insensitive label lookup catches it. A careless fixture shows
+nothing, which is why the shape is written into the arm.
+
+📌 **And the comment that used to sit beside those comparisons was itself the defect it warned
+about.** It said "nothing can put a case-variant of `main` into `used`, since labels are
+lowercase", which is true only of labels this app creates. That is the fourth claim on this
+branch I made about another file and got wrong.
+
 ## Two things this makes slightly worse, recorded rather than hidden
 
 - **Inside a SINGLE-provider group the qualifier repeats the group head.** Two OpenAI accounts on

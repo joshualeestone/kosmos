@@ -752,6 +752,35 @@ test('#1659: the repaint path CANCELS the pending announcement, all writers', ()
     + JSON.stringify(body.slice(Math.max(0, (unguarded[0] || {}).index - 90), ((unguarded[0] || {}).index || 0) + 40)));
 });
 
+/* 🛑 A CASE-VARIANT OF THE RESERVED WORD, WHICH IS REACHABLE AND WAS A LIVE
+   COLLISION. `list()` READS a label straight off the directory basename with no
+   normalisation (engine/accounts.js:264, engine/openaiaccounts.js:166); only the
+   CREATE path lowercases (`dirForLabel`, `cleanLabel`). So `.claude-Main` yields
+   the label "Main", which is trivially makeable by hand, restored from a backup,
+   or synced from another machine.
+
+   ⚠️ THE SHAPE IS LOAD-BEARING AND MY FIRST PROBE HAD IT WRONG. The reserved
+   word must NOT already be taken in this key-group, so the row holding `main`
+   belongs to a DIFFERENT email. With the default in the same group there is no
+   collision (the case-insensitive label lookup catches it), which is why a
+   careless fixture shows nothing. Measured before the fix: `["Main","main"]`,
+   two distinct strings and ONE sound. After: `["Claude","main"]`.
+
+   📌 It also proves the comment that used to sit beside the `main` comparisons
+   was wrong: it said "nothing can put a case-variant of `main` into `used`,
+   since labels are lowercase", which is true only of labels this app creates. */
+test('#2612: a case-variant of the reserved word cannot sound like it', () => {
+  const otherPerson = { provider: 'anthropic', email: 'someone@else.com', dir: '/Users/x/.claude', label: null, isDefault: true };
+  const namedMain = { provider: 'anthropic', email: 'agent@example.com', dir: '/Users/x/.claude-Main', label: 'Main', isDefault: false };
+  const openaiDefault = { provider: 'openai', authMode: 'chatgpt', email: 'agent@example.com', dir: '/Users/x/.codex', label: null, isDefault: true };
+  const q = qualifiers([otherPerson, namedMain, openaiDefault]);
+  const vals = [namedMain, openaiDefault].map((r) => q.get(r.dir));
+  const heard = new Set(vals.map((v) => String(v).toLowerCase()));
+  assert.equal(heard.size, vals.length,
+    'two qualifiers differ only by CASE of the reserved word, so two controls answer to one '
+    + 'spoken name: ' + JSON.stringify(vals));
+});
+
 /* 🛑 A ROW WHOSE LABEL IS LITERALLY `main`, WITH THE `provider` FIELD PRODUCTION
    ACTUALLY EMITS. `dirForLabel` has no reserved-word guard, so `~/.claude-main`
    is creatable, and beside `~/.claude` on one email that row reaches the LABEL
