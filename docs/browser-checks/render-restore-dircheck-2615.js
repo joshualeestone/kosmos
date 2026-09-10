@@ -206,6 +206,27 @@ const AGENTS = [
         out.reverseKept = explained.length > 0
           && /account folder/i.test(out.afterReverse)   // A's explanation survived
           && /Starting/.test(out.afterReverse);         // and B's status is there too
+
+        /* 🛑 AND IT MUST NOT RE-ASSERT A SENTENCE THAT STOPPED BEING TRUE. The
+           re-assertion above is the fix for a clobbered message; unguarded it
+           becomes a mechanism for REPRINTING STALE ONES. Measured before the
+           guard: press the unavailable Restore, let the account folder come
+           back, restore that SAME agent, and the region said, of one agent, in
+           one breath: "Starting Gone Account again. ... Gone Account cannot be
+           restored yet: the account folder this agent ran on is gone."
+           ⭐ A held sentence is a claim with a timestamp; re-asserting it is
+           making the claim again NOW.
+           Seeded by re-rendering with the blocked row turned LIVE, which is
+           exactly what the five-second poll does once the folder is back. */
+        agents[0].accountFolderGone = false;
+        REMOVED_HTML = null;
+        await paintRemoved();
+        msgEl.textContent = '';
+        const revived = document.querySelector('#removed-list [data-restore]:not([disabled])');
+        if (revived) { revived.click(); await new Promise((r2) => setTimeout(r2, 150)); }
+        out.afterRevived = (msgEl.textContent || '').trim();
+        out.staleReasserted = /cannot be restored yet/i.test(out.afterRevived);
+        agents[0].accountFolderGone = true;   // leave the fixture as found
       }
     }
     return out;
@@ -276,6 +297,11 @@ const AGENTS = [
     if (!r.gone.onScreen) {
       problems.push('the unavailable Restore is not actually on screen, so every arm about it is '
         + 'describing a page state nobody sees');
+    }
+    if (r.staleReasserted === true) {
+      problems.push('a no-longer-blocked row had its old explanation re-asserted: '
+        + JSON.stringify(r.afterRevived) + ' -- the same agent is told it is starting AND that it '
+        + 'cannot be restored, in one breath');
     }
     if (r.reverseKept === false) {
       problems.push('starting a live restore destroyed a blocked row\'s standing explanation: '
