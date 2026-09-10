@@ -1113,10 +1113,28 @@ cmd_room() {
   local esc_project
   esc_project=$(printf '%s' "$project" | sed "s/[^A-Za-z0-9._-]//g")
   local _bt; _bt="$(board_token || true)"   # #1946: board token for an enforcing board; inert (omitted) when empty
-  if ! kosmos_curl "$_bt" "" -sS -m 15 "$URL/api/project/$esc_project/room?as=text" 2>/dev/null; then
+  # #2702: capture the HTTP status so an UNKNOWN project (404, "there is no
+  # project by that name") prints its sentence AND exits non-zero -- parity with
+  # cmd_post/cmd_react, which reject a bad id with exit 1. Before this, curl
+  # without -f returned 0 on a 404, so `room` alone reported a typo as an empty
+  # room. curl still prints the 404 body, so the sentence reaches the reader; a
+  # transport failure (curl rc != 0) stays the "could not reach" arm below.
+  # bash-3.2 under set -euo pipefail: capture rc via `|| _rc=$?`, never a bare
+  # `_body=$(...)` (a failing substitution aborts the process at that line), the
+  # same care cmd_post takes.
+  local _body _rc=0 _code
+  _body=$(kosmos_curl "$_bt" "" -sS -m 15 -w $'\n%{http_code}' "$URL/api/project/$esc_project/room?as=text" 2>/dev/null) || _rc=$?
+  if [ "$_rc" -ne 0 ]; then
     say "We could not reach Kosmos to read that room. Is it running at $URL?"
     exit 1
   fi
+  # -w appended "\n<http_code>" as the final line: split it off the body tail.
+  _code="${_body##*$'\n'}"
+  _body="${_body%$'\n'*}"
+  printf '%s\n' "$_body"
+  case "$_code" in
+    4??|5??) exit 1 ;;
+  esac
 }
 
 # ⭐ ONE-TIME ADOPTION (#570). Josh ruled it 2026-08-27: mint once for agents

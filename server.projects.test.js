@@ -2718,6 +2718,42 @@ test('the room serves a plain-text tail for `kosmos room`, and says so when it c
   });
 });
 
+test('#2702: the room rejects an UNKNOWN project id (404) but still serves a real empty project (200)', async () => {
+  /* Before this, `room` rendered ANY id as an empty room, so a typo or a
+     hyphenated-name guess was indistinguishable from silence -- while `post`
+     and `react` rejected the same id. The check is EXISTENCE, not post-count,
+     so BOTH arms below are load-bearing: a fix that 404s every empty room would
+     pass the unknown-id arm and fail the real-empty arm. */
+  reset();
+  // A UNIQUE agent name so `project.id` is a fresh, genuinely-empty room: reset()
+  // clears the chats dir but not the message store, so reusing a name another
+  // test posted to (e.g. 'zeta') would carry that post into the empty-room arm.
+  await withThread(fleet.agent('room2702empty', { state: 'idle' }), [], async ({ project }) => {
+    // Unknown id, as=text (the CLI arm): 404 with the sibling sentence in a
+    // text/plain body (bash has no JSON parser; the 404 lets cmd_room exit 1).
+    const unknownText = await req('/api/project/no-such-project-2702/room?as=text');
+    assert.equal(unknownText.status, 404, 'an unknown project id was not rejected (as=text)');
+    assert.match(unknownText.type, /text\/plain/);
+    assert.match(unknownText.body, /there is no project by that name/);
+    assert.doesNotMatch(unknownText.body, /Nothing has been said/,
+      'an unknown project still read as an empty room');
+    // Unknown id, JSON arm: 404 with the same error, matching the sibling routes.
+    const unknownJson = await req('/api/project/no-such-project-2702/room');
+    assert.equal(unknownJson.status, 404, 'an unknown project id was not rejected (JSON)');
+    assert.match(JSON.parse(unknownJson.body).error, /there is no project by that name/);
+
+    // A REAL project with zero posts is NOT a 404 -- it is a normal empty room.
+    // This is the control that keeps the existence check from collapsing into a
+    // has-any-posts check.
+    const realEmpty = await req(`/api/project/${project.id}/room?as=text`);
+    assert.equal(realEmpty.status, 200, 'a real but empty project was wrongly rejected');
+    assert.match(realEmpty.body, /Nothing has been said in this room yet\./);
+    const realEmptyJson = await req(`/api/project/${project.id}/room`);
+    assert.equal(realEmptyJson.status, 200, 'a real but empty project was wrongly rejected (JSON)');
+    assert.equal(JSON.parse(realEmptyJson.body).ok, true);
+  });
+});
+
 test('#2239: a multi-paragraph post stays ONE line per row in the text view, though the store keeps its breaks', async () => {
   /* The store now persists paragraph breaks (storeText) so the HTML room can
      render them; the `kosmos room` text arm's contract is still one line per

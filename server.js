@@ -9905,6 +9905,32 @@ const server = http.createServer((req, res) => {
   if (roomThread && (req.method === 'GET' || req.method === 'HEAD')) {
     const id = decodeSegment(roomThread[1]);
     if (id === null) { sendJson(res, 400, { error: 'that is not a name we can read' }); return; }
+    /* #2702: reject an UNKNOWN project the way /api/post and /api/react already
+       do, instead of rendering it as an empty room -- a typo or a hyphenated-name
+       guess otherwise reads identically to genuine silence, and the agent acts on
+       "nobody said anything." The check is EXISTENCE, never post-count: a real
+       project with zero posts still returns the normal empty room below.
+       ⚠️ readAll(), not projects.get(): get() routes through describe(), which
+       heals everSeen and can writeAll() -- a write side-effect on a room READ
+       would be a real defect. readAll() is the pure registry read get() itself
+       uses. FAILS OPEN: a transient registry-read throw must not become a false
+       "no such project," so on a throw we fall through to the best-effort room
+       read below (which already handles an unreadable store), never to a 404. */
+    let projectKnown = true;
+    try { projectKnown = projects.readAll().some((p) => p && p.id === id); } catch { projectKnown = true; }
+    if (!projectKnown) {
+      let asTextReject = false;
+      try { asTextReject = new URL(req.url, ROUTING_BASE).searchParams.get('as') === 'text'; } catch { asTextReject = false; }
+      if (asTextReject) {
+        /* The CLI (bash 3.2, no JSON parser) prints this body verbatim; the 404
+           status lets cmd_room exit non-zero for parity with post/react. */
+        res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('there is no project by that name\n');
+      } else {
+        sendJson(res, 404, { error: 'there is no project by that name' });
+      }
+      return;
+    }
     try {
       const rec = messages.record();
       const rows = rec.rows
