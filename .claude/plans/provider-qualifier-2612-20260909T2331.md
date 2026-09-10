@@ -28,12 +28,22 @@ label  ->  provider ("OpenAI" / "Claude")  ->  dir
 
 🛑 **THE SCOPING IS PART OF THE FIX, NOT A REFINEMENT, AND I MISSED IT AT FIRST.**
 `accountQualifiers` has **three** call sites, and my first version reasoned about one of them.
-Settings groups by provider and shows a head; `fillCreateAccounts` and the switch-account menu
-filter to a SINGLE provider and show no head, so "(OpenAI)" there says nothing the surrounding
-list does not already say, while REPLACING a path that at least identified the row. That is the
-#1917 shape ("a real tester could not tell which to pick") which the picker call site exists to
-prevent. So the provider name is offered only when the group genuinely holds more than one
-provider: informative by construction rather than by which screen happens to be calling.
+
+⚠️ **THE JUSTIFICATION THAT SAT HERE WAS THE ONE THE CODE LATER RETRACTED, AND IT SURVIVED
+BECAUSE IT IS THE FIRST THING A RAMP-UP READER HITS.** It argued head-vs-no-head: Settings shows
+a group head, the two pickers do not, so "(OpenAI)" says nothing there. **That reasoning is
+backwards and is not what the code tests.** A screen reader announces a control's OWN name and
+never re-reads a group head, so a head can never remove the need for a qualifier; what a head
+affects is *visible* redundancy, which points the OPPOSITE way from the rule. The corrected
+version is at `web/index.html` and again at the foot of this plan; this paragraph is the copy
+that went stale, and it is fixed rather than deleted so the retraction is visible.
+
+✅ **THE ACTUAL RULE:** the provider name is offered only where **the key-group genuinely holds
+more than one provider**, because a provider name cannot separate rows that all share one
+provider. In a single-provider group "(OpenAI)" is the same word on every row and would REPLACE
+`dir`, which is unique per row and does distinguish. That is the #1917 shape ("a real tester
+could not tell which to pick"). It is a property of the GROUP, not of the caller, which is why
+the three call sites get the right answer by construction rather than by being kept in step.
 
 ## Decisions, and what was rejected
 
