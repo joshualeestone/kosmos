@@ -38214,13 +38214,12 @@ document.getElementById('pj-create').addEventListener('click', async () => {
       pjFieldBad('pj-add-desc', 'pj-add-desc-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else if (err && err.message && /name/i.test(err.message)) {
-      // #2606: a name-RULE refusal lands at the name field -- "give this project a name"
-      // (empty), "that name is longer than a project name should be", "there are too many
-      // projects with that name": each contains "name", so /name/i matches. Checked AFTER
-      // description so a message mentioning both still routes to description. NOTE a folder
-      // collision ("that folder is already the project X", the advanced-picker path) does
-      // NOT contain "name" and so falls through to the generic below-button message -- the
-      // same graceful fallback the by-design parent refusal takes.
+      // #2606: route a server refusal that mentions the name to the name field. Checked
+      // AFTER the description branch so a message mentioning both still routes to
+      // description, and anything the regex does not match falls through to the generic
+      // below-button message. Which exact server messages match is decided by /name/i
+      // against the live projects.js text, not enumerated here -- an enumeration in a
+      // comment goes stale (an earlier version of it was wrong about folder collisions).
       pjFieldBad('pj-name', 'pj-name-err', pjSentence(err.message) || String(err.message));
       msg.textContent = 'Nothing added. There is something to fix above.';
     } else {

@@ -1,4 +1,4 @@
-# kosmos#2606 — Create Agent / Create Project: inline, field-level validation errors
+# kosmos#2606 - Create Agent / Create Project: inline, field-level validation errors
 
 ## The defect (Josh's product review, 2026-09-09, on 0.6.50)
 On the Create an Agent page, form-validation errors are not surfaced inline. When submit
@@ -11,13 +11,13 @@ Project.
 
 ## Approach
 Put the reason AT the field, reusing the existing shared helper `pjFieldBad`/`pjFieldOk`
-(web/index.html) that #1303 G already established for the project description field — red
+(web/index.html) that #1303 G already established for the project description field - red
 border + message beside the field + focus/scroll. The helper is form-neutral in behaviour;
 its `pj` name is kept only because a test lifts it by name and the project forms call it.
 
 ### Engine (engine/create.js)
 - The name refusal now carries `field: 'name'` so the page can route it to the name field.
-  The refusal SENTENCE stays the server's — the form deliberately keeps NO client-side copy
+  The refusal SENTENCE stays the server's - the form deliberately keeps NO client-side copy
   of the name rule (documented at the form, #2605 owns the rule), so this only says WHERE the
   message goes, not what it says.
 
@@ -27,7 +27,7 @@ its `pj` name is kept only because a test lifts it by name and the project forms
 - Submit handler: a server refusal tagged `result.field === 'name'` routes to the name field
   via `pjFieldBad`; the empty-Role client gate flags the Role field instead of writing below
   the button + hand-rolling focus. Untagged refusals stay in the below-button `#create-msg`
-  (e.g. account/model/OpenAI-runner — not about one field).
+  (e.g. account/model/OpenAI-runner - not about one field).
 - Field errors cleared at submit start, on form open (`openCreate`), and on input (so the red
   border tracks the fix).
 
@@ -47,7 +47,7 @@ its `pj` name is kept only because a test lifts it by name and the project forms
 ## Scope decision: on-blur
 The card asks for "on submit (and ideally on blur)". Submit is delivered. On-blur validation
 of the NAME char-rule is deliberately NOT added: the rule is server-owned (no client-side
-copy), so a blur check would have to duplicate it — against the form's stated design. Instead,
+copy), so a blur check would have to duplicate it - against the form's stated design. Instead,
 clear-on-input gives live feedback (the red border clears as the user fixes the field), and
 submit surfaces the server's reason at the field. A focus-stealing blur variant was rejected
 as worse UX (pjFieldBad focuses, which is right for submit where the field may be off screen,
@@ -70,4 +70,4 @@ required fields is a possible small follow-up if wanted.
   with a slot; already client-gated).
 - The project parent refusal stays below-button (no `pj-add-parent-err` element by design,
   #2458).
-- The prod alias / channel machinery — unrelated.
+- The prod alias / channel machinery - unrelated.

@@ -104,3 +104,28 @@ test('reopening either form and typing clears a stale field flag', () => {
   const inp = region("document.getElementById('pj-name').addEventListener('input'");
   assert.match(inp, /pjFieldOk\('pj-name', 'pj-name-err'\)/, 'typing the name does not clear its flag');
 });
+
+test('every name-collision refusal is tagged field: name, not just the char-rule one (#2606)', () => {
+  // The reported case (the nameProblem char/length/format rule) is not the only NAME
+  // refusal. A name COLLISION -- already an agent, on the removed list, a folder or job
+  // left behind, already running, or could-not-check -- is equally a name refusal and must
+  // reach the name field, not the below-button slot #2606 is moving away from. Each such
+  // `because` must carry field: 'name' before its return closes (`steps,`).
+  const collisions = [
+    'is on your removed list',
+    'there is already an agent called',
+    'is still set to start on this computer',
+    'there is already a folder for an agent called',
+    'we could not check which agents are already running',
+    'is already running on this computer',
+  ];
+  for (const frag of collisions) {
+    const at = CREATE.indexOf(frag);
+    assert.notEqual(at, -1, `the collision refusal "${frag}" is gone from create.js`);
+    const end = CREATE.indexOf('steps,', at);
+    assert.ok(end > at, `no return-closing steps, after "${frag}"`);
+    const block = CREATE.slice(at, end);
+    assert.match(block, /field: 'name'/,
+      `the collision refusal "${frag}" is not tagged field: 'name', so it lands below the button`);
+  }
+});
