@@ -287,7 +287,15 @@ function isRemoved(name) {
  */
 function restoreBlockedByMissingAccountDir(name, platform) {
   const clean = create.cleanName(name);
-  const launched = (platform || process.platform) === 'win32' ? null : create.readJob(clean);
+  /* #2614: win32 no longer opts out. A win32 agent has no plist for
+     `create.readJob` to read, but its configDir rides the Scheduled Task argv, so
+     `win32job.configDirFor` reads it back into the same `{ configDir }` shape the
+     Mac side produces, and the one check below runs on both platforms. A task we
+     could not read (`known: false`) yields no configDir, so the guard skips rather
+     than guessing -- the same fail-open posture as a missing plist. */
+  const launched = (platform || process.platform) === 'win32'
+    ? win32job.configDirFor(clean)
+    : create.readJob(clean);
   if (launched && launched.configDir && !fs.existsSync(launched.configDir)) return launched.configDir;
   return null;
 }

@@ -448,8 +448,81 @@ function status(name) {
   return p.registered ? { registered: true, enabled: p.enabled } : { registered: false };
 }
 
+/* The reverse of xmlEscape. `&amp;` is undone LAST: xmlEscape escapes `&` FIRST,
+   so a literal `&lt;` in a path was written `&amp;lt;`, and undoing `&amp;` before
+   `&lt;` would wrongly collapse it to `<`. Undo the named entities first, the
+   ampersand last, and the round-trip is exact. */
+function xmlUnescape(v) {
+  return String(v)
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"').replace(/&apos;/g, '\'')
+    .replace(/&amp;/g, '&');
+}
+
+/**
+ * The account directory a registered agent's task carries (#2614) -- the win32
+ * analogue of the launchd plist's CLAUDE_CONFIG_DIR that `create.readJob` reads
+ * on a Mac. A win32 agent has no plist; its configDir rides the Scheduled Task
+ * argv (position 4, `taskExec`), so restore-refuse (#2609/remove.js) had nothing
+ * to read on Windows and skipped the check, leaving a win32 agent restorable into
+ * the #1659 blank-agent state.
+ *
+ * Read it back from the task's own definition: `/Query /XML` returns the XML
+ * `taskXml` wrote, so unescape the `<Arguments>` element and split its quoted
+ * tokens (every token is quoted, and a Windows path cannot contain `"`). Those
+ * tokens ARE node's `process.argv`: `taskXml` wraps the command as a headless
+ * conhost, so the argument line is `--headless "<node>" "<supervisor>"
+ * "<name>" "<cwd>" ...`, and `tokens.slice(2)` reconstructs exactly the
+ * `process.argv.slice(2)` that `win32supervisor.main` itself consumes. Hand that
+ * to the ONE canonical parser (`win32supervisor.specFromArgv`) rather than
+ * re-deriving the positions here -- a second derivation of the same fact is the
+ * defect this lane is warned against, and slicing at 2 stays correct as the argv
+ * grows append-only (a new trailing field cannot move `configDir` off index 3).
+ * `specFromArgv` maps `'-'`/empty to undefined (a default-account agent), which we
+ * surface as null: no configDir to check, exactly as the Mac side leaves
+ * `configDir: null` untouched.
+ *
+ * ⚠️ SELF-CHECK ON THE NAME. The 2-token wrapper prefix (node + supervisor) is an
+ * assumption about the current headless shape, not an invariant like the argv's
+ * append-only order. If a future wrapper prepends a different number of tokens,
+ * `slice(2)` would land mid-argv and hand back some other field as the configDir
+ * -- a silent wrong directory that would falsely block or falsely allow a restore.
+ * So we require the reconstructed `spec.name` to equal the name we queried by
+ * (`taskExec` writes it at argv[0]); a mismatch means the line is not the shape we
+ * understand, and admitting `known: false` is far safer than guessing a configDir
+ * from a misparsed line. A pre-headless task (one wrapper token) fails this check
+ * and simply does not get the guard, which is no worse than before this change.
+ *
+ * Shape mirrors `presence`: `{ known: false }` when schtasks would not answer, or
+ * the line is not the shape we understand (an unreadable task must never read as
+ * "no account dir set" and silently drop the guard); `{ known: true, configDir }`
+ * otherwise, with configDir null when the task carries none. `specFromArgv` is
+ * required lazily so win32job does not pull the supervisor's whole module tree at
+ * load time.
+ */
+function configDirFor(name) {
+  const r = run(['/Query', '/TN', taskName(name), '/XML']);
+  if (!r.ok) {
+    if (NO_SUCH_TASK.test(r.out || '')) return { known: true, configDir: null };
+    return { known: false, because: (r.out || '').trim().split('\n')[0] || 'schtasks would not answer' };
+  }
+  const m = /<Arguments>([\s\S]*?)<\/Arguments>/.exec(r.out || '');
+  if (!m) return { known: true, configDir: null };
+  const argStr = xmlUnescape(m[1]);
+  const tokens = [];
+  const re = /"([^"]*)"/g;
+  let t;
+  while ((t = re.exec(argStr)) !== null) tokens.push(t[1]);
+  const { specFromArgv } = require('./win32supervisor');
+  const spec = specFromArgv(tokens.slice(2));
+  if (spec.name !== name) {
+    return { known: false, because: 'the task argument line is not the shape we can read a configDir from' };
+  }
+  return { known: true, configDir: spec.configDir || null };
+}
+
 module.exports = {
-  TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, headlessExec,
-  install, disable, enable, end, start, remove, status, presence, list,
+  TASK_PREFIX, taskName, taskExec, taskXml, taskUser, xmlEscape, xmlUnescape, headlessExec,
+  install, disable, enable, end, start, remove, status, presence, list, configDirFor,
   setRunner, setAnchorer,
 };
