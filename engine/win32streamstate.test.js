@@ -259,7 +259,12 @@ test('#570 headless: a new supervisor whose launch failed does not erase the old
   const newOne = ss.publisher('failspawn');
   oldOne.started(333, 'sid-old');
   newOne.started(undefined, 'sid-new');       // the new launch never spawned
-  assert.equal(ss.stateFor('failspawn', { sessionId: 'sid-old', pid: 333 }), 'idle', 'the old file survives');
+  assert.equal(ss.stateFor('failspawn', { sessionId: 'sid-old', pid: 333 }), 'idle', 'the old file survives the start');
+  /* Review round 3: on Windows a spawn that fails does not throw; its child
+     reports 'error' a moment later, and the supervisor's death handler then calls
+     stopped(). That is the sequence that erased the old file. */
+  newOne.stopped();
+  assert.equal(ss.stateFor('failspawn', { sessionId: 'sid-old', pid: 333 }), 'idle', 'and the stop that follows');
   oldOne.stopped();
 });
 

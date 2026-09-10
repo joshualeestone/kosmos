@@ -135,9 +135,11 @@ function writeState(name, record) {
    UNKNOWN until its next message (measured on the box). */
 function clearState(name, ownerPid) {
   const at = statePath(name);
-  if (!Number.isInteger(ownerPid)) {
-    try { fs.rmSync(at, { force: true }); return true; } catch { return false; }
-  }
+  /* No owner means nothing proves the file is ours, so it is left alone. Nothing
+     deletes a state file by NAME: during a headless overlap that name can hold a
+     still-running supervisor's valid state (review round 3 reproduced exactly
+     that through a launch that never spawned). */
+  if (!Number.isInteger(ownerPid)) return true;
   /* 🔑 CLAIM, THEN DECIDE -- never read-then-delete. A plain read followed by a
      delete-by-path could remove a file the new supervisor wrote in between (found
      in review round 2). Renaming is atomic: once the file is ours under a private
@@ -154,7 +156,16 @@ function clearState(name, ownerPid) {
   /* Not ours, or unreadable: a doubt never deletes. Put it back -- unless a newer
      file has landed at the real name meanwhile, which then wins (a hard link does
      not replace an existing name). */
-  try { fs.linkSync(claim, at); } catch { /* the newer file stays */ }
+  try { fs.linkSync(claim, at); }
+  catch (e) {
+    if (!(e && e.code === 'EEXIST')) {
+      /* The put-back itself failed (a volume without hard links, say). The claim
+         is now the only copy of a file that is not ours, so it is KEPT, and the
+         caller hears that the clear did not go cleanly. */
+      return false;
+    }
+    /* EEXIST: a newer file landed at the real name meanwhile, and it wins. */
+  }
   try { fs.rmSync(claim, { force: true }); } catch { /* a private leftover; harmless */ }
   return true;
 }
@@ -253,8 +264,10 @@ function publisher(name, opts) {
       current = null;
       written = null;
       retrying = false;
-      /* Only this process's own file: a newer supervisor may already own it. */
-      clear(was ? was.pid : undefined);
+      /* Only this process's own file: a newer supervisor may already own it. A
+         run that never had a process (a launch that did not spawn) has no file of
+         its own, so it clears nothing. */
+      if (was) clear(was.pid);
     },
   };
 }
