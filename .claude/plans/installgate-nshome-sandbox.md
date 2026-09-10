@@ -52,11 +52,18 @@ on any box.
 
 ## Verification
 
-- Failure reproduced on mortals: the re-cut's step-4b log shows the exact FAIL with
-  `launcher.log: No such file or directory`, while a real Kosmos.app was running.
-- Fix run on mortals (the box that fails) against a freshly built ad-hoc bundle: the three
-  launcher arms pass. [to be filled from the on-box gate run]
-- Clean-box green preserved (fix is a no-op with no instance up).
+- Failure reproduced on mortals: the re-cut's step-4b log shows the exact FAIL
+  (`launcher passes its own account and starts the board`) with `launcher.log: No such file
+  or directory`, while a real `/Applications/Kosmos.app` was running (pid 90171).
+- Fix run on mortals (the box that fails) against a freshly built bundle: all five launcher-arm
+  checks now PASS -- `launcher passes its own account and starts the board`, `the launcher's
+  baked port travels with it`, `launcher refuses a different account`, `an account with its own
+  Kosmos gets that one started`, and `this icon's launcher log did not grow`. (The same run
+  surfaced a separate, unrelated #931 uninstall failure fixed on branch
+  `uninstall-dataroot-leaf-2439`.)
+- Clean-box green preserved (fix is a no-op with no instance up): with no other instance,
+  `shouldDeferToExistingInstance` returns false with or without the flag, so the clean-box arms
+  take the identical path they did before.
 
 ## Files
 
