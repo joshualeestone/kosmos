@@ -79,6 +79,12 @@
      definition, not just the defence its source happened to carry. The
      fallbacks stay at the usage sites anyway, verbatim from the pack. */
   --k-sunk: rgba(20,22,26,.05);
+  /* #2660: the wash behind the PERSON'S OWN messages (royal blue #4171E3 =
+     rgb 65,113,227). One token, defined per theme like --k-sunk beside it, so
+     the two selectors that use it (.dm.mine .dm-b, .pj-msg) stay a single
+     source and a future opacity change is one edit per theme, not four scattered
+     rules. Josh's pick 2026-09-10: 10% light, 15% dark. */
+  --usermsg-tint: rgba(65,113,227,.10);
   /* #980: the consolidated view's flat side tones, the mock's own values
      (installkosmos.com/consolidated-mock line 12-14): rails and the right
      column's ground sit a shade behind the conversation, the settings
@@ -291,6 +297,8 @@
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
+    --usermsg-tint: rgba(65,113,227,.15);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -4206,8 +4214,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    stops exercising it. */
 /* #2255: emoji reactions under a room post. Discord-shaped: small toggle pills
    with a count, a "+" opener, and a quick palette the opener reveals. Colours
-   ride the theme tokens, so they flip light/dark. `.mine` is the gold accent the
-   rest of "you" uses, so a person sees their own reactions at a glance. */
+   ride the theme tokens, so they flip light/dark. `.rxn.mine` marks your OWN
+   reaction in gold so you see it at a glance.
+   ⚠️ #2660: this gold is no longer a shared "you" colour. The person's own
+   MESSAGE bubble now uses the royal-blue `--usermsg-tint`, not gold (Josh scoped
+   the blue to message backgrounds, not reactions), so the reaction pill keeps
+   gold on purpose and the two surfaces deliberately differ. */
 .rxns { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 6px; }
 .rxn { display: inline-flex; align-items: center; gap: 4px; padding: 1px 8px; border-radius: 100px;
        border: 1px solid var(--k-rule); background: var(--k-surface); color: var(--k-ink);
@@ -4322,7 +4334,14 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .attach-chip-x:focus-visible { outline: 2px solid var(--k-ink); outline-offset: 2px; }
 .thread.dragging, #d-dmthread.dragging { outline: 2px dashed var(--gold-deep); outline-offset: -2px; background: rgba(214,166,46,.06); }
 .dm-b { max-width: 92%; padding: 9px 13px; border-radius: 12px; font-size: .9375rem;
-  line-height: 1.45; background: var(--k-sunk, rgba(20,22,26,.05));
+  line-height: 1.45;
+  /* #2660 (Josh, 2026-09-10): the agent side carries NO fill -- only the
+     person's OWN message is coloured (`.dm.mine` below). Josh wants his own
+     inputs to be the only thing tinted, so he can slide back to where he last
+     plugged something in and catch up. This drops the old `--k-sunk` agent
+     tint deliberately; the agent row is now plain text, distinguished by the
+     absence of the person's blue rather than by a tint of its own. */
+  background: transparent;
   /* #1927: the store keeps paragraph breaks now, so render them. `pre-wrap`
      shows the stored `\n`; `storeText` already collapsed space RUNS, so this
      does not resurrect ragged whitespace. Both surfaces that draw a message
@@ -4330,7 +4349,16 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
      one class, so this covers both. `overflow-wrap: anywhere` still breaks a
      long unbroken token. */
   white-space: pre-wrap; overflow-wrap: anywhere; }
-.dm.mine .dm-b { background: rgba(214,166,46,.14); }
+/* #2660 (Josh, 2026-09-10): the person's OWN message wears a faint ROYAL BLUE
+   (#4171E3), replacing the old gold. Fill only, NO stroke, so a message you
+   posted reads apart from the plain agent rows -- the agent side renders as
+   `.dm.theirs` (dmRow, since #175) and takes the `.dm-b` default, which is now
+   `transparent`, so only `.mine` carries a fill. The colour is the
+   `--usermsg-tint` token, defined per theme beside --k-sunk (10% light, 15%
+   dark), so this ONE rule covers both themes and both surfaces that emit a
+   `dm mine` bubble -- the to-agent DM view (dmRow) and the project room. Its
+   project-room sibling `.pj-msg` uses the same token below. */
+.dm.mine .dm-b { background: var(--usermsg-tint); }
 /* #2067 / #2239: restricted-markdown treatments, on the three agent-dialogue
    surfaces that render them -- the talk thread (.dm-b) and the project message
    list (.pj-msg-text), both via pjRich; and the project ROOM activity thread
@@ -4360,9 +4388,12 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    controls "dissolved into their own containers with only a 0.5px border"
    because they took the surface colour on a surface. I read the note and
    repeated the mistake in the same file.
-   ✅ `.dm-b`'s default is `--k-sunk`, a real tint, and `.mine` overrides it
-   with the amber one. So the two sides were already distinguished and the
-   honest change was no change. */
+   ✅ The two sides ARE distinguished, now by presence rather than by two
+   tints: as of #2660 the `.dm-b` default is `transparent` (the plain agent
+   row) and `.mine` is the only one that carries a fill (the royal-blue wash).
+   The historical amber `.mine` / `--k-sunk` default this note first described
+   is gone; adding a visible `.theirs` bubble is still the wrong move, for the
+   dissolve reason above. */
 .dm-w { font-size: .75rem; color: var(--k-ink-2); }
 /* ⚠️ THE META LINE FOLLOWS ITS BUBBLE. `.dm.mine` is `align-items: flex-end`,
    which right-aligns the SPAN while it is narrower than the row -- and a
@@ -4656,6 +4687,10 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .composerhint b { font-family: var(--font-mono); font-weight: 700; color: var(--k-ink); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .msg-av { background: rgba(245,245,244,.10); }
+  /* #2660: the user-message tint does NOT need a per-selector dark rule here --
+     it rides the `--usermsg-tint` token, which is redefined 15% in every dark
+     token block (like --k-sunk), so `.dm.mine .dm-b` / `.pj-msg` flip on their
+     own. No forced-dark twin is generated for them either. */
 }
 /* ⚠️ `display: block` on all three, and it is not cosmetic. These are
    SPANs inside a button, so without it the folder path and the agents line ran
@@ -4893,8 +4928,21 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 #d-fresh .fmsg:empty { display: none; margin: 0; }
 .pj-viewport { margin-top: var(--space-6); }
 .pj-msgs { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-5) 0; }
-.pj-msg { padding: var(--space-4) var(--space-5); border: 0.5px solid var(--separator);
-  border-radius: var(--radius-control); }
+/* #2660 (Josh, 2026-09-10): every `.pj-msg` in a room is a message the person
+   posted (the agent's side is read live off the pane, not stored), so it takes
+   the same `--usermsg-tint` wash as the to-agent bubble above -- one token per
+   theme, 10% light, 15% dark. Fill ONLY, no stroke (Josh: "no strokes around
+   the box at all, either in light or dark, just the color"); the base border is
+   dropped. Two
+   state cues survive that removal, but NOT the same way: `.pj-msg.failed`
+   re-declares a full 0.5px dashed border below (its "did not go through" box),
+   while `.pj-msg.unsure` keeps only its own pre-existing warn-ink LEFT rule --
+   which was always its real cue -- and, like the normal box, no longer carries
+   the surrounding hairline it used to inherit. Dropping unsure's incidental
+   frame is consistent with the no-stroke intent; its left rule still marks it
+   as needing a look. */
+.pj-msg { padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-control); background: var(--usermsg-tint); }
 /* ⚠️ `overflow-wrap: anywhere` on BOTH message spans (round 21, measured): a
    single unbroken token -- a URL, an absolute path, a git SHA, exactly what
    people type to agents -- stretched the whole page 1262px sideways at 1280,
@@ -4930,7 +4978,11 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
 .pj-msg .pj-msg-said:empty { display: none; }
 .pj-msg .pj-msg-when { display: block; font: var(--text-caption) var(--font-ui);
   color: var(--label-3); }
-.pj-msg.failed { border-style: dashed; }
+/* #2660: re-declared as a full border, not just `border-style`, because the
+   base `.pj-msg` border was removed for the no-stroke rule above -- a bare
+   `border-style: dashed` with no width would draw nothing and the failed cue
+   would vanish silently. Same 0.5px it had when it inherited the base. */
+.pj-msg.failed { border: 0.5px dashed var(--separator); }
 .pj-msg.failed .pj-msg-said { color: var(--label); }
 /* ⚠️ AND ONE WE COULD NOT CONFIRM DRAWS AS NEITHER. It is not a failure — the
    text may already be in that agent's composer — so it must not wear the
@@ -5134,7 +5186,7 @@ body:not(.consolidated) #pj-list:not(.asgrid) .pj-row.child .pj-parent { display
    the button too. Give them a little space so they're not touching
    each other, but not stupid far away." The rgba(214,166,46,..) tint is
    the same recipe this file already uses for a light gold wash
-   elsewhere (.devrow.pending, .dm.mine .dm-b); a real border rather
+   elsewhere (.devrow.pending); a real border rather
    than the left-edge-only accent .askcard uses, since this is a single
    short callout, not a card with a heading. */
 .made-hello p { margin: 0; font: var(--text-body) var(--font-ui); color: var(--label);
@@ -6645,6 +6697,8 @@ code.t { font: 13px var(--k-mono); border-radius: 4px; padding: .12em .4em;
     /* The inverse: a raised-looking wash on the dark ground, because a
        darker-than-black panel is not a thing anybody can see. */
     --k-sunk:    rgba(245,245,244,.06);
+    /* #2660: 15% in dark, up from 10% light, so the wash stays legible. */
+    --usermsg-tint: rgba(65,113,227,.15);
     /* #980: the consolidated side tones' dark twins, the mock's line 25. */
     --k-side:   #111316;
     --k-side-2: #1c1f23;
@@ -6778,6 +6832,7 @@ body.plus-active {
   --k-bg: #132140; --k-surface: #1c2c4f; --k-ink: #E6EBF7; --k-ink-2: #9fb0d0;
   --k-rule: #22345a; --k-track: rgba(120,150,200,.24); --k-knob: #cdd8ef;
   --k-sunk: rgba(120,150,200,.08); --k-side: #0b1428; --k-side-2: #0a1120;
+  --usermsg-tint: rgba(65,113,227,.15); /* #2660: 15% on the navy ground, as in dark */
   --k-optline: #5f7099;
   /* --label/--bg system */
   --bg: #132140; --bg-elevated: #1c2c4f; --bg-sunken: #0b1428;
