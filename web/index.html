@@ -15521,7 +15521,10 @@ function showTab(tab) {
     /* #2651: the discovery TRIGGER is painted only on the Agents tab (paintDiscoveryTrigger
        runs in the tab-gated poll), so like its two panels it must be hidden on the way
        off the tab, or it follows the person to Projects and Settings. */
-    { const t = document.getElementById('found-scan-trigger'); if (t) t.hidden = true; }
+    /* #2651: keep DISCOVERY_TRIGGER_WAS_HIDDEN in step with this direct hide, so a later
+       leave->return is recognized as the real hidden->shown transition it is (else a stale
+       empty-look label would not reset on return). */
+    { const t = document.getElementById('found-scan-trigger'); if (t) t.hidden = true; DISCOVERY_TRIGGER_WAS_HIDDEN = true; }
     // ⚠️ And the message with it. It deliberately lives outside the wrap so a
     // repaint cannot erase it -- which also means nothing else hides it, so a
     // sentence about the removed list would otherwise sit under Settings or
