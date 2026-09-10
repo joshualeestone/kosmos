@@ -533,8 +533,21 @@ h1 { font: 600 var(--text-title-1) var(--font-ui); letter-spacing: -0.012em; }
    change made. */
 .acct-box { display: flex; flex-direction: column; gap: 10px; padding: 14px 16px;
             border: 1px solid var(--k-rule); border-radius: 12px; margin-bottom: 10px; background: var(--k-surface); }
-.acct-box-top { display: flex; align-items: center; gap: 12px; }
-.acct-who { min-width: 0; flex: 1; }
+/* #2649 (Josh product-review): a long connection status ("Anthropic says this account is
+   not signed in") collided with the account email, because this row never wrapped and
+   .acct-who grew to fill the whole line, so the long badge overlapped the (non-truncating)
+   email. flex-wrap + a non-growing .acct-who + margin-left:auto on the badge keeps a SHORT
+   badge ("Signed in") inline at the right, and drops a LONG status to its own line below
+   the identity instead of overlapping it. */
+.acct-box-top { display: flex; align-items: center; gap: 4px 12px; flex-wrap: wrap; }
+.acct-who { min-width: 0; flex: 0 1 auto; }
+/* All three status badges (connected / none / unknown) ship white-space:nowrap and this
+   row never wrapped, so the long "not signed in" sentence (.acct-none) overlapped the
+   email. Push the badge right (inline for a short one), and when it does not fit, let it
+   drop to its own line and wrap there rather than overrun the identity. */
+.acct-box-top > .acct-connected,
+.acct-box-top > .acct-none,
+.acct-box-top > .acct-unknown { margin-left: auto; max-width: 100%; white-space: normal; }
 .acct-who b { font-weight: 650; display: block; }
 .acct-org, .acct-keytail { display: block; color: var(--label-2); font-size: .8125rem; }
 /* The disambiguator beside a name two accounts share. Quiet on purpose: it is
