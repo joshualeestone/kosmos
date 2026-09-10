@@ -126,8 +126,22 @@ test('#1: S3 Turn On FIRES the native prompt (tmux -> a11y-prompt), falling back
 test('install-flow-9screen: the S3 Continue/Next is GATED -- unlocks only when both gates are granted', () => {
   const SCRIPT = PAGE.slice(PAGE.indexOf('<script'), PAGE.lastIndexOf('</script>'));
   const step3 = SCRIPT.slice(SCRIPT.indexOf('} else if (step === 3) {'), SCRIPT.indexOf('} else if (step === 4) {'));
-  assert.match(step3, /frActions\(\{ label: 'Next', go: \(\) => \{ if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(4\); \} \}\)/,
+  /* #2647: this asserted the ENTIRE frActions call as one literal line, so adding
+     the Check-again alt reddened it on formatting rather than on meaning. The
+     meaning is the GATE, and it is asserted directly below, unweakened: S3's
+     primary is Next, and its go() re-reads fr-next.disabled before advancing. */
+  assert.match(step3, /label: 'Next'/,
+    "the S3 primary is no longer labelled 'Next'");
+  assert.match(step3, /if \(document\.getElementById\('fr-next'\)\.disabled\) return; frGo\(4\);/,
     'the S3 Next is gated: it proceeds to S4 only when the check has not disabled it');
+  /* #2647: and the Check-again control rides the nav's alt slot from here, which
+     is the ONLY thing wiring it up: the old in-pane handler was delegated on
+     #fr-pane-3 and #fr-alt sits outside every pane, so losing this argument
+     leaves a button that renders and silently does nothing. */
+  assert.match(step3, /label: 'Check again'/,
+    'S3 no longer supplies the nav Check-again control (#2647)');
+  assert.match(step3, /hint: 'Turned it on\? Tap to check\.'/,
+    'S3 no longer supplies the Check-again hint copy (#2647)');
   assert.match(step3, /frGateStart\(pane\)/,
     'S3 starts the permission-gate poll (frGateStart), which drives the disabled state');
 });
@@ -156,12 +170,28 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
   // Josh's screen "sat here forever" after he granted -- the poll was 1500ms and there
   // was no way to force it. Assert: a Check-again button in the S3 pane; a faster poll
   // interval than the old 1500ms; and the button wired to an immediate re-poll.
-  assert.match(S3, /class="s3-recheck fr-recheck"[^>]*>Check again</, 'S3 has a "Check again" button');
-  // Mona's reassurance + hint copy (addresses Josh sitting on "Checking..." thinking it was stuck).
-  assert.match(S3, /class="s3-recheck-note">This can take a few seconds after you flip the switch\./,
-    'S3 shows the reassurance line under the rows');
-  assert.match(S3, /class="s3-recheck-hint">Turned it on already\? Tap to check now\./,
-    'the Check again button carries its hint');
+  /* 🛑 #2647 MOVED THIS CONTROL OUT OF THE PANE, so the three assertions that
+     used to live here (an in-pane .s3-recheck button, the reassurance note, and
+     the old hint copy) now assert the OPPOSITE, plus the new home. Josh could
+     not see any of it before finishing the connection; the nav is always
+     visible. The strength is kept, not traded away: the negative arms below
+     would catch a re-added in-pane control, which is the realistic regression
+     (a "restore the button" change that leaves two of them). */
+  /* ⚠️ Asserted on the CONSTRUCT (a class attribute), not on the substring. The
+     first version of this arm was `doesNotMatch(S3, /s3-recheck|fr-recheck/)`
+     and it reddened on the COMMENTS left behind explaining the removal, which
+     name those classes in prose. A substring cannot tell markup from a sentence
+     about markup; `class="..."` can. */
+  assert.doesNotMatch(S3, /class="[^"]*recheck/,
+    'S3 still carries an in-pane Check-again control; #2647 moved it to the bottom nav, and two of '
+    + 'them means the invisible one Josh complained about is back');
+  assert.doesNotMatch(S3, /This can take a few seconds after you flip the switch/,
+    'the reassurance line #2647 deleted is still rendered');
+  assert.doesNotMatch(S3, /Turned it on already\? Tap to check now/,
+    'the old long hint copy is still there; #2647 shortened it and moved it to the nav');
+  // Its new home: the shared nav's far-left slot, with a hint span beside it.
+  assert.match(PAGE, /id="fr-alt-hint"/,
+    'the nav has no hint slot for the far-left secondary action (#2647)');
   // The poll interval is a named constant, faster than the old 1500ms.
   const m = PAGE.match(/const FR_GATE_POLL_MS = (\d+);/);
   assert.ok(m, 'FR_GATE_POLL_MS is a named constant');
@@ -175,10 +205,28 @@ test('#2451/#2559 (7.58.24): S3 has a manual "Check again" button that fires an 
   const frcBody = PAGE.slice(frcs, PAGE.indexOf('\n}', frcs));
   assert.match(frcBody, /frPollGates\(FR_GATE_SCREEN, FR_GATE_GEN\)/,
     'frRecheckGates re-polls the active gated screen at the current generation');
-  const hs = PAGE.indexOf("getElementById('fr-pane-3').addEventListener");
-  const handler = PAGE.slice(hs, PAGE.indexOf('\n});', hs));   // bound to the handler's own close, not a fixed offset
-  assert.match(handler, /closest\('\.fr-recheck'\)[\s\S]*?frRecheckGates\(\)/,
-    'the fr-pane-3 handler routes a .fr-recheck click to frRecheckGates()');
+  /* 🛑 THE WIRING ARM, REPOINTED RATHER THAN DROPPED, and it is the one that
+     matters most on this card. The old assertion checked that the #fr-pane-3
+     delegate routed a .fr-recheck click to frRecheckGates. That delegate can no
+     longer see the control: #fr-alt lives in .fr-acts, OUTSIDE every pane. So a
+     "move" done by relocating the class alone yields a button that renders,
+     styles and focuses correctly and silently does nothing.
+     ⇒ Assert the replacement chain end to end: step 3's alt.go calls
+     frRecheckPress, and frRecheckPress calls frRecheckGates. Bounded to each
+     function's own body so a stray later mention cannot false-pass. */
+  const s3s = PAGE.indexOf('} else if (step === 3) {');
+  const s3block = PAGE.slice(s3s, PAGE.indexOf('} else if (step === 4) {', s3s));
+  assert.match(s3block, /go: \(e\) => frRecheckPress\(/,
+    "step 3's nav Check-again is not wired to frRecheckPress, so pressing it does nothing");
+  const prs = PAGE.indexOf('async function frRecheckPress(');
+  assert.notEqual(prs, -1, 'frRecheckPress is gone; re-anchor this test');
+  const prBody = PAGE.slice(prs, PAGE.indexOf('\n}', prs));
+  assert.match(prBody, /await frRecheckGates\(\)/,
+    'frRecheckPress does not actually re-check the gates');
+  /* And it must still refuse to clobber an unread error on the shared status
+     line, which is the subtle half that a retyped copy would have lost. */
+  assert.match(prBody, /fr-msg-err/,
+    'frRecheckPress no longer guards the shared #fr-s3-msg error state');
 });
 
 test('#2587: the sleep step is ADVISORY (never gates Next); Accessibility still gates; the honest laptop note stays', () => {
