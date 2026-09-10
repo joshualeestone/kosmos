@@ -40336,10 +40336,18 @@ async function frRecheckPress(btn) {
        control. Measured before the fix: msg "" with disabled true.
        ⭐ A half-guarded `finally` READS as guarded, which is the trap: the token
        on the line below made the whole block look considered.
-       📌 The sibling `frRecheck` has this same unguarded-clear shape on its own
-       message line. Left alone deliberately: it is pre-existing, on another
-       screen, and not what this card is about. Noted so it is not mistaken for
-       having been checked and approved. */
+       📌 The sibling `frRecheck` is RELATED BUT NOT IDENTICAL, and the difference
+       matters enough to state rather than wave at. Its message clear is NOT in
+       its `finally`: it sits on the success path inside the `try`, behind an
+       `if (FR_STEP !== 5) return true;`, and its `finally` carries only the
+       token-guarded `disabled` line. So it shares the ASYMMETRY (the clear is
+       outside the FR_CHECKING token) but not the SHAPE (it does not run on every
+       path, and the step check narrows when it can fire at all).
+       ⇒ Left alone deliberately: pre-existing, another screen, and a different
+       enough construction that "fix it the same way" would be wrong. Stated
+       precisely because an earlier version of this note called the two shapes
+       identical, which was the kind of claim about neighbouring code that has
+       been wrong four times on this card already. */
     if (mine === FR_RECHECK_PRESS) {
       if (m && !m.classList.contains('fr-msg-err')) m.textContent = '';
       if (btn) btn.disabled = false;
