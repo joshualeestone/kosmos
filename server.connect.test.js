@@ -417,6 +417,11 @@ test('#2645: a present-but-dead credential launches a real login (auth login --c
   try {
     const got = await post('/api/connect/start');
     assert.equal(got.status, 200, got.body);
+    // start() fires runFlow unawaited, so the new-session launch lands in a background
+    // promise chain -- poll for it rather than trusting the HTTP response to reflect it.
+    for (let end = Date.now() + 2000; Date.now() < end && !calls.some((c) => (c.args || []).includes('new-session')); ) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     const launch = calls.find((c) => (c.args || []).includes('new-session'));
     assert.ok(launch, 'no tmux new-session -- the sign-in never launched');
     assert.match(launch.args.join(' '), /auth login --claudeai/,
@@ -447,6 +452,11 @@ test('#2645 CONTROL: a fresh machine (no credential) still launches a bare claud
   try {
     const got = await post('/api/connect/start');
     assert.equal(got.status, 200, got.body);
+    // start() fires runFlow unawaited, so the new-session launch lands in a background
+    // promise chain -- poll for it rather than trusting the HTTP response to reflect it.
+    for (let end = Date.now() + 2000; Date.now() < end && !calls.some((c) => (c.args || []).includes('new-session')); ) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
     const launch = calls.find((c) => (c.args || []).includes('new-session'));
     assert.ok(launch, 'no tmux new-session -- the sign-in never launched');
     assert.doesNotMatch(launch.args.join(' '), /auth login --claudeai/,

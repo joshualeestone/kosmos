@@ -1931,7 +1931,9 @@ async function runFlow(owner, haveBinary) {
          the live check says NONE) needs a real login too. start() left needsLogin
          false because its live check was UNKNOWN (no binary yet); the binary now
          exists and this live check is authoritative, so set it, or launchSignin below
-         runs a bare `claude` that wedges in the "Not logged in" REPL. */
+         runs a bare `claude` that wedges in the "Not logged in" REPL. Safe after the
+         await: launchSignin, the next call, opens with `if (driver !== owner) return`,
+         so a cancel/takeover during the checkLive above cannot act on this mutation. */
       if (live.state === subscription.STATE.NONE) owner.needsLogin = true;
     }
   }
