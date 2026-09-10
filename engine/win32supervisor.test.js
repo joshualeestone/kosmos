@@ -419,6 +419,42 @@ test('#570 headless: a supervisor whose task was ended never starts the agent ag
   h.stop();
 });
 
+test('#570 every finished run retires ITS OWN token: a crash, a relaunch, then a stop', () => {
+  /* Each launch mints a credential for that run (a resume included). Without
+     retiring the dead run's, every crash-restart left one more live token behind
+     for the agent. The death handler retires by the run's own instance, and a
+     clean stop ends the child through that same path. */
+  const kids = [];
+  const retired = [];
+  let n = 0;
+  const h = sup.superviseStreaming({ name: 'tok', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: (fn) => fn(),
+    retireRun: (name, instance) => retired.push(name + '/' + instance),
+    launch: () => { n += 1; const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c, instance: 'inst-' + n }; },
+  });
+  assert.deepEqual(retired, [], 'a live run keeps its token');
+  kids[0].die(1);                                 // crash: relaunches as inst-2
+  assert.deepEqual(retired, ['tok/inst-1'], 'the crashed run\'s token is retired');
+  h.stop();
+  kids[1].die(0);                                 // the stop's exit arrives
+  assert.deepEqual(retired, ['tok/inst-1', 'tok/inst-2'], 'and the stopped run\'s too, exactly once each');
+});
+
+test('#570 a run that was launched with no token retires nothing', () => {
+  const kids = [];
+  const retired = [];
+  const h = sup.superviseStreaming({ name: 'bare', cwd: 'C:\w' }, {
+    liveReader: NOBODY_LIVE,
+    throttleMs: 0, now: () => 0, setTimer: () => {},
+    retireRun: (name, instance) => retired.push(instance),
+    launch: () => { const c = fakeChild(); kids.push(c); return { ok: true, sessionId: 's', child: c }; },
+  });
+  kids[0].die(1);
+  assert.deepEqual(retired, []);
+  h.stop();
+});
+
 test('#570 7c-5 a failed write does not mark the agent busy', () => {
   const kids = [];
   const sink = streamSink();
